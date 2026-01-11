@@ -34,6 +34,26 @@ interface EventProperties {
   [key: string]: string | number | boolean | undefined;
 }
 
+type PosthogClient = {
+  capture: (name: EventName, properties?: EventProperties) => void;
+  identify: (userId: string, traits?: Record<string, unknown>) => void;
+};
+
+type GtagClient = (command: "event", name: EventName, params?: EventProperties) => void;
+
+type AnalyticsWindow = Window & {
+  posthog?: PosthogClient;
+  gtag?: GtagClient;
+};
+
+const getAnalyticsWindow = (): AnalyticsWindow | undefined => {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+
+  return window as AnalyticsWindow;
+};
+
 export function trackEvent(name: EventName, properties?: EventProperties): void {
   // Development logging
   if (import.meta.env.DEV) {
@@ -41,22 +61,24 @@ export function trackEvent(name: EventName, properties?: EventProperties): void 
   }
 
   // PostHog stub
-  if (typeof window !== 'undefined' && (window as any).posthog) {
-    (window as any).posthog.capture(name, properties);
+  const analyticsWindow = getAnalyticsWindow();
+  if (analyticsWindow?.posthog) {
+    analyticsWindow.posthog.capture(name, properties);
   }
 
   // GA4 stub
-  if (typeof window !== 'undefined' && (window as any).gtag) {
-    (window as any).gtag('event', name, properties);
+  if (analyticsWindow?.gtag) {
+    analyticsWindow.gtag('event', name, properties);
   }
 }
 
-export function identifyUser(userId: string, traits?: Record<string, any>): void {
+export function identifyUser(userId: string, traits?: Record<string, unknown>): void {
   if (import.meta.env.DEV) {
     console.log('[Analytics] Identify:', userId, traits);
   }
 
-  if (typeof window !== 'undefined' && (window as any).posthog) {
-    (window as any).posthog.identify(userId, traits);
+  const analyticsWindow = getAnalyticsWindow();
+  if (analyticsWindow?.posthog) {
+    analyticsWindow.posthog.identify(userId, traits);
   }
 }
