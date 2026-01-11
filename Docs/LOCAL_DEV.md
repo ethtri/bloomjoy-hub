@@ -6,9 +6,10 @@
 
 ## Setup
 1) Clone the repo
-2) Copy `.env.example` to `.env.local` and fill in values
+2) Copy `.env.example` to `.env` (or `.env.local`) and fill in values
    - **Client-exposed env vars must be prefixed with `VITE_`** (Vite rule)
    - **Never put secrets** (Stripe secret key, webhook secret) in `VITE_` vars
+   - **Do not commit `.env`**. It stays on your machine only.
 3) Install deps:
    - `npm ci`
 4) Start dev server:
@@ -22,6 +23,14 @@
 3) Run `npm run dev`
 4) Follow `Docs/QA_SMOKE_TEST_CHECKLIST.md`
 
+
+## Agent best practices (plain language)
+- Each agent uses its own worktree and its own `.env` file.
+- Do not copy another person's `.env`; create your own from `.env.example`.
+- Never commit or paste secret keys in PRs, issues, or chat.
+- Keep PRs small and focused; one change set per PR.
+- Write notes and docs so non-technical readers can follow.
+
 ## If/when we add Stripe serverless functions
 Depending on the hosting decision, local dev may require one of:
 - `vercel dev` (for Vercel Functions)
@@ -31,5 +40,5 @@ Depending on the hosting decision, local dev may require one of:
 When that’s implemented, this doc must be updated with exact commands.
 
 ## Common issues
-- Missing env vars → pages may error. Check console + `.env.local`.
+- Missing env vars → pages may error. Check console + `.env` (or `.env.local`).
 - If Stripe webhook forwarding isn’t configured, subscription/order sync may not update locally.
