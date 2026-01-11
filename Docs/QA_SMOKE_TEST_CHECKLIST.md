@@ -18,6 +18,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
+- [ ] Demo note: no real email is sent yet; any email should log in locally
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Training catalog visible to logged-in users
 - [ ] Support request forms submit and show success state
