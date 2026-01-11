@@ -34,9 +34,16 @@
 - Avoid editing the main repo folder directly; work inside your worktree.
 
 
+
+## Preflight check (1 minute)
+1) Confirm you are in a worktree folder like `C:\Repos\wt-<task>`
+2) Confirm your branch starts with `agent/`
+3) Run `git status -sb` and make sure it looks clean
+4) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
+
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
-- Use a GitHub Project board for "Backlog ? Ready ? In Progress ? Review ? Done".
+- Use a GitHub Project board for "Backlog -> Ready -> In Progress -> Review -> Done".
 - Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot.
 - If you keep personal notes, store them locally and do not commit them.
 
@@ -46,8 +53,8 @@ Depending on the hosting decision, local dev may require one of:
 - `netlify dev` (for Netlify Functions)
 - Supabase CLI for Edge Functions
 
-When that’s implemented, this doc must be updated with exact commands.
+When that's implemented, this doc must be updated with exact commands.
 
 ## Common issues
-- Missing env vars → pages may error. Check console + `.env` (or `.env.local`).
-- If Stripe webhook forwarding isn’t configured, subscription/order sync may not update locally.
+- Missing env vars can break pages. Check console + `.env` (or `.env.local`).
+- If Stripe webhook forwarding isn't configured, subscription/order sync may not update locally.
