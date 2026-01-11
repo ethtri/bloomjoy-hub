@@ -10,6 +10,7 @@
    - **Client-exposed env vars must be prefixed with `VITE_`** (Vite rule)
    - **Never put secrets** (Stripe secret key, webhook secret) in `VITE_` vars
    - **Do not commit `.env`**. It stays on your machine only.
+   - If you do not see `.env` in File Explorer, turn on "Hidden items"
 3) Install deps:
    - `npm ci`
 4) Start dev server:
@@ -30,6 +31,14 @@
 - Never commit or paste secret keys in PRs, issues, or chat.
 - Keep PRs small and focused; one change set per PR.
 - Write notes and docs so non-technical readers can follow.
+- Avoid editing the main repo folder directly; work inside your worktree.
+
+
+## Priority workflow (P0-P3)
+- Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
+- Use a GitHub Project board for "Backlog ? Ready ? In Progress ? Review ? Done".
+- Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot.
+- If you keep personal notes, store them locally and do not commit them.
 
 ## If/when we add Stripe serverless functions
 Depending on the hosting decision, local dev may require one of:
