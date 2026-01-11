@@ -15,7 +15,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Space Grotesk', 'system-ui', 'sans-serif'],
+        display: ['Nunito', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -55,6 +55,10 @@ export default {
         charcoal: "hsl(var(--charcoal))",
         coral: "hsl(var(--coral))",
         "coral-dark": "hsl(var(--coral-dark))",
+        "pink-light": "hsl(var(--pink-light))",
+        "pink-soft": "hsl(var(--pink-soft))",
+        blush: "hsl(var(--blush))",
+        rose: "hsl(var(--rose))",
         amber: "hsl(var(--amber))",
         sage: "hsl(var(--sage))",
         "sage-light": "hsl(var(--sage-light))",
