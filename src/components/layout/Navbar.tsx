@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useCart } from '@/lib/cart';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import logo from '@/assets/logo.png';
 
 const navLinks = [
   { href: '/products', label: 'Products' },
@@ -26,12 +27,10 @@ export function Navbar() {
     <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <nav className="container-page flex h-16 items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
-            <span className="font-display text-lg font-bold text-primary-foreground">B</span>
-          </div>
-          <span className="font-display text-xl font-semibold text-foreground">
-            Bloomjoy<span className="text-primary">.</span>
+        <Link to="/" className="flex items-center gap-2.5">
+          <img src={logo} alt="Bloomjoy Sweets" className="h-11 w-11" />
+          <span className="font-display text-xl font-bold text-foreground">
+            Bloomjoy Sweets
           </span>
         </Link>
 
