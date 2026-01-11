@@ -78,3 +78,9 @@ PR description includes:
   - Directory: `../wt-<short-task-slug>`
   - Branch: `agent/<short-task-slug>`
 - If you must run without worktrees, run only one agent at a time to avoid branch switching.
+
+## Operational safeguards (must follow)
+- Work only in a worktree (never edit `C:\Repos\Bloomjoy_hub` directly).
+- Run the preflight check in `Docs/LOCAL_DEV.md` before making edits.
+- Track priorities in GitHub Issues labeled `P0`-`P3` and use the Project board.
+- Keep personal notes local; do not commit them.
