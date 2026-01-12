@@ -44,6 +44,7 @@
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
 - Use a GitHub Project board for "Backlog -> Ready -> In Progress -> Review -> Done".
+  Board: https://github.com/users/ethtri/projects/2
 - Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot.
 - If you keep personal notes, store them locally and do not commit them.
 
