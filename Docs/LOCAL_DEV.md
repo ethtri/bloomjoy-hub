@@ -47,6 +47,13 @@
 - Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot.
 - If you keep personal notes, store them locally and do not commit them.
 
+
+## Asset access (local-only)
+- Create a local folder for photos, e.g. `C:\Repos\Bloomjoy_assets`.
+- Do not place large assets in the Git repo. They should stay local.
+- Agents should keep their own copy of this folder.
+- If an asset is needed in the app, add a small optimized version in `public/` and document it.
+
 ## If/when we add Stripe serverless functions
 Depending on the hosting decision, local dev may require one of:
 - `vercel dev` (for Vercel Functions)
