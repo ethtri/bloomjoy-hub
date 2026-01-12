@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Circle, ArrowRight } from 'lucide-react';
+import { Check, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Layout } from '@/components/layout/Layout';
+import { PortalLayout } from '@/components/portal/PortalLayout';
 import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 
@@ -65,18 +65,7 @@ export default function OnboardingPage() {
   };
 
   return (
-    <Layout>
-      {/* Breadcrumb */}
-      <div className="border-b border-border bg-muted/30">
-        <div className="container-page py-3">
-          <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link to="/portal" className="hover:text-foreground">Portal</Link>
-            <span>/</span>
-            <span className="text-foreground">Onboarding</span>
-          </nav>
-        </div>
-      </div>
-
+    <PortalLayout>
       <section className="section-padding">
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
@@ -151,6 +140,6 @@ export default function OnboardingPage() {
           </div>
         </div>
       </section>
-    </Layout>
+    </PortalLayout>
   );
 }

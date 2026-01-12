@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { MessageSquare, Wrench, Package, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Layout } from '@/components/layout/Layout';
+import { PortalLayout } from '@/components/portal/PortalLayout';
 import { trackEvent } from '@/lib/analytics';
 import { toast } from 'sonner';
 
@@ -29,18 +28,7 @@ export default function SupportPage() {
   };
 
   return (
-    <Layout>
-      {/* Breadcrumb */}
-      <div className="border-b border-border bg-muted/30">
-        <div className="container-page py-3">
-          <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link to="/portal" className="hover:text-foreground">Portal</Link>
-            <span>/</span>
-            <span className="text-foreground">Support</span>
-          </nav>
-        </div>
-      </div>
-
+    <PortalLayout>
       <section className="section-padding">
         <div className="container-page">
           <h1 className="font-display text-3xl font-bold text-foreground">Support</h1>
@@ -232,6 +220,6 @@ export default function SupportPage() {
           )}
         </div>
       </section>
-    </Layout>
+    </PortalLayout>
   );
 }

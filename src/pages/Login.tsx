@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Mail, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [sent, setSent] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +29,9 @@ export default function LoginPage() {
 
     // For demo, immediately redirect
     toast.success('Welcome to Bloomjoy Plus!');
-    navigate('/portal');
+    const fromPath =
+      (location.state as { from?: { pathname?: string } })?.from?.pathname || '/portal';
+    navigate(fromPath, { replace: true });
   };
 
   return (

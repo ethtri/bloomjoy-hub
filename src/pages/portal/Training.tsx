@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Play, Clock, Tag, Search, Filter } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Play, Clock, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Layout } from '@/components/layout/Layout';
+import { PortalLayout } from '@/components/portal/PortalLayout';
 import { trackEvent } from '@/lib/analytics';
 
 interface TrainingContent {
@@ -90,18 +88,7 @@ export default function TrainingPage() {
   };
 
   return (
-    <Layout>
-      {/* Breadcrumb */}
-      <div className="border-b border-border bg-muted/30">
-        <div className="container-page py-3">
-          <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link to="/portal" className="hover:text-foreground">Portal</Link>
-            <span>/</span>
-            <span className="text-foreground">Training Library</span>
-          </nav>
-        </div>
-      </div>
-
+    <PortalLayout>
       <section className="section-padding">
         <div className="container-page">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -195,6 +182,6 @@ export default function TrainingPage() {
           )}
         </div>
       </section>
-    </Layout>
+    </PortalLayout>
   );
 }
