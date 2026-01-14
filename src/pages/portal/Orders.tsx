@@ -1,7 +1,6 @@
-import { Link } from 'react-router-dom';
-import { FileText, Download, ExternalLink } from 'lucide-react';
+import { FileText, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Layout } from '@/components/layout/Layout';
+import { PortalLayout } from '@/components/portal/PortalLayout';
 
 const orders = [
   {
@@ -29,18 +28,7 @@ const orders = [
 
 export default function OrdersPage() {
   return (
-    <Layout>
-      {/* Breadcrumb */}
-      <div className="border-b border-border bg-muted/30">
-        <div className="container-page py-3">
-          <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link to="/portal" className="hover:text-foreground">Portal</Link>
-            <span>/</span>
-            <span className="text-foreground">Orders</span>
-          </nav>
-        </div>
-      </div>
-
+    <PortalLayout>
       <section className="section-padding">
         <div className="container-page">
           <h1 className="font-display text-3xl font-bold text-foreground">Order History</h1>
@@ -109,6 +97,6 @@ export default function OrdersPage() {
           </div>
         </div>
       </section>
-    </Layout>
+    </PortalLayout>
   );
 }

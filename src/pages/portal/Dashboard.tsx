@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { 
   BookOpen, 
   ShoppingBag, 
@@ -10,7 +10,7 @@ import {
   Package
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Layout } from '@/components/layout/Layout';
+import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { trackEvent } from '@/lib/analytics';
 
@@ -46,18 +46,11 @@ const quickActions = [
 ];
 
 export default function PortalDashboard() {
-  const { user, isAuthenticated, isMember, signOut } = useAuth();
-  const navigate = useNavigate();
+  const { user, isMember, signOut } = useAuth();
 
   useEffect(() => {
     trackEvent('view_dashboard');
   }, []);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      navigate('/login');
-    }
-  }, [isAuthenticated, navigate]);
 
   const handleReorderSugar = () => {
     trackEvent('reorder_sugar_click');
@@ -66,7 +59,7 @@ export default function PortalDashboard() {
   if (!user) return null;
 
   return (
-    <Layout>
+    <PortalLayout>
       <section className="bg-gradient-to-b from-cream to-background section-padding">
         <div className="container-page">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -176,6 +169,6 @@ export default function PortalDashboard() {
           </div>
         </div>
       </section>
-    </Layout>
+    </PortalLayout>
   );
 }

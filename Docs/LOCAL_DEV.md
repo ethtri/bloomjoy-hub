@@ -30,6 +30,7 @@
 - Do not copy another person's `.env`; create your own from `.env.example`.
 - Never commit or paste secret keys in PRs, issues, or chat.
 - Keep PRs small and focused; one change set per PR.
+- Enable repo git hooks once per clone: `git config core.hooksPath .githooks`
 - Write notes and docs so non-technical readers can follow.
 - Avoid editing the main repo folder directly; work inside your worktree.
 

@@ -7,13 +7,13 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-1) Public marketing site shell (Home, Machines, Supplies, Plus, Resources, Contact)
-2) Auth + member portal shell (login, dashboard layout)
-3) Stripe: supplies checkout (one product) + membership checkout (Plus Basic) + customer portal
-4) Training library MVP (gated pages + embeds) + support request forms
+1) Stripe: supplies checkout (one product) + membership checkout (Plus Basic) + customer portal
+2) Training library MVP (gated pages + embeds) + support request forms
 
 ## Completed P0 milestones
 1) POC intake + repo hygiene (build/lint/dev) + document findings in `Docs/POC_NOTES.md`
+2) Public marketing site shell (Home, Machines, Supplies, Plus, Resources, Contact)
+3) Auth + member portal shell (login, dashboard layout)
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
