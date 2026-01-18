@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+toplevel=$(git rev-parse --show-toplevel 2>/dev/null || true)
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+
+if [ -z "$toplevel" ]; then
+  echo "ERROR: could not determine repo root." >&2
+  exit 1
+fi
+
+case "$toplevel" in
+  *"/wt-"*|*"\\wt-"*)
+    ;;
+  *)
+    echo "ERROR: commits must be made from a wt-* worktree (not the main repo)." >&2
+    exit 1
+    ;;
+esac
+
+if echo "$toplevel" | grep -qi 'Bloomjoy_hub$'; then
+  echo "ERROR: do not commit from C:\\Repos\\Bloomjoy_hub." >&2
+  exit 1
+fi
+
+if [ -z "$branch" ]; then
+  echo "ERROR: detached HEAD. Create or checkout an agent/* branch." >&2
+  exit 1
+fi
+
+case "$branch" in
+  agent/*)
+    ;;
+  *)
+    echo "ERROR: branch must be named agent/*." >&2
+    exit 1
+    ;;
+esac
+
+if [ "$branch" = "main" ]; then
+  echo "ERROR: never commit to main." >&2
+  exit 1
+fi

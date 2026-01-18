@@ -1,26 +1,14 @@
-import { Link } from 'react-router-dom';
 import { User, MapPin, CreditCard, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Layout } from '@/components/layout/Layout';
+import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function AccountPage() {
   const { user } = useAuth();
 
   return (
-    <Layout>
-      {/* Breadcrumb */}
-      <div className="border-b border-border bg-muted/30">
-        <div className="container-page py-3">
-          <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link to="/portal" className="hover:text-foreground">Portal</Link>
-            <span>/</span>
-            <span className="text-foreground">Account</span>
-          </nav>
-        </div>
-      </div>
-
+    <PortalLayout>
       <section className="section-padding">
         <div className="container-page">
           <h1 className="font-display text-3xl font-bold text-foreground">Account Settings</h1>
@@ -127,6 +115,6 @@ export default function AccountPage() {
           </div>
         </div>
       </section>
-    </Layout>
+    </PortalLayout>
   );
 }

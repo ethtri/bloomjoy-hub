@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+while read local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main)
+      echo "ERROR: pushing directly to main is blocked. Open a PR instead." >&2
+      exit 1
+      ;;
+  esac
+done
+
+exit 0

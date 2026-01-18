@@ -30,6 +30,7 @@
 - Do not copy another person's `.env`; create your own from `.env.example`.
 - Never commit or paste secret keys in PRs, issues, or chat.
 - Keep PRs small and focused; one change set per PR.
+- Enable repo git hooks once per clone: `git config core.hooksPath .githooks`
 - Write notes and docs so non-technical readers can follow.
 - Avoid editing the main repo folder directly; work inside your worktree.
 
@@ -46,6 +47,13 @@
 - Use a GitHub Project board for "Backlog -> Ready -> In Progress -> Review -> Done".
 - Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot.
 - If you keep personal notes, store them locally and do not commit them.
+
+
+## Asset access (local-only)
+- Create a local folder for photos, e.g. `C:\Repos\Bloomjoy_assets`.
+- Do not place large assets in the Git repo. They should stay local.
+- Agents should keep their own copy of this folder.
+- If an asset is needed in the app, add a small optimized version in `public/` and document it.
 
 ## If/when we add Stripe serverless functions
 Depending on the hosting decision, local dev may require one of:
