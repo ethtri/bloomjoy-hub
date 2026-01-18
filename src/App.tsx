@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
@@ -37,10 +37,20 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/products" element={<Products />} />
-            <Route path="/products/commercial-robotic-machine" element={<CommercialRobotic />} />
-            <Route path="/products/mini" element={<Mini />} />
-            <Route path="/products/micro" element={<Micro />} />
+            <Route path="/machines" element={<Products />} />
+            <Route
+              path="/machines/commercial-robotic-machine"
+              element={<CommercialRobotic />}
+            />
+            <Route path="/machines/mini" element={<Mini />} />
+            <Route path="/machines/micro" element={<Micro />} />
+            <Route path="/products" element={<Navigate to="/machines" replace />} />
+            <Route
+              path="/products/commercial-robotic-machine"
+              element={<Navigate to="/machines/commercial-robotic-machine" replace />}
+            />
+            <Route path="/products/mini" element={<Navigate to="/machines/mini" replace />} />
+            <Route path="/products/micro" element={<Navigate to="/machines/micro" replace />} />
             <Route path="/supplies" element={<Supplies />} />
             <Route path="/plus" element={<Plus />} />
             <Route path="/contact" element={<Contact />} />

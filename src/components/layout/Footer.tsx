@@ -2,9 +2,9 @@ import { Link } from 'react-router-dom';
 
 const footerLinks = {
   products: [
-    { href: '/products/commercial-robotic-machine', label: 'Commercial Robotic Machine' },
-    { href: '/products/mini', label: 'Mini' },
-    { href: '/products/micro', label: 'Micro' },
+    { href: '/machines/commercial-robotic-machine', label: 'Commercial Robotic Machine' },
+    { href: '/machines/mini', label: 'Mini' },
+    { href: '/machines/micro', label: 'Micro' },
     { href: '/supplies', label: 'Supplies' },
   ],
   company: [
@@ -40,9 +40,9 @@ export function Footer() {
             </p>
           </div>
 
-          {/* Products */}
+          {/* Machines */}
           <div>
-            <h4 className="font-display text-sm font-semibold text-foreground">Products</h4>
+            <h4 className="font-display text-sm font-semibold text-foreground">Machines</h4>
             <ul className="mt-4 space-y-3">
               {footerLinks.products.map((link) => (
                 <li key={link.href}>

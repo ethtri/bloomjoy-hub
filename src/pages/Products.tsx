@@ -13,7 +13,7 @@ const machineProducts = [
     name: 'Commercial Robotic Machine',
     price: '$10,000',
     description: 'Full-size commercial unit with automatic stick dispensing and complex pattern capabilities.',
-    href: '/products/commercial-robotic-machine',
+    href: '/machines/commercial-robotic-machine',
     image: heroMachine,
     badge: 'Most Popular',
   },
@@ -22,7 +22,7 @@ const machineProducts = [
     name: 'Mini',
     price: '$4,000',
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
-    href: '/products/mini',
+    href: '/machines/mini',
     image: machineMini,
     badge: 'Coming Soon',
   },
@@ -31,7 +31,7 @@ const machineProducts = [
     name: 'Micro',
     price: '$400',
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
-    href: '/products/micro',
+    href: '/machines/micro',
     image: machineMicro,
     badge: null,
   },
@@ -48,7 +48,7 @@ export default function ProductsPage() {
       <section className="bg-gradient-to-b from-cream to-background section-padding">
         <div className="container-page text-center">
           <h1 className="font-display text-4xl font-bold text-foreground sm:text-5xl">
-            Products
+            Machines
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground">
             Commercial-grade robotic cotton candy machines for every scale of operation.

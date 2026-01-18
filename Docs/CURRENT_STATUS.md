@@ -14,6 +14,7 @@
 1) POC intake + repo hygiene (build/lint/dev) + document findings in `Docs/POC_NOTES.md`
 2) Public marketing site shell (Home, Machines, Supplies, Plus, Resources, Contact)
 3) Auth + member portal shell (login, dashboard layout)
+4) Routing + navigation skeleton aligned to MVP Machines paths (with legacy redirects)
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
