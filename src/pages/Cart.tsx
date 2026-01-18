@@ -31,8 +31,8 @@ export default function CartPage() {
                 <Link to="/supplies">
                   <Button>Shop Supplies</Button>
                 </Link>
-                <Link to="/products">
-                  <Button variant="outline">View Products</Button>
+                <Link to="/machines">
+                  <Button variant="outline">View Machines</Button>
                 </Link>
               </div>
             </div>

@@ -14,6 +14,7 @@
 
 ## Completed P0 milestones
 1) POC intake + repo hygiene (build/lint/dev) + document findings in `Docs/POC_NOTES.md`
+2) Routing + navigation skeleton aligned to MVP Machines paths (with legacy redirects)
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)

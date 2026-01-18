@@ -41,6 +41,8 @@ Guidelines:
 4. Home page (hero + product entry points + trust section)
 5. Machines pages (Full, Micro, Mini waitlist mode)
 6. Supplies pages (Sugar first; sticks optional)
+   - Sugar flavors: white (milk), orange, red (strawberry), blue (blueberry)
+   - Make bulk sugar ordering easy (support large quantities per order)
 7. Plus page (pricing + boundaries + CTA)
 8. Resources/FAQ page
 9. Contact + quote request forms (store leads in DB or send email)

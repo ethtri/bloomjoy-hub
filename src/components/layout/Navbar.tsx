@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import logo from '@/assets/logo.png';
 
 const navLinks = [
-  { href: '/products', label: 'Products' },
+  { href: '/machines', label: 'Machines' },
   { href: '/supplies', label: 'Supplies' },
   { href: '/plus', label: 'Plus' },
   { href: '/resources', label: 'Resources' },

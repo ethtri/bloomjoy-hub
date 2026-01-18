@@ -32,7 +32,7 @@ export default function MicroPage() {
       <div className="border-b border-border bg-muted/30">
         <div className="container-page py-3">
           <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link to="/products" className="hover:text-foreground">Products</Link>
+            <Link to="/machines" className="hover:text-foreground">Machines</Link>
             <span>/</span>
             <span className="text-foreground">Micro</span>
           </nav>
