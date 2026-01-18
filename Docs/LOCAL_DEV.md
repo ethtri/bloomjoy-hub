@@ -13,10 +13,10 @@
    - If you do not see `.env` in File Explorer, turn on "Hidden items"
 3) Install deps:
    - `npm ci`
-4) Start dev server:
+4) Start dev server (from your worktree folder, e.g. `C:\Repos\wt-<task>`):
    - `npm run dev`
 5) Open the URL printed in the terminal (usually):
-   - http://localhost:5173
+   - http://localhost:8080
 
 ## Testing a PR branch
 1) Checkout the PR branch (or use a worktree)
