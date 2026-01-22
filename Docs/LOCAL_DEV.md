@@ -31,6 +31,7 @@
 - Never commit or paste secret keys in PRs, issues, or chat.
 - Keep PRs small and focused; one change set per PR.
 - Enable repo git hooks once per clone: `git config core.hooksPath .githooks`
+- Fetch before checking recent merges or status: `git fetch origin`
 - Write notes and docs so non-technical readers can follow.
 - Avoid editing the main repo folder directly; work inside your worktree.
 
@@ -39,8 +40,9 @@
 ## Preflight check (1 minute)
 1) Confirm you are in a worktree folder like `C:\Repos\wt-<task>`
 2) Confirm your branch starts with `agent/`
-3) Run `git status -sb` and make sure it looks clean
-4) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
+3) Run `git fetch origin` to update your view of recent merges
+4) Run `git status -sb` and make sure it looks clean
+5) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
 
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
