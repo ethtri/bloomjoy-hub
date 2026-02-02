@@ -31,6 +31,15 @@ Approved options (pick one early; record the final choice here):
 
 Until the option is chosen, keep integrations modular (thin client wrappers + clear boundaries).
 
+## 2026-02-02 - Stripe server-side surface choice
+We will use **Supabase Edge Functions** for Stripe Checkout and webhook handling.
+
+**Why this choice**
+- Hosting-agnostic: the Vite SPA can be hosted anywhere while functions live with Supabase.
+- Tight integration with Postgres for webhook-driven state sync.
+- Server-only secrets live in Supabase Function Secrets (no VITE_ exposure).
+- Minimal, reversible changes: add edge functions and call them from the SPA.
+
 ## Open questions (resolve early)
 - Hosting target: Vercel vs Netlify vs other (impacts serverless function layout)
 - Machines purchase flow in MVP:

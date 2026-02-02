@@ -7,7 +7,7 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-1) Stripe: supplies checkout (one product) + membership checkout (Plus Basic) + customer portal
+1) Stripe: webhook sync (membership + orders)
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
@@ -21,6 +21,8 @@
 3) Auth + member portal shell (login, dashboard layout)
 4) Routing + navigation skeleton aligned to MVP Machines paths (with legacy redirects)
 5) Training library MVP (gated pages + embeds) + support request forms
+6) Sugar checkout (Stripe Checkout via Supabase Edge Function + client redirect)
+7) Plus subscription checkout + customer portal (Stripe via Supabase Edge Functions)
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
