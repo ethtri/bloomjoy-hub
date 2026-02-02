@@ -1,17 +1,56 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Trash2, Plus, Minus, ArrowRight, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { useCart } from '@/lib/cart';
 import { trackEvent } from '@/lib/analytics';
+import { startSugarCheckout } from '@/lib/stripeCheckout';
+import { toast } from 'sonner';
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, getTotal, clearCart } = useCart();
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
-  const handleCheckout = () => {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get('checkout');
+    if (!checkoutStatus) return;
+
+    if (checkoutStatus === 'success') {
+      toast.success('Thanks! Your order is being processed.');
+      clearCart();
+    }
+
+    if (checkoutStatus === 'cancel') {
+      toast.info('Checkout canceled.');
+    }
+
+    window.history.replaceState({}, '', '/cart');
+  }, [clearCart]);
+
+  const handleCheckout = async () => {
     trackEvent('start_checkout');
-    // Mock checkout - would redirect to Stripe
-    alert('Checkout flow would proceed to Stripe here.');
+
+    if (items.some((item) => item.type !== 'supply')) {
+      toast.error('Checkout currently supports supplies only. Remove machines to continue.');
+      return;
+    }
+
+    if (items.length === 0) {
+      toast.error('Add supplies to your cart to continue.');
+      return;
+    }
+
+    try {
+      setIsCheckingOut(true);
+      const checkoutUrl = await startSugarCheckout(items, window.location.origin);
+      window.location.assign(checkoutUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to start checkout.';
+      toast.error(message);
+      setIsCheckingOut(false);
+    }
   };
 
   if (items.length === 0) {
@@ -127,8 +166,9 @@ export default function CartPage() {
                   size="lg"
                   className="mt-6 w-full"
                   onClick={handleCheckout}
+                  disabled={isCheckingOut}
                 >
-                  Checkout
+                  {isCheckingOut ? 'Redirecting...' : 'Checkout'}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
                 <p className="mt-3 text-center text-xs text-muted-foreground">

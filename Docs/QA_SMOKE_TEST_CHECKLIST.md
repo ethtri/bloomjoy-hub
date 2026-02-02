@@ -13,6 +13,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Product pages load (Full, Micro, Mini)
   - [ ] Mini shows “Coming soon / Waitlist” when enabled
 - [ ] Sugar page: can start checkout flow (test mode)
+- [ ] Cart checkout blocks non-supply items (remove machines before checkout)
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Contact/Quote form submits (and confirmation is shown)
 
