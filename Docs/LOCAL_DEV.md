@@ -78,8 +78,11 @@ When that's implemented, this doc must be updated with exact commands.
 2) Set function secrets (server-only):
    - `supabase secrets set STRIPE_SECRET_KEY=...`
    - `supabase secrets set STRIPE_SUGAR_PRICE_ID=...`
+   - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
 3) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
+   - `supabase functions serve stripe-plus-checkout --no-verify-jwt`
+   - `supabase functions serve stripe-customer-portal --no-verify-jwt`
 4) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 
 ## Common issues

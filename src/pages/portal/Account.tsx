@@ -1,11 +1,32 @@
+import { useState } from 'react';
 import { User, MapPin, CreditCard, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { openCustomerPortal } from '@/lib/stripeCheckout';
+import { toast } from 'sonner';
 
 export default function AccountPage() {
   const { user } = useAuth();
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+
+  const handleManageBilling = async () => {
+    if (!user?.email) {
+      toast.error('Log in to manage billing.');
+      return;
+    }
+
+    try {
+      setIsOpeningPortal(true);
+      const portalUrl = await openCustomerPortal(user.email, window.location.origin);
+      window.location.assign(portalUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to open billing portal.';
+      toast.error(message);
+      setIsOpeningPortal(false);
+    }
+  };
 
   return (
     <PortalLayout>
@@ -88,9 +109,14 @@ export default function AccountPage() {
                 <p className="mt-4 text-sm text-muted-foreground">
                   Manage your subscription and payment methods through the Stripe customer portal.
                 </p>
-                <Button variant="outline" className="mt-4 w-full">
+                <Button
+                  variant="outline"
+                  className="mt-4 w-full"
+                  onClick={handleManageBilling}
+                  disabled={isOpeningPortal || !user?.email}
+                >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  Manage Billing
+                  {isOpeningPortal ? 'Opening...' : 'Manage Billing'}
                 </Button>
               </div>
 
