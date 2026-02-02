@@ -8,13 +8,19 @@
 
 ## Next P0 milestones
 1) Stripe: supplies checkout (one product) + membership checkout (Plus Basic) + customer portal
-2) Training library MVP (gated pages + embeds) + support request forms
+
+## Owner next steps
+- Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
+
+## Upcoming scope clarification (next sprint)
+- Allow non-Plus users to log in and access baseline tasks (e.g., order machines/materials); gate premium features behind Bloomjoy Plus.
 
 ## Completed P0 milestones
 1) POC intake + repo hygiene (build/lint/dev) + document findings in `Docs/POC_NOTES.md`
 2) Public marketing site shell (Home, Machines, Supplies, Plus, Resources, Contact)
 3) Auth + member portal shell (login, dashboard layout)
 4) Routing + navigation skeleton aligned to MVP Machines paths (with legacy redirects)
+5) Training library MVP (gated pages + embeds) + support request forms
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)

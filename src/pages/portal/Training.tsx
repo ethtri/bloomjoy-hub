@@ -1,68 +1,17 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Play, Clock, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { trackEvent } from '@/lib/analytics';
-
-interface TrainingContent {
-  id: string;
-  title: string;
-  description: string;
-  duration: string;
-  tags: string[];
-  thumbnail?: string;
-}
-
-const trainingContent: TrainingContent[] = [
-  {
-    id: '1',
-    title: 'Machine Setup Basics',
-    description: 'Learn how to properly set up your Bloomjoy machine for first-time use.',
-    duration: '12 min',
-    tags: ['Setup', 'Beginner'],
-  },
-  {
-    id: '2',
-    title: 'Sugar Loading Best Practices',
-    description: 'Optimal sugar loading techniques for consistent cotton candy production.',
-    duration: '8 min',
-    tags: ['Operations', 'Sugar'],
-  },
-  {
-    id: '3',
-    title: 'Troubleshooting Common Issues',
-    description: 'Quick fixes for the most common machine issues operators encounter.',
-    duration: '15 min',
-    tags: ['Troubleshooting', 'Maintenance'],
-  },
-  {
-    id: '4',
-    title: 'Complex Pattern Programming',
-    description: 'How to create and customize complex cotton candy patterns.',
-    duration: '20 min',
-    tags: ['Advanced', 'Patterns'],
-  },
-  {
-    id: '5',
-    title: 'Daily Maintenance Routine',
-    description: 'Keep your machine running smoothly with this daily maintenance checklist.',
-    duration: '10 min',
-    tags: ['Maintenance', 'Daily'],
-  },
-  {
-    id: '6',
-    title: 'WeChat Support Setup',
-    description: 'How to set up and use WeChat for direct manufacturer support.',
-    duration: '5 min',
-    tags: ['Support', 'Setup'],
-  },
-];
-
-const allTags = [...new Set(trainingContent.flatMap((c) => c.tags))];
+import { getTrainingTags } from '@/data/trainingContent';
+import { useTrainingLibrary, useTrainingSourceStatus } from '@/lib/trainingRepository';
 
 export default function TrainingPage() {
   const [search, setSearch] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const { data: library = [], isLoading } = useTrainingLibrary();
+  const { data: source = 'local' } = useTrainingSourceStatus();
 
   useEffect(() => {
     trackEvent('view_training_catalog');
@@ -72,7 +21,7 @@ export default function TrainingPage() {
     trackEvent('open_training_item', { id, title });
   };
 
-  const filteredContent = trainingContent.filter((content) => {
+  const filteredContent = library.filter((content) => {
     const matchesSearch =
       content.title.toLowerCase().includes(search.toLowerCase()) ||
       content.description.toLowerCase().includes(search.toLowerCase());
@@ -102,7 +51,6 @@ export default function TrainingPage() {
             </div>
           </div>
 
-          {/* Search & Filter */}
           <div className="mt-8 flex flex-col gap-4 sm:flex-row">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -115,9 +63,8 @@ export default function TrainingPage() {
             </div>
           </div>
 
-          {/* Tags */}
           <div className="mt-4 flex flex-wrap gap-2">
-            {allTags.map((tag) => (
+            {getTrainingTags(library).map((tag) => (
               <button
                 key={tag}
                 onClick={() => toggleTag(tag)}
@@ -132,13 +79,23 @@ export default function TrainingPage() {
             ))}
           </div>
 
-          {/* Content Grid */}
           <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {isLoading && (
+              <div className="col-span-full text-sm text-muted-foreground">
+                Loading training content…
+              </div>
+            )}
+            {!isLoading && import.meta.env.DEV && (
+              <div className="col-span-full rounded-xl border border-border bg-muted/40 px-4 py-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                Data source: {source === 'supabase' ? 'Supabase' : 'Local fallback'}
+              </div>
+            )}
             {filteredContent.map((content) => (
-              <div
+              <Link
                 key={content.id}
+                to={`/portal/training/${content.id}`}
                 onClick={() => handleOpenItem(content.id, content.title)}
-                className="group card-elevated cursor-pointer overflow-hidden transition-all hover:-translate-y-0.5"
+                className="group card-elevated overflow-hidden transition-all hover:-translate-y-0.5"
               >
                 <div className="relative aspect-video bg-muted">
                   <div className="absolute inset-0 flex items-center justify-center">
@@ -171,7 +128,7 @@ export default function TrainingPage() {
                     </div>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
 
