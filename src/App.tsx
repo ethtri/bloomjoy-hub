@@ -20,6 +20,7 @@ import Cart from "./pages/Cart";
 import Login from "./pages/Login";
 import PortalDashboard from "./pages/portal/Dashboard";
 import PortalTraining from "./pages/portal/Training";
+import PortalTrainingDetail from "./pages/portal/TrainingDetail";
 import PortalSupport from "./pages/portal/Support";
 import PortalOnboarding from "./pages/portal/Onboarding";
 import PortalOrders from "./pages/portal/Orders";
@@ -61,6 +62,7 @@ const App = () => (
             <Route element={<ProtectedRoute />}>
               <Route path="/portal" element={<PortalDashboard />} />
               <Route path="/portal/training" element={<PortalTraining />} />
+              <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
               <Route path="/portal/support" element={<PortalSupport />} />
               <Route path="/portal/onboarding" element={<PortalOnboarding />} />
               <Route path="/portal/orders" element={<PortalOrders />} />

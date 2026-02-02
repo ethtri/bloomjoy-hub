@@ -39,3 +39,29 @@ Until the option is chosen, keep integrations modular (thin client wrappers + cl
   - Sugar discount vs shipping perk vs both vs neither
 - Lead capture destination in MVP:
   - Supabase table vs email provider (Resend/Postmark) vs both
+
+## 2026-01-22 — Training video hosting (MVP)
+We will use **Vimeo (Starter/Standard)** for the training library MVP.
+
+**Why this choice**
+- Fastest embed path with a reliable player for a Vite React SPA.
+- Domain-level embed restrictions provide basic protection.
+- Works with Supabase RLS for gating catalog access.
+
+**MVP implementation notes**
+- Store training metadata and assets in Supabase tables (`trainings`, `training_assets`).
+- Store `provider_video_id` + `provider_hash` (for unlisted embeds).
+- Embed via iframe: `https://player.vimeo.com/video/{videoId}?h={hash}&dnt=1`.
+- Restrict embeds to approved domains in Vimeo settings.
+
+## 2026-01-22 — Membership gating source of truth (MVP)
+We will use a **dedicated `subscriptions` table** synced from Stripe webhooks as the source of truth for membership status.
+
+**Why this choice**
+- Avoids relying on client-managed flags for access control.
+- Enables accurate access decisions using Stripe subscription state.
+- Supports future upgrades (multiple plans, seats, trials).
+
+**MVP implementation notes**
+- Use RLS policies that allow training data when the subscription status is `active` or `trialing`.
+- Optional: keep a denormalized `profiles.is_member` flag as a cache, but derive it from `subscriptions` only.

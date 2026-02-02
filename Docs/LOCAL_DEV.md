@@ -11,6 +11,9 @@
    - **Never put secrets** (Stripe secret key, webhook secret) in `VITE_` vars
    - **Do not commit `.env`**. It stays on your machine only.
    - If you do not see `.env` in File Explorer, turn on "Hidden items"
+   - Supabase client env vars used by the app:
+     - `VITE_SUPABASE_URL`
+     - `VITE_SUPABASE_ANON_KEY`
 3) Install deps:
    - `npm ci`
 4) Start dev server (from your worktree folder, e.g. `C:\Repos\wt-<task>`):
@@ -23,6 +26,11 @@
 2) Run `npm ci`
 3) Run `npm run dev`
 4) Follow `Docs/QA_SMOKE_TEST_CHECKLIST.md`
+
+## Supabase setup (training library + memberships)
+1) Apply migration: `supabase/migrations/20260122_training_and_membership.sql`
+2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
+3) Populate Vimeo fields (`provider_video_id`, `provider_hash`) after account setup
 
 
 ## Agent best practices (plain language)
