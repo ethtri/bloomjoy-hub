@@ -78,6 +78,11 @@ export default function PortalDashboard() {
                   Plus Basic Active
                 </span>
               )}
+              {!isMember && (
+                <span className="rounded-full border border-primary/30 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary">
+                  Baseline Access
+                </span>
+              )}
               <Button variant="outline" size="sm" onClick={() => signOut()}>
                 Sign Out
               </Button>
@@ -90,6 +95,12 @@ export default function PortalDashboard() {
         <div className="container-page">
           {/* Quick Actions */}
           <h2 className="font-display text-xl font-semibold text-foreground">Quick Actions</h2>
+          {!isMember && (
+            <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+              Baseline access includes Orders and Account. Training, onboarding, and support are
+              available with Bloomjoy Plus.
+            </div>
+          )}
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {quickActions.map((action) => (
               <Link
