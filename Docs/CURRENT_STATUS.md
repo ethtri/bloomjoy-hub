@@ -7,13 +7,13 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-1) Review remaining P0 list and confirm next sprint priorities
+1) No open P0 issues at this time. Track any new blockers in GitHub Issues before next sprint.
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
 
 ## Upcoming scope clarification (next sprint)
-- Plus pricing model by machine count and baseline task boundaries for future portal expansion.
+- Define super-admin requirements and role model for Bloomjoy operations tooling (`#37`).
 
 ## Completed P0 milestones
 1) POC intake + repo hygiene (build/lint/dev) + document findings in `Docs/POC_NOTES.md`
@@ -29,10 +29,13 @@
 11) Non-Plus login baseline access with Plus-gated premium portal routes
 12) Sugar bulk ordering flow (4 colors + equal split + high-volume quantity inputs)
 
+## Recently completed (post-P0)
+- Plus pricing model by machine count (`$100 per machine/month`) with Stripe quantity-based checkout
+
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Stripe server-side surface choice (Vercel/Netlify/Supabase Edge) affects implementation layout
+- Super-admin requirements are not yet fully specified (scope/design pending in `#37`)
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
