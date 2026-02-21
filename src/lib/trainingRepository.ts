@@ -104,10 +104,6 @@ const toTrainingContent = (record: TrainingRecord): TrainingContent => {
 };
 
 export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
-  if (!supabaseClient) {
-    return fallbackTrainingContent;
-  }
-
   const { data, error } = await supabaseClient
     .from('trainings')
     .select(
@@ -151,9 +147,6 @@ export const useTrainingSourceStatus = () =>
   useQuery({
     queryKey: [...TRAINING_QUERY_KEY, 'source'],
     queryFn: async () => {
-      if (!supabaseClient) {
-        return 'local';
-      }
       const { count, error } = await supabaseClient
         .from('trainings')
         .select('*', { count: 'exact', head: true });

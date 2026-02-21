@@ -24,6 +24,7 @@
 6) Sugar checkout (Stripe Checkout via Supabase Edge Function + client redirect)
 7) Plus subscription checkout + customer portal (Stripe via Supabase Edge Functions)
 8) Stripe webhook sync (memberships + orders)
+9) Environment + config hardening (`.env.example` coverage + typed client config helper)
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
