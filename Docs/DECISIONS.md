@@ -74,3 +74,16 @@ We will use a **dedicated `subscriptions` table** synced from Stripe webhooks as
 **MVP implementation notes**
 - Use RLS policies that allow training data when the subscription status is `active` or `trialing`.
 - Optional: keep a denormalized `profiles.is_member` flag as a cache, but derive it from `subscriptions` only.
+
+## 2026-02-21 — Plus pricing model by machine count (MVP)
+We will price Bloomjoy Plus at **$100 per machine per month** using Stripe subscription quantity.
+
+**Pricing model**
+- Single recurring Stripe price (`STRIPE_PLUS_PRICE_ID`) set to $100/month per unit
+- Checkout quantity = selected machine count
+- Monthly charge = `machine_count * $100`
+
+**MVP scope choice**
+- Machine count is self-declared at checkout (user selects count in UI)
+- Keep webhook and `subscriptions` schema unchanged for membership gating compatibility
+- Use quantity-based subscriptions now; revisit account-linked inventory pricing after MVP

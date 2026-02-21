@@ -32,7 +32,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Payments (test mode)
 - [ ] Sugar checkout completes with test card
-- [ ] Plus subscription checkout completes with test card
+- [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
 - [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)
