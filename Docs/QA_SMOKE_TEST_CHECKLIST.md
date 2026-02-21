@@ -22,6 +22,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Demo note: no real email is sent yet; any email should log in locally
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
+- [ ] Onboarding checklist progress updates when steps are toggled
+- [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
 - [ ] Training detail page opens and embed placeholder loads
 - [ ] Support request forms submit and show success state

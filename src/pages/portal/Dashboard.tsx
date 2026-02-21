@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { trackEvent } from '@/lib/analytics';
+import { getOnboardingProgress } from '@/lib/onboardingChecklist';
 
 const quickActions = [
   {
@@ -47,6 +48,7 @@ const quickActions = [
 
 export default function PortalDashboard() {
   const { user, isMember, signOut } = useAuth();
+  const onboardingProgress = getOnboardingProgress(user?.email);
 
   useEffect(() => {
     trackEvent('view_dashboard');
@@ -124,10 +126,14 @@ export default function PortalDashboard() {
             <div className="mt-4 card-elevated p-6">
               <div className="flex items-center gap-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-sage-light">
-                  <span className="font-display text-lg font-bold text-sage">2/5</span>
+                  <span className="font-display text-lg font-bold text-sage">
+                    {onboardingProgress.completedCount}/{onboardingProgress.totalSteps}
+                  </span>
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold text-foreground">40% Complete</p>
+                  <p className="font-semibold text-foreground">
+                    {onboardingProgress.progressPercent}% Complete
+                  </p>
                   <p className="text-sm text-muted-foreground">
                     Complete your onboarding to get the most out of your machine.
                   </p>
