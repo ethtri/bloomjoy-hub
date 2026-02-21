@@ -7,10 +7,6 @@ interface CheckoutResponse {
 }
 
 export async function startPlusCheckout(email: string | undefined, origin: string) {
-  if (!supabaseClient) {
-    throw new Error('Supabase is not configured.');
-  }
-
   const { data, error } = await supabaseClient.functions.invoke<CheckoutResponse>(
     'stripe-plus-checkout',
     {
@@ -34,10 +30,6 @@ export async function startPlusCheckout(email: string | undefined, origin: strin
 }
 
 export async function openCustomerPortal(email: string, origin: string) {
-  if (!supabaseClient) {
-    throw new Error('Supabase is not configured.');
-  }
-
   const { data, error } = await supabaseClient.functions.invoke<CheckoutResponse>(
     'stripe-customer-portal',
     {
@@ -60,10 +52,6 @@ export async function openCustomerPortal(email: string, origin: string) {
 }
 
 export async function startSugarCheckout(items: CartItem[], origin: string) {
-  if (!supabaseClient) {
-    throw new Error('Supabase is not configured.');
-  }
-
   const { data, error } = await supabaseClient.functions.invoke<CheckoutResponse>(
     'stripe-sugar-checkout',
     {
