@@ -68,13 +68,64 @@ export const products: Record<string, Product> = {
     ctaType: 'buy',
     inStock: true,
   },
-  'sugar-1kg': {
-    sku: 'sugar-1kg',
-    name: 'Premium Cotton Candy Sugar',
+  'sugar-white-1kg': {
+    sku: 'sugar-white-1kg',
+    name: 'Premium Cotton Candy Sugar - White (Milk)',
     type: 'supply',
     price: 8,
     description: 'Optimized granularity, dust-free formula for consistent spins. Resealable 1KG bags for freshness and easy storage.',
-    shortDescription: '1KG resealable bag, dust-free, consistent performance',
+    shortDescription: 'White (milk) flavor, 1KG resealable bag',
+    features: [
+      'Optimized granularity for robotic machines',
+      'Dust-free formula',
+      'Consistent spin performance',
+      'Resealable 1KG bags',
+      'Quality controlled production'
+    ],
+    ctaType: 'buy',
+    inStock: true,
+  },
+  'sugar-blue-1kg': {
+    sku: 'sugar-blue-1kg',
+    name: 'Premium Cotton Candy Sugar - Blue (Blueberry)',
+    type: 'supply',
+    price: 8,
+    description: 'Optimized granularity, dust-free formula for consistent spins. Resealable 1KG bags for freshness and easy storage.',
+    shortDescription: 'Blue (blueberry) flavor, 1KG resealable bag',
+    features: [
+      'Optimized granularity for robotic machines',
+      'Dust-free formula',
+      'Consistent spin performance',
+      'Resealable 1KG bags',
+      'Quality controlled production'
+    ],
+    ctaType: 'buy',
+    inStock: true,
+  },
+  'sugar-orange-1kg': {
+    sku: 'sugar-orange-1kg',
+    name: 'Premium Cotton Candy Sugar - Orange',
+    type: 'supply',
+    price: 8,
+    description: 'Optimized granularity, dust-free formula for consistent spins. Resealable 1KG bags for freshness and easy storage.',
+    shortDescription: 'Orange flavor, 1KG resealable bag',
+    features: [
+      'Optimized granularity for robotic machines',
+      'Dust-free formula',
+      'Consistent spin performance',
+      'Resealable 1KG bags',
+      'Quality controlled production'
+    ],
+    ctaType: 'buy',
+    inStock: true,
+  },
+  'sugar-red-1kg': {
+    sku: 'sugar-red-1kg',
+    name: 'Premium Cotton Candy Sugar - Red (Strawberry)',
+    type: 'supply',
+    price: 8,
+    description: 'Optimized granularity, dust-free formula for consistent spins. Resealable 1KG bags for freshness and easy storage.',
+    shortDescription: 'Red (strawberry) flavor, 1KG resealable bag',
     features: [
       'Optimized granularity for robotic machines',
       'Dust-free formula',

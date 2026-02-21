@@ -8,6 +8,14 @@ export const config = {
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 const sugarPriceId = Deno.env.get("STRIPE_SUGAR_PRICE_ID");
+const maxSugarKgPerCheckout = 200000;
+const allowedSugarSkus = new Set([
+  "sugar-1kg",
+  "sugar-white-1kg",
+  "sugar-blue-1kg",
+  "sugar-orange-1kg",
+  "sugar-red-1kg",
+]);
 
 if (!stripeSecretKey) {
   console.error("Missing STRIPE_SECRET_KEY");
@@ -61,20 +69,41 @@ serve(async (req) => {
       });
     }
 
-    const lineItems: { price: string; quantity: number }[] = [];
+    const sugarBreakdown = {
+      white: 0,
+      blue: 0,
+      orange: 0,
+      red: 0,
+    };
     const invalidSkus: string[] = [];
 
     for (const item of items) {
       const sku = item?.sku;
       const quantity = Number(item?.quantity ?? 0);
-      if (sku !== "sugar-1kg") {
+      if (!allowedSugarSkus.has(String(sku))) {
         invalidSkus.push(String(sku));
         continue;
       }
-      if (!Number.isFinite(quantity) || quantity <= 0) {
+      if (!Number.isInteger(quantity) || quantity <= 0) {
         continue;
       }
-      lineItems.push({ price: sugarPriceId, quantity });
+      const normalizedSku = sku === "sugar-1kg" ? "sugar-white-1kg" : String(sku);
+      switch (normalizedSku) {
+        case "sugar-white-1kg":
+          sugarBreakdown.white += quantity;
+          break;
+        case "sugar-blue-1kg":
+          sugarBreakdown.blue += quantity;
+          break;
+        case "sugar-orange-1kg":
+          sugarBreakdown.orange += quantity;
+          break;
+        case "sugar-red-1kg":
+          sugarBreakdown.red += quantity;
+          break;
+        default:
+          break;
+      }
     }
 
     if (invalidSkus.length) {
@@ -90,7 +119,13 @@ serve(async (req) => {
       );
     }
 
-    if (!lineItems.length) {
+    const totalSugarKg =
+      sugarBreakdown.white +
+      sugarBreakdown.blue +
+      sugarBreakdown.orange +
+      sugarBreakdown.red;
+
+    if (!totalSugarKg) {
       return new Response(
         JSON.stringify({ error: "No valid items in cart." }),
         {
@@ -100,14 +135,31 @@ serve(async (req) => {
       );
     }
 
+    if (totalSugarKg > maxSugarKgPerCheckout) {
+      return new Response(
+        JSON.stringify({ error: `Sugar quantity exceeds max checkout limit (${maxSugarKgPerCheckout} KG).` }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      line_items: lineItems,
+      line_items: [{ price: sugarPriceId, quantity: totalSugarKg }],
       success_url: successUrl,
       cancel_url: cancelUrl,
       billing_address_collection: "required",
       shipping_address_collection: {
         allowed_countries: ["US"],
+      },
+      metadata: {
+        sugar_total_kg: String(totalSugarKg),
+        sugar_white_kg: String(sugarBreakdown.white),
+        sugar_blue_kg: String(sugarBreakdown.blue),
+        sugar_orange_kg: String(sugarBreakdown.orange),
+        sugar_red_kg: String(sugarBreakdown.red),
       },
     });
 

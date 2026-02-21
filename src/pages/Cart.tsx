@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Trash2, Plus, Minus, ArrowRight, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
 import { useCart } from '@/lib/cart';
 import { trackEvent } from '@/lib/analytics';
 import { startSugarCheckout } from '@/lib/stripeCheckout';
+import { SUGAR_COLOR_OPTIONS, SUGAR_PRICE_PER_KG, getSugarColorBreakdown, isSugarSku } from '@/lib/sugar';
 import { toast } from 'sonner';
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, getTotal, clearCart } = useCart();
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const sugarBreakdown = getSugarColorBreakdown(items);
+  const sugarTotalKg = Object.values(sugarBreakdown).reduce((sum, quantity) => sum + quantity, 0);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -33,12 +37,17 @@ export default function CartPage() {
     trackEvent('start_checkout');
 
     if (items.some((item) => item.type !== 'supply')) {
-      toast.error('Checkout currently supports supplies only. Remove machines to continue.');
+      toast.error('Checkout currently supports sugar only. Remove machines to continue.');
+      return;
+    }
+
+    if (items.some((item) => !isSugarSku(item.sku))) {
+      toast.error('Checkout currently supports sugar only. Remove non-sugar items to continue.');
       return;
     }
 
     if (items.length === 0) {
-      toast.error('Add supplies to your cart to continue.');
+      toast.error('Add sugar to your cart to continue.');
       return;
     }
 
@@ -120,6 +129,19 @@ export default function CartPage() {
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={item.quantity}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          updateQuantity(
+                            item.sku,
+                            Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+                          );
+                        }}
+                        className="h-8 w-20 text-right"
+                      />
                     </div>
                     <p className="w-20 text-right font-semibold text-foreground">
                       ${(item.price * item.quantity).toFixed(2)}
@@ -143,6 +165,43 @@ export default function CartPage() {
                 <h2 className="font-display text-lg font-semibold text-foreground">
                   Order Summary
                 </h2>
+                {sugarTotalKg > 0 && (
+                  <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                    <p className="text-sm font-semibold text-foreground">Sugar Mix</p>
+                    <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                      {SUGAR_COLOR_OPTIONS.map((option) => {
+                        const quantity = sugarBreakdown[option.sku];
+                        if (quantity <= 0) {
+                          return null;
+                        }
+                        return (
+                          <div key={option.sku} className="flex justify-between">
+                            <span>
+                              {option.color} ({option.flavor})
+                            </span>
+                            <span>{quantity} KG</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-2 border-t border-primary/20 pt-2 text-sm">
+                      <div className="flex justify-between text-foreground">
+                        <span>Total sugar</span>
+                        <span className="font-semibold">{sugarTotalKg} KG</span>
+                      </div>
+                      <div className="mt-1 flex justify-between text-muted-foreground">
+                        <span>1KG bags</span>
+                        <span>{sugarTotalKg} bags</span>
+                      </div>
+                      <div className="mt-1 flex justify-between text-foreground">
+                        <span>Sugar subtotal</span>
+                        <span className="font-semibold">
+                          ${(sugarTotalKg * SUGAR_PRICE_PER_KG).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="mt-4 space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Subtotal</span>

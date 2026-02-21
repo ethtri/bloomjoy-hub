@@ -27,6 +27,7 @@
 9) Environment + config hardening (`.env.example` coverage + typed client config helper)
 10) Onboarding checklist with per-user completion tracking in portal
 11) Non-Plus login baseline access with Plus-gated premium portal routes
+12) Sugar bulk ordering flow (4 colors + equal split + high-volume quantity inputs)
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)

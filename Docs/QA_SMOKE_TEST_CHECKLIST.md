@@ -12,8 +12,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Home loads and key CTAs navigate correctly
 - [ ] Product pages load (Full, Micro, Mini)
   - [ ] Mini shows “Coming soon / Waitlist” when enabled
-- [ ] Sugar page: can start checkout flow (test mode)
-- [ ] Cart checkout blocks non-supply items (remove machines before checkout)
+- [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
+- [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
+- [ ] Cart checkout blocks non-sugar items
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Contact/Quote form submits (and confirmation is shown)
 
@@ -31,7 +32,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Support request forms submit and show success state
 
 ## Payments (test mode)
-- [ ] Sugar checkout completes with test card
+- [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
+- [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
 - [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
@@ -40,3 +42,4 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Regression sanity
 - [ ] `npm run build` passes
 - [ ] `npm run lint` passes (if configured)
+
