@@ -11,7 +11,7 @@ export interface CartItem {
 
 interface CartState {
   items: CartItem[];
-  addItem: (item: Omit<CartItem, 'quantity'>) => void;
+  addItem: (item: Omit<CartItem, 'quantity'>, quantity?: number) => void;
   removeItem: (sku: string) => void;
   updateQuantity: (sku: string, quantity: number) => void;
   clearCart: () => void;
@@ -23,17 +23,18 @@ export const useCart = create<CartState>()(
   persist(
     (set, get) => ({
       items: [],
-      addItem: (item) =>
+      addItem: (item, quantity = 1) =>
         set((state) => {
+          const nextQuantity = Math.max(1, Math.floor(quantity));
           const existingItem = state.items.find((i) => i.sku === item.sku);
           if (existingItem) {
             return {
               items: state.items.map((i) =>
-                i.sku === item.sku ? { ...i, quantity: i.quantity + 1 } : i
+                i.sku === item.sku ? { ...i, quantity: i.quantity + nextQuantity } : i
               ),
             };
           }
-          return { items: [...state.items, { ...item, quantity: 1 }] };
+          return { items: [...state.items, { ...item, quantity: nextQuantity }] };
         }),
       removeItem: (sku) =>
         set((state) => ({

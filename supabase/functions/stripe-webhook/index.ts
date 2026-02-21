@@ -125,6 +125,31 @@ async function upsertOrder(session: Stripe.Checkout.Session) {
     price_id: typeof item.price === "object" && item.price ? item.price.id : null,
   })) ?? [];
 
+  const sugarMixFromMetadata = {
+    white_kg: Number(session.metadata?.sugar_white_kg ?? 0),
+    blue_kg: Number(session.metadata?.sugar_blue_kg ?? 0),
+    orange_kg: Number(session.metadata?.sugar_orange_kg ?? 0),
+    red_kg: Number(session.metadata?.sugar_red_kg ?? 0),
+    total_kg: Number(session.metadata?.sugar_total_kg ?? 0),
+  };
+
+  if (
+    sugarMixFromMetadata.total_kg > 0 ||
+    sugarMixFromMetadata.white_kg > 0 ||
+    sugarMixFromMetadata.blue_kg > 0 ||
+    sugarMixFromMetadata.orange_kg > 0 ||
+    sugarMixFromMetadata.red_kg > 0
+  ) {
+    lineItems.push({
+      description: "Sugar mix breakdown",
+      quantity: sugarMixFromMetadata.total_kg || null,
+      amount_total: null,
+      currency: session.currency,
+      price_id: null,
+      metadata: sugarMixFromMetadata,
+    });
+  }
+
   const resolvedUserId = await resolveUserIdByEmail(
     session.customer_details?.email ?? session.customer_email ?? null
   );
