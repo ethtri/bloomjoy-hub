@@ -31,6 +31,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Plus subscription checkout completes with test card
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
+- [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)
 
 ## Regression sanity
 - [ ] `npm run build` passes

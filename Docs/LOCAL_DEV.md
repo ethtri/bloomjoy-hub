@@ -29,6 +29,7 @@
 
 ## Supabase setup (training library + memberships)
 1) Apply migration: `supabase/migrations/20260122_training_and_membership.sql`
+   - Orders sync migration: `supabase/migrations/20260202_orders.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields (`provider_video_id`, `provider_hash`) after account setup
 
@@ -79,10 +80,13 @@ When that's implemented, this doc must be updated with exact commands.
    - `supabase secrets set STRIPE_SECRET_KEY=...`
    - `supabase secrets set STRIPE_SUGAR_PRICE_ID=...`
    - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
+   - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`
+   - Ensure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
 3) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-plus-checkout --no-verify-jwt`
    - `supabase functions serve stripe-customer-portal --no-verify-jwt`
+   - `supabase functions serve stripe-webhook --no-verify-jwt`
 4) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 
 ## Common issues
