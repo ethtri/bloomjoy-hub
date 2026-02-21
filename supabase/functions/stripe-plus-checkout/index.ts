@@ -8,6 +8,8 @@ export const config = {
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 const plusPriceId = Deno.env.get("STRIPE_PLUS_PRICE_ID");
+const MIN_MACHINE_COUNT = 1;
+const MAX_MACHINE_COUNT = 25;
 
 if (!stripeSecretKey) {
   console.error("Missing STRIPE_SECRET_KEY");
@@ -43,6 +45,7 @@ serve(async (req) => {
     const successUrl = body?.successUrl;
     const cancelUrl = body?.cancelUrl;
     const email = typeof body?.email === "string" ? body.email : undefined;
+    const machineCount = Number(body?.machineCount);
 
     if (!successUrl || !cancelUrl) {
       return new Response(
@@ -54,13 +57,32 @@ serve(async (req) => {
       );
     }
 
+    if (
+      !Number.isInteger(machineCount) ||
+      machineCount < MIN_MACHINE_COUNT ||
+      machineCount > MAX_MACHINE_COUNT
+    ) {
+      return new Response(
+        JSON.stringify({ error: `Machine count must be between ${MIN_MACHINE_COUNT} and ${MAX_MACHINE_COUNT}.` }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      line_items: [{ price: plusPriceId, quantity: 1 }],
+      line_items: [{ price: plusPriceId, quantity: machineCount }],
       success_url: successUrl,
       cancel_url: cancelUrl,
       customer_email: email,
       allow_promotion_codes: true,
+      subscription_data: {
+        metadata: {
+          machine_count: String(machineCount),
+        },
+      },
     });
 
     return new Response(JSON.stringify({ url: session.url }), {

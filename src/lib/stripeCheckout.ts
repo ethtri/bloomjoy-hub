@@ -6,12 +6,17 @@ interface CheckoutResponse {
   error?: string;
 }
 
-export async function startPlusCheckout(email: string | undefined, origin: string) {
+export async function startPlusCheckout(
+  email: string | undefined,
+  origin: string,
+  machineCount: number
+) {
   const { data, error } = await supabaseClient.functions.invoke<CheckoutResponse>(
     'stripe-plus-checkout',
     {
       body: {
         email,
+        machineCount,
         successUrl: `${origin}/plus?checkout=success`,
         cancelUrl: `${origin}/plus?checkout=cancel`,
       },

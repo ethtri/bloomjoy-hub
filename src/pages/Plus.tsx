@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ArrowRight } from 'lucide-react';
+import { Check, ArrowRight, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
 import { startPlusCheckout } from '@/lib/stripeCheckout';
@@ -27,9 +28,18 @@ const benefits = [
   },
 ];
 
+const PRICE_PER_MACHINE_MONTHLY = 100;
+const MIN_MACHINE_COUNT = 1;
+const MAX_MACHINE_COUNT = 25;
+
+const clampMachineCount = (value: number) =>
+  Math.min(MAX_MACHINE_COUNT, Math.max(MIN_MACHINE_COUNT, Math.floor(value)));
+
 export default function PlusPage() {
   const { user } = useAuth();
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+  const [machineCount, setMachineCount] = useState(MIN_MACHINE_COUNT);
+  const monthlyTotal = machineCount * PRICE_PER_MACHINE_MONTHLY;
 
   useEffect(() => {
     trackEvent('view_plus_pricing');
@@ -52,16 +62,30 @@ export default function PlusPage() {
   }, []);
 
   const handleStartMembership = async () => {
-    trackEvent('start_plus_checkout');
+    trackEvent('start_plus_checkout', {
+      machine_count: machineCount,
+      monthly_total: monthlyTotal,
+    });
     try {
       setIsStartingCheckout(true);
-      const checkoutUrl = await startPlusCheckout(user?.email, window.location.origin);
+      const checkoutUrl = await startPlusCheckout(
+        user?.email,
+        window.location.origin,
+        machineCount
+      );
       window.location.assign(checkoutUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start checkout.';
       toast.error(message);
       setIsStartingCheckout(false);
     }
+  };
+
+  const updateMachineCount = (nextValue: number) => {
+    if (!Number.isFinite(nextValue)) {
+      return;
+    }
+    setMachineCount(clampMachineCount(nextValue));
   };
 
   return (
@@ -91,13 +115,59 @@ export default function PlusPage() {
               <div className="bg-foreground p-8 text-center text-background">
                 <h2 className="font-display text-2xl font-bold">Plus Basic</h2>
                 <div className="mt-4 flex items-baseline justify-center gap-1">
-                  <span className="font-display text-5xl font-bold">$49</span>
-                  <span className="text-muted">/month</span>
+                  <span className="font-display text-5xl font-bold">$100</span>
+                  <span className="text-muted">/machine/month</span>
                 </div>
-                <p className="mt-2 text-sm text-muted">Billed monthly. Cancel anytime.</p>
+                <p className="mt-2 text-sm text-muted">
+                  Monthly total updates by machine count. Cancel anytime.
+                </p>
               </div>
               <div className="p-8">
-                <ul className="space-y-4">
+                <div className="rounded-xl border border-border bg-muted/30 p-4">
+                  <p className="text-sm font-semibold text-foreground">
+                    How many machines should Plus cover?
+                  </p>
+                  <div className="mt-3 flex items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => updateMachineCount(machineCount - 1)}
+                      disabled={machineCount <= MIN_MACHINE_COUNT || isStartingCheckout}
+                      aria-label="Decrease machine count"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <Input
+                      type="number"
+                      min={MIN_MACHINE_COUNT}
+                      max={MAX_MACHINE_COUNT}
+                      value={machineCount}
+                      onChange={(event) => updateMachineCount(Number(event.target.value))}
+                      className="h-10 w-24 text-center"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => updateMachineCount(machineCount + 1)}
+                      disabled={machineCount >= MAX_MACHINE_COUNT || isStartingCheckout}
+                      aria-label="Increase machine count"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">
+                        ${monthlyTotal}/month
+                      </span>{' '}
+                      for {machineCount} machine{machineCount === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Minimum {MIN_MACHINE_COUNT} machine, maximum {MAX_MACHINE_COUNT}.
+                  </p>
+                </div>
+                <ul className="mt-8 space-y-4">
                   {benefits.map((benefit) => (
                     <li key={benefit.title} className="flex items-start gap-4">
                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sage-light">
