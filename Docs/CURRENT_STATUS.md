@@ -7,7 +7,10 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-1) Review remaining P0 list and confirm next sprint priorities
+1) P0: Environment + config hardening (#5)
+2) P0: Training library MVP (#14)
+3) P0: Onboarding checklist (#15)
+4) P0: Support requests (#16)
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
@@ -28,7 +31,7 @@
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Stripe server-side surface choice (Vercel/Netlify/Supabase Edge) affects implementation layout
+- Stripe checkouts + webhook are merged; next risk is pricing model expansion (bulk sugar flavors + machine-based membership pricing)
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
