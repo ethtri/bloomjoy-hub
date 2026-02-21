@@ -1,9 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
+import { startPlusCheckout } from '@/lib/stripeCheckout';
+import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
 
 const benefits = [
   {
@@ -25,12 +28,40 @@ const benefits = [
 ];
 
 export default function PlusPage() {
+  const { user } = useAuth();
+  const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+
   useEffect(() => {
     trackEvent('view_plus_pricing');
   }, []);
 
-  const handleStartMembership = () => {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get('checkout');
+    if (!checkoutStatus) return;
+
+    if (checkoutStatus === 'success') {
+      toast.success('Welcome to Bloomjoy Plus!');
+    }
+
+    if (checkoutStatus === 'cancel') {
+      toast.info('Checkout canceled.');
+    }
+
+    window.history.replaceState({}, '', '/plus');
+  }, []);
+
+  const handleStartMembership = async () => {
     trackEvent('start_plus_checkout');
+    try {
+      setIsStartingCheckout(true);
+      const checkoutUrl = await startPlusCheckout(user?.email, window.location.origin);
+      window.location.assign(checkoutUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to start checkout.';
+      toast.error(message);
+      setIsStartingCheckout(false);
+    }
   };
 
   return (
@@ -84,8 +115,9 @@ export default function PlusPage() {
                   size="xl"
                   className="mt-8 w-full"
                   onClick={handleStartMembership}
+                  disabled={isStartingCheckout}
                 >
-                  Start Membership
+                  {isStartingCheckout ? 'Redirecting...' : 'Start Membership'}
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
                 <p className="mt-4 text-center text-xs text-muted-foreground">
