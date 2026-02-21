@@ -1,66 +1,40 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
+import { useAuth } from '@/contexts/AuthContext';
 import { trackEvent } from '@/lib/analytics';
+import {
+  OnboardingStepWithState,
+  readOnboardingSteps,
+  saveOnboardingSteps,
+} from '@/lib/onboardingChecklist';
 import { cn } from '@/lib/utils';
 
-interface OnboardingStep {
-  id: string;
-  title: string;
-  description: string;
-  completed: boolean;
-  action?: { label: string; href: string };
-}
-
-const initialSteps: OnboardingStep[] = [
-  {
-    id: '1',
-    title: 'Machine unboxing and setup',
-    description: 'Unpack your machine and complete the physical setup following the included guide.',
-    completed: true,
-  },
-  {
-    id: '2',
-    title: 'Power on and initial calibration',
-    description: 'Power on your machine and run the initial calibration sequence.',
-    completed: true,
-  },
-  {
-    id: '3',
-    title: 'Set up WeChat for manufacturer support',
-    description: 'Download WeChat and connect with Sunze support for 24/7 technical assistance.',
-    completed: false,
-    action: { label: 'View Setup Guide', href: '/portal/support' },
-  },
-  {
-    id: '4',
-    title: 'Complete first cotton candy spin',
-    description: 'Load sugar and complete your first successful cotton candy production.',
-    completed: false,
-  },
-  {
-    id: '5',
-    title: 'Watch essential training videos',
-    description: 'Complete the beginner training modules in the training library.',
-    completed: false,
-    action: { label: 'Go to Training', href: '/portal/training' },
-  },
-];
-
 export default function OnboardingPage() {
-  const [steps, setSteps] = useState(initialSteps);
+  const { user } = useAuth();
+  const userKey = user?.email;
+  const [steps, setSteps] = useState<OnboardingStepWithState[]>(() =>
+    readOnboardingSteps(userKey)
+  );
 
-  const completedCount = steps.filter((s) => s.completed).length;
-  const progress = (completedCount / steps.length) * 100;
+  useEffect(() => {
+    setSteps(readOnboardingSteps(userKey));
+  }, [userKey]);
+
+  const completedCount = steps.filter((step) => step.completed).length;
+  const totalSteps = steps.length;
+  const progressPercent = totalSteps === 0 ? 0 : Math.round((completedCount / totalSteps) * 100);
 
   const toggleStep = (id: string) => {
-    setSteps((prev) =>
-      prev.map((step) =>
+    setSteps((prev) => {
+      const updatedSteps = prev.map((step) =>
         step.id === id ? { ...step, completed: !step.completed } : step
-      )
-    );
+      );
+      saveOnboardingSteps(userKey, updatedSteps);
+      return updatedSteps;
+    });
     trackEvent('submit_support_request_onboarding', { step_id: id });
   };
 
@@ -80,21 +54,21 @@ export default function OnboardingPage() {
             <div className="mt-8 card-elevated p-6">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-foreground">
-                  {completedCount} of {steps.length} complete
+                  {completedCount} of {totalSteps} complete
                 </span>
-                <span className="text-sm text-muted-foreground">{Math.round(progress)}%</span>
+                <span className="text-sm text-muted-foreground">{progressPercent}%</span>
               </div>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full bg-sage transition-all"
-                  style={{ width: `${progress}%` }}
+                  style={{ width: `${progressPercent}%` }}
                 />
               </div>
             </div>
 
             {/* Steps */}
             <div className="mt-8 space-y-4">
-              {steps.map((step, index) => (
+              {steps.map((step) => (
                 <div
                   key={step.id}
                   className={cn(
