@@ -28,7 +28,7 @@ export default function LoginPage() {
     }
 
     // For demo, immediately redirect
-    toast.success('Welcome to Bloomjoy Plus!');
+    toast.success('Signed in successfully.');
     const fromPath =
       (location.state as { from?: { pathname?: string } })?.from?.pathname || '/portal';
     navigate(fromPath, { replace: true });
@@ -100,7 +100,7 @@ export default function LoginPage() {
               )}
 
               <p className="mt-6 text-center text-sm text-muted-foreground">
-                Don't have a membership?{' '}
+                Need premium training, onboarding, and support?{' '}
                 <a href="/plus" className="font-medium text-primary hover:underline">
                   Learn about Plus
                 </a>

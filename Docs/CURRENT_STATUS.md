@@ -13,7 +13,7 @@
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
 
 ## Upcoming scope clarification (next sprint)
-- Allow non-Plus users to log in and access baseline tasks (e.g., order machines/materials); gate premium features behind Bloomjoy Plus.
+- Plus pricing model by machine count and baseline task boundaries for future portal expansion.
 
 ## Completed P0 milestones
 1) POC intake + repo hygiene (build/lint/dev) + document findings in `Docs/POC_NOTES.md`
@@ -26,6 +26,7 @@
 8) Stripe webhook sync (memberships + orders)
 9) Environment + config hardening (`.env.example` coverage + typed client config helper)
 10) Onboarding checklist with per-user completion tracking in portal
+11) Non-Plus login baseline access with Plus-gated premium portal routes
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)

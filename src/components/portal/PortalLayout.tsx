@@ -1,14 +1,15 @@
 import { ReactNode } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { NavLink } from '@/components/NavLink';
+import { useAuth } from '@/contexts/AuthContext';
 
 const portalLinks = [
-  { href: '/portal', label: 'Dashboard', end: true },
-  { href: '/portal/training', label: 'Training' },
-  { href: '/portal/onboarding', label: 'Onboarding' },
-  { href: '/portal/support', label: 'Support' },
-  { href: '/portal/orders', label: 'Orders' },
-  { href: '/portal/account', label: 'Account' },
+  { href: '/portal', label: 'Dashboard', end: true, premium: false },
+  { href: '/portal/training', label: 'Training', premium: true },
+  { href: '/portal/onboarding', label: 'Onboarding', premium: true },
+  { href: '/portal/support', label: 'Support', premium: true },
+  { href: '/portal/orders', label: 'Orders', premium: false },
+  { href: '/portal/account', label: 'Account', premium: false },
 ];
 
 interface PortalLayoutProps {
@@ -16,6 +17,8 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
+  const { isMember } = useAuth();
+
   return (
     <Layout>
       <div className="border-b border-border bg-muted/30">
@@ -33,7 +36,12 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                   className="rounded-full border border-transparent bg-background px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   activeClassName="border-primary/20 bg-primary/10 text-primary"
                 >
-                  {link.label}
+                  <span>{link.label}</span>
+                  {link.premium && !isMember && (
+                    <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
+                      Plus
+                    </span>
+                  )}
                 </NavLink>
               ))}
             </nav>

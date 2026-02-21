@@ -5,10 +5,12 @@ import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { openCustomerPortal } from '@/lib/stripeCheckout';
+import { hasPlusAccess } from '@/lib/membership';
 import { toast } from 'sonner';
 
 export default function AccountPage() {
   const { user } = useAuth();
+  const isMember = hasPlusAccess(user?.membershipStatus);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
 
   const handleManageBilling = async () => {
@@ -107,16 +109,18 @@ export default function AccountPage() {
                   <h2 className="font-display text-lg font-semibold text-foreground">Billing</h2>
                 </div>
                 <p className="mt-4 text-sm text-muted-foreground">
-                  Manage your subscription and payment methods through the Stripe customer portal.
+                  {isMember
+                    ? 'Manage your subscription and payment methods through the Stripe customer portal.'
+                    : 'Upgrade to Plus to unlock premium training, onboarding, and concierge support.'}
                 </p>
                 <Button
                   variant="outline"
                   className="mt-4 w-full"
                   onClick={handleManageBilling}
-                  disabled={isOpeningPortal || !user?.email}
+                  disabled={isOpeningPortal || !user?.email || !isMember}
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  {isOpeningPortal ? 'Opening...' : 'Manage Billing'}
+                  {isMember ? (isOpeningPortal ? 'Opening...' : 'Manage Billing') : 'Plus Required'}
                 </Button>
               </div>
 
@@ -124,18 +128,28 @@ export default function AccountPage() {
                 <h3 className="font-semibold text-foreground">Membership</h3>
                 <div className="mt-4 flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Plan</span>
-                  <span className="font-semibold text-foreground">Plus Basic</span>
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Status</span>
-                  <span className="rounded-full bg-sage-light px-2 py-0.5 text-xs font-semibold text-sage">
-                    Active
+                  <span className="font-semibold text-foreground">
+                    {isMember ? 'Plus Basic' : 'Baseline'}
                   </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Next billing</span>
-                  <span className="text-sm text-foreground">Feb 11, 2025</span>
+                  <span className="text-sm text-muted-foreground">Status</span>
+                  {isMember ? (
+                    <span className="rounded-full bg-sage-light px-2 py-0.5 text-xs font-semibold text-sage">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                      Upgrade available
+                    </span>
+                  )}
                 </div>
+                {isMember && (
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Next billing</span>
+                    <span className="text-sm text-foreground">Feb 11, 2025</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { trackEvent, identifyUser } from '@/lib/analytics';
+import { hasPlusAccess, type MembershipStatus } from '@/lib/membership';
 
 // Mock user type - will be replaced with Supabase Auth user
 interface User {
   id: string;
   email: string;
-  membershipStatus?: 'active' | 'inactive' | 'none';
+  membershipStatus?: MembershipStatus;
   membershipPlan?: string;
 }
 
@@ -39,15 +40,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       // Mock magic link flow - in production, this would call Supabase
       console.log('[Auth] Magic link sent to:', email);
-      
-      // For demo, immediately "sign in"
+
+      // Default to baseline access; Plus access should come from subscription status.
       const mockUser: User = {
         id: crypto.randomUUID(),
         email,
-        membershipStatus: 'active',
-        membershipPlan: 'plus-basic',
+        membershipStatus: 'none',
       };
-      
+
       setUser(mockUser);
       localStorage.setItem('bloomjoy-user', JSON.stringify(mockUser));
       identifyUser(mockUser.id, { email: mockUser.email });
@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         isAuthenticated: !!user,
-        isMember: user?.membershipStatus === 'active',
+        isMember: hasPlusAccess(user?.membershipStatus),
       }}
     >
       {children}
