@@ -25,7 +25,7 @@ export const products: Record<string, Product> = {
       'Complex pattern capabilities',
       'High throughput for events and venues',
       'Built for continuous commercial operation',
-      'Sunze 24/7 technical support via WeChat',
+      'Manufacturer 24/7 technical support via WeChat',
       'Bloomjoy concierge onboarding assistance'
     ],
     ctaType: 'quote',

@@ -2,7 +2,7 @@ import { Layout } from '@/components/layout/Layout';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
 const faqs = [
-  { q: 'What support is included with machine purchase?', a: 'Sunze provides 24/7 technical support via WeChat. Bloomjoy offers concierge guidance during US business hours for Plus members.' },
+  { q: 'What support is included with machine purchase?', a: 'The manufacturer support team provides 24/7 technical support via WeChat. Bloomjoy offers concierge guidance during US business hours for Plus members.' },
   { q: 'How do I get replacement parts?', a: 'Plus members can request parts assistance through the member portal. We help source parts from the manufacturer.' },
   { q: 'What\'s the difference between the machines?', a: 'Commercial is full-size with auto stick dispensing. Mini is portable at 1/5 size with manual stick feeding. Micro is entry-level for basic shapes only.' },
 ];

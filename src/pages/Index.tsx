@@ -33,7 +33,7 @@ const productCards = [
 const trustPoints = [
   { icon: Zap, text: '5+ years operational experience' },
   { icon: Shield, text: 'Operating across ~12 states' },
-  { icon: Package, text: 'Official Sunze manufacturer relationship' },
+  { icon: Package, text: 'Direct manufacturer relationship' },
 ];
 
 export default function HomePage() {
@@ -209,7 +209,7 @@ export default function HomePage() {
             ))}
           </div>
           <p className="mx-auto mt-8 max-w-2xl text-sm text-muted-foreground">
-            We maintain a direct relationship with Sunze, the manufacturer. They provide 24/7 technical support via WeChat. Bloomjoy provides onboarding guidance, best-practice playbooks, and concierge escalation.
+            We maintain a direct relationship with the manufacturer. The manufacturer support team provides 24/7 technical support via WeChat. Bloomjoy provides onboarding guidance, best-practice playbooks, and concierge escalation.
           </p>
         </div>
       </section>

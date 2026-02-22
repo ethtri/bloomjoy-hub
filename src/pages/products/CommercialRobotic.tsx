@@ -117,7 +117,7 @@ export default function CommercialRoboticPage() {
                 </h3>
                 <div className="mt-3 space-y-3 text-sm text-muted-foreground">
                   <p>
-                    <strong className="font-semibold text-foreground">Sunze (Manufacturer):</strong>{' '}
+                    <strong className="font-semibold text-foreground">Manufacturer Support:</strong>{' '}
                     24/7 first-line technical support via WeChat. Direct access to engineering team for machine diagnostics, troubleshooting, and warranty service.
                   </p>
                   <p>

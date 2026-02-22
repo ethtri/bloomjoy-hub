@@ -46,7 +46,7 @@ export default function SupportPage() {
                 Get Manufacturer Support
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                24/7 technical support directly from Sunze via WeChat.
+                24/7 technical support directly from the manufacturer via WeChat.
               </p>
               <Button
                 variant="outline"
@@ -106,14 +106,14 @@ export default function SupportPage() {
                     <strong className="text-foreground">Create an account</strong> — Sign up using your phone number.
                   </li>
                   <li>
-                    <strong className="text-foreground">Add Sunze Support</strong> — Scan the QR code provided with your machine, or search for the support ID.
+                    <strong className="text-foreground">Add Manufacturer Support</strong> — Scan the QR code provided with your machine, or search for the support ID.
                   </li>
                   <li>
                     <strong className="text-foreground">Send your machine serial</strong> — Include your machine serial number in your first message for faster support.
                   </li>
                 </ol>
                 <p className="mt-4 rounded-lg bg-sage-light p-4 text-sage">
-                  Sunze provides 24/7 first-line technical support. They can help with machine diagnostics, troubleshooting, and warranty issues.
+                  The manufacturer support team provides 24/7 first-line technical support. They can help with machine diagnostics, troubleshooting, and warranty issues.
                 </p>
               </div>
               <Button variant="outline" className="mt-6" onClick={() => setActiveForm(null)}>

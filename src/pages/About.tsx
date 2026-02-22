@@ -84,7 +84,7 @@ export default function AboutPage() {
                   consumable quality, and support clarity. That is what we focus on every day.
                 </p>
                 <p>
-                  We maintain a direct relationship with Sunze, the manufacturer, and pair that with
+                  We maintain a direct relationship with the manufacturer and pair that with
                   Bloomjoy onboarding, playbooks, and concierge guidance so operators can launch
                   quickly and run with confidence.
                 </p>
