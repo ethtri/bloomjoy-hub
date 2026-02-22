@@ -29,6 +29,7 @@ const getSugarName = (color: string, flavor: string) =>
 export default function SuppliesPage() {
   const { addItem, items, updateQuantity } = useCart();
   const [targetTotalKg, setTargetTotalKg] = useState(DEFAULT_BULK_SUGAR_KG);
+  const [sticksBulkPacks, setSticksBulkPacks] = useState(1);
   const [sugarMix, setSugarMix] = useState<SugarMix>(() =>
     buildEqualSugarSplit(DEFAULT_BULK_SUGAR_KG)
   );
@@ -95,7 +96,10 @@ export default function SuppliesPage() {
   };
 
   const handleAddSticks = () => {
-    trackEvent('add_to_cart', { sku: 'sticks-plain', price: 12 });
+    const quantity = Number.isFinite(sticksBulkPacks)
+      ? Math.max(1, Math.floor(sticksBulkPacks))
+      : 1;
+    trackEvent('add_to_cart', { sku: 'sticks-plain', price: 12, quantity });
     addItem(
       {
         sku: 'sticks-plain',
@@ -103,9 +107,9 @@ export default function SuppliesPage() {
         price: 12,
         type: 'supply',
       },
-      1
+      quantity
     );
-    toast.success('Cotton Candy Sticks added to cart.');
+    toast.success(`Added ${quantity} stick pack${quantity === 1 ? '' : 's'} to cart.`);
   };
 
   return (
@@ -308,9 +312,19 @@ export default function SuppliesPage() {
                         >
                           <Minus className="h-4 w-4" />
                         </Button>
-                        <span className="w-8 text-center font-semibold">
-                          {getItemQuantity('sticks-plain')}
-                        </span>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={getItemQuantity('sticks-plain')}
+                          onChange={(event) => {
+                            const value = Number(event.target.value);
+                            updateQuantity(
+                              'sticks-plain',
+                              Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+                            );
+                          }}
+                          className="h-8 w-20 text-right"
+                        />
                         <Button
                           variant="ghost"
                           size="icon"
@@ -325,10 +339,31 @@ export default function SuppliesPage() {
                       <span className="text-sm text-muted-foreground">in cart</span>
                     </div>
                   ) : (
-                    <Button onClick={handleAddSticks} className="w-full">
-                      <ShoppingCart className="mr-2 h-4 w-4" />
-                      Add to Cart
-                    </Button>
+                    <div className="space-y-3">
+                      <div className="flex items-end gap-3">
+                        <div>
+                          <label className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                            Packs
+                          </label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={sticksBulkPacks}
+                            onChange={(event) => {
+                              const value = Number(event.target.value);
+                              setSticksBulkPacks(
+                                Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1
+                              );
+                            }}
+                            className="mt-1 h-9 w-24 text-right"
+                          />
+                        </div>
+                        <Button onClick={handleAddSticks} className="flex-1">
+                          <ShoppingCart className="mr-2 h-4 w-4" />
+                          Add to Cart
+                        </Button>
+                      </div>
+                    </div>
                   )}
                 </div>
 
