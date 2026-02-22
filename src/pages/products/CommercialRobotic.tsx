@@ -3,8 +3,19 @@ import { Link } from 'react-router-dom';
 import { Check, ArrowRight, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
+import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
-import commercialHero from '@/assets/real/commercial-hero.jpg';
+import commercialMain from '@/assets/real/commercial-main.jpg';
+import commercialGallery1 from '@/assets/real/commercial-gallery-1.webp';
+import commercialGallery2 from '@/assets/real/commercial-gallery-2.webp';
+import commercialGallery3 from '@/assets/real/commercial-gallery-3.webp';
+
+const commercialImages = [
+  { src: commercialMain, alt: 'Commercial robotic machine main view' },
+  { src: commercialGallery1, alt: 'Commercial machine product highlight' },
+  { src: commercialGallery2, alt: 'Commercial machine diagram view' },
+  { src: commercialGallery3, alt: 'Commercial machine size and weight chart' },
+];
 
 export default function CommercialRoboticPage() {
   useEffect(() => {
@@ -33,13 +44,7 @@ export default function CommercialRoboticPage() {
           <div className="grid gap-12 lg:grid-cols-2">
             {/* Image */}
             <div>
-              <div className="aspect-square overflow-hidden rounded-2xl bg-muted shadow-elevated-lg">
-                <img
-                  src={commercialHero}
-                  alt="Bloomjoy Sweets Robotic Cotton Candy Machine"
-                  className="h-full w-full object-cover"
-                />
-              </div>
+              <ProductImageGallery images={commercialImages} />
             </div>
 
             {/* Details */}
