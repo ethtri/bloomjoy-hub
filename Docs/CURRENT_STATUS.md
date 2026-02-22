@@ -7,7 +7,10 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-1) No open P0 issues at this time. Track any new blockers in GitHub Issues before next sprint.
+1) Replace placeholder website assets with real Bloomjoy imagery (`#42`):
+   - Map approved local assets to current placeholders (home hero, machines, supplies, logo, about).
+   - Add optimized web versions to the repo and update page references.
+2) Confirm final image source for Micro product card/detail page if no dedicated real-world Micro photo is available in current asset pack.
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
