@@ -14,6 +14,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
   - [ ] Mini shows “Coming soon / Waitlist” when enabled
 - [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
 - [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
+- [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)
 - [ ] Cart checkout blocks non-sugar items
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Contact/Quote form submits (and confirmation is shown)
