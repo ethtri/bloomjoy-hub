@@ -31,6 +31,7 @@
 
 ## Recently completed (post-P0)
 - Plus pricing model by machine count (`$100 per machine/month`) with Stripe quantity-based checkout
+- Supplies UX improvement: typed bulk quantity input for cotton candy sticks ordering
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
