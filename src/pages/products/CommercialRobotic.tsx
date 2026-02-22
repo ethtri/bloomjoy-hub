@@ -9,8 +9,6 @@ import commercialMain from '@/assets/real/commercial-main.jpg';
 import commercialGallery1 from '@/assets/real/commercial-gallery-1.webp';
 import commercialGallery2 from '@/assets/real/commercial-gallery-2.webp';
 import commercialGallery3 from '@/assets/real/commercial-gallery-3.webp';
-import commercialSpecs from '@/assets/real/commercial-specs.png';
-import commercialSellingPoints from '@/assets/real/commercial-selling-points.png';
 import commercialCerts from '@/assets/real/commercial-certs.png';
 import commercialMenu64 from '@/assets/real/commercial-menu64.jpg';
 
@@ -47,6 +45,26 @@ const operationalHighlights = [
     detail:
       'Up to 1.5-year machine warranty, remote troubleshooting guidance, and replacement-part workflow for faster recovery.',
   },
+];
+
+const specHighlights = [
+  { label: 'Pattern Library', value: '64 patterns' },
+  { label: 'Flavor/Sugar Colors', value: '4 options' },
+  { label: 'Candy Cycle Time', value: '70-130s per candy' },
+  { label: 'Output Per Full Load', value: '200-250 candies' },
+  { label: 'Machine Weight', value: '230kg' },
+  { label: 'Display', value: '21.5-inch screen' },
+];
+
+const technicalSpecs = [
+  { item: 'Power', value: 'AC 110V/220V, 2700W' },
+  { item: 'Dimensions (H x W x D)', value: '2001 x 643 x 1315 mm or 2001 x 671 x 1332 mm' },
+  { item: 'Weight', value: '230kg' },
+  { item: 'Pattern Count', value: '64 preset patterns' },
+  { item: 'Per-Candy Production Time', value: '70-130 seconds' },
+  { item: 'Total Candies Per Full Material Load', value: '200-250 units' },
+  { item: 'Water Refill Frequency', value: 'After approximately every 200 candies produced' },
+  { item: 'Screen Size', value: '21.5 inches' },
 ];
 
 export default function CommercialRoboticPage() {
@@ -148,29 +166,67 @@ export default function CommercialRoboticPage() {
               Specs and Documentation
             </h2>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-              Detailed reference material provided for commercial planning, installation review, and compliance conversations.
+              Commercial planning details presented in native, readable format.
             </p>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {specHighlights.map((highlight) => (
+                <div key={highlight.label} className="card-elevated p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {highlight.label}
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-bold text-foreground">{highlight.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 overflow-hidden rounded-xl border border-border bg-background">
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-sm">
+                  <tbody>
+                    {technicalSpecs.map((row) => (
+                      <tr key={row.item} className="border-b border-border last:border-b-0">
+                        <th className="w-[38%] bg-muted/30 px-4 py-3 text-left font-semibold text-foreground">
+                          {row.item}
+                        </th>
+                        <td className="px-4 py-3 text-muted-foreground">{row.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <div className="mt-6 grid gap-6 lg:grid-cols-2">
               <div className="card-elevated overflow-hidden p-4">
-                <h3 className="font-display text-lg font-semibold text-foreground">Core Specs Table</h3>
-                <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
-                  <img src={commercialSpecs} alt="Commercial machine specifications table" className="h-full w-full object-contain p-2" />
+                <div className="flex items-center justify-between gap-4">
+                  <h3 className="font-display text-lg font-semibold text-foreground">Pattern Menu (64)</h3>
+                  <a
+                    href={commercialMenu64}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-semibold text-primary hover:underline"
+                  >
+                    Open full size
+                  </a>
                 </div>
-              </div>
-              <div className="card-elevated overflow-hidden p-4">
-                <h3 className="font-display text-lg font-semibold text-foreground">Selling Points Overview</h3>
-                <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
-                  <img src={commercialSellingPoints} alt="Commercial machine selling point summary" className="h-full w-full object-contain p-2" />
-                </div>
-              </div>
-              <div className="card-elevated overflow-hidden p-4">
-                <h3 className="font-display text-lg font-semibold text-foreground">Pattern Menu (64)</h3>
                 <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
                   <img src={commercialMenu64} alt="Commercial machine 64-pattern menu chart" className="h-full w-full object-contain p-2" />
                 </div>
               </div>
+
               <div className="card-elevated overflow-hidden p-4">
-                <h3 className="font-display text-lg font-semibold text-foreground">Certification Snapshot</h3>
+                <div className="flex items-center justify-between gap-4">
+                  <h3 className="font-display text-lg font-semibold text-foreground">Certification Snapshot</h3>
+                  <a
+                    href={commercialCerts}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-semibold text-primary hover:underline"
+                  >
+                    Open full size
+                  </a>
+                </div>
                 <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
                   <img src={commercialCerts} alt="Commercial machine certification documents snapshot" className="h-full w-full object-contain p-2" />
                 </div>
