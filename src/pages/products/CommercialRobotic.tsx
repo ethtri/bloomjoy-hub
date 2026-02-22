@@ -4,7 +4,7 @@ import { Check, ArrowRight, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
-import heroMachine from '@/assets/hero-machine.jpg';
+import commercialHero from '@/assets/real/commercial-hero.jpg';
 
 export default function CommercialRoboticPage() {
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function CommercialRoboticPage() {
             <div>
               <div className="aspect-square overflow-hidden rounded-2xl bg-muted shadow-elevated-lg">
                 <img
-                  src={heroMachine}
+                  src={commercialHero}
                   alt="Bloomjoy Sweets Robotic Cotton Candy Machine"
                   className="h-full w-full object-cover"
                 />

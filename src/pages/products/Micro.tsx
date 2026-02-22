@@ -6,7 +6,7 @@ import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
 import { useCart } from '@/lib/cart';
 import { toast } from 'sonner';
-import machineMicro from '@/assets/machine-micro.jpg';
+import microMachine from '@/assets/real/micro-machine.webp';
 
 export default function MicroPage() {
   const { addItem } = useCart();
@@ -46,7 +46,7 @@ export default function MicroPage() {
             <div>
               <div className="aspect-square overflow-hidden rounded-2xl bg-muted shadow-elevated-lg">
                 <img
-                  src={machineMicro}
+                  src={microMachine}
                   alt="Bloomjoy Sweets Micro"
                   className="h-full w-full object-cover"
                 />

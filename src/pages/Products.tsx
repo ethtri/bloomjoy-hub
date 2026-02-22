@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
-import heroMachine from '@/assets/hero-machine.jpg';
-import machineMini from '@/assets/machine-mini.jpg';
-import machineMicro from '@/assets/machine-micro.jpg';
+import commercialCard from '@/assets/real/commercial-card.webp';
+import miniMachine from '@/assets/real/mini-machine.jpg';
+import microMachine from '@/assets/real/micro-machine.webp';
 
 const machineProducts = [
   {
@@ -14,7 +14,7 @@ const machineProducts = [
     price: '$10,000',
     description: 'Full-size commercial unit with automatic stick dispensing and complex pattern capabilities.',
     href: '/machines/commercial-robotic-machine',
-    image: heroMachine,
+    image: commercialCard,
     badge: 'Most Popular',
   },
   {
@@ -23,7 +23,7 @@ const machineProducts = [
     price: '$4,000',
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
     href: '/machines/mini',
-    image: machineMini,
+    image: miniMachine,
     badge: 'Coming Soon',
   },
   {
@@ -32,7 +32,7 @@ const machineProducts = [
     price: '$400',
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
-    image: machineMicro,
+    image: microMachine,
     badge: null,
   },
 ];

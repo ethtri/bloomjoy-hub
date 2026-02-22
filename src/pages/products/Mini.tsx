@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
 import { toast } from 'sonner';
-import machineMini from '@/assets/machine-mini.jpg';
+import miniMachine from '@/assets/real/mini-machine.jpg';
 
 export default function MiniPage() {
   const [email, setEmail] = useState('');
@@ -44,7 +44,7 @@ export default function MiniPage() {
             <div>
               <div className="aspect-square overflow-hidden rounded-2xl bg-muted shadow-elevated-lg">
                 <img
-                  src={machineMini}
+                  src={miniMachine}
                   alt="Bloomjoy Sweets Mini"
                   className="h-full w-full object-cover"
                 />

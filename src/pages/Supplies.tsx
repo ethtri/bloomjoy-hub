@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Minus, Package, Plus, ShoppingCart } from 'lucide-react';
+import { ArrowRight, Minus, Plus, ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
@@ -21,7 +21,8 @@ import {
   updateSugarMixQuantity,
 } from '@/lib/sugar';
 import { toast } from 'sonner';
-import sugarProduct from '@/assets/sugar-product.jpg';
+import sugarProduct from '@/assets/real/sugar-product.jpg';
+import sticksProduct from '@/assets/real/sticks-product.jpg';
 
 const getSugarName = (color: string, flavor: string) =>
   `Premium Cotton Candy Sugar - ${color} (${flavor}) (1KG)`;
@@ -281,11 +282,12 @@ export default function SuppliesPage() {
             </div>
 
             <div className="card-elevated overflow-hidden">
-              <div className="flex aspect-square items-center justify-center bg-muted">
-                <div className="text-center text-muted-foreground">
-                  <Package className="mx-auto h-16 w-16 opacity-50" />
-                  <p className="mt-4 text-sm">Cotton Candy Sticks</p>
-                </div>
+              <div className="aspect-square overflow-hidden bg-muted">
+                <img
+                  src={sticksProduct}
+                  alt="Bloomjoy branded cotton candy sticks"
+                  className="h-full w-full object-cover"
+                />
               </div>
               <div className="p-6">
                 <h2 className="font-display text-xl font-semibold text-foreground">

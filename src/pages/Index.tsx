@@ -4,7 +4,7 @@ import { ArrowRight, Check, Zap, Shield, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
-import heroMachine from '@/assets/hero-machine.jpg';
+import commercialHero from '@/assets/real/commercial-hero.jpg';
 
 const productCards = [
   {
@@ -72,7 +72,7 @@ export default function HomePage() {
             <div className="relative">
               <div className="aspect-[4/3] overflow-hidden rounded-2xl bg-muted shadow-elevated-lg">
                 <img
-                  src={heroMachine}
+                  src={commercialHero}
                   alt="Bloomjoy Sweets Robotic Cotton Candy Machine"
                   className="h-full w-full object-cover"
                 />
