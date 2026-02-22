@@ -9,12 +9,44 @@ import commercialMain from '@/assets/real/commercial-main.jpg';
 import commercialGallery1 from '@/assets/real/commercial-gallery-1.webp';
 import commercialGallery2 from '@/assets/real/commercial-gallery-2.webp';
 import commercialGallery3 from '@/assets/real/commercial-gallery-3.webp';
+import commercialSpecs from '@/assets/real/commercial-specs.png';
+import commercialSellingPoints from '@/assets/real/commercial-selling-points.png';
+import commercialCerts from '@/assets/real/commercial-certs.png';
+import commercialMenu64 from '@/assets/real/commercial-menu64.jpg';
 
 const commercialImages = [
   { src: commercialMain, alt: 'Commercial robotic machine main view' },
   { src: commercialGallery1, alt: 'Commercial machine product highlight' },
   { src: commercialGallery2, alt: 'Commercial machine diagram view' },
   { src: commercialGallery3, alt: 'Commercial machine size and weight chart' },
+];
+
+const operationalHighlights = [
+  {
+    title: 'Payment Flexibility',
+    detail:
+      'Supports card-reader integrations plus local bank credit/debit cards and common mobile wallets, based on deployment needs.',
+  },
+  {
+    title: 'Remote Operations Dashboard',
+    detail:
+      'Monitor sales, machine status, scheduling, and key operational settings from a remote management app.',
+  },
+  {
+    title: 'Maintenance Rhythm',
+    detail:
+      'Typical routine maintenance is about every 15 days and can be completed in roughly 20-30 minutes.',
+  },
+  {
+    title: 'Consumables',
+    detail:
+      'Runs on four sugar colors and paper sticks; both are standard items in the Bloomjoy supplies flow.',
+  },
+  {
+    title: 'Warranty + Troubleshooting',
+    detail:
+      'Up to 1.5-year machine warranty, remote troubleshooting guidance, and replacement-part workflow for faster recovery.',
+  },
 ];
 
 export default function CommercialRoboticPage() {
@@ -108,6 +140,63 @@ export default function CommercialRoboticPage() {
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Specs and Documentation */}
+          <div className="mt-16">
+            <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">
+              Specs and Documentation
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              Detailed reference material provided for commercial planning, installation review, and compliance conversations.
+            </p>
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div className="card-elevated overflow-hidden p-4">
+                <h3 className="font-display text-lg font-semibold text-foreground">Core Specs Table</h3>
+                <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                  <img src={commercialSpecs} alt="Commercial machine specifications table" className="h-full w-full object-contain p-2" />
+                </div>
+              </div>
+              <div className="card-elevated overflow-hidden p-4">
+                <h3 className="font-display text-lg font-semibold text-foreground">Selling Points Overview</h3>
+                <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                  <img src={commercialSellingPoints} alt="Commercial machine selling point summary" className="h-full w-full object-contain p-2" />
+                </div>
+              </div>
+              <div className="card-elevated overflow-hidden p-4">
+                <h3 className="font-display text-lg font-semibold text-foreground">Pattern Menu (64)</h3>
+                <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                  <img src={commercialMenu64} alt="Commercial machine 64-pattern menu chart" className="h-full w-full object-contain p-2" />
+                </div>
+              </div>
+              <div className="card-elevated overflow-hidden p-4">
+                <h3 className="font-display text-lg font-semibold text-foreground">Certification Snapshot</h3>
+                <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                  <img src={commercialCerts} alt="Commercial machine certification documents snapshot" className="h-full w-full object-contain p-2" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Operational details */}
+          <div className="mt-16 rounded-xl border border-border bg-muted/30 p-6 lg:p-8">
+            <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">
+              Operational Details
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Planning notes compiled from the commercial machine FAQ.
+            </p>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {operationalHighlights.map((item) => (
+                <div key={item.title} className="rounded-lg border border-border bg-background p-4">
+                  <p className="font-semibold text-foreground">{item.title}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Certification and payment integration availability can vary by region and final machine configuration; confirm current details during quote review.
+            </p>
           </div>
 
           {/* Support Boundaries */}
