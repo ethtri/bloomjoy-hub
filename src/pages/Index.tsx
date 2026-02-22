@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
 import landingHero from '@/assets/real/landing-hero.jpg';
+import commercialMain from '@/assets/real/commercial-main.jpg';
+import miniMain from '@/assets/real/mini-main.webp';
+import microMain from '@/assets/real/micro-main.webp';
 
 const productCards = [
   {
@@ -13,6 +16,7 @@ const productCards = [
     description: 'Full-size commercial unit with automatic stick dispensing and complex pattern capabilities.',
     href: '/machines/commercial-robotic-machine',
     badge: 'Most Popular',
+    image: commercialMain,
   },
   {
     title: 'Mini',
@@ -20,6 +24,7 @@ const productCards = [
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
     href: '/machines/mini',
     badge: 'Coming Soon',
+    image: miniMain,
   },
   {
     title: 'Micro',
@@ -27,6 +32,7 @@ const productCards = [
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
     badge: null,
+    image: microMain,
   },
 ];
 
@@ -98,29 +104,38 @@ export default function HomePage() {
               <Link
                 key={product.title}
                 to={product.href}
-                className="group card-elevated p-6 transition-all hover:-translate-y-1"
+                className="group card-elevated overflow-hidden transition-all hover:-translate-y-1"
               >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-display text-xl font-semibold text-foreground group-hover:text-primary">
-                      {product.title}
-                    </h3>
-                    <p className="mt-1 font-display text-2xl font-bold text-primary">
-                      {product.price}
-                    </p>
-                  </div>
-                  {product.badge && (
-                    <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                      {product.badge}
-                    </span>
-                  )}
+                <div className="aspect-square overflow-hidden bg-muted">
+                  <img
+                    src={product.image}
+                    alt={product.title}
+                    className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
+                  />
                 </div>
-                <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                  {product.description}
-                </p>
-                <div className="mt-6 flex items-center text-sm font-semibold text-primary">
-                  Learn more
-                  <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                <div className="p-6">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="font-display text-xl font-semibold text-foreground group-hover:text-primary">
+                        {product.title}
+                      </h3>
+                      <p className="mt-1 font-display text-2xl font-bold text-primary">
+                        {product.price}
+                      </p>
+                    </div>
+                    {product.badge && (
+                      <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                        {product.badge}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                    {product.description}
+                  </p>
+                  <div className="mt-6 flex items-center text-sm font-semibold text-primary">
+                    Learn more
+                    <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                  </div>
                 </div>
               </Link>
             ))}
