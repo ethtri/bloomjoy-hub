@@ -9,7 +9,7 @@ const adminModules = [
     title: 'Orders',
     description: 'Search and manage operational order workflows.',
     icon: ShoppingBag,
-    href: '#',
+    href: '/admin/orders',
   },
   {
     title: 'Support Queue',

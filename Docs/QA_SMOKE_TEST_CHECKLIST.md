@@ -30,6 +30,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
+- [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] Onboarding checklist progress updates when steps are toggled
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
@@ -54,4 +55,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/support`
 - [ ] Admin can search/filter support queue and update status/priority/assignment/notes
 - [ ] Admin updates create `admin_audit_log` entries with `action=support_request.updated`
+- [ ] Non-admin user cannot access `/admin/orders`
+- [ ] Super-admin user can access `/admin/orders`
+- [ ] Admin orders supports search by customer email/order ID and date range filtering
+- [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
 

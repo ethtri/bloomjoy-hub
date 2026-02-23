@@ -28,6 +28,7 @@ import PortalOnboarding from "./pages/portal/Onboarding";
 import PortalOrders from "./pages/portal/Orders";
 import PortalAccount from "./pages/portal/Account";
 import AdminDashboard from "./pages/admin/Dashboard";
+import AdminOrders from "./pages/admin/Orders";
 import AdminSupport from "./pages/admin/Support";
 import NotFound from "./pages/NotFound";
 
@@ -75,6 +76,7 @@ const App = () => (
               </Route>
               <Route element={<AdminRoute />}>
                 <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/admin/orders" element={<AdminOrders />} />
                 <Route path="/admin/support" element={<AdminSupport />} />
               </Route>
             </Route>
