@@ -85,14 +85,15 @@ export default function AccountPage() {
     });
   }, [accountProfile]);
 
-  const isMember = hasPlusAccess(membershipSummary?.status ?? user?.membershipStatus);
+  const effectiveMembershipStatus = membershipSummary?.status ?? user?.membershipStatus ?? 'none';
+  const isMember = hasPlusAccess(effectiveMembershipStatus);
   const membershipStatusLabel = useMemo(() => {
-    if (!membershipSummary || membershipSummary.status === 'none') {
+    if (effectiveMembershipStatus === 'none') {
       return 'Upgrade available';
     }
 
-    return formatMembershipStatus(membershipSummary.status);
-  }, [membershipSummary]);
+    return formatMembershipStatus(effectiveMembershipStatus);
+  }, [effectiveMembershipStatus]);
   const nextBillingLabel =
     isMember && membershipSummary?.currentPeriodEnd
       ? new Date(membershipSummary.currentPeriodEnd).toLocaleDateString(undefined, {
