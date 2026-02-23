@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Check, ArrowRight, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,7 @@ const clampMachineCount = (value: number) =>
 
 export default function PlusPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [machineCount, setMachineCount] = useState(MIN_MACHINE_COUNT);
   const monthlyTotal = machineCount * PRICE_PER_MACHINE_MONTHLY;
@@ -62,17 +63,20 @@ export default function PlusPage() {
   }, []);
 
   const handleStartMembership = async () => {
+    if (!user?.id || !user.email) {
+      toast.error('Please log in before starting Bloomjoy Plus checkout.');
+      navigate('/login', { state: { from: { pathname: '/plus' } } });
+      return;
+    }
+
     trackEvent('start_plus_checkout', {
       machine_count: machineCount,
       monthly_total: monthlyTotal,
+      user_id: user.id,
     });
     try {
       setIsStartingCheckout(true);
-      const checkoutUrl = await startPlusCheckout(
-        user?.email,
-        window.location.origin,
-        machineCount
-      );
+      const checkoutUrl = await startPlusCheckout(window.location.origin, machineCount);
       window.location.assign(checkoutUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start checkout.';
@@ -187,7 +191,11 @@ export default function PlusPage() {
                   onClick={handleStartMembership}
                   disabled={isStartingCheckout}
                 >
-                  {isStartingCheckout ? 'Redirecting...' : 'Start Membership'}
+                  {isStartingCheckout
+                    ? 'Redirecting...'
+                    : user
+                      ? 'Start Membership'
+                      : 'Log In to Start Membership'}
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
                 <p className="mt-4 text-center text-xs text-muted-foreground">

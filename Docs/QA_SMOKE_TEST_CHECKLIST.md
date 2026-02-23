@@ -22,6 +22,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Cart checkout blocks non-sugar items
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Contact/Quote form submits (and confirmation is shown)
+- [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
+- [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
@@ -42,6 +44,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
 - [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
 - [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
+- [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
+- [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
 - [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)

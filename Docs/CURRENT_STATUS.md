@@ -8,10 +8,8 @@
 
 ## Next P0 milestones
 1) `#56` Go-live P0: Replace mock auth with real Supabase auth/session
-2) `#57` Go-live P0: Require login for Plus checkout and bind checkout to user ID
-3) `#62` Go-live P0: Replace mock submissions with persisted lead/support/waitlist pipelines
-4) `#63` Go-live P0: Wire portal account + orders views to real DB data
-5) `#64` Go-live P0: Production environment, release runbook, and rollback checklist
+2) `#63` Go-live P0: Wire portal account + orders views to real DB data
+3) `#64` Go-live P0: Production environment, release runbook, and rollback checklist
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
@@ -45,11 +43,13 @@
 - Orders operations foundation (`#46`): real `/portal/orders` Supabase data, `/admin/orders` workspace with search/date filters, and audited fulfillment updates via admin RPC
 - Account operations foundation (`#48`): `customer_machine_inventory` source-of-truth table, admin account summary RPC, `/admin/accounts` workspace, and audited machine count updates with required reason
 - Governance polish (`#47`): `/admin/audit` view with filters, super-admin grant/revoke role flows, and role/audit RPCs linked to `admin_audit_log`
+- Go-live hardening (`#57`): Plus checkout now requires authenticated session identity, writes durable `user_id` metadata to Stripe checkout/subscription objects, and webhook mapping treats metadata user ID as authoritative when present
+- Go-live submission pipelines (`#62` scoped): Contact form + Mini waitlist now persist to Supabase (`lead_submissions`, `mini_waitlist_submissions`) with clear success/error handling and honeypot anti-spam fields
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Go-live hardening and production launch readiness now drive the top P0 queue (`#56`, `#57`, `#62`, `#63`, `#64`).
+- Production launch readiness now drives the top P0 queue (`#56`, `#63`, `#64`).
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
