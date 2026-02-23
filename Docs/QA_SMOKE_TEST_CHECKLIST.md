@@ -31,6 +31,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
+- [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
+- [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
+- [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
 - [ ] Onboarding checklist progress updates when steps are toggled
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
