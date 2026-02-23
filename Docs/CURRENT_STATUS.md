@@ -11,7 +11,6 @@
 2) `#57` Go-live P0: Require login for Plus checkout and bind checkout to user ID
 3) `#62` Go-live P0: Replace mock submissions with persisted lead/support/waitlist pipelines
 4) `#63` Go-live P0: Wire portal account + orders views to real DB data
-5) `#64` Go-live P0: Production environment, release runbook, and rollback checklist
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
@@ -45,16 +44,18 @@
 - Orders operations foundation (`#46`): real `/portal/orders` Supabase data, `/admin/orders` workspace with search/date filters, and audited fulfillment updates via admin RPC
 - Account operations foundation (`#48`): `customer_machine_inventory` source-of-truth table, admin account summary RPC, `/admin/accounts` workspace, and audited machine count updates with required reason
 - Governance polish (`#47`): `/admin/audit` view with filters, super-admin grant/revoke role flows, and role/audit RPCs linked to `admin_audit_log`
+- Go-live release operations runbook (`#64`): production env var matrix, deployment sequence, launch verification, and rollback checklist documented in `Docs/PRODUCTION_RUNBOOK.md`
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Go-live hardening and production launch readiness now drive the top P0 queue (`#56`, `#57`, `#62`, `#63`, `#64`).
+- Production credential execution is still owner-controlled (runbook is ready, but production deploy itself is not yet executed).
+- Go-live hardening and production launch readiness now drive the top P0 queue (`#56`, `#57`, `#62`, `#63`).
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
 - Local: `npm run dev` on a PR branch/worktree
-- Production: not set up yet
+- Production: runbook ready in `Docs/PRODUCTION_RUNBOOK.md`; execution pending owner credentials
 
 ## How to test on localhost (simple steps)
 1) In the project folder, run `npm ci`
