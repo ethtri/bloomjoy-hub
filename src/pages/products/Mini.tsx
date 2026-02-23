@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
+import { createMiniWaitlistSubmission } from '@/lib/miniWaitlist';
 import { toast } from 'sonner';
 import miniMain from '@/assets/real/mini-main.webp';
 import miniGallery1 from '@/assets/real/mini-gallery-1.webp';
@@ -21,18 +22,35 @@ const miniImages = [
 
 export default function MiniPage() {
   const [email, setEmail] = useState('');
+  const [website, setWebsite] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     trackEvent('view_product_mini');
   }, []);
 
-  const handleWaitlist = (e: React.FormEvent) => {
+  const handleWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock submission
-    console.log('Waitlist signup:', email);
-    setSubmitted(true);
-    toast.success('You\'ve been added to the Mini waitlist!');
+
+    if (website.trim()) {
+      setSubmitted(true);
+      toast.success('You\'ve been added to the Mini waitlist!');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await createMiniWaitlistSubmission({ email: email.trim().toLowerCase() });
+      setSubmitted(true);
+      setEmail('');
+      toast.success('You\'ve been added to the Mini waitlist!');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to join the waitlist.';
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -88,15 +106,28 @@ export default function MiniPage() {
                   </div>
                 ) : (
                   <form onSubmit={handleWaitlist} className="mt-4 flex gap-3">
+                    <div className="hidden" aria-hidden="true">
+                      <label htmlFor="mini-website">Website</label>
+                      <Input
+                        id="mini-website"
+                        value={website}
+                        onChange={(e) => setWebsite(e.target.value)}
+                        tabIndex={-1}
+                        autoComplete="off"
+                      />
+                    </div>
                     <Input
                       type="email"
                       placeholder="your@email.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      disabled={submitting}
                       required
                       className="flex-1"
                     />
-                    <Button type="submit">Join Waitlist</Button>
+                    <Button type="submit" disabled={submitting}>
+                      {submitting ? 'Joining...' : 'Join Waitlist'}
+                    </Button>
                   </form>
                 )}
               </div>

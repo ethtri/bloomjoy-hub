@@ -7,9 +7,7 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-1) `#57` Go-live P0: Require login for Plus checkout and bind checkout to user ID
-2) `#62` Go-live P0: Replace mock submissions with persisted lead/support/waitlist pipelines
-3) `#63` Go-live P0: Wire portal account + orders views to real DB data
+2) `#64` Go-live P0: Production environment, release runbook, and rollback checklist
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
@@ -44,13 +42,16 @@
 - Account operations foundation (`#48`): `customer_machine_inventory` source-of-truth table, admin account summary RPC, `/admin/accounts` workspace, and audited machine count updates with required reason
 - Governance polish (`#47`): `/admin/audit` view with filters, super-admin grant/revoke role flows, and role/audit RPCs linked to `admin_audit_log`
 - Go-live auth/session (`#56`): Supabase session auth + protected route redirect are now the active portal auth baseline
+- Go-live hardening (`#57`): Plus checkout now requires authenticated session identity, writes durable `user_id` metadata to Stripe checkout/subscription objects, and webhook mapping treats metadata user ID as authoritative when present
+- Go-live submission pipelines (`#62` scoped): Contact form + Mini waitlist now persist to Supabase (`lead_submissions`, `mini_waitlist_submissions`) with clear success/error handling and honeypot anti-spam fields
+- Go-live account data hardening (`#63`): portal account page now loads and saves persisted profile/shipping data (`customer_profiles`) and uses live membership period/status from `subscriptions`
 - Go-live release operations runbook (`#64`): production env var matrix, deployment sequence, launch verification, and rollback checklist documented in `Docs/PRODUCTION_RUNBOOK.md`
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution is still owner-controlled (runbook is ready, but production deploy itself is not yet executed).
-- Go-live hardening and production launch readiness now drive the top P0 queue (`#57`, `#62`, `#63`).
+- Production launch readiness now drives the remaining P0 queue (`#64`).
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
