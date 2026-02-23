@@ -21,7 +21,7 @@ const adminModules = [
     title: 'Accounts',
     description: 'Review memberships, machine counts, and account activity.',
     icon: Users,
-    href: '#',
+    href: '/admin/accounts',
   },
   {
     title: 'Audit Log',

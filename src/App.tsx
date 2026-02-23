@@ -30,6 +30,7 @@ import PortalAccount from "./pages/portal/Account";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminOrders from "./pages/admin/Orders";
 import AdminSupport from "./pages/admin/Support";
+import AdminAccounts from "./pages/admin/Accounts";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -78,6 +79,7 @@ const App = () => (
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/admin/orders" element={<AdminOrders />} />
                 <Route path="/admin/support" element={<AdminSupport />} />
+                <Route path="/admin/accounts" element={<AdminAccounts />} />
               </Route>
             </Route>
             <Route path="*" element={<NotFound />} />

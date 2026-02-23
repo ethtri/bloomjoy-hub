@@ -39,11 +39,12 @@
 - Super-admin foundation (`#44`): Supabase session auth in `AuthContext`, `admin_roles` + `admin_audit_log` migration with `is_super_admin` RLS helper, and protected `/admin` route shell
 - Support operations foundation (`#45`): persisted `support_requests` table + RLS, portal support form writes, `/admin/support` triage queue, and audit logging via admin RPC
 - Orders operations foundation (`#46`): real `/portal/orders` Supabase data, `/admin/orders` workspace with search/date filters, and audited fulfillment updates via admin RPC
+- Account operations foundation (`#48`): `customer_machine_inventory` source-of-truth table, admin account summary RPC, `/admin/accounts` workspace, and audited machine count updates with required reason
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Remaining super-admin implementation slices are pending (`#47`-`#48`).
+- Remaining super-admin implementation slice is pending (`#47`).
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments

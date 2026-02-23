@@ -59,4 +59,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/orders`
 - [ ] Admin orders supports search by customer email/order ID and date range filtering
 - [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
+- [ ] Non-admin user cannot access `/admin/accounts`
+- [ ] Super-admin user can access `/admin/accounts`
+- [ ] Admin account search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Admin machine count edits require update reason and persist in `customer_machine_inventory`
+- [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
 
