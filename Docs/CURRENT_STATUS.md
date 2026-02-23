@@ -33,6 +33,9 @@
 ## Recently completed (post-P0)
 - Plus pricing model by machine count (`$100 per machine/month`) with Stripe quantity-based checkout
 - Supplies UX improvement: typed bulk quantity input for cotton candy sticks ordering
+- Public-site asset refresh: real machine/supplies/about photography, improved model image coverage, and homepage machine card visuals
+- Machine detail UX upgrade: per-model image galleries with selectable thumbnails
+- Commercial machine page content upgrade: native specs table/cards, operational details, and in-page full-size modal previews for pattern menu + certification snapshot
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
