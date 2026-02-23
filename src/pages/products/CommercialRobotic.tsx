@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ArrowRight, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
@@ -68,6 +69,12 @@ const technicalSpecs = [
 ];
 
 export default function CommercialRoboticPage() {
+  const [activeDoc, setActiveDoc] = useState<{
+    src: string;
+    alt: string;
+    title: string;
+  } | null>(null);
+
   useEffect(() => {
     trackEvent('view_product_commercial_robotic');
   }, []);
@@ -201,14 +208,19 @@ export default function CommercialRoboticPage() {
               <div className="card-elevated overflow-hidden p-4">
                 <div className="flex items-center justify-between gap-4">
                   <h3 className="font-display text-lg font-semibold text-foreground">Pattern Menu (64)</h3>
-                  <a
-                    href={commercialMenu64}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveDoc({
+                        src: commercialMenu64,
+                        alt: 'Commercial machine 64-pattern menu chart',
+                        title: 'Pattern Menu (64)',
+                      })
+                    }
                     className="text-sm font-semibold text-primary hover:underline"
                   >
                     Open full size
-                  </a>
+                  </button>
                 </div>
                 <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
                   <img src={commercialMenu64} alt="Commercial machine 64-pattern menu chart" className="h-full w-full object-contain p-2" />
@@ -218,14 +230,19 @@ export default function CommercialRoboticPage() {
               <div className="card-elevated overflow-hidden p-4">
                 <div className="flex items-center justify-between gap-4">
                   <h3 className="font-display text-lg font-semibold text-foreground">Certification Snapshot</h3>
-                  <a
-                    href={commercialCerts}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveDoc({
+                        src: commercialCerts,
+                        alt: 'Commercial machine certification documents snapshot',
+                        title: 'Certification Snapshot',
+                      })
+                    }
                     className="text-sm font-semibold text-primary hover:underline"
                   >
                     Open full size
-                  </a>
+                  </button>
                 </div>
                 <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
                   <img src={commercialCerts} alt="Commercial machine certification documents snapshot" className="h-full w-full object-contain p-2" />
@@ -233,6 +250,24 @@ export default function CommercialRoboticPage() {
               </div>
             </div>
           </div>
+
+          <Dialog open={Boolean(activeDoc)} onOpenChange={(open) => !open && setActiveDoc(null)}>
+            <DialogContent className="max-w-[95vw] border-none bg-transparent p-0 shadow-none">
+              <DialogTitle className="sr-only">{activeDoc?.title ?? 'Document Preview'}</DialogTitle>
+              <DialogDescription className="sr-only">
+                Full-size preview for commercial machine supporting documentation.
+              </DialogDescription>
+              <div className="rounded-xl bg-background p-3">
+                {activeDoc && (
+                  <img
+                    src={activeDoc.src}
+                    alt={activeDoc.alt}
+                    className="mx-auto max-h-[85vh] w-auto max-w-full object-contain"
+                  />
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Operational details */}
           <div className="mt-16 rounded-xl border border-border bg-muted/30 p-6 lg:p-8">
