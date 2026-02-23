@@ -25,16 +25,18 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
-- [ ] Demo note: no real email is sent yet; any email should log in locally
+- [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
+- [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] Onboarding checklist progress updates when steps are toggled
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
 - [ ] Training detail page opens and embed placeholder loads
 - [ ] Support request forms submit and show success state
+- [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 
 ## Payments (test mode)
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
@@ -47,4 +49,23 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Regression sanity
 - [ ] `npm run build` passes
 - [ ] `npm run lint` passes (if configured)
+
+## Admin (super-admin)
+- [ ] Non-admin user cannot access `/admin/support`
+- [ ] Super-admin user can access `/admin/support`
+- [ ] Admin can search/filter support queue and update status/priority/assignment/notes
+- [ ] Admin updates create `admin_audit_log` entries with `action=support_request.updated`
+- [ ] Non-admin user cannot access `/admin/orders`
+- [ ] Super-admin user can access `/admin/orders`
+- [ ] Admin orders supports search by customer email/order ID and date range filtering
+- [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
+- [ ] Non-admin user cannot access `/admin/accounts`
+- [ ] Super-admin user can access `/admin/accounts`
+- [ ] Admin account search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Admin machine count edits require update reason and persist in `customer_machine_inventory`
+- [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
+- [ ] Non-admin user cannot access `/admin/audit`
+- [ ] Super-admin user can access `/admin/audit`
+- [ ] Super-admin can grant and revoke super-admin role with reason metadata
+- [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 

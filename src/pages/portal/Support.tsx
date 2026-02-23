@@ -5,26 +5,44 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { trackEvent } from '@/lib/analytics';
+import { createSupportRequest } from '@/lib/supportRequests';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 type SupportType = 'concierge' | 'parts' | 'wechat' | null;
 
 export default function SupportPage() {
+  const { user } = useAuth();
   const [activeForm, setActiveForm] = useState<SupportType>(null);
   const [formData, setFormData] = useState({ subject: '', message: '' });
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (type: 'concierge' | 'parts') => {
+    if (!user?.id || !user?.email) {
+      toast.error('Log in to submit a support request.');
+      return;
+    }
+
     setLoading(true);
-    trackEvent(`submit_support_request_${type}`, { subject: formData.subject });
+    try {
+      await createSupportRequest({
+        requestType: type,
+        customerUserId: user.id,
+        customerEmail: user.email,
+        subject: formData.subject.trim(),
+        message: formData.message.trim(),
+      });
 
-    // Mock submission
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    toast.success('Support request submitted! We\'ll get back to you soon.');
-    setActiveForm(null);
-    setFormData({ subject: '', message: '' });
-    setLoading(false);
+      trackEvent(`submit_support_request_${type}`, { subject: formData.subject });
+      toast.success('Support request submitted! We\'ll get back to you soon.');
+      setActiveForm(null);
+      setFormData({ subject: '', message: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to submit support request.';
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

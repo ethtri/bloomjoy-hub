@@ -29,7 +29,12 @@ type EventName =
   | 'reorder_sugar_completed'
   | 'add_to_cart'
   | 'remove_from_cart'
-  | 'view_cart';
+  | 'view_cart'
+  | 'admin_support_request_updated'
+  | 'admin_order_fulfillment_updated'
+  | 'admin_machine_inventory_updated'
+  | 'admin_role_granted'
+  | 'admin_role_revoked';
 
 interface EventProperties {
   [key: string]: string | number | boolean | undefined;

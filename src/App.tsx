@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { MemberRoute } from "@/components/auth/MemberRoute";
+import { AdminRoute } from "@/components/auth/AdminRoute";
 
 import Index from "./pages/Index";
 import Products from "./pages/Products";
@@ -26,6 +27,11 @@ import PortalSupport from "./pages/portal/Support";
 import PortalOnboarding from "./pages/portal/Onboarding";
 import PortalOrders from "./pages/portal/Orders";
 import PortalAccount from "./pages/portal/Account";
+import AdminDashboard from "./pages/admin/Dashboard";
+import AdminOrders from "./pages/admin/Orders";
+import AdminSupport from "./pages/admin/Support";
+import AdminAccounts from "./pages/admin/Accounts";
+import AdminAudit from "./pages/admin/Audit";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -69,6 +75,13 @@ const App = () => (
                 <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
                 <Route path="/portal/support" element={<PortalSupport />} />
                 <Route path="/portal/onboarding" element={<PortalOnboarding />} />
+              </Route>
+              <Route element={<AdminRoute />}>
+                <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/admin/orders" element={<AdminOrders />} />
+                <Route path="/admin/support" element={<AdminSupport />} />
+                <Route path="/admin/accounts" element={<AdminAccounts />} />
+                <Route path="/admin/audit" element={<AdminAudit />} />
               </Route>
             </Route>
             <Route path="*" element={<NotFound />} />
