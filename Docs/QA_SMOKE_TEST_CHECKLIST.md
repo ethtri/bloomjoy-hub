@@ -35,6 +35,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training catalog visible to logged-in users
 - [ ] Training detail page opens and embed placeholder loads
 - [ ] Support request forms submit and show success state
+- [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 
 ## Payments (test mode)
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
@@ -47,4 +48,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Regression sanity
 - [ ] `npm run build` passes
 - [ ] `npm run lint` passes (if configured)
+
+## Admin (super-admin)
+- [ ] Non-admin user cannot access `/admin/support`
+- [ ] Super-admin user can access `/admin/support`
+- [ ] Admin can search/filter support queue and update status/priority/assignment/notes
+- [ ] Admin updates create `admin_audit_log` entries with `action=support_request.updated`
 

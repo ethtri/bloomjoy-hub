@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { ShieldCheck, ShoppingBag, LifeBuoy, Users, ClipboardList } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,21 +9,25 @@ const adminModules = [
     title: 'Orders',
     description: 'Search and manage operational order workflows.',
     icon: ShoppingBag,
+    href: '#',
   },
   {
     title: 'Support Queue',
     description: 'Triage concierge and parts-assistance requests.',
     icon: LifeBuoy,
+    href: '/admin/support',
   },
   {
     title: 'Accounts',
     description: 'Review memberships, machine counts, and account activity.',
     icon: Users,
+    href: '#',
   },
   {
     title: 'Audit Log',
     description: 'Track sensitive admin actions and role changes.',
     icon: ClipboardList,
+    href: '#',
   },
 ];
 
@@ -67,6 +72,11 @@ export default function AdminDashboardPage() {
                 </div>
                 <h2 className="mt-4 font-semibold text-foreground">{module.title}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">{module.description}</p>
+                {module.href !== '#' && (
+                  <Button asChild variant="outline" size="sm" className="mt-4">
+                    <Link to={module.href}>Open</Link>
+                  </Button>
+                )}
               </div>
             ))}
           </div>

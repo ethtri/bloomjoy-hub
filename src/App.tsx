@@ -28,6 +28,7 @@ import PortalOnboarding from "./pages/portal/Onboarding";
 import PortalOrders from "./pages/portal/Orders";
 import PortalAccount from "./pages/portal/Account";
 import AdminDashboard from "./pages/admin/Dashboard";
+import AdminSupport from "./pages/admin/Support";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -74,6 +75,7 @@ const App = () => (
               </Route>
               <Route element={<AdminRoute />}>
                 <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/admin/support" element={<AdminSupport />} />
               </Route>
             </Route>
             <Route path="*" element={<NotFound />} />
