@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
-import heroMachine from '@/assets/hero-machine.jpg';
-import machineMini from '@/assets/machine-mini.jpg';
-import machineMicro from '@/assets/machine-micro.jpg';
+import commercialMain from '@/assets/real/commercial-main.jpg';
+import miniMain from '@/assets/real/mini-main.webp';
+import microMain from '@/assets/real/micro-main.webp';
 
 const machineProducts = [
   {
@@ -14,7 +14,7 @@ const machineProducts = [
     price: '$10,000',
     description: 'Full-size commercial unit with automatic stick dispensing and complex pattern capabilities.',
     href: '/machines/commercial-robotic-machine',
-    image: heroMachine,
+    image: commercialMain,
     badge: 'Most Popular',
   },
   {
@@ -23,7 +23,7 @@ const machineProducts = [
     price: '$4,000',
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
     href: '/machines/mini',
-    image: machineMini,
+    image: miniMain,
     badge: 'Coming Soon',
   },
   {
@@ -32,7 +32,7 @@ const machineProducts = [
     price: '$400',
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
-    image: machineMicro,
+    image: microMain,
     badge: null,
   },
 ];
@@ -71,7 +71,7 @@ export default function ProductsPage() {
                   <img
                     src={product.image}
                     alt={product.name}
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
                   />
                 </div>
                 <div className="p-6">

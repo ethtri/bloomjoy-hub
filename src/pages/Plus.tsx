@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const benefits = [
   {
     title: 'Onboarding Checklist',
-    description: 'Step-by-step guidance to get your machine operational, including WeChat setup with Sunze support.',
+    description: 'Step-by-step guidance to get your machine operational, including WeChat setup with manufacturer support.',
   },
   {
     title: 'Training Library',
@@ -238,7 +238,7 @@ export default function PlusPage() {
               </div>
               <div className="rounded-xl border border-border bg-background p-6">
                 <h3 className="font-display text-lg font-semibold text-foreground">
-                  Sunze Technical Support
+                  Manufacturer Technical Support
                 </h3>
                 <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
                   <li className="flex items-start gap-2">

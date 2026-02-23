@@ -95,7 +95,7 @@ export function Footer() {
         {/* Support Boundaries Notice */}
         <div className="mt-12 rounded-lg border border-border bg-background p-4">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            <strong className="font-semibold text-foreground">Support Boundaries:</strong> Sunze provides 24/7 first-line technical support via WeChat for machine issues. Bloomjoy provides concierge guidance, onboarding assistance, and escalation support during US business hours (Mon–Fri, 9am–5pm EST). Bloomjoy is not a 24/7 support provider. Response times may vary based on volume.
+            <strong className="font-semibold text-foreground">Support Boundaries:</strong> The manufacturer support team provides 24/7 first-line technical support via WeChat for machine issues. Bloomjoy provides concierge guidance, onboarding assistance, and escalation support during US business hours (Mon–Fri, 9am–5pm EST). Bloomjoy is not a 24/7 support provider. Response times may vary based on volume.
           </p>
         </div>
 

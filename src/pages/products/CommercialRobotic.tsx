@@ -1,12 +1,80 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ArrowRight, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Layout } from '@/components/layout/Layout';
+import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
-import heroMachine from '@/assets/hero-machine.jpg';
+import commercialMain from '@/assets/real/commercial-main.jpg';
+import commercialGallery1 from '@/assets/real/commercial-gallery-1.webp';
+import commercialGallery2 from '@/assets/real/commercial-gallery-2.webp';
+import commercialGallery3 from '@/assets/real/commercial-gallery-3.webp';
+import commercialCerts from '@/assets/real/commercial-certs.png';
+import commercialMenu64 from '@/assets/real/commercial-menu64.jpg';
+
+const commercialImages = [
+  { src: commercialMain, alt: 'Commercial robotic machine main view' },
+  { src: commercialGallery1, alt: 'Commercial machine product highlight' },
+  { src: commercialGallery2, alt: 'Commercial machine diagram view' },
+  { src: commercialGallery3, alt: 'Commercial machine size and weight chart' },
+];
+
+const operationalHighlights = [
+  {
+    title: 'Payment Flexibility',
+    detail:
+      'Supports card-reader integrations plus local bank credit/debit cards and common mobile wallets, based on deployment needs.',
+  },
+  {
+    title: 'Remote Operations Dashboard',
+    detail:
+      'Monitor sales, machine status, scheduling, and key operational settings from a remote management app.',
+  },
+  {
+    title: 'Maintenance Rhythm',
+    detail:
+      'Typical routine maintenance is about every 15 days and can be completed in roughly 20-30 minutes.',
+  },
+  {
+    title: 'Consumables',
+    detail:
+      'Runs on four sugar colors and paper sticks; both are standard items in the Bloomjoy supplies flow.',
+  },
+  {
+    title: 'Warranty + Troubleshooting',
+    detail:
+      'Up to 1.5-year machine warranty, remote troubleshooting guidance, and replacement-part workflow for faster recovery.',
+  },
+];
+
+const specHighlights = [
+  { label: 'Pattern Library', value: '64 patterns' },
+  { label: 'Flavor/Sugar Colors', value: '4 options' },
+  { label: 'Candy Cycle Time', value: '70-130s per candy' },
+  { label: 'Output Per Full Load', value: '200-250 candies' },
+  { label: 'Machine Weight', value: '230kg' },
+  { label: 'Display', value: '21.5-inch screen' },
+];
+
+const technicalSpecs = [
+  { item: 'Power', value: 'AC 110V/220V, 2700W' },
+  { item: 'Dimensions (H x W x D)', value: '2001 x 643 x 1315 mm or 2001 x 671 x 1332 mm' },
+  { item: 'Weight', value: '230kg' },
+  { item: 'Pattern Count', value: '64 preset patterns' },
+  { item: 'Per-Candy Production Time', value: '70-130 seconds' },
+  { item: 'Total Candies Per Full Material Load', value: '200-250 units' },
+  { item: 'Water Refill Frequency', value: 'After approximately every 200 candies produced' },
+  { item: 'Screen Size', value: '21.5 inches' },
+];
 
 export default function CommercialRoboticPage() {
+  const [activeDoc, setActiveDoc] = useState<{
+    src: string;
+    alt: string;
+    title: string;
+  } | null>(null);
+
   useEffect(() => {
     trackEvent('view_product_commercial_robotic');
   }, []);
@@ -33,13 +101,7 @@ export default function CommercialRoboticPage() {
           <div className="grid gap-12 lg:grid-cols-2">
             {/* Image */}
             <div>
-              <div className="aspect-square overflow-hidden rounded-2xl bg-muted shadow-elevated-lg">
-                <img
-                  src={heroMachine}
-                  alt="Bloomjoy Sweets Robotic Cotton Candy Machine"
-                  className="h-full w-full object-cover"
-                />
-              </div>
+              <ProductImageGallery images={commercialImages} />
             </div>
 
             {/* Details */}
@@ -105,6 +167,129 @@ export default function CommercialRoboticPage() {
             </div>
           </div>
 
+          {/* Specs and Documentation */}
+          <div className="mt-16">
+            <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">
+              Specs and Documentation
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              Commercial planning details presented in native, readable format.
+            </p>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {specHighlights.map((highlight) => (
+                <div key={highlight.label} className="card-elevated p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {highlight.label}
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-bold text-foreground">{highlight.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 overflow-hidden rounded-xl border border-border bg-background">
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-sm">
+                  <tbody>
+                    {technicalSpecs.map((row) => (
+                      <tr key={row.item} className="border-b border-border last:border-b-0">
+                        <th className="w-[38%] bg-muted/30 px-4 py-3 text-left font-semibold text-foreground">
+                          {row.item}
+                        </th>
+                        <td className="px-4 py-3 text-muted-foreground">{row.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div className="card-elevated overflow-hidden p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <h3 className="font-display text-lg font-semibold text-foreground">Pattern Menu (64)</h3>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveDoc({
+                        src: commercialMenu64,
+                        alt: 'Commercial machine 64-pattern menu chart',
+                        title: 'Pattern Menu (64)',
+                      })
+                    }
+                    className="text-sm font-semibold text-primary hover:underline"
+                  >
+                    Open full size
+                  </button>
+                </div>
+                <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                  <img src={commercialMenu64} alt="Commercial machine 64-pattern menu chart" className="h-full w-full object-contain p-2" />
+                </div>
+              </div>
+
+              <div className="card-elevated overflow-hidden p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <h3 className="font-display text-lg font-semibold text-foreground">Certification Snapshot</h3>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveDoc({
+                        src: commercialCerts,
+                        alt: 'Commercial machine certification documents snapshot',
+                        title: 'Certification Snapshot',
+                      })
+                    }
+                    className="text-sm font-semibold text-primary hover:underline"
+                  >
+                    Open full size
+                  </button>
+                </div>
+                <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                  <img src={commercialCerts} alt="Commercial machine certification documents snapshot" className="h-full w-full object-contain p-2" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <Dialog open={Boolean(activeDoc)} onOpenChange={(open) => !open && setActiveDoc(null)}>
+            <DialogContent className="max-w-[95vw] border-none bg-transparent p-0 shadow-none">
+              <DialogTitle className="sr-only">{activeDoc?.title ?? 'Document Preview'}</DialogTitle>
+              <DialogDescription className="sr-only">
+                Full-size preview for commercial machine supporting documentation.
+              </DialogDescription>
+              <div className="rounded-xl bg-background p-3">
+                {activeDoc && (
+                  <img
+                    src={activeDoc.src}
+                    alt={activeDoc.alt}
+                    className="mx-auto max-h-[85vh] w-auto max-w-full object-contain"
+                  />
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Operational details */}
+          <div className="mt-16 rounded-xl border border-border bg-muted/30 p-6 lg:p-8">
+            <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">
+              Operational Details
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Planning notes compiled from the commercial machine FAQ.
+            </p>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {operationalHighlights.map((item) => (
+                <div key={item.title} className="rounded-lg border border-border bg-background p-4">
+                  <p className="font-semibold text-foreground">{item.title}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Certification and payment integration availability can vary by region and final machine configuration; confirm current details during quote review.
+            </p>
+          </div>
+
           {/* Support Boundaries */}
           <div className="mt-16 rounded-xl border border-border bg-muted/50 p-6 lg:p-8">
             <div className="flex items-start gap-4">
@@ -117,7 +302,7 @@ export default function CommercialRoboticPage() {
                 </h3>
                 <div className="mt-3 space-y-3 text-sm text-muted-foreground">
                   <p>
-                    <strong className="font-semibold text-foreground">Sunze (Manufacturer):</strong>{' '}
+                    <strong className="font-semibold text-foreground">Manufacturer Support:</strong>{' '}
                     24/7 first-line technical support via WeChat. Direct access to engineering team for machine diagnostics, troubleshooting, and warranty service.
                   </p>
                   <p>

@@ -1,4 +1,4 @@
-# QA Smoke Test Checklist (Sponsor)
+﻿# QA Smoke Test Checklist (Sponsor)
 
 Run these checks on localhost for each PR that adds a user-facing feature.
 
@@ -10,8 +10,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Public site
 - [ ] Home loads and key CTAs navigate correctly
+- [ ] Home machine cards show correct model images (Commercial, Mini, Micro) without awkward clipping
 - [ ] Product pages load (Full, Micro, Mini)
-  - [ ] Mini shows “Coming soon / Waitlist” when enabled
+  - [ ] Mini shows â€œComing soon / Waitlistâ€ when enabled
+- [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)
+- [ ] Commercial page shows native specs content (not image-only text for core specs)
+- [ ] Commercial page "Open full size" actions open in-page modal and can be closed to return to the same screen
 - [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
 - [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
 - [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)

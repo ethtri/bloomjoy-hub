@@ -3,10 +3,25 @@ import { Link } from 'react-router-dom';
 import { Check, AlertCircle, ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
+import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
 import { useCart } from '@/lib/cart';
 import { toast } from 'sonner';
-import machineMicro from '@/assets/machine-micro.jpg';
+import microMain from '@/assets/real/micro-main.webp';
+import microGallery1 from '@/assets/real/micro-gallery-1.webp';
+import microGallery2 from '@/assets/real/micro-gallery-2.webp';
+import microGallery3 from '@/assets/real/micro-gallery-3.webp';
+import microGallery4 from '@/assets/real/micro-gallery-4.webp';
+import microGallery5 from '@/assets/real/micro-gallery-5.webp';
+
+const microImages = [
+  { src: microMain, alt: 'Micro machine main view' },
+  { src: microGallery1, alt: 'Micro machine product highlight' },
+  { src: microGallery2, alt: 'Micro machine action shot with pink cotton candy' },
+  { src: microGallery3, alt: 'Micro machine action shot with blue cotton candy' },
+  { src: microGallery4, alt: 'Micro machine dimensions' },
+  { src: microGallery5, alt: 'Micro machine diagram' },
+];
 
 export default function MicroPage() {
   const { addItem } = useCart();
@@ -44,13 +59,7 @@ export default function MicroPage() {
           <div className="grid gap-12 lg:grid-cols-2">
             {/* Image */}
             <div>
-              <div className="aspect-square overflow-hidden rounded-2xl bg-muted shadow-elevated-lg">
-                <img
-                  src={machineMicro}
-                  alt="Bloomjoy Sweets Micro"
-                  className="h-full w-full object-cover"
-                />
-              </div>
+              <ProductImageGallery images={microImages} />
             </div>
 
             {/* Details */}

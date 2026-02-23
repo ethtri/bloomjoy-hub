@@ -25,7 +25,7 @@ B) Authenticated member portal for subscription management, orders, training lib
 
 ## 3) Key differentiators
 - Deep operational experience: 5+ years operating machines across ~12 U.S. states
-- Strong manufacturer relationship with Sunze (direct access, wholesale pricing, bilingual support)
+- Strong manufacturer relationship (direct access, wholesale pricing, bilingual support)
 - Premium sugar supply chain: dust-free, optimized granularity, resealable 1kg bags, consistent performance
 - English-first onboarding + operator playbooks (concierge layer above manufacturer support)
 
@@ -49,7 +49,7 @@ B) Authenticated member portal for subscription management, orders, training lib
 ### Consumables
 1) Premium Sugar
    - $8 per KG (resealable 1KG bags)
-   - Optimized for Bloomjoy/Sunze machines (dust-free, ideal granularity)
+   - Optimized for Bloomjoy machines (dust-free, ideal granularity)
    - Franchise owners are being phased out; members may get discounts and/or shipping benefits (configurable)
 
 2) Sticks
@@ -58,7 +58,7 @@ B) Authenticated member portal for subscription management, orders, training lib
 
 ### Accessories (optional MVP)
 - Minimal: cleaning tools / small accessories only if operationally easy
-- Do NOT sell spare parts as inventory; parts are fulfilled by manufacturer (Sunze)
+- Do NOT sell spare parts as inventory; parts are fulfilled by the manufacturer
 
 ## 5) Bloomjoy Plus membership (MVP = Plus Basic)
 ### Bloomjoy Plus Basic (MVP)
@@ -68,11 +68,11 @@ Included:
 - Onboarding (English-first): setup checklist + we help you get manufacturer WeChat support working
 - Training library access (hosted on Bloomjoy website; NOT buried in manufacturer WeChat threads)
 - Member community access (exclusive member chat; currently WeChat or equivalent)
-- Concierge support (business/operator guidance + warm transfer to Sunze when needed)
+- Concierge support (business/operator guidance + warm transfer to manufacturer support when needed)
 - Optional: member sugar pricing and/or shipping perks (configurable rules)
 
 Support boundary:
-- Sunze provides 1st-line 24/7 support via WeChat for technical troubleshooting/repairs
+- Manufacturer support provides 1st-line 24/7 support via WeChat for technical troubleshooting/repairs
 - Bloomjoy provides concierge: triage, best-practice guidance, translation/escalation, and operational advice
 - Bloomjoy does NOT promise 24/7 response; publish clear response expectations (e.g., business hours + best-effort)
 
@@ -81,7 +81,7 @@ Support boundary:
 - Members can request help manually:
   1) Member posts in member chat / submits form request
   2) Bloomjoy helps diagnose which part is needed
-  3) Bloomjoy assists in ordering from Sunze (manual concierge)
+  3) Bloomjoy assists in ordering from the manufacturer (manual concierge)
 - Website should include a simple "Parts Assistance" request flow (ticket/form) but fulfillment is manual
 
 ## 6) Target customer segments
@@ -205,12 +205,12 @@ Portal usage:
 - Avoid unverifiable superlatives; focus on operator experience + quality control + training
 
 ## 14) Operating model alignment (how the business actually runs)
-- Machines are sourced wholesale from Sunze
+- Machines are sourced wholesale from the manufacturer
 - Manufacturer provides 24/7 first-line support via WeChat
 - Bloomjoy provides concierge and operational guidance (English-first)
 - Bloomjoy sells sugar and sticks; does not stock spare parts
 - Parts issues are handled via:
-  - Sunze troubleshooting + warranty workflow
+  - Manufacturer troubleshooting + warranty workflow
   - Bloomjoy concierge helps coordinate diagnosis and ordering (manual)
 
 ## 15) Roadmap (post-MVP ideas)

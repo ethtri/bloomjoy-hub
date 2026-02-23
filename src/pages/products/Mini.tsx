@@ -4,9 +4,20 @@ import { Check, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
+import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
 import { toast } from 'sonner';
-import machineMini from '@/assets/machine-mini.jpg';
+import miniMain from '@/assets/real/mini-main.webp';
+import miniGallery1 from '@/assets/real/mini-gallery-1.webp';
+import miniGallery2 from '@/assets/real/mini-gallery-2.webp';
+import miniGallery3 from '@/assets/real/mini-gallery-3.webp';
+
+const miniImages = [
+  { src: miniMain, alt: 'Mini machine main view' },
+  { src: miniGallery1, alt: 'Mini machine product design and pattern samples' },
+  { src: miniGallery2, alt: 'Mini machine full-size specifications' },
+  { src: miniGallery3, alt: 'Mini machine technical specifications' },
+];
 
 export default function MiniPage() {
   const [email, setEmail] = useState('');
@@ -42,13 +53,7 @@ export default function MiniPage() {
           <div className="grid gap-12 lg:grid-cols-2">
             {/* Image */}
             <div>
-              <div className="aspect-square overflow-hidden rounded-2xl bg-muted shadow-elevated-lg">
-                <img
-                  src={machineMini}
-                  alt="Bloomjoy Sweets Mini"
-                  className="h-full w-full object-cover"
-                />
-              </div>
+              <ProductImageGallery images={miniImages} />
             </div>
 
             {/* Details */}

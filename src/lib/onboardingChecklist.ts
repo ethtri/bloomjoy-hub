@@ -31,7 +31,7 @@ export const onboardingSteps: OnboardingStep[] = [
   {
     id: '3',
     title: 'Set up WeChat for manufacturer support',
-    description: 'Download WeChat and connect with Sunze support for 24/7 technical assistance.',
+    description: 'Download WeChat and connect with manufacturer support for 24/7 technical assistance.',
     action: { label: 'View Setup Guide', href: '/portal/support' },
   },
   {
