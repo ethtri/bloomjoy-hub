@@ -25,7 +25,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
-- [ ] Demo note: no real email is sent yet; any email should log in locally
+- [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)

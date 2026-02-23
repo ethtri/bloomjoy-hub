@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Mail, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,9 +11,17 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const fromPath =
+    (location.state as { from?: { pathname?: string } })?.from?.pathname || '/portal';
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(fromPath, { replace: true });
+    }
+  }, [fromPath, isAuthenticated, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,11 +35,9 @@ export default function LoginPage() {
       return;
     }
 
-    // For demo, immediately redirect
-    toast.success('Signed in successfully.');
-    const fromPath =
-      (location.state as { from?: { pathname?: string } })?.from?.pathname || '/portal';
-    navigate(fromPath, { replace: true });
+    setSent(true);
+    toast.success('Magic link sent. Check your inbox to complete sign in.');
+    setLoading(false);
   };
 
   return (

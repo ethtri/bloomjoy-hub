@@ -36,11 +36,12 @@
 - Public-site asset refresh: real machine/supplies/about photography, improved model image coverage, and homepage machine card visuals
 - Machine detail UX upgrade: per-model image galleries with selectable thumbnails
 - Commercial machine page content upgrade: native specs table/cards, operational details, and in-page full-size modal previews for pattern menu + certification snapshot
+- Super-admin foundation (`#44`): Supabase session auth in `AuthContext`, `admin_roles` + `admin_audit_log` migration with `is_super_admin` RLS helper, and protected `/admin` route shell
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Super-admin implementation is pending (`#44`-`#48`), but requirements/design are now documented and approved.
+- Remaining super-admin implementation slices are pending (`#45`-`#48`).
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
