@@ -7,7 +7,6 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-1) `#56` Go-live P0: Replace mock auth with real Supabase auth/session
 2) `#64` Go-live P0: Production environment, release runbook, and rollback checklist
 
 ## Owner next steps
@@ -42,19 +41,22 @@
 - Orders operations foundation (`#46`): real `/portal/orders` Supabase data, `/admin/orders` workspace with search/date filters, and audited fulfillment updates via admin RPC
 - Account operations foundation (`#48`): `customer_machine_inventory` source-of-truth table, admin account summary RPC, `/admin/accounts` workspace, and audited machine count updates with required reason
 - Governance polish (`#47`): `/admin/audit` view with filters, super-admin grant/revoke role flows, and role/audit RPCs linked to `admin_audit_log`
-- Go-live account data hardening (`#63`): portal account page now loads and saves persisted profile/shipping data (`customer_profiles`) and uses live membership period/status from `subscriptions`
+- Go-live auth/session (`#56`): Supabase session auth + protected route redirect are now the active portal auth baseline
 - Go-live hardening (`#57`): Plus checkout now requires authenticated session identity, writes durable `user_id` metadata to Stripe checkout/subscription objects, and webhook mapping treats metadata user ID as authoritative when present
 - Go-live submission pipelines (`#62` scoped): Contact form + Mini waitlist now persist to Supabase (`lead_submissions`, `mini_waitlist_submissions`) with clear success/error handling and honeypot anti-spam fields
+- Go-live account data hardening (`#63`): portal account page now loads and saves persisted profile/shipping data (`customer_profiles`) and uses live membership period/status from `subscriptions`
+- Go-live release operations runbook (`#64`): production env var matrix, deployment sequence, launch verification, and rollback checklist documented in `Docs/PRODUCTION_RUNBOOK.md`
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Production launch readiness now drives the top P0 queue (`#56`, `#64`).
+- Production credential execution is still owner-controlled (runbook is ready, but production deploy itself is not yet executed).
+- Production launch readiness now drives the remaining P0 queue (`#64`).
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
 - Local: `npm run dev` on a PR branch/worktree
-- Production: not set up yet
+- Production: runbook ready in `Docs/PRODUCTION_RUNBOOK.md`; execution pending owner credentials
 
 ## How to test on localhost (simple steps)
 1) In the project folder, run `npm ci`

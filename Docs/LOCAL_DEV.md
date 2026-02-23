@@ -67,13 +67,9 @@
 - Agents should keep their own copy of this folder.
 - If an asset is needed in the app, add a small optimized version in `public/` and document it.
 
-## If/when we add Stripe serverless functions
-Depending on the hosting decision, local dev may require one of:
-- `vercel dev` (for Vercel Functions)
-- `netlify dev` (for Netlify Functions)
-- Supabase CLI for Edge Functions
-
-When that's implemented, this doc must be updated with exact commands.
+## Stripe server-side functions (current)
+Stripe checkout + webhook flows currently run on Supabase Edge Functions.
+For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 
 ### Supabase Edge Functions (Stripe)
 1) Install Supabase CLI (once): https://supabase.com/docs/guides/cli
