@@ -41,9 +41,9 @@ Implication:
 - Assign/revoke super-admin role for Bloomjoy staff
 - Maintain audit trail for admin role changes and sensitive updates
 
-## Role model (draft)
+## Role model (approved)
 - Role table: `public.admin_roles`
-  - `user_id` (auth user), `role` (`super_admin`, optionally `ops_agent` later), `active`, `granted_by`, `granted_at`, `revoked_by`, `revoked_at`
+  - `user_id` (auth user), `role` (`super_admin` only in MVP), `active`, `granted_by`, `granted_at`, `revoked_by`, `revoked_at`
 - Assignment path (MVP):
   - Initial bootstrap by direct SQL/service-role operation
   - Then in-app super-admin management UI
@@ -137,11 +137,21 @@ Implication:
   - Support request submitted from portal appears in admin queue
   - Machine count edits require admin role and write audit entries
 
-## Open decisions needed before implementation
-1) Should MVP include a second internal role (`ops_agent`) now, or only `super_admin`?
-2) Which support statuses are required for sponsor workflow reporting?
-3) Is account-level machine count authoritative in app, or advisory relative to Stripe subscription quantity?
-4) Does Bloomjoy need email notifications for new support tickets in MVP?
+## Resolved decisions (2026-02-23)
+1) Roles in MVP
+- Use `super_admin` only for MVP.
+- Revisit scoped roles (such as `ops_agent`) after core workflows stabilize.
+
+2) Support statuses in MVP
+- Use minimal workflow states: `new`, `triaged`, `waiting_on_customer`, `resolved` (optional terminal `closed` if needed by reporting).
+
+3) Machine count source of truth
+- App-managed machine count in admin portal is the source of truth for operations.
+- Stripe quantity remains billing context; mismatches should be visible to admins.
+
+4) Ticket notifications
+- Defer email notifications for new support tickets in MVP.
+- Operations team will use the admin queue dashboard for monitoring in MVP.
 
 ## Acceptance mapping to issue `#37`
 - Requirements documented: this doc (pending approval)

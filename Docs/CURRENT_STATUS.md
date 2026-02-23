@@ -13,7 +13,7 @@
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
 
 ## Upcoming scope clarification (next sprint)
-- Define super-admin requirements and role model for Bloomjoy operations tooling (`#37`).
+- Super-admin requirements and role model are now defined in `Docs/SUPER_ADMIN_PLAN_37.md`; implementation is split into issues `#44`, `#45`, `#46`, `#47`, and `#48`.
 
 ## Completed P0 milestones
 1) POC intake + repo hygiene (build/lint/dev) + document findings in `Docs/POC_NOTES.md`
@@ -40,7 +40,7 @@
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Super-admin requirements are not yet fully specified (scope/design pending in `#37`)
+- Super-admin implementation is pending (`#44`-`#48`), but requirements/design are now documented and approved.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments

@@ -87,3 +87,18 @@ We will price Bloomjoy Plus at **$100 per machine per month** using Stripe subsc
 - Machine count is self-declared at checkout (user selects count in UI)
 - Keep webhook and `subscriptions` schema unchanged for membership gating compatibility
 - Use quantity-based subscriptions now; revisit account-linked inventory pricing after MVP
+
+## 2026-02-23 - Super-admin MVP role model and operations choices (`#37`)
+For MVP admin operations, we will use a single internal role and keep workflow complexity minimal.
+
+**Approved choices**
+- Internal role model: `super_admin` only for MVP (no `ops_agent` in MVP)
+- Support ticket statuses: `new`, `triaged`, `waiting_on_customer`, `resolved` (optional terminal `closed`)
+- Machine count source of truth: app-managed machine count in admin portal is authoritative for operations
+- Ticket notifications: defer email alerts for MVP; monitor via admin queue dashboard
+
+**Why this choice**
+- Minimizes authz/RLS complexity while landing core operations capability quickly.
+- Keeps support workflow reportable without over-modeling states too early.
+- Allows operations to maintain real-world machine inventory independent of billing timing.
+- Avoids notification plumbing in MVP and keeps scope focused on secure admin workflows.
