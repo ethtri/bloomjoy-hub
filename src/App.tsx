@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,32 +10,36 @@ import { MemberRoute } from "@/components/auth/MemberRoute";
 import { AdminRoute } from "@/components/auth/AdminRoute";
 
 import Index from "./pages/Index";
-import Products from "./pages/Products";
-import CommercialRobotic from "./pages/products/CommercialRobotic";
-import Mini from "./pages/products/Mini";
-import Micro from "./pages/products/Micro";
-import Supplies from "./pages/Supplies";
-import Plus from "./pages/Plus";
-import Contact from "./pages/Contact";
-import About from "./pages/About";
-import Resources from "./pages/Resources";
-import Cart from "./pages/Cart";
-import Login from "./pages/Login";
-import PortalDashboard from "./pages/portal/Dashboard";
-import PortalTraining from "./pages/portal/Training";
-import PortalTrainingDetail from "./pages/portal/TrainingDetail";
-import PortalSupport from "./pages/portal/Support";
-import PortalOnboarding from "./pages/portal/Onboarding";
-import PortalOrders from "./pages/portal/Orders";
-import PortalAccount from "./pages/portal/Account";
-import AdminDashboard from "./pages/admin/Dashboard";
-import AdminOrders from "./pages/admin/Orders";
-import AdminSupport from "./pages/admin/Support";
-import AdminAccounts from "./pages/admin/Accounts";
-import AdminAudit from "./pages/admin/Audit";
-import NotFound from "./pages/NotFound";
+
+const Products = lazy(() => import("./pages/Products"));
+const CommercialRobotic = lazy(() => import("./pages/products/CommercialRobotic"));
+const Mini = lazy(() => import("./pages/products/Mini"));
+const Micro = lazy(() => import("./pages/products/Micro"));
+const Supplies = lazy(() => import("./pages/Supplies"));
+const Plus = lazy(() => import("./pages/Plus"));
+const Contact = lazy(() => import("./pages/Contact"));
+const About = lazy(() => import("./pages/About"));
+const Resources = lazy(() => import("./pages/Resources"));
+const Cart = lazy(() => import("./pages/Cart"));
+const Login = lazy(() => import("./pages/Login"));
+const PortalDashboard = lazy(() => import("./pages/portal/Dashboard"));
+const PortalTraining = lazy(() => import("./pages/portal/Training"));
+const PortalTrainingDetail = lazy(() => import("./pages/portal/TrainingDetail"));
+const PortalSupport = lazy(() => import("./pages/portal/Support"));
+const PortalOnboarding = lazy(() => import("./pages/portal/Onboarding"));
+const PortalOrders = lazy(() => import("./pages/portal/Orders"));
+const PortalAccount = lazy(() => import("./pages/portal/Account"));
+const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
+const AdminOrders = lazy(() => import("./pages/admin/Orders"));
+const AdminSupport = lazy(() => import("./pages/admin/Support"));
+const AdminAccounts = lazy(() => import("./pages/admin/Accounts"));
+const AdminAudit = lazy(() => import("./pages/admin/Audit"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+const RouteFallback = () => (
+  <div className="container-page py-10 text-sm text-muted-foreground">Loading page...</div>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -43,49 +48,51 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/machines" element={<Products />} />
-            <Route
-              path="/machines/commercial-robotic-machine"
-              element={<CommercialRobotic />}
-            />
-            <Route path="/machines/mini" element={<Mini />} />
-            <Route path="/machines/micro" element={<Micro />} />
-            <Route path="/products" element={<Navigate to="/machines" replace />} />
-            <Route
-              path="/products/commercial-robotic-machine"
-              element={<Navigate to="/machines/commercial-robotic-machine" replace />}
-            />
-            <Route path="/products/mini" element={<Navigate to="/machines/mini" replace />} />
-            <Route path="/products/micro" element={<Navigate to="/machines/micro" replace />} />
-            <Route path="/supplies" element={<Supplies />} />
-            <Route path="/plus" element={<Plus />} />
-            <Route path="/contact" element={<Contact />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/resources" element={<Resources />} />
-            <Route path="/cart" element={<Cart />} />
-            <Route path="/login" element={<Login />} />
-            <Route element={<ProtectedRoute />}>
-              <Route path="/portal" element={<PortalDashboard />} />
-              <Route path="/portal/orders" element={<PortalOrders />} />
-              <Route path="/portal/account" element={<PortalAccount />} />
-              <Route element={<MemberRoute />}>
-                <Route path="/portal/training" element={<PortalTraining />} />
-                <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
-                <Route path="/portal/support" element={<PortalSupport />} />
-                <Route path="/portal/onboarding" element={<PortalOnboarding />} />
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/machines" element={<Products />} />
+              <Route
+                path="/machines/commercial-robotic-machine"
+                element={<CommercialRobotic />}
+              />
+              <Route path="/machines/mini" element={<Mini />} />
+              <Route path="/machines/micro" element={<Micro />} />
+              <Route path="/products" element={<Navigate to="/machines" replace />} />
+              <Route
+                path="/products/commercial-robotic-machine"
+                element={<Navigate to="/machines/commercial-robotic-machine" replace />}
+              />
+              <Route path="/products/mini" element={<Navigate to="/machines/mini" replace />} />
+              <Route path="/products/micro" element={<Navigate to="/machines/micro" replace />} />
+              <Route path="/supplies" element={<Supplies />} />
+              <Route path="/plus" element={<Plus />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/resources" element={<Resources />} />
+              <Route path="/cart" element={<Cart />} />
+              <Route path="/login" element={<Login />} />
+              <Route element={<ProtectedRoute />}>
+                <Route path="/portal" element={<PortalDashboard />} />
+                <Route path="/portal/orders" element={<PortalOrders />} />
+                <Route path="/portal/account" element={<PortalAccount />} />
+                <Route element={<MemberRoute />}>
+                  <Route path="/portal/training" element={<PortalTraining />} />
+                  <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
+                  <Route path="/portal/support" element={<PortalSupport />} />
+                  <Route path="/portal/onboarding" element={<PortalOnboarding />} />
+                </Route>
+                <Route element={<AdminRoute />}>
+                  <Route path="/admin" element={<AdminDashboard />} />
+                  <Route path="/admin/orders" element={<AdminOrders />} />
+                  <Route path="/admin/support" element={<AdminSupport />} />
+                  <Route path="/admin/accounts" element={<AdminAccounts />} />
+                  <Route path="/admin/audit" element={<AdminAudit />} />
+                </Route>
               </Route>
-              <Route element={<AdminRoute />}>
-                <Route path="/admin" element={<AdminDashboard />} />
-                <Route path="/admin/orders" element={<AdminOrders />} />
-                <Route path="/admin/support" element={<AdminSupport />} />
-                <Route path="/admin/accounts" element={<AdminAccounts />} />
-                <Route path="/admin/audit" element={<AdminAudit />} />
-              </Route>
-            </Route>
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>
