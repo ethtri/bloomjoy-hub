@@ -7,7 +7,6 @@ interface CheckoutResponse {
 }
 
 export async function startPlusCheckout(
-  email: string | undefined,
   origin: string,
   machineCount: number
 ) {
@@ -15,7 +14,6 @@ export async function startPlusCheckout(
     'stripe-plus-checkout',
     {
       body: {
-        email,
         machineCount,
         successUrl: `${origin}/plus?checkout=success`,
         cancelUrl: `${origin}/plus?checkout=cancel`,
