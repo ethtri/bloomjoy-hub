@@ -18,13 +18,18 @@ const footerLinks = {
     { href: '/resources#support-boundaries', label: 'Support Boundaries' },
     { href: '/contact', label: 'Request a Quote' },
   ],
+  legal: [
+    { href: '/privacy', label: 'Privacy Policy' },
+    { href: '/terms', label: 'Terms of Service' },
+    { href: '/billing-cancellation', label: 'Billing & Cancellation' },
+  ],
 };
 
 export function Footer() {
   return (
     <footer className="border-t border-border bg-muted/30">
       <div className="container-page py-12 lg:py-16">
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-5">
           {/* Brand */}
           <div className="lg:col-span-1">
             <Link to="/" className="flex items-center gap-2">
@@ -79,6 +84,23 @@ export function Footer() {
             <h4 className="font-display text-sm font-semibold text-foreground">Support</h4>
             <ul className="mt-4 space-y-3">
               {footerLinks.support.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    to={link.href}
+                    className="text-sm text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Legal */}
+          <div>
+            <h4 className="font-display text-sm font-semibold text-foreground">Legal</h4>
+            <ul className="mt-4 space-y-3">
+              {footerLinks.legal.map((link) => (
                 <li key={link.href}>
                   <Link
                     to={link.href}

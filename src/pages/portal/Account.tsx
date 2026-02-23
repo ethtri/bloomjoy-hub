@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { User, MapPin, CreditCard, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -317,6 +318,13 @@ export default function AccountPage() {
                   <ExternalLink className="mr-2 h-4 w-4" />
                   {isMember ? (isOpeningPortal ? 'Opening...' : 'Manage Billing') : 'Plus Required'}
                 </Button>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Review{' '}
+                  <Link to="/billing-cancellation" className="underline hover:text-foreground">
+                    billing and cancellation terms
+                  </Link>
+                  .
+                </p>
               </div>
 
               <div className="mt-6 card-elevated p-6">

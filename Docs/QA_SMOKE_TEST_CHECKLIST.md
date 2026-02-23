@@ -21,6 +21,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)
 - [ ] Cart checkout blocks non-sugar items
 - [ ] Plus page: pricing and boundaries are visible and clear
+- [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`
+- [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)

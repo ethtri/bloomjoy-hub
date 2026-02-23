@@ -18,6 +18,9 @@ import Plus from "./pages/Plus";
 import Contact from "./pages/Contact";
 import About from "./pages/About";
 import Resources from "./pages/Resources";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import BillingCancellation from "./pages/BillingCancellation";
 import Cart from "./pages/Cart";
 import Login from "./pages/Login";
 import PortalDashboard from "./pages/portal/Dashboard";
@@ -64,6 +67,9 @@ const App = () => (
             <Route path="/contact" element={<Contact />} />
             <Route path="/about" element={<About />} />
             <Route path="/resources" element={<Resources />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/billing-cancellation" element={<BillingCancellation />} />
             <Route path="/cart" element={<Cart />} />
             <Route path="/login" element={<Login />} />
             <Route element={<ProtectedRoute />}>
