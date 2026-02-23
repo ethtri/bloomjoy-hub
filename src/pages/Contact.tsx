@@ -5,14 +5,43 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Layout } from '@/components/layout/Layout';
 import { toast } from 'sonner';
+import { createLeadSubmission } from '@/lib/leadSubmissions';
 
 export default function ContactPage() {
-  const [formData, setFormData] = useState({ name: '', email: '', type: 'quote', message: '' });
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    type: 'quote',
+    message: '',
+    website: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success('Message sent! We\'ll be in touch soon.');
-    setFormData({ name: '', email: '', type: 'quote', message: '' });
+
+    if (formData.website.trim()) {
+      toast.success('Message sent! We\'ll be in touch soon.');
+      setFormData({ name: '', email: '', type: 'quote', message: '', website: '' });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await createLeadSubmission({
+        submissionType: formData.type as 'quote' | 'demo' | 'procurement' | 'general',
+        name: formData.name.trim(),
+        email: formData.email.trim().toLowerCase(),
+        message: formData.message.trim(),
+      });
+      toast.success('Message sent! We\'ll be in touch soon.');
+      setFormData({ name: '', email: '', type: 'quote', message: '', website: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to send message.';
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -33,6 +62,16 @@ export default function ContactPage() {
           <div className="mx-auto max-w-2xl">
             <div className="card-elevated p-8">
               <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="hidden" aria-hidden="true">
+                  <label htmlFor="website">Website</label>
+                  <Input
+                    id="website"
+                    value={formData.website}
+                    onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                    tabIndex={-1}
+                    autoComplete="off"
+                  />
+                </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-foreground">Name</label>
@@ -56,7 +95,9 @@ export default function ContactPage() {
                   <label className="block text-sm font-medium text-foreground">Message</label>
                   <Textarea value={formData.message} onChange={(e) => setFormData({ ...formData, message: e.target.value })} rows={5} required className="mt-1" />
                 </div>
-                <Button type="submit" variant="hero" size="lg" className="w-full">Send Message</Button>
+                <Button type="submit" variant="hero" size="lg" className="w-full" disabled={submitting}>
+                  {submitting ? 'Sending...' : 'Send Message'}
+                </Button>
               </form>
             </div>
           </div>

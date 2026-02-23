@@ -80,8 +80,17 @@ async function upsertSubscription(subscription: Stripe.Subscription) {
       ? customer.email
       : null;
 
-  const resolvedUserId =
-    (await resolveUserId(metadataUserId)) ?? (await resolveUserIdByEmail(customerEmail));
+  let resolvedUserId: string | null = null;
+
+  if (metadataUserId) {
+    resolvedUserId = await resolveUserId(metadataUserId);
+    if (!resolvedUserId) {
+      console.warn("Subscription metadata user_id did not resolve", subscription.id);
+      return;
+    }
+  } else {
+    resolvedUserId = await resolveUserIdByEmail(customerEmail);
+  }
 
   if (!resolvedUserId) {
     console.warn("No matching user for subscription", subscription.id);
