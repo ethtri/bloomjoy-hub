@@ -7,13 +7,17 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-1) No open P0 issues at this time. Track any new blockers in GitHub Issues before next sprint.
+1) `#56` Go-live P0: Replace mock auth with real Supabase auth/session
+2) `#57` Go-live P0: Require login for Plus checkout and bind checkout to user ID
+3) `#62` Go-live P0: Replace mock submissions with persisted lead/support/waitlist pipelines
+4) `#63` Go-live P0: Wire portal account + orders views to real DB data
+5) `#64` Go-live P0: Production environment, release runbook, and rollback checklist
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
 
 ## Upcoming scope clarification (next sprint)
-- Super-admin requirements and role model are now defined in `Docs/SUPER_ADMIN_PLAN_37.md`; implementation is split into issues `#44`, `#45`, `#46`, `#47`, and `#48`.
+- Super-admin requirements and role model are complete for MVP scope (`#37` with implementation slices `#44`-`#48` delivered in PR `#55`).
 
 ## Completed P0 milestones
 1) POC intake + repo hygiene (build/lint/dev) + document findings in `Docs/POC_NOTES.md`
@@ -45,7 +49,7 @@
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Super-admin implementation slices (`#44`-`#48`) are complete for current MVP scope.
+- Go-live hardening and production launch readiness now drive the top P0 queue (`#56`, `#57`, `#62`, `#63`, `#64`).
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
