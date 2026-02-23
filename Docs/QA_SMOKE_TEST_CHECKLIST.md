@@ -21,6 +21,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)
 - [ ] Cart checkout blocks non-sugar items
 - [ ] Plus page: pricing and boundaries are visible and clear
+- [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`
+- [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
@@ -34,6 +36,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
+- [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
 - [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
 - [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
 - [ ] Onboarding checklist progress updates when steps are toggled
