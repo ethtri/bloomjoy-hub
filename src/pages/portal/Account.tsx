@@ -149,14 +149,14 @@ export default function AccountPage() {
 
   return (
     <PortalLayout>
-      <section className="section-padding">
+      <section className="section-padding overflow-x-clip">
         <div className="container-page">
           <h1 className="font-display text-3xl font-bold text-foreground">Account Settings</h1>
 
           <div className="mt-8 grid gap-8 lg:grid-cols-3">
             {/* Profile */}
-            <div className="lg:col-span-2">
-              <div className="card-elevated p-6">
+            <div className="min-w-0 lg:col-span-2">
+              <div className="card-elevated min-w-0 p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <User className="h-5 w-5 text-primary" />
@@ -209,7 +209,7 @@ export default function AccountPage() {
               </div>
 
               {/* Shipping */}
-              <div className="mt-6 card-elevated p-6">
+              <div className="mt-6 card-elevated min-w-0 p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <MapPin className="h-5 w-5 text-primary" />
@@ -295,8 +295,8 @@ export default function AccountPage() {
             </div>
 
             {/* Billing */}
-            <div>
-              <div className="card-elevated p-6">
+            <div className="min-w-0">
+              <div className="card-elevated min-w-0 p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <CreditCard className="h-5 w-5 text-primary" />
@@ -319,28 +319,28 @@ export default function AccountPage() {
                 </Button>
               </div>
 
-              <div className="mt-6 card-elevated p-6">
+              <div className="mt-6 card-elevated min-w-0 p-6">
                 <h3 className="font-semibold text-foreground">Membership</h3>
-                <div className="mt-4 flex items-center justify-between">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">Plan</span>
                   <span className="font-semibold text-foreground">
                     {isMember ? 'Plus Basic' : 'Baseline'}
                   </span>
                 </div>
-                <div className="mt-2 flex items-center justify-between">
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">Status</span>
                   {isMember ? (
-                    <span className="rounded-full bg-sage-light px-2 py-0.5 text-xs font-semibold text-sage">
+                    <span className="max-w-full rounded-full bg-sage-light px-2 py-0.5 text-xs font-semibold text-sage">
                       {membershipStatusLabel}
                     </span>
                   ) : (
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                    <span className="max-w-full rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
                       {membershipStatusLabel}
                     </span>
                   )}
                 </div>
                 {isMember && (
-                  <div className="mt-2 flex items-center justify-between">
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm text-muted-foreground">Next billing</span>
                     <span className="text-sm text-foreground">
                       {nextBillingLabel ?? 'Not available'}
