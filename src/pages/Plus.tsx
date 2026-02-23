@@ -199,7 +199,16 @@ export default function PlusPage() {
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
                 <p className="mt-4 text-center text-xs text-muted-foreground">
-                  Membership is optional and separate from machine purchase.
+                  Membership is optional and separate from machine purchase. By continuing, you
+                  agree to our{' '}
+                  <Link to="/terms" className="underline hover:text-foreground">
+                    Terms
+                  </Link>{' '}
+                  and{' '}
+                  <Link to="/billing-cancellation" className="underline hover:text-foreground">
+                    Billing & Cancellation
+                  </Link>{' '}
+                  policies.
                 </p>
               </div>
             </div>
