@@ -11,6 +11,7 @@ import {
   type OrderRecord,
   updateOrderFulfillmentAdmin,
 } from '@/lib/orders';
+import { trackEvent } from '@/lib/analytics';
 import { toast } from 'sonner';
 
 const fulfillmentOptions: OrderFulfillmentStatus[] = [
@@ -129,6 +130,10 @@ export default function AdminOrdersPage() {
         assignedTo: editor.assignedTo.trim() || null,
       });
 
+      trackEvent('admin_order_fulfillment_updated', {
+        order_id: selectedOrder.id,
+        fulfillment_status: editor.fulfillmentStatus,
+      });
       toast.success('Order fulfillment updated.');
       await refreshOrders();
     } catch (saveError) {

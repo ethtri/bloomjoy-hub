@@ -12,6 +12,7 @@ import {
   type SupportRequestStatus,
   updateSupportRequestAdmin,
 } from '@/lib/supportRequests';
+import { trackEvent } from '@/lib/analytics';
 import { toast } from 'sonner';
 
 const statusOptions: SupportRequestStatus[] = [
@@ -114,6 +115,11 @@ export default function AdminSupportPage() {
         internalNotes: editor.internalNotes.trim(),
       });
 
+      trackEvent('admin_support_request_updated', {
+        request_id: selectedRequest.id,
+        status: editor.status,
+        priority: editor.priority,
+      });
       toast.success('Support request updated.');
       await handleRefresh();
     } catch (saveError) {

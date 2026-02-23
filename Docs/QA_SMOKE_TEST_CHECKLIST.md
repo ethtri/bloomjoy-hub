@@ -64,4 +64,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin account search returns rows by email/user ID and shows membership/order/support summary data
 - [ ] Admin machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
+- [ ] Non-admin user cannot access `/admin/audit`
+- [ ] Super-admin user can access `/admin/audit`
+- [ ] Super-admin can grant and revoke super-admin role with reason metadata
+- [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 

@@ -27,7 +27,7 @@ const adminModules = [
     title: 'Audit Log',
     description: 'Track sensitive admin actions and role changes.',
     icon: ClipboardList,
-    href: '#',
+    href: '/admin/audit',
   },
 ];
 
@@ -60,8 +60,8 @@ export default function AdminDashboardPage() {
       <section className="section-padding">
         <div className="container-page">
           <div className="rounded-xl border border-sage/30 bg-sage-light px-4 py-3 text-sm text-sage">
-            Admin foundation is enabled. Workflow pages for orders, support, accounts, and audit
-            will land in follow-up slices.
+            Admin workspace is active. Use the modules below for orders, support, accounts, and
+            governance operations.
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">

@@ -154,6 +154,7 @@ Implication:
 - Operations team will use the admin queue dashboard for monitoring in MVP.
 
 ## Acceptance mapping to issue `#37`
-- Requirements documented: this doc (pending approval)
-- Technical design proposed: schema/authz/routes above
-- Follow-up slices defined: implementation slices section (convert to linked GitHub issues)
+- Requirements documented: complete
+- Technical design proposed: complete
+- Follow-up slices defined: complete
+- Implementation status: slices `#44`, `#45`, `#46`, `#47`, and `#48` implemented in PR `#55`

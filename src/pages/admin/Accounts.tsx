@@ -11,6 +11,7 @@ import {
   type MachineType,
   upsertMachineInventoryAdmin,
 } from '@/lib/adminAccounts';
+import { trackEvent } from '@/lib/analytics';
 import { toast } from 'sonner';
 
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
@@ -150,6 +151,11 @@ export default function AdminAccountsPage() {
         });
       }
 
+      trackEvent('admin_machine_inventory_updated', {
+        user_id: selectedAccount.user_id,
+        total_machine_count:
+          quantities.commercial + quantities.mini + quantities.micro,
+      });
       toast.success('Machine counts updated.');
       setUpdateReason('');
       await refreshAccounts();
