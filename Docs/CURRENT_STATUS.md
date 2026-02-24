@@ -7,7 +7,7 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-2) `#64` Go-live P0: Production environment, release runbook, and rollback checklist
+- No open P0 issues on the board; current focus is remaining P1 launch hardening.
 
 ## Owner next steps
 - Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
@@ -46,12 +46,16 @@
 - Go-live submission pipelines (`#62` scoped): Contact form + Mini waitlist now persist to Supabase (`lead_submissions`, `mini_waitlist_submissions`) with clear success/error handling and honeypot anti-spam fields
 - Go-live account data hardening (`#63`): portal account page now loads and saves persisted profile/shipping data (`customer_profiles`) and uses live membership period/status from `subscriptions`
 - Go-live release operations runbook (`#64`): production env var matrix, deployment sequence, launch verification, and rollback checklist documented in `Docs/PRODUCTION_RUNBOOK.md`
+- Legal/compliance launch hardening (`#59`): added Privacy Policy, Terms of Service, Billing & Cancellation pages, and global footer/legal links
+- Mobile UX hardening (`#49`): fixed horizontal overflow on `/portal/account` for common mobile viewport sizes
+- Frontend performance hardening (`#60`): route-level code splitting + chunk budgeting to reduce initial JS payload and remove oversized chunk warnings
+- Security patch sprint (`#58`): patched production dependency audit findings; `npm audit --omit=dev` now reports zero vulnerabilities
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution is still owner-controlled (runbook is ready, but production deploy itself is not yet executed).
-- Production launch readiness now drives the remaining P0 queue (`#64`).
+- Vimeo integration (`#51`) is intentionally deferred until owner Vimeo account setup and embed domain restrictions are complete.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
