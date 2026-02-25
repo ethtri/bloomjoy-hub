@@ -33,6 +33,20 @@
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields (`provider_video_id`, `provider_hash`) after account setup
 
+## Supabase auth setup (password + Google + magic link)
+To use all login methods in local dev:
+1) Open Supabase Dashboard -> Authentication -> Providers.
+2) Enable `Email` provider with:
+   - Magic link (email OTP) enabled
+   - Email/password sign-in enabled
+3) Enable `Google` provider and add Google OAuth client credentials.
+4) Open Supabase Dashboard -> Authentication -> URL Configuration and include:
+   - Site URL: `http://localhost:8080`
+   - Additional redirects:
+     - `http://localhost:8080`
+     - `http://localhost:8080/login`
+     - `http://localhost:8080/portal`
+
 
 ## Agent best practices (plain language)
 - Each agent uses its own worktree and its own `.env` file.

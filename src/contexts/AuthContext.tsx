@@ -15,6 +15,10 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  signInWithMagicLink: (email: string) => Promise<{ error: AuthError | null }>;
+  signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   signIn: (email: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
@@ -161,9 +165,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = async (email: string): Promise<{ error: AuthError | null }> => {
-    const redirectTo =
-      typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
+  const getAuthRedirectUrl = () =>
+    typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
+
+  const signInWithMagicLink = async (email: string): Promise<{ error: AuthError | null }> => {
+    const redirectTo = getAuthRedirectUrl();
 
     const { error } = await supabaseClient.auth.signInWithOtp({
       email,
@@ -177,6 +183,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  const signInWithPassword = async (
+    email: string,
+    password: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
+  const signUpWithPassword = async (
+    email: string,
+    password: string
+  ): Promise<{ error: AuthError | null }> => {
+    const redirectTo = getAuthRedirectUrl();
+    const { error } = await supabaseClient.auth.signUp({
+      email,
+      password,
+      options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
+    });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
+  const signInWithGoogle = async (): Promise<{ error: AuthError | null }> => {
+    const redirectTo = getAuthRedirectUrl();
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: redirectTo ? { redirectTo } : undefined,
+    });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
+  const signIn = signInWithMagicLink;
+
   const signOut = async () => {
     await supabaseClient.auth.signOut();
     setUser(null);
@@ -187,6 +240,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         loading,
+        signInWithMagicLink,
+        signInWithPassword,
+        signUpWithPassword,
+        signInWithGoogle,
         signIn,
         signOut,
         isAuthenticated: !!user,
