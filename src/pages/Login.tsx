@@ -277,7 +277,7 @@ export default function LoginPage() {
                 type="button"
                 variant="outline"
                 size="lg"
-                className="w-full"
+                className="h-12 w-full rounded-full border border-[#d2d2d2] bg-white px-4 text-base font-medium text-[#1f1f1f] shadow-none hover:bg-[#f8f9fa] hover:text-[#1f1f1f]"
                 onClick={handleGoogleSignIn}
                 disabled={loading || oauthLoading}
               >
@@ -287,7 +287,32 @@ export default function LoginPage() {
                     Redirecting to Google...
                   </>
                 ) : (
-                  'Continue with Google'
+                  <span className="inline-flex items-center gap-3">
+                    <svg
+                      aria-hidden="true"
+                      className="h-5 w-5"
+                      viewBox="0 0 48 48"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        fill="#EA4335"
+                        d="M24 9.5c3.54 0 6.72 1.22 9.22 3.6l6.9-6.9C35.93 2.28 30.36 0 24 0 14.62 0 6.51 5.38 2.56 13.22l8.03 6.24C12.43 13.72 17.74 9.5 24 9.5z"
+                      />
+                      <path
+                        fill="#4285F4"
+                        d="M46.98 24.55c0-1.57-.14-3.09-.4-4.55H24v9.02h12.94c-.58 2.96-2.25 5.47-4.8 7.16l7.73 6c4.51-4.18 7.11-10.36 7.11-17.63z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M10.59 28.54c-.48-1.45-.75-2.99-.75-4.54s.27-3.09.75-4.54l-8.03-6.24A23.96 23.96 0 0 0 0 24c0 3.77.9 7.34 2.56 10.78l8.03-6.24z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M24 48c6.48 0 11.93-2.13 15.9-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.17 2.3-6.26 0-11.57-4.22-13.46-9.96l-8.03 6.24C6.51 42.62 14.62 48 24 48z"
+                      />
+                    </svg>
+                    Continue with Google
+                  </span>
                 )}
               </Button>
 
