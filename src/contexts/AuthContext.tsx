@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { hasPlusAccess, type MembershipStatus } from '@/lib/membership';
@@ -15,7 +15,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signIn: (email: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
   isMember: boolean;
@@ -161,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = async (email: string): Promise<{ error: Error | null }> => {
+  const signIn = async (email: string): Promise<{ error: AuthError | null }> => {
     const redirectTo =
       typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
 

@@ -7,10 +7,51 @@ import { Layout } from '@/components/layout/Layout';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
+const RESEND_COOLDOWN_SECONDS = 60;
+
+const getSendLinkErrorMessage = (error: { status?: number; code?: string; message?: string }) => {
+  if (error.status === 429 || error.code === 'over_email_send_rate_limit') {
+    return 'Too many email attempts. Please wait about a minute before trying again.';
+  }
+
+  if (error.code === 'otp_expired') {
+    return 'This sign-in link has expired. Please request a new one.';
+  }
+
+  if (error.message && error.message.trim().length > 0) {
+    return `Unable to send sign-in email: ${error.message}`;
+  }
+
+  return 'Failed to send magic link.';
+};
+
+const getRedirectErrorMessage = (errorCode?: string | null, errorDescription?: string | null) => {
+  const description = decodeURIComponent(errorDescription ?? '').toLowerCase();
+
+  if (
+    errorCode === 'otp_expired' ||
+    description.includes('expired') ||
+    description.includes('invalid')
+  ) {
+    return 'This sign-in link is invalid or expired. Please request a fresh link.';
+  }
+
+  if (errorCode === 'over_email_send_rate_limit') {
+    return 'Too many email attempts. Please wait about a minute before retrying.';
+  }
+
+  if (errorCode || errorDescription) {
+    return 'Sign-in link could not be completed. Please request a new link.';
+  }
+
+  return undefined;
+};
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const { signIn, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -23,20 +64,72 @@ export default function LoginPage() {
     }
   }, [fromPath, isAuthenticated, navigate]);
 
+  useEffect(() => {
+    if (cooldownSeconds <= 0) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setCooldownSeconds((current) => (current > 0 ? current - 1 : 0));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [cooldownSeconds]);
+
+  useEffect(() => {
+    const queryParams = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.startsWith('#')
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashParams = new URLSearchParams(hash);
+    const errorCode = queryParams.get('error_code') ?? hashParams.get('error_code');
+    const errorDescription =
+      queryParams.get('error_description') ?? hashParams.get('error_description');
+    const message = getRedirectErrorMessage(errorCode, errorDescription);
+
+    if (!message) {
+      return;
+    }
+
+    toast.error(message);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (cooldownSeconds > 0) {
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      return;
+    }
+
     setLoading(true);
 
-    const { error } = await signIn(email);
+    const { error } = await signIn(normalizedEmail);
 
     if (error) {
-      toast.error('Failed to send magic link');
+      const errorMessage = getSendLinkErrorMessage(error);
+      toast.error(errorMessage);
+
+      if (error.status === 429 || error.code === 'over_email_send_rate_limit') {
+        setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
+      }
+
       setLoading(false);
       return;
     }
 
     setSent(true);
-    toast.success('Magic link sent. Check your inbox to complete sign in.');
+    setEmail(normalizedEmail);
+    setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
+    toast.success(
+      'Email sent. First-time sign-ins may require confirming signup first, then requesting a fresh link.'
+    );
     setLoading(false);
   };
 
@@ -64,7 +157,12 @@ export default function LoginPage() {
                     Check your email
                   </h2>
                   <p className="mt-2 text-sm text-sage/80">
-                    We sent a magic link to <strong>{email}</strong>. Click the link to sign in.
+                    We sent a sign-in email to <strong>{email}</strong>. Click the newest link to
+                    continue.
+                  </p>
+                  <p className="mt-2 text-xs text-sage/80">
+                    First-time users may see a signup confirmation email first. After confirming,
+                    request a new sign-in link.
                   </p>
                 </div>
               ) : (
@@ -88,13 +186,15 @@ export default function LoginPage() {
                     variant="hero"
                     size="lg"
                     className="w-full"
-                    disabled={loading}
+                    disabled={loading || cooldownSeconds > 0}
                   >
                     {loading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Sending...
                       </>
+                    ) : cooldownSeconds > 0 ? (
+                      <>Try again in {cooldownSeconds}s</>
                     ) : (
                       <>
                         Continue with Email
@@ -102,6 +202,12 @@ export default function LoginPage() {
                       </>
                     )}
                   </Button>
+                  {cooldownSeconds > 0 && (
+                    <p className="text-center text-xs text-muted-foreground">
+                      Email sends are temporarily limited. Please wait before requesting another
+                      link.
+                    </p>
+                  )}
                 </form>
               )}
 
