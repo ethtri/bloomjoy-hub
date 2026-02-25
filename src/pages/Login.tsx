@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, Loader2, Mail, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,41 @@ import { toast } from 'sonner';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 type AuthMethod = 'password' | 'magic_link';
+const GOOGLE_GSI_SCRIPT_ID = 'google-gsi-script';
+const GOOGLE_GSI_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
+
+type GoogleCredentialResponse = {
+  credential?: string;
+};
+
+type GoogleRenderButtonOptions = {
+  type?: 'standard' | 'icon';
+  theme?: 'outline' | 'filled_blue' | 'filled_black';
+  size?: 'large' | 'medium' | 'small';
+  text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
+  shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+  logo_alignment?: 'left' | 'center';
+  width?: number;
+};
+
+type GoogleAccountsIdApi = {
+  initialize: (options: {
+    client_id: string;
+    callback: (response: GoogleCredentialResponse) => void;
+    ux_mode?: 'popup' | 'redirect';
+  }) => void;
+  renderButton: (element: HTMLElement, options: GoogleRenderButtonOptions) => void;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: GoogleAccountsIdApi;
+      };
+    };
+  }
+}
 
 const safeDecode = (value?: string | null) => {
   if (!value) {
@@ -106,19 +141,27 @@ const getRedirectErrorMessage = (errorCode?: string | null, errorDescription?: s
 };
 
 export default function LoginPage() {
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [googleButtonReady, setGoogleButtonReady] = useState(false);
+  const [googleButtonFailed, setGoogleButtonFailed] = useState(false);
   const [authMethod, setAuthMethod] = useState<AuthMethod>('password');
   const [createAccountMode, setCreateAccountMode] = useState(false);
+  const googleButtonContainerRef = useRef<HTMLDivElement | null>(null);
+  const signInWithGoogleIdTokenRef = useRef<
+    ((idToken: string) => Promise<{ error: { status?: number; code?: string; message?: string } | null }>) | null
+  >(null);
   const {
     signIn,
     signInWithPassword,
     signUpWithPassword,
     signInWithGoogle,
+    signInWithGoogleIdToken,
     isAuthenticated,
   } = useAuth();
   const navigate = useNavigate();
@@ -131,6 +174,108 @@ export default function LoginPage() {
       navigate(fromPath, { replace: true });
     }
   }, [fromPath, isAuthenticated, navigate]);
+
+  useEffect(() => {
+    signInWithGoogleIdTokenRef.current = signInWithGoogleIdToken;
+  }, [signInWithGoogleIdToken]);
+
+  useEffect(() => {
+    if (!googleClientId) {
+      setGoogleButtonReady(false);
+      return;
+    }
+
+    let mounted = true;
+    let scriptElement = document.getElementById(GOOGLE_GSI_SCRIPT_ID) as HTMLScriptElement | null;
+
+    const renderGoogleButton = () => {
+      if (!mounted) {
+        return;
+      }
+
+      const api = window.google?.accounts?.id;
+      const container = googleButtonContainerRef.current;
+
+      if (!api || !container) {
+        return;
+      }
+
+      api.initialize({
+        client_id: googleClientId,
+        ux_mode: 'popup',
+        callback: async (response) => {
+          if (!response.credential) {
+            toast.error('Google sign-in did not return a valid credential.');
+            return;
+          }
+
+          setOauthLoading(true);
+
+          const signInFn = signInWithGoogleIdTokenRef.current;
+          if (!signInFn) {
+            toast.error('Google sign-in is not ready yet. Please try again.');
+            setOauthLoading(false);
+            return;
+          }
+
+          const { error } = await signInFn(response.credential);
+          if (error) {
+            toast.error(getGoogleErrorMessage(error));
+          } else {
+            toast.success('Signed in with Google. Redirecting...');
+          }
+
+          setOauthLoading(false);
+        },
+      });
+
+      container.innerHTML = '';
+      api.renderButton(container, {
+        type: 'standard',
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'pill',
+        logo_alignment: 'left',
+        width: Math.max(240, Math.floor(container.clientWidth)),
+      });
+
+      setGoogleButtonReady(true);
+      setGoogleButtonFailed(false);
+    };
+
+    const handleLoad = () => renderGoogleButton();
+    const handleError = () => {
+      if (!mounted) {
+        return;
+      }
+
+      setGoogleButtonReady(false);
+      setGoogleButtonFailed(true);
+    };
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+    } else {
+      if (!scriptElement) {
+        scriptElement = document.createElement('script');
+        scriptElement.id = GOOGLE_GSI_SCRIPT_ID;
+        scriptElement.src = GOOGLE_GSI_SCRIPT_SRC;
+        scriptElement.async = true;
+        scriptElement.defer = true;
+        document.head.appendChild(scriptElement);
+      }
+
+      scriptElement.addEventListener('load', handleLoad);
+      scriptElement.addEventListener('error', handleError);
+    }
+
+    return () => {
+      mounted = false;
+      scriptElement?.removeEventListener('load', handleLoad);
+      scriptElement?.removeEventListener('error', handleError);
+    };
+  }, [googleClientId]);
 
   useEffect(() => {
     if (cooldownSeconds <= 0) {
@@ -273,48 +418,66 @@ export default function LoginPage() {
             </div>
 
             <div className="mt-8 space-y-4">
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="h-12 w-full rounded-full border border-[#d2d2d2] bg-white px-4 text-base font-medium text-[#1f1f1f] shadow-none hover:bg-[#f8f9fa] hover:text-[#1f1f1f]"
-                onClick={handleGoogleSignIn}
-                disabled={loading || oauthLoading}
-              >
-                {oauthLoading ? (
+              <div className="space-y-2">
+                {googleClientId ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Redirecting to Google...
+                    <div className="relative rounded-full border border-[#d2d2d2] bg-white p-1">
+                      <div
+                        ref={googleButtonContainerRef}
+                        className={`flex min-h-11 w-full items-center justify-center ${
+                          oauthLoading ? 'pointer-events-none opacity-80' : ''
+                        }`}
+                      />
+                      {oauthLoading && (
+                        <div className="absolute inset-0 flex items-center justify-center rounded-full bg-white/60">
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
+                    {!googleButtonReady && !googleButtonFailed && (
+                      <p className="text-center text-xs text-muted-foreground">
+                        Loading Google sign-in…
+                      </p>
+                    )}
+                    {googleButtonFailed && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        className="w-full"
+                        onClick={handleGoogleSignIn}
+                        disabled={loading || oauthLoading}
+                      >
+                        Continue with Google
+                      </Button>
+                    )}
                   </>
                 ) : (
-                  <span className="inline-flex items-center gap-3">
-                    <svg
-                      aria-hidden="true"
-                      className="h-5 w-5"
-                      viewBox="0 0 48 48"
-                      xmlns="http://www.w3.org/2000/svg"
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="lg"
+                      className="w-full"
+                      onClick={handleGoogleSignIn}
+                      disabled={loading || oauthLoading}
                     >
-                      <path
-                        fill="#EA4335"
-                        d="M24 9.5c3.54 0 6.72 1.22 9.22 3.6l6.9-6.9C35.93 2.28 30.36 0 24 0 14.62 0 6.51 5.38 2.56 13.22l8.03 6.24C12.43 13.72 17.74 9.5 24 9.5z"
-                      />
-                      <path
-                        fill="#4285F4"
-                        d="M46.98 24.55c0-1.57-.14-3.09-.4-4.55H24v9.02h12.94c-.58 2.96-2.25 5.47-4.8 7.16l7.73 6c4.51-4.18 7.11-10.36 7.11-17.63z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M10.59 28.54c-.48-1.45-.75-2.99-.75-4.54s.27-3.09.75-4.54l-8.03-6.24A23.96 23.96 0 0 0 0 24c0 3.77.9 7.34 2.56 10.78l8.03-6.24z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M24 48c6.48 0 11.93-2.13 15.9-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.17 2.3-6.26 0-11.57-4.22-13.46-9.96l-8.03 6.24C6.51 42.62 14.62 48 24 48z"
-                      />
-                    </svg>
-                    Continue with Google
-                  </span>
+                      {oauthLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Redirecting to Google...
+                        </>
+                      ) : (
+                        'Continue with Google'
+                      )}
+                    </Button>
+                    <p className="text-center text-xs text-muted-foreground">
+                      Add `VITE_GOOGLE_CLIENT_ID` to local `.env` to render Google&apos;s official
+                      sign-in button in development.
+                    </p>
+                  </>
                 )}
-              </Button>
+              </div>
 
               <div className="rounded-xl border border-border bg-background p-1">
                 <div className="grid grid-cols-2 gap-1">

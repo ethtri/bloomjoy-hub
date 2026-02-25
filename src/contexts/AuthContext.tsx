@@ -19,6 +19,7 @@ interface AuthContextType {
   signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signInWithGoogle: () => Promise<{ error: AuthError | null }>;
+  signInWithGoogleIdToken: (idToken: string) => Promise<{ error: AuthError | null }>;
   signIn: (email: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
@@ -228,6 +229,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  const signInWithGoogleIdToken = async (
+    idToken: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await supabaseClient.auth.signInWithIdToken({
+      provider: 'google',
+      token: idToken,
+    });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
   const signIn = signInWithMagicLink;
 
   const signOut = async () => {
@@ -244,6 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signInWithPassword,
         signUpWithPassword,
         signInWithGoogle,
+        signInWithGoogleIdToken,
         signIn,
         signOut,
         isAuthenticated: !!user,

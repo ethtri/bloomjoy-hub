@@ -34,6 +34,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Password sign-in works for an existing email/password user
 - [ ] Google sign-in works when Supabase Google provider is enabled
+- [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
