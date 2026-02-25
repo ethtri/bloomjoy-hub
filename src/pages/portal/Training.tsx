@@ -111,6 +111,11 @@ export default function TrainingPage() {
                   <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                     {content.description}
                   </p>
+                  {!content.embed.url && (
+                    <p className="mt-2 text-xs uppercase tracking-[0.15em] text-muted-foreground">
+                      Video coming soon
+                    </p>
+                  )}
                   <div className="mt-3 flex items-center justify-between">
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
                       <Clock className="h-4 w-4" />

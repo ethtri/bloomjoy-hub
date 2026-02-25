@@ -50,12 +50,13 @@
 - Mobile UX hardening (`#49`): fixed horizontal overflow on `/portal/account` for common mobile viewport sizes
 - Frontend performance hardening (`#60`): route-level code splitting + chunk budgeting to reduce initial JS payload and remove oversized chunk warnings
 - Security patch sprint (`#58`): patched production dependency audit findings; `npm audit --omit=dev` now reports zero vulnerabilities
+- Vimeo integration (`#51`): training library now supports Vimeo embed parsing + mobile-safe playback, and keeps not-yet-uploaded modules visible with a clear "Video coming soon" state
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution is still owner-controlled (runbook is ready, but production deploy itself is not yet executed).
-- Vimeo integration (`#51`) is intentionally deferred until owner Vimeo account setup and embed domain restrictions are complete.
+- Vimeo upload backlog remains owner-controlled for training Modules 2-3 (Module 1 is integrated now).
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments

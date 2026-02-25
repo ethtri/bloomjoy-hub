@@ -42,7 +42,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Onboarding checklist progress updates when steps are toggled
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
-- [ ] Training detail page opens and embed placeholder loads
+- [ ] Training detail page opens and Vimeo embed plays for modules with configured video
+- [ ] Training modules without configured Vimeo video show a clear "Video coming soon" state
+- [ ] Training detail video area is usable on mobile (360x800, 390x844, 414x896)
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 

@@ -33,6 +33,19 @@
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields (`provider_video_id`, `provider_hash`) after account setup
 
+## Vimeo configuration (training modules)
+- Keep Vimeo secrets server-only in `.env` (never `VITE_`):
+  - `VIMEO_ACCESS_TOKEN`
+  - `VIMEO_APP_SECRET` (optional; only needed for OAuth/token exchange workflows)
+- Training video sources are configured in Supabase `training_assets` rows (`asset_type='video'`, `provider='vimeo'`).
+- Preferred field mapping:
+  - `provider_video_id`: Vimeo numeric video ID
+  - `provider_hash`: Vimeo unlisted hash (if required for private/unlisted embeds)
+  - `embed_url`: optional; can be used directly for non-Vimeo providers
+- Partial rollout is supported:
+  - If a module has no Vimeo ID/hash yet, the portal shows "Video coming soon" and keeps the module visible.
+  - This is the expected behavior while only Module 1 videos are uploaded.
+
 
 ## Agent best practices (plain language)
 - Each agent uses its own worktree and its own `.env` file.

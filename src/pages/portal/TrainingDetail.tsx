@@ -82,16 +82,23 @@ export default function TrainingDetailPage() {
                     title={trainingItem.embed.title}
                     className="aspect-video w-full"
                     src={trainingItem.embed.url}
+                    loading="lazy"
                     allow="autoplay; fullscreen; picture-in-picture"
+                    allowFullScreen
                     referrerPolicy="strict-origin-when-cross-origin"
                   />
                 ) : (
-                  <iframe
-                    title={trainingItem.embed.title}
-                    className="aspect-video w-full"
-                    srcDoc={trainingItem.embed.srcDoc}
-                    sandbox="allow-same-origin"
-                  />
+                  <>
+                    <div className="border-b border-border bg-muted/40 px-4 py-3 text-xs uppercase tracking-[0.15em] text-muted-foreground">
+                      Video coming soon
+                    </div>
+                    <iframe
+                      title={trainingItem.embed.title}
+                      className="aspect-video w-full"
+                      srcDoc={trainingItem.embed.srcDoc}
+                      sandbox="allow-same-origin"
+                    />
+                  </>
                 )}
               </div>
 
