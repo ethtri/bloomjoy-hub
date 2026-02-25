@@ -421,7 +421,7 @@ export default function LoginPage() {
               <div className="space-y-2">
                 {googleClientId ? (
                   <>
-                    <div className="relative rounded-full border border-[#d2d2d2] bg-white p-1">
+                    <div className="relative min-h-12">
                       <div
                         ref={googleButtonContainerRef}
                         className={`flex min-h-11 w-full items-center justify-center ${
