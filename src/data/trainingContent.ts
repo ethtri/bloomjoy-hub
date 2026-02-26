@@ -2,6 +2,7 @@ export interface TrainingContent {
   id: string;
   title: string;
   description: string;
+  thumbnailUrl?: string;
   duration: string;
   tags: string[];
   level: 'Beginner' | 'Intermediate' | 'Advanced';

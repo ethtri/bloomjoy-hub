@@ -37,6 +37,13 @@ const buildVimeoUrl = (videoId?: string | null, hash?: string | null) => {
   return `https://player.vimeo.com/video/${videoId}?h=${hash}&dnt=1`;
 };
 
+const buildVimeoThumbnailUrl = (videoId?: string | null) => {
+  if (!videoId) {
+    return undefined;
+  }
+  return `https://vumbnail.com/${videoId}.jpg`;
+};
+
 const formatDuration = (seconds?: number | null) => {
   if (!seconds || seconds <= 0) {
     return undefined;
@@ -54,6 +61,15 @@ const toTrainingContent = (record: TrainingRecord): TrainingContent => {
     videoAsset?.embed_url ??
     (videoAsset?.provider === 'vimeo'
       ? buildVimeoUrl(videoAsset.provider_video_id, videoAsset.provider_hash)
+      : undefined);
+  const thumbnailFromMeta =
+    typeof videoAsset?.meta?.thumbnail_url === 'string'
+      ? String(videoAsset.meta?.thumbnail_url)
+      : undefined;
+  const thumbnailUrl =
+    thumbnailFromMeta ??
+    (videoAsset?.provider === 'vimeo'
+      ? buildVimeoThumbnailUrl(videoAsset.provider_video_id)
       : undefined);
 
   const resources =
@@ -79,6 +95,7 @@ const toTrainingContent = (record: TrainingRecord): TrainingContent => {
     id: record.id,
     title: record.title,
     description: record.description ?? localMatch?.description ?? '',
+    thumbnailUrl: thumbnailUrl ?? localMatch?.thumbnailUrl,
     duration:
       formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '—',
     tags: record.tags && record.tags.length > 0 ? record.tags : localMatch?.tags ?? [],
@@ -128,10 +145,20 @@ export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
     .order('sort_order', { ascending: true });
 
   if (error || !data) {
+    console.warn('[TrainingLibrary] Supabase query failed; using local fallback.', {
+      code: error?.code,
+      message: error?.message,
+      status: error?.status,
+    });
     return fallbackTrainingContent;
   }
 
   const records = data as TrainingRecord[];
+  if (records.length === 0) {
+    console.warn('[TrainingLibrary] Supabase returned 0 training rows; using local fallback.');
+    return fallbackTrainingContent;
+  }
+
   return records.map(toTrainingContent);
 };
 
@@ -139,7 +166,8 @@ export const useTrainingLibrary = () =>
   useQuery({
     queryKey: TRAINING_QUERY_KEY,
     queryFn: fetchTrainingLibrary,
-    initialData: fallbackTrainingContent,
+    placeholderData: fallbackTrainingContent,
+    refetchOnMount: 'always',
     staleTime: 1000 * 60 * 5,
   });
 

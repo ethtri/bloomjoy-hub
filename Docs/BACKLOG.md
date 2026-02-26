@@ -63,3 +63,5 @@ Guidelines:
 18. Sticks product page (if offered)
 19. Training progress tracking
 20. Basic admin view for support requests
+21. Remove temporary static admin email allowlist and rely on `admin_roles` + RLS only
+22. Replace third-party Vimeo thumbnail fallback (`vumbnail`) with first-party stored thumbnail URLs

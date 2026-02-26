@@ -29,7 +29,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
+- [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
+- [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
+- [ ] Password sign-in works for an existing email/password user
+- [ ] Google sign-in works when Supabase Google provider is enabled
+- [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
@@ -42,7 +47,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Onboarding checklist progress updates when steps are toggled
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
-- [ ] Training detail page opens and embed placeholder loads
+- [ ] Training catalog shows `Data source: Supabase` in local dev after auth/session settles
+- [ ] Training catalog cards render thumbnail images for Vimeo-backed rows (not gray placeholders)
+- [ ] Training detail page opens and loads an embed frame (Vimeo for seeded modules; placeholder for local-only fallback modules)
+- [ ] Training detail page loads Vimeo player iframe for Vimeo-backed rows (not `about:srcdoc` placeholder)
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 

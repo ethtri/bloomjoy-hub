@@ -97,8 +97,21 @@ export default function TrainingPage() {
                 onClick={() => handleOpenItem(content.id, content.title)}
                 className="group card-elevated overflow-hidden transition-all hover:-translate-y-0.5"
               >
-                <div className="relative aspect-video bg-muted">
-                  <div className="absolute inset-0 flex items-center justify-center">
+                <div className="relative aspect-video overflow-hidden bg-muted">
+                  {content.thumbnailUrl && (
+                    <img
+                      src={content.thumbnailUrl}
+                      alt=""
+                      loading="lazy"
+                      className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
+                  <div
+                    className={`absolute inset-0 flex items-center justify-center transition-colors ${
+                      content.thumbnailUrl ? 'bg-black/20 group-hover:bg-black/10' : ''
+                    }`}
+                  >
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-transform group-hover:scale-110">
                       <Play className="h-5 w-5 fill-current" />
                     </div>

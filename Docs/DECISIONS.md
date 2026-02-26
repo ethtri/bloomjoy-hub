@@ -102,3 +102,23 @@ For MVP admin operations, we will use a single internal role and keep workflow c
 - Keeps support workflow reportable without over-modeling states too early.
 - Allows operations to maintain real-world machine inventory independent of billing timing.
 - Avoids notification plumbing in MVP and keeps scope focused on secure admin workflows.
+
+## 2026-02-26 - Temporary admin email allowlist for auth/training QA (`#75`)
+To unblock local QA while role provisioning catches up, we temporarily allow two known owner emails to behave as admin in app auth and training-access checks:
+- `etrifari@bloomjoysweets.com`
+- `ethtri@gmail.com`
+
+This is a temporary release aid, not the long-term authorization model.
+
+Follow-up requirement:
+- Remove static email allowlist before production and rely on `admin_roles` + RLS as the only source of admin access.
+
+## 2026-02-26 - Training thumbnails strategy for Vimeo Module 1 (`#75`)
+Training library cards use Vimeo-based thumbnails derived from `provider_video_id`:
+- `https://vumbnail.com/{video_id}.jpg`
+
+Rationale:
+- Fast, no-backend thumbnail path for current MVP scope.
+
+Follow-up requirement:
+- Move to first-party thumbnail URLs stored in `training_assets.meta.thumbnail_url` (or Supabase Storage) for production durability.

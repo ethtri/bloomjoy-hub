@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { hasPlusAccess, type MembershipStatus } from '@/lib/membership';
@@ -15,7 +15,12 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signIn: (email: string) => Promise<{ error: Error | null }>;
+  signInWithMagicLink: (email: string) => Promise<{ error: AuthError | null }>;
+  signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signInWithGoogle: () => Promise<{ error: AuthError | null }>;
+  signInWithGoogleIdToken: (idToken: string) => Promise<{ error: AuthError | null }>;
+  signIn: (email: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
   isMember: boolean;
@@ -33,6 +38,10 @@ type AdminRoleRecord = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const STATIC_ADMIN_EMAILS = new Set(['etrifari@bloomjoysweets.com', 'ethtri@gmail.com']);
+
+const isStaticAdminEmail = (email: string | null | undefined): boolean =>
+  Boolean(email && STATIC_ADMIN_EMAILS.has(email.trim().toLowerCase()));
 
 const normalizeMembershipStatus = (status: string | undefined): MembershipStatus => {
   if (!status) return 'none';
@@ -82,7 +91,11 @@ const getMembershipStatus = async (userId: string): Promise<MembershipStatus> =>
   return normalizeMembershipStatus(records[0]?.status);
 };
 
-const getIsAdmin = async (userId: string): Promise<boolean> => {
+const getIsAdmin = async (userId: string, email?: string | null): Promise<boolean> => {
+  if (isStaticAdminEmail(email)) {
+    return true;
+  }
+
   const { data, error } = await supabaseClient
     .from('admin_roles')
     .select('role')
@@ -100,14 +113,15 @@ const getIsAdmin = async (userId: string): Promise<boolean> => {
 };
 
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
+  const email = supabaseUser.email ?? '';
   const [membershipStatus, isAdmin] = await Promise.all([
     getMembershipStatus(supabaseUser.id),
-    getIsAdmin(supabaseUser.id),
+    getIsAdmin(supabaseUser.id, email),
   ]);
 
   return {
     id: supabaseUser.id,
-    email: supabaseUser.email ?? '',
+    email,
     membershipStatus,
     membershipPlan: hasPlusAccess(membershipStatus) ? 'Plus Basic' : undefined,
     isAdmin,
@@ -161,9 +175,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = async (email: string): Promise<{ error: Error | null }> => {
-    const redirectTo =
-      typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
+  const getAuthRedirectUrl = () =>
+    typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
+
+  const signInWithMagicLink = async (email: string): Promise<{ error: AuthError | null }> => {
+    const redirectTo = getAuthRedirectUrl();
 
     const { error } = await supabaseClient.auth.signInWithOtp({
       email,
@@ -177,6 +193,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  const signInWithPassword = async (
+    email: string,
+    password: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
+  const signUpWithPassword = async (
+    email: string,
+    password: string
+  ): Promise<{ error: AuthError | null }> => {
+    const redirectTo = getAuthRedirectUrl();
+    const { error } = await supabaseClient.auth.signUp({
+      email,
+      password,
+      options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
+    });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
+  const signInWithGoogle = async (): Promise<{ error: AuthError | null }> => {
+    const redirectTo = getAuthRedirectUrl();
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: redirectTo ? { redirectTo } : undefined,
+    });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
+  const signInWithGoogleIdToken = async (
+    idToken: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await supabaseClient.auth.signInWithIdToken({
+      provider: 'google',
+      token: idToken,
+    });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
+  const signIn = signInWithMagicLink;
+
   const signOut = async () => {
     await supabaseClient.auth.signOut();
     setUser(null);
@@ -187,6 +265,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         loading,
+        signInWithMagicLink,
+        signInWithPassword,
+        signUpWithPassword,
+        signInWithGoogle,
+        signInWithGoogleIdToken,
         signIn,
         signOut,
         isAuthenticated: !!user,
