@@ -10,7 +10,7 @@
 - No open P0 issues on the board; current focus is remaining P1 launch hardening.
 
 ## Owner next steps
-- Set up Vimeo (Starter/Standard), restrict embeds to approved domains, and add video IDs + hashes into `training_assets`.
+- Upload Module 2 and Module 3 Vimeo videos when ready and extend `trainings` + `training_assets` with the same seeded pattern used for Module 1.
 
 ## Upcoming scope clarification (next sprint)
 - Super-admin requirements and role model are complete for MVP scope (`#37` with implementation slices `#44`-`#48` delivered in PR `#55`).
@@ -50,12 +50,17 @@
 - Mobile UX hardening (`#49`): fixed horizontal overflow on `/portal/account` for common mobile viewport sizes
 - Frontend performance hardening (`#60`): route-level code splitting + chunk budgeting to reduce initial JS payload and remove oversized chunk warnings
 - Security patch sprint (`#58`): patched production dependency audit findings; `npm audit --omit=dev` now reports zero vulnerabilities
+- Auth UX hardening (`#75`): login now supports password + Google + magic-link with improved rate-limit/expired-link messaging and retry cooldown guidance
+- Training data hardening (`#75`): fixed fallback behavior so empty Supabase responses do not silently render a blank library
+- Vimeo integration (`#51` via `#75`): Module 1 videos now seeded in Supabase `trainings`/`training_assets` and rendered in portal library/detail pages
+- Training catalog polish (`#75`): card thumbnails now render from Vimeo video IDs
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution is still owner-controlled (runbook is ready, but production deploy itself is not yet executed).
-- Vimeo integration (`#51`) is intentionally deferred until owner Vimeo account setup and embed domain restrictions are complete.
+- Temporary admin email allowlist is enabled in app auth for rapid QA (`etrifari@bloomjoysweets.com`, `ethtri@gmail.com`); should be replaced by DB-only super-admin roles before production.
+- Vimeo Module 1 is live; Modules 2/3 are pending upload/seed.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
