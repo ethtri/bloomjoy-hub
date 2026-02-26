@@ -45,6 +45,27 @@ declare global {
   }
 }
 
+const GoogleMark = () => (
+  <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24">
+    <path
+      d="M21.35 11.1H12v2.96h5.35c-.23 1.51-1.9 4.42-5.35 4.42-3.22 0-5.84-2.67-5.84-5.97s2.62-5.97 5.84-5.97c1.84 0 3.07.78 3.78 1.45l2.58-2.49C16.71 3.98 14.58 3 12 3 6.98 3 2.91 7.1 2.91 12.12s4.07 9.12 9.09 9.12c5.25 0 8.73-3.69 8.73-8.9 0-.6-.06-1.06-.14-1.24Z"
+      fill="#4285F4"
+    />
+    <path
+      d="M6.03 14.6 5.1 15.31l-3.3 2.57A9.11 9.11 0 0 0 12 21.24c2.58 0 4.74-.85 6.33-2.3l-3.1-2.4c-.84.59-1.95 1-3.23 1-2.58 0-4.76-1.74-5.54-4.1Z"
+      fill="#34A853"
+    />
+    <path
+      d="M1.8 6.12A9.11 9.11 0 0 0 2.9 12c0 1.96.63 3.78 1.7 5.28l4.23-3.29A5.97 5.97 0 0 1 8.16 12c0-.69.12-1.35.34-1.96L4.27 6.76 1.8 6.12Z"
+      fill="#FBBC05"
+    />
+    <path
+      d="M12 6.54c1.4 0 2.65.48 3.64 1.42l2.73-2.67C16.74 3.77 14.58 3 12 3a9.1 9.1 0 0 0-8.2 5.12l4.7 3.64c.78-2.36 2.96-4.22 5.5-4.22Z"
+      fill="#EA4335"
+    />
+  </svg>
+);
+
 const safeDecode = (value?: string | null) => {
   if (!value) {
     return '';
@@ -442,43 +463,42 @@ export default function LoginPage() {
                       </p>
                     )}
                     {googleButtonFailed && (
-                      <Button
+                      <button
                         type="button"
-                        variant="outline"
-                        size="lg"
-                        className="w-full"
+                        className="flex h-11 w-full items-center justify-center gap-3 rounded-full border border-[#dadce0] bg-white px-4 font-sans text-base font-medium text-[#3c4043] transition hover:bg-[#f8f9fa] disabled:cursor-not-allowed disabled:opacity-70"
                         onClick={handleGoogleSignIn}
                         disabled={loading || oauthLoading}
                       >
-                        Continue with Google
-                      </Button>
+                        <GoogleMark />
+                        {oauthLoading ? (
+                          <>
+                            Redirecting...
+                            <Loader2 className="h-4 w-4 animate-spin text-[#5f6368]" />
+                          </>
+                        ) : (
+                          'Continue with Google'
+                        )}
+                      </button>
                     )}
                   </>
                 ) : (
                   <>
-                    <Button
+                    <button
                       type="button"
-                      variant="outline"
-                      size="lg"
-                      className="w-full"
+                      className="flex h-11 w-full items-center justify-center gap-3 rounded-full border border-[#dadce0] bg-white px-4 font-sans text-base font-medium text-[#3c4043] transition hover:bg-[#f8f9fa] disabled:cursor-not-allowed disabled:opacity-70"
                       onClick={handleGoogleSignIn}
                       disabled={loading || oauthLoading}
                     >
+                      <GoogleMark />
                       {oauthLoading ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Redirecting to Google...
+                          <Loader2 className="h-4 w-4 animate-spin text-[#5f6368]" />
                         </>
                       ) : (
                         'Continue with Google'
                       )}
-                    </Button>
-                    {googleClientId && (
-                      <p className="text-center text-xs text-muted-foreground">
-                        Using redirect-based Google sign-in for reliability. Set
-                        VITE_USE_GIS_BUTTON=true to enable the GIS-rendered button.
-                      </p>
-                    )}
+                    </button>
                   </>
                 )}
               </div>
