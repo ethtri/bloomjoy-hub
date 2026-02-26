@@ -5,7 +5,7 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { Button } from '@/components/ui/button';
 
 export function MemberRoute() {
-  const { loading, isMember } = useAuth();
+  const { loading, isMember, isAdmin } = useAuth();
 
   if (loading) {
     return (
@@ -15,7 +15,7 @@ export function MemberRoute() {
     );
   }
 
-  if (isMember) {
+  if (isMember || isAdmin) {
     return <Outlet />;
   }
 
