@@ -132,6 +132,10 @@ export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
   }
 
   const records = data as TrainingRecord[];
+  if (records.length === 0) {
+    return fallbackTrainingContent;
+  }
+
   return records.map(toTrainingContent);
 };
 
