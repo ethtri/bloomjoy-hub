@@ -13,13 +13,6 @@ as $$
         and s.status in ('active', 'trialing')
         and (s.current_period_end is null or s.current_period_end > now())
     )
-    or exists (
-      select 1
-      from public.admin_roles ar
-      where ar.user_id = auth.uid()
-        and ar.role = 'super_admin'
-        and ar.active = true
-    )
     or lower(coalesce(auth.jwt() ->> 'email', '')) in (
       'etrifari@bloomjoysweets.com',
       'ethtri@gmail.com'
