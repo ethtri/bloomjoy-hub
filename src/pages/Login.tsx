@@ -142,6 +142,8 @@ const getRedirectErrorMessage = (errorCode?: string | null, errorDescription?: s
 
 export default function LoginPage() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
+  const useGisRenderedButton =
+    import.meta.env.VITE_USE_GIS_BUTTON === 'true' && Boolean(googleClientId);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -180,7 +182,7 @@ export default function LoginPage() {
   }, [signInWithGoogleIdToken]);
 
   useEffect(() => {
-    if (!googleClientId) {
+    if (!useGisRenderedButton || !googleClientId) {
       setGoogleButtonReady(false);
       return;
     }
@@ -275,7 +277,7 @@ export default function LoginPage() {
       scriptElement?.removeEventListener('load', handleLoad);
       scriptElement?.removeEventListener('error', handleError);
     };
-  }, [googleClientId]);
+  }, [googleClientId, useGisRenderedButton]);
 
   useEffect(() => {
     if (cooldownSeconds <= 0) {
@@ -419,7 +421,7 @@ export default function LoginPage() {
 
             <div className="mt-8 space-y-4">
               <div className="space-y-2">
-                {googleClientId ? (
+                {useGisRenderedButton ? (
                   <>
                     <div className="relative min-h-12">
                       <div
@@ -436,7 +438,7 @@ export default function LoginPage() {
                     </div>
                     {!googleButtonReady && !googleButtonFailed && (
                       <p className="text-center text-xs text-muted-foreground">
-                        Loading Google sign-in…
+                        Loading Google sign-in...
                       </p>
                     )}
                     {googleButtonFailed && (
@@ -471,10 +473,12 @@ export default function LoginPage() {
                         'Continue with Google'
                       )}
                     </Button>
-                    <p className="text-center text-xs text-muted-foreground">
-                      Add `VITE_GOOGLE_CLIENT_ID` to local `.env` to render Google&apos;s official
-                      sign-in button in development.
-                    </p>
+                    {googleClientId && (
+                      <p className="text-center text-xs text-muted-foreground">
+                        Using redirect-based Google sign-in for reliability. Set
+                        VITE_USE_GIS_BUTTON=true to enable the GIS-rendered button.
+                      </p>
+                    )}
                   </>
                 )}
               </div>
