@@ -37,6 +37,13 @@ const buildVimeoUrl = (videoId?: string | null, hash?: string | null) => {
   return `https://player.vimeo.com/video/${videoId}?h=${hash}&dnt=1`;
 };
 
+const buildVimeoThumbnailUrl = (videoId?: string | null) => {
+  if (!videoId) {
+    return undefined;
+  }
+  return `https://vumbnail.com/${videoId}.jpg`;
+};
+
 const formatDuration = (seconds?: number | null) => {
   if (!seconds || seconds <= 0) {
     return undefined;
@@ -54,6 +61,15 @@ const toTrainingContent = (record: TrainingRecord): TrainingContent => {
     videoAsset?.embed_url ??
     (videoAsset?.provider === 'vimeo'
       ? buildVimeoUrl(videoAsset.provider_video_id, videoAsset.provider_hash)
+      : undefined);
+  const thumbnailFromMeta =
+    typeof videoAsset?.meta?.thumbnail_url === 'string'
+      ? String(videoAsset.meta?.thumbnail_url)
+      : undefined;
+  const thumbnailUrl =
+    thumbnailFromMeta ??
+    (videoAsset?.provider === 'vimeo'
+      ? buildVimeoThumbnailUrl(videoAsset.provider_video_id)
       : undefined);
 
   const resources =
@@ -79,6 +95,7 @@ const toTrainingContent = (record: TrainingRecord): TrainingContent => {
     id: record.id,
     title: record.title,
     description: record.description ?? localMatch?.description ?? '',
+    thumbnailUrl: thumbnailUrl ?? localMatch?.thumbnailUrl,
     duration:
       formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '—',
     tags: record.tags && record.tags.length > 0 ? record.tags : localMatch?.tags ?? [],
