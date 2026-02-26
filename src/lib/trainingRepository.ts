@@ -128,11 +128,17 @@ export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
     .order('sort_order', { ascending: true });
 
   if (error || !data) {
+    console.warn('[TrainingLibrary] Supabase query failed; using local fallback.', {
+      code: error?.code,
+      message: error?.message,
+      status: error?.status,
+    });
     return fallbackTrainingContent;
   }
 
   const records = data as TrainingRecord[];
   if (records.length === 0) {
+    console.warn('[TrainingLibrary] Supabase returned 0 training rows; using local fallback.');
     return fallbackTrainingContent;
   }
 
@@ -143,7 +149,8 @@ export const useTrainingLibrary = () =>
   useQuery({
     queryKey: TRAINING_QUERY_KEY,
     queryFn: fetchTrainingLibrary,
-    initialData: fallbackTrainingContent,
+    placeholderData: fallbackTrainingContent,
+    refetchOnMount: 'always',
     staleTime: 1000 * 60 * 5,
   });
 
