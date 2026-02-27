@@ -38,10 +38,6 @@ type AdminRoleRecord = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const STATIC_ADMIN_EMAILS = new Set(['etrifari@bloomjoysweets.com', 'ethtri@gmail.com']);
-
-const isStaticAdminEmail = (email: string | null | undefined): boolean =>
-  Boolean(email && STATIC_ADMIN_EMAILS.has(email.trim().toLowerCase()));
 
 const normalizeMembershipStatus = (status: string | undefined): MembershipStatus => {
   if (!status) return 'none';
@@ -91,11 +87,7 @@ const getMembershipStatus = async (userId: string): Promise<MembershipStatus> =>
   return normalizeMembershipStatus(records[0]?.status);
 };
 
-const getIsAdmin = async (userId: string, email?: string | null): Promise<boolean> => {
-  if (isStaticAdminEmail(email)) {
-    return true;
-  }
-
+const getIsAdmin = async (userId: string): Promise<boolean> => {
   const { data, error } = await supabaseClient
     .from('admin_roles')
     .select('role')
@@ -116,7 +108,7 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
   const [membershipStatus, isAdmin] = await Promise.all([
     getMembershipStatus(supabaseUser.id),
-    getIsAdmin(supabaseUser.id, email),
+    getIsAdmin(supabaseUser.id),
   ]);
 
   return {
