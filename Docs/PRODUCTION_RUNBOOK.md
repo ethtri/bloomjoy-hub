@@ -2,12 +2,13 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-02-23
+Last updated: 2026-02-27
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
 - Technical owner: executes frontend + Supabase deploy steps.
 - Billing owner: verifies Stripe products/prices/webhook health.
+- Auth owner: executes auth provider, redirect, and branded email configuration.
 - QA owner: runs smoke checklist and signs off.
 
 ## 2) Production configuration matrix
@@ -30,6 +31,7 @@ Security rule:
 ## 3) Pre-launch checklist (T-24h)
 - [ ] Launch freeze announced (no unrelated merges to `main` during launch window).
 - [ ] Branch is synced with latest `main`.
+- [ ] Auth launch checklist is prepared and assigned (`Docs/AUTH_PRODUCTION_SIGNOFF.md`).
 - [ ] Verification commands pass on launch commit:
   - [ ] `npm ci`
   - [ ] `npm run build`
@@ -94,6 +96,7 @@ Deploy current launch commit to your chosen host (Vercel/Netlify/etc.) with:
 Run immediately after deploy:
 - [ ] Public routes load (`/`, `/machines`, `/supplies`, `/plus`, `/resources`, `/contact`).
 - [ ] Login works and protected routes redirect correctly.
+- [ ] Auth launch sign-off checklist is completed with evidence (`Docs/AUTH_PRODUCTION_SIGNOFF.md`).
 - [ ] `Docs/QA_SMOKE_TEST_CHECKLIST.md` core payment/auth checks pass.
 - [ ] Sugar checkout test order creates `orders` record in Supabase.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
