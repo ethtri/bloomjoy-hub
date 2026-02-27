@@ -4,7 +4,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Global
 - [ ] App starts: `npm ci` then `npm run dev`
-- [ ] Open the URL printed in the terminal (usually http://localhost:5173)
+- [ ] Open the URL printed in the terminal (usually http://localhost:8080)
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
 
@@ -28,15 +28,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
 
 ## Auth / portal
+- Production-only auth launch checks are tracked in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 - [ ] Login flow works (magic link or configured method)
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
-- [ ] Production auth emails are branded (signup confirmation, magic link, password recovery templates)
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Password sign-in works for an existing email/password user
 - [ ] Password reset email delivery + reset completion works in target environment
 - [ ] Google sign-in works when Supabase Google provider is enabled
-- [ ] Google consent screen branding is correct (Bloomjoy app name/logo/support email)
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
