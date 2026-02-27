@@ -4,7 +4,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Global
 - [ ] App starts: `npm ci` then `npm run dev`
-- [ ] Open the URL printed in the terminal (usually http://localhost:8080)
+- [ ] Open the URL printed in the terminal (usually http://localhost:5173)
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
 
@@ -71,7 +71,6 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Admin (super-admin)
 - [ ] Non-admin user cannot access `/admin/support`
 - [ ] Super-admin user can access `/admin/support`
-- [ ] Super-admin user without Plus subscription can still access `/portal/training` via `admin_roles` (no static email bypass)
 - [ ] Admin can search/filter support queue and update status/priority/assignment/notes
 - [ ] Admin updates create `admin_audit_log` entries with `action=support_request.updated`
 - [ ] Non-admin user cannot access `/admin/orders`
