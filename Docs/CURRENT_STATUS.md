@@ -10,6 +10,8 @@
 - No open P0 issues on the board; current focus is remaining P1 launch hardening.
 
 ## Owner next steps
+- Execute production auth setup in `Docs/AUTH_OAUTH_BRANDING_RUNBOOK.md` (Google branding, custom auth domain, redirect/origin verification).
+- Complete launch evidence and approvals in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 - Upload Module 2 and Module 3 Vimeo videos when ready and extend `trainings` + `training_assets` with the same seeded pattern used for Module 1.
 
 ## Upcoming scope clarification (next sprint)
@@ -54,12 +56,14 @@
 - Training data hardening (`#75`): fixed fallback behavior so empty Supabase responses do not silently render a blank library
 - Vimeo integration (`#51` via `#75`): Module 1 videos now seeded in Supabase `trainings`/`training_assets` and rendered in portal library/detail pages
 - Training catalog polish (`#75`): card thumbnails now render from Vimeo video IDs
+- Admin access hardening (`#80`): static admin email allowlist removed from app auth; access now relies on DB-driven `admin_roles` + RLS helper migration (`202602270003_remove_static_admin_allowlist.sql`)
+- OAuth/domain launch docs (`#78`): added step-by-step runbook for Google consent branding + Supabase custom auth domain setup (`Docs/AUTH_OAUTH_BRANDING_RUNBOOK.md`)
+- Auth launch operations docs (`#77`): added production auth sign-off template and runbook integration (`Docs/AUTH_PRODUCTION_SIGNOFF.md`, `Docs/PRODUCTION_RUNBOOK.md`)
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
-- Production credential execution is still owner-controlled (runbook is ready, but production deploy itself is not yet executed).
-- Temporary admin email allowlist is enabled in app auth for rapid QA (`etrifari@bloomjoysweets.com`, `ethtri@gmail.com`); should be replaced by DB-only super-admin roles before production.
+- Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
 - Vimeo Module 1 is live; Modules 2/3 are pending upload/seed.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
@@ -70,4 +74,4 @@
 ## How to test on localhost (simple steps)
 1) In the project folder, run `npm ci`
 2) Start the app with `npm run dev`
-3) Open the URL shown in the terminal (usually http://localhost:5173)
+3) Open the URL shown in the terminal (usually http://localhost:8080)
