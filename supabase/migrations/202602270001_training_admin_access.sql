@@ -12,6 +12,10 @@ as $$
       where s.user_id = auth.uid()
         and s.status in ('active', 'trialing')
         and (s.current_period_end is null or s.current_period_end > now())
+    )
+    or lower(coalesce(auth.jwt() ->> 'email', '')) in (
+      'etrifari@bloomjoysweets.com',
+      'ethtri@gmail.com'
     );
 $$;
 

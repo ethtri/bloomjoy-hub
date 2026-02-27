@@ -21,6 +21,12 @@ as $$
       where ar.user_id = auth.uid()
         and ar.role = 'super_admin'
         and ar.active = true
+    )
+    or exists (
+      select 1
+      from auth.users u
+      where u.id = auth.uid()
+        and lower(u.email) in ('etrifari@bloomjoysweets.com', 'ethtri@gmail.com')
     );
 $$;
 
