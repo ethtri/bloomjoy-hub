@@ -54,12 +54,12 @@
 - Training data hardening (`#75`): fixed fallback behavior so empty Supabase responses do not silently render a blank library
 - Vimeo integration (`#51` via `#75`): Module 1 videos now seeded in Supabase `trainings`/`training_assets` and rendered in portal library/detail pages
 - Training catalog polish (`#75`): card thumbnails now render from Vimeo video IDs
-- Admin auth hardening (`#80`): removed temporary static admin email bypass so admin/training elevated access now relies on `admin_roles` + RLS only
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution is still owner-controlled (runbook is ready, but production deploy itself is not yet executed).
+- Temporary admin email allowlist is enabled in app auth for rapid QA (`etrifari@bloomjoysweets.com`, `ethtri@gmail.com`); should be replaced by DB-only super-admin roles before production.
 - Vimeo Module 1 is live; Modules 2/3 are pending upload/seed.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
