@@ -14,7 +14,6 @@
    - Supabase client env vars used by the app:
      - `VITE_SUPABASE_URL`
      - `VITE_SUPABASE_ANON_KEY`
-     - If custom auth domain is active, set `VITE_SUPABASE_URL` to that hostname (for example `https://auth.bloomjoysweets.com`) instead of `<project-ref>.supabase.co`.
    - Optional client env var for local Google GIS button rendering:
      - `VITE_GOOGLE_CLIENT_ID`
      - `VITE_USE_GIS_BUTTON=true` (optional; if omitted, app uses redirect-based Google sign-in)
@@ -50,9 +49,6 @@ To use all login methods in local dev:
      - `http://localhost:8080`
      - `http://localhost:8080/login`
      - `http://localhost:8080/portal`
-
-For OAuth branding + custom auth-domain setup (Google consent branding, callback host migration, troubleshooting), use:
-- `Docs/AUTH_OAUTH_BRANDING_RUNBOOK.md`
 
 
 ## Agent best practices (plain language)
