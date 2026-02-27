@@ -27,9 +27,13 @@ Set the following values before launch.
 Security rule:
 - Never place secrets in `VITE_` variables.
 
+Auth-domain note:
+- If custom auth hostname is enabled, `VITE_SUPABASE_URL` should use the custom host (example: `https://auth.bloomjoysweets.com`).
+
 ## 3) Pre-launch checklist (T-24h)
 - [ ] Launch freeze announced (no unrelated merges to `main` during launch window).
 - [ ] Branch is synced with latest `main`.
+- [ ] OAuth branding/domain runbook items are complete (`Docs/AUTH_OAUTH_BRANDING_RUNBOOK.md`).
 - [ ] Verification commands pass on launch commit:
   - [ ] `npm ci`
   - [ ] `npm run build`
