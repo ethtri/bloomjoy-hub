@@ -35,8 +35,6 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Password sign-in works for an existing email/password user
 - [ ] Google sign-in works when Supabase Google provider is enabled
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
-- [ ] Google consent screen displays Bloomjoy branding (name/logo/support email) in the target environment
-- [ ] Google OAuth callback host uses configured custom auth domain (when enabled), not `<project-ref>.supabase.co`
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
