@@ -27,6 +27,8 @@ type TrainingRecord = {
   training_assets?: TrainingAssetRecord[];
 };
 
+const DEFAULT_TRAINING_THUMBNAIL_URL = '/placeholder.svg';
+
 const buildVimeoUrl = (videoId?: string | null, hash?: string | null) => {
   if (!videoId) {
     return undefined;
@@ -37,11 +39,21 @@ const buildVimeoUrl = (videoId?: string | null, hash?: string | null) => {
   return `https://player.vimeo.com/video/${videoId}?h=${hash}&dnt=1`;
 };
 
-const buildVimeoThumbnailUrl = (videoId?: string | null) => {
-  if (!videoId) {
+const resolveThumbnailUrl = (rawValue?: string | null) => {
+  if (!rawValue) {
     return undefined;
   }
-  return `https://vumbnail.com/${videoId}.jpg`;
+
+  const value = rawValue.trim();
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/')) {
+    return value;
+  }
+
+  return supabaseClient.storage.from('training-thumbnails').getPublicUrl(value).data.publicUrl;
 };
 
 const formatDuration = (seconds?: number | null) => {
@@ -64,13 +76,9 @@ const toTrainingContent = (record: TrainingRecord): TrainingContent => {
       : undefined);
   const thumbnailFromMeta =
     typeof videoAsset?.meta?.thumbnail_url === 'string'
-      ? String(videoAsset.meta?.thumbnail_url)
+      ? resolveThumbnailUrl(String(videoAsset.meta?.thumbnail_url))
       : undefined;
-  const thumbnailUrl =
-    thumbnailFromMeta ??
-    (videoAsset?.provider === 'vimeo'
-      ? buildVimeoThumbnailUrl(videoAsset.provider_video_id)
-      : undefined);
+  const thumbnailUrl = thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL;
 
   const resources =
     record.training_assets
@@ -95,7 +103,7 @@ const toTrainingContent = (record: TrainingRecord): TrainingContent => {
     id: record.id,
     title: record.title,
     description: record.description ?? localMatch?.description ?? '',
-    thumbnailUrl: thumbnailUrl ?? localMatch?.thumbnailUrl,
+    thumbnailUrl,
     duration:
       formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '—',
     tags: record.tags && record.tags.length > 0 ? record.tags : localMatch?.tags ?? [],
