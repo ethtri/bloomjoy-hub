@@ -2,7 +2,7 @@
 
 Purpose: make Google sign-in show Bloomjoy branding and move OAuth callbacks off `<project-ref>.supabase.co` to a Bloomjoy-owned auth subdomain.
 
-Last updated: 2026-02-27
+Last updated: 2026-03-01
 
 ## 1) Prerequisites
 - Domain access for Bloomjoy DNS (to create CNAME/TXT records).
@@ -13,6 +13,15 @@ Last updated: 2026-02-27
   - Local app URL: `http://localhost:8080` (or your active Vite port)
   - Production app URL (example): `https://hub.bloomjoysweets.com`
   - Auth hostname target (recommended): `auth.bloomjoysweets.com`
+
+## 1.1) Execution tracker (issue #78)
+Record status as `Not started`, `In progress`, `Done`, or `Blocked`.
+
+| Environment | Goal | Status | Evidence |
+|---|---|---|---|
+| Localhost (`http://localhost:8080`) | Google sign-in completes and returns to `/portal` | In progress |  |
+| Staging (if used) | Consent screen branding + callback host verified |  |  |
+| Production | Callback host on custom domain + branding approved |  |  |
 
 ## 2) Collect values before changing anything
 - `PROJECT_REF` (Supabase project ref).
@@ -99,6 +108,7 @@ Supabase Dashboard -> Authentication:
 - Set frontend env to custom auth host after activation:
   - `VITE_SUPABASE_URL=https://auth.bloomjoysweets.com`
 - Keep `VITE_SUPABASE_ANON_KEY` unchanged for the same Supabase project.
+- Do not commit production secrets or local `.env` files.
 
 No code change is required for redirect target path in this repo because login redirects are built from `window.location.origin` and route to `/portal`.
 
@@ -108,9 +118,10 @@ No code change is required for redirect target path in this repo because login r
   - [ ] Consent screen shows Bloomjoy app name/logo/support email.
   - [ ] OAuth callback returns to `/portal` and session is created.
 - Deployed environment:
-  - [ ] Same verification on production/staging domain.
-  - [ ] Network trace shows callback host is `auth.bloomjoysweets.com` (not `<PROJECT_REF>.supabase.co`).
+  - [ ] Repeat verification on staging or production app domain.
+  - [ ] Browser network trace shows callback host `auth.bloomjoysweets.com` (not `<PROJECT_REF>.supabase.co`).
   - [ ] No auth-console errors during sign-in.
+  - [ ] Record screenshot/evidence links in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 
 ## 9) Troubleshooting
 ### `redirect_uri_mismatch`
@@ -139,6 +150,11 @@ Anything still pending for production approval/review stays tracked in issue `#7
 - OAuth consent publish/review timing
 - Secret rotation after setup/testing screenshots
 - Production smoke evidence capture
+
+## 10.1) Board status guidance
+- Keep issue `#78` in `In Progress` while custom domain cutover and verification are incomplete.
+- Move issue `#78` to `Done` only after section 8 checks pass in localhost and deployed environment.
+- Keep issue `#77` open until production auth sign-off evidence is fully captured.
 
 ## 11) References (official docs)
 - Supabase Auth + Google provider setup:
