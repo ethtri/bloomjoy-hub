@@ -35,6 +35,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Password sign-in works for an existing email/password user
 - [ ] Google sign-in works when Supabase Google provider is enabled
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
+- [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
+- [ ] For auth launch hardening, Google callback host uses `auth.bloomjoysweets.com` (not `<project-ref>.supabase.co`)
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
@@ -63,6 +65,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
 - [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)
+
+## Auth launch hardening (production-only)
+- [ ] Branded auth emails send from approved Bloomjoy sender domain (not default Supabase sender)
+- [ ] Signup confirmation, magic link, and password recovery emails use final branded templates
+- [ ] Production auth smoke evidence is captured in `Docs/AUTH_PRODUCTION_SIGNOFF.md`
 
 ## Regression sanity
 - [ ] `npm run build` passes

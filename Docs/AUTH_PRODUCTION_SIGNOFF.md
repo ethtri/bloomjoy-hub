@@ -2,7 +2,7 @@
 
 Purpose: convert deferred auth launch hardening into an execution checklist with clear ownership and evidence capture.
 
-Last updated: 2026-02-27
+Last updated: 2026-03-01
 
 ## 1) Owners and launch window
 - Launch date/time:
@@ -18,6 +18,7 @@ Last updated: 2026-02-27
 
 ## 3) Configuration checklist (with evidence)
 Record who completed each item and where proof is stored (screenshot, config export, or ticket link).
+Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 
 | Item | Owner | Status | Evidence |
 |---|---|---|---|
@@ -30,6 +31,7 @@ Record who completed each item and where proof is stored (screenshot, config exp
 | Google OAuth consent audience set for launch state |  |  |  |
 | Google OAuth redirect URIs include production callback |  |  |  |
 | Google OAuth JavaScript origins include production origin |  |  |  |
+| Google OAuth callback host resolves to `auth.bloomjoysweets.com` in live flow |  |  |  |
 | Google OAuth client secret rotated after setup-sharing activity |  |  |  |
 | Supabase Google provider updated with current client credentials |  |  |  |
 | Supabase Site URL set to production URL |  |  |  |
@@ -60,10 +62,17 @@ Capture evidence links for each required flow.
 | Password login (`/login` -> `/portal`) |  |  |
 | Magic link login (`/login` -> email -> `/portal`) |  |  |
 | Google login (`/login` -> consent -> `/portal`) |  |  |
+| Google callback host is `auth.bloomjoysweets.com` |  |  |
 | Logged-out redirect guard (`/portal` -> `/login`) |  |  |
 | Branded auth email (signup confirmation) |  |  |
 | Branded auth email (magic link) |  |  |
 | Branded auth email (password recovery) |  |  |
+
+## 5.1) Evidence package minimum
+- [ ] One screenshot of Google consent branding (name/logo/support email).
+- [ ] One screenshot of branded auth email template for each flow (signup, magic link, recovery).
+- [ ] One network trace or screenshot proving callback host is `auth.bloomjoysweets.com`.
+- [ ] Link evidence in section 5 or launch ticket before Go/No-Go.
 
 ## 6) Common auth incidents
 ### 429 rate limit on magic link or OTP

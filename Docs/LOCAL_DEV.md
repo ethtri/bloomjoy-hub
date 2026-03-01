@@ -71,7 +71,8 @@ To use all login methods in local dev:
 2) Confirm your branch starts with `agent/`
 3) Run `git fetch origin` to update your view of recent merges
 4) Run `git status -sb` and make sure it looks clean
-5) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
+5) Run `npm run auth:preflight` when working on auth/OAuth launch tasks
+6) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
 
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
