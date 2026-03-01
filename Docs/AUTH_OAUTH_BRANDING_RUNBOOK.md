@@ -37,6 +37,37 @@ Current project snapshot (2026-03-01):
 - Bloomjoy Hub project ref: `ygbzkgxktzqsiygjlqyg`
 - Current blocker: Supabase Custom Domain add-on is not enabled yet, so domain commands fail until billing/add-on enablement is complete.
 
+## 2.1) Copy/paste setup values (Bloomjoy)
+Use these exact values when configuring Google OAuth + Supabase auth settings:
+
+- Google OAuth Authorized JavaScript origins:
+  - `http://localhost:8080`
+  - `https://hub.bloomjoysweets.com`
+- Google OAuth Authorized redirect URIs:
+  - `https://ygbzkgxktzqsiygjlqyg.supabase.co/auth/v1/callback` (temporary during cutover)
+  - `https://auth.bloomjoysweets.com/auth/v1/callback` (target)
+- Supabase Auth URL configuration:
+  - Site URL: `https://hub.bloomjoysweets.com`
+  - Additional redirects:
+    - `http://localhost:8080`
+    - `http://localhost:8080/login`
+    - `http://localhost:8080/portal`
+    - `https://hub.bloomjoysweets.com`
+    - `https://hub.bloomjoysweets.com/login`
+    - `https://hub.bloomjoysweets.com/portal`
+
+Optional preflight helper (repo command):
+
+```bash
+npm run auth:preflight
+```
+
+For post-cutover enforcement (must use custom auth host):
+
+```bash
+npm run auth:preflight -- --require-custom-auth-domain
+```
+
 ## 3) Configure Supabase custom auth domain
 You can do this in Dashboard or CLI. CLI example:
 
