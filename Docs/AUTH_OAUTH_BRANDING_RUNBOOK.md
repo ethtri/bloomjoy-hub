@@ -33,11 +33,21 @@ Record status as `Not started`, `In progress`, `Done`, or `Blocked`.
   - `http://localhost:8080/portal`
   - `https://hub.bloomjoysweets.com/portal` (example)
 
+Current project snapshot (2026-03-01):
+- Bloomjoy Hub project ref: `ygbzkgxktzqsiygjlqyg`
+- Current blocker: Supabase Custom Domain add-on is not enabled yet, so domain commands fail until billing/add-on enablement is complete.
+
 ## 3) Configure Supabase custom auth domain
 You can do this in Dashboard or CLI. CLI example:
 
 ```bash
 supabase domains create --project-ref <PROJECT_REF> --custom-hostname auth.bloomjoysweets.com
+```
+
+Bloomjoy copy/paste command (after add-on is enabled):
+
+```bash
+supabase domains create --project-ref ygbzkgxktzqsiygjlqyg --custom-hostname auth.bloomjoysweets.com
 ```
 
 Then add DNS records exactly as Supabase returns:
