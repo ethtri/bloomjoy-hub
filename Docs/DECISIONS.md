@@ -122,3 +122,20 @@ Rationale:
 
 Follow-up requirement:
 - Move to first-party thumbnail URLs stored in `training_assets.meta.thumbnail_url` (or Supabase Storage) for production durability.
+
+## 2026-03-01 - First-party training thumbnail strategy (`#79`)
+Training library cards now prefer first-party thumbnail values from `training_assets.meta.thumbnail_url`.
+
+**Storage convention**
+- `thumbnail_url` stores either:
+  - a public URL (`https://...`) when provided by operations, or
+  - a Supabase Storage object key in bucket `training-thumbnails` (example: `vimeo/<video_id>.jpg`).
+
+**Why this choice**
+- Removes runtime dependency on third-party thumbnail host availability.
+- Keeps thumbnail source controlled by Bloomjoy infrastructure and data.
+- Supports environment-specific Supabase hosts without hardcoded thumbnail domains.
+
+**Implementation notes**
+- Frontend resolves storage keys via `supabaseClient.storage.from('training-thumbnails').getPublicUrl(...)`.
+- Default visual fallback remains first-party (`/placeholder.svg`) for rows missing a thumbnail value.

@@ -50,7 +50,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
 - [ ] Training catalog shows `Data source: Supabase` in local dev after auth/session settles
-- [ ] Training catalog cards render thumbnail images for Vimeo-backed rows (not gray placeholders)
+- [ ] Training catalog cards render thumbnail images for Vimeo-backed rows from first-party URLs (`training_assets.meta.thumbnail_url`) with no `vumbnail.com` dependency
 - [ ] Training detail page opens and loads an embed frame (Vimeo for seeded modules; placeholder for local-only fallback modules)
 - [ ] Training detail page loads Vimeo player iframe for Vimeo-backed rows (not `about:srcdoc` placeholder)
 - [ ] Support request forms submit and show success state

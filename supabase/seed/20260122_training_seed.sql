@@ -50,7 +50,7 @@ values
     null,
     null,
     null,
-    '{"title":"Setup walkthrough"}'
+    '{"title":"Setup walkthrough","thumbnail_url":"/placeholder.svg"}'
   ),
   (
     'b0b9baca-9f6b-4a57-8e1f-2c1ed2a5932e',
@@ -60,7 +60,7 @@ values
     null,
     null,
     null,
-    '{"title":"Sugar loading demo"}'
+    '{"title":"Sugar loading demo","thumbnail_url":"/placeholder.svg"}'
   ),
   (
     '1f2cbe0d-0f66-4a2a-9f71-8ed6a64f4c12',
@@ -70,5 +70,5 @@ values
     null,
     null,
     null,
-    '{"title":"Troubleshooting walkthrough"}'
+    '{"title":"Troubleshooting walkthrough","thumbnail_url":"/placeholder.svg"}'
   );

@@ -34,7 +34,10 @@
 1) Apply migration: `supabase/migrations/20260122_training_and_membership.sql`
    - Orders sync migration: `supabase/migrations/20260202_orders.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
-3) Populate Vimeo fields (`provider_video_id`, `provider_hash`) after account setup
+3) Populate Vimeo fields after account setup:
+   - `provider_video_id`
+   - `provider_hash`
+   - `meta.thumbnail_url` (first-party key in `training-thumbnails` bucket, for example `vimeo/<video_id>.jpg`)
 
 ## Supabase auth setup (password + Google + magic link)
 To use all login methods in local dev:

@@ -344,5 +344,10 @@ select
   video_hash,
   embed_url,
   null,
-  jsonb_build_object('title', video_title)
+  jsonb_build_object(
+    'title',
+    video_title,
+    'thumbnail_url',
+    format('vimeo/%s.jpg', video_id)
+  )
 from vimeo_module1;
