@@ -7,16 +7,14 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-- `#89` P0 Training performance: improve Vimeo load speed and startup UX.
-- `#91` P0 Training UX: clarify "What you will learn" / "Checklist" / "Resources" section purpose.
-- `#90` P0 Training taxonomy: support Module 1/2/3 tags in library UX.
+- Validate and merge the training hardening slice for `#89`, `#90`, and `#91` (build/lint pass and localhost smoke checks on module filtering + detail UX clarity + Vimeo loading state).
 
 ## Owner next steps
 - Execute production auth setup in `Docs/AUTH_OAUTH_BRANDING_RUNBOOK.md` (Google branding, custom auth domain, redirect/origin verification).
 - Complete launch evidence and approvals in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 - Enable Supabase Custom Domain add-on for project `ygbzkgxktzqsiygjlqyg` to unblock `auth.bloomjoysweets.com` cutover (required for issue `#78`).
 - Upload Module 2 and Module 3 Vimeo videos when ready and extend `trainings` + `training_assets` with the same seeded pattern used for Module 1.
-- Add Vimeo tags for module segmentation (Module 1/2/3) to support the new P0 training taxonomy work (`#90`).
+- Add Vimeo tags for Module 2/3 as content is uploaded so the new module-filter UX can segment beyond Module 1.
 
 ## Upcoming scope clarification (next sprint)
 - Super-admin requirements and role model are complete for MVP scope (`#37` with implementation slices `#44`-`#48` delivered in PR `#55`).
@@ -67,6 +65,10 @@
 - Auth recovery hardening (`PR #88`): added password reset request + `/reset-password` completion flow.
 - Quote-intake clarity hardening (`PR #88`): machine quote CTA now carries machine-of-interest context into contact submissions.
 - Local QA admin access helper (`PR #88`): optional `VITE_DEV_ADMIN_EMAILS` local-only override for internal Plus feature testing.
+- Training performance hardening (`#89`): training detail now shows a clear Vimeo loading state, adds Vimeo preconnect hints, and emits iframe startup timing analytics.
+- Training detail clarity hardening (`#91`): renamed and clarified post-video sections with helper copy plus explicit empty-state fallbacks for learning outcomes/checklist/resources.
+- Training taxonomy hardening (`#90`): training catalog now supports module-specific filtering/grouping (for example `Module 1/2/3`) and includes an operations script to enforce Vimeo tags (`scripts/vimeo-ensure-tag.mjs`).
+- Vimeo operations update (`#90`): current Vimeo library was normalized so all 17 uploaded videos are tagged `Module 1`.
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
@@ -74,7 +76,7 @@
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.
 - Vimeo Module 1 is live; Modules 2/3 are pending upload/seed.
-- Training UX feedback indicates Vimeo startup feels slow and learning-section purpose is unclear; now tracked as P0 issues (`#89`, `#91`).
+- Module taxonomy UX is implemented, but cross-module validation is pending until Module 2/3 videos are uploaded/tagged.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 
 ## Environments
