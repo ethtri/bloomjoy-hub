@@ -1,11 +1,11 @@
-﻿# Backlog
+# Backlog
 
 Guidelines:
-- Keep tasks PR-sized (1â€“3 days of work for an agent).
+- Keep tasks PR-sized (1-3 days of work for an agent).
 - Mark dependencies explicitly.
-- We are starting from a **Loveable-generated POC** â€” prefer incremental improvements over rewrites.
+- We are starting from a **Loveable-generated POC** - prefer incremental improvements over rewrites.
 
-## P0 â€” Foundations (must come first)
+## P0 - Foundations (must come first)
 1. **POC intake + repo hygiene**
    - Confirm the Loveable POC runs locally
    - Ensure these pass:
@@ -37,7 +37,7 @@ Guidelines:
    - Add typed config helper to prevent missing envs
    - Dependency: (1)
 
-## P0 â€” Public site
+## P0 - Public site
 4. Home page (hero + product entry points + trust section)
 5. Machines pages (Full, Micro, Mini waitlist mode)
 6. Supplies pages (Sugar first; sticks optional)
@@ -47,20 +47,20 @@ Guidelines:
 8. Resources/FAQ page
 9. Contact + quote request forms (store leads in DB or send email)
 
-## P0 â€” Member portal
+## P0 - Member portal
 10. Auth (magic link recommended) + protected routes
 11. Portal shell layout + dashboard placeholder cards
 12. Training library MVP (gated catalog + detail pages)
 13. Onboarding checklist (track completion per user)
 14. Support requests (concierge + parts assistance)
 
-## P0 â€” Payments (test mode)
+## P0 - Payments (test mode)
 15. Sugar checkout (Stripe Checkout)
 16. Plus Basic subscription checkout + customer portal link
-17. Webhook sync (membership/order status â†’ DB)
+17. Webhook sync (membership/order status -> DB)
 
 
-## P0 â€” Training UX/performance hardening (new)
+## P0 - Training UX/performance hardening (new)
 18. **Training performance: Vimeo load speed + startup UX** (`#89`)
    - Improve perceived startup speed for training detail video playback.
    - Add clear loading-state UX while Vimeo player initializes.
@@ -76,7 +76,7 @@ Guidelines:
    - Document operations workflow for Vimeo tag mapping/update.
    - Dependency: Vimeo tagging + training metadata sync.
 
-## P1 â€” Nice-to-have
+## P1 - Nice-to-have
 21. Sticks product page (if offered)
 22. Training progress tracking
 23. Basic admin view for support requests
