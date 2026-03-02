@@ -41,6 +41,19 @@
    - `provider_hash`
    - `meta.thumbnail_url` (first-party key in `training-thumbnails` bucket, for example `vimeo/<video_id>.jpg`)
 
+## Vimeo module tag sync (operations helper)
+Use this when Vimeo uploads are missing module taxonomy tags (for example `Module 1`).
+
+1) Ensure your local env includes `VIMEO_ACCESS_TOKEN` with Vimeo write access
+2) Dry run:
+   - `node scripts/vimeo-ensure-tag.mjs --tag "Module 1" --dry-run`
+3) Apply updates:
+   - `node scripts/vimeo-ensure-tag.mjs --tag "Module 1"`
+
+Notes:
+- Script is idempotent and skips videos that already have the target tag.
+- Current helper targets all videos visible to the authenticated Vimeo account (`/me/videos`).
+
 ## Supabase auth setup (password + Google + magic link)
 To use all login methods in local dev:
 1) Open Supabase Dashboard -> Authentication -> Providers.
