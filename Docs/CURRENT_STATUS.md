@@ -12,6 +12,18 @@
 ## UAT feedback intake (2026-03-02)
 Execution order is based on launch risk and dependency overlap.
 
+### Execution snapshot (2026-03-02)
+- PR `#97` (UAT follow-up) is open into `main` and not merged yet; changes are not live on production `main` yet.
+- PR `#96` is also open and overlaps `Docs/CURRENT_STATUS.md`; branch sync/re-verify is required after `#96` merges.
+- PR checks currently passing for both open PRs:
+  - GitHub `verify` workflow: pass
+  - Vercel preview checks on `#97`: pass
+- Supabase remote migrations were pushed successfully to project `ygbzkgxktzqsiygjlqyg`, including:
+  - `202603020001_custom_sticks_artwork_intake.sql`
+- Auth preflight status in this worktree:
+  - `npm run auth:preflight`: pass with `bloomjoyusa.com` values
+  - `npm run auth:preflight -- --require-custom-auth-domain`: expected fail until custom auth domain cutover is completed (`auth.bloomjoyusa.com`)
+
 1) **P0 - Auth redirect/domain cutover regression (Google login)**
 - UAT signal: Google callback currently lands on `localhost:3000` (`ERR_CONNECTION_REFUSED`) instead of the live domain flow.
 - Likely cause: OAuth/Supabase redirect/origin settings are still on legacy host values while the new deployment is on `bloomjoyusa.com`.
