@@ -16,7 +16,7 @@ export default function ResourcesPage() {
           <p className="mt-4 text-lg text-muted-foreground">FAQs, guides, and what to expect.</p>
         </div>
       </section>
-      <section className="section-padding">
+      <section id="faq" className="section-padding scroll-mt-24">
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
             <h2 className="font-display text-2xl font-bold text-foreground">Frequently Asked Questions</h2>
@@ -28,6 +28,19 @@ export default function ResourcesPage() {
                 </AccordionItem>
               ))}
             </Accordion>
+          </div>
+        </div>
+      </section>
+      <section id="support-boundaries" className="pb-16 scroll-mt-24">
+        <div className="container-page">
+          <div className="mx-auto max-w-2xl rounded-lg border border-border bg-muted/30 p-6">
+            <h2 className="font-display text-2xl font-bold text-foreground">Support Boundaries</h2>
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+              The manufacturer support team provides 24/7 first-line technical support via WeChat
+              for machine issues. Bloomjoy provides concierge guidance, onboarding assistance, and
+              escalation support during US business hours (Mon-Fri, 9am-5pm EST). Bloomjoy is not
+              a 24/7 support provider. Response times may vary based on volume.
+            </p>
           </div>
         </div>
       </section>
