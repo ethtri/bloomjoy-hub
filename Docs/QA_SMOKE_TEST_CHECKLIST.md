@@ -5,6 +5,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Global
 - [ ] App starts: `npm ci` then `npm run dev`
 - [ ] Open the URL printed in the terminal (usually http://localhost:8080)
+- [ ] Browser tab title shows `Bloomjoy Hub` on load and after route navigation, and favicon renders as Bloomjoy icon
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
 
