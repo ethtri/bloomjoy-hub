@@ -7,38 +7,21 @@ import { Textarea } from '@/components/ui/textarea';
 import { Layout } from '@/components/layout/Layout';
 import { toast } from 'sonner';
 import { createLeadSubmission } from '@/lib/leadSubmissions';
+import { MACHINE_INTEREST_OPTIONS, normalizeMachineInterest } from '@/lib/machineNames';
 
 const validInquiryTypes = new Set(['quote', 'demo', 'procurement', 'general']);
 
 const machineInterestOptions = [
-  'Commercial Robotic Machine',
-  'Mini',
-  'Micro',
+  ...MACHINE_INTEREST_OPTIONS,
   'Not sure yet',
 ];
-
-const normalizeInterest = (rawInterest: string | null): string => {
-  if (!rawInterest) return '';
-
-  const normalized = rawInterest
-    .replace(/[-_]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-
-  if (normalized.includes('commercial')) return 'Commercial Robotic Machine';
-  if (normalized === 'mini') return 'Mini';
-  if (normalized === 'micro') return 'Micro';
-
-  return rawInterest.trim();
-};
 
 export default function ContactPage() {
   const [searchParams] = useSearchParams();
   const queryType = searchParams.get('type');
   const querySource = searchParams.get('source');
   const initialType = queryType && validInquiryTypes.has(queryType) ? queryType : 'quote';
-  const initialInterest = normalizeInterest(searchParams.get('interest'));
+  const initialInterest = normalizeMachineInterest(searchParams.get('interest'));
 
   const [formData, setFormData] = useState({
     name: '',

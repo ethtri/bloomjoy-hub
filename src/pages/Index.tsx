@@ -4,6 +4,7 @@ import { ArrowRight, Check, Zap, Shield, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
+import { MACHINE_NAMES } from '@/lib/machineNames';
 import landingHero from '@/assets/real/landing-hero.jpg';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import miniMain from '@/assets/real/mini-main.webp';
@@ -11,7 +12,7 @@ import microMain from '@/assets/real/micro-main.webp';
 
 const productCards = [
   {
-    title: 'Commercial Robotic Machine',
+    title: MACHINE_NAMES.commercial,
     price: '$10,000',
     description: 'Full-size commercial unit with automatic stick dispensing and complex pattern capabilities.',
     href: '/machines/commercial-robotic-machine',
@@ -19,7 +20,7 @@ const productCards = [
     image: commercialMain,
   },
   {
-    title: 'Mini',
+    title: MACHINE_NAMES.mini,
     price: '$4,000',
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
     href: '/machines/mini',
@@ -27,7 +28,7 @@ const productCards = [
     image: miniMain,
   },
   {
-    title: 'Micro',
+    title: MACHINE_NAMES.micro,
     price: '$400',
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
