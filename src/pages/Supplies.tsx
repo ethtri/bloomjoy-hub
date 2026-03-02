@@ -199,15 +199,6 @@ export default function SuppliesPage() {
         sku: STICKS_SKU_CUSTOM,
         quantity,
       });
-      addItem(
-        {
-          sku: STICKS_SKU_CUSTOM,
-          name: 'Custom Logo Cotton Candy Sticks (100 pack)',
-          price: STICKS_PRICE_CUSTOM,
-          type: 'supply',
-        },
-        quantity
-      );
 
       toast.success('Custom sticks request submitted. We will follow up with proofing details.');
       setCustomArtworkFile(null);
@@ -488,7 +479,7 @@ export default function SuppliesPage() {
                         className="hidden"
                       />
                       <p className="text-xs text-muted-foreground">
-                        PNG, JPG, WEBP, or SVG. Max {Math.floor(MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES / (1024 * 1024))}MB.
+                        PNG, JPG, or WEBP. Max {Math.floor(MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES / (1024 * 1024))}MB.
                       </p>
 
                       <div className="grid gap-3 sm:grid-cols-2">

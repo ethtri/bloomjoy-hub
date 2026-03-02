@@ -6,7 +6,6 @@ export const ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES = [
   'image/png',
   'image/jpeg',
   'image/webp',
-  'image/svg+xml',
 ] as const;
 
 const sanitizeFileName = (name: string): string =>
@@ -18,7 +17,7 @@ const sanitizeFileName = (name: string): string =>
 
 export const validateCustomSticksArtwork = (file: File): void => {
   if (!ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES.includes(file.type as (typeof ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES)[number])) {
-    throw new Error('Use PNG, JPG, WEBP, or SVG for custom sticks artwork.');
+    throw new Error('Use PNG, JPG, or WEBP for custom sticks artwork.');
   }
 
   if (file.size > MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES) {
