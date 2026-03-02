@@ -11,6 +11,7 @@
 
 ## Owner next steps
 - Execute production auth setup in `Docs/AUTH_OAUTH_BRANDING_RUNBOOK.md` (Google branding, custom auth domain, redirect/origin verification).
+- Provision and configure Resend SMTP for production auth emails per decision `2026-03-02` in `Docs/DECISIONS.md` (`#77`).
 - Complete launch evidence and approvals in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 - Enable Supabase Custom Domain add-on for project `ygbzkgxktzqsiygjlqyg` to unblock `auth.bloomjoysweets.com` cutover (required for issue `#78`).
 - Upload Module 2 and Module 3 Vimeo videos when ready and extend `trainings` + `training_assets` with the same seeded pattern used for Module 1.
