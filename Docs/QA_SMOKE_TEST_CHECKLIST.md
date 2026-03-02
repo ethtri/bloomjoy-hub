@@ -24,6 +24,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`
 - [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
+- [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
 
@@ -33,6 +34,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Password sign-in works for an existing email/password user
+- [ ] Forgot-password flow sends reset email and `/reset-password` successfully updates password
 - [ ] Google sign-in works when Supabase Google provider is enabled
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
@@ -50,9 +52,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
 - [ ] Training catalog shows `Data source: Supabase` in local dev after auth/session settles
+- [ ] Training catalog supports module tag filtering/grouping (for example, Module 1/2/3) when tagged rows exist
 - [ ] Training catalog cards render thumbnail images for Vimeo-backed rows from first-party URLs (`training_assets.meta.thumbnail_url`) with no `vumbnail.com` dependency
 - [ ] Training detail page opens and loads an embed frame (Vimeo for seeded modules; placeholder for local-only fallback modules)
 - [ ] Training detail page loads Vimeo player iframe for Vimeo-backed rows (not `about:srcdoc` placeholder)
+- [ ] Training detail Vimeo player shows a clear loading state and begins playback without excessive startup delay
+- [ ] Training detail sections below video ("What you will learn", "Checklist", "Resources") have clear purpose and readable structure
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 

@@ -20,6 +20,8 @@ interface AuthContextType {
   signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   signInWithGoogleIdToken: (idToken: string) => Promise<{ error: AuthError | null }>;
+  requestPasswordReset: (email: string) => Promise<{ error: AuthError | null }>;
+  updatePassword: (password: string) => Promise<{ error: AuthError | null }>;
   signIn: (email: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
@@ -38,6 +40,29 @@ type AdminRoleRecord = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const getDevAdminEmailAllowlist = (): Set<string> => {
+  if (!import.meta.env.DEV) {
+    return new Set();
+  }
+
+  const configured = import.meta.env.VITE_DEV_ADMIN_EMAILS;
+  if (typeof configured !== 'string' || configured.trim().length === 0) {
+    return new Set();
+  }
+
+  return new Set(
+    configured
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 0)
+  );
+};
+
+const devAdminEmailAllowlist = getDevAdminEmailAllowlist();
+
+const hasDevAdminEmailOverride = (email: string): boolean =>
+  import.meta.env.DEV && devAdminEmailAllowlist.has(email.toLowerCase());
 
 const normalizeMembershipStatus = (status: string | undefined): MembershipStatus => {
   if (!status) return 'none';
@@ -106,10 +131,11 @@ const getIsAdmin = async (userId: string): Promise<boolean> => {
 
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
-  const [membershipStatus, isAdmin] = await Promise.all([
+  const [membershipStatus, dbIsAdmin] = await Promise.all([
     getMembershipStatus(supabaseUser.id),
     getIsAdmin(supabaseUser.id),
   ]);
+  const isAdmin = dbIsAdmin || hasDevAdminEmailOverride(email);
 
   return {
     id: supabaseUser.id,
@@ -169,6 +195,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getAuthRedirectUrl = () =>
     typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
+  const getRecoveryRedirectUrl = () =>
+    typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined;
 
   const signInWithMagicLink = async (email: string): Promise<{ error: AuthError | null }> => {
     const redirectTo = getAuthRedirectUrl();
@@ -245,6 +273,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  const requestPasswordReset = async (
+    email: string
+  ): Promise<{ error: AuthError | null }> => {
+    const redirectTo = getRecoveryRedirectUrl();
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    return { error };
+  };
+
+  const updatePassword = async (password: string): Promise<{ error: AuthError | null }> => {
+    const { error } = await supabaseClient.auth.updateUser({ password });
+    return { error };
+  };
+
   const signIn = signInWithMagicLink;
 
   const signOut = async () => {
@@ -262,10 +306,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signUpWithPassword,
         signInWithGoogle,
         signInWithGoogleIdToken,
+        requestPasswordReset,
+        updatePassword,
         signIn,
         signOut,
         isAuthenticated: !!user,
-        isMember: hasPlusAccess(user?.membershipStatus),
+        isMember: hasPlusAccess(user?.membershipStatus) || (user?.isAdmin ?? false),
         isAdmin: user?.isAdmin ?? false,
       }}
     >

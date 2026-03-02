@@ -135,6 +135,22 @@ const getGoogleErrorMessage = (error: { status?: number; code?: string; message?
   return 'Unable to continue with Google sign-in.';
 };
 
+const getPasswordResetErrorMessage = (error: {
+  status?: number;
+  code?: string;
+  message?: string;
+}) => {
+  if (error.status === 429 || error.code === 'over_email_send_rate_limit') {
+    return 'Too many reset attempts. Please wait about a minute before trying again.';
+  }
+
+  if (error.message && error.message.trim().length > 0) {
+    return `Unable to send password reset email: ${error.message}`;
+  }
+
+  return 'Unable to send password reset email.';
+};
+
 const getRedirectErrorMessage = (errorCode?: string | null, errorDescription?: string | null) => {
   const description = safeDecode(errorDescription).toLowerCase();
 
@@ -164,7 +180,7 @@ const getRedirectErrorMessage = (errorCode?: string | null, errorDescription?: s
 export default function LoginPage() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
   const useGisRenderedButton =
-    import.meta.env.VITE_USE_GIS_BUTTON === 'true' && Boolean(googleClientId);
+    import.meta.env.DEV && import.meta.env.VITE_USE_GIS_BUTTON === 'true' && Boolean(googleClientId);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -185,6 +201,7 @@ export default function LoginPage() {
     signUpWithPassword,
     signInWithGoogle,
     signInWithGoogleIdToken,
+    requestPasswordReset,
     isAuthenticated,
   } = useAuth();
   const navigate = useNavigate();
@@ -418,6 +435,26 @@ export default function LoginPage() {
     setOauthLoading(false);
   };
 
+  const handlePasswordResetRequest = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast.error('Enter your email first, then click Forgot password.');
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await requestPasswordReset(normalizedEmail);
+
+    if (error) {
+      toast.error(getPasswordResetErrorMessage(error));
+      setLoading(false);
+      return;
+    }
+
+    toast.success('Password reset email sent. Use the newest email link to set a new password.');
+    setLoading(false);
+  };
+
   const handleSwitchMethod = (method: AuthMethod) => {
     setAuthMethod(method);
     setSent(false);
@@ -618,6 +655,14 @@ export default function LoginPage() {
                       className="mt-1"
                     />
                   </div>
+                  <button
+                    type="button"
+                    className="w-full text-left text-sm font-medium text-primary hover:underline"
+                    onClick={handlePasswordResetRequest}
+                    disabled={loading || oauthLoading}
+                  >
+                    Forgot password? Send reset email
+                  </button>
                   <Button
                     type="submit"
                     variant="hero"

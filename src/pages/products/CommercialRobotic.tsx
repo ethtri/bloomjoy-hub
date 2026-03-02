@@ -122,7 +122,10 @@ export default function CommercialRoboticPage() {
               </p>
 
               <div className="mt-8 space-y-4">
-                <Link to="/contact" onClick={handleRequestQuote}>
+                <Link
+                  to="/contact?type=quote&interest=commercial-robotic-machine&source=%2Fmachines%2Fcommercial-robotic-machine"
+                  onClick={handleRequestQuote}
+                >
                   <Button variant="hero" size="xl" className="w-full">
                     Request a Quote
                     <ArrowRight className="ml-2 h-5 w-5" />
