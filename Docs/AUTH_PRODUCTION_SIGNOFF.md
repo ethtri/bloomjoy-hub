@@ -35,7 +35,7 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 | Google OAuth client secret rotated after setup-sharing activity |  |  |  |
 | Supabase Google provider updated with current client credentials |  |  |  |
 | Supabase Site URL set to production URL |  |  |  |
-| Supabase redirect URL allowlist includes `/login`, `/portal`, callback paths |  |  |  |
+| Supabase redirect URL allowlist includes `/login`, `/portal`, `/reset-password`, callback paths |  |  |  |
 
 ## 4) Security and reliability checks
 ### Email OTP and rate limits

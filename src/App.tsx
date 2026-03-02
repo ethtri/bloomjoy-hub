@@ -25,6 +25,7 @@ const Terms = lazy(() => import("./pages/Terms"));
 const BillingCancellation = lazy(() => import("./pages/BillingCancellation"));
 const Cart = lazy(() => import("./pages/Cart"));
 const Login = lazy(() => import("./pages/Login"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const PortalDashboard = lazy(() => import("./pages/portal/Dashboard"));
 const PortalTraining = lazy(() => import("./pages/portal/Training"));
 const PortalTrainingDetail = lazy(() => import("./pages/portal/TrainingDetail"));
@@ -79,6 +80,7 @@ const App = () => (
               <Route path="/billing-cancellation" element={<BillingCancellation />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route element={<ProtectedRoute />}>
                 <Route path="/portal" element={<PortalDashboard />} />
                 <Route path="/portal/orders" element={<PortalOrders />} />

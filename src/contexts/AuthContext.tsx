@@ -20,6 +20,8 @@ interface AuthContextType {
   signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   signInWithGoogleIdToken: (idToken: string) => Promise<{ error: AuthError | null }>;
+  requestPasswordReset: (email: string) => Promise<{ error: AuthError | null }>;
+  updatePassword: (password: string) => Promise<{ error: AuthError | null }>;
   signIn: (email: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
@@ -169,6 +171,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getAuthRedirectUrl = () =>
     typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
+  const getRecoveryRedirectUrl = () =>
+    typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined;
 
   const signInWithMagicLink = async (email: string): Promise<{ error: AuthError | null }> => {
     const redirectTo = getAuthRedirectUrl();
@@ -245,6 +249,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  const requestPasswordReset = async (
+    email: string
+  ): Promise<{ error: AuthError | null }> => {
+    const redirectTo = getRecoveryRedirectUrl();
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    return { error };
+  };
+
+  const updatePassword = async (password: string): Promise<{ error: AuthError | null }> => {
+    const { error } = await supabaseClient.auth.updateUser({ password });
+    return { error };
+  };
+
   const signIn = signInWithMagicLink;
 
   const signOut = async () => {
@@ -262,6 +282,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signUpWithPassword,
         signInWithGoogle,
         signInWithGoogleIdToken,
+        requestPasswordReset,
+        updatePassword,
         signIn,
         signOut,
         isAuthenticated: !!user,

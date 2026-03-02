@@ -52,6 +52,7 @@ To use all login methods in local dev:
      - `http://localhost:8080`
      - `http://localhost:8080/login`
      - `http://localhost:8080/portal`
+     - `http://localhost:8080/reset-password`
 
 
 ## Agent best practices (plain language)

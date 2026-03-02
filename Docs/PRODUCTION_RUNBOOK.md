@@ -95,7 +95,7 @@ Deploy current launch commit to your chosen host (Vercel/Netlify/etc.) with:
 ## 5) Launch verification checklist (T+0)
 Run immediately after deploy:
 - [ ] Public routes load (`/`, `/machines`, `/supplies`, `/plus`, `/resources`, `/contact`).
-- [ ] Login works and protected routes redirect correctly.
+- [ ] Login works, password recovery works, and protected routes redirect correctly.
 - [ ] Auth launch sign-off checklist is completed with evidence (`Docs/AUTH_PRODUCTION_SIGNOFF.md`).
 - [ ] `Docs/QA_SMOKE_TEST_CHECKLIST.md` core payment/auth checks pass.
 - [ ] Sugar checkout test order creates `orders` record in Supabase.

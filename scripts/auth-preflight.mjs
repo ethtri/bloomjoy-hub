@@ -198,6 +198,20 @@ function run() {
     );
   }
 
+  if (
+    resolvedEnv.VITE_USE_GIS_BUTTON &&
+    resolvedEnv.VITE_USE_GIS_BUTTON !== 'true' &&
+    resolvedEnv.VITE_USE_GIS_BUTTON !== 'false'
+  ) {
+    warnings.push('VITE_USE_GIS_BUTTON should be set to "true" or "false" when provided.');
+  }
+
+  if (resolvedEnv.VITE_USE_GIS_BUTTON === 'true') {
+    warnings.push(
+      'VITE_USE_GIS_BUTTON=true is intended for local GIS-button checks; production auth should use redirect flow.'
+    );
+  }
+
   info(`Loaded env files: ${loadedFiles.length > 0 ? loadedFiles.join(', ') : 'none'}`);
   info(`Project ref: ${args.projectRef}`);
   info(`Expected custom auth host: ${args.customAuthHost}`);
@@ -220,9 +234,11 @@ function run() {
     `Additional redirect URL: ${args.appOrigin}`,
     `Additional redirect URL: ${args.appOrigin}/login`,
     `Additional redirect URL: ${args.appOrigin}/portal`,
+    `Additional redirect URL: ${args.appOrigin}/reset-password`,
     `Additional redirect URL: ${args.prodAppOrigin}`,
     `Additional redirect URL: ${args.prodAppOrigin}/login`,
     `Additional redirect URL: ${args.prodAppOrigin}/portal`,
+    `Additional redirect URL: ${args.prodAppOrigin}/reset-password`,
   ]);
 
   if (warnings.length > 0) {

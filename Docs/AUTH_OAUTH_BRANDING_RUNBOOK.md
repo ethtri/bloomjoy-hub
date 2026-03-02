@@ -31,7 +31,9 @@ Record status as `Not started`, `In progress`, `Done`, or `Blocked`.
   - `https://auth.bloomjoysweets.com/auth/v1/callback`
 - Redirect URLs used by app flows:
   - `http://localhost:8080/portal`
+  - `http://localhost:8080/reset-password`
   - `https://hub.bloomjoysweets.com/portal` (example)
+  - `https://hub.bloomjoysweets.com/reset-password` (example)
 
 Current project snapshot (2026-03-01):
 - Bloomjoy Hub project ref: `ygbzkgxktzqsiygjlqyg`
@@ -52,9 +54,11 @@ Use these exact values when configuring Google OAuth + Supabase auth settings:
     - `http://localhost:8080`
     - `http://localhost:8080/login`
     - `http://localhost:8080/portal`
+    - `http://localhost:8080/reset-password`
     - `https://hub.bloomjoysweets.com`
     - `https://hub.bloomjoysweets.com/login`
     - `https://hub.bloomjoysweets.com/portal`
+    - `https://hub.bloomjoysweets.com/reset-password`
 
 Optional preflight helper (repo command):
 
@@ -137,9 +141,11 @@ Supabase Dashboard -> Authentication:
   - `http://localhost:8080`
   - `http://localhost:8080/login`
   - `http://localhost:8080/portal`
+  - `http://localhost:8080/reset-password`
   - `https://hub.bloomjoysweets.com`
   - `https://hub.bloomjoysweets.com/login`
   - `https://hub.bloomjoysweets.com/portal`
+  - `https://hub.bloomjoysweets.com/reset-password`
 
 2) Google Provider
 - Paste Google client ID and client secret from the Google project.
@@ -151,7 +157,9 @@ Supabase Dashboard -> Authentication:
 - Keep `VITE_SUPABASE_ANON_KEY` unchanged for the same Supabase project.
 - Do not commit production secrets or local `.env` files.
 
-No code change is required for redirect target path in this repo because login redirects are built from `window.location.origin` and route to `/portal`.
+Repo auth redirect behavior:
+- Login and Google auth redirects use `window.location.origin` and route to `/portal`.
+- Password recovery redirects use `window.location.origin` and route to `/reset-password`.
 
 ## 8) Verification checklist
 - Localhost:
