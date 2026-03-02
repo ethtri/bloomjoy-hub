@@ -22,6 +22,7 @@ type EventName =
   | 'view_training_catalog'
   | 'open_training_item'
   | 'view_training_detail'
+  | 'training_video_iframe_loaded'
   | 'submit_support_request_concierge'
   | 'submit_support_request_parts'
   | 'submit_support_request_onboarding'
