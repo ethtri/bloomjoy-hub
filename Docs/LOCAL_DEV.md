@@ -17,6 +17,8 @@
    - Optional client env var for local Google GIS button rendering:
      - `VITE_GOOGLE_CLIENT_ID`
      - `VITE_USE_GIS_BUTTON=true` (optional; if omitted, app uses redirect-based Google sign-in)
+   - Optional local QA-only admin override:
+     - `VITE_DEV_ADMIN_EMAILS=ethtri@gmail.com` (comma-separated list; applies only in local dev mode)
 3) Install deps:
    - `npm ci`
 4) Start dev server (from your worktree folder, e.g. `C:\Repos\wt-<task>`):

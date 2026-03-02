@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Mail, MapPin, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,11 +8,43 @@ import { Layout } from '@/components/layout/Layout';
 import { toast } from 'sonner';
 import { createLeadSubmission } from '@/lib/leadSubmissions';
 
+const validInquiryTypes = new Set(['quote', 'demo', 'procurement', 'general']);
+
+const machineInterestOptions = [
+  'Commercial Robotic Machine',
+  'Mini',
+  'Micro',
+  'Not sure yet',
+];
+
+const normalizeInterest = (rawInterest: string | null): string => {
+  if (!rawInterest) return '';
+
+  const normalized = rawInterest
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  if (normalized.includes('commercial')) return 'Commercial Robotic Machine';
+  if (normalized === 'mini') return 'Mini';
+  if (normalized === 'micro') return 'Micro';
+
+  return rawInterest.trim();
+};
+
 export default function ContactPage() {
+  const [searchParams] = useSearchParams();
+  const queryType = searchParams.get('type');
+  const querySource = searchParams.get('source');
+  const initialType = queryType && validInquiryTypes.has(queryType) ? queryType : 'quote';
+  const initialInterest = normalizeInterest(searchParams.get('interest'));
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    type: 'quote',
+    type: initialType,
+    interest: initialInterest,
     message: '',
     website: '',
   });
@@ -22,20 +55,41 @@ export default function ContactPage() {
 
     if (formData.website.trim()) {
       toast.success('Message sent! We\'ll be in touch soon.');
-      setFormData({ name: '', email: '', type: 'quote', message: '', website: '' });
+      setFormData({
+        name: '',
+        email: '',
+        type: initialType,
+        interest: initialInterest,
+        message: '',
+        website: '',
+      });
       return;
     }
 
     setSubmitting(true);
     try {
+      const cleanedMessage = formData.message.trim();
+      const interestPrefix =
+        formData.type === 'quote' && formData.interest.trim()
+          ? `Machine of interest: ${formData.interest.trim()}\n\n`
+          : '';
+
       await createLeadSubmission({
         submissionType: formData.type as 'quote' | 'demo' | 'procurement' | 'general',
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
-        message: formData.message.trim(),
+        message: `${interestPrefix}${cleanedMessage}`,
+        sourcePage: querySource?.trim() || '/contact',
       });
       toast.success('Message sent! We\'ll be in touch soon.');
-      setFormData({ name: '', email: '', type: 'quote', message: '', website: '' });
+      setFormData({
+        name: '',
+        email: '',
+        type: initialType,
+        interest: initialInterest,
+        message: '',
+        website: '',
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to send message.';
       toast.error(message);
@@ -91,6 +145,25 @@ export default function ContactPage() {
                     <option value="general">General Inquiry</option>
                   </select>
                 </div>
+                {formData.type === 'quote' && (
+                  <div>
+                    <label className="block text-sm font-medium text-foreground">
+                      Machine of Interest
+                    </label>
+                    <select
+                      value={formData.interest}
+                      onChange={(e) => setFormData({ ...formData, interest: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">Select a machine (optional)</option>
+                      {machineInterestOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-foreground">Message</label>
                   <Textarea value={formData.message} onChange={(e) => setFormData({ ...formData, message: e.target.value })} rows={5} required className="mt-1" />
