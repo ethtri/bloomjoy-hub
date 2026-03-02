@@ -139,3 +139,16 @@ Training library cards now prefer first-party thumbnail values from `training_as
 **Implementation notes**
 - Frontend resolves storage keys via `supabaseClient.storage.from('training-thumbnails').getPublicUrl(...)`.
 - Default visual fallback remains first-party (`/placeholder.svg`) for rows missing a thumbnail value.
+
+## 2026-03-02 - Auth transactional email provider for launch hardening (`#77`)
+For production auth email branding and deliverability, we will use **Resend** as the SMTP provider for Supabase Auth emails.
+
+**Why this choice**
+- Fastest path to branded sender setup for launch timelines.
+- Clear domain authentication workflow (SPF/DKIM) with strong deliverability posture.
+- Keeps implementation minimal by using Supabase Auth SMTP configuration (no app rewrite).
+
+**Implementation notes**
+- Configure and verify Bloomjoy sender domain in Resend.
+- Use Resend SMTP credentials in Supabase Auth email settings for signup confirmation, magic link, and recovery templates.
+- Record final test evidence in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
