@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
+import { MACHINE_NAMES } from '@/lib/machineNames';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import commercialGallery1 from '@/assets/real/commercial-gallery-1.webp';
 import commercialGallery2 from '@/assets/real/commercial-gallery-2.webp';
@@ -91,7 +92,7 @@ export default function CommercialRoboticPage() {
           <nav className="flex items-center gap-2 text-sm text-muted-foreground">
             <Link to="/machines" className="hover:text-foreground">Machines</Link>
             <span>/</span>
-            <span className="text-foreground">Commercial Robotic Machine</span>
+            <span className="text-foreground">{MACHINE_NAMES.commercial}</span>
           </nav>
         </div>
       </div>
@@ -110,7 +111,7 @@ export default function CommercialRoboticPage() {
                 Most Popular
               </span>
               <h1 className="mt-4 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Bloomjoy Sweets Robotic Cotton Candy Machine
+                Bloomjoy Sweets {MACHINE_NAMES.commercial}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
                 $10,000

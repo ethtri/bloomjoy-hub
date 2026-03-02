@@ -7,6 +7,7 @@ import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
 import { createMiniWaitlistSubmission } from '@/lib/miniWaitlist';
+import { MACHINE_NAMES } from '@/lib/machineNames';
 import { toast } from 'sonner';
 import miniMain from '@/assets/real/mini-main.webp';
 import miniGallery1 from '@/assets/real/mini-gallery-1.webp';
@@ -61,7 +62,7 @@ export default function MiniPage() {
           <nav className="flex items-center gap-2 text-sm text-muted-foreground">
             <Link to="/machines" className="hover:text-foreground">Machines</Link>
             <span>/</span>
-            <span className="text-foreground">Mini</span>
+            <span className="text-foreground">{MACHINE_NAMES.mini}</span>
           </nav>
         </div>
       </div>
@@ -80,7 +81,7 @@ export default function MiniPage() {
                 Coming Soon
               </span>
               <h1 className="mt-4 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Bloomjoy Sweets Mini
+                Bloomjoy Sweets {MACHINE_NAMES.mini}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
                 $4,000

@@ -15,7 +15,7 @@ export interface Product {
 export const products: Record<string, Product> = {
   'commercial-robotic': {
     sku: 'commercial-robotic',
-    name: 'Bloomjoy Sweets Robotic Cotton Candy Machine',
+    name: 'Bloomjoy Sweets Commercial Machine',
     type: 'machine',
     price: 10000,
     description: 'Full-size commercial robotic cotton candy machine designed for high-throughput venues. Automated stick dispensing, complex pattern capabilities, and built for continuous operation.',
@@ -33,7 +33,7 @@ export const products: Record<string, Product> = {
   },
   'mini': {
     sku: 'mini',
-    name: 'Bloomjoy Sweets Mini',
+    name: 'Bloomjoy Sweets Mini Machine',
     type: 'machine',
     price: 4000,
     description: 'Portable robotic cotton candy machine at 1/5 the size of our commercial unit. Capable of most complex patterns while fitting in smaller spaces.',
@@ -52,7 +52,7 @@ export const products: Record<string, Product> = {
   },
   'micro': {
     sku: 'micro',
-    name: 'Bloomjoy Sweets Micro',
+    name: 'Bloomjoy Sweets Micro Machine',
     type: 'machine',
     price: 400,
     description: 'Entry-level robotic cotton candy machine for basic shapes. Perfect for home use or low-volume applications.',
@@ -138,7 +138,7 @@ export const products: Record<string, Product> = {
   },
   'sticks-plain': {
     sku: 'sticks-plain',
-    name: 'Cotton Candy Sticks',
+    name: 'Blank Cotton Candy Sticks',
     type: 'supply',
     price: 12,
     description: 'Plain cotton candy sticks, pack of 100. Compatible with all Bloomjoy machines.',
@@ -146,6 +146,21 @@ export const products: Record<string, Product> = {
     features: [
       'Compatible with all Bloomjoy machines',
       'Food-grade materials',
+      '100 sticks per pack'
+    ],
+    ctaType: 'buy',
+    inStock: true,
+  },
+  'sticks-custom': {
+    sku: 'sticks-custom',
+    name: 'Custom Logo Cotton Candy Sticks',
+    type: 'supply',
+    price: 14,
+    description: 'Custom logo/image cotton candy sticks, pack of 100. Artwork proofing required before fulfillment.',
+    shortDescription: 'Pack of 100 custom sticks with uploaded logo/image',
+    features: [
+      'Compatible with all Bloomjoy machines',
+      'Custom logo/image branding support',
       '100 sticks per pack'
     ],
     ctaType: 'buy',

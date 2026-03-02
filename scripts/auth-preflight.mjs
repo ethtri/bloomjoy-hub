@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url';
 
 const DEFAULTS = {
   appOrigin: 'http://localhost:8080',
-  prodAppOrigin: 'https://hub.bloomjoysweets.com',
+  prodAppOrigin: 'https://bloomjoyusa.com',
   projectRef: 'ygbzkgxktzqsiygjlqyg',
-  customAuthHost: 'auth.bloomjoysweets.com',
+  customAuthHost: 'auth.bloomjoyusa.com',
   requireCustomAuthDomain: false,
 };
 

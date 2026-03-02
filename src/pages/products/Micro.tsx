@@ -6,6 +6,7 @@ import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
 import { useCart } from '@/lib/cart';
+import { MACHINE_NAMES } from '@/lib/machineNames';
 import { toast } from 'sonner';
 import microMain from '@/assets/real/micro-main.webp';
 import microGallery1 from '@/assets/real/micro-gallery-1.webp';
@@ -34,7 +35,7 @@ export default function MicroPage() {
     trackEvent('click_buy_micro');
     addItem({
       sku: 'micro',
-      name: 'Bloomjoy Sweets Micro',
+      name: `Bloomjoy Sweets ${MACHINE_NAMES.micro}`,
       price: 400,
       type: 'machine',
     });
@@ -49,7 +50,7 @@ export default function MicroPage() {
           <nav className="flex items-center gap-2 text-sm text-muted-foreground">
             <Link to="/machines" className="hover:text-foreground">Machines</Link>
             <span>/</span>
-            <span className="text-foreground">Micro</span>
+            <span className="text-foreground">{MACHINE_NAMES.micro}</span>
           </nav>
         </div>
       </div>
@@ -65,7 +66,7 @@ export default function MicroPage() {
             {/* Details */}
             <div>
               <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Bloomjoy Sweets Micro
+                Bloomjoy Sweets {MACHINE_NAMES.micro}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
                 $400

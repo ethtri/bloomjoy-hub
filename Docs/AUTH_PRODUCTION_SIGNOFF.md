@@ -31,7 +31,7 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 | Google OAuth consent audience set for launch state |  |  |  |
 | Google OAuth redirect URIs include production callback |  |  |  |
 | Google OAuth JavaScript origins include production origin |  |  |  |
-| Google OAuth callback host resolves to `auth.bloomjoysweets.com` in live flow |  |  |  |
+| Google OAuth callback host resolves to `auth.bloomjoyusa.com` in live flow |  |  |  |
 | Google OAuth client secret rotated after setup-sharing activity |  |  |  |
 | Supabase Google provider updated with current client credentials |  |  |  |
 | Supabase Site URL set to production URL |  |  |  |
@@ -62,7 +62,7 @@ Capture evidence links for each required flow.
 | Password login (`/login` -> `/portal`) |  |  |
 | Magic link login (`/login` -> email -> `/portal`) |  |  |
 | Google login (`/login` -> consent -> `/portal`) |  |  |
-| Google callback host is `auth.bloomjoysweets.com` |  |  |
+| Google callback host is `auth.bloomjoyusa.com` |  |  |
 | Logged-out redirect guard (`/portal` -> `/login`) |  |  |
 | Branded auth email (signup confirmation) |  |  |
 | Branded auth email (magic link) |  |  |
@@ -71,7 +71,7 @@ Capture evidence links for each required flow.
 ## 5.1) Evidence package minimum
 - [ ] One screenshot of Google consent branding (name/logo/support email).
 - [ ] One screenshot of branded auth email template for each flow (signup, magic link, recovery).
-- [ ] One network trace or screenshot proving callback host is `auth.bloomjoysweets.com`.
+- [ ] One network trace or screenshot proving callback host is `auth.bloomjoyusa.com`.
 - [ ] Link evidence in section 5 or launch ticket before Go/No-Go.
 
 ## 6) Common auth incidents
