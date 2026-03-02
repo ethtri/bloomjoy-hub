@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Clock, ChevronLeft, CheckCircle2, FileText, HelpCircle } from 'lucide-react';
+import { Clock, ChevronLeft, CheckCircle2, FileText, HelpCircle, Loader2 } from 'lucide-react';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,12 +11,25 @@ export default function TrainingDetailPage() {
   const { id } = useParams();
   const { data: library = [] } = useTrainingLibrary();
   const trainingItem = id ? library.find((item) => item.id === id) : undefined;
+  const [videoLoaded, setVideoLoaded] = useState(false);
+  const [videoLoadStartedAt, setVideoLoadStartedAt] = useState<number | null>(null);
 
   useEffect(() => {
     if (trainingItem) {
       trackEvent('view_training_detail', { id: trainingItem.id });
     }
   }, [trainingItem]);
+
+  useEffect(() => {
+    if (!trainingItem?.embed.url) {
+      setVideoLoaded(true);
+      setVideoLoadStartedAt(null);
+      return;
+    }
+
+    setVideoLoaded(false);
+    setVideoLoadStartedAt(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  }, [trainingItem?.id, trainingItem?.embed.url]);
 
   if (!trainingItem) {
     return (
@@ -40,9 +53,28 @@ export default function TrainingDetailPage() {
     );
   }
 
+  const learningPoints = trainingItem.learningPoints.filter((point) => point.trim().length > 0);
+  const checklistItems = trainingItem.checklist.filter((item) => item.trim().length > 0);
+  const resources = trainingItem.resources;
+
   const related = library
     .filter((item) => item.id !== trainingItem.id)
     .slice(0, 3);
+
+  const handleVideoLoad = () => {
+    setVideoLoaded(true);
+
+    if (!videoLoadStartedAt) {
+      return;
+    }
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const startupMs = Math.max(0, Math.round(now - videoLoadStartedAt));
+    trackEvent('training_video_iframe_loaded', {
+      id: trainingItem.id,
+      startup_ms: startupMs,
+    });
+  };
 
   return (
     <PortalLayout>
@@ -76,15 +108,38 @@ export default function TrainingDetailPage() {
               </h1>
               <p className="mt-2 text-muted-foreground">{trainingItem.description}</p>
 
-              <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-background">
+              <div className="relative mt-6 overflow-hidden rounded-2xl border border-border bg-background">
                 {trainingItem.embed.url ? (
-                  <iframe
-                    title={trainingItem.embed.title}
-                    className="aspect-video w-full"
-                    src={trainingItem.embed.url}
-                    allow="autoplay; fullscreen; picture-in-picture"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                  />
+                  <>
+                    {!videoLoaded && (
+                      <div className="absolute inset-0 z-10 flex aspect-video items-center justify-center bg-muted/70">
+                        <div
+                          className="rounded-xl border border-border bg-background/95 px-4 py-3 text-center"
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <div className="flex items-center justify-center gap-2 text-sm font-medium text-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading training video
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Player startup can take a few seconds.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    <iframe
+                      title={trainingItem.embed.title}
+                      className={`aspect-video w-full transition-opacity duration-300 ${
+                        videoLoaded ? 'opacity-100' : 'opacity-0'
+                      }`}
+                      src={trainingItem.embed.url}
+                      allow="autoplay; fullscreen; picture-in-picture"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      loading="eager"
+                      onLoad={handleVideoLoad}
+                    />
+                  </>
                 ) : (
                   <iframe
                     title={trainingItem.embed.title}
@@ -98,43 +153,64 @@ export default function TrainingDetailPage() {
               <div className="mt-8 grid gap-6 md:grid-cols-2">
                 <div className="card-elevated p-6">
                   <h2 className="font-display text-lg font-semibold text-foreground">
-                    What you will learn
+                    After this module, you should be able to
                   </h2>
-                  <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
-                    {trainingItem.learningPoints.map((point) => (
-                      <li key={point} className="flex items-start gap-2">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
-                        <span>{point}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Use these outcomes to confirm the key concepts are clear.
+                  </p>
+                  {learningPoints.length === 0 ? (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      Learning outcomes will be added with the next content update.
+                    </p>
+                  ) : (
+                    <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
+                      {learningPoints.map((point) => (
+                        <li key={point} className="flex items-start gap-2">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <div className="card-elevated p-6">
                   <h2 className="font-display text-lg font-semibold text-foreground">
-                    Checklist
+                    Do this after watching
                   </h2>
-                  <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
-                    {trainingItem.checklist.map((item) => (
-                      <li key={item} className="flex items-start gap-2">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-sage" />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Complete these action items to apply the procedure on your machine.
+                  </p>
+                  {checklistItems.length === 0 ? (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      Checklist steps will be added as this module is finalized.
+                    </p>
+                  ) : (
+                    <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
+                      {checklistItems.map((item) => (
+                        <li key={item} className="flex items-start gap-2">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 text-sage" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
 
               <div className="mt-8 card-elevated p-6">
                 <h2 className="font-display text-lg font-semibold text-foreground">
-                  Resources
+                  Job aids and links
                 </h2>
-                {trainingItem.resources.length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Open these references when you need details outside the video walkthrough.
+                </p>
+                {resources.length === 0 ? (
                   <p className="mt-3 text-sm text-muted-foreground">
-                    Resources will be added as this module expands.
+                    No job aids are attached yet. Resources will be added as this module expands.
                   </p>
                 ) : (
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    {trainingItem.resources.map((resource) => (
+                    {resources.map((resource) => (
                       <div key={resource.title} className="rounded-xl border border-border p-4">
                         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                           <FileText className="h-4 w-4 text-primary" />
