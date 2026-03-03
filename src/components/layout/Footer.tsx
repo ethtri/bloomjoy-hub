@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
+import { MACHINE_NAMES } from '@/lib/machineNames';
 
 const footerLinks = {
   products: [
-    { href: '/machines/commercial-robotic-machine', label: 'Commercial Robotic Machine' },
-    { href: '/machines/mini', label: 'Mini' },
-    { href: '/machines/micro', label: 'Micro' },
+    { href: '/machines/commercial-robotic-machine', label: MACHINE_NAMES.commercial },
+    { href: '/machines/mini', label: MACHINE_NAMES.mini },
+    { href: '/machines/micro', label: MACHINE_NAMES.micro },
     { href: '/supplies', label: 'Supplies' },
   ],
   company: [

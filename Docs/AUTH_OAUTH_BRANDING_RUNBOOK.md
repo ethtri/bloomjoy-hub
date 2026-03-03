@@ -11,8 +11,8 @@ Last updated: 2026-03-01
 - Supabase custom domain add-on enabled (required by Supabase to use custom auth hostname).
 - App URLs decided in advance:
   - Local app URL: `http://localhost:8080` (or your active Vite port)
-  - Production app URL (example): `https://hub.bloomjoysweets.com`
-  - Auth hostname target (recommended): `auth.bloomjoysweets.com`
+  - Production app URL (example): `https://bloomjoyusa.com`
+  - Auth hostname target (recommended): `auth.bloomjoyusa.com`
 
 ## 1.1) Execution tracker (issue #78)
 Record status as `Not started`, `In progress`, `Done`, or `Blocked`.
@@ -28,12 +28,12 @@ Record status as `Not started`, `In progress`, `Done`, or `Blocked`.
 - Current Supabase Auth callback URL:
   - `https://<PROJECT_REF>.supabase.co/auth/v1/callback`
 - Planned custom-domain callback URL:
-  - `https://auth.bloomjoysweets.com/auth/v1/callback`
+  - `https://auth.bloomjoyusa.com/auth/v1/callback`
 - Redirect URLs used by app flows:
   - `http://localhost:8080/portal`
   - `http://localhost:8080/reset-password`
-  - `https://hub.bloomjoysweets.com/portal` (example)
-  - `https://hub.bloomjoysweets.com/reset-password` (example)
+  - `https://bloomjoyusa.com/portal` (example)
+  - `https://bloomjoyusa.com/reset-password` (example)
 
 Current project snapshot (2026-03-01):
 - Bloomjoy Hub project ref: `ygbzkgxktzqsiygjlqyg`
@@ -44,21 +44,21 @@ Use these exact values when configuring Google OAuth + Supabase auth settings:
 
 - Google OAuth Authorized JavaScript origins:
   - `http://localhost:8080`
-  - `https://hub.bloomjoysweets.com`
+  - `https://bloomjoyusa.com`
 - Google OAuth Authorized redirect URIs:
   - `https://ygbzkgxktzqsiygjlqyg.supabase.co/auth/v1/callback` (temporary during cutover)
-  - `https://auth.bloomjoysweets.com/auth/v1/callback` (target)
+  - `https://auth.bloomjoyusa.com/auth/v1/callback` (target)
 - Supabase Auth URL configuration:
-  - Site URL: `https://hub.bloomjoysweets.com`
+  - Site URL: `https://bloomjoyusa.com`
   - Additional redirects:
     - `http://localhost:8080`
     - `http://localhost:8080/login`
     - `http://localhost:8080/portal`
     - `http://localhost:8080/reset-password`
-    - `https://hub.bloomjoysweets.com`
-    - `https://hub.bloomjoysweets.com/login`
-    - `https://hub.bloomjoysweets.com/portal`
-    - `https://hub.bloomjoysweets.com/reset-password`
+    - `https://bloomjoyusa.com`
+    - `https://bloomjoyusa.com/login`
+    - `https://bloomjoyusa.com/portal`
+    - `https://bloomjoyusa.com/reset-password`
 
 Optional preflight helper (repo command):
 
@@ -76,24 +76,24 @@ npm run auth:preflight -- --require-custom-auth-domain
 You can do this in Dashboard or CLI. CLI example:
 
 ```bash
-supabase domains create --project-ref <PROJECT_REF> --custom-hostname auth.bloomjoysweets.com
+supabase domains create --project-ref <PROJECT_REF> --custom-hostname auth.bloomjoyusa.com
 ```
 
 Bloomjoy copy/paste command (after add-on is enabled):
 
 ```bash
-supabase domains create --project-ref ygbzkgxktzqsiygjlqyg --custom-hostname auth.bloomjoysweets.com
+supabase domains create --project-ref ygbzkgxktzqsiygjlqyg --custom-hostname auth.bloomjoyusa.com
 ```
 
 Then add DNS records exactly as Supabase returns:
-- `CNAME auth.bloomjoysweets.com -> <PROJECT_REF>.supabase.co`
+- `CNAME auth.bloomjoyusa.com -> <PROJECT_REF>.supabase.co`
 - `_acme-challenge` TXT record for certificate verification
 
 After DNS propagates, re-verify and activate:
 
 ```bash
-supabase domains reverify --project-ref <PROJECT_REF> --custom-hostname auth.bloomjoysweets.com
-supabase domains activate --project-ref <PROJECT_REF> --custom-hostname auth.bloomjoysweets.com
+supabase domains reverify --project-ref <PROJECT_REF> --custom-hostname auth.bloomjoyusa.com
+supabase domains activate --project-ref <PROJECT_REF> --custom-hostname auth.bloomjoyusa.com
 ```
 
 Important:
@@ -107,7 +107,7 @@ Google Cloud Console -> Google Auth Platform:
 - Set app name to Bloomjoy Hub branding.
 - Upload logo.
 - Set support email and developer contact email.
-- Add authorized domain(s) used by app/auth hosts (for example `bloomjoysweets.com`).
+- Add authorized domain(s) used by app/auth hosts (for example `bloomjoyusa.com`).
 
 2) Audience
 - If still in testing, keep a controlled test-user list.
@@ -124,11 +124,11 @@ Google Cloud Console -> Credentials -> OAuth 2.0 Client IDs:
 
 1) Authorized JavaScript origins:
 - `http://localhost:8080`
-- Production app origin (example): `https://hub.bloomjoysweets.com`
+- Production app origin (example): `https://bloomjoyusa.com`
 
 2) Authorized redirect URIs:
 - `https://<PROJECT_REF>.supabase.co/auth/v1/callback` (temporary during cutover)
-- `https://auth.bloomjoysweets.com/auth/v1/callback` (post-cutover target)
+- `https://auth.bloomjoyusa.com/auth/v1/callback` (post-cutover target)
 
 ## 6) Configure Supabase Auth URLs + provider settings
 Supabase Dashboard -> Authentication:
@@ -136,16 +136,16 @@ Supabase Dashboard -> Authentication:
 1) URL Configuration
 - Site URL:
   - local dev: `http://localhost:8080`
-  - production: `https://hub.bloomjoysweets.com` (example)
+  - production: `https://bloomjoyusa.com` (example)
 - Additional redirect URLs include:
   - `http://localhost:8080`
   - `http://localhost:8080/login`
   - `http://localhost:8080/portal`
   - `http://localhost:8080/reset-password`
-  - `https://hub.bloomjoysweets.com`
-  - `https://hub.bloomjoysweets.com/login`
-  - `https://hub.bloomjoysweets.com/portal`
-  - `https://hub.bloomjoysweets.com/reset-password`
+  - `https://bloomjoyusa.com`
+  - `https://bloomjoyusa.com/login`
+  - `https://bloomjoyusa.com/portal`
+  - `https://bloomjoyusa.com/reset-password`
 
 2) Google Provider
 - Paste Google client ID and client secret from the Google project.
@@ -153,7 +153,7 @@ Supabase Dashboard -> Authentication:
 
 ## 7) Repo/env updates
 - Set frontend env to custom auth host after activation:
-  - `VITE_SUPABASE_URL=https://auth.bloomjoysweets.com`
+  - `VITE_SUPABASE_URL=https://auth.bloomjoyusa.com`
 - Keep `VITE_SUPABASE_ANON_KEY` unchanged for the same Supabase project.
 - Do not commit production secrets or local `.env` files.
 
@@ -168,7 +168,7 @@ Repo auth redirect behavior:
   - [ ] OAuth callback returns to `/portal` and session is created.
 - Deployed environment:
   - [ ] Repeat verification on staging or production app domain.
-  - [ ] Browser network trace shows callback host `auth.bloomjoysweets.com` (not `<PROJECT_REF>.supabase.co`).
+  - [ ] Browser network trace shows callback host `auth.bloomjoyusa.com` (not `<PROJECT_REF>.supabase.co`).
   - [ ] No auth-console errors during sign-in.
   - [ ] Record screenshot/evidence links in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 
@@ -183,7 +183,7 @@ Repo auth redirect behavior:
 ### `unauthorized_domain`
 - Cause: domain not listed as authorized for OAuth consent/project.
 - Fix:
-  - Add top private domain (for example `bloomjoysweets.com`) in Google Auth Platform branding.
+  - Add top private domain (for example `bloomjoyusa.com`) in Google Auth Platform branding.
   - Complete domain verification in Google Search Console if prompted.
 
 ### `invalid_request` or "invalid response from provider"

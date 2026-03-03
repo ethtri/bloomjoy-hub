@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
+import { MACHINE_NAMES } from '@/lib/machineNames';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import miniMain from '@/assets/real/mini-main.webp';
 import microMain from '@/assets/real/micro-main.webp';
@@ -10,7 +11,7 @@ import microMain from '@/assets/real/micro-main.webp';
 const machineProducts = [
   {
     sku: 'commercial-robotic',
-    name: 'Commercial Robotic Machine',
+    name: MACHINE_NAMES.commercial,
     price: '$10,000',
     description: 'Full-size commercial unit with automatic stick dispensing and complex pattern capabilities.',
     href: '/machines/commercial-robotic-machine',
@@ -19,7 +20,7 @@ const machineProducts = [
   },
   {
     sku: 'mini',
-    name: 'Mini',
+    name: MACHINE_NAMES.mini,
     price: '$4,000',
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
     href: '/machines/mini',
@@ -28,7 +29,7 @@ const machineProducts = [
   },
   {
     sku: 'micro',
-    name: 'Micro',
+    name: MACHINE_NAMES.micro,
     price: '$400',
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',

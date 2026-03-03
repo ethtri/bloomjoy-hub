@@ -14,6 +14,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Public site
 - [ ] Home loads and key CTAs navigate correctly
 - [ ] Home machine cards show correct model images (Commercial, Mini, Micro) without awkward clipping
+- [ ] Machine naming is consistent as `Commercial Machine`, `Mini Machine`, and `Micro Machine` on Home, Machines, Contact, and footer links
 - [ ] Product pages load (Full, Micro, Mini)
   - [ ] Mini shows "Coming soon / Waitlist" when enabled
 - [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)
@@ -22,8 +23,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
 - [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
 - [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)
+- [ ] Sticks ordering clearly supports both blank sticks (`$12/pack`) and custom sticks (`$14/pack`)
+- [ ] Custom sticks flow accepts logo/image upload and submits a procurement lead with artwork URL + requested pack count
 - [ ] Cart checkout blocks non-sugar items
 - [ ] Plus page: pricing and boundaries are visible and clear
+- [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads (procedure docs, daily checklists, frequent updates)
 - [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`
 - [ ] Footer support links navigate to valid Resources anchors (`/resources#faq` and `/resources#support-boundaries`)
 - [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
@@ -43,7 +47,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Google sign-in works when Supabase Google provider is enabled
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
-- [ ] For auth launch hardening, Google callback host uses `auth.bloomjoysweets.com` (not `<project-ref>.supabase.co`)
+- [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
@@ -104,4 +108,3 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/audit`
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata
 - [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
-
