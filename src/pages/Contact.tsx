@@ -69,16 +69,13 @@ export default function ContactPage() {
     setSubmitting(true);
     try {
       const cleanedMessage = formData.message.trim();
-      const interestPrefix =
-        formData.type === 'quote' && formData.interest.trim()
-          ? `Machine of interest: ${formData.interest.trim()}\n\n`
-          : '';
 
       await createLeadSubmission({
         submissionType: formData.type as 'quote' | 'demo' | 'procurement' | 'general',
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
-        message: `${interestPrefix}${cleanedMessage}`,
+        message: cleanedMessage,
+        machineInterest: formData.type === 'quote' ? formData.interest.trim() : undefined,
         sourcePage: querySource?.trim() || '/contact',
       });
       toast.success('Message sent! We\'ll be in touch soon.');

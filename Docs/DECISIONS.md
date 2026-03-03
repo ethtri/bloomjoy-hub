@@ -139,3 +139,15 @@ Training library cards now prefer first-party thumbnail values from `training_as
 **Implementation notes**
 - Frontend resolves storage keys via `supabaseClient.storage.from('training-thumbnails').getPublicUrl(...)`.
 - Default visual fallback remains first-party (`/placeholder.svg`) for rows missing a thumbnail value.
+
+## 2026-03-02 - Internal quote/order notification email provider
+We will use **Resend** from Supabase Edge Functions for internal operations notifications.
+
+**Scope**
+- Quote request notifications from `lead-submission-intake`.
+- Sugar order notifications from `stripe-webhook` (`checkout.session.completed` payment mode).
+
+**Why this choice**
+- Keeps email API keys server-side only in function secrets.
+- Minimal change surface: no client secret exposure and no new frontend provider SDK.
+- Fast to implement with plain HTTPS calls from Deno edge functions.

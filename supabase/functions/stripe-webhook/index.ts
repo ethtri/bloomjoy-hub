@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { sendInternalEmail } from "../_shared/internal-email.ts";
 
 export const config = {
   verify_jwt: false,
@@ -41,6 +42,89 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
       },
     })
   : null;
+
+type StripeLineItemSummary = {
+  description: string | null;
+  quantity: number | null;
+  amount_total: number | null;
+  currency: string | null;
+  price_id: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+type OrderNotificationContext = {
+  lineItems: StripeLineItemSummary[];
+  sugarMix: {
+    white_kg: number;
+    blue_kg: number;
+    orange_kg: number;
+    red_kg: number;
+    total_kg: number;
+  };
+};
+
+const claimDispatch = async (
+  eventKey: string,
+  sourceId: string,
+  meta: Record<string, unknown>
+): Promise<boolean> => {
+  if (!supabase) return false;
+
+  const { error } = await supabase.from("internal_notification_dispatches").insert({
+    event_key: eventKey,
+    dispatch_type: "order_checkout",
+    source_table: "orders",
+    source_id: sourceId,
+    meta,
+  });
+
+  if (!error) {
+    return true;
+  }
+
+  if (error.code === "23505") {
+    return false;
+  }
+
+  throw new Error(error.message || "Failed to claim order notification dispatch.");
+};
+
+const releaseDispatch = async (eventKey: string) => {
+  if (!supabase) return;
+  await supabase.from("internal_notification_dispatches").delete().eq("event_key", eventKey);
+};
+
+const markDispatchSent = async (eventKey: string, meta: Record<string, unknown>) => {
+  if (!supabase) return;
+  await supabase
+    .from("internal_notification_dispatches")
+    .update({
+      sent_at: new Date().toISOString(),
+      meta,
+    })
+    .eq("event_key", eventKey);
+};
+
+const formatCurrency = (amount: number | null | undefined, currency: string | null | undefined) => {
+  if (typeof amount !== "number") return "n/a";
+  const normalizedCurrency = (currency || "usd").toUpperCase();
+  return `${normalizedCurrency} ${(amount / 100).toFixed(2)}`;
+};
+
+const formatAddress = (address: Stripe.Address | null | undefined) => {
+  if (!address) return "n/a";
+
+  const parts = [
+    address.line1,
+    address.line2,
+    address.city,
+    address.state,
+    address.postal_code,
+    address.country,
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(", ") : "n/a";
+};
 
 async function resolveUserId(userId: string | undefined) {
   if (!supabase || !userId) return null;
@@ -119,14 +203,16 @@ async function upsertSubscription(subscription: Stripe.Subscription) {
   }
 }
 
-async function upsertOrder(session: Stripe.Checkout.Session) {
-  if (!stripe || !supabase) return;
+async function upsertOrder(
+  session: Stripe.Checkout.Session
+): Promise<OrderNotificationContext | null> {
+  if (!stripe || !supabase) return null;
 
   const expanded = await stripe.checkout.sessions.retrieve(session.id, {
     expand: ["line_items"],
   });
 
-  const lineItems = expanded.line_items?.data?.map((item) => ({
+  const lineItems: StripeLineItemSummary[] = expanded.line_items?.data?.map((item) => ({
     description: item.description,
     quantity: item.quantity,
     amount_total: item.amount_total,
@@ -183,8 +269,95 @@ async function upsertOrder(session: Stripe.Checkout.Session) {
     .upsert(payload, { onConflict: "stripe_checkout_session_id" });
 
   if (error) {
-    console.error("Failed to upsert order", error);
+    throw new Error(error.message || "Failed to upsert order.");
   }
+
+  return {
+    lineItems,
+    sugarMix: sugarMixFromMetadata,
+  };
+}
+
+async function sendOrderNotification(
+  session: Stripe.Checkout.Session,
+  context: OrderNotificationContext | null
+) {
+  if (!supabase || !context) return;
+
+  const eventKey = `order_checkout:${session.id}`;
+  const dispatchClaimed = await claimDispatch(eventKey, session.id, {
+    checkout_session_id: session.id,
+    payment_status: session.payment_status || "unpaid",
+  });
+
+  if (!dispatchClaimed) {
+    return;
+  }
+
+  const lineItemSummary = context.lineItems.length
+    ? context.lineItems.map((item, index) => {
+      const lineTotal = formatCurrency(item.amount_total, item.currency);
+      return [
+        `${index + 1}. ${item.description || "Line item"}`,
+        `   Quantity: ${item.quantity ?? "n/a"}`,
+        `   Line total: ${lineTotal}`,
+        `   Price ID: ${item.price_id ?? "n/a"}`,
+      ].join("\n");
+    }).join("\n")
+    : "No line items available.";
+
+  const customerDetails = session.customer_details;
+  const shippingDetails = session.shipping_details;
+
+  const orderSubject = `New sugar order: ${session.id}`;
+  const orderText = [
+    "A Stripe sugar checkout completed.",
+    "",
+    `Checkout Session ID: ${session.id}`,
+    `Completed At (UTC): ${new Date().toISOString()}`,
+    `Payment Status: ${session.payment_status || "unpaid"}`,
+    `Amount Total: ${formatCurrency(session.amount_total, session.currency)}`,
+    `Customer Email: ${session.customer_details?.email ?? session.customer_email ?? "n/a"}`,
+    `Customer Name: ${customerDetails?.name ?? "n/a"}`,
+    `Customer Phone: ${customerDetails?.phone ?? "n/a"}`,
+    `Billing Address: ${formatAddress(customerDetails?.address)}`,
+    `Shipping Name: ${shippingDetails?.name ?? "n/a"}`,
+    `Shipping Phone: ${shippingDetails?.phone ?? "n/a"}`,
+    `Shipping Address: ${formatAddress(shippingDetails?.address)}`,
+    "",
+    "Sugar Breakdown (KG):",
+    `- White: ${context.sugarMix.white_kg}`,
+    `- Blue: ${context.sugarMix.blue_kg}`,
+    `- Orange: ${context.sugarMix.orange_kg}`,
+    `- Red: ${context.sugarMix.red_kg}`,
+    `- Total: ${context.sugarMix.total_kg}`,
+    "",
+    "Line Items:",
+    lineItemSummary,
+  ].join("\n");
+
+  try {
+    await sendInternalEmail({
+      subject: orderSubject,
+      text: orderText,
+    });
+  } catch (error) {
+    await releaseDispatch(eventKey);
+    throw error;
+  }
+
+  await Promise.all([
+    supabase
+      .from("orders")
+      .update({ internal_notification_sent_at: new Date().toISOString() })
+      .eq("stripe_checkout_session_id", session.id),
+    markDispatchSent(eventKey, {
+      checkout_session_id: session.id,
+      amount_total: session.amount_total,
+      currency: session.currency,
+      customer_email: session.customer_details?.email ?? session.customer_email ?? null,
+    }),
+  ]);
 }
 
 serve(async (req) => {
@@ -228,7 +401,8 @@ serve(async (req) => {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         if (session.mode === "payment") {
-          await upsertOrder(session);
+          const orderContext = await upsertOrder(session);
+          await sendOrderNotification(session, orderContext);
         }
         break;
       }
