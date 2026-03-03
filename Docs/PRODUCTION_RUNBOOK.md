@@ -22,8 +22,11 @@ Set the following values before launch.
 | `STRIPE_SUGAR_PRICE_ID` | Server-only | `stripe-sugar-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
-| `SUPABASE_URL` | Server-only | `stripe-webhook` | Supabase project URL | Technical owner |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook` | Supabase service role key | Technical owner |
+| `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake` | Resend API key | Technical owner |
+| `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake` | Verified sender in Resend | Technical owner |
+| `INTERNAL_NOTIFICATION_RECIPIENTS` | Server-only | `stripe-webhook`, `lead-submission-intake` | Internal recipient list (comma-separated) | Release owner |
+| `SUPABASE_URL` | Server-only | `stripe-webhook`, `lead-submission-intake` | Supabase project URL | Technical owner |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake` | Supabase service role key | Technical owner |
 
 Security rule:
 - Never place secrets in `VITE_` variables.
@@ -61,18 +64,22 @@ supabase secrets set STRIPE_SECRET_KEY=...
 supabase secrets set STRIPE_SUGAR_PRICE_ID=...
 supabase secrets set STRIPE_PLUS_PRICE_ID=...
 supabase secrets set STRIPE_WEBHOOK_SECRET=...
+supabase secrets set RESEND_API_KEY=...
+supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...
+supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com
 supabase secrets set SUPABASE_URL=...
 supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 ### Step C: Deploy Stripe Edge Functions
-Deploy all four functions:
+Deploy all five functions:
 
 ```bash
 supabase functions deploy stripe-sugar-checkout
 supabase functions deploy stripe-plus-checkout
 supabase functions deploy stripe-customer-portal
 supabase functions deploy stripe-webhook
+supabase functions deploy lead-submission-intake
 ```
 
 ### Step D: Configure Stripe webhook endpoint
@@ -99,7 +106,9 @@ Run immediately after deploy:
 - [ ] Auth launch sign-off checklist is completed with evidence (`Docs/AUTH_PRODUCTION_SIGNOFF.md`).
 - [ ] `Docs/QA_SMOKE_TEST_CHECKLIST.md` core payment/auth checks pass.
 - [ ] Sugar checkout test order creates `orders` record in Supabase.
+- [ ] Sugar checkout test order sends internal summary email to configured operations recipients.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
+- [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
 - [ ] Stripe customer portal opens from `/portal/account`.
 - [ ] No critical frontend console errors on key pages.
 

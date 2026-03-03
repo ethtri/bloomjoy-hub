@@ -5,7 +5,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Global
 - [ ] App starts: `npm ci` then `npm run dev`
 - [ ] Open the URL printed in the terminal (usually http://localhost:8080)
-- [ ] Browser tab title shows `Bloomjoy Hub` on load and after route navigation, and favicon renders as Bloomjoy icon
+- [ ] Browser tab title updates by route and includes Bloomjoy branding; favicon renders as Bloomjoy icon
+- [ ] Public routes set page-specific metadata (title + description + canonical + OG tags) in browser devtools
+- [ ] Private/auth routes (`/login`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
 
@@ -32,6 +34,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Contact/Quote form submits (and confirmation is shown)
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
+- [ ] Quote submissions send internal notification email with full request summary (name/email/source/type/message)
 - [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
 
 ## Auth / portal
@@ -70,6 +73,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Payments (test mode)
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
 - [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
+- [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, sugar mix, line items)
 - [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
 - [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`

@@ -7,6 +7,7 @@ type CreateLeadSubmissionInput = {
   name: string;
   email: string;
   message: string;
+  machineInterest?: string;
   sourcePage?: string;
 };
 
@@ -15,17 +16,29 @@ export const createLeadSubmission = async ({
   name,
   email,
   message,
+  machineInterest,
   sourcePage = '/contact',
 }: CreateLeadSubmissionInput) => {
-  const { error } = await supabaseClient.from('lead_submissions').insert({
-    submission_type: submissionType,
-    name,
-    email,
-    message,
-    source_page: sourcePage,
-  });
+  const { data, error } = await supabaseClient.functions.invoke<{ error?: string }>(
+    'lead-submission-intake',
+    {
+      body: {
+        submissionType,
+        name,
+        email,
+        message,
+        machineInterest,
+        sourcePage,
+        clientSubmissionId: crypto.randomUUID(),
+      },
+    }
+  );
 
   if (error) {
     throw new Error(error.message || 'Unable to submit contact request.');
+  }
+
+  if (data?.error) {
+    throw new Error(data.error);
   }
 };
