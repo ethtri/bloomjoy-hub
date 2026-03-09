@@ -5,3 +5,4 @@ Disallow: /admin
 Disallow: /login
 Disallow: /reset-password
 Disallow: /cart
+Sitemap: https://www.bloomjoyusa.com/sitemap.xml

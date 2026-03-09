@@ -1,0 +1,53 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "bloomjoyusa.com"
+        }
+      ],
+      "headers": {
+        "Location": "https://www.bloomjoyusa.com/$1"
+      },
+      "status": 308
+    },
+    {
+      "src": "/products/?",
+      "headers": {
+        "Location": "/machines"
+      },
+      "status": 308
+    },
+    {
+      "src": "/products/(commercial-robotic-machine|mini|micro)/?",
+      "headers": {
+        "Location": "/machines/$1"
+      },
+      "status": 308
+    },
+    {
+      "src": "/(portal|admin)(.*)",
+      "headers": {
+        "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
+      },
+      "continue": true
+    },
+    {
+      "src": "/(login|reset-password|cart)",
+      "headers": {
+        "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
+      },
+      "continue": true
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}

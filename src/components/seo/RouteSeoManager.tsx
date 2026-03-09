@@ -12,6 +12,9 @@ type RouteSeo = {
 const DEFAULT_DESCRIPTION =
   "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.";
 const DEFAULT_IMAGE_PATH = "/favicon.svg";
+const WEBSITE_NAME = "Bloomjoy Hub";
+const ORGANIZATION_NAME = "Bloomjoy";
+const STRUCTURED_DATA_SCRIPT_ID = "seo-structured-data";
 
 const PUBLIC_ROBOTS = "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
@@ -190,6 +193,75 @@ const upsertCanonicalLink = (href: string) => {
   link.setAttribute("href", href);
 };
 
+const upsertStructuredData = (data: Record<string, unknown>) => {
+  let script = document.head.querySelector(
+    `script#${STRUCTURED_DATA_SCRIPT_ID}[type="application/ld+json"]`
+  ) as HTMLScriptElement | null;
+
+  if (!script) {
+    script = document.createElement("script");
+    script.id = STRUCTURED_DATA_SCRIPT_ID;
+    script.type = "application/ld+json";
+    document.head.appendChild(script);
+  }
+
+  script.textContent = JSON.stringify(data);
+};
+
+const removeStructuredData = () => {
+  const script = document.head.querySelector(
+    `script#${STRUCTURED_DATA_SCRIPT_ID}[type="application/ld+json"]`
+  );
+  if (script) {
+    script.remove();
+  }
+};
+
+const buildStructuredData = ({
+  origin,
+  canonicalUrl,
+  title,
+  description,
+}: {
+  origin: string;
+  canonicalUrl: string;
+  title: string;
+  description: string;
+}) => ({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${origin}/#organization`,
+      name: ORGANIZATION_NAME,
+      url: `${origin}/`,
+      logo: `${origin}${DEFAULT_IMAGE_PATH}`,
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${origin}/#website`,
+      name: WEBSITE_NAME,
+      url: `${origin}/`,
+      publisher: {
+        "@id": `${origin}/#organization`,
+      },
+    },
+    {
+      "@type": "WebPage",
+      "@id": `${canonicalUrl}#webpage`,
+      url: canonicalUrl,
+      name: title,
+      description,
+      isPartOf: {
+        "@id": `${origin}/#website`,
+      },
+      about: {
+        "@id": `${origin}/#organization`,
+      },
+    },
+  ],
+});
+
 export const RouteSeoManager = () => {
   const location = useLocation();
 
@@ -215,6 +287,19 @@ export const RouteSeoManager = () => {
     upsertMetaTag("name", "twitter:description", seo.description);
     upsertMetaTag("name", "twitter:image", imageUrl);
     upsertCanonicalLink(canonicalUrl);
+
+    if (seo.robots === PUBLIC_ROBOTS) {
+      upsertStructuredData(
+        buildStructuredData({
+          origin: window.location.origin,
+          canonicalUrl,
+          title: seo.title,
+          description: seo.description,
+        })
+      );
+    } else {
+      removeStructuredData();
+    }
   }, [location]);
 
   return null;
