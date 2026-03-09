@@ -9,6 +9,19 @@
 ## Next P0 milestones
 - Validate and merge the training hardening slice for `#89`, `#90`, and `#91` (build/lint pass and localhost smoke checks on module filtering + detail UX clarity + Vimeo loading state).
 
+## SEO production verification snapshot (2026-03-09)
+- Verified live on `https://www.bloomjoyusa.com` after merge of PRs `#100` and `#101`:
+  - Public routes direct-load with `200` (`/machines`, `/supplies`, `/plus`, `/resources`, `/contact`, legal routes).
+  - Private/auth routes return `200` with `noindex` controls (`meta[name="robots"]` + `X-Robots-Tag` on `/portal`, `/admin`, `/login`).
+  - `robots.txt` is reachable and includes sitemap reference.
+  - `sitemap.xml` is reachable and lists public marketing/legal routes.
+  - Legacy routes redirect permanently:
+    - `/products` -> `/machines` (`308`)
+    - `/products/mini` -> `/machines/mini` (`308`)
+  - Public page source includes route-specific metadata + JSON-LD (`Organization`, `WebSite`, `WebPage`).
+- Follow-up needed:
+  - Apex domain still responds with `307` redirect to `https://www.bloomjoyusa.com/` (host canonicalization works, but permanent redirect expectation is not yet met at edge/domain level).
+
 ## Sales information alignment (2026-03-09)
 - Source sales sheets reviewed:
   - `Commercial Sales Sheet.pdf` (Quote `20260201B3`, dated `2026-02-01`, price effective `2026-05-30`)
@@ -161,6 +174,7 @@ Execution order is based on launch risk and dependency overlap.
 - Vimeo Module 1 is live; Modules 2/3 are pending upload/seed.
 - Module taxonomy UX is implemented, but cross-module validation is pending until Module 2/3 videos are uploaded/tagged.
 - Lint passes but still shows fast-refresh warnings in generated UI files
+- Apex host canonicalization currently returns `307` (`https://bloomjoyusa.com` -> `https://www.bloomjoyusa.com/`) instead of preferred permanent redirect behavior.
 
 ## Environments
 - Local: `npm run dev` on a PR branch/worktree

@@ -14,6 +14,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
 - [ ] `robots.txt` is reachable and includes a sitemap reference
 - [ ] `sitemap.xml` is reachable and lists core public routes
+- [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
