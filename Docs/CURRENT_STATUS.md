@@ -145,6 +145,7 @@ Execution order is based on launch risk and dependency overlap.
 - Training taxonomy hardening (`#90`): training catalog now supports module-specific filtering/grouping (for example `Module 1/2/3`) and includes an operations script to enforce Vimeo tags (`scripts/vimeo-ensure-tag.mjs`).
 - Vimeo operations update (`#90`): current Vimeo library was normalized so all 17 uploaded videos are tagged `Module 1`.
 - SEO hardening: added route-level page metadata management (title/description/canonical/OG) and private-route `noindex` handling plus robots disallows for auth/admin/portal paths.
+- SEO crawlability hardening (`2026-03-09`): added Vercel SPA fallback routing (`vercel.json`) so direct loads for public routes do not 404 at the edge, added `public/sitemap.xml` for indexable public URLs, and linked sitemap in `public/robots.txt`.
 - Submission notifications hardening: quote requests now flow through server-side `lead-submission-intake` and send internal summary emails; Stripe sugar order webhooks now send internal summary emails with duplicate-dispatch protection.
 
 ## Known risks / blockers

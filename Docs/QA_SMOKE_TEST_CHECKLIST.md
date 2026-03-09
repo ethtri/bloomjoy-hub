@@ -8,6 +8,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Browser tab title updates by route and includes Bloomjoy branding; favicon renders as Bloomjoy icon
 - [ ] Public routes set page-specific metadata (title + description + canonical + OG tags) in browser devtools
 - [ ] Private/auth routes (`/login`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
+- [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
+- [ ] `robots.txt` is reachable and includes a sitemap reference
+- [ ] `sitemap.xml` is reachable and lists core public routes
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
 
