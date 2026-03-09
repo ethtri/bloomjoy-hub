@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/prerender-public-routes.mjs",
     "build:dev": "vite build --mode development && node scripts/prerender-public-routes.mjs",
+    "seo:check": "node scripts/seo-regression-check.mjs",
     "auth:preflight": "node scripts/auth-preflight.mjs",
     "lint": "eslint .",
     "preview": "vite preview"

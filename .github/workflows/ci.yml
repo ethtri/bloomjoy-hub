@@ -18,6 +18,8 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: SEO Regression Checks
+        run: npm run seo:check
       - name: Test
         run: npm test --if-present
       - name: Lint

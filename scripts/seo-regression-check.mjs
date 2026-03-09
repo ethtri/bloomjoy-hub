@@ -1,0 +1,205 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+const DIST_DIR = path.resolve(process.cwd(), "dist");
+const VERCEL_CONFIG_PATH = path.resolve(process.cwd(), "vercel.json");
+
+const PUBLIC_ROBOTS =
+  "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
+const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
+const STRUCTURED_DATA_SCRIPT_ID = "seo-structured-data";
+const SITEMAP_URL = "https://www.bloomjoyusa.com/sitemap.xml";
+const CANONICAL_HOST = "https://www.bloomjoyusa.com";
+
+const publicRoutes = [
+  "/",
+  "/machines",
+  "/machines/commercial-robotic-machine",
+  "/machines/mini",
+  "/machines/micro",
+  "/supplies",
+  "/plus",
+  "/resources",
+  "/contact",
+  "/about",
+  "/privacy",
+  "/terms",
+  "/billing-cancellation",
+];
+
+const privateRoutes = [
+  "/login",
+  "/reset-password",
+  "/cart",
+  "/portal",
+  "/portal/orders",
+  "/portal/account",
+  "/portal/training",
+  "/portal/support",
+  "/portal/onboarding",
+  "/admin",
+  "/admin/orders",
+  "/admin/support",
+  "/admin/accounts",
+  "/admin/audit",
+];
+
+const routeToDistHtml = (routePath) => {
+  if (routePath === "/") {
+    return path.join(DIST_DIR, "index.html");
+  }
+  return path.join(DIST_DIR, routePath.replace(/^\//, ""), "index.html");
+};
+
+const canonicalForRoute = (routePath) =>
+  routePath === "/" ? `${CANONICAL_HOST}/` : `${CANONICAL_HOST}${routePath}`;
+
+const assertIncludes = (text, expected, failureMessage) => {
+  if (!text.includes(expected)) {
+    throw new Error(failureMessage);
+  }
+};
+
+const assertExcludes = (text, forbidden, failureMessage) => {
+  if (text.includes(forbidden)) {
+    throw new Error(failureMessage);
+  }
+};
+
+const validatePublicRouteHtml = async (routePath) => {
+  const html = await readFile(routeToDistHtml(routePath), "utf8");
+  const canonical = canonicalForRoute(routePath);
+
+  assertIncludes(
+    html,
+    `<meta name="robots" content="${PUBLIC_ROBOTS}"`,
+    `Public route ${routePath} is missing indexable robots meta`
+  );
+  assertIncludes(
+    html,
+    `<link rel="canonical" href="${canonical}"`,
+    `Public route ${routePath} has incorrect canonical link`
+  );
+  assertIncludes(
+    html,
+    `<script id="${STRUCTURED_DATA_SCRIPT_ID}" type="application/ld+json">`,
+    `Public route ${routePath} is missing JSON-LD script`
+  );
+  assertIncludes(
+    html,
+    `"@type":"WebPage"`,
+    `Public route ${routePath} JSON-LD is missing WebPage node`
+  );
+  assertIncludes(
+    html,
+    `"url":"${canonical}"`,
+    `Public route ${routePath} JSON-LD is missing canonical url`
+  );
+};
+
+const validatePrivateRouteHtml = async (routePath) => {
+  const html = await readFile(routeToDistHtml(routePath), "utf8");
+  const canonical = canonicalForRoute(routePath);
+
+  assertIncludes(
+    html,
+    `<meta name="robots" content="${PRIVATE_ROBOTS}"`,
+    `Private route ${routePath} is missing noindex robots meta`
+  );
+  assertIncludes(
+    html,
+    `<link rel="canonical" href="${canonical}"`,
+    `Private route ${routePath} has incorrect canonical link`
+  );
+  assertExcludes(
+    html,
+    `<script id="${STRUCTURED_DATA_SCRIPT_ID}" type="application/ld+json">`,
+    `Private route ${routePath} should not include JSON-LD script`
+  );
+};
+
+const validateRobots = async () => {
+  const robots = await readFile(path.join(DIST_DIR, "robots.txt"), "utf8");
+
+  assertIncludes(
+    robots,
+    `Sitemap: ${SITEMAP_URL}`,
+    "robots.txt is missing sitemap reference"
+  );
+};
+
+const validateSitemap = async () => {
+  const sitemap = await readFile(path.join(DIST_DIR, "sitemap.xml"), "utf8");
+
+  for (const routePath of publicRoutes) {
+    const canonical = canonicalForRoute(routePath);
+    assertIncludes(
+      sitemap,
+      `<loc>${canonical}</loc>`,
+      `sitemap.xml is missing route ${routePath}`
+    );
+  }
+};
+
+const hasHostRedirectRule = (routes) =>
+  routes.some(
+    (route) =>
+      route?.src === "/(.*)" &&
+      route?.status === 308 &&
+      route?.headers?.Location === "https://www.bloomjoyusa.com/$1" &&
+      Array.isArray(route?.has) &&
+      route.has.some(
+        (condition) => condition?.type === "host" && condition?.value === "bloomjoyusa.com"
+      )
+  );
+
+const hasLegacyProductsRedirectRule = (routes) => {
+  const directProducts = routes.some(
+    (route) =>
+      route?.src === "/products/?" &&
+      route?.status === 308 &&
+      route?.headers?.Location === "/machines"
+  );
+  const detailProducts = routes.some(
+    (route) =>
+      route?.src === "/products/(commercial-robotic-machine|mini|micro)/?" &&
+      route?.status === 308 &&
+      route?.headers?.Location === "/machines/$1"
+  );
+
+  return directProducts && detailProducts;
+};
+
+const validateVercelConfig = async () => {
+  const raw = await readFile(VERCEL_CONFIG_PATH, "utf8");
+  const parsed = JSON.parse(raw);
+  const routes = Array.isArray(parsed?.routes) ? parsed.routes : [];
+
+  if (!hasHostRedirectRule(routes)) {
+    throw new Error("vercel.json is missing apex->www 308 host redirect rule");
+  }
+
+  if (!hasLegacyProductsRedirectRule(routes)) {
+    throw new Error("vercel.json is missing legacy /products* -> /machines* redirect rules");
+  }
+};
+
+const main = async () => {
+  await validateRobots();
+  await validateSitemap();
+  await validateVercelConfig();
+
+  for (const routePath of publicRoutes) {
+    await validatePublicRouteHtml(routePath);
+  }
+
+  for (const routePath of privateRoutes) {
+    await validatePrivateRouteHtml(routePath);
+  }
+
+  console.log(
+    `SEO regression checks passed: ${publicRoutes.length} public routes and ${privateRoutes.length} private routes validated.`
+  );
+};
+
+await main();

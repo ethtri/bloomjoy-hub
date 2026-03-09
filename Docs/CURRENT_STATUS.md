@@ -148,6 +148,8 @@ Execution order is based on launch risk and dependency overlap.
 - SEO crawlability hardening (`2026-03-09`): added Vercel SPA fallback routing (`vercel.json`) so direct loads for public routes do not 404 at the edge, added `public/sitemap.xml` for indexable public URLs, and linked sitemap in `public/robots.txt`.
 - SEO prerender hardening (`2026-03-09`): build now generates static route HTML for public marketing/legal paths with route-specific title/description/canonical/OG metadata before JS executes; known auth/admin/portal paths are also emitted with static `noindex` metadata.
 - SEO structured-data hardening (`2026-03-09`): public-route HTML now includes JSON-LD (`Organization`, `WebSite`, `WebPage`) in both prerendered output and client-side route SEO updates so crawlers receive machine-readable page context.
+- SEO redirect/guard hardening (`2026-03-09`): added permanent host canonicalization redirect (`bloomjoyusa.com` -> `www.bloomjoyusa.com`) and permanent legacy path redirects (`/products*` -> `/machines*`) in `vercel.json`.
+- SEO CI hardening (`2026-03-09`): added `npm run seo:check` plus CI workflow coverage to validate robots/sitemap, canonical/noindex route outputs, JSON-LD presence on public routes, and redirect guard rules.
 - Submission notifications hardening: quote requests now flow through server-side `lead-submission-intake` and send internal summary emails; Stripe sugar order webhooks now send internal summary emails with duplicate-dispatch protection.
 
 ## Known risks / blockers
