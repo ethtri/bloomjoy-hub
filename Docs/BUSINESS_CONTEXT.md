@@ -32,14 +32,16 @@ B) Authenticated member portal for subscription management, orders, training lib
 ## 4) Product catalog (MVP)
 ### Machines
 1) Bloomjoy Sweets Robotic Cotton Candy Machine (commercial / high-volume)
-   - Price target: ~ $10,000 (exact price configurable)
+   - Sales-sheet baseline: $6,250 machine base (plus configurable add-ons)
+   - Wrap options: standard Bloomjoy wrap or custom wrap (custom wrap is Commercial-only and handled offline by the Bloomjoy design team)
    - Ideal for: retail centers, stadiums, high-traffic venues
 
 2) Bloomjoy Sweets Micro (consumer/home)
-   - Price target: ~ $400
+   - Price target: $2,200
    - Limitation: basic shapes only (no floral patterns)
 
 3) Bloomjoy Sweets Mini (new, portable)
+   - Sales-sheet baseline: $4,000
    - Target use: fairs, large events, pop-ups
    - Size: ~ 1/5 the full machine
    - Capability: can produce most complex patterns

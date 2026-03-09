@@ -164,3 +164,21 @@ For production auth email branding and deliverability, we will use **Resend** as
 - Configure and verify Bloomjoy sender domain in Resend.
 - Use Resend SMTP credentials in Supabase Auth email settings for signup confirmation, magic link, and recovery templates.
 - Record final test evidence in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
+
+## 2026-03-09 - Machine sales-sheet baseline (commercial/mini) + micro pricing correction
+To keep sales copy and quote intake consistent with current sales materials, we will align machine pricing/wrap language to the latest internal sales-sheet inputs.
+
+**Canonical updates**
+- Micro machine target/list price for current sales messaging: **`$2,200`**.
+- Commercial machine wrap options must show:
+  - Standard Bloomjoy wrap.
+  - Custom wrap, explicitly marked as **Commercial-only** and handled offline by the Bloomjoy design team.
+- Mini and Micro should not advertise a custom wrap option in MVP copy/flows.
+
+**Source documents reviewed (internal)**
+- `Commercial Sales Sheet.pdf` - Quote `20260201B3` dated `2026-02-01` (price effective `2026-05-30`).
+- `Mini Sales SHeet.pdf` - Quote `20260228Mini` dated `2026-02-28` (price effective `2026-05-31`).
+
+**Implementation notes**
+- Keep custom wrap handling as a manual design handoff (no self-serve design builder in MVP).
+- Ensure public product copy, quote CTA language, and smoke checklist coverage stay aligned to these rules.

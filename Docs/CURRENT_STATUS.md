@@ -9,6 +9,20 @@
 ## Next P0 milestones
 - Validate and merge the training hardening slice for `#89`, `#90`, and `#91` (build/lint pass and localhost smoke checks on module filtering + detail UX clarity + Vimeo loading state).
 
+## Sales information alignment (2026-03-09)
+- Source sales sheets reviewed:
+  - `Commercial Sales Sheet.pdf` (Quote `20260201B3`, dated `2026-02-01`, price effective `2026-05-30`)
+  - `Mini Sales SHeet.pdf` (Quote `20260228Mini`, dated `2026-02-28`, price effective `2026-05-31`)
+- Canonical updates for this correction slice:
+  - Micro machine target price is `$2,200` (legacy `$400` references should be removed).
+  - Custom wrap is available **only** for the Commercial machine offering, with two wrap choices:
+    - Standard Bloomjoy wrap option.
+    - Custom wrap option with explicit note that final design/artwork is handled offline by the Bloomjoy design team.
+- Implementation status on branch `agent/sales-doc-updates`:
+  1) Completed: aligned machine pricing/copy sources and machine detail pages to the updated sales-sheet values.
+  2) Completed: updated commercial quote/CTA copy to explain custom wrap handoff expectations.
+  3) Completed: verification run (`npm ci`, `npm run build`, `npm test --if-present`, `npm run lint --if-present`).
+
 ## UAT feedback intake (2026-03-02)
 Execution order is based on launch risk and dependency overlap.
 
