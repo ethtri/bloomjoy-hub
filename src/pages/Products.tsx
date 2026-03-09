@@ -12,8 +12,8 @@ const machineProducts = [
   {
     sku: 'commercial-robotic',
     name: MACHINE_NAMES.commercial,
-    price: '$10,000',
-    description: 'Full-size commercial unit with automatic stick dispensing and complex pattern capabilities.',
+    price: 'From $6,250',
+    description: 'Full-size commercial unit with automatic stick dispensing, complex patterns, and Commercial-only custom wrap via quote.',
     href: '/machines/commercial-robotic-machine',
     image: commercialMain,
     badge: 'Most Popular',
@@ -30,7 +30,7 @@ const machineProducts = [
   {
     sku: 'micro',
     name: MACHINE_NAMES.micro,
-    price: '$400',
+    price: '$2,200',
     description: 'Entry-level machine for basic shapes. Perfect for low-volume applications.',
     href: '/machines/micro',
     image: microMain,

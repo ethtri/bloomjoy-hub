@@ -20,6 +20,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)
 - [ ] Commercial page shows native specs content (not image-only text for core specs)
 - [ ] Commercial page "Open full size" actions open in-page modal and can be closed to return to the same screen
+- [ ] Commercial machine sales copy/quote CTA clearly shows wrap options and marks custom wrap as Commercial-only with offline design-team handoff
+- [ ] Mini and Micro machine pages do not advertise custom wrap as an available option
+- [ ] Micro machine page shows the updated target/list price (`$2,200`)
 - [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
 - [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
 - [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)

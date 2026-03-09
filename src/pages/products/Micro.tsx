@@ -36,7 +36,7 @@ export default function MicroPage() {
     addItem({
       sku: 'micro',
       name: `Bloomjoy Sweets ${MACHINE_NAMES.micro}`,
-      price: 400,
+      price: 2200,
       type: 'machine',
     });
     toast.success('Micro added to cart!');
@@ -69,7 +69,7 @@ export default function MicroPage() {
                 Bloomjoy Sweets {MACHINE_NAMES.micro}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
-                $400
+                $2,200
               </p>
 
               <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
@@ -113,7 +113,7 @@ export default function MicroPage() {
                 <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber/20 bg-amber/5 p-4">
                   <AlertCircle className="h-5 w-5 shrink-0 text-amber" />
                   <span className="text-sm text-muted-foreground">
-                    Basic shapes only—not suitable for complex patterns.
+                    Basic shapes only - not suitable for complex patterns.
                   </span>
                 </div>
               </div>

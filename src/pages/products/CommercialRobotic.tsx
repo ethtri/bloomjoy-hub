@@ -114,12 +114,14 @@ export default function CommercialRoboticPage() {
                 Bloomjoy Sweets {MACHINE_NAMES.commercial}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
-                $10,000
+                From $6,250
               </p>
-              <p className="mt-1 text-sm text-muted-foreground">Price target, configurable based on requirements</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Base machine price; add-ons and shipping are quoted separately.
+              </p>
 
               <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-                Full-size commercial robotic cotton candy machine designed for high-throughput venues. Automated stick dispensing, complex pattern capabilities, and built for continuous operation.
+                Full-size commercial robotic cotton candy machine designed for high-throughput venues. Automated stick dispensing, complex pattern capabilities, and built for continuous operation. Commercial-only custom wrap is available with final design coordinated offline by the Bloomjoy design team.
               </p>
 
               <div className="mt-8 space-y-4">
@@ -133,11 +135,10 @@ export default function CommercialRoboticPage() {
                   </Button>
                 </Link>
                 <p className="text-center text-sm text-muted-foreground">
-                  Or{' '}
-                  <button className="font-medium text-primary hover:underline">
-                    Buy now
-                  </button>{' '}
-                  (placeholder checkout)
+                  Standard Bloomjoy wrap and Commercial-only custom wrap are both available.
+                </p>
+                <p className="text-center text-sm text-muted-foreground">
+                  Custom wrap artwork is finalized offline with the Bloomjoy design team.
                 </p>
               </div>
 
@@ -150,6 +151,7 @@ export default function CommercialRoboticPage() {
                     'Complex pattern capabilities',
                     'High throughput for events and venues',
                     'Built for continuous commercial operation',
+                    'Wrap options: standard Bloomjoy wrap or Commercial-only custom wrap',
                   ].map((feature) => (
                     <li key={feature} className="flex items-start gap-3">
                       <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sage-light">
@@ -311,7 +313,7 @@ export default function CommercialRoboticPage() {
                   </p>
                   <p>
                     <strong className="font-semibold text-foreground">Bloomjoy (Concierge):</strong>{' '}
-                    Onboarding assistance, best-practice guidance, translation/escalation support. Available during US business hours (Mon–Fri, 9am–5pm EST). Not a 24/7 service.
+                    Onboarding assistance, best-practice guidance, translation/escalation support. Available during US business hours (Mon-Fri, 9am-5pm EST). Not a 24/7 service.
                   </p>
                 </div>
               </div>
