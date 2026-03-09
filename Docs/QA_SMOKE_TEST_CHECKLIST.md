@@ -9,6 +9,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Public routes set page-specific metadata (title + description + canonical + OG tags) in browser devtools
 - [ ] Private/auth routes (`/login`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
 - [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
+- [ ] View page source on a direct-loaded public route (for example `/machines`) and confirm title/description/canonical are route-specific before client-side JS executes
+- [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
 - [ ] `robots.txt` is reachable and includes a sitemap reference
 - [ ] `sitemap.xml` is reachable and lists core public routes
 - [ ] No console errors on home page load

@@ -1,0 +1,238 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+const DIST_DIR = path.resolve(process.cwd(), "dist");
+const TEMPLATE_PATH = path.join(DIST_DIR, "index.html");
+
+const SITE_ORIGIN = "https://www.bloomjoyusa.com";
+const PUBLIC_ROBOTS =
+  "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
+const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
+const DEFAULT_IMAGE = `${SITE_ORIGIN}/favicon.svg`;
+const DEFAULT_DESCRIPTION =
+  "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.";
+
+const publicRoutes = [
+  {
+    path: "/",
+    title: "Bloomjoy Hub | Robotic Cotton Candy Machines and Supplies",
+    description:
+      "Explore Bloomjoy robotic cotton candy machines, sugar supplies, and optional Plus support for operators.",
+    ogType: "website",
+  },
+  {
+    path: "/machines",
+    title: "Machines | Bloomjoy Hub",
+    description:
+      "Compare Bloomjoy machine options and find the right cotton candy setup for your venue.",
+    ogType: "website",
+  },
+  {
+    path: "/machines/commercial-robotic-machine",
+    title: "Commercial Robotic Machine | Bloomjoy Hub",
+    description:
+      "Review the Bloomjoy commercial robotic cotton candy machine, specs, operating footprint, and quote flow.",
+    ogType: "website",
+  },
+  {
+    path: "/machines/mini",
+    title: "Mini Machine | Bloomjoy Hub",
+    description:
+      "Learn about Bloomjoy Mini and join the waitlist for upcoming availability and launch updates.",
+    ogType: "website",
+  },
+  {
+    path: "/machines/micro",
+    title: "Micro Machine | Bloomjoy Hub",
+    description:
+      "Explore Bloomjoy Micro machine details, features, and setup fit for compact locations.",
+    ogType: "website",
+  },
+  {
+    path: "/supplies",
+    title: "Supplies | Bloomjoy Hub",
+    description:
+      "Order Bloomjoy cotton candy sugar and supplies with high-volume-friendly quantity controls.",
+    ogType: "website",
+  },
+  {
+    path: "/plus",
+    title: "Bloomjoy Plus | Membership",
+    description:
+      "View Bloomjoy Plus membership benefits, support boundaries, and per-machine monthly pricing.",
+    ogType: "website",
+  },
+  {
+    path: "/resources",
+    title: "Resources and FAQs | Bloomjoy Hub",
+    description:
+      "Get quick answers on training, support boundaries, and how Bloomjoy operations work.",
+    ogType: "website",
+  },
+  {
+    path: "/contact",
+    title: "Contact and Quote Requests | Bloomjoy Hub",
+    description:
+      "Contact Bloomjoy for machine quotes, demo requests, procurement questions, and general support.",
+    ogType: "website",
+  },
+  {
+    path: "/about",
+    title: "About Bloomjoy | Operator-Focused Support",
+    description:
+      "Meet Bloomjoy and our operator-focused approach to machines, training, and field support.",
+    ogType: "website",
+  },
+  {
+    path: "/privacy",
+    title: "Privacy Policy | Bloomjoy Hub",
+    description:
+      "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.",
+    ogType: "article",
+  },
+  {
+    path: "/terms",
+    title: "Terms of Service | Bloomjoy Hub",
+    description:
+      "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.",
+    ogType: "article",
+  },
+  {
+    path: "/billing-cancellation",
+    title: "Billing and Cancellation | Bloomjoy Hub",
+    description:
+      "Understand billing cadence, cancellations, and account management for Bloomjoy services.",
+    ogType: "article",
+  },
+];
+
+const privateRoutes = [
+  "/login",
+  "/reset-password",
+  "/cart",
+  "/portal",
+  "/portal/orders",
+  "/portal/account",
+  "/portal/training",
+  "/portal/support",
+  "/portal/onboarding",
+  "/admin",
+  "/admin/orders",
+  "/admin/support",
+  "/admin/accounts",
+  "/admin/audit",
+];
+
+const escapeAttribute = (value) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const upsertMetaTag = (html, attribute, key, content) => {
+  const tag = `<meta ${attribute}="${key}" content="${escapeAttribute(content)}" />`;
+  const pattern = new RegExp(
+    `<meta[^>]*${attribute}=["']${escapeRegex(key)}["'][^>]*>`,
+    "i"
+  );
+
+  if (pattern.test(html)) {
+    return html.replace(pattern, tag);
+  }
+
+  return html.replace("</head>", `  ${tag}\n  </head>`);
+};
+
+const upsertCanonical = (html, href) => {
+  const tag = `<link rel="canonical" href="${escapeAttribute(href)}" />`;
+  const pattern = /<link[^>]*rel=["']canonical["'][^>]*>/i;
+
+  if (pattern.test(html)) {
+    return html.replace(pattern, tag);
+  }
+
+  return html.replace("</head>", `  ${tag}\n  </head>`);
+};
+
+const upsertTitle = (html, title) =>
+  html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeAttribute(title)}</title>`);
+
+const canonicalForPath = (pathname) =>
+  pathname === "/" ? `${SITE_ORIGIN}/` : `${SITE_ORIGIN}${pathname}`;
+
+const withSeoTags = (template, route) => {
+  const canonicalUrl = canonicalForPath(route.path);
+  let html = template;
+
+  html = upsertTitle(html, route.title);
+  html = upsertMetaTag(html, "name", "description", route.description);
+  html = upsertMetaTag(html, "name", "robots", PUBLIC_ROBOTS);
+  html = upsertMetaTag(html, "property", "og:title", route.title);
+  html = upsertMetaTag(html, "property", "og:description", route.description);
+  html = upsertMetaTag(html, "property", "og:type", route.ogType);
+  html = upsertMetaTag(html, "property", "og:url", canonicalUrl);
+  html = upsertMetaTag(html, "property", "og:image", DEFAULT_IMAGE);
+  html = upsertMetaTag(html, "name", "twitter:card", "summary_large_image");
+  html = upsertMetaTag(html, "name", "twitter:title", route.title);
+  html = upsertMetaTag(html, "name", "twitter:description", route.description);
+  html = upsertMetaTag(html, "name", "twitter:image", DEFAULT_IMAGE);
+  html = upsertCanonical(html, canonicalUrl);
+
+  return html;
+};
+
+const withPrivateSeoTags = (template, pathname) => {
+  const canonicalUrl = canonicalForPath(pathname);
+  let html = template;
+
+  html = upsertTitle(html, "Bloomjoy Hub");
+  html = upsertMetaTag(html, "name", "description", DEFAULT_DESCRIPTION);
+  html = upsertMetaTag(html, "name", "robots", PRIVATE_ROBOTS);
+  html = upsertMetaTag(html, "property", "og:title", "Bloomjoy Hub");
+  html = upsertMetaTag(html, "property", "og:description", DEFAULT_DESCRIPTION);
+  html = upsertMetaTag(html, "property", "og:type", "website");
+  html = upsertMetaTag(html, "property", "og:url", canonicalUrl);
+  html = upsertMetaTag(html, "property", "og:image", DEFAULT_IMAGE);
+  html = upsertMetaTag(html, "name", "twitter:card", "summary_large_image");
+  html = upsertMetaTag(html, "name", "twitter:title", "Bloomjoy Hub");
+  html = upsertMetaTag(html, "name", "twitter:description", DEFAULT_DESCRIPTION);
+  html = upsertMetaTag(html, "name", "twitter:image", DEFAULT_IMAGE);
+  html = upsertCanonical(html, canonicalUrl);
+
+  return html;
+};
+
+const outputFileForRoute = (pathname) => {
+  if (pathname === "/") {
+    return path.join(DIST_DIR, "index.html");
+  }
+
+  return path.join(DIST_DIR, pathname.replace(/^\//, ""), "index.html");
+};
+
+const main = async () => {
+  const template = await readFile(TEMPLATE_PATH, "utf8");
+
+  for (const route of publicRoutes) {
+    const rendered = withSeoTags(template, route);
+    const outputPath = outputFileForRoute(route.path);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, rendered, "utf8");
+  }
+
+  for (const pathname of privateRoutes) {
+    const rendered = withPrivateSeoTags(template, pathname);
+    const outputPath = outputFileForRoute(pathname);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, rendered, "utf8");
+  }
+
+  console.log(
+    `Prerendered SEO HTML for ${publicRoutes.length} public routes and ${privateRoutes.length} private routes.`
+  );
+};
+
+await main();

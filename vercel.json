@@ -1,6 +1,20 @@
 {
   "routes": [
     {
+      "src": "/(portal|admin)(.*)",
+      "headers": {
+        "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
+      },
+      "continue": true
+    },
+    {
+      "src": "/(login|reset-password|cart)",
+      "headers": {
+        "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
+      },
+      "continue": true
+    },
+    {
       "handle": "filesystem"
     },
     {
