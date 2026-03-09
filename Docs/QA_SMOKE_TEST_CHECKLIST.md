@@ -7,6 +7,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Open the URL printed in the terminal (usually http://localhost:8080)
 - [ ] Browser tab title updates by route and includes Bloomjoy branding; favicon renders as Bloomjoy icon
 - [ ] Public routes set page-specific metadata (title + description + canonical + OG tags) in browser devtools
+- [ ] Public routes include JSON-LD structured data (`script[type="application/ld+json"]`) with Organization/WebSite/WebPage entries
 - [ ] Private/auth routes (`/login`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
 - [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
 - [ ] View page source on a direct-loaded public route (for example `/machines`) and confirm title/description/canonical are route-specific before client-side JS executes

@@ -11,6 +11,9 @@ const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
 const DEFAULT_IMAGE = `${SITE_ORIGIN}/favicon.svg`;
 const DEFAULT_DESCRIPTION =
   "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.";
+const WEBSITE_NAME = "Bloomjoy Hub";
+const ORGANIZATION_NAME = "Bloomjoy";
+const STRUCTURED_DATA_SCRIPT_ID = "seo-structured-data";
 
 const publicRoutes = [
   {
@@ -130,6 +133,8 @@ const escapeAttribute = (value) =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 
+const escapeScriptContent = (value) => value.replaceAll("</script>", "<\\/script>");
+
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const upsertMetaTag = (html, attribute, key, content) => {
@@ -157,11 +162,71 @@ const upsertCanonical = (html, href) => {
   return html.replace("</head>", `  ${tag}\n  </head>`);
 };
 
+const upsertStructuredDataScript = (html, data) => {
+  const script = `<script id="${STRUCTURED_DATA_SCRIPT_ID}" type="application/ld+json">${escapeScriptContent(
+    JSON.stringify(data)
+  )}</script>`;
+  const pattern = new RegExp(
+    `<script[^>]*id=["']${escapeRegex(STRUCTURED_DATA_SCRIPT_ID)}["'][^>]*>[\\s\\S]*?<\\/script>`,
+    "i"
+  );
+
+  if (pattern.test(html)) {
+    return html.replace(pattern, script);
+  }
+
+  return html.replace("</head>", `  ${script}\n  </head>`);
+};
+
+const removeStructuredDataScript = (html) =>
+  html.replace(
+    new RegExp(
+      `<script[^>]*id=["']${escapeRegex(STRUCTURED_DATA_SCRIPT_ID)}["'][^>]*>[\\s\\S]*?<\\/script>\\s*`,
+      "i"
+    ),
+    ""
+  );
+
 const upsertTitle = (html, title) =>
   html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeAttribute(title)}</title>`);
 
 const canonicalForPath = (pathname) =>
   pathname === "/" ? `${SITE_ORIGIN}/` : `${SITE_ORIGIN}${pathname}`;
+
+const buildStructuredData = ({ canonicalUrl, title, description }) => ({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${SITE_ORIGIN}/#organization`,
+      name: ORGANIZATION_NAME,
+      url: `${SITE_ORIGIN}/`,
+      logo: DEFAULT_IMAGE,
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_ORIGIN}/#website`,
+      name: WEBSITE_NAME,
+      url: `${SITE_ORIGIN}/`,
+      publisher: {
+        "@id": `${SITE_ORIGIN}/#organization`,
+      },
+    },
+    {
+      "@type": "WebPage",
+      "@id": `${canonicalUrl}#webpage`,
+      url: canonicalUrl,
+      name: title,
+      description,
+      isPartOf: {
+        "@id": `${SITE_ORIGIN}/#website`,
+      },
+      about: {
+        "@id": `${SITE_ORIGIN}/#organization`,
+      },
+    },
+  ],
+});
 
 const withSeoTags = (template, route) => {
   const canonicalUrl = canonicalForPath(route.path);
@@ -180,6 +245,14 @@ const withSeoTags = (template, route) => {
   html = upsertMetaTag(html, "name", "twitter:description", route.description);
   html = upsertMetaTag(html, "name", "twitter:image", DEFAULT_IMAGE);
   html = upsertCanonical(html, canonicalUrl);
+  html = upsertStructuredDataScript(
+    html,
+    buildStructuredData({
+      canonicalUrl,
+      title: route.title,
+      description: route.description,
+    })
+  );
 
   return html;
 };
@@ -201,6 +274,7 @@ const withPrivateSeoTags = (template, pathname) => {
   html = upsertMetaTag(html, "name", "twitter:description", DEFAULT_DESCRIPTION);
   html = upsertMetaTag(html, "name", "twitter:image", DEFAULT_IMAGE);
   html = upsertCanonical(html, canonicalUrl);
+  html = removeStructuredDataScript(html);
 
   return html;
 };
