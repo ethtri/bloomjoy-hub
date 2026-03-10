@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, MapPin, CreditCard, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,7 +36,10 @@ const formatMembershipStatus = (status: string) =>
 
 export default function AccountPage() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const hasHandledBillingReturn = useRef(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [profileForm, setProfileForm] = useState<PortalAccountProfileInput>(DEFAULT_PROFILE_FORM);
 
@@ -47,7 +50,11 @@ export default function AccountPage() {
     staleTime: 1000 * 30,
   });
 
-  const { data: membershipSummary, isLoading: isMembershipLoading } = useQuery({
+  const {
+    data: membershipSummary,
+    isLoading: isMembershipLoading,
+    refetch: refetchMembershipSummary,
+  } = useQuery({
     queryKey: ['portal-membership-summary', user?.id],
     queryFn: () => fetchPortalMembershipSummary(user!.id),
     enabled: Boolean(user?.id),
@@ -86,6 +93,28 @@ export default function AccountPage() {
     });
   }, [accountProfile]);
 
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    if (searchParams.get('billing') !== 'return' || hasHandledBillingReturn.current) {
+      return;
+    }
+
+    hasHandledBillingReturn.current = true;
+    void refetchMembershipSummary();
+    toast.success('Returned from Stripe billing portal. Membership status has been refreshed.');
+
+    searchParams.delete('billing');
+    const nextSearch = searchParams.toString();
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate, refetchMembershipSummary]);
+
   const effectiveMembershipStatus = membershipSummary?.status ?? user?.membershipStatus ?? 'none';
   const isMember = hasPlusAccess(effectiveMembershipStatus);
   const membershipStatusLabel = useMemo(() => {
@@ -115,7 +144,10 @@ export default function AccountPage() {
       const portalUrl = await openCustomerPortal(user.email, window.location.origin);
       window.location.assign(portalUrl);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to open billing portal.';
+      const message =
+        error instanceof Error && error.message
+          ? `${error.message} Please try again, or contact support if the issue continues.`
+          : 'Unable to open the Stripe billing portal right now. Please try again, or contact support if the issue continues.';
       toast.error(message);
       setIsOpeningPortal(false);
     }
@@ -306,7 +338,7 @@ export default function AccountPage() {
                 </div>
                 <p className="mt-4 text-sm text-muted-foreground">
                   {isMember
-                    ? 'Manage your subscription and payment methods through the Stripe customer portal.'
+                    ? 'Manage your payment methods, invoices, and cancellations through the Stripe customer portal.'
                     : 'Upgrade to Plus to unlock premium training, onboarding, and concierge support.'}
                 </p>
                 <Button
@@ -316,7 +348,7 @@ export default function AccountPage() {
                   disabled={isOpeningPortal || !user?.email || !isMember || isMembershipLoading}
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  {isMember ? (isOpeningPortal ? 'Opening...' : 'Manage Billing') : 'Plus Required'}
+                  {isMember ? (isOpeningPortal ? 'Opening...' : 'Open Billing Portal') : 'Plus Required'}
                 </Button>
                 <p className="mt-3 text-xs text-muted-foreground">
                   Review{' '}

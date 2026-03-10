@@ -38,7 +38,7 @@ export async function openCustomerPortal(email: string, origin: string) {
     {
       body: {
         email,
-        returnUrl: `${origin}/portal/account`,
+        returnUrl: `${origin}/portal/account?billing=return`,
       },
     }
   );

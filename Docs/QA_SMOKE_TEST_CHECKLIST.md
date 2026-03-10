@@ -90,6 +90,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
+- [ ] In Stripe test customer portal, cancel Plus subscription and return to `/portal/account?billing=return`
+- [ ] Return to account shows confirmation that billing status was refreshed after Stripe portal return
+- [ ] After canceling, account membership card shows end-of-period cancellation state/banner
 - [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)
 
 ## Auth launch hardening (production-only)
