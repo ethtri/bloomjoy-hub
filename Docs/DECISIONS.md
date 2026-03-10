@@ -182,3 +182,39 @@ To keep sales copy and quote intake consistent with current sales materials, we 
 **Implementation notes**
 - Keep custom wrap handling as a manual design handoff (no self-serve design builder in MVP).
 - Ensure public product copy, quote CTA language, and smoke checklist coverage stay aligned to these rules.
+
+## 2026-03-10 - WeCom as the internal ops-alert POC channel
+For current operations-event alerting, we will use **WeCom app messaging** from Supabase Edge Functions (quote, order, and support events).
+
+**Scope**
+- Quote submission alerts (`lead-submission-intake`)
+- Sugar order alerts (`stripe-webhook`)
+- Support request alerts (`support-request-intake`)
+
+**Why this choice**
+- Keeps WeCom credentials server-side only (`WECOM_*` function secrets).
+- Aligns to actual ops communication channel without changing customer-facing auth flows.
+- Adds non-blocking behavior so core quote/order/support flows continue if WeCom is unavailable.
+
+**Implementation notes**
+- Token lifecycle handled server-side with cached `access_token` fetch/refresh.
+- Recipient fanout controlled by `WECOM_ALERT_TO_USERIDS` (comma-separated user IDs).
+- WeCom dispatch failures are logged as warnings and do not fail core business transactions.
+
+## 2026-03-10 - WeChat onboarding concierge intake model
+To reduce WeChat onboarding friction, we will treat onboarding blockers as a first-class support request type.
+
+**Canonical model**
+- `support_requests.request_type` includes `wechat_onboarding`.
+- Structured onboarding context is stored in `support_requests.intake_meta` (JSON), including:
+  - `phone_region`
+  - `phone_number`
+  - `device_type`
+  - `blocked_step`
+  - `referral_needed`
+  - optional `wechat_id`
+
+**Why this choice**
+- Keeps portal intake simple while giving ops consistent triage data.
+- Avoids one-off DM triage by standardizing onboarding requests in existing support queue tooling.
+- Preserves backward compatibility with existing support request status/priority/admin-audit flows.

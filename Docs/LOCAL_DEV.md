@@ -35,6 +35,7 @@
 ## Supabase setup (training library + memberships)
 1) Apply migration: `supabase/migrations/20260122_training_and_membership.sql`
    - Orders sync migration: `supabase/migrations/20260202_orders.sql`
+   - WeChat onboarding support migration: `supabase/migrations/202603100001_wechat_onboarding_support.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
@@ -118,6 +119,10 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set RESEND_API_KEY=...`
    - `supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...`
    - `supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com`
+   - `supabase secrets set WECOM_CORP_ID=...`
+   - `supabase secrets set WECOM_AGENT_ID=...`
+   - `supabase secrets set WECOM_AGENT_SECRET=...`
+   - `supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager`
    - Ensure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
 3) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
@@ -125,6 +130,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve stripe-customer-portal --no-verify-jwt`
    - `supabase functions serve stripe-webhook --no-verify-jwt`
    - `supabase functions serve lead-submission-intake --no-verify-jwt`
+   - `supabase functions serve support-request-intake`
 4) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 
 ## Common issues
