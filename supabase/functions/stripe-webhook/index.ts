@@ -3,6 +3,7 @@ import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
+import { sendWeComAlertSafe } from "../_shared/wecom-alert.ts";
 
 export const config = {
   verify_jwt: false,
@@ -345,6 +346,22 @@ async function sendOrderNotification(
     await releaseDispatch(eventKey);
     throw error;
   }
+
+  await sendWeComAlertSafe({
+    tag: "Bloomjoy Order",
+    title: `New sugar order: ${session.id}`,
+    lines: [
+      `Checkout Session ID: ${session.id}`,
+      `Payment Status: ${session.payment_status || "unpaid"}`,
+      `Amount Total: ${formatCurrency(session.amount_total, session.currency)}`,
+      `Customer Email: ${session.customer_details?.email ?? session.customer_email ?? "n/a"}`,
+      `Customer Name: ${customerDetails?.name ?? "n/a"}`,
+      `Shipping Name: ${shippingDetails?.name ?? "n/a"}`,
+      `Sugar Total KG: ${context.sugarMix.total_kg}`,
+      `White/Blue/Orange/Red KG: ${context.sugarMix.white_kg}/${context.sugarMix.blue_kg}/${context.sugarMix.orange_kg}/${context.sugarMix.red_kg}`,
+      `Line Items: ${context.lineItems.length}`,
+    ],
+  });
 
   await Promise.all([
     supabase

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
+import { sendWeComAlertSafe } from "../_shared/wecom-alert.ts";
 
 export const config = {
   verify_jwt: false,
@@ -230,6 +231,21 @@ serve(async (req) => {
       await releaseDispatch(eventKey);
       throw error;
     }
+
+    await sendWeComAlertSafe({
+      tag: "Bloomjoy Quote",
+      title: `New quote request: ${leadSubmission.name}`,
+      lines: [
+        `Submission ID: ${leadSubmission.id}`,
+        `Submitted At (UTC): ${leadSubmission.created_at}`,
+        `Inquiry Type: ${leadSubmission.submission_type}`,
+        `Name: ${leadSubmission.name}`,
+        `Email: ${leadSubmission.email}`,
+        `Source Page: ${leadSubmission.source_page}`,
+        "Message:",
+        leadSubmission.message,
+      ],
+    });
 
     await Promise.all([
       supabase
