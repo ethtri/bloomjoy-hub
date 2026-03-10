@@ -27,8 +27,6 @@ export default function SupportPage() {
     try {
       await createSupportRequest({
         requestType: type,
-        customerUserId: user.id,
-        customerEmail: user.email,
         subject: formData.subject.trim(),
         message: formData.message.trim(),
       });

@@ -26,10 +26,12 @@ export type SupportRequestRecord = {
   updated_at: string;
 };
 
+type SupportRequestIntakeResponse = {
+  supportRequest: SupportRequestRecord;
+};
+
 type CreateSupportRequestInput = {
   requestType: SupportRequestType;
-  customerUserId: string;
-  customerEmail: string;
   subject: string;
   message: string;
 };
@@ -44,28 +46,25 @@ type UpdateSupportRequestInput = {
 
 export const createSupportRequest = async ({
   requestType,
-  customerUserId,
-  customerEmail,
   subject,
   message,
 }: CreateSupportRequestInput): Promise<SupportRequestRecord> => {
-  const { data, error } = await supabaseClient
-    .from('support_requests')
-    .insert({
-      request_type: requestType,
-      customer_user_id: customerUserId,
-      customer_email: customerEmail,
-      subject,
-      message,
-    })
-    .select('*')
-    .single();
+  const { data, error } = await supabaseClient.functions.invoke<SupportRequestIntakeResponse>(
+    'support-request-intake',
+    {
+      body: {
+        requestType,
+        subject,
+        message,
+      },
+    }
+  );
 
-  if (error || !data) {
+  if (error || !data?.supportRequest) {
     throw new Error(error?.message || 'Unable to submit support request.');
   }
 
-  return data as SupportRequestRecord;
+  return data.supportRequest;
 };
 
 export const fetchSupportRequests = async (): Promise<SupportRequestRecord[]> => {

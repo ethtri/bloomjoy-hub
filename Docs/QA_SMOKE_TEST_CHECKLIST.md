@@ -46,6 +46,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Quote submissions send internal notification email with full request summary (name/email/source/type/message)
+- [ ] Quote submissions send a WeCom internal alert to configured `WECOM_ALERT_TO_USERIDS` recipients
 - [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
 
 ## Auth / portal
@@ -80,11 +81,13 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training detail sections below video ("What you will learn", "Checklist", "Resources") have clear purpose and readable structure
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
+- [ ] Submitted support request triggers a WeCom alert with request type, customer email, and subject
 
 ## Payments (test mode)
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
 - [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
 - [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, sugar mix, line items)
+- [ ] Sugar checkout completed webhook sends a WeCom internal alert with order ID, customer, and sugar breakdown
 - [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
 - [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`
@@ -101,6 +104,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Production auth smoke evidence is captured in `Docs/AUTH_PRODUCTION_SIGNOFF.md`
 
 ## Regression sanity
+- [ ] Quote, order, and support primary flows still succeed when WeCom alert delivery fails (verify non-blocking warning logs in function output)
 - [ ] `npm run build` passes
 - [ ] `npm run lint` passes (if configured)
 - [ ] `npm run seo:check` passes
