@@ -7,7 +7,12 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-- Validate and merge the training hardening slice for `#89`, `#90`, and `#91` (build/lint pass and localhost smoke checks on module filtering + detail UX clarity + Vimeo loading state).
+- Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
+
+## Session closeout snapshot (2026-03-10)
+- PR `#108` merged: WeCom internal-alert POC is now wired server-side for quote/order/support events with non-blocking failure handling.
+- PR `#109` merged: portal + admin support now include WeChat onboarding concierge intake (`request_type=wechat_onboarding` + structured `intake_meta`) and queue filtering/metrics.
+- New follow-up issue opened and added to project board: `#110` (operationalize WeCom alert reliability + WeChat onboarding concierge runbook/SLA).
 
 ## SEO production verification snapshot (2026-03-09)
 - Verified live on `https://www.bloomjoyusa.com` after merge of PRs `#100` and `#101`:
@@ -99,6 +104,7 @@ Execution order is based on launch risk and dependency overlap.
 - Enable Supabase Custom Domain add-on for project `ygbzkgxktzqsiygjlqyg` to unblock `auth.bloomjoyusa.com` cutover (required for issue `#78`).
 - Upload Module 2 and Module 3 Vimeo videos when ready and extend `trainings` + `training_assets` with the same seeded pattern used for Module 1.
 - Add Vimeo tags for Module 2/3 as content is uploaded so the new module-filter UX can segment beyond Module 1.
+- Execute issue `#110` to operationalize WeCom alert monitoring and WeChat onboarding concierge process ownership (referral buddy roster + SLA + weekly reliability snapshot).
 
 ## Upcoming scope clarification (next sprint)
 - Super-admin requirements and role model are complete for MVP scope (`#37` with implementation slices `#44`-`#48` delivered in PR `#55`).
@@ -166,12 +172,16 @@ Execution order is based on launch risk and dependency overlap.
 - Submission notifications hardening: quote requests now flow through server-side `lead-submission-intake` and send internal summary emails; Stripe sugar order webhooks now send internal summary emails with duplicate-dispatch protection.
 - Submission notification recovery (`PR #103`, `2026-03-09`): resolved the internal-notification migration version collision by applying `202603090001_internal_notifications_backfill.sql`, aligned `INTERNAL_NOTIFICATION_FROM_EMAIL` to a verified Resend sender on `bloomjoyusa.com`, and revalidated quote-notification dispatch end-to-end (`lead-submission-intake` returns `200`, `internal_notification_sent_at` and dispatch `sent_at` are populated).
 - Session closeout smoke snapshot (`2026-03-09`): production-config API checks passed for quote notification dispatch, magic-link trigger, and password-reset trigger; remaining launch evidence is now limited to manual inbox/browser screenshots in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
+- WeCom alerting POC merged (`#107` via PR `#108`, `2026-03-10`): quote/order/support flows now attempt WeCom dispatch using server-only `WECOM_*` secrets with token cache + non-blocking failure logging.
+- WeChat onboarding concierge merged (PR `#109`, `2026-03-10`): support flow now includes structured onboarding intake (`phone/device/blocked step/referral`) persisted in `support_requests.intake_meta` and surfaced in `/admin/support` triage filters/cards.
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
 - Internal notification pipeline is restored for quote submissions, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender, recipient list).
+- WeCom alert dispatch reliability now depends on owner-managed function secrets and app visibility scope (`WECOM_CORP_ID`, `WECOM_AGENT_ID`, `WECOM_AGENT_SECRET`, `WECOM_ALERT_TO_USERIDS`).
+- WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.
 - Vimeo Module 1 is live; Modules 2/3 are pending upload/seed.
 - Module taxonomy UX is implemented, but cross-module validation is pending until Module 2/3 videos are uploaded/tagged.

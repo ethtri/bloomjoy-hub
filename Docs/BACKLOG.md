@@ -82,3 +82,9 @@ Guidelines:
 23. Basic admin view for support requests
 24. Remove temporary static admin email allowlist and rely on `admin_roles` + RLS only
 25. Replace third-party Vimeo thumbnail fallback (`vumbnail`) with first-party stored thumbnail URLs
+
+## P2 - Ops hardening follow-ups
+26. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
+   - Define referral-buddy onboarding runbook and response-time SLA.
+   - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
+   - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.

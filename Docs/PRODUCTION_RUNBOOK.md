@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-02-27
+Last updated: 2026-03-10
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -25,8 +25,12 @@ Set the following values before launch.
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake` | Resend API key | Technical owner |
 | `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake` | Verified sender in Resend | Technical owner |
 | `INTERNAL_NOTIFICATION_RECIPIENTS` | Server-only | `stripe-webhook`, `lead-submission-intake` | Internal recipient list (comma-separated) | Release owner |
-| `SUPABASE_URL` | Server-only | `stripe-webhook`, `lead-submission-intake` | Supabase project URL | Technical owner |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake` | Supabase service role key | Technical owner |
+| `WECOM_CORP_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
+| `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
+| `WECOM_AGENT_SECRET` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
+| `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
+| `SUPABASE_URL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `support-request-intake` | Supabase project URL | Technical owner |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `support-request-intake` | Supabase service role key | Technical owner |
 
 Security rule:
 - Never place secrets in `VITE_` variables.
@@ -67,12 +71,16 @@ supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
 supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...
 supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com
+supabase secrets set WECOM_CORP_ID=...
+supabase secrets set WECOM_AGENT_ID=...
+supabase secrets set WECOM_AGENT_SECRET=...
+supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager
 supabase secrets set SUPABASE_URL=...
 supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 ### Step C: Deploy Stripe Edge Functions
-Deploy all five functions:
+Deploy all six functions:
 
 ```bash
 supabase functions deploy stripe-sugar-checkout
@@ -80,6 +88,7 @@ supabase functions deploy stripe-plus-checkout
 supabase functions deploy stripe-customer-portal
 supabase functions deploy stripe-webhook
 supabase functions deploy lead-submission-intake
+supabase functions deploy support-request-intake
 ```
 
 ### Step D: Configure Stripe webhook endpoint
@@ -109,6 +118,8 @@ Run immediately after deploy:
 - [ ] Sugar checkout test order sends internal summary email to configured operations recipients.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
+- [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
+- [ ] WeChat onboarding concierge submit on `/portal/support` creates `support_requests.request_type=wechat_onboarding` with populated `intake_meta`.
 - [ ] Stripe customer portal opens from `/portal/account`.
 - [ ] No critical frontend console errors on key pages.
 
@@ -128,6 +139,7 @@ Rollback order:
      - `stripe-plus-checkout`
      - `stripe-customer-portal`
      - `stripe-webhook`
+     - `support-request-intake`
 3) Secrets:
    - Restore prior secrets only if rotation caused failure.
 4) Database:
