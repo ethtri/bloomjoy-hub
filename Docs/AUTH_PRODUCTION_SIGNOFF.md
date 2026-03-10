@@ -74,6 +74,18 @@ Capture evidence links for each required flow.
 - [ ] One network trace or screenshot proving callback host is `auth.bloomjoyusa.com`.
 - [ ] Link evidence in section 5 or launch ticket before Go/No-Go.
 
+## 5.2) Session closeout automation snapshot (2026-03-09)
+Automated API smoke checks were run against production config values:
+- `lead-submission-intake` quote submit returned `200 {"ok":true}`.
+- Matching `lead_submissions` row was created with non-null `internal_notification_sent_at`.
+- Matching `internal_notification_dispatches` row was created with non-null `sent_at`.
+- `auth.signInWithOtp(...)` returned success (`SMOKE_MAGIC_LINK_STATUS=OK`).
+- `auth.resetPasswordForEmail(...)` returned success (`SMOKE_RESET_STATUS=OK`).
+
+Manual evidence still required before go/no-go:
+- Inbox-level confirmation and screenshots for branded auth templates (signup, magic link, recovery).
+- Google OAuth consent/callback-host screenshot evidence from full browser flow.
+
 ## 6) Common auth incidents
 ### 429 rate limit on magic link or OTP
 - Confirm repeated attempts were the trigger.
