@@ -82,6 +82,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 - [ ] Submitted support request triggers a WeCom alert with request type, customer email, and subject
+- [ ] `/portal/support` includes a WeChat onboarding concierge form with phone region/number, blocked-step selection, and referral-needed selection
+- [ ] WeChat onboarding concierge submit writes `support_requests.request_type=wechat_onboarding` and structured `support_requests.intake_meta` values (`phone_region`, `phone_number`, `device_type`, `blocked_step`, `referral_needed`, optional `wechat_id`)
 
 ## Payments (test mode)
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
@@ -113,6 +115,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/support`
 - [ ] Super-admin user can access `/admin/support`
 - [ ] Admin can search/filter support queue and update status/priority/assignment/notes
+- [ ] Admin support queue can filter by request type and includes `wechat_onboarding`
+- [ ] Admin support queue summary cards show open total, open new, and open WeChat onboarding counts
 - [ ] Admin updates create `admin_audit_log` entries with `action=support_request.updated`
 - [ ] Non-admin user cannot access `/admin/orders`
 - [ ] Super-admin user can access `/admin/orders`

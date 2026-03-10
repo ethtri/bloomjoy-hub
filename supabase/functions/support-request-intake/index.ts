@@ -5,7 +5,7 @@ import { sendWeComAlertSafe } from "../_shared/wecom-alert.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const validRequestTypes = new Set(["concierge", "parts"]);
+const validRequestTypes = new Set(["concierge", "parts", "wechat_onboarding"]);
 
 if (!supabaseUrl) {
   console.error("Missing SUPABASE_URL");
@@ -27,6 +27,36 @@ const parseAccessToken = (authorizationHeader: string | null): string => {
   if (!authorizationHeader) return "";
   const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
   return match?.[1]?.trim() ?? "";
+};
+
+const sanitizeIntakeMeta = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const raw = value as Record<string, unknown>;
+  const sanitized: Record<string, unknown> = {};
+
+  const phoneRegion = sanitizeText(raw.phone_region);
+  if (phoneRegion) sanitized.phone_region = phoneRegion;
+
+  const phoneNumber = sanitizeText(raw.phone_number);
+  if (phoneNumber) sanitized.phone_number = phoneNumber;
+
+  const deviceType = sanitizeText(raw.device_type);
+  if (deviceType) sanitized.device_type = deviceType;
+
+  const blockedStep = sanitizeText(raw.blocked_step);
+  if (blockedStep) sanitized.blocked_step = blockedStep;
+
+  const wechatId = sanitizeText(raw.wechat_id);
+  if (wechatId) sanitized.wechat_id = wechatId;
+
+  if (typeof raw.referral_needed === "boolean") {
+    sanitized.referral_needed = raw.referral_needed;
+  }
+
+  return sanitized;
 };
 
 serve(async (req) => {
@@ -74,6 +104,7 @@ serve(async (req) => {
     const requestType = sanitizeText(body?.requestType).toLowerCase();
     const subject = sanitizeText(body?.subject);
     const message = sanitizeText(body?.message);
+    const intakeMeta = sanitizeIntakeMeta(body?.intakeMeta);
     const customerEmail = sanitizeText(user.email).toLowerCase();
 
     if (!validRequestTypes.has(requestType)) {
@@ -105,6 +136,7 @@ serve(async (req) => {
         customer_email: customerEmail,
         subject,
         message,
+        intake_meta: intakeMeta,
       })
       .select("*")
       .single();
@@ -112,6 +144,27 @@ serve(async (req) => {
     if (insertError || !supportRequest) {
       throw new Error(insertError?.message || "Unable to submit support request.");
     }
+
+    const onboardingLines =
+      supportRequest.request_type === "wechat_onboarding"
+        ? [
+            `Blocked Step: ${sanitizeText(intakeMeta.blocked_step) || "n/a"}`,
+            `Device: ${sanitizeText(intakeMeta.device_type) || "n/a"}`,
+            `Phone: ${
+              [sanitizeText(intakeMeta.phone_region), sanitizeText(intakeMeta.phone_number)]
+                .filter(Boolean)
+                .join(" ") || "n/a"
+            }`,
+            `Referral Needed: ${
+              typeof intakeMeta.referral_needed === "boolean"
+                ? intakeMeta.referral_needed
+                  ? "yes"
+                  : "no"
+                : "n/a"
+            }`,
+            `WeChat ID: ${sanitizeText(intakeMeta.wechat_id) || "n/a"}`,
+          ]
+        : [];
 
     await sendWeComAlertSafe({
       tag: "Bloomjoy Support",
@@ -123,6 +176,7 @@ serve(async (req) => {
         `Customer User ID: ${supportRequest.customer_user_id}`,
         `Customer Email: ${supportRequest.customer_email}`,
         `Subject: ${supportRequest.subject}`,
+        ...onboardingLines,
         "Message:",
         supportRequest.message || "(none provided)",
       ],
