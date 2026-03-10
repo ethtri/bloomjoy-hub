@@ -54,6 +54,16 @@ const claimDispatch = async (
     return false;
   }
 
+  // Keep quote intake resilient if dispatch bookkeeping cannot write due
+  // transient schema drift or non-service-role function credentials.
+  if (error.code === "42501" || error.code === "42P01") {
+    console.warn(
+      "Dispatch claim fallback: proceeding without dedupe bookkeeping.",
+      error
+    );
+    return true;
+  }
+
   throw new Error(error.message || "Failed to claim notification dispatch.");
 };
 
