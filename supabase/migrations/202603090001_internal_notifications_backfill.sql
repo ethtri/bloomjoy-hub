@@ -1,4 +1,6 @@
--- Internal notification tracking for quote and order emails.
+-- Backfill internal notification schema.
+-- This exists because two historical migration files shared the same version
+-- (202603020001), which prevented this SQL from being recorded/applied remotely.
 
 alter table public.lead_submissions
   add column if not exists client_submission_id uuid,
