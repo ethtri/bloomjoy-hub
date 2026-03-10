@@ -10,6 +10,7 @@ import {
   type SupportRequestPriority,
   type SupportRequestRecord,
   type SupportRequestStatus,
+  type SupportRequestType,
   updateSupportRequestAdmin,
 } from '@/lib/supportRequests';
 import { trackEvent } from '@/lib/analytics';
@@ -24,6 +25,7 @@ const statusOptions: SupportRequestStatus[] = [
 ];
 
 const priorityOptions: SupportRequestPriority[] = ['low', 'normal', 'high', 'urgent'];
+const requestTypeOptions: SupportRequestType[] = ['concierge', 'parts', 'wechat_onboarding'];
 
 const formatDate = (value: string) =>
   new Date(value).toLocaleString(undefined, {
@@ -33,6 +35,44 @@ const formatDate = (value: string) =>
     hour: 'numeric',
     minute: '2-digit',
   });
+
+const formatRequestType = (value: SupportRequestType) =>
+  value === 'wechat_onboarding' ? 'wechat onboarding' : value;
+
+const readIntakeMeta = (request: SupportRequestRecord) => {
+  const meta = request.intake_meta;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+    return null;
+  }
+  return meta as Record<string, unknown>;
+};
+
+const readIntakeText = (request: SupportRequestRecord, key: string) => {
+  const meta = readIntakeMeta(request);
+  if (!meta) return null;
+  const value = meta[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+};
+
+const readIntakeBoolean = (request: SupportRequestRecord, key: string) => {
+  const meta = readIntakeMeta(request);
+  if (!meta) return null;
+  const value = meta[key];
+  return typeof value === 'boolean' ? value : null;
+};
+
+const formatIntakePhone = (request: SupportRequestRecord) => {
+  const region = readIntakeText(request, 'phone_region');
+  const number = readIntakeText(request, 'phone_number');
+  const combined = [region, number].filter(Boolean).join(' ');
+  return combined || 'n/a';
+};
+
+const formatReferralNeeded = (request: SupportRequestRecord) => {
+  const value = readIntakeBoolean(request, 'referral_needed');
+  if (value === null) return 'n/a';
+  return value ? 'yes' : 'no';
+};
 
 type EditorState = {
   status: SupportRequestStatus;
@@ -52,6 +92,7 @@ export default function AdminSupportPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | SupportRequestStatus>('all');
+  const [requestTypeFilter, setRequestTypeFilter] = useState<'all' | SupportRequestType>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -76,6 +117,12 @@ export default function AdminSupportPage() {
         return false;
       }
 
+      const matchesRequestType =
+        requestTypeFilter === 'all' || request.request_type === requestTypeFilter;
+      if (!matchesRequestType) {
+        return false;
+      }
+
       if (!normalizedSearch) {
         return true;
       }
@@ -87,7 +134,21 @@ export default function AdminSupportPage() {
         request.id.toLowerCase().includes(normalizedSearch)
       );
     });
-  }, [requests, search, statusFilter]);
+  }, [requests, requestTypeFilter, search, statusFilter]);
+
+  const queueMetrics = useMemo(() => {
+    const openRequests = requests.filter(
+      (request) => request.status !== 'resolved' && request.status !== 'closed'
+    );
+
+    return {
+      totalOpen: openRequests.length,
+      newCount: openRequests.filter((request) => request.status === 'new').length,
+      wechatOnboardingOpen: openRequests.filter(
+        (request) => request.request_type === 'wechat_onboarding'
+      ).length,
+    };
+  }, [requests]);
 
   const selectedRequest = filteredRequests.find((item) => item.id === selectedId) ?? null;
 
@@ -144,7 +205,7 @@ export default function AdminSupportPage() {
                 Support Queue
               </h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                Triage concierge and parts-assistance requests.
+                Triage concierge, parts-assistance, and WeChat onboarding requests.
               </p>
             </div>
             <Button variant="outline" onClick={handleRefresh} disabled={isFetching}>
@@ -157,7 +218,26 @@ export default function AdminSupportPage() {
             </Button>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-[1fr_220px]">
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-border bg-card p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Open</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.totalOpen}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">New</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.newCount}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Open WeChat Onboarding
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">
+                {queueMetrics.wechatOnboardingOpen}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_220px]">
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -174,6 +254,20 @@ export default function AdminSupportPage() {
               {statusOptions.map((status) => (
                 <option key={status} value={status}>
                   {status}
+                </option>
+              ))}
+            </select>
+            <select
+              value={requestTypeFilter}
+              onChange={(event) =>
+                setRequestTypeFilter(event.target.value as 'all' | SupportRequestType)
+              }
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="all">All request types</option>
+              {requestTypeOptions.map((requestType) => (
+                <option key={requestType} value={requestType}>
+                  {formatRequestType(requestType)}
                 </option>
               ))}
             </select>
@@ -239,7 +333,7 @@ export default function AdminSupportPage() {
                             {request.subject}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            {request.customer_email} • {request.request_type}
+                            {request.customer_email} | {formatRequestType(request.request_type)}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">{request.status}</td>
@@ -263,13 +357,41 @@ export default function AdminSupportPage() {
                   <div>
                     <h2 className="font-semibold text-foreground">{selectedRequest.subject}</h2>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {selectedRequest.customer_email} • {selectedRequest.request_type}
+                      {selectedRequest.customer_email} |{' '}
+                      {formatRequestType(selectedRequest.request_type)}
                     </p>
                   </div>
 
                   <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
                     {selectedRequest.message}
                   </div>
+
+                  {selectedRequest.request_type === 'wechat_onboarding' && (
+                    <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                      <p className="font-medium">WeChat onboarding intake</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <p>
+                          <span className="font-medium">Blocked step:</span>{' '}
+                          {readIntakeText(selectedRequest, 'blocked_step') || 'n/a'}
+                        </p>
+                        <p>
+                          <span className="font-medium">Device:</span>{' '}
+                          {readIntakeText(selectedRequest, 'device_type') || 'n/a'}
+                        </p>
+                        <p>
+                          <span className="font-medium">Phone:</span> {formatIntakePhone(selectedRequest)}
+                        </p>
+                        <p>
+                          <span className="font-medium">Referral needed:</span>{' '}
+                          {formatReferralNeeded(selectedRequest)}
+                        </p>
+                        <p className="sm:col-span-2">
+                          <span className="font-medium">WeChat ID:</span>{' '}
+                          {readIntakeText(selectedRequest, 'wechat_id') || 'n/a'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>

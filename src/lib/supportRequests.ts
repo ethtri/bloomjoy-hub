@@ -1,6 +1,6 @@
 import { supabaseClient } from '@/lib/supabaseClient';
 
-export type SupportRequestType = 'concierge' | 'parts';
+export type SupportRequestType = 'concierge' | 'parts' | 'wechat_onboarding';
 export type SupportRequestStatus =
   | 'new'
   | 'triaged'
@@ -8,6 +8,15 @@ export type SupportRequestStatus =
   | 'resolved'
   | 'closed';
 export type SupportRequestPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export type SupportRequestIntakeMeta = {
+  phone_region?: string;
+  phone_number?: string;
+  device_type?: string;
+  blocked_step?: string;
+  referral_needed?: boolean;
+  wechat_id?: string;
+};
 
 export type SupportRequestRecord = {
   id: string;
@@ -20,6 +29,7 @@ export type SupportRequestRecord = {
   message: string;
   assigned_to: string | null;
   internal_notes: string | null;
+  intake_meta: Record<string, unknown> | null;
   resolved_at: string | null;
   resolved_by: string | null;
   created_at: string;
@@ -34,6 +44,7 @@ type CreateSupportRequestInput = {
   requestType: SupportRequestType;
   subject: string;
   message: string;
+  intakeMeta?: SupportRequestIntakeMeta;
 };
 
 type UpdateSupportRequestInput = {
@@ -48,6 +59,7 @@ export const createSupportRequest = async ({
   requestType,
   subject,
   message,
+  intakeMeta,
 }: CreateSupportRequestInput): Promise<SupportRequestRecord> => {
   const { data, error } = await supabaseClient.functions.invoke<SupportRequestIntakeResponse>(
     'support-request-intake',
@@ -56,6 +68,7 @@ export const createSupportRequest = async ({
         requestType,
         subject,
         message,
+        intakeMeta: intakeMeta ?? {},
       },
     }
   );
