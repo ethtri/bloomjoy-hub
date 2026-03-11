@@ -118,7 +118,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`
    - `supabase secrets set RESEND_API_KEY=...`
    - `supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...`
-   - `supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com`
+   - `supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=ops@bloomjoyusa.com,support@bloomjoyusa.com`
    - `supabase secrets set WECOM_CORP_ID=...`
    - `supabase secrets set WECOM_AGENT_ID=...`
    - `supabase secrets set WECOM_AGENT_SECRET=...`

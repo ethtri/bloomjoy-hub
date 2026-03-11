@@ -7,7 +7,14 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-- Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
+- No active engineering P0 blocker is open after stale issue `#99` was closed on `2026-03-11`.
+- Immediate launch priorities are owner-controlled auth execution and sign-off evidence for `#77` and `#78`.
+
+## P0 blocker correction snapshot (2026-03-11)
+- Issue `#99` was closed as stale after live verification confirmed notification dispatch is healthy.
+- Verification evidence captured:
+  - Resend API returned verified sender-domain status for `bloomjoyusa.com` and recent quote notifications with `last_event=delivered`.
+  - Supabase rows confirmed recent `lead_quote` entries with non-null `internal_notification_dispatches.sent_at` and matching `lead_submissions.internal_notification_sent_at`.
 
 ## Session closeout snapshot (2026-03-10)
 - PR `#108` merged: WeCom internal-alert POC is now wired server-side for quote/order/support events with non-blocking failure handling.
