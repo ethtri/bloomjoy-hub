@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const DEFAULTS = {
   appOrigin: 'http://localhost:8080',
-  prodAppOrigin: 'https://bloomjoyusa.com',
+  prodAppOrigin: 'https://www.bloomjoyusa.com',
   projectRef: 'ygbzkgxktzqsiygjlqyg',
   customAuthHost: 'auth.bloomjoyusa.com',
   requireCustomAuthDomain: false,
@@ -124,6 +124,28 @@ function validUrl(value) {
   }
 }
 
+function getRelatedOrigins(origin) {
+  if (!validUrl(origin)) {
+    return [origin];
+  }
+
+  const url = new URL(origin);
+  const origins = [url.origin];
+  const isLocalHost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+
+  if (isLocalHost) {
+    return origins;
+  }
+
+  if (url.hostname.startsWith('www.')) {
+    origins.push(`${url.protocol}//${url.hostname.slice(4)}`);
+  } else {
+    origins.push(`${url.protocol}//www.${url.hostname}`);
+  }
+
+  return [...new Set(origins)];
+}
+
 function printList(title, values) {
   console.log(`\n${title}`);
   for (const value of values) {
@@ -218,10 +240,23 @@ function run() {
 
   const googleRedirectLegacy = `https://${args.projectRef}.supabase.co/auth/v1/callback`;
   const googleRedirectCustom = `https://${args.customAuthHost}/auth/v1/callback`;
+  const productionOrigins = getRelatedOrigins(args.prodAppOrigin);
+  const additionalRedirectUrls = [
+    `${args.appOrigin}`,
+    `${args.appOrigin}/login`,
+    `${args.appOrigin}/portal`,
+    `${args.appOrigin}/reset-password`,
+    ...productionOrigins.flatMap((origin) => [
+      `${origin}`,
+      `${origin}/login`,
+      `${origin}/portal`,
+      `${origin}/reset-password`,
+    ]),
+  ];
 
   printList('Google OAuth Authorized JavaScript origins (copy/paste)', [
     args.appOrigin,
-    args.prodAppOrigin,
+    ...productionOrigins,
   ]);
 
   printList('Google OAuth Authorized redirect URIs (copy/paste)', [
@@ -230,15 +265,8 @@ function run() {
   ]);
 
   printList('Supabase URL Configuration values (copy/paste)', [
-    `Site URL: ${args.prodAppOrigin}`,
-    `Additional redirect URL: ${args.appOrigin}`,
-    `Additional redirect URL: ${args.appOrigin}/login`,
-    `Additional redirect URL: ${args.appOrigin}/portal`,
-    `Additional redirect URL: ${args.appOrigin}/reset-password`,
-    `Additional redirect URL: ${args.prodAppOrigin}`,
-    `Additional redirect URL: ${args.prodAppOrigin}/login`,
-    `Additional redirect URL: ${args.prodAppOrigin}/portal`,
-    `Additional redirect URL: ${args.prodAppOrigin}/reset-password`,
+    `Site URL: ${productionOrigins[0]}`,
+    ...additionalRedirectUrls.map((value) => `Additional redirect URL: ${value}`),
   ]);
 
   if (warnings.length > 0) {

@@ -53,15 +53,19 @@ Execution order is based on launch risk and dependency overlap.
 - Supabase remote migrations were pushed successfully to project `ygbzkgxktzqsiygjlqyg`, including:
   - `202603020001_custom_sticks_artwork_intake.sql`
 - Auth preflight status in this worktree:
-  - `npm run auth:preflight`: pass with `bloomjoyusa.com` values
+  - `npm run auth:preflight`: pass with canonical `www.bloomjoyusa.com` plus apex redirect-allowlist values
   - `npm run auth:preflight -- --require-custom-auth-domain`: expected fail until custom auth domain cutover is completed (`auth.bloomjoyusa.com`)
 
 1) **P0 - Auth redirect/domain cutover regression (Google login)**
 - UAT signal: Google callback currently lands on `localhost:3000` (`ERR_CONNECTION_REFUSED`) instead of the live domain flow.
-- Likely cause: OAuth/Supabase redirect/origin settings are still on legacy host values while the new deployment is on `bloomjoyusa.com`.
+- Fresh evidence (2026-03-15):
+  - User-captured live Google login returns to `http://localhost:3000/#access_token=...` with no `/portal` path.
+  - Repo audit confirms the app requests `${window.location.origin}/portal` for Google OAuth redirect, so the bare localhost fallback points to stale Supabase Site URL and/or missing allowlist entries for `https://www.bloomjoyusa.com`.
+  - `supabase domains get --project-ref ygbzkgxktzqsiygjlqyg` currently returns `Please enable the Custom Domain add-on for the project first.`
+- Likely cause: OAuth/Supabase redirect/origin settings are still on legacy host values while the production deployment is on canonical `https://www.bloomjoyusa.com`.
 - Plan:
-  - Update auth docs/checklists and auth preflight defaults from legacy Bloomjoy hostnames to the active `bloomjoyusa.com` hostnames.
-  - Validate Google OAuth origins + redirect URIs and Supabase Site URL + additional redirects for both local (`http://localhost:8080`) and production (`https://bloomjoyusa.com` + auth host).
+  - Update auth docs/checklists and auth preflight defaults from legacy Bloomjoy hostnames to canonical `https://www.bloomjoyusa.com`, while keeping apex `https://bloomjoyusa.com` allowlisted during cutover.
+  - Validate Google OAuth origins + redirect URIs and Supabase Site URL + additional redirects for both local (`http://localhost:8080`) and production (`https://www.bloomjoyusa.com` + apex alias + auth host).
   - Re-run `npm run auth:preflight` with local env configured and capture callback-host evidence in launch sign-off docs.
 - Owner dependency: Google Cloud + Supabase dashboard redirect/origin updates (credentials and DNS are owner-controlled).
 

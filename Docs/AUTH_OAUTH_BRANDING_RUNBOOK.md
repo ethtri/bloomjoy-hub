@@ -2,7 +2,7 @@
 
 Purpose: make Google sign-in show Bloomjoy branding and move OAuth callbacks off `<project-ref>.supabase.co` to a Bloomjoy-owned auth subdomain.
 
-Last updated: 2026-03-01
+Last updated: 2026-03-15
 
 ## 1) Prerequisites
 - Domain access for Bloomjoy DNS (to create CNAME/TXT records).
@@ -11,7 +11,8 @@ Last updated: 2026-03-01
 - Supabase custom domain add-on enabled (required by Supabase to use custom auth hostname).
 - App URLs decided in advance:
   - Local app URL: `http://localhost:8080` (or your active Vite port)
-  - Production app URL (example): `https://bloomjoyusa.com`
+  - Production app URL (canonical): `https://www.bloomjoyusa.com`
+  - Production apex redirect URL: `https://bloomjoyusa.com`
   - Auth hostname target (recommended): `auth.bloomjoyusa.com`
 
 ## 1.1) Execution tracker (issue #78)
@@ -32,29 +33,37 @@ Record status as `Not started`, `In progress`, `Done`, or `Blocked`.
 - Redirect URLs used by app flows:
   - `http://localhost:8080/portal`
   - `http://localhost:8080/reset-password`
-  - `https://bloomjoyusa.com/portal` (example)
-  - `https://bloomjoyusa.com/reset-password` (example)
+  - `https://www.bloomjoyusa.com/portal`
+  - `https://www.bloomjoyusa.com/reset-password`
+  - `https://bloomjoyusa.com/portal` (temporary apex allowlist during cutover)
+  - `https://bloomjoyusa.com/reset-password` (temporary apex allowlist during cutover)
 
-Current project snapshot (2026-03-01):
+Current project snapshot (2026-03-15):
 - Bloomjoy Hub project ref: `ygbzkgxktzqsiygjlqyg`
-- Current blocker: Supabase Custom Domain add-on is not enabled yet, so domain commands fail until billing/add-on enablement is complete.
+- `supabase domains get --project-ref ygbzkgxktzqsiygjlqyg` currently returns `Please enable the Custom Domain add-on for the project first.`
+- Current auth regression evidence: live Google sign-in is falling back to `http://localhost:3000/#access_token=...`, which indicates Supabase Site URL and/or the deployed production redirect allowlist is still on stale host values.
 
 ## 2.1) Copy/paste setup values (Bloomjoy)
 Use these exact values when configuring Google OAuth + Supabase auth settings:
 
 - Google OAuth Authorized JavaScript origins:
   - `http://localhost:8080`
+  - `https://www.bloomjoyusa.com`
   - `https://bloomjoyusa.com`
 - Google OAuth Authorized redirect URIs:
   - `https://ygbzkgxktzqsiygjlqyg.supabase.co/auth/v1/callback` (temporary during cutover)
   - `https://auth.bloomjoyusa.com/auth/v1/callback` (target)
 - Supabase Auth URL configuration:
-  - Site URL: `https://bloomjoyusa.com`
+  - Site URL: `https://www.bloomjoyusa.com`
   - Additional redirects:
     - `http://localhost:8080`
     - `http://localhost:8080/login`
     - `http://localhost:8080/portal`
     - `http://localhost:8080/reset-password`
+    - `https://www.bloomjoyusa.com`
+    - `https://www.bloomjoyusa.com/login`
+    - `https://www.bloomjoyusa.com/portal`
+    - `https://www.bloomjoyusa.com/reset-password`
     - `https://bloomjoyusa.com`
     - `https://bloomjoyusa.com/login`
     - `https://bloomjoyusa.com/portal`
@@ -124,7 +133,8 @@ Google Cloud Console -> Credentials -> OAuth 2.0 Client IDs:
 
 1) Authorized JavaScript origins:
 - `http://localhost:8080`
-- Production app origin (example): `https://bloomjoyusa.com`
+- `https://www.bloomjoyusa.com`
+- `https://bloomjoyusa.com`
 
 2) Authorized redirect URIs:
 - `https://<PROJECT_REF>.supabase.co/auth/v1/callback` (temporary during cutover)
@@ -136,12 +146,16 @@ Supabase Dashboard -> Authentication:
 1) URL Configuration
 - Site URL:
   - local dev: `http://localhost:8080`
-  - production: `https://bloomjoyusa.com` (example)
+  - production: `https://www.bloomjoyusa.com`
 - Additional redirect URLs include:
   - `http://localhost:8080`
   - `http://localhost:8080/login`
   - `http://localhost:8080/portal`
   - `http://localhost:8080/reset-password`
+  - `https://www.bloomjoyusa.com`
+  - `https://www.bloomjoyusa.com/login`
+  - `https://www.bloomjoyusa.com/portal`
+  - `https://www.bloomjoyusa.com/reset-password`
   - `https://bloomjoyusa.com`
   - `https://bloomjoyusa.com/login`
   - `https://bloomjoyusa.com/portal`
@@ -160,6 +174,7 @@ Supabase Dashboard -> Authentication:
 Repo auth redirect behavior:
 - Login and Google auth redirects use `window.location.origin` and route to `/portal`.
 - Password recovery redirects use `window.location.origin` and route to `/reset-password`.
+- If Google sign-in lands on bare `http://localhost:3000/#access_token=...`, the fallback is coming from Supabase project settings, not this repo's redirect helper.
 
 ## 8) Verification checklist
 - Localhost:
@@ -167,8 +182,9 @@ Repo auth redirect behavior:
   - [ ] Consent screen shows Bloomjoy app name/logo/support email.
   - [ ] OAuth callback returns to `/portal` and session is created.
 - Deployed environment:
-  - [ ] Repeat verification on staging or production app domain.
+  - [ ] Repeat verification on `https://www.bloomjoyusa.com/login` (and keep apex allowlisted during cutover if needed).
   - [ ] Browser network trace shows callback host `auth.bloomjoyusa.com` (not `<PROJECT_REF>.supabase.co`).
+  - [ ] Final post-auth browser URL is `https://www.bloomjoyusa.com/portal` (not `http://localhost:3000`).
   - [ ] No auth-console errors during sign-in.
   - [ ] Record screenshot/evidence links in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 
@@ -192,6 +208,14 @@ Repo auth redirect behavior:
   - Re-check Google client ID/secret in Supabase provider config.
   - Re-check Supabase URL Configuration allowlist and Site URL.
   - Confirm app origin and callback URI entries match current environment.
+
+### Redirect lands on `http://localhost:3000/#access_token=...`
+- Cause: Supabase Site URL is still a legacy localhost value, or the deployed production origin is not present in the redirect allowlist so Supabase falls back to the configured Site URL.
+- Fix:
+  - Set Supabase Site URL to `https://www.bloomjoyusa.com`.
+  - Add `https://www.bloomjoyusa.com`, `/login`, `/portal`, and `/reset-password` to Supabase redirect URLs.
+  - Keep apex `https://bloomjoyusa.com` redirect URLs allowlisted during cutover/canonicalization cleanup.
+  - Retry from `https://www.bloomjoyusa.com/login` and confirm the final browser URL is `https://www.bloomjoyusa.com/portal`.
 
 ## 10) Launch hardening follow-up
 Anything still pending for production approval/review stays tracked in issue `#77`:
