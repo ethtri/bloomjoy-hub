@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
+import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
 export const config = {
@@ -45,16 +46,7 @@ const resolveAuthenticatedUser = async (req: Request) => {
     };
   }
 
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return {
-      error: "Authentication required.",
-      status: 401,
-      user: null,
-    };
-  }
-
-  const token = authHeader.replace("Bearer ", "").trim();
+  const token = resolveSupabaseAccessToken(req);
   if (!token) {
     return {
       error: "Authentication required.",

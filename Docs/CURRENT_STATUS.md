@@ -72,15 +72,14 @@ Execution order is based on launch risk and dependency overlap.
   - Apply consistently across machines listing, machine detail breadcrumbs/headers, Resources FAQ copy, and shared product metadata.
   - Add a smoke check that verifies naming consistency across these public routes.
 
-3) **P1 - Supplies sticks offer + custom image upload path**
-- UAT signal: sticks need two clear options and a streamlined custom-image flow.
-- Required pricing:
-  - Blank sticks: `$12` per pack.
-  - Custom logo/image sticks: `$14` per pack.
-- Plan:
-  - Split current single sticks option into blank vs custom selection with explicit per-pack pricing.
-  - Add an image upload flow for custom sticks (file picker + clear status/help text + cart/order metadata hook).
-  - Define fulfillment handoff expectation in UI copy (how uploaded artwork is reviewed/used).
+3) **Completed - Supplies packaging alignment (2026-03-18)**
+- UAT signal: sugar presets and sticks packaging/pricing needed to match current shipping realities.
+- Delivered:
+  - Sugar quick presets updated to `240 KG`, `400 KG`, and `800 KG` with `400 KG` as the default packaging-friendly target.
+  - Blank paper sticks now use box-based pricing (`$130/box`, `2000 pieces/box`) with required machine-size and address-type selection.
+  - Blank sticks orders under 5 boxes submit procurement requests with shipping estimate context (`$35/box` business, `$40/box` residential).
+  - Blank sticks orders of 5+ boxes now use a dedicated Stripe checkout flow with free shipping.
+  - Custom sticks remain request-based with artwork upload and a clearly stated `$750` first-order plate fee.
 
 4) **P1 - Resources page Plus-content teasers**
 - UAT signal: Resources page should preview content locked behind Bloomjoy Plus.
@@ -126,7 +125,7 @@ Execution order is based on launch risk and dependency overlap.
 
 ## Recently completed (post-P0)
 - Plus pricing model by machine count (`$100 per machine/month`) with Stripe quantity-based checkout
-- Supplies UX improvement: typed bulk quantity input for cotton candy sticks ordering
+- Supplies UX improvement: typed bulk quantity input for paper stick box ordering
 - Public-site asset refresh: real machine/supplies/about photography, improved model image coverage, and homepage machine card visuals
 - Machine detail UX upgrade: per-model image galleries with selectable thumbnails
 - Commercial machine page content upgrade: native specs table/cards, operational details, and in-page full-size modal previews for pattern menu + certification snapshot
@@ -156,7 +155,7 @@ Execution order is based on launch risk and dependency overlap.
 - Quote-intake clarity hardening (`PR #88`): machine quote CTA now carries machine-of-interest context into contact submissions.
 - Local QA admin access helper (`PR #88`): optional `VITE_DEV_ADMIN_EMAILS` local-only override for internal Plus feature testing.
 - UAT naming consistency hardening (`2026-03-02`): standardized public machine labels to `Commercial Machine`, `Mini Machine`, and `Micro Machine` across home, machines listing, contact, footer, and machine detail headers.
-- UAT supplies hardening (`2026-03-02`): sticks flow now separates blank sticks (`$12/pack`) vs custom sticks (`$14/pack`) and supports artwork upload + procurement lead capture from `/supplies`.
+- UAT supplies packaging alignment (`2026-03-18`): sugar quick presets now align to `240/400/800 KG`, blank paper sticks use box pricing (`$130/box`, `2000 pieces/box`) with size/address selection, 5+ box checkout ships free via dedicated Stripe flow, and custom sticks retain artwork upload with a `$750` first-order plate fee.
 - UAT resources hardening (`2026-03-02`): `/resources` now includes Bloomjoy Plus teaser cards for downloadable procedure docs, daily checklists, and frequently updated member content.
 - Auth launch alignment (`2026-03-02`): auth preflight defaults and auth runbooks now target `bloomjoyusa.com` + `auth.bloomjoyusa.com` for OAuth redirect/origin validation.
 - Training performance hardening (`#89`): training detail now shows a clear Vimeo loading state, adds Vimeo preconnect hints, and emits iframe startup timing analytics.

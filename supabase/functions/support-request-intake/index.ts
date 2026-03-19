@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
+import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendWeComAlertSafe } from "../_shared/wecom-alert.ts";
 
@@ -22,12 +23,6 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
   : null;
 
 const sanitizeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
-
-const parseAccessToken = (authorizationHeader: string | null): string => {
-  if (!authorizationHeader) return "";
-  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() ?? "";
-};
 
 const sanitizeIntakeMeta = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -82,7 +77,7 @@ serve(async (req) => {
       );
     }
 
-    const accessToken = parseAccessToken(req.headers.get("Authorization"));
+    const accessToken = resolveSupabaseAccessToken(req);
     if (!accessToken) {
       return new Response(JSON.stringify({ error: "Unauthorized." }), {
         status: 401,

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { STICKS_SKU_CUSTOM, STICKS_SKU_PLAIN } from '@/lib/sticks';
 
 export interface CartItem {
   sku: string;
@@ -18,6 +19,12 @@ interface CartState {
   getTotal: () => number;
   getItemCount: () => number;
 }
+
+type PersistedCartState = {
+  items?: CartItem[];
+};
+
+const LEGACY_STICKS_SKUS = new Set([STICKS_SKU_PLAIN, STICKS_SKU_CUSTOM]);
 
 export const useCart = create<CartState>()(
   persist(
@@ -53,6 +60,18 @@ export const useCart = create<CartState>()(
     }),
     {
       name: 'bloomjoy-cart',
+      version: 2,
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as PersistedCartState;
+        const items = Array.isArray(state.items)
+          ? state.items.filter((item) => !LEGACY_STICKS_SKUS.has(item.sku))
+          : [];
+
+        return {
+          ...state,
+          items,
+        };
+      },
     }
   )
 );

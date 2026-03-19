@@ -53,15 +53,31 @@ type StripeLineItemSummary = {
   metadata?: Record<string, unknown>;
 };
 
+type OrderType = "sugar" | "blank_sticks" | "unknown";
+
+type SugarMixSummary = {
+  white_kg: number;
+  blue_kg: number;
+  orange_kg: number;
+  red_kg: number;
+  total_kg: number;
+};
+
+type BlankSticksSummary = {
+  box_count: number;
+  pieces_per_box: number;
+  stick_size: string | null;
+  address_type: string | null;
+  shipping_rate_per_box_usd: number;
+  shipping_total_cents: number;
+  free_shipping: boolean;
+};
+
 type OrderNotificationContext = {
+  orderType: OrderType;
   lineItems: StripeLineItemSummary[];
-  sugarMix: {
-    white_kg: number;
-    blue_kg: number;
-    orange_kg: number;
-    red_kg: number;
-    total_kg: number;
-  };
+  sugarMix: SugarMixSummary;
+  blankSticks: BlankSticksSummary | null;
 };
 
 const claimDispatch = async (
@@ -125,6 +141,28 @@ const formatAddress = (address: Stripe.Address | null | undefined) => {
   ].filter(Boolean);
 
   return parts.length ? parts.join(", ") : "n/a";
+};
+
+const formatStickSize = (stickSize: string | null | undefined) => {
+  switch (stickSize) {
+    case "commercial_10x300":
+      return "Commercial / Full Machine (10mm x 300mm)";
+    case "mini_10x220":
+      return "Mini Machine (10mm x 220mm)";
+    default:
+      return stickSize || "n/a";
+  }
+};
+
+const formatAddressType = (addressType: string | null | undefined) => {
+  switch (addressType) {
+    case "business":
+      return "Business address";
+    case "residential":
+      return "Residential address";
+    default:
+      return addressType || "n/a";
+  }
 };
 
 async function resolveUserId(userId: string | undefined) {
@@ -213,7 +251,7 @@ async function upsertOrder(
     expand: ["line_items"],
   });
 
-  const lineItems: StripeLineItemSummary[] = expanded.line_items?.data?.map((item) => ({
+  const lineItems: StripeLineItemSummary[] = expanded.line_items?.data?.map((item: Stripe.LineItem) => ({
     description: item.description,
     quantity: item.quantity,
     amount_total: item.amount_total,
@@ -221,13 +259,29 @@ async function upsertOrder(
     price_id: typeof item.price === "object" && item.price ? item.price.id : null,
   })) ?? [];
 
-  const sugarMixFromMetadata = {
+  const sugarMixFromMetadata: SugarMixSummary = {
     white_kg: Number(session.metadata?.sugar_white_kg ?? 0),
     blue_kg: Number(session.metadata?.sugar_blue_kg ?? 0),
     orange_kg: Number(session.metadata?.sugar_orange_kg ?? 0),
     red_kg: Number(session.metadata?.sugar_red_kg ?? 0),
     total_kg: Number(session.metadata?.sugar_total_kg ?? 0),
   };
+  const blankSticksFromMetadata: BlankSticksSummary = {
+    box_count: Number(session.metadata?.sticks_box_count ?? 0),
+    pieces_per_box: Number(session.metadata?.sticks_pieces_per_box ?? 0),
+    stick_size: session.metadata?.stick_size ?? null,
+    address_type: session.metadata?.sticks_address_type ?? null,
+    shipping_rate_per_box_usd: Number(
+      session.metadata?.sticks_shipping_rate_per_box_usd ?? 0
+    ),
+    shipping_total_cents: Number(session.metadata?.sticks_shipping_total_cents ?? 0),
+    free_shipping: String(session.metadata?.sticks_free_shipping ?? "false") === "true",
+  };
+  const metadataOrderType = session.metadata?.order_type;
+  let orderType: OrderType =
+    metadataOrderType === "sugar" || metadataOrderType === "blank_sticks"
+      ? metadataOrderType
+      : "unknown";
 
   if (
     sugarMixFromMetadata.total_kg > 0 ||
@@ -244,6 +298,25 @@ async function upsertOrder(
       price_id: null,
       metadata: sugarMixFromMetadata,
     });
+  }
+
+  if (blankSticksFromMetadata.box_count > 0 || blankSticksFromMetadata.pieces_per_box > 0) {
+    lineItems.push({
+      description: "Blank sticks order details",
+      quantity: blankSticksFromMetadata.box_count || null,
+      amount_total: null,
+      currency: session.currency,
+      price_id: null,
+      metadata: blankSticksFromMetadata,
+    });
+  }
+
+  if (orderType === "unknown" && sugarMixFromMetadata.total_kg > 0) {
+    orderType = "sugar";
+  }
+
+  if (orderType === "unknown" && blankSticksFromMetadata.box_count > 0) {
+    orderType = "blank_sticks";
   }
 
   const resolvedUserId = await resolveUserIdByEmail(
@@ -274,8 +347,13 @@ async function upsertOrder(
   }
 
   return {
+    orderType,
     lineItems,
     sugarMix: sugarMixFromMetadata,
+    blankSticks:
+      blankSticksFromMetadata.box_count > 0 || blankSticksFromMetadata.pieces_per_box > 0
+        ? blankSticksFromMetadata
+        : null,
   };
 }
 
@@ -289,6 +367,7 @@ async function sendOrderNotification(
   const dispatchClaimed = await claimDispatch(eventKey, session.id, {
     checkout_session_id: session.id,
     payment_status: session.payment_status || "unpaid",
+    order_type: context.orderType,
   });
 
   if (!dispatchClaimed) {
@@ -309,15 +388,51 @@ async function sendOrderNotification(
 
   const customerDetails = session.customer_details;
   const shippingDetails = session.shipping_details;
-
-  const orderSubject = `New sugar order: ${session.id}`;
+  const shippingAmount =
+    session.total_details?.amount_shipping ??
+    (context.orderType === "blank_sticks"
+      ? context.blankSticks?.shipping_total_cents ?? null
+      : null);
+  const orderSubject =
+    context.orderType === "blank_sticks"
+      ? `New blank sticks order: ${session.id}`
+      : `New sugar order: ${session.id}`;
+  const detailSection =
+    context.orderType === "blank_sticks"
+      ? [
+        "",
+        "Blank Sticks Details:",
+        `- Boxes: ${context.blankSticks?.box_count ?? "n/a"}`,
+        `- Pieces per box: ${context.blankSticks?.pieces_per_box ?? "n/a"}`,
+        `- Stick size: ${formatStickSize(context.blankSticks?.stick_size)}`,
+        `- Address type: ${formatAddressType(context.blankSticks?.address_type)}`,
+        `- Shipping rate per box: ${
+          context.blankSticks?.shipping_rate_per_box_usd
+            ? `USD ${context.blankSticks.shipping_rate_per_box_usd.toFixed(2)}`
+            : "USD 0.00"
+        }`,
+        `- Free shipping: ${context.blankSticks?.free_shipping ? "Yes" : "No"}`,
+      ]
+      : [
+        "",
+        "Sugar Breakdown (KG):",
+        `- White: ${context.sugarMix.white_kg}`,
+        `- Blue: ${context.sugarMix.blue_kg}`,
+        `- Orange: ${context.sugarMix.orange_kg}`,
+        `- Red: ${context.sugarMix.red_kg}`,
+        `- Total: ${context.sugarMix.total_kg}`,
+      ];
   const orderText = [
-    "A Stripe sugar checkout completed.",
+    context.orderType === "blank_sticks"
+      ? "A Stripe blank sticks checkout completed."
+      : "A Stripe sugar checkout completed.",
     "",
     `Checkout Session ID: ${session.id}`,
     `Completed At (UTC): ${new Date().toISOString()}`,
+    `Order Type: ${context.orderType}`,
     `Payment Status: ${session.payment_status || "unpaid"}`,
     `Amount Total: ${formatCurrency(session.amount_total, session.currency)}`,
+    `Shipping Total: ${formatCurrency(shippingAmount, session.currency)}`,
     `Customer Email: ${session.customer_details?.email ?? session.customer_email ?? "n/a"}`,
     `Customer Name: ${customerDetails?.name ?? "n/a"}`,
     `Customer Phone: ${customerDetails?.phone ?? "n/a"}`,
@@ -325,13 +440,7 @@ async function sendOrderNotification(
     `Shipping Name: ${shippingDetails?.name ?? "n/a"}`,
     `Shipping Phone: ${shippingDetails?.phone ?? "n/a"}`,
     `Shipping Address: ${formatAddress(shippingDetails?.address)}`,
-    "",
-    "Sugar Breakdown (KG):",
-    `- White: ${context.sugarMix.white_kg}`,
-    `- Blue: ${context.sugarMix.blue_kg}`,
-    `- Orange: ${context.sugarMix.orange_kg}`,
-    `- Red: ${context.sugarMix.red_kg}`,
-    `- Total: ${context.sugarMix.total_kg}`,
+    ...detailSection,
     "",
     "Line Items:",
     lineItemSummary,
@@ -349,16 +458,25 @@ async function sendOrderNotification(
 
   await sendWeComAlertSafe({
     tag: "Bloomjoy Order",
-    title: `New sugar order: ${session.id}`,
+    title:
+      context.orderType === "blank_sticks"
+        ? `New blank sticks order: ${session.id}`
+        : `New sugar order: ${session.id}`,
     lines: [
       `Checkout Session ID: ${session.id}`,
+      `Order Type: ${context.orderType}`,
       `Payment Status: ${session.payment_status || "unpaid"}`,
       `Amount Total: ${formatCurrency(session.amount_total, session.currency)}`,
+      `Shipping Total: ${formatCurrency(shippingAmount, session.currency)}`,
       `Customer Email: ${session.customer_details?.email ?? session.customer_email ?? "n/a"}`,
       `Customer Name: ${customerDetails?.name ?? "n/a"}`,
       `Shipping Name: ${shippingDetails?.name ?? "n/a"}`,
-      `Sugar Total KG: ${context.sugarMix.total_kg}`,
-      `White/Blue/Orange/Red KG: ${context.sugarMix.white_kg}/${context.sugarMix.blue_kg}/${context.sugarMix.orange_kg}/${context.sugarMix.red_kg}`,
+      context.orderType === "blank_sticks"
+        ? `Boxes / Pieces per box: ${context.blankSticks?.box_count ?? "n/a"} / ${context.blankSticks?.pieces_per_box ?? "n/a"}`
+        : `Sugar Total KG: ${context.sugarMix.total_kg}`,
+      context.orderType === "blank_sticks"
+        ? `Stick size / Address type: ${formatStickSize(context.blankSticks?.stick_size)} / ${formatAddressType(context.blankSticks?.address_type)}`
+        : `White/Blue/Orange/Red KG: ${context.sugarMix.white_kg}/${context.sugarMix.blue_kg}/${context.sugarMix.orange_kg}/${context.sugarMix.red_kg}`,
       `Line Items: ${context.lineItems.length}`,
     ],
   });
@@ -370,6 +488,7 @@ async function sendOrderNotification(
       .eq("stripe_checkout_session_id", session.id),
     markDispatchSent(eventKey, {
       checkout_session_id: session.id,
+      order_type: context.orderType,
       amount_total: session.amount_total,
       currency: session.currency,
       customer_email: session.customer_details?.email ?? session.customer_email ?? null,
