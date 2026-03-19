@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
+import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
 export const config = {
@@ -7,9 +9,19 @@ export const config = {
 };
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
 if (!stripeSecretKey) {
   console.error("Missing STRIPE_SECRET_KEY");
+}
+
+if (!supabaseUrl) {
+  console.error("Missing SUPABASE_URL");
+}
+
+if (!supabaseAnonKey) {
+  console.error("Missing SUPABASE_ANON_KEY");
 }
 
 const stripe = stripeSecretKey
@@ -17,6 +29,47 @@ const stripe = stripeSecretKey
       apiVersion: "2024-04-10",
     })
   : null;
+
+const resolveAuthenticatedUser = async (req: Request) => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return {
+      error: "Auth is not configured.",
+      status: 500,
+      user: null,
+    };
+  }
+
+  const token = resolveSupabaseAccessToken(req);
+  if (!token) {
+    return {
+      error: "Authentication required.",
+      status: 401,
+      user: null,
+    };
+  }
+
+  const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+
+  const { data, error } = await supabaseClient.auth.getUser(token);
+  if (error || !data.user) {
+    return {
+      error: "Authentication required.",
+      status: 401,
+      user: null,
+    };
+  }
+
+  return {
+    error: null,
+    status: 200,
+    user: data.user,
+  };
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -34,13 +87,24 @@ serve(async (req) => {
       );
     }
 
+    const authResult = await resolveAuthenticatedUser(req);
+    if (!authResult.user) {
+      return new Response(
+        JSON.stringify({ error: authResult.error }),
+        {
+          status: authResult.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     const body = await req.json();
-    const email = typeof body?.email === "string" ? body.email : null;
     const returnUrl = body?.returnUrl;
+    const email = authResult.user.email?.trim().toLowerCase() ?? null;
 
     if (!email) {
       return new Response(
-        JSON.stringify({ error: "Email is required to open the billing portal." }),
+        JSON.stringify({ error: "Missing account email address." }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },

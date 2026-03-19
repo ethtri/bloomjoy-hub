@@ -141,7 +141,7 @@ export default function AccountPage() {
 
     try {
       setIsOpeningPortal(true);
-      const portalUrl = await openCustomerPortal(user.email, window.location.origin);
+      const portalUrl = await openCustomerPortal(window.location.origin);
       window.location.assign(portalUrl);
     } catch (error) {
       const message =

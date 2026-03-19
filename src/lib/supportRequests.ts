@@ -1,3 +1,4 @@
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
 
 export type SupportRequestType = 'concierge' | 'parts' | 'wechat_onboarding';
@@ -61,20 +62,22 @@ export const createSupportRequest = async ({
   message,
   intakeMeta,
 }: CreateSupportRequestInput): Promise<SupportRequestRecord> => {
-  const { data, error } = await supabaseClient.functions.invoke<SupportRequestIntakeResponse>(
+  const data = await invokeEdgeFunction<SupportRequestIntakeResponse & { error?: string }>(
     'support-request-intake',
     {
-      body: {
-        requestType,
-        subject,
-        message,
-        intakeMeta: intakeMeta ?? {},
-      },
+      requestType,
+      subject,
+      message,
+      intakeMeta: intakeMeta ?? {},
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to submit a support request.',
     }
   );
 
-  if (error || !data?.supportRequest) {
-    throw new Error(error?.message || 'Unable to submit support request.');
+  if (!data?.supportRequest) {
+    throw new Error(data?.error || 'Unable to submit support request.');
   }
 
   return data.supportRequest;

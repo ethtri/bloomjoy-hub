@@ -1,0 +1,20 @@
+[functions.stripe-sugar-checkout]
+verify_jwt = false
+
+[functions.stripe-sticks-checkout]
+verify_jwt = false
+
+[functions.stripe-plus-checkout]
+verify_jwt = false
+
+[functions.stripe-customer-portal]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.lead-submission-intake]
+verify_jwt = false
+
+[functions.support-request-intake]
+verify_jwt = false

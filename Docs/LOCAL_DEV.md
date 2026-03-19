@@ -132,7 +132,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve stripe-customer-portal --no-verify-jwt`
    - `supabase functions serve stripe-webhook --no-verify-jwt`
    - `supabase functions serve lead-submission-intake --no-verify-jwt`
-   - `supabase functions serve support-request-intake`
+   - `supabase functions serve support-request-intake --no-verify-jwt`
 4) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 
 ## Common issues

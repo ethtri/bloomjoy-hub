@@ -85,13 +85,13 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
 Deploy all current checkout/submission functions:
 
 ```bash
-supabase functions deploy stripe-sugar-checkout
-supabase functions deploy stripe-sticks-checkout
-supabase functions deploy stripe-plus-checkout
-supabase functions deploy stripe-customer-portal
-supabase functions deploy stripe-webhook
-supabase functions deploy lead-submission-intake
-supabase functions deploy support-request-intake
+supabase functions deploy stripe-sugar-checkout --no-verify-jwt
+supabase functions deploy stripe-sticks-checkout --no-verify-jwt
+supabase functions deploy stripe-plus-checkout --no-verify-jwt
+supabase functions deploy stripe-customer-portal --no-verify-jwt
+supabase functions deploy stripe-webhook --no-verify-jwt
+supabase functions deploy lead-submission-intake --no-verify-jwt
+supabase functions deploy support-request-intake --no-verify-jwt
 ```
 
 ### Step D: Configure Stripe webhook endpoint

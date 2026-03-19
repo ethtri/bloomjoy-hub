@@ -1,4 +1,4 @@
-import { supabaseClient } from '@/lib/supabaseClient';
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 
 type LeadSubmissionType = 'quote' | 'demo' | 'procurement' | 'general';
 
@@ -19,24 +19,18 @@ export const createLeadSubmission = async ({
   machineInterest,
   sourcePage = '/contact',
 }: CreateLeadSubmissionInput) => {
-  const { data, error } = await supabaseClient.functions.invoke<{ error?: string }>(
+  const data = await invokeEdgeFunction<{ error?: string }>(
     'lead-submission-intake',
     {
-      body: {
-        submissionType,
-        name,
-        email,
-        message,
-        machineInterest,
-        sourcePage,
-        clientSubmissionId: crypto.randomUUID(),
-      },
+      submissionType,
+      name,
+      email,
+      message,
+      machineInterest,
+      sourcePage,
+      clientSubmissionId: crypto.randomUUID(),
     }
   );
-
-  if (error) {
-    throw new Error(error.message || 'Unable to submit contact request.');
-  }
 
   if (data?.error) {
     throw new Error(data.error);
