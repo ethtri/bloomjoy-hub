@@ -1,55 +1,82 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ShoppingCart, Upload } from 'lucide-react';
+import { toast } from 'sonner';
+import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
-import { Layout } from '@/components/layout/Layout';
+import sugarProduct from '@/assets/real/sugar-product.jpg';
+import sticksProduct from '@/assets/real/sticks-product.jpg';
 import { trackEvent } from '@/lib/analytics';
 import { useCart } from '@/lib/cart';
-import { createLeadSubmission } from '@/lib/leadSubmissions';
-import {
-  BULK_SUGAR_PRESETS_KG,
-  DEFAULT_BULK_SUGAR_KG,
-  MAX_SUGAR_KG_TOTAL,
-  SUGAR_COLOR_OPTIONS,
-  SUGAR_PRICE_PER_KG,
-  SugarMix,
-  SugarSku,
-  buildEqualSugarSplit,
-  createEmptySugarMix,
-  getSugarColorBreakdown,
-  getSugarMixTotalKg,
-  updateSugarMixQuantity,
-} from '@/lib/sugar';
 import {
   ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES,
   MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES,
   uploadCustomSticksArtwork,
   validateCustomSticksArtwork,
 } from '@/lib/customSticksArtwork';
-import { toast } from 'sonner';
-import sugarProduct from '@/assets/real/sugar-product.jpg';
-import sticksProduct from '@/assets/real/sticks-product.jpg';
+import { createLeadSubmission } from '@/lib/leadSubmissions';
+import { startBlankSticksCheckout } from '@/lib/stripeCheckout';
+import {
+  BLANK_STICKS_ADDRESS_TYPE_OPTIONS,
+  BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD,
+  CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE,
+  STICKS_PIECES_PER_BOX,
+  STICKS_PRICE_PER_BOX,
+  STICK_SIZE_OPTIONS,
+  type BlankSticksAddressType,
+  type StickSize,
+  type StickVariant,
+  formatBlankSticksShippingSummary,
+  getBlankSticksAddressTypeLabel,
+  getBlankSticksShippingRatePerBox,
+  getBlankSticksShippingTotal,
+  getStickSizeLabel,
+  normalizeStickBoxCount,
+  shouldUseBlankSticksDirectCheckout,
+} from '@/lib/sticks';
+import {
+  BULK_SUGAR_PRESETS_KG,
+  DEFAULT_BULK_SUGAR_KG,
+  MAX_SUGAR_KG_TOTAL,
+  SUGAR_COLOR_OPTIONS,
+  SUGAR_PRICE_PER_KG,
+  type SugarMix,
+  type SugarSku,
+  buildEqualSugarSplit,
+  createEmptySugarMix,
+  getSugarColorBreakdown,
+  getSugarMixTotalKg,
+  updateSugarMixQuantity,
+} from '@/lib/sugar';
 
 const getSugarName = (color: string, flavor: string) =>
   `Premium Cotton Candy Sugar - ${color} (${flavor}) (1KG)`;
-const STICKS_SKU_PLAIN = 'sticks-plain';
-const STICKS_SKU_CUSTOM = 'sticks-custom';
-const STICKS_PRICE_PLAIN = 12;
-const STICKS_PRICE_CUSTOM = 14;
-type StickVariant = 'plain' | 'custom';
+
+type SelectedStickSize = StickSize | '';
+type SelectedBlankAddressType = BlankSticksAddressType | '';
+
+const hasStickSize = (value: SelectedStickSize): value is StickSize => value !== '';
+const hasBlankAddressType = (
+  value: SelectedBlankAddressType
+): value is BlankSticksAddressType => value !== '';
 
 export default function SuppliesPage() {
   const { addItem, items } = useCart();
   const [targetTotalKg, setTargetTotalKg] = useState(DEFAULT_BULK_SUGAR_KG);
-  const [sticksBulkPacks, setSticksBulkPacks] = useState(1);
+  const [sticksBoxCount, setSticksBoxCount] = useState(1);
   const [stickVariant, setStickVariant] = useState<StickVariant>('plain');
+  const [stickSize, setStickSize] = useState<SelectedStickSize>('');
+  const [blankAddressType, setBlankAddressType] = useState<SelectedBlankAddressType>('');
   const [customArtworkFile, setCustomArtworkFile] = useState<File | null>(null);
-  const [customContactName, setCustomContactName] = useState('');
-  const [customContactEmail, setCustomContactEmail] = useState('');
-  const [customRequestNotes, setCustomRequestNotes] = useState('');
-  const [submittingCustomSticks, setSubmittingCustomSticks] = useState(false);
+  const [sticksContactName, setSticksContactName] = useState('');
+  const [sticksContactEmail, setSticksContactEmail] = useState('');
+  const [sticksRequestNotes, setSticksRequestNotes] = useState('');
+  const [submittingSticksRequest, setSubmittingSticksRequest] = useState(false);
+  const [startingBlankCheckout, setStartingBlankCheckout] = useState(false);
   const [sugarMix, setSugarMix] = useState<SugarMix>(() =>
     buildEqualSugarSplit(DEFAULT_BULK_SUGAR_KG)
   );
@@ -58,33 +85,62 @@ export default function SuppliesPage() {
     trackEvent('view_supplies');
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sticksCheckoutStatus = params.get('sticksCheckout');
+    if (!sticksCheckoutStatus) return;
+    if (sticksCheckoutStatus === 'success') {
+      toast.success('Thanks! Your blank stick order is being processed.');
+    }
+    if (sticksCheckoutStatus === 'cancel') {
+      toast.info('Blank sticks checkout canceled.');
+    }
+    params.delete('sticksCheckout');
+    const nextQuery = params.toString();
+    window.history.replaceState(
+      {},
+      '',
+      nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname
+    );
+  }, []);
+
   const mixTotalKg = getSugarMixTotalKg(sugarMix);
   const mixTotalCost = mixTotalKg * SUGAR_PRICE_PER_KG;
   const cartSugarBreakdown = getSugarColorBreakdown(items);
   const cartSugarTotalKg = getSugarMixTotalKg(cartSugarBreakdown);
-
-  const getItemQuantity = (sku: string) => {
-    const item = items.find((entry) => entry.sku === sku);
-    return item?.quantity || 0;
-  };
-  const currentSticksSku = stickVariant === 'plain' ? STICKS_SKU_PLAIN : STICKS_SKU_CUSTOM;
-  const currentSticksPrice = stickVariant === 'plain' ? STICKS_PRICE_PLAIN : STICKS_PRICE_CUSTOM;
-  const currentSticksCartQuantity = getItemQuantity(currentSticksSku);
+  const normalizedStickBoxCount = normalizeStickBoxCount(sticksBoxCount);
+  const blankSticksCheckoutEligible =
+    stickVariant === 'plain' && shouldUseBlankSticksDirectCheckout(normalizedStickBoxCount);
+  const blankSticksShippingTotal =
+    stickVariant === 'plain' && hasBlankAddressType(blankAddressType)
+      ? getBlankSticksShippingTotal(normalizedStickBoxCount, blankAddressType)
+      : null;
+  const blankSticksShippingRate =
+    stickVariant === 'plain' && hasBlankAddressType(blankAddressType)
+      ? getBlankSticksShippingRatePerBox(blankAddressType)
+      : null;
 
   const updateColorQuantity = (sku: SugarSku, rawValue: number) => {
     setSugarMix((currentMix) => updateSugarMixQuantity(currentMix, sku, rawValue));
   };
 
-  const handleApplyEqualSplit = (totalKg: number) => {
-    setSugarMix(buildEqualSugarSplit(totalKg));
-  };
-
   const handlePreset = (presetKg: number) => {
     setTargetTotalKg(presetKg);
-    handleApplyEqualSplit(presetKg);
+    setSugarMix(buildEqualSugarSplit(presetKg));
   };
-  const updateSticksBulkPacks = (rawValue: number) => {
-    setSticksBulkPacks(Number.isFinite(rawValue) ? Math.max(1, Math.floor(rawValue)) : 1);
+
+  const updateStickBoxCount = (rawValue: number) => {
+    setSticksBoxCount(normalizeStickBoxCount(rawValue));
+  };
+
+  const resetStickRequestFields = () => {
+    setSticksBoxCount(1);
+    setStickSize('');
+    setBlankAddressType('');
+    setCustomArtworkFile(null);
+    setSticksContactName('');
+    setSticksContactEmail('');
+    setSticksRequestNotes('');
   };
 
   const handleAddSugarMixToCart = () => {
@@ -92,12 +148,9 @@ export default function SuppliesPage() {
       toast.error('Set sugar quantities before adding to cart.');
       return;
     }
-
     SUGAR_COLOR_OPTIONS.forEach((option) => {
       const quantity = sugarMix[option.sku];
-      if (quantity <= 0) {
-        return;
-      }
+      if (quantity <= 0) return;
       addItem(
         {
           sku: option.sku,
@@ -108,7 +161,6 @@ export default function SuppliesPage() {
         quantity
       );
     });
-
     trackEvent('add_to_cart', {
       sku: 'sugar-bulk-mix',
       quantity: mixTotalKg,
@@ -117,25 +169,7 @@ export default function SuppliesPage() {
       sugar_orange_kg: sugarMix['sugar-orange-1kg'],
       sugar_red_kg: sugarMix['sugar-red-1kg'],
     });
-
     toast.success(`Added ${mixTotalKg} KG sugar mix to cart.`);
-  };
-
-  const handleAddPlainSticks = () => {
-    const quantity = Number.isFinite(sticksBulkPacks)
-      ? Math.max(1, Math.floor(sticksBulkPacks))
-      : 1;
-    trackEvent('add_to_cart', { sku: STICKS_SKU_PLAIN, price: STICKS_PRICE_PLAIN, quantity });
-    addItem(
-      {
-        sku: STICKS_SKU_PLAIN,
-        name: 'Blank Cotton Candy Sticks (100 pack)',
-        price: STICKS_PRICE_PLAIN,
-        type: 'supply',
-      },
-      quantity
-    );
-    toast.success(`Added ${quantity} blank stick pack${quantity === 1 ? '' : 's'} to cart.`);
   };
 
   const handleCustomArtworkChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -144,72 +178,128 @@ export default function SuppliesPage() {
       setCustomArtworkFile(null);
       return;
     }
-
     try {
       validateCustomSticksArtwork(file);
       setCustomArtworkFile(file);
     } catch (error) {
       setCustomArtworkFile(null);
-      const message = error instanceof Error ? error.message : 'Unable to use this artwork file.';
-      toast.error(message);
+      toast.error(error instanceof Error ? error.message : 'Unable to use this artwork file.');
+    }
+  };
+
+  const validateSticksContactFields = (): boolean => {
+    if (!sticksContactName.trim()) {
+      toast.error('Enter your name so we can confirm your sticks request.');
+      return false;
+    }
+    if (!sticksContactEmail.trim()) {
+      toast.error('Enter your email so we can follow up with your sticks request.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmitBlankSticksRequest = async () => {
+    if (!hasStickSize(stickSize)) {
+      toast.error('Select the machine size before submitting a blank sticks request.');
+      return;
+    }
+    if (!hasBlankAddressType(blankAddressType)) {
+      toast.error('Select business or residential shipping before submitting.');
+      return;
+    }
+    if (!validateSticksContactFields()) return;
+    setSubmittingSticksRequest(true);
+    try {
+      await createLeadSubmission({
+        submissionType: 'procurement',
+        name: sticksContactName.trim(),
+        email: sticksContactEmail.trim().toLowerCase(),
+        sourcePage: '/supplies',
+        message: [
+          'Blank Paper Sticks Request',
+          `Requested boxes: ${normalizedStickBoxCount}`,
+          `Pieces per box: ${STICKS_PIECES_PER_BOX}`,
+          `Selected size: ${getStickSizeLabel(stickSize)}`,
+          `Per-box price: $${STICKS_PRICE_PER_BOX}`,
+          `Selected address type: ${getBlankSticksAddressTypeLabel(blankAddressType)}`,
+          `Estimated shipping: $${blankSticksShippingTotal} total ($${blankSticksShippingRate}/box)`,
+          `Free-shipping threshold: ${BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD}+ boxes`,
+          `Notes: ${sticksRequestNotes.trim() || 'None'}`,
+        ].join('\n'),
+      });
+      trackEvent('click_buy_sticks', { variant: 'blank_request', boxes: normalizedStickBoxCount });
+      toast.success('Blank sticks request submitted. We will confirm shipping and fulfillment.');
+      resetStickRequestFields();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to submit your request.');
+    } finally {
+      setSubmittingSticksRequest(false);
+    }
+  };
+
+  const handleStartBlankCheckout = async () => {
+    if (!hasStickSize(stickSize)) {
+      toast.error('Select the machine size before starting blank sticks checkout.');
+      return;
+    }
+    if (!hasBlankAddressType(blankAddressType)) {
+      toast.error('Select business or residential shipping before checkout.');
+      return;
+    }
+    setStartingBlankCheckout(true);
+    try {
+      trackEvent('click_buy_sticks', { variant: 'blank_checkout', boxes: normalizedStickBoxCount });
+      trackEvent('start_checkout', { checkout_type: 'blank_sticks', boxes: normalizedStickBoxCount });
+      const checkoutUrl = await startBlankSticksCheckout(
+        { boxCount: normalizedStickBoxCount, stickSize, addressType: blankAddressType },
+        window.location.origin
+      );
+      window.location.assign(checkoutUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to start blank sticks checkout.');
+      setStartingBlankCheckout(false);
     }
   };
 
   const handleSubmitCustomSticksRequest = async () => {
-    const quantity = Number.isFinite(sticksBulkPacks)
-      ? Math.max(1, Math.floor(sticksBulkPacks))
-      : 1;
-
-    if (!customContactName.trim()) {
-      toast.error('Enter your name so we can confirm your custom sticks request.');
+    if (!hasStickSize(stickSize)) {
+      toast.error('Select the machine size before submitting a custom sticks request.');
       return;
     }
-
-    if (!customContactEmail.trim()) {
-      toast.error('Enter your email so we can follow up with proofing details.');
-      return;
-    }
-
+    if (!validateSticksContactFields()) return;
     if (!customArtworkFile) {
       toast.error('Upload your logo/image to submit a custom sticks request.');
       return;
     }
-
-    setSubmittingCustomSticks(true);
+    setSubmittingSticksRequest(true);
     try {
       const { publicUrl } = await uploadCustomSticksArtwork(customArtworkFile);
-
       await createLeadSubmission({
         submissionType: 'procurement',
-        name: customContactName.trim(),
-        email: customContactEmail.trim().toLowerCase(),
+        name: sticksContactName.trim(),
+        email: sticksContactEmail.trim().toLowerCase(),
         sourcePage: '/supplies',
         message: [
-          'Custom Sticks Request',
-          `Requested packs: ${quantity}`,
-          `Pack size: 100 sticks`,
-          `Pricing basis: $${STICKS_PRICE_CUSTOM} per pack`,
+          'Custom Paper Sticks Request',
+          `Requested boxes: ${normalizedStickBoxCount}`,
+          `Pieces per box: ${STICKS_PIECES_PER_BOX}`,
+          `Selected size: ${getStickSizeLabel(stickSize)}`,
+          `Per-box price: $${STICKS_PRICE_PER_BOX}`,
+          `First custom order plate fee: $${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE}`,
+          `Shipping note: 1-4 boxes estimate at $35/box business or $40/box residential; ${BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD}+ boxes ship free`,
           `Artwork URL: ${publicUrl}`,
           `Artwork file: ${customArtworkFile.name}`,
-          `Notes: ${customRequestNotes.trim() || 'None'}`,
+          `Notes: ${sticksRequestNotes.trim() || 'None'}`,
         ].join('\n'),
       });
-
-      trackEvent('custom_sticks_request_submitted', {
-        sku: STICKS_SKU_CUSTOM,
-        quantity,
-      });
-
+      trackEvent('click_buy_sticks', { variant: 'custom_request', boxes: normalizedStickBoxCount });
       toast.success('Custom sticks request submitted. We will follow up with proofing details.');
-      setCustomArtworkFile(null);
-      setCustomRequestNotes('');
-      setSticksBulkPacks(1);
+      resetStickRequestFields();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unable to submit your custom sticks request.';
-      toast.error(message);
+      toast.error(error instanceof Error ? error.message : 'Unable to submit your request.');
     } finally {
-      setSubmittingCustomSticks(false);
+      setSubmittingSticksRequest(false);
     }
   };
 
@@ -217,12 +307,10 @@ export default function SuppliesPage() {
     <Layout>
       <section className="bg-gradient-to-b from-cream to-background section-padding">
         <div className="container-page text-center">
-          <h1 className="font-display text-4xl font-bold text-foreground sm:text-5xl">
-            Supplies
-          </h1>
+          <h1 className="font-display text-4xl font-bold text-foreground sm:text-5xl">Supplies</h1>
           <p className="mx-auto mt-4 max-w-3xl text-lg text-muted-foreground">
-            Bulk sugar ordering built for operators. Configure white, blue, orange, and red in
-            one flow, including 500KG+ orders.
+            Bulk sugar ordering built for operator packaging. Configure white, blue, orange, and
+            red in one flow with quick presets tuned for 240KG, 400KG, and 800KG shipments.
           </p>
         </div>
       </section>
@@ -232,32 +320,23 @@ export default function SuppliesPage() {
           <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
             <div className="card-elevated overflow-hidden">
               <div className="aspect-square overflow-hidden bg-muted">
-                <img
-                  src={sugarProduct}
-                  alt="Premium Cotton Candy Sugar"
-                  className="h-full w-full object-cover"
-                />
+                <img src={sugarProduct} alt="Premium Cotton Candy Sugar" className="h-full w-full object-cover" />
               </div>
               <div className="p-6">
-                <h2 className="font-display text-xl font-semibold text-foreground">
-                  Premium Cotton Candy Sugar
-                </h2>
+                <h2 className="font-display text-xl font-semibold text-foreground">Premium Cotton Candy Sugar</h2>
                 <p className="mt-1 font-display text-2xl font-bold text-primary">
                   ${SUGAR_PRICE_PER_KG}{' '}
                   <span className="text-base font-normal text-muted-foreground">/ 1KG bag</span>
                 </p>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                  Pick your mix across all four core colors and place high-volume orders quickly.
+                  Pick your mix across all four core colors and use packaging-friendly quick presets
+                  for the most common shipment sizes.
                 </p>
-
                 <div className="mt-6 rounded-xl border border-border bg-muted/30 p-4">
                   <p className="text-sm font-semibold text-foreground">Bulk Order Builder</p>
-
                   <div className="mt-3 flex flex-wrap items-end gap-3">
                     <div>
-                      <label className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                        Total Target (KG)
-                      </label>
+                      <Label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Total Target (KG)</Label>
                       <Input
                         type="number"
                         min={0}
@@ -274,25 +353,13 @@ export default function SuppliesPage() {
                         className="mt-1 h-9 w-32"
                       />
                     </div>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleApplyEqualSplit(targetTotalKg)}
-                    >
+                    <Button type="button" variant="outline" size="sm" onClick={() => setSugarMix(buildEqualSugarSplit(targetTotalKg))}>
                       Equal Split (25% each)
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSugarMix(createEmptySugarMix())}
-                    >
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setSugarMix(createEmptySugarMix())}>
                       Clear
                     </Button>
                   </div>
-
                   <div className="mt-3 flex flex-wrap gap-2">
                     {BULK_SUGAR_PRESETS_KG.map((presetKg) => (
                       <Button
@@ -306,40 +373,29 @@ export default function SuppliesPage() {
                       </Button>
                     ))}
                   </div>
-
                   <div className="mt-4 space-y-2">
                     {SUGAR_COLOR_OPTIONS.map((option) => {
                       const cartQuantity = cartSugarBreakdown[option.sku];
                       return (
-                        <div
-                          key={option.sku}
-                          className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border border-border bg-background p-3"
-                        >
+                        <div key={option.sku} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border border-border bg-background p-3">
                           <div>
                             <p className="font-semibold text-foreground">
                               {option.color}{' '}
-                              <span className="text-sm font-normal text-muted-foreground">
-                                ({option.flavor})
-                              </span>
+                              <span className="text-sm font-normal text-muted-foreground">({option.flavor})</span>
                             </p>
-                            <p className="text-xs text-muted-foreground">
-                              In cart: {cartQuantity} KG
-                            </p>
+                            <p className="text-xs text-muted-foreground">In cart: {cartQuantity} KG</p>
                           </div>
                           <Input
                             type="number"
                             min={0}
                             value={sugarMix[option.sku]}
-                            onChange={(event) =>
-                              updateColorQuantity(option.sku, Number(event.target.value))
-                            }
+                            onChange={(event) => updateColorQuantity(option.sku, Number(event.target.value))}
                             className="h-9 w-24 text-right"
                           />
                         </div>
                       );
                     })}
                   </div>
-
                   <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
                     <div className="flex items-center justify-between text-foreground">
                       <span>Total sugar</span>
@@ -354,14 +410,8 @@ export default function SuppliesPage() {
                       <span className="font-semibold">${mixTotalCost.toFixed(2)}</span>
                     </div>
                   </div>
-
                   <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                    <Button
-                      type="button"
-                      className="w-full"
-                      onClick={handleAddSugarMixToCart}
-                      disabled={mixTotalKg <= 0}
-                    >
+                    <Button type="button" className="w-full" onClick={handleAddSugarMixToCart} disabled={mixTotalKg <= 0}>
                       <ShoppingCart className="mr-2 h-4 w-4" />
                       Add Sugar Mix to Cart
                     </Button>
@@ -373,147 +423,256 @@ export default function SuppliesPage() {
                     </Button>
                   </div>
                 </div>
-
                 <p className="mt-3 text-xs text-muted-foreground">
-                  Common order pattern: equal split across all four colors, then adjust by color as
-                  needed.
+                  Common order pattern: start from the quick preset that matches your shipment, use
+                  equal split, then adjust the color totals as needed.
                 </p>
               </div>
             </div>
 
             <div className="card-elevated overflow-hidden">
               <div className="aspect-square overflow-hidden bg-muted">
-                <img
-                  src={sticksProduct}
-                  alt="Bloomjoy branded cotton candy sticks"
-                  className="h-full w-full object-cover"
-                />
+                <img src={sticksProduct} alt="Bloomjoy branded cotton candy sticks" className="h-full w-full object-cover" />
               </div>
               <div className="p-6">
-                <h2 className="font-display text-xl font-semibold text-foreground">
-                  Cotton Candy Sticks
-                </h2>
+                <h2 className="font-display text-xl font-semibold text-foreground">Bloomjoy Paper Sticks</h2>
                 <p className="mt-1 font-display text-2xl font-bold text-primary">
-                  ${currentSticksPrice}{' '}
-                  <span className="text-base font-normal text-muted-foreground">/ pack</span>
+                  ${STICKS_PRICE_PER_BOX}{' '}
+                  <span className="text-base font-normal text-muted-foreground">/ {STICKS_PIECES_PER_BOX.toLocaleString()}-piece box</span>
                 </p>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                  Blank sticks are $12 per 100-pack. Custom logo/image sticks are $14 per 100-pack.
-                  Compatible with all Bloomjoy machines.
+                  Choose blank or custom paper sticks for Commercial/Full or Mini machines. Custom
+                  sticks add a ${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE} first-order plate fee.
                 </p>
-
                 <div className="mt-6 space-y-4">
                   <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-muted/30 p-2">
                     <button
                       type="button"
                       onClick={() => setStickVariant('plain')}
                       className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-                        stickVariant === 'plain'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
+                        stickVariant === 'plain' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Blank sticks ($12)
+                      Blank sticks
                     </button>
                     <button
                       type="button"
                       onClick={() => setStickVariant('custom')}
                       className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-                        stickVariant === 'custom'
-                          ? 'bg-background text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
+                        stickVariant === 'custom' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Custom sticks ($14)
+                      Custom sticks
                     </button>
                   </div>
-
+                  <div className="rounded-xl border border-border bg-muted/20 p-4">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <Label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Minimum Order</Label>
+                        <p className="mt-1 text-sm font-semibold text-foreground">1 box</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Packaging</Label>
+                        <p className="mt-1 text-sm font-semibold text-foreground">{STICKS_PIECES_PER_BOX.toLocaleString()} pieces / box</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Shipping</Label>
+                        <p className="mt-1 text-sm font-semibold text-foreground">5+ boxes ship free</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Blank sticks ship at $35/box to business addresses or $40/box to residential
+                      addresses for orders under {BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD} boxes.
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Machine Size</Label>
+                    <RadioGroup
+                      value={stickSize}
+                      onValueChange={(value) => setStickSize(value as SelectedStickSize)}
+                      className="mt-2 gap-3"
+                    >
+                      {STICK_SIZE_OPTIONS.map((option) => (
+                        <label
+                          key={option.value}
+                          htmlFor={`stick-size-${option.value}`}
+                          className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                            stickSize === option.value ? 'border-primary bg-primary/5' : 'border-border bg-background'
+                          }`}
+                        >
+                          <RadioGroupItem id={`stick-size-${option.value}`} value={option.value} className="mt-1" />
+                          <div>
+                            <p className="font-semibold text-foreground">{option.label}</p>
+                            <p className="text-sm text-muted-foreground">{option.detail}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </RadioGroup>
+                  </div>
                   <div className="flex items-end gap-3">
                     <div>
-                      <label className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                        Packs
-                      </label>
+                      <Label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Boxes</Label>
                       <Input
                         type="number"
                         min={1}
-                        value={sticksBulkPacks}
-                        onChange={(event) => updateSticksBulkPacks(Number(event.target.value))}
+                        value={sticksBoxCount}
+                        onChange={(event) => updateStickBoxCount(Number(event.target.value))}
                         className="mt-1 h-9 w-24 text-right"
                       />
                     </div>
-                    {stickVariant === 'plain' ? (
-                      <Button onClick={handleAddPlainSticks} className="flex-1">
-                        <ShoppingCart className="mr-2 h-4 w-4" />
-                        Add to Cart
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={handleSubmitCustomSticksRequest}
-                        className="flex-1"
-                        disabled={submittingCustomSticks}
-                      >
-                        {submittingCustomSticks ? 'Submitting...' : 'Submit Custom Request'}
-                      </Button>
-                    )}
+                    <div className="flex-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between text-foreground">
+                        <span>Stick subtotal</span>
+                        <span className="font-semibold">${(normalizedStickBoxCount * STICKS_PRICE_PER_BOX).toFixed(2)}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-muted-foreground">
+                        <span>Total pieces</span>
+                        <span>{(normalizedStickBoxCount * STICKS_PIECES_PER_BOX).toLocaleString()}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  {stickVariant === 'custom' && (
+                  {stickVariant === 'plain' && (
+                    <>
+                      <div>
+                        <Label className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Shipping Address Type</Label>
+                        <RadioGroup
+                          value={blankAddressType}
+                          onValueChange={(value) => setBlankAddressType(value as SelectedBlankAddressType)}
+                          className="mt-2 gap-3"
+                        >
+                          {BLANK_STICKS_ADDRESS_TYPE_OPTIONS.map((option) => (
+                            <label
+                              key={option.value}
+                              htmlFor={`stick-address-${option.value}`}
+                              className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                                blankAddressType === option.value ? 'border-primary bg-primary/5' : 'border-border bg-background'
+                              }`}
+                            >
+                              <RadioGroupItem id={`stick-address-${option.value}`} value={option.value} className="mt-1" />
+                              <div>
+                                <p className="font-semibold text-foreground">{option.label}</p>
+                                <p className="text-sm text-muted-foreground">${option.shippingRatePerBox}/box for 1-4 box orders</p>
+                              </div>
+                            </label>
+                          ))}
+                        </RadioGroup>
+                      </div>
+
+                      <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm">
+                        {hasBlankAddressType(blankAddressType) ? (
+                          <>
+                            <div className="flex items-center justify-between text-foreground">
+                              <span>Shipping</span>
+                              <span className="font-semibold">
+                                {formatBlankSticksShippingSummary(normalizedStickBoxCount, blankAddressType)}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-center justify-between text-muted-foreground">
+                              <span>Address type</span>
+                              <span>{getBlankSticksAddressTypeLabel(blankAddressType)}</span>
+                            </div>
+                            <div className="mt-1 flex items-center justify-between text-muted-foreground">
+                              <span>Order path</span>
+                              <span>{blankSticksCheckoutEligible ? 'Direct checkout' : 'Procurement review'}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-muted-foreground">
+                            Select the shipping address type to see the shipping estimate and
+                            checkout path.
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {(stickVariant === 'custom' || !blankSticksCheckoutEligible) && (
                     <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
                       <p className="text-sm text-muted-foreground">
-                        Upload a logo/image and we will confirm proofing, production timing, and
-                        final order details.
+                        {stickVariant === 'custom'
+                          ? `Upload your logo/image and we will confirm proofing, the $${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE} plate fee, production timing, and final order details.`
+                          : `Orders under ${BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD} boxes are handled through procurement confirmation so we can verify the final shipment details before fulfillment.`}
                       </p>
 
-                      <label
-                        htmlFor="custom-sticks-artwork"
-                        className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:border-primary"
-                      >
-                        <Upload className="h-4 w-4" />
-                        {customArtworkFile ? `Selected: ${customArtworkFile.name}` : 'Upload logo/image'}
-                      </label>
-                      <Input
-                        id="custom-sticks-artwork"
-                        type="file"
-                        accept={ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES.join(',')}
-                        onChange={handleCustomArtworkChange}
-                        className="hidden"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        PNG, JPG, or WEBP. Max {Math.floor(MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES / (1024 * 1024))}MB.
-                      </p>
+                      {stickVariant === 'custom' && (
+                        <>
+                          <label
+                            htmlFor="custom-sticks-artwork"
+                            className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:border-primary"
+                          >
+                            <Upload className="h-4 w-4" />
+                            {customArtworkFile ? `Selected: ${customArtworkFile.name}` : 'Upload logo/image'}
+                          </label>
+                          <Input
+                            id="custom-sticks-artwork"
+                            type="file"
+                            accept={ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES.join(',')}
+                            onChange={handleCustomArtworkChange}
+                            className="hidden"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            PNG, JPG, or WEBP. Max {Math.floor(MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES / (1024 * 1024))}MB.
+                          </p>
+                        </>
+                      )}
 
                       <div className="grid gap-3 sm:grid-cols-2">
                         <Input
                           placeholder="Contact name"
-                          value={customContactName}
-                          onChange={(event) => setCustomContactName(event.target.value)}
+                          value={sticksContactName}
+                          onChange={(event) => setSticksContactName(event.target.value)}
                         />
                         <Input
                           type="email"
-                          placeholder="Email for proofing follow-up"
-                          value={customContactEmail}
-                          onChange={(event) => setCustomContactEmail(event.target.value)}
+                          placeholder="Email for follow-up"
+                          value={sticksContactEmail}
+                          onChange={(event) => setSticksContactEmail(event.target.value)}
                         />
                       </div>
 
                       <Textarea
-                        value={customRequestNotes}
-                        onChange={(event) => setCustomRequestNotes(event.target.value)}
+                        value={sticksRequestNotes}
+                        onChange={(event) => setSticksRequestNotes(event.target.value)}
                         rows={3}
-                        placeholder="Optional notes (brand colors, timeline, quantity split, etc.)"
+                        placeholder={
+                          stickVariant === 'custom'
+                            ? 'Optional notes (brand colors, timeline, quantity split, etc.)'
+                            : 'Optional notes (delivery window, location notes, internal PO, etc.)'
+                        }
                       />
                     </div>
                   )}
-                </div>
-                <p className="mt-3 text-sm text-muted-foreground">
-                  Selected stick packs in cart: {currentSticksCartQuantity}
-                </p>
 
-                {cartSugarTotalKg > 0 && (
-                  <p className="mt-4 text-sm text-muted-foreground">
-                    Sugar currently in cart: {cartSugarTotalKg} KG
+                  {stickVariant === 'plain' ? (
+                    <Button
+                      onClick={blankSticksCheckoutEligible ? handleStartBlankCheckout : handleSubmitBlankSticksRequest}
+                      className="w-full"
+                      disabled={submittingSticksRequest || startingBlankCheckout}
+                    >
+                      {blankSticksCheckoutEligible
+                        ? startingBlankCheckout
+                          ? 'Redirecting...'
+                          : 'Checkout Blank Sticks'
+                        : submittingSticksRequest
+                          ? 'Submitting...'
+                          : 'Submit Blank Stick Request'}
+                    </Button>
+                  ) : (
+                    <Button onClick={handleSubmitCustomSticksRequest} className="w-full" disabled={submittingSticksRequest}>
+                      {submittingSticksRequest ? 'Submitting...' : 'Submit Custom Request'}
+                    </Button>
+                  )}
+
+                  <p className="text-sm text-muted-foreground">
+                    Blank sticks checkout starts at {BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD} boxes.
+                    The shared cart remains sugar-only.
                   </p>
-                )}
+
+                  {cartSugarTotalKg > 0 && (
+                    <p className="text-sm text-muted-foreground">Sugar currently in cart: {cartSugarTotalKg} KG</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>

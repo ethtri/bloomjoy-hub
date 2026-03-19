@@ -155,6 +155,7 @@ serve(async (req) => {
         allowed_countries: ["US"],
       },
       metadata: {
+        order_type: "sugar",
         sugar_total_kg: String(totalSugarKg),
         sugar_white_kg: String(sugarBreakdown.white),
         sugar_blue_kg: String(sugarBreakdown.blue),

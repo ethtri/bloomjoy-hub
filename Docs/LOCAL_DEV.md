@@ -114,6 +114,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 2) Set function secrets (server-only):
    - `supabase secrets set STRIPE_SECRET_KEY=...`
    - `supabase secrets set STRIPE_SUGAR_PRICE_ID=...`
+   - `supabase secrets set STRIPE_STICKS_PRICE_ID=...`
    - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`
    - `supabase secrets set RESEND_API_KEY=...`
@@ -126,6 +127,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Ensure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
 3) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
+   - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
    - `supabase functions serve stripe-plus-checkout --no-verify-jwt`
    - `supabase functions serve stripe-customer-portal --no-verify-jwt`
    - `supabase functions serve stripe-webhook --no-verify-jwt`

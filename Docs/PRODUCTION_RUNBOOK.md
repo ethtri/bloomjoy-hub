@@ -20,6 +20,7 @@ Set the following values before launch.
 | `VITE_SUPABASE_ANON_KEY` | Frontend (public) | SPA Supabase client | Supabase project API keys | Technical owner |
 | `STRIPE_SECRET_KEY` | Server-only | Stripe Edge Functions | Stripe Dashboard > Developers > API keys | Billing owner |
 | `STRIPE_SUGAR_PRICE_ID` | Server-only | `stripe-sugar-checkout` | Stripe product/price config | Billing owner |
+| `STRIPE_STICKS_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake` | Resend API key | Technical owner |
@@ -45,7 +46,7 @@ Security rule:
   - [ ] `npm test --if-present`
   - [ ] `npm run lint --if-present`
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
-- [ ] Stripe products/prices verified (`STRIPE_SUGAR_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
+- [ ] Stripe products/prices verified (`STRIPE_SUGAR_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
 - [ ] Domain and HTTPS for frontend production URL confirmed.
 
 ## 4) Deploy sequence (launch day)
@@ -66,6 +67,7 @@ Run once per environment or when values rotate:
 ```bash
 supabase secrets set STRIPE_SECRET_KEY=...
 supabase secrets set STRIPE_SUGAR_PRICE_ID=...
+supabase secrets set STRIPE_STICKS_PRICE_ID=...
 supabase secrets set STRIPE_PLUS_PRICE_ID=...
 supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
@@ -80,10 +82,11 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 ### Step C: Deploy Stripe Edge Functions
-Deploy all six functions:
+Deploy all current checkout/submission functions:
 
 ```bash
 supabase functions deploy stripe-sugar-checkout
+supabase functions deploy stripe-sticks-checkout
 supabase functions deploy stripe-plus-checkout
 supabase functions deploy stripe-customer-portal
 supabase functions deploy stripe-webhook
@@ -116,6 +119,8 @@ Run immediately after deploy:
 - [ ] `Docs/QA_SMOKE_TEST_CHECKLIST.md` core payment/auth checks pass.
 - [ ] Sugar checkout test order creates `orders` record in Supabase.
 - [ ] Sugar checkout test order sends internal summary email to configured operations recipients.
+- [ ] Blank sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
+- [ ] Blank sticks checkout test order sends internal summary email to configured operations recipients.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
 - [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
@@ -136,6 +141,7 @@ Rollback order:
 2) Edge Functions:
    - Re-deploy previous known-good function versions for:
      - `stripe-sugar-checkout`
+     - `stripe-sticks-checkout`
      - `stripe-plus-checkout`
      - `stripe-customer-portal`
      - `stripe-webhook`

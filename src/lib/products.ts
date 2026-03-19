@@ -1,3 +1,9 @@
+import {
+  CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE,
+  STICKS_PIECES_PER_BOX,
+  STICKS_PRICE_PER_BOX,
+} from '@/lib/sticks';
+
 export interface Product {
   sku: string;
   name: string;
@@ -141,13 +147,15 @@ export const products: Record<string, Product> = {
     sku: 'sticks-plain',
     name: 'Blank Cotton Candy Sticks',
     type: 'supply',
-    price: 12,
-    description: 'Plain cotton candy sticks, pack of 100. Compatible with all Bloomjoy machines.',
-    shortDescription: 'Pack of 100 plain sticks',
+    price: STICKS_PRICE_PER_BOX,
+    description:
+      'Plain paper sticks, 2000 pieces per box. Available in Commercial/Full 10mm x 300mm and Mini 10mm x 220mm sizes.',
+    shortDescription: `${STICKS_PIECES_PER_BOX} plain paper sticks per box`,
     features: [
       'Compatible with all Bloomjoy machines',
       'Food-grade materials',
-      '100 sticks per pack'
+      '10mm x 300mm and 10mm x 220mm sizes',
+      `${STICKS_PIECES_PER_BOX} sticks per box`
     ],
     ctaType: 'buy',
     inStock: true,
@@ -156,13 +164,16 @@ export const products: Record<string, Product> = {
     sku: 'sticks-custom',
     name: 'Custom Logo Cotton Candy Sticks',
     type: 'supply',
-    price: 14,
-    description: 'Custom logo/image cotton candy sticks, pack of 100. Artwork proofing required before fulfillment.',
-    shortDescription: 'Pack of 100 custom sticks with uploaded logo/image',
+    price: STICKS_PRICE_PER_BOX,
+    description:
+      'Custom logo/image paper sticks, 2000 pieces per box. Artwork proofing is required before fulfillment and the first custom order adds a plate fee.',
+    shortDescription: `${STICKS_PIECES_PER_BOX} custom paper sticks per box`,
     features: [
       'Compatible with all Bloomjoy machines',
       'Custom logo/image branding support',
-      '100 sticks per pack'
+      '10mm x 300mm and 10mm x 220mm sizes',
+      `${STICKS_PIECES_PER_BOX} sticks per box`,
+      `$${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE} first-order plate fee`
     ],
     ctaType: 'buy',
     inStock: true,
