@@ -79,6 +79,13 @@ const baseTrainingCatalogManifest = [
     fallbackId: 'alarm-and-power-timer-setup',
   },
   {
+    match: { id: 'timer-control-reference', title: 'Timer Control Reference' },
+    module: 'Module 1',
+    trackId: 'daily-operation',
+    operatorPriority: 16,
+    fallbackId: 'timer-control-reference',
+  },
+  {
     match: {
       id: 'module-map-and-reference-manual',
       title: 'Maintenance Guide Reference Manual',
@@ -92,6 +99,16 @@ const baseTrainingCatalogManifest = [
   },
   {
     match: {
+      id: 'safe-power-off-and-cooldown',
+      title: 'Safe Power Off and Cooldown',
+    },
+    module: 'Module 1',
+    trackId: 'daily-operation',
+    operatorPriority: 8,
+    fallbackId: 'safe-power-off-and-cooldown',
+  },
+  {
+    match: {
       id: 'cleaning-and-hygiene-checklist',
       title: 'Cleaning and Hygiene Checklist',
     },
@@ -100,6 +117,16 @@ const baseTrainingCatalogManifest = [
     featuredOrder: 5,
     operatorPriority: 10,
     fallbackId: 'cleaning-and-hygiene-checklist',
+  },
+  {
+    match: {
+      id: 'daily-cleaning-hotspots',
+      title: 'Daily Cleaning Hotspots',
+    },
+    module: 'Module 1',
+    trackId: 'cleaning-maintenance',
+    operatorPriority: 9,
+    fallbackId: 'daily-cleaning-hotspots',
   },
   {
     match: {
@@ -122,6 +149,16 @@ const baseTrainingCatalogManifest = [
     featuredOrder: 7,
     operatorPriority: 20,
     fallbackId: 'consumables-loading-and-stick-handling',
+  },
+  {
+    match: {
+      id: 'consumables-loading-reference',
+      title: 'Consumables Loading Reference',
+    },
+    module: 'Module 1',
+    trackId: 'daily-operation',
+    operatorPriority: 21,
+    fallbackId: 'consumables-loading-reference',
   },
   {
     match: { id: 'start-up-shutdown-procedure' },

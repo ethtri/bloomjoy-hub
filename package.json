@@ -10,6 +10,7 @@
     "seo:check": "node scripts/seo-regression-check.mjs",
     "auth:preflight": "node scripts/auth-preflight.mjs",
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",
+    "training:sync-guides": "node scripts/sync-training-guides.mjs",
     "training:upload-docs": "node scripts/upload-training-documents.mjs",
     "lint": "eslint .",
     "preview": "vite preview"

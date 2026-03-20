@@ -118,6 +118,46 @@ export const alarmAndPowerTimerDocument: TrainingDocument = {
   ],
 };
 
+export const timerControlReferenceDocument: TrainingDocument = {
+  title: 'Timer control reference',
+  intro:
+    'Use this quick visual when you are standing at the timer controller and need to confirm what each button does.',
+  estimatedReadMinutes: 3,
+  sourceLabel: 'Software setup manual',
+  sections: [
+    {
+      heading: 'Use the controller photo while you program the schedule',
+      paragraphs: [
+        'The final page of the software setup PDF includes the clearest button legend for the timer controller.',
+        'Keep this image open while you set local time, the burner auto-start window, and the machine power schedule.',
+      ],
+      visual: {
+        src: '/training-guides/timer-control-reference.jpg',
+        alt: 'Annotated timer controller showing lock or unlock, on auto off, timer, time, adjust hours, adjust minute, and adjust day of week buttons.',
+        caption: 'Annotated controller reference pulled from the final page of the software setup PDF.',
+      },
+    },
+    {
+      heading: 'Program the controller in this order',
+      bullets: [
+        'Unlock the controller.',
+        'Set current time and day of week.',
+        'Program the on and off times.',
+        'Switch the controller to Auto.',
+        'Verify the approved opening and shutdown window for the current season.',
+      ],
+    },
+    {
+      heading: 'Approved operating windows',
+      bullets: [
+        'Local alarm: open at 9:30, close at 20:30.',
+        'Summer power timer: on at 9:00, off at 23:00.',
+        'Winter power timer: on at 8:00, off at 22:00.',
+      ],
+    },
+  ],
+};
+
 export const maintenanceReferenceDocument: TrainingDocument = {
   title: 'Maintenance guide reference manual',
   intro:
@@ -129,11 +169,11 @@ export const maintenanceReferenceDocument: TrainingDocument = {
       heading: 'Start and stop safely',
       paragraphs: [
         'Use the backend power flow instead of unplugging the machine during heat or cooldown.',
-        'The maintenance guide calls out a hard stop condition: do not unplug the machine until the burner cools to 60°C.',
+        'The maintenance guide calls out a hard stop condition: do not unplug the machine until the burner cools to 60 C.',
       ],
       bullets: [
         'Log in to the backend before changing machine state.',
-        'Wait for the burner to cool to 60°C before unplugging power.',
+        'Wait for the burner to cool to 60 C before unplugging power.',
         'Use this shutdown path before opening the machine for cleaning.',
       ],
     },
@@ -162,6 +202,39 @@ export const maintenanceReferenceDocument: TrainingDocument = {
         'Keep sugar below the fill line and seal the sugar cap tightly.',
         'Check pipe routing and check-valve direction before assuming a mechanical fault.',
         'Stay within paper-stick box capacity and keep sticks laid flat during loading.',
+      ],
+    },
+  ],
+};
+
+export const safePowerOffAndCooldownDocument: TrainingDocument = {
+  title: 'Safe power off and cooldown',
+  intro:
+    'Use this shutdown checklist any time you are ending service or opening the machine for cleaning.',
+  estimatedReadMinutes: 4,
+  sourceLabel: 'Cotton Candy Maintenance Guide',
+  sections: [
+    {
+      heading: 'Follow the backend shutdown path first',
+      paragraphs: [
+        'Do not unplug the machine while it is actively heating or while the burner is still cooling.',
+        'Use the on-screen shutdown flow so the machine can move through its normal stop sequence.',
+      ],
+    },
+    {
+      heading: 'Critical cooldown rule',
+      bullets: [
+        'Wait until the burner cools to 60 C before unplugging the machine.',
+        'If the burner is still above 60 C, keep power connected and continue monitoring cooldown.',
+        'Use this same rule before opening the machine for cleaning or inspection.',
+      ],
+    },
+    {
+      heading: 'Before you walk away',
+      bullets: [
+        'Confirm the machine is idle and not in an active heat cycle.',
+        'Check that waste-water and interior components are left in a safe resting state.',
+        'Escalate to support if the burner does not cool as expected.',
       ],
     },
   ],
@@ -204,6 +277,40 @@ export const cleaningChecklistDocument: TrainingDocument = {
       paragraphs: [
         'Return the waste-water pipe to the bucket and keep it level after cleaning.',
         'Confirm the filter is dry, the sink is seated, and moving parts rotate freely before restarting the machine.',
+      ],
+    },
+  ],
+};
+
+export const dailyCleaningHotspotsDocument: TrainingDocument = {
+  title: 'Daily cleaning hotspots',
+  intro:
+    'Use this quick hotspot guide to target the areas that collect the most sugar residue, paper debris, and sensor contamination.',
+  estimatedReadMinutes: 5,
+  sourceLabel: 'Cotton Candy Maintenance Guide',
+  sections: [
+    {
+      heading: 'Burner and sink zone',
+      bullets: [
+        'Clean the burner outlet and burner base thoroughly.',
+        'Remove the sink first and reseat it correctly during reassembly.',
+        'Keep the gasket and surrounding burner parts seated before restart.',
+      ],
+    },
+    {
+      heading: 'Output and sensor zone',
+      bullets: [
+        'Clear the stick-output path where paper-stick friction creates debris.',
+        'Check the sugar-pickup and sensor area if sticks are missed or material flow looks inconsistent.',
+        'Inspect nearby rollers and moving parts for residue before closing the machine.',
+      ],
+    },
+    {
+      heading: 'Filter and cabinet closeout',
+      bullets: [
+        'Clean the removable filter and let it dry fully before reinstalling it.',
+        'Wipe the marked cabinet surfaces and glass after debris is removed.',
+        'Return the waste-water pipe to the correct position before restart.',
       ],
     },
   ],
@@ -271,6 +378,40 @@ export const consumablesGuideDocument: TrainingDocument = {
       bullets: [
         'Stay within the stated stick-box capacity.',
         'Lay sticks flat when loading to avoid feed problems.',
+      ],
+    },
+  ],
+};
+
+export const consumablesLoadingReferenceDocument: TrainingDocument = {
+  title: 'Consumables loading reference',
+  intro:
+    'Use this quick reference when output quality changes but the machine hardware appears healthy.',
+  estimatedReadMinutes: 4,
+  sourceLabel: 'Cotton Candy Maintenance Guide',
+  sections: [
+    {
+      heading: 'Sugar loading',
+      bullets: [
+        'Keep sugar below the marked fill line.',
+        'Tap sugar gently to level it instead of packing it down hard.',
+        'Tighten the sugar cap fully so air leaks do not interrupt dispensing.',
+      ],
+    },
+    {
+      heading: 'Pipe routing and flow',
+      bullets: [
+        'Keep pipes smooth, unobstructed, and fully seated at the connection points.',
+        'Check the line that commonly loosens before assuming a pump failure.',
+        'Verify check-valve direction if flow or feed behavior looks wrong.',
+      ],
+    },
+    {
+      heading: 'Paper-stick loading',
+      bullets: [
+        'Stay within the stick-box capacity listed in the maintenance guide.',
+        'Lay sticks flat during loading so the pickup path stays consistent.',
+        'Recheck loading orientation if the machine misses picks or jams repeatedly.',
       ],
     },
   ],

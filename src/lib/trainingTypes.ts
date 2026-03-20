@@ -2,6 +2,11 @@ export interface TrainingDocumentSection {
   heading: string;
   paragraphs?: string[];
   bullets?: string[];
+  visual?: {
+    src: string;
+    alt: string;
+    caption?: string;
+  };
 }
 
 export interface TrainingDocument {

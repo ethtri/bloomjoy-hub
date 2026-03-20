@@ -58,6 +58,21 @@ Notes:
 - The helper uploads `Software setup.pdf` and `Cotton Candy Maintenance Guide.pdf`.
 - Uploaded files are private; the portal should access them through signed URLs only.
 
+## Training guide catalog sync (operations helper)
+Use this after uploading the source PDFs when guide/checklist rows need to be created or refreshed in Supabase.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Audit without writing:
+   - `npm run training:sync-guides -- --dry-run`
+3) Upsert the guide/checklist rows and attach the source PDFs:
+   - `npm run training:sync-guides`
+
+Notes:
+- This keeps the document-first training rows aligned with the local portal content for software setup, shutdown/cooldown, cleaning hotspots, diagnostics, and consumables.
+- Run `npm run training:upload-docs` first so the signed PDF downloads resolve correctly from the portal.
+
 ## Vimeo module tag sync (operations helper)
 Use this when Vimeo uploads are missing module taxonomy tags (for example `Module 1`).
 

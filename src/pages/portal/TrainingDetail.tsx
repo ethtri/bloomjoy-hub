@@ -333,6 +333,21 @@ export default function TrainingDetailPage() {
                             ))}
                           </ul>
                         )}
+                        {section.visual && (
+                          <figure className="mt-4 overflow-hidden rounded-2xl border border-border bg-muted/20 p-3">
+                            <img
+                              src={section.visual.src}
+                              alt={section.visual.alt}
+                              loading="lazy"
+                              className="w-full rounded-xl object-contain"
+                            />
+                            {section.visual.caption && (
+                              <figcaption className="mt-3 text-xs leading-5 text-muted-foreground">
+                                {section.visual.caption}
+                              </figcaption>
+                            )}
+                          </figure>
+                        )}
                       </section>
                     ))}
                   </div>

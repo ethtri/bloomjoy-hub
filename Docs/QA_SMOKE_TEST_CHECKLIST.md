@@ -96,12 +96,15 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training resource cards expose real actions (`Open guide`, `Watch video`, `Go to support`, or `Download PDF`) instead of passive labels
 - [ ] Guide/checklist actions continue to open the correct detail page even if the route uses a fallback catalog slug (for example `alarm-and-power-timer-setup` or `daily-maintenance-routine`)
 - [ ] `Alarm and Power Timer Setup` shows the approved schedule values (`9:30` / `20:30`, `9:00-23:00`, `8:00-22:00`) plus the controller reference in the guide body
-- [ ] Maintenance-derived guides surface the key operator tasks from the PDF (`60°C` cooldown, cleaning hotspots, debug-page checks, and consumable loading rules) instead of only generic summaries
+- [ ] `Timer Control Reference` renders the annotated controller image and remains readable on both desktop and mobile widths
+- [ ] Maintenance-derived guides surface the key operator tasks from the PDF (`60 C` cooldown, cleaning hotspots, debug-page checks, and consumable loading rules) instead of only generic summaries
+- [ ] New job aids (`Safe Power Off and Cooldown`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`) appear in the library/search and open from linked resource cards
 - [ ] `Mark complete` persists to `training_progress` and the item remains completed after refresh/re-login
 - [ ] Operator Essentials certificate appears as a secondary section below the main library and stays locked until all required items are complete and the final acknowledgement is checked
 - [ ] After unlocking, the Operator Essentials certificate remains available for download on later visits
 - [ ] In local QA, when Supabase returns no live training rows, the page surfaces the internal catalog warning and points to `node scripts/sync-vimeo-training-catalog.mjs --dry-run`
 - [ ] Private training documents are not publicly reachable by direct URL when using Supabase-backed document assets
+- [ ] Source-PDF download actions for document-first guides resolve through signed `training-documents` URLs rather than public bucket links
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 - [ ] Submitted support request triggers a WeCom alert with request type, customer email, and subject
