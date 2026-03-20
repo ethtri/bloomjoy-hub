@@ -17,7 +17,7 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
-  const { isMember } = useAuth();
+  const { isMember, isAdmin } = useAuth();
 
   return (
     <Layout>
@@ -44,6 +44,15 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                   )}
                 </NavLink>
               ))}
+              {isAdmin && (
+                <NavLink
+                  to="/admin"
+                  className="rounded-full border border-transparent bg-background px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  activeClassName="border-primary/20 bg-primary/10 text-primary"
+                >
+                  <span>Admin</span>
+                </NavLink>
+              )}
             </nav>
           </div>
         </div>
