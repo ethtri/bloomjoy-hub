@@ -69,17 +69,17 @@ Execution order is based on launch risk and dependency overlap.
   - `npm run auth:preflight`: pass with canonical `www.bloomjoyusa.com` plus apex redirect-allowlist values
   - `npm run auth:preflight -- --require-custom-auth-domain`: expected fail until custom auth domain cutover is completed (`auth.bloomjoyusa.com`)
 
-1) **P0 - Auth redirect/domain cutover regression (Google login)**
-- UAT signal: Google callback currently lands on `localhost:3000` (`ERR_CONNECTION_REFUSED`) instead of the live domain flow.
-- Fresh evidence (2026-03-19):
-  - User-captured live Google login returns to `http://localhost:3000/#access_token=...` with no `/portal` path.
-  - Repo audit confirms the app requests `${window.location.origin}/portal` for Google OAuth redirect, so the bare localhost fallback points to stale Supabase Site URL and/or missing allowlist entries for `https://www.bloomjoyusa.com`.
-- Likely cause: OAuth/Supabase redirect/origin settings are still on legacy host values while the production deployment is on canonical `https://www.bloomjoyusa.com`.
-- Plan:
-  - Update auth docs/checklists and auth preflight defaults from legacy Bloomjoy hostnames to canonical `https://www.bloomjoyusa.com`, while keeping apex `https://bloomjoyusa.com` allowlisted during cutover.
-  - Validate Google OAuth origins + redirect URIs and Supabase Site URL + additional redirects for both local (`http://localhost:8080`) and production (`https://www.bloomjoyusa.com` + apex alias + auth host).
-  - Re-run `npm run auth:preflight` with local env configured and capture callback-host evidence in launch sign-off docs.
-- Owner dependency: Google Cloud + Supabase dashboard redirect/origin updates (credentials and DNS are owner-controlled).
+1) **P0 - Auth redirect/domain cutover recovery (Google login)**
+- UAT signal: Google callback had been landing on `localhost:3000` (`ERR_CONNECTION_REFUSED`) instead of the live domain flow.
+- Recovery evidence (2026-03-19):
+  - User-captured live Google login initially returned to `http://localhost:3000/#access_token=...` with no `/portal` path.
+  - Repo audit confirmed the app requests `${window.location.origin}/portal` for Google OAuth redirect, pointing to stale Supabase Site URL and/or missing allowlist entries for `https://www.bloomjoyusa.com`.
+  - After owner dashboard updates, live Google login now completes successfully back to the site.
+- Remaining follow-up:
+  - Merge the auth-host guidance PR and keep `npm run auth:preflight` aligned to canonical `https://www.bloomjoyusa.com` plus apex alias redirects.
+  - Capture final callback-host and consent-screen evidence in launch sign-off docs.
+  - Keep the Supabase project-ref domain on the chooser as an expected temporary state until `auth.bloomjoyusa.com` is enabled and cut over.
+- Owner dependency: Google Cloud + Supabase dashboard branding/custom-domain execution remain owner-controlled.
 
 2) **P1 - Machine naming consistency**
 - UAT signal: machine naming is asymmetric in wording length.
