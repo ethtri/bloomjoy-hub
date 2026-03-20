@@ -3,6 +3,7 @@ import {
   extractModuleTagFromTags as extractModuleTagFromTagsInternal,
   getTrainingTrackDefinition as getTrainingTrackDefinitionInternal,
   getTrainingTrackDefinitions as getTrainingTrackDefinitionsInternal,
+  isCanonicalTrainingVideoId as isCanonicalTrainingVideoIdInternal,
   resolveTrainingCatalogMetadata as resolveTrainingCatalogMetadataInternal,
   stripInternalTrainingTags as stripInternalTrainingTagsInternal,
 } from '@/data/trainingCatalogManifest.js';
@@ -44,6 +45,9 @@ export const getTrainingTrackDefinition = (trackId?: string) =>
 
 export const extractModuleTagFromTags = (tags: string[] = []) =>
   extractModuleTagFromTagsInternal(tags) as string | undefined;
+
+export const isCanonicalTrainingVideoId = (providerVideoId?: string) =>
+  isCanonicalTrainingVideoIdInternal(providerVideoId);
 
 export const stripInternalTrainingTags = (tags: string[] = []) =>
   stripInternalTrainingTagsInternal(tags) as string[];

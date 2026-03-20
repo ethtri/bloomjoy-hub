@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabaseClient } from '@/lib/supabaseClient';
-import { resolveTrainingCatalogMetadata } from '@/lib/trainingCatalog';
+import { isCanonicalTrainingVideoId, resolveTrainingCatalogMetadata } from '@/lib/trainingCatalog';
 import {
   TrainingCertificate,
   TrainingContent,
@@ -269,6 +269,66 @@ const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
   }));
 };
 
+const normalizeLibraryTitle = (title?: string) => (title ?? '').trim().toLowerCase();
+
+const compareDuplicateCandidates = (left: TrainingContent, right: TrainingContent) => {
+  const leftManifestRank = left.catalogSource === 'manifest' ? 0 : 1;
+  const rightManifestRank = right.catalogSource === 'manifest' ? 0 : 1;
+  if (leftManifestRank !== rightManifestRank) {
+    return leftManifestRank - rightManifestRank;
+  }
+
+  const leftModuleRank = left.moduleLabel ? 0 : 1;
+  const rightModuleRank = right.moduleLabel ? 0 : 1;
+  if (leftModuleRank !== rightModuleRank) {
+    return leftModuleRank - rightModuleRank;
+  }
+
+  const leftPriority = left.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+  const rightPriority = right.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+  if (leftPriority !== rightPriority) {
+    return leftPriority - rightPriority;
+  }
+
+  return left.id.localeCompare(right.id);
+};
+
+const filterDuplicatePortalVideos = (content: TrainingContent[]) => {
+  const videoGroups = new Map<string, TrainingContent[]>();
+
+  for (const item of content) {
+    if (!item.providerVideoId) {
+      continue;
+    }
+
+    const key = normalizeLibraryTitle(item.title);
+    const bucket = videoGroups.get(key) ?? [];
+    bucket.push(item);
+    videoGroups.set(key, bucket);
+  }
+
+  const keepIds = new Set<string>();
+  for (const items of videoGroups.values()) {
+    if (items.length === 1) {
+      keepIds.add(items[0].id);
+      continue;
+    }
+
+    const canonicalItems = items.filter((item) => isCanonicalTrainingVideoId(item.providerVideoId));
+    if (canonicalItems.length > 0) {
+      canonicalItems.forEach((item) => keepIds.add(item.id));
+      continue;
+    }
+
+    const [preferredItem] = [...items].sort(compareDuplicateCandidates);
+    if (preferredItem) {
+      keepIds.add(preferredItem.id);
+    }
+  }
+
+  return content.filter((item) => !item.providerVideoId || keepIds.has(item.id));
+};
+
 const toTrainingContent = async (record: TrainingRecord): Promise<TrainingContent> => {
   const videoAsset = record.training_assets?.find((asset) => asset.asset_type === 'video');
   const resourceAssets = record.training_assets?.filter((asset) => asset.asset_type !== 'video') ?? [];
@@ -367,7 +427,7 @@ export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
 
   const records = data as TrainingRecord[];
   const content = await Promise.all(records.map(toTrainingContent));
-  return rehydrateLinkedTrainingIds(content);
+  return rehydrateLinkedTrainingIds(filterDuplicatePortalVideos(content));
 };
 
 export const fetchTrainingTracks = async (): Promise<TrainingTrack[]> => {

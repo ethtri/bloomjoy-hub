@@ -82,6 +82,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training hub shows an operator-first `Start Here` sequence plus task-based jump cards for `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`, `Build / Assembly`, and `Reference`
 - [ ] Training hub keeps advanced filters hidden behind `More filters` by default and does not expose an `Unassigned` section anywhere in the library
 - [ ] Training catalog supports supportive module filtering only when all visible catalog rows have module labels; otherwise module controls stay hidden and task navigation remains primary
+- [ ] Training catalog suppresses duplicate Vimeo uploads in the operator-facing library; only intentional module-specific variants remain if they are truly distinct lessons
+- [ ] Supabase-backed training guides stay in their intended task tracks (`Start Here`, `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`) instead of collapsing into `Reference`
 - [ ] Training search finds relevant items by PDF-derived terms such as `burner`, `Nayax`, `timer`, and `waste water`
 - [ ] Training catalog cards render thumbnail images for Vimeo-backed rows from first-party URLs (`training_assets.meta.thumbnail_url`) with no `vumbnail.com` dependency
 - [ ] Training hub cards show live progress state (`In progress` / `Completed`) after training progress rows exist

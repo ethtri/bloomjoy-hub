@@ -48,9 +48,9 @@ export const trainingCatalogTrackDefinitions = [
   },
 ];
 
-export const trainingCatalogManifest = [
+const baseTrainingCatalogManifest = [
   {
-    match: { id: 'software-setup-quickstart' },
+    match: { id: 'software-setup-quickstart', title: 'Software Setup Quickstart' },
     trackId: 'start-here',
     featuredOrder: 1,
     isStartHere: true,
@@ -58,7 +58,10 @@ export const trainingCatalogManifest = [
     fallbackId: 'software-setup-quickstart',
   },
   {
-    match: { id: 'pricing-passwords-payment-settings' },
+    match: {
+      id: 'pricing-passwords-payment-settings',
+      title: 'Pricing, Passwords, and Payment Settings',
+    },
     trackId: 'software-payments',
     featuredOrder: 2,
     isStartHere: true,
@@ -66,14 +69,17 @@ export const trainingCatalogManifest = [
     fallbackId: 'pricing-passwords-payment-settings',
   },
   {
-    match: { id: 'alarm-and-power-timer-setup' },
+    match: { id: 'alarm-and-power-timer-setup', title: 'Alarm and Power Timer Setup' },
     trackId: 'daily-operation',
     featuredOrder: 3,
     operatorPriority: 15,
     fallbackId: 'alarm-and-power-timer-setup',
   },
   {
-    match: { id: 'module-map-and-reference-manual' },
+    match: {
+      id: 'module-map-and-reference-manual',
+      title: 'Maintenance Guide Reference Manual',
+    },
     trackId: 'reference',
     featuredOrder: 4,
     isStartHere: true,
@@ -81,21 +87,30 @@ export const trainingCatalogManifest = [
     fallbackId: 'module-map-and-reference-manual',
   },
   {
-    match: { id: 'cleaning-and-hygiene-checklist' },
+    match: {
+      id: 'cleaning-and-hygiene-checklist',
+      title: 'Cleaning and Hygiene Checklist',
+    },
     trackId: 'cleaning-maintenance',
     featuredOrder: 5,
     operatorPriority: 10,
     fallbackId: 'cleaning-and-hygiene-checklist',
   },
   {
-    match: { id: 'module-function-check-guide' },
+    match: {
+      id: 'module-function-check-guide',
+      title: 'Module Function Check Guide',
+    },
     trackId: 'troubleshooting-repair',
     featuredOrder: 6,
     operatorPriority: 10,
     fallbackId: 'module-function-check-guide',
   },
   {
-    match: { id: 'consumables-loading-and-stick-handling' },
+    match: {
+      id: 'consumables-loading-and-stick-handling',
+      title: 'Consumables Loading and Stick Handling',
+    },
     trackId: 'daily-operation',
     featuredOrder: 7,
     operatorPriority: 20,
@@ -135,15 +150,20 @@ export const trainingCatalogManifest = [
     operatorPriority: 20,
     fallbackId: 'configure-coin-acceptor',
   },
+];
+
+const mg320VimeoCatalogManifest = [
   {
-    match: { providerVideoId: '1167976486' },
+    providerVideoId: '1167976486',
+    module: 'Module 1',
     trackId: 'software-payments',
     featuredOrder: 11,
     isStartHere: true,
     operatorPriority: 12,
   },
   {
-    match: { providerVideoId: '1167976439' },
+    providerVideoId: '1167976439',
+    module: 'Module 1',
     trackId: 'daily-operation',
     featuredOrder: 12,
     isStartHere: true,
@@ -151,85 +171,376 @@ export const trainingCatalogManifest = [
     fallbackId: 'start-up-shutdown-procedure',
   },
   {
-    match: { providerVideoId: '1167976252' },
+    providerVideoId: '1167976252',
+    module: 'Module 1',
     trackId: 'software-payments',
     operatorPriority: 18,
     fallbackId: 'configure-coin-acceptor',
   },
   {
-    match: { providerVideoId: '1167976115' },
+    providerVideoId: '1167976115',
+    module: 'Module 1',
     trackId: 'software-payments',
     operatorPriority: 40,
   },
   {
-    match: { providerVideoId: '1167976086' },
+    providerVideoId: '1167976086',
+    module: 'Module 1',
     trackId: 'cleaning-maintenance',
     featuredOrder: 13,
     operatorPriority: 6,
     fallbackId: 'daily-maintenance-routine',
   },
   {
-    match: { providerVideoId: '1167975956' },
+    providerVideoId: '1167975956',
+    module: 'Module 1',
     trackId: 'software-payments',
     operatorPriority: 35,
   },
   {
-    match: { providerVideoId: '1167975905' },
+    providerVideoId: '1167975905',
+    module: 'Module 1',
     trackId: 'troubleshooting-repair',
     operatorPriority: 25,
   },
   {
-    match: { providerVideoId: '1167975854' },
+    providerVideoId: '1167975854',
+    module: 'Module 1',
     trackId: 'troubleshooting-repair',
     operatorPriority: 26,
   },
   {
-    match: { providerVideoId: '1167975824' },
+    providerVideoId: '1167975824',
+    module: 'Module 1',
     trackId: 'cleaning-maintenance',
     operatorPriority: 22,
   },
   {
-    match: { providerVideoId: '1167975716' },
+    providerVideoId: '1167975716',
+    module: 'Module 1',
     trackId: 'software-payments',
     operatorPriority: 30,
   },
   {
-    match: { providerVideoId: '1167975670' },
+    providerVideoId: '1167975670',
+    module: 'Module 1',
     trackId: 'build-assembly',
     operatorPriority: 24,
   },
   {
-    match: { providerVideoId: '1167975492' },
+    providerVideoId: '1167975492',
+    module: 'Module 1',
     trackId: 'build-assembly',
     featuredOrder: 14,
     operatorPriority: 5,
   },
   {
-    match: { providerVideoId: '1167975481' },
+    providerVideoId: '1167975481',
+    module: 'Module 1',
     trackId: 'troubleshooting-repair',
     operatorPriority: 28,
   },
   {
-    match: { providerVideoId: '1167975465' },
+    providerVideoId: '1167975465',
+    module: 'Module 1',
     trackId: 'cleaning-maintenance',
     operatorPriority: 24,
   },
   {
-    match: { providerVideoId: '1167975334' },
+    providerVideoId: '1167975334',
+    module: 'Module 1',
     trackId: 'cleaning-maintenance',
+    operatorPriority: 23,
+  },
+  {
+    providerVideoId: '1167975282',
+    module: 'Module 1',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 30,
+  },
+  {
+    providerVideoId: '1167975174',
+    module: 'Module 1',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 29,
+  },
+  {
+    providerVideoId: '1175315498',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 10,
+  },
+  {
+    providerVideoId: '1175315519',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 17,
+  },
+  {
+    providerVideoId: '1175315551',
+    module: 'Module 2',
+    trackId: 'cleaning-maintenance',
+    operatorPriority: 12,
+  },
+  {
+    providerVideoId: '1175315622',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 21,
+  },
+  {
+    providerVideoId: '1175315691',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 22,
+  },
+  {
+    providerVideoId: '1175315929',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 11,
+  },
+  {
+    providerVideoId: '1175316108',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 20,
+  },
+  {
+    providerVideoId: '1175316237',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 12,
+  },
+  {
+    providerVideoId: '1175314752',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 13,
+  },
+  {
+    providerVideoId: '1175314839',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 14,
+  },
+  {
+    providerVideoId: '1175314915',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 15,
+  },
+  {
+    providerVideoId: '1175314980',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 16,
+  },
+  {
+    providerVideoId: '1175315091',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 18,
+  },
+  {
+    providerVideoId: '1175315143',
+    module: 'Module 2',
+    trackId: 'troubleshooting-repair',
+    operatorPriority: 19,
+  },
+  {
+    providerVideoId: '1175315173',
+    module: 'Module 2',
+    trackId: 'cleaning-maintenance',
+    operatorPriority: 8,
+  },
+  {
+    providerVideoId: '1175315261',
+    module: 'Module 2',
+    trackId: 'cleaning-maintenance',
+    operatorPriority: 9,
+  },
+  {
+    providerVideoId: '1175315286',
+    module: 'Module 2',
+    trackId: 'cleaning-maintenance',
+    operatorPriority: 10,
+  },
+  {
+    providerVideoId: '1175315359',
+    module: 'Module 2',
+    trackId: 'cleaning-maintenance',
+    operatorPriority: 11,
+  },
+  {
+    providerVideoId: '1175315442',
+    module: 'Module 2',
+    trackId: 'cleaning-maintenance',
+    operatorPriority: 10,
+  },
+  {
+    providerVideoId: '1175306907',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 15,
+  },
+  {
+    providerVideoId: '1175306920',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 18,
+  },
+  {
+    providerVideoId: '1175306956',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 16,
+  },
+  {
+    providerVideoId: '1175307119',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 17,
+  },
+  {
+    providerVideoId: '1175307300',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 14,
+  },
+  {
+    providerVideoId: '1175303461',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 19,
+  },
+  {
+    providerVideoId: '1175303698',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 22,
+  },
+  {
+    providerVideoId: '1175304102',
+    module: 'Module 3',
+    trackId: 'cleaning-maintenance',
+    operatorPriority: 14,
+  },
+  {
+    providerVideoId: '1175304563',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 23,
+  },
+  {
+    providerVideoId: '1175304720',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 24,
+  },
+  {
+    providerVideoId: '1175305061',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 20,
+  },
+  {
+    providerVideoId: '1175305157',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 21,
+  },
+  {
+    providerVideoId: '1175305273',
+    module: 'Module 3',
+    trackId: 'build-assembly',
     operatorPriority: 25,
   },
   {
-    match: { providerVideoId: '1167975282' },
+    providerVideoId: '1175305831',
+    module: 'Module 3',
     trackId: 'build-assembly',
     operatorPriority: 26,
   },
   {
-    match: { providerVideoId: '1167975174' },
-    trackId: 'troubleshooting-repair',
+    providerVideoId: '1175305908',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 27,
+  },
+  {
+    providerVideoId: '1175305961',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 28,
+  },
+  {
+    providerVideoId: '1175306024',
+    module: 'Module 3',
+    trackId: 'build-assembly',
     operatorPriority: 29,
   },
+  {
+    providerVideoId: '1175306112',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 30,
+  },
+  {
+    providerVideoId: '1175306158',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 31,
+  },
+  {
+    providerVideoId: '1175306226',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 32,
+  },
+  {
+    providerVideoId: '1175306298',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 33,
+  },
+  {
+    providerVideoId: '1175306341',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 34,
+  },
+  {
+    providerVideoId: '1175306371',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 35,
+  },
+  {
+    providerVideoId: '1175306403',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 36,
+  },
+  {
+    providerVideoId: '1175306469',
+    module: 'Module 3',
+    trackId: 'build-assembly',
+    operatorPriority: 37,
+  },
+].map(({ providerVideoId, ...entry }) => ({
+  match: { providerVideoId },
+  ...entry,
+}));
+
+export const trainingCatalogManifest = [
+  ...baseTrainingCatalogManifest,
+  ...mg320VimeoCatalogManifest,
 ];
+
+const canonicalTrainingVideoIdSet = new Set(
+  mg320VimeoCatalogManifest.map((entry) => String(entry.match.providerVideoId).trim())
+);
 
 const keywordGroups = {
   'build-assembly': [
@@ -240,15 +551,14 @@ const keywordGroups = {
     'remove',
     'replace',
     'reinstall',
-    'module',
+    'service access',
     'validator',
     'cash dispenser',
     'remote module',
     'wire rope',
     'door assembly',
-    'motor',
     'plc',
-    'driver',
+    'driver board',
     'touchscreen',
     'power supply',
   ],
@@ -359,6 +669,10 @@ export function getTrainingTrackDefinition(trackId) {
   return trainingCatalogTrackDefinitions.find((track) => track.id === trackId);
 }
 
+export function isCanonicalTrainingVideoId(providerVideoId) {
+  return canonicalTrainingVideoIdSet.has(String(providerVideoId ?? '').trim());
+}
+
 function findManifestEntry({ id, providerVideoId, title }) {
   const normalizedId = normalizeValue(id);
   const normalizedProviderVideoId = normalizeValue(providerVideoId);
@@ -400,11 +714,11 @@ function getDerivedTrackId({ title, tags, format, hasDocument }) {
   }
 
   const orderedTrackIds = [
-    'build-assembly',
     'troubleshooting-repair',
     'cleaning-maintenance',
     'software-payments',
     'daily-operation',
+    'build-assembly',
     'reference',
   ];
 
