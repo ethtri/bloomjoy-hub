@@ -7,7 +7,17 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Next P0 milestones
-- Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
+- Merge/reconcile the open docs/auth slices in PRs `#112` and `#113`, which both overlap `Docs/CURRENT_STATUS.md`, then re-run launch verification notes on `main`.
+- Owner-controlled production auth/email execution remains the main launch blocker after repo-side work.
+
+## Training library operations snapshot (2026-03-19)
+- Vimeo now has Module 1, Module 2, and Module 3 uploads organized in folders, and the current 71-video library has normalized titles, descriptions, and tags.
+- Transcript inventory review is complete for the canonical library set:
+  - 61 canonical videos after collapsing duplicate titles to the newest upload.
+  - 13 canonical videos already have English auto-captions.
+  - 37 canonical videos currently have Chinese auto-captions.
+  - 11 canonical videos currently have no text tracks.
+- New follow-up issue opened and added to the GitHub project board: `#115` (P2) for English transcript rollout using Vimeo text tracks where possible, OpenAI + local `ffmpeg` for gaps, and a review gate before upload.
 
 ## Session closeout snapshot (2026-03-10)
 - PR `#108` merged: WeCom internal-alert POC is now wired server-side for quote/order/support events with non-blocking failure handling.
@@ -101,9 +111,10 @@ Execution order is based on launch risk and dependency overlap.
 - Provision and configure Resend SMTP for production auth emails per decision `2026-03-02` in `Docs/DECISIONS.md` (`#77`).
 - Complete launch evidence and approvals in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 - Enable Supabase Custom Domain add-on for project `ygbzkgxktzqsiygjlqyg` to unblock `auth.bloomjoyusa.com` cutover (required for issue `#78`).
-- Upload Module 2 and Module 3 Vimeo videos when ready and extend `trainings` + `training_assets` with the same seeded pattern used for Module 1.
-- Add Vimeo tags for Module 2/3 as content is uploaded so the new module-filter UX can segment beyond Module 1.
+- Seed the uploaded Module 2 and Module 3 Vimeo videos into `trainings` + `training_assets` using the same pattern already used for Module 1.
+- Add/confirm Vimeo `Module 2` and `Module 3` tags before cross-module portal validation so the existing module-filter UX has canonical taxonomy beyond Module 1.
 - Execute issue `#110` to operationalize WeCom alert monitoring and WeChat onboarding concierge process ownership (referral buddy roster + SLA + weekly reliability snapshot).
+- Execute issue `#115` when an `OPENAI_API_KEY` and local `ffmpeg` are available, then review English VTT drafts before uploading them to canonical Vimeo videos.
 
 ## Upcoming scope clarification (next sprint)
 - Super-admin requirements and role model are complete for MVP scope (`#37` with implementation slices `#44`-`#48` delivered in PR `#55`).
@@ -162,6 +173,7 @@ Execution order is based on launch risk and dependency overlap.
 - Training detail clarity hardening (`#91`): renamed and clarified post-video sections with helper copy plus explicit empty-state fallbacks for learning outcomes/checklist/resources.
 - Training taxonomy hardening (`#90`): training catalog now supports module-specific filtering/grouping (for example `Module 1/2/3`) and includes an operations script to enforce Vimeo tags (`scripts/vimeo-ensure-tag.mjs`).
 - Vimeo operations update (`#90`): current Vimeo library was normalized so all 17 uploaded videos are tagged `Module 1`.
+- Vimeo library ops update (`2026-03-19`): Module 1/2/3 uploads now have normalized titles, descriptions, and operational tags across the 71-video Vimeo library, and transcript planning is now scoped to 61 canonical titles.
 - SEO hardening: added route-level page metadata management (title/description/canonical/OG) and private-route `noindex` handling plus robots disallows for auth/admin/portal paths.
 - SEO crawlability hardening (`2026-03-09`): added Vercel SPA fallback routing (`vercel.json`) so direct loads for public routes do not 404 at the edge, added `public/sitemap.xml` for indexable public URLs, and linked sitemap in `public/robots.txt`.
 - SEO prerender hardening (`2026-03-09`): build now generates static route HTML for public marketing/legal paths with route-specific title/description/canonical/OG metadata before JS executes; known auth/admin/portal paths are also emitted with static `noindex` metadata.
@@ -182,8 +194,9 @@ Execution order is based on launch risk and dependency overlap.
 - WeCom alert dispatch reliability now depends on owner-managed function secrets and app visibility scope (`WECOM_CORP_ID`, `WECOM_AGENT_ID`, `WECOM_AGENT_SECRET`, `WECOM_ALERT_TO_USERIDS`).
 - WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.
-- Vimeo Module 1 is live; Modules 2/3 are pending upload/seed.
-- Module taxonomy UX is implemented, but cross-module validation is pending until Module 2/3 videos are uploaded/tagged.
+- Vimeo folders now contain Module 1/2/3 uploads, but Modules 2/3 are still pending Supabase seed + portal integration.
+- Module taxonomy UX is implemented, but cross-module validation still depends on confirming Module 2/3 Vimeo tags during seeding.
+- English transcript rollout is intentionally deferred to issue `#115` and depends on an `OPENAI_API_KEY`, local `ffmpeg`, and review of generated English caption drafts.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 - Apex host canonicalization currently returns `307` (`https://bloomjoyusa.com` -> `https://www.bloomjoyusa.com/`) instead of preferred permanent redirect behavior.
 

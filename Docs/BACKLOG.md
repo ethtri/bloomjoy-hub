@@ -88,3 +88,9 @@ Guidelines:
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.
+
+27. **Roll out English transcripts for the Vimeo training library** (`#115`)
+   - Treat the newest copy of each duplicate Vimeo title as the canonical transcript target.
+   - Preserve bilingual access for Chinese-audio videos by keeping Chinese tracks and adding English.
+   - Reuse Vimeo auto-captions where possible and use OpenAI + local `ffmpeg` only for translation/transcription gaps.
+   - Dependency: normalized Vimeo metadata is complete; execution still needs an `OPENAI_API_KEY`, local `ffmpeg`, and a draft-review pass before upload.
