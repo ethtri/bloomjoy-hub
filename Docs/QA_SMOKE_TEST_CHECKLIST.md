@@ -61,6 +61,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Password sign-in works for an existing email/password user
 - [ ] Forgot-password flow sends reset email and `/reset-password` successfully updates password
 - [ ] Google sign-in works when Supabase Google provider is enabled
+- [ ] Google sign-in returns to the app host `/portal` route (for production: `https://www.bloomjoyusa.com/portal`, not `http://localhost:3000`)
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
 - [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
