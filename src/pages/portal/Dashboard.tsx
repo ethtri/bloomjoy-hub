@@ -14,6 +14,12 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { trackEvent } from '@/lib/analytics';
 import { getOnboardingProgress } from '@/lib/onboardingChecklist';
+import {
+  bindTracksToLibrary,
+  useTrainingLibrary,
+  useTrainingProgress,
+  useTrainingTracks,
+} from '@/lib/trainingRepository';
 
 const quickActions = [
   {
@@ -49,6 +55,9 @@ const quickActions = [
 export default function PortalDashboard() {
   const { user, isMember, signOut } = useAuth();
   const onboardingProgress = getOnboardingProgress(user?.email);
+  const { data: library = [] } = useTrainingLibrary(isMember);
+  const { data: trackDefinitions = [] } = useTrainingTracks(isMember);
+  const { data: trainingProgress = [] } = useTrainingProgress(user?.id, isMember);
 
   useEffect(() => {
     trackEvent('view_dashboard');
@@ -57,6 +66,33 @@ export default function PortalDashboard() {
   const handleReorderSugar = () => {
     trackEvent('reorder_sugar_click');
   };
+
+  const hydratedTracks = bindTracksToLibrary(trackDefinitions, library);
+  const operatorTrack = hydratedTracks.find((track) => track.slug === 'operator-essentials');
+  const progressByTrainingId = new Map(trainingProgress.map((item) => [item.trainingId, item]));
+  const continueLearningItem =
+    operatorTrack?.items.find(
+      (item) =>
+        item.training &&
+        progressByTrainingId.get(item.trainingId)?.startedAt &&
+        !progressByTrainingId.get(item.trainingId)?.completedAt
+    )?.training ??
+    operatorTrack?.items.find((item) => item.training && !progressByTrainingId.get(item.trainingId)?.completedAt)
+      ?.training;
+  const requiredTrackItems = operatorTrack?.items.filter((item) => item.required) ?? [];
+  const completedRequiredCount = requiredTrackItems.filter((item) =>
+    progressByTrainingId.get(item.trainingId)?.completedAt
+  ).length;
+  const trainingRecommendations =
+    operatorTrack?.items
+      .filter((item) => item.training && !progressByTrainingId.get(item.trainingId)?.completedAt)
+      .slice(0, 3)
+      .map((item) => item.training!) ??
+    operatorTrack?.items
+      .filter((item) => item.training)
+      .slice(0, 3)
+      .map((item) => item.training!) ??
+    [];
 
   if (!user) return null;
 
@@ -160,29 +196,70 @@ export default function PortalDashboard() {
           <div className="mt-12">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-xl font-semibold text-foreground">
-                Recent Training
+                Training
               </h2>
               <Link
                 to="/portal/training"
                 className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"
               >
-                View library
+                Open training hub
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {[
-                { title: 'Machine Setup Basics', duration: '12 min' },
-                { title: 'Sugar Loading Best Practices', duration: '8 min' },
-                { title: 'Troubleshooting Common Issues', duration: '15 min' },
-              ].map((video) => (
-                <div key={video.title} className="card-elevated p-4">
-                  <div className="aspect-video rounded-lg bg-muted" />
-                  <h4 className="mt-3 font-medium text-foreground">{video.title}</h4>
-                  <p className="text-sm text-muted-foreground">{video.duration}</p>
+            {!isMember ? (
+              <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-5">
+                <p className="font-semibold text-foreground">Training unlocks with Bloomjoy Plus</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Plus members get the operator training hub, setup guides, maintenance checklists,
+                  and the Bloomjoy Operator Essentials certificate path.
+                </p>
+                <Link to="/plus" className="mt-4 inline-flex text-sm font-medium text-primary hover:underline">
+                  Explore Bloomjoy Plus
+                </Link>
+              </div>
+            ) : (
+              <>
+                <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr,1fr]">
+                  <div className="card-elevated p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                      Continue learning
+                    </p>
+                    <h3 className="mt-2 font-display text-xl font-semibold text-foreground">
+                      {continueLearningItem?.title ?? 'Operator Essentials'}
+                    </h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {continueLearningItem?.description ??
+                        'Start or continue the Operator Essentials path to cover setup, daily operation, cleaning, and troubleshooting.'}
+                    </p>
+                    <div className="mt-4 rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                      {completedRequiredCount}/{requiredTrackItems.length || 0} required items complete
+                    </div>
+                    <Link to={continueLearningItem ? `/portal/training/${continueLearningItem.id}` : '/portal/training'}>
+                      <Button className="mt-4">
+                        {continueLearningItem ? 'Resume training' : 'Open training hub'}
+                      </Button>
+                    </Link>
+                  </div>
+                  <div className="card-elevated p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                      Recommended next
+                    </p>
+                    <div className="mt-3 space-y-3">
+                      {trainingRecommendations.map((item) => (
+                        <Link
+                          key={item.id}
+                          to={`/portal/training/${item.id}`}
+                          className="block rounded-xl border border-border p-3 transition hover:border-primary/30 hover:bg-muted/30"
+                        >
+                          <p className="font-medium text-foreground">{item.title}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{item.taskCategory}</p>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         </div>
       </section>

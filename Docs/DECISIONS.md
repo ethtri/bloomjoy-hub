@@ -218,3 +218,24 @@ To reduce WeChat onboarding friction, we will treat onboarding blockers as a fir
 - Keeps portal intake simple while giving ops consistent triage data.
 - Avoids one-off DM triage by standardizing onboarding requests in existing support queue tooling.
 - Preserves backward compatibility with existing support request status/priority/admin-audit flows.
+
+## 2026-03-19 - Training tracks, progress, and lightweight completion certificate
+To improve training findability without introducing a full LMS, we will expand the member training experience with curated tracks, server-backed progress, and one lightweight completion certificate.
+
+**Canonical choices**
+- Organize discovery around operator tasks first (`Start Here`, `Software & Payments`, `Daily Operation`, `Cleaning & Maintenance`, `Troubleshooting`) while keeping module tags available.
+- Keep using the existing `trainings` and `training_assets` tables as the content foundation.
+- Add `training_tracks`, `training_track_items`, `training_progress`, and `training_certifications` for curated paths, persisted completion, and certificate issuance.
+- Keep full training documents member-only in a private Supabase Storage bucket (`training-documents`) when original PDFs are uploaded.
+- Support exactly one v1 certificate: **Bloomjoy Operator Essentials**.
+
+**Why this choice**
+- Makes training easier to find by intent instead of forcing users to remember module numbers.
+- Preserves the existing Vimeo + Supabase architecture and avoids an LMS rewrite.
+- Gives Bloomjoy a completion signal and certificate path without adding quiz or manual-review complexity.
+- Keeps protected training documents behind the same membership model as the rest of the portal.
+
+**Implementation notes**
+- Document-first guides can ship immediately from curated in-app content while original PDFs are uploaded separately through the operations helper script.
+- Certificate issuance is validated server-side via Supabase RPC after all required track items are marked complete and the final acknowledgement is confirmed.
+- This is intentionally a lightweight completion credential, not a quiz-based certification system.
