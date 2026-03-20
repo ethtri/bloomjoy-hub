@@ -30,9 +30,11 @@ export type TrainingFormat = 'video' | 'guide' | 'checklist' | 'reference' | 'mi
 
 export interface TrainingContent {
   id: string;
+  fallbackContentId?: string;
   title: string;
   description: string;
   thumbnailUrl?: string;
+  providerVideoId?: string;
   duration: string;
   tags: string[];
   level: 'Beginner' | 'Intermediate' | 'Advanced';
@@ -41,6 +43,12 @@ export interface TrainingContent {
   checklist: string[];
   searchTerms: string[];
   taskCategory: string;
+  catalogTrackId?: string;
+  moduleLabel?: string;
+  featuredOrder?: number;
+  isStartHere?: boolean;
+  operatorPriority?: number;
+  catalogSource?: 'manifest' | 'derived';
   audience: string;
   format: TrainingFormat;
   embed: {

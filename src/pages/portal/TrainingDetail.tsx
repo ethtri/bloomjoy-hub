@@ -14,6 +14,7 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { trackEvent } from '@/lib/analytics';
+import { getTrainingDisplayTags } from '@/lib/trainingCatalog';
 import {
   useSaveTrainingProgress,
   useTrainingLibrary,
@@ -96,6 +97,7 @@ export default function TrainingDetailPage() {
 
   const learningPoints = trainingItem.learningPoints.filter((point) => point.trim().length > 0);
   const checklistItems = trainingItem.checklist.filter((item) => item.trim().length > 0);
+  const detailTags = getTrainingDisplayTags(trainingItem, 6);
   const related = library
     .filter((item) => item.id !== trainingItem.id)
     .sort((left, right) => {
@@ -105,6 +107,12 @@ export default function TrainingDetailPage() {
 
       if (right.taskCategory === trainingItem.taskCategory && left.taskCategory !== trainingItem.taskCategory) {
         return 1;
+      }
+
+      const leftPriority = left.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+      const rightPriority = right.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
       }
 
       return left.title.localeCompare(right.title);
@@ -164,7 +172,9 @@ export default function TrainingDetailPage() {
           <div className="mt-6 grid gap-8 lg:grid-cols-[2fr,1fr]">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                {trainingItem.tags.map((tag) => (
+                <Badge variant="secondary">{trainingItem.taskCategory}</Badge>
+                {trainingItem.moduleLabel && <Badge variant="secondary">{trainingItem.moduleLabel}</Badge>}
+                {detailTags.map((tag) => (
                   <Badge key={tag} variant="secondary">
                     {tag}
                   </Badge>

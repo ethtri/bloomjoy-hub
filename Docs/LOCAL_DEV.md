@@ -71,6 +71,22 @@ Notes:
 - Script is idempotent and skips videos that already have the target tag.
 - Current helper targets all videos visible to the authenticated Vimeo account (`/me/videos`).
 
+## Vimeo catalog sync (operations helper)
+Use this when Vimeo uploads already exist but are not discoverable in the portal because Supabase catalog rows are missing or stale.
+
+1) Ensure your local env includes:
+   - `VIMEO_ACCESS_TOKEN`
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Audit without writing:
+   - `node scripts/sync-vimeo-training-catalog.mjs --dry-run`
+3) Upsert missing rows and refresh existing Vimeo-backed entries:
+   - `node scripts/sync-vimeo-training-catalog.mjs`
+
+Notes:
+- The script flags unmapped uploads, duplicate catalog rows, stale Vimeo references, and uploads missing module labels.
+- Vimeo remains the media host, but Supabase `trainings` + `training_assets` stay the portal source of truth.
+
 ## Supabase auth setup (password + Google + magic link)
 To use all login methods in local dev:
 1) Open Supabase Dashboard -> Authentication -> Providers.

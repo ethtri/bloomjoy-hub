@@ -78,9 +78,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
 - [ ] Training catalog shows `Data source: Supabase` in local dev after auth/session settles
-- [ ] Training hub shows an operator-first `Start Here` section and an `Operator Essentials` track card
-- [ ] Training hub supports task filters (`Start Here`, `Software & Payments`, `Daily Operation`, `Cleaning & Maintenance`, `Troubleshooting`) plus format filters
-- [ ] Training catalog supports module tag filtering/grouping (for example, Module 1/2/3) when tagged rows exist
+- [ ] Training hub hero makes the next action obvious (`Resume learning` or `Open start path`) without requiring deep scrolling
+- [ ] Training hub shows an operator-first `Start Here` sequence plus task-based jump cards for `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`, `Build / Assembly`, and `Reference`
+- [ ] Training hub keeps advanced filters hidden behind `More filters` by default and does not expose an `Unassigned` section anywhere in the library
+- [ ] Training catalog supports supportive module filtering only when all visible catalog rows have module labels; otherwise module controls stay hidden and task navigation remains primary
 - [ ] Training search finds relevant items by PDF-derived terms such as `burner`, `Nayax`, `timer`, and `waste water`
 - [ ] Training catalog cards render thumbnail images for Vimeo-backed rows from first-party URLs (`training_assets.meta.thumbnail_url`) with no `vumbnail.com` dependency
 - [ ] Training hub cards show live progress state (`In progress` / `Completed`) after training progress rows exist
@@ -91,8 +92,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training detail sections below video/guide ("What you will learn", "Checklist", "Resources") have clear purpose and readable structure
 - [ ] Training resource cards expose real actions (`Open guide`, `Watch video`, `Go to support`, or `Download PDF`) instead of passive labels
 - [ ] `Mark complete` persists to `training_progress` and the item remains completed after refresh/re-login
-- [ ] Operator Essentials certificate stays locked until all required items are complete and the final acknowledgement is checked
+- [ ] Operator Essentials certificate appears as a secondary section below the main library and stays locked until all required items are complete and the final acknowledgement is checked
 - [ ] After unlocking, the Operator Essentials certificate remains available for download on later visits
+- [ ] In local QA, when Supabase returns no live training rows, the page surfaces the internal catalog warning and points to `node scripts/sync-vimeo-training-catalog.mjs --dry-run`
 - [ ] Private training documents are not publicly reachable by direct URL when using Supabase-backed document assets
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity

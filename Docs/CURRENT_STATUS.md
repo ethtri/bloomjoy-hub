@@ -16,6 +16,11 @@
   - Added document-first training guides based on `Software setup.pdf` and `Cotton Candy Maintenance Guide.pdf`, alongside the existing video library.
   - Dashboard training recommendations are now live and progress-aware instead of static placeholders.
   - Public `/plus` and `/resources` teasers now match the upgraded training promise, including the operator certificate path.
+- Training hub findability follow-up delivered on branch `codex/training-hub-ux`:
+  - Simplified `/portal/training` around one clear operator path (`Start Here`), task-based navigation, persistent search, and hidden advanced filters instead of a dense wall of equal-weight controls.
+  - Moved certificate actions into a clearly secondary section so the main learning path stays focused on getting operators to the right video or guide quickly.
+  - Added a shared training catalog manifest for curated track assignment, featured content, start-here flags, and stable fallback mapping when Vimeo titles change.
+  - Added `scripts/sync-vimeo-training-catalog.mjs` to audit Vimeo uploads against Supabase, flag unmapped/duplicate/stale rows, and upsert missing catalog entries.
 - Verification run on this branch:
   - `npm ci`
   - `npm run build`
@@ -117,8 +122,8 @@ Execution order is based on launch risk and dependency overlap.
 - Provision and configure Resend SMTP for production auth emails per decision `2026-03-02` in `Docs/DECISIONS.md` (`#77`).
 - Complete launch evidence and approvals in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 - Enable Supabase Custom Domain add-on for project `ygbzkgxktzqsiygjlqyg` to unblock `auth.bloomjoyusa.com` cutover (required for issue `#78`).
-- Upload Module 2 and Module 3 Vimeo videos when ready and extend `trainings` + `training_assets` with the same seeded pattern used for Module 1.
-- Add Vimeo tags for Module 2/3 as content is uploaded so the new module-filter UX can segment beyond Module 1.
+- Run `node scripts/sync-vimeo-training-catalog.mjs --dry-run` against the target environment, review unmapped/duplicate/stale output, then run without `--dry-run` to catalog uploaded Vimeo videos into Supabase.
+- Add or normalize Vimeo module tags for Module 2/3 so the supportive module filter can be enabled consistently once taxonomy is complete.
 - Upload the original training PDFs into the private `training-documents` bucket with `npm run training:upload-docs` once the target Supabase environment is ready.
 - Execute issue `#110` to operationalize WeCom alert monitoring and WeChat onboarding concierge process ownership (referral buddy roster + SLA + weekly reliability snapshot).
 
@@ -180,6 +185,7 @@ Execution order is based on launch risk and dependency overlap.
 - Training taxonomy hardening (`#90`): training catalog now supports module-specific filtering/grouping (for example `Module 1/2/3`) and includes an operations script to enforce Vimeo tags (`scripts/vimeo-ensure-tag.mjs`).
 - Vimeo operations update (`#90`): current Vimeo library was normalized so all 17 uploaded videos are tagged `Module 1`.
 - Training experience upgrade (`2026-03-19`): portal training is now task-first, includes document-first guides from the software setup and maintenance manuals, persists server-backed progress, replaces dashboard placeholders with live recommendations, and supports the lightweight `Bloomjoy Operator Essentials` completion certificate.
+- Training hub findability hardening (`2026-03-19`): `/portal/training` now prioritizes start-here guidance, task-based wayfinding, persistent search, collapsed advanced filters, and secondary certificate treatment, with a new Vimeo-to-Supabase catalog sync script for uploaded videos.
 - SEO hardening: added route-level page metadata management (title/description/canonical/OG) and private-route `noindex` handling plus robots disallows for auth/admin/portal paths.
 - SEO crawlability hardening (`2026-03-09`): added Vercel SPA fallback routing (`vercel.json`) so direct loads for public routes do not 404 at the edge, added `public/sitemap.xml` for indexable public URLs, and linked sitemap in `public/robots.txt`.
 - SEO prerender hardening (`2026-03-09`): build now generates static route HTML for public marketing/legal paths with route-specific title/description/canonical/OG metadata before JS executes; known auth/admin/portal paths are also emitted with static `noindex` metadata.
@@ -200,8 +206,8 @@ Execution order is based on launch risk and dependency overlap.
 - WeCom alert dispatch reliability now depends on owner-managed function secrets and app visibility scope (`WECOM_CORP_ID`, `WECOM_AGENT_ID`, `WECOM_AGENT_SECRET`, `WECOM_ALERT_TO_USERIDS`).
 - WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.
-- Vimeo Module 1 is live; Modules 2/3 are pending upload/seed.
-- Module taxonomy UX is implemented, but cross-module validation is pending until Module 2/3 videos are uploaded/tagged.
+- Additional Vimeo uploads may exist before the portal catalog is synced; uploaded videos are not discoverable until `trainings` and `training_assets` are populated in Supabase.
+- Module taxonomy UX is implemented, but supportive module filtering remains hidden until cataloged training rows have complete module labels.
 - Original PDF binaries still need to be uploaded to the private `training-documents` bucket for signed-link delivery in Supabase-backed environments.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 - Apex host canonicalization currently returns `307` (`https://bloomjoyusa.com` -> `https://www.bloomjoyusa.com/`) instead of preferred permanent redirect behavior.

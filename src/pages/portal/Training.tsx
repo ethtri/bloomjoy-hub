@@ -1,13 +1,39 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Award, CheckCircle2, Clock, FileText, Play, Search, Wrench } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  ArrowRight,
+  Award,
+  BookOpen,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  CreditCard,
+  Play,
+  PlayCircle,
+  Search,
+  Sparkles,
+  TriangleAlert,
+  Wrench,
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { downloadTrainingCertificateSvg } from '@/lib/trainingCertificate';
 import { trackEvent } from '@/lib/analytics';
+import {
+  getTrainingDisplayTags,
+  getTrainingTrackDefinition,
+  getTrainingTrackDefinitions,
+  stripInternalTrainingTags,
+} from '@/lib/trainingCatalog';
 import {
   bindTracksToLibrary,
   useIssueTrainingCertificate,
@@ -18,104 +44,102 @@ import {
   useTrainingTracks,
 } from '@/lib/trainingRepository';
 import type { TrainingContent } from '@/lib/trainingTypes';
-import { getTrainingTags } from '@/data/trainingContent';
 import { toast } from 'sonner';
 
 const MODULE_TAG_PATTERN = /^module\s+(\d+)$/i;
-const TASK_PREFIX = 'Task: ';
-const FORMAT_PREFIX = 'Format: ';
-const AUDIENCE_PREFIX = 'Audience: ';
+const PLACEHOLDER_THUMBNAIL_URL = '/placeholder.svg';
 
-const normalizeModuleTag = (tag: string) => {
-  const trimmed = tag.trim();
-  const match = trimmed.match(MODULE_TAG_PATTERN);
-  if (!match) {
-    return trimmed;
-  }
-
-  return `Module ${match[1]}`;
+const trackIconMap: Record<string, LucideIcon> = {
+  'start-here': Sparkles,
+  'daily-operation': PlayCircle,
+  'cleaning-maintenance': CheckCircle2,
+  'software-payments': CreditCard,
+  'troubleshooting-repair': TriangleAlert,
+  'build-assembly': Wrench,
+  reference: BookOpen,
 };
 
-const getModuleNumber = (tag: string) => {
-  const match = tag.match(MODULE_TAG_PATTERN);
-  if (!match) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-
-  return Number.parseInt(match[1], 10);
-};
-
-const extractModuleTag = (tags: string[]) => {
-  const moduleTag = tags.find((tag) => MODULE_TAG_PATTERN.test(tag.trim()));
-  return moduleTag ? normalizeModuleTag(moduleTag) : undefined;
-};
-
-const extractPrefixedTags = (tags: string[], prefix: string) =>
-  tags
-    .filter((tag) => tag.startsWith(prefix))
-    .map((tag) => tag.slice(prefix.length).trim())
-    .filter((tag) => tag.length > 0);
-
-const getTaskCategories = (item: TrainingContent) => {
-  const taskTags = extractPrefixedTags(item.tags, TASK_PREFIX);
-  return taskTags.length > 0 ? taskTags : [item.taskCategory];
+const getModuleNumber = (moduleLabel?: string) => {
+  const match = moduleLabel?.match(MODULE_TAG_PATTERN);
+  return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
 };
 
 const getFormatLabel = (item: TrainingContent) => {
-  const formatTag = extractPrefixedTags(item.tags, FORMAT_PREFIX)[0];
-  if (formatTag) {
-    return formatTag;
-  }
-
-  switch (item.format) {
-    case 'video':
-      return 'Video';
-    case 'checklist':
-      return 'Checklist';
-    case 'reference':
-      return 'Reference';
-    default:
-      return 'Guide';
-  }
-};
-
-const getTopicTags = (items: TrainingContent[]) =>
-  getTrainingTags(items)
-    .filter(
-      (tag) =>
-        !MODULE_TAG_PATTERN.test(tag.trim()) &&
-        !tag.startsWith(TASK_PREFIX) &&
-        !tag.startsWith(FORMAT_PREFIX) &&
-        !tag.startsWith(AUDIENCE_PREFIX)
-    )
-    .sort((left, right) => left.localeCompare(right));
-
-const getCardActionLabel = (item: TrainingContent) =>
-  item.format === 'video' ? 'Watch video' : item.format === 'reference' ? 'Open manual' : 'Open guide';
-
-const getCardIcon = (item: TrainingContent) => {
   if (item.format === 'video') {
-    return Play;
+    return 'Video';
   }
 
   if (item.format === 'checklist') {
-    return CheckCircle2;
+    return 'Checklist';
   }
 
   if (item.format === 'reference') {
-    return Wrench;
+    return 'Reference';
   }
 
-  return FileText;
+  if (item.format === 'mixed') {
+    return 'Mixed';
+  }
+
+  return 'Guide';
+};
+
+const getActionLabel = (item: TrainingContent) => {
+  if (item.format === 'video') {
+    return 'Watch video';
+  }
+
+  if (item.format === 'reference') {
+    return 'Open manual';
+  }
+
+  if (item.format === 'checklist') {
+    return 'Open checklist';
+  }
+
+  return 'Open guide';
+};
+
+const getSearchableText = (content: TrainingContent) =>
+  [
+    content.title,
+    content.description,
+    content.summary,
+    content.taskCategory,
+    content.moduleLabel,
+    ...content.tags,
+    ...content.searchTerms,
+    ...content.resources.map((resource) => resource.title),
+    ...content.resources.map((resource) => resource.description),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+const sortTrainingItems = (left: TrainingContent, right: TrainingContent) => {
+  const leftFeatured = left.featuredOrder ?? Number.MAX_SAFE_INTEGER;
+  const rightFeatured = right.featuredOrder ?? Number.MAX_SAFE_INTEGER;
+  if (leftFeatured !== rightFeatured) {
+    return leftFeatured - rightFeatured;
+  }
+
+  const leftPriority = left.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+  const rightPriority = right.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+  if (leftPriority !== rightPriority) {
+    return leftPriority - rightPriority;
+  }
+
+  return left.title.localeCompare(right.title);
 };
 
 export default function TrainingPage() {
   const { user, isMember } = useAuth();
   const [search, setSearch] = useState('');
+  const [selectedTrack, setSelectedTrack] = useState('all');
   const [selectedTopicTags, setSelectedTopicTags] = useState<string[]>([]);
-  const [selectedModule, setSelectedModule] = useState<string>('All modules');
-  const [selectedTask, setSelectedTask] = useState<string>('All tasks');
-  const [selectedFormat, setSelectedFormat] = useState<string>('All formats');
+  const [selectedModule, setSelectedModule] = useState('All modules');
+  const [selectedFormat, setSelectedFormat] = useState('All formats');
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [finalAcknowledgement, setFinalAcknowledgement] = useState(false);
   const { data: library = [], isLoading } = useTrainingLibrary();
   const { data: trackDefinitions = [] } = useTrainingTracks();
@@ -151,66 +175,78 @@ export default function TrainingPage() {
     )?.training ??
     operatorTrack?.items.find((item) => item.training && !progressByTrainingId.get(item.trainingId)?.completedAt)
       ?.training;
-  const startHereItems = library.filter((item) => item.taskCategory === 'Start Here').slice(0, 3);
-
-  const moduleFilters = [...new Set(library.map((item) => extractModuleTag(item.tags)).filter(Boolean))]
-    .map((tag) => String(tag))
-    .sort((left, right) => getModuleNumber(left) - getModuleNumber(right));
-  const taskFilters = [...new Set(library.flatMap(getTaskCategories))].sort((left, right) =>
-    left.localeCompare(right)
+  const startHereSequence =
+    operatorTrack?.items
+      .map((item) => item.training)
+      .filter((item): item is TrainingContent => Boolean(item))
+      .slice(0, 4) ??
+    [...library]
+      .filter((item) => item.isStartHere)
+      .sort(sortTrainingItems)
+      .slice(0, 4);
+  const recommendedStartingItem = continueLearningItem ?? startHereSequence[0];
+  const trackDefinitionsForNavigation = getTrainingTrackDefinitions().filter(
+    (track) => track.id !== 'start-here'
   );
+  const moduleFilters = [...new Set(library.map((item) => item.moduleLabel).filter(Boolean))]
+    .map((item) => String(item))
+    .sort((left, right) => getModuleNumber(left) - getModuleNumber(right));
+  const supportsModuleFilter =
+    moduleFilters.length > 1 && library.every((item) => Boolean(item.moduleLabel));
   const formatFilters = [...new Set(library.map(getFormatLabel))].sort((left, right) =>
     left.localeCompare(right)
   );
-  const topicTags = getTopicTags(library);
-
-  const filteredContent = library.filter((content) => {
-    const haystack = [
-      content.title,
-      content.description,
-      content.summary,
-      ...content.tags,
-      ...content.searchTerms,
-      ...content.resources.map((resource) => resource.title),
-      ...content.resources.map((resource) => resource.description),
-    ]
-      .join(' ')
-      .toLowerCase();
-    const matchesSearch = haystack.includes(search.trim().toLowerCase());
-    const contentModuleTag = extractModuleTag(content.tags);
-    const matchesModule = selectedModule === 'All modules' || contentModuleTag === selectedModule;
-    const matchesTask =
-      selectedTask === 'All tasks' || getTaskCategories(content).includes(selectedTask);
-    const matchesFormat = selectedFormat === 'All formats' || getFormatLabel(content) === selectedFormat;
-    const matchesTags =
-      selectedTopicTags.length === 0 ||
-      selectedTopicTags.some((tag) => content.tags.includes(tag));
-
-    return matchesSearch && matchesModule && matchesTask && matchesFormat && matchesTags;
-  });
-
-  const showStartHereSection =
-    search.trim().length === 0 &&
-    selectedModule === 'All modules' &&
-    selectedTask === 'All tasks' &&
-    selectedFormat === 'All formats' &&
-    selectedTopicTags.length === 0;
-
-  const groupedContent = filteredContent
-    .filter((item) => !showStartHereSection || item.taskCategory !== 'Start Here')
-    .reduce<Record<string, TrainingContent[]>>((accumulator, item) => {
-      const key = item.taskCategory;
-      if (!accumulator[key]) {
-        accumulator[key] = [];
-      }
-
-      accumulator[key].push(item);
-      return accumulator;
-    }, {});
-
-  const groupedEntries = Object.entries(groupedContent).sort(([left], [right]) =>
-    left.localeCompare(right)
+  const topicTags = [...new Set(library.flatMap((item) => stripInternalTrainingTags(item.tags)))].sort(
+    (left, right) => left.localeCompare(right)
   );
+  const visibleTopicFilters = [
+    ...topicTags.slice(0, 16),
+    ...selectedTopicTags.filter((tag) => !topicTags.slice(0, 16).includes(tag)),
+  ];
+  const activeFilterCount =
+    (selectedModule === 'All modules' ? 0 : 1) +
+    (selectedFormat === 'All formats' ? 0 : 1) +
+    selectedTopicTags.length;
+  const filteredContent = library.filter((content) => {
+    const matchesSearch = getSearchableText(content).includes(search.trim().toLowerCase());
+    const matchesTrack = selectedTrack === 'all' || content.catalogTrackId === selectedTrack;
+    const matchesModule = selectedModule === 'All modules' || content.moduleLabel === selectedModule;
+    const matchesFormat = selectedFormat === 'All formats' || getFormatLabel(content) === selectedFormat;
+    const visibleTopicTagsForItem = stripInternalTrainingTags(content.tags);
+    const matchesTopicTags =
+      selectedTopicTags.length === 0 ||
+      selectedTopicTags.some((tag) => visibleTopicTagsForItem.includes(tag));
+
+    return matchesSearch && matchesTrack && matchesModule && matchesFormat && matchesTopicTags;
+  });
+  const showCuratedSections =
+    search.trim().length === 0 && selectedTrack === 'all' && activeFilterCount === 0;
+  const startHereIds = new Set(startHereSequence.map((item) => item.id));
+  const libraryResults = filteredContent.filter(
+    (item) => !(showCuratedSections && startHereIds.has(item.id))
+  );
+  const highlightedItems = [...filteredContent]
+    .filter((item) => !item.isStartHere && item.featuredOrder !== undefined)
+    .sort(sortTrainingItems)
+    .slice(0, 4);
+  const groupedContent = trackDefinitionsForNavigation
+    .map((trackDefinition) => ({
+      ...trackDefinition,
+      items: [...libraryResults]
+        .filter((item) => item.catalogTrackId === trackDefinition.id)
+        .sort(sortTrainingItems),
+    }))
+    .filter((trackDefinition) => trackDefinition.items.length > 0);
+  const selectedTrackDefinition =
+    selectedTrack === 'all' ? undefined : getTrainingTrackDefinition(selectedTrack);
+  const missingModuleCount = library.filter((item) => !item.moduleLabel).length;
+  const derivedMappingCount = library.filter((item) => item.catalogSource === 'derived').length;
+
+  useEffect(() => {
+    if (!supportsModuleFilter && selectedModule !== 'All modules') {
+      setSelectedModule('All modules');
+    }
+  }, [selectedModule, supportsModuleFilter]);
 
   const handleOpenItem = (content: TrainingContent) => {
     trackEvent('open_training_item', { id: content.id, title: content.title, format: content.format });
@@ -222,13 +258,19 @@ export default function TrainingPage() {
     );
   };
 
+  const resetFilters = () => {
+    setSelectedModule('All modules');
+    setSelectedFormat('All formats');
+    setSelectedTopicTags([]);
+  };
+
   const handleUnlockCertificate = async () => {
     if (!operatorTrack) {
       return;
     }
 
     if (!finalAcknowledgement) {
-      toast.error('Confirm the final safety acknowledgement before unlocking the certificate.');
+      toast.error('Confirm the safety acknowledgement before unlocking the certificate.');
       return;
     }
 
@@ -258,104 +300,575 @@ export default function TrainingPage() {
     trackEvent('training_certificate_downloaded', { track_id: issuedCertificate.trackId });
   };
 
+  const renderTrainingCard = (content: TrainingContent, options?: { showStep?: number }) => {
+    const CardIcon =
+      content.format === 'video'
+        ? Play
+        : content.format === 'reference'
+          ? BookOpen
+          : content.format === 'checklist'
+            ? CheckCircle2
+            : Wrench;
+    const progressRecord = progressByTrainingId.get(content.id);
+    const displayTags = getTrainingDisplayTags(content, 2);
+    const hasVisualThumbnail =
+      content.format === 'video' &&
+      Boolean(content.thumbnailUrl) &&
+      content.thumbnailUrl !== PLACEHOLDER_THUMBNAIL_URL;
+
+    return (
+      <Link
+        key={content.id}
+        to={`/portal/training/${content.id}`}
+        onClick={() => handleOpenItem(content)}
+        className="group overflow-hidden rounded-3xl border border-border bg-background transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-sm"
+      >
+        <div
+          className={`relative ${
+            options?.showStep ? 'aspect-[1.1/1]' : 'aspect-video'
+          } overflow-hidden border-b border-border ${
+            hasVisualThumbnail
+              ? 'bg-muted'
+              : 'bg-gradient-to-br from-cream via-background to-primary/5'
+          }`}
+        >
+          {hasVisualThumbnail && (
+            <img
+              src={content.thumbnailUrl}
+              alt=""
+              loading="lazy"
+              className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+              referrerPolicy="no-referrer"
+            />
+          )}
+          <div
+            className={`absolute inset-0 ${
+              hasVisualThumbnail
+                ? 'bg-gradient-to-t from-black/55 via-black/10 to-black/10'
+                : 'bg-gradient-to-br from-transparent via-transparent to-primary/10'
+            }`}
+          />
+          <div className="relative flex h-full flex-col justify-between p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {options?.showStep ? (
+                  <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground">
+                    Step {options.showStep}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground">
+                    {getFormatLabel(content)}
+                  </span>
+                )}
+                {content.moduleLabel && (
+                  <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    {content.moduleLabel}
+                  </span>
+                )}
+              </div>
+              {progressRecord?.completedAt ? (
+                <span className="rounded-full bg-sage-light px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sage">
+                  Complete
+                </span>
+              ) : progressRecord?.startedAt ? (
+                <span className="rounded-full bg-primary/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+                  In progress
+                </span>
+              ) : null}
+            </div>
+
+            {!hasVisualThumbnail && (
+              <div className="flex items-end justify-between gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-background/90 text-primary shadow-sm">
+                  <CardIcon className="h-6 w-6" />
+                </div>
+                <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {content.taskCategory}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {content.taskCategory}
+            </p>
+            <div className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+              <Clock className="h-4 w-4" />
+              {content.duration}
+            </div>
+          </div>
+
+          <h3 className="mt-3 text-lg font-semibold text-foreground group-hover:text-primary">
+            {content.title}
+          </h3>
+          <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
+            {content.description}
+          </p>
+
+          {displayTags.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {displayTags.map((tag) => (
+                <span
+                  key={`${content.id}-${tag}`}
+                  className="rounded-full bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-primary">
+            {getActionLabel(content)}
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          </div>
+        </div>
+      </Link>
+    );
+  };
+
   return (
     <PortalLayout>
       <section className="section-padding">
         <div className="container-page">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h1 className="font-display text-3xl font-bold text-foreground">Training Hub</h1>
-              <p className="mt-1 max-w-3xl text-muted-foreground">
-                Find the exact video, checklist, or reference guide you need for setup, daily
-                operation, cleaning, and troubleshooting.
-              </p>
-            </div>
-            {continueLearningItem && (
-              <div className="rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                  Continue learning
+          <div className="rounded-[32px] border border-primary/10 bg-gradient-to-br from-cream via-background to-primary/5 p-6 sm:p-8">
+            <div className="grid gap-8 lg:grid-cols-[1.4fr,0.9fr] lg:items-end">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
+                  Training Hub
                 </p>
-                <p className="mt-1 font-semibold text-foreground">{continueLearningItem.title}</p>
-                <Link
-                  to={`/portal/training/${continueLearningItem.id}`}
-                  className="mt-3 inline-flex items-center text-sm font-medium text-primary hover:underline"
-                >
-                  Resume module
-                </Link>
-              </div>
-            )}
-          </div>
-
-          {operatorTrack && (
-            <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr,1fr]">
-              <div className="card-elevated p-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                      Start Here
-                    </p>
-                    <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
-                      {operatorTrack.title}
-                    </h2>
-                    <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                      {operatorTrack.description}
-                    </p>
-                  </div>
-                  <div className="rounded-full bg-sage-light px-4 py-2 text-sm font-semibold text-sage">
-                    {completedRequiredCount}/{requiredTrackItems.length} required complete
-                  </div>
+                <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-foreground">
+                  Find the right training fast.
+                </h1>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
+                  This hub is organized for operators first. Start with the essentials if you are
+                  new, or jump straight to the task you need if you are solving something in the
+                  moment.
+                </p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <span className="rounded-full border border-primary/15 bg-background/80 px-4 py-2 text-sm font-medium text-foreground">
+                    {library.length} training resources
+                  </span>
+                  <span className="rounded-full border border-primary/15 bg-background/80 px-4 py-2 text-sm font-medium text-foreground">
+                    {library.filter((item) => item.format === 'video').length} videos
+                  </span>
+                  <span className="rounded-full border border-primary/15 bg-background/80 px-4 py-2 text-sm font-medium text-foreground">
+                    {trackDefinitionsForNavigation.length} task paths
+                  </span>
                 </div>
+              </div>
+
+              <div className="rounded-3xl border border-primary/10 bg-background/85 p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                  Recommended first move
+                </p>
+                <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
+                  {continueLearningItem ? 'Continue where you left off' : 'Start with operator essentials'}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {continueLearningItem
+                    ? continueLearningItem.title
+                    : 'Follow the essential setup, daily operation, and cleaning steps before digging into repairs.'}
+                </p>
                 <div className="mt-5 h-2 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full bg-primary transition-all"
                     style={{ width: `${operatorTrackProgressPercent}%` }}
                   />
                 </div>
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  {operatorTrack.items.slice(0, 4).map((item) =>
-                    item.training ? (
-                      <Link
-                        key={item.trainingId}
-                        to={`/portal/training/${item.training.id}`}
-                        className="rounded-xl border border-border p-4 transition hover:border-primary/30 hover:bg-muted/30"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-semibold text-foreground">{item.training.title}</span>
-                          {progressByTrainingId.get(item.trainingId)?.completedAt ? (
-                            <span className="rounded-full bg-sage-light px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sage">
-                              Complete
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                              Required
-                            </span>
-                          )}
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {completedRequiredCount}/{requiredTrackItems.length} required essentials complete
+                </p>
+                {recommendedStartingItem && (
+                  <Button asChild className="mt-5 w-full sm:w-auto">
+                    <Link to={`/portal/training/${recommendedStartingItem.id}`}>
+                      {continueLearningItem ? 'Resume learning' : 'Open start path'}
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {startHereSequence.length > 0 && (
+            <section className="mt-10">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                    Start Here
+                  </p>
+                  <h2 className="mt-2 font-display text-3xl font-semibold text-foreground">
+                    The quickest path for a new operator
+                  </h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    Complete these first to understand setup, safe operation, and the most common
+                    recovery steps.
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  className="w-fit px-0 text-primary hover:bg-transparent"
+                  onClick={() => setSelectedTrack('all')}
+                >
+                  Explore the full library
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+                {startHereSequence.map((item, index) => renderTrainingCard(item, { showStep: index + 1 }))}
+              </div>
+            </section>
+          )}
+
+          <section className="mt-12">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                  Jump By Task
+                </p>
+                <h2 className="mt-2 font-display text-3xl font-semibold text-foreground">
+                  Go straight to the type of help you need
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                  Use task paths for the fastest wayfinding. Search is always available when you
+                  know the symptom or topic.
+                </p>
+              </div>
+              <Button
+                variant={selectedTrack === 'all' ? 'default' : 'outline'}
+                onClick={() => setSelectedTrack('all')}
+              >
+                View all resources
+              </Button>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {trackDefinitionsForNavigation.map((trackDefinition) => {
+                const TrackIcon = trackIconMap[trackDefinition.id] ?? BookOpen;
+                const trackItems = library.filter((item) => item.catalogTrackId === trackDefinition.id);
+                const isActive = selectedTrack === trackDefinition.id;
+
+                return (
+                  <button
+                    key={trackDefinition.id}
+                    type="button"
+                    onClick={() => setSelectedTrack(trackDefinition.id)}
+                    className={`rounded-3xl border p-5 text-left transition-all ${
+                      isActive
+                        ? 'border-primary/30 bg-primary/5 shadow-sm'
+                        : 'border-border bg-background hover:border-primary/20 hover:bg-muted/20'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <TrackIcon className="h-6 w-6" />
+                      </div>
+                      <span className="rounded-full bg-muted px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        {trackItems.length} {trackItems.length === 1 ? 'resource' : 'resources'}
+                      </span>
+                    </div>
+                    <h3 className="mt-4 text-lg font-semibold text-foreground">{trackDefinition.label}</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {trackDefinition.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="mt-12">
+            <div className="flex flex-col gap-4 rounded-3xl border border-border bg-background p-5 sm:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by topic, symptom, part, or setting..."
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <Collapsible open={advancedFiltersOpen} onOpenChange={setAdvancedFiltersOpen}>
+                    <CollapsibleTrigger asChild>
+                      <Button variant="outline">
+                        More filters
+                        {activeFilterCount > 0 && (
+                          <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                            {activeFilterCount}
+                          </span>
+                        )}
+                        <ChevronDown
+                          className={`ml-2 h-4 w-4 transition-transform ${
+                            advancedFiltersOpen ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-5 border-t border-border pt-5">
+                      <div className="grid gap-6 lg:grid-cols-3">
+                        {supportsModuleFilter && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                              Module
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                onClick={() => setSelectedModule('All modules')}
+                                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                  selectedModule === 'All modules'
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                                }`}
+                              >
+                                All modules
+                              </button>
+                              {moduleFilters.map((moduleLabel) => (
+                                <button
+                                  key={moduleLabel}
+                                  onClick={() => setSelectedModule(moduleLabel)}
+                                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                    selectedModule === moduleLabel
+                                      ? 'bg-primary text-primary-foreground'
+                                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                                  }`}
+                                >
+                                  {moduleLabel}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                            Format
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              onClick={() => setSelectedFormat('All formats')}
+                              className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                selectedFormat === 'All formats'
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                              }`}
+                            >
+                              All formats
+                            </button>
+                            {formatFilters.map((formatLabel) => (
+                              <button
+                                key={formatLabel}
+                                onClick={() => setSelectedFormat(formatLabel)}
+                                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                  selectedFormat === formatLabel
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                                }`}
+                              >
+                                {formatLabel}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                        <p className="mt-2 text-sm text-muted-foreground">{item.training.description}</p>
-                      </Link>
-                    ) : null
-                  )}
+
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                            Topics
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {visibleTopicFilters.map((tag) => (
+                              <button
+                                key={tag}
+                                onClick={() => toggleTopicTag(tag)}
+                                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                  selectedTopicTags.includes(tag)
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                                }`}
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {activeFilterCount > 0 && (
+                        <Button variant="ghost" className="mt-4 px-0 text-primary" onClick={resetFilters}>
+                          Reset filters
+                        </Button>
+                      )}
+                    </CollapsibleContent>
+                  </Collapsible>
                 </div>
               </div>
 
-              <div className="card-elevated p-6">
+              {!isLoading && (
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span>
+                    Showing <span className="font-semibold text-foreground">{filteredContent.length}</span>{' '}
+                    {filteredContent.length === 1 ? 'result' : 'results'}
+                  </span>
+                  {selectedTrackDefinition && (
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                      {selectedTrackDefinition.label}
+                    </span>
+                  )}
+                  {search.trim().length > 0 && (
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                      Search: {search.trim()}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {!isLoading && import.meta.env.DEV && (
+            <div className="mt-6 rounded-3xl border border-amber/30 bg-amber/10 p-5 text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground">Internal catalog QA</p>
+              <div className="mt-2 grid gap-2">
+                <p>Data source: {source === 'supabase' ? 'Supabase catalog' : 'Local fallback content'}</p>
+                {source !== 'supabase' && (
+                  <p>
+                    Supabase did not return live training rows. If Vimeo uploads already exist,
+                    run <code className="rounded bg-background px-1.5 py-0.5">node scripts/sync-vimeo-training-catalog.mjs --dry-run</code>{' '}
+                    to audit the catalog sync gap.
+                  </p>
+                )}
+                {derivedMappingCount > 0 && (
+                  <p>
+                    {derivedMappingCount} items are using derived task mapping. Add explicit catalog
+                    manifest entries where curation needs to be tighter.
+                  </p>
+                )}
+                {missingModuleCount > 0 && (
+                  <p>
+                    {missingModuleCount} items are missing module labels, so module filtering stays
+                    hidden until taxonomy is complete.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showCuratedSections && highlightedItems.length > 0 && (
+            <section className="mt-12">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                    Featured Tasks
+                  </p>
+                  <h2 className="mt-2 font-display text-3xl font-semibold text-foreground">
+                    Common operator jobs
+                  </h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    These are the tasks most likely to unblock day-to-day operation quickly.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+                {highlightedItems.map((item) => renderTrainingCard(item))}
+              </div>
+            </section>
+          )}
+
+          <section className="mt-12">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                  Full Library
+                </p>
+                <h2 className="mt-2 font-display text-3xl font-semibold text-foreground">
+                  {selectedTrackDefinition ? selectedTrackDefinition.label : 'Browse every training resource'}
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                  {selectedTrackDefinition
+                    ? selectedTrackDefinition.description
+                    : 'Everything below is grouped by task so operators can scan quickly without getting lost.'}
+                </p>
+              </div>
+            </div>
+
+            {isLoading && (
+              <div className="mt-8 text-sm text-muted-foreground">Loading training content...</div>
+            )}
+
+            {!isLoading &&
+              groupedContent.map((trackGroup) => (
+                <section key={trackGroup.id} className="mt-8">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-display text-2xl font-semibold text-foreground">
+                        {trackGroup.label}
+                      </h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {trackGroup.description}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      {trackGroup.items.length} {trackGroup.items.length === 1 ? 'item' : 'items'}
+                    </span>
+                  </div>
+
+                  <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                    {trackGroup.items.map((item) => renderTrainingCard(item))}
+                  </div>
+                </section>
+              ))}
+
+            {!isLoading && filteredContent.length === 0 && (
+              <div className="mt-8 rounded-3xl border border-border bg-muted/20 px-6 py-10 text-center">
+                <p className="text-lg font-semibold text-foreground">No training matches this view.</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Try a simpler search, switch task paths, or clear the advanced filters to broaden
+                  the results.
+                </p>
+                <Button
+                  variant="outline"
+                  className="mt-5"
+                  onClick={() => {
+                    setSearch('');
+                    setSelectedTrack('all');
+                    resetFilters();
+                  }}
+                >
+                  Reset search and filters
+                </Button>
+              </div>
+            )}
+          </section>
+
+          {operatorTrack && (
+            <section className="mt-12 grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+              <div className="rounded-3xl border border-border bg-background p-6">
                 <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber/15">
-                    <Award className="h-5 w-5 text-amber" />
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber/15">
+                    <Award className="h-6 w-6 text-amber" />
                   </div>
                   <div>
-                    <h2 className="font-display text-xl font-semibold text-foreground">
-                      Operator Certificate
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber">
+                      Optional certificate
+                    </p>
+                    <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
+                      Operator Essentials completion
                     </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Unlock the lightweight completion certificate after every required Operator
-                      Essentials item is complete.
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Certification stays secondary to learning. Use it only after the required
+                      essentials are complete and the safety acknowledgement has been reviewed.
                     </p>
                   </div>
                 </div>
 
                 {issuedCertificate ? (
-                  <div className="mt-6 rounded-xl border border-sage/30 bg-sage-light/50 p-4">
+                  <div className="mt-6 rounded-2xl border border-sage/30 bg-sage-light/40 p-5">
                     <p className="font-semibold text-foreground">{issuedCertificate.certificateTitle}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Issued on{' '}
@@ -366,34 +879,33 @@ export default function TrainingPage() {
                       })}
                       .
                     </p>
-                    <Button className="mt-4 w-full" onClick={handleDownloadCertificate}>
+                    <Button className="mt-4" onClick={handleDownloadCertificate}>
                       Download certificate
                     </Button>
                   </div>
                 ) : (
                   <>
-                    <div className="mt-6 rounded-xl border border-border bg-muted/30 p-4">
-                      <p className="text-sm font-semibold text-foreground">
-                        Ready to unlock: {completedRequiredCount === requiredTrackItems.length ? 'Yes' : 'Not yet'}
+                    <div className="mt-6 rounded-2xl border border-border bg-muted/30 p-5">
+                      <p className="font-semibold text-foreground">
+                        Progress: {completedRequiredCount}/{requiredTrackItems.length} required complete
                       </p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Complete all required Operator Essentials items, then confirm the final
-                        acknowledgement below.
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Finish the required essentials first, then confirm the acknowledgement to unlock the certificate.
                       </p>
                     </div>
-                    <label className="mt-5 flex items-start gap-3 rounded-xl border border-border p-4">
+                    <label className="mt-5 flex items-start gap-3 rounded-2xl border border-border p-4">
                       <Checkbox
                         checked={finalAcknowledgement}
                         onCheckedChange={(checked) => setFinalAcknowledgement(Boolean(checked))}
                         className="mt-1"
                       />
-                      <span className="text-sm text-muted-foreground">
-                        I confirm that I reviewed the safety, startup, cleaning, and troubleshooting
-                        guidance and will use the documented shutdown and escalation steps.
+                      <span className="text-sm leading-6 text-muted-foreground">
+                        I reviewed the safety, startup, cleaning, and escalation guidance and will
+                        use the documented shutdown and support steps.
                       </span>
                     </label>
                     <Button
-                      className="mt-4 w-full"
+                      className="mt-4"
                       onClick={handleUnlockCertificate}
                       disabled={
                         completedRequiredCount !== requiredTrackItems.length ||
@@ -405,274 +917,29 @@ export default function TrainingPage() {
                   </>
                 )}
               </div>
-            </div>
-          )}
 
-          {showStartHereSection && startHereItems.length > 0 && (
-            <section className="mt-10">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-display text-2xl font-semibold text-foreground">Start Here</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Quick entry points for the most common first-week operator tasks.
+              <div className="rounded-3xl border border-border bg-background p-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                  Need something specific?
+                </p>
+                <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
+                  Support and next steps
+                </h2>
+                <div className="mt-5 space-y-4 text-sm leading-6 text-muted-foreground">
+                  <p>
+                    If you know the symptom, use search with terms like burner, sensor, payment,
+                    timer, or stick.
+                  </p>
+                  <p>
+                    If the resource still is not obvious, go straight to support so the team can
+                    point operators to the right module or guide.
                   </p>
                 </div>
-              </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-3">
-                {startHereItems.map((item) => {
-                  const Icon = getCardIcon(item);
-                  return (
-                    <Link
-                      key={item.id}
-                      to={`/portal/training/${item.id}`}
-                      onClick={() => handleOpenItem(item)}
-                      className="rounded-2xl border border-border bg-background p-5 transition hover:-translate-y-0.5 hover:border-primary/30"
-                    >
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
-                        <Icon className="h-5 w-5 text-primary" />
-                      </div>
-                      <h3 className="mt-4 font-semibold text-foreground">{item.title}</h3>
-                      <p className="mt-2 text-sm text-muted-foreground">{item.description}</p>
-                      <div className="mt-4 inline-flex items-center text-sm font-medium text-primary">
-                        {getCardActionLabel(item)}
-                      </div>
-                    </Link>
-                  );
-                })}
+                <Button asChild variant="outline" className="mt-6">
+                  <Link to="/portal/support">Go to support</Link>
+                </Button>
               </div>
             </section>
-          )}
-
-          <div className="mt-10 flex flex-col gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search training by task, symptom, or setting..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-4 xl:grid-cols-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Filter by task
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setSelectedTask('All tasks')}
-                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                    selectedTask === 'All tasks'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-                >
-                  All tasks
-                </button>
-                {taskFilters.map((taskLabel) => (
-                  <button
-                    key={taskLabel}
-                    onClick={() => setSelectedTask(taskLabel)}
-                    className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                      selectedTask === taskLabel
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                    }`}
-                  >
-                    {taskLabel}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Filter by format
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setSelectedFormat('All formats')}
-                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                    selectedFormat === 'All formats'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-                >
-                  All formats
-                </button>
-                {formatFilters.map((formatLabel) => (
-                  <button
-                    key={formatLabel}
-                    onClick={() => setSelectedFormat(formatLabel)}
-                    className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                      selectedFormat === formatLabel
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                    }`}
-                  >
-                    {formatLabel}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Filter by module
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setSelectedModule('All modules')}
-                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                    selectedModule === 'All modules'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-                >
-                  All modules
-                </button>
-                {moduleFilters.map((moduleTag) => (
-                  <button
-                    key={moduleTag}
-                    onClick={() => setSelectedModule(moduleTag)}
-                    className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                      selectedModule === moduleTag
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                    }`}
-                  >
-                    {moduleTag}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Topics
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {topicTags.map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => toggleTopicTag(tag)}
-                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                    selectedTopicTags.includes(tag)
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {isLoading && (
-            <div className="mt-8 text-sm text-muted-foreground">Loading training content...</div>
-          )}
-
-          {!isLoading && import.meta.env.DEV && (
-            <div className="mt-8 rounded-xl border border-border bg-muted/40 px-4 py-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-              Data source: {source === 'supabase' ? 'Supabase' : 'Local fallback'}
-            </div>
-          )}
-
-          {!isLoading &&
-            groupedEntries.map(([groupName, items]) => (
-              <section key={groupName} className="mt-8">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="font-display text-2xl font-semibold text-foreground">
-                      {groupName}
-                    </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {items.length} {items.length === 1 ? 'resource' : 'resources'} matched.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                  {items.map((content) => {
-                    const Icon = getCardIcon(content);
-                    const progressRecord = progressByTrainingId.get(content.id);
-
-                    return (
-                      <Link
-                        key={content.id}
-                        to={`/portal/training/${content.id}`}
-                        onClick={() => handleOpenItem(content)}
-                        className="group card-elevated overflow-hidden transition-all hover:-translate-y-0.5"
-                      >
-                        <div className="relative aspect-video overflow-hidden bg-muted">
-                          {content.thumbnailUrl && (
-                            <img
-                              src={content.thumbnailUrl}
-                              alt=""
-                              loading="lazy"
-                              className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                              referrerPolicy="no-referrer"
-                            />
-                          )}
-                          <div
-                            className={`absolute inset-0 flex items-center justify-center transition-colors ${
-                              content.thumbnailUrl ? 'bg-black/20 group-hover:bg-black/10' : ''
-                            }`}
-                          >
-                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-transform group-hover:scale-110">
-                              <Icon className="h-5 w-5" />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="p-4">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                              {getFormatLabel(content)}
-                            </span>
-                            {progressRecord?.completedAt ? (
-                              <span className="rounded-full bg-sage-light px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-sage">
-                                Completed
-                              </span>
-                            ) : progressRecord?.startedAt ? (
-                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
-                                In progress
-                              </span>
-                            ) : null}
-                          </div>
-                          <h3 className="mt-3 font-semibold text-foreground group-hover:text-primary">
-                            {content.title}
-                          </h3>
-                          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                            {content.description}
-                          </p>
-                          <div className="mt-3 flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                              <Clock className="h-4 w-4" />
-                              {content.duration}
-                            </div>
-                            <span className="text-sm font-medium text-primary">
-                              {getCardActionLabel(content)}
-                            </span>
-                          </div>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-
-          {filteredContent.length === 0 && !isLoading && (
-            <div className="mt-12 rounded-2xl border border-border bg-muted/20 px-6 py-10 text-center">
-              <p className="text-foreground">No training content matches your current filters.</p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Try searching for a module name, a symptom like burner or timer, or remove one of
-                the active filters.
-              </p>
-            </div>
           )}
         </div>
       </section>

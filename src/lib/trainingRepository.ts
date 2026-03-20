@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { resolveTrainingCatalogMetadata } from '@/lib/trainingCatalog';
 import {
   TrainingCertificate,
   TrainingContent,
@@ -68,10 +69,37 @@ type TrainingCertificateDbRecord = {
 };
 
 const DEFAULT_TRAINING_THUMBNAIL_URL = '/placeholder.svg';
-const FALLBACK_BY_TITLE = new Map(
-  fallbackTrainingContent.map((item) => [item.title.toLowerCase(), item])
-);
-const FALLBACK_BY_ID = new Map(fallbackTrainingContent.map((item) => [item.id, item]));
+
+const applyCatalogMetadata = (
+  content: TrainingContent,
+  options?: { providerVideoId?: string }
+): TrainingContent => {
+  const catalogMetadata = resolveTrainingCatalogMetadata({
+    id: content.id,
+    title: content.title,
+    tags: content.tags,
+    format: content.format,
+    providerVideoId: options?.providerVideoId ?? content.providerVideoId,
+    hasDocument: Boolean(content.document),
+  });
+
+  return {
+    ...content,
+    fallbackContentId: catalogMetadata.fallbackId ?? content.fallbackContentId ?? content.id,
+    providerVideoId: options?.providerVideoId ?? content.providerVideoId,
+    taskCategory: catalogMetadata.trackLabel,
+    catalogTrackId: catalogMetadata.trackId,
+    moduleLabel: catalogMetadata.moduleLabel,
+    featuredOrder: catalogMetadata.featuredOrder,
+    isStartHere: catalogMetadata.isStartHere,
+    operatorPriority: catalogMetadata.operatorPriority,
+    catalogSource: catalogMetadata.source,
+  };
+};
+
+const FALLBACK_LIBRARY = fallbackTrainingContent.map((item) => applyCatalogMetadata(item));
+const FALLBACK_BY_TITLE = new Map(FALLBACK_LIBRARY.map((item) => [item.title.toLowerCase(), item]));
+const FALLBACK_BY_ID = new Map(FALLBACK_LIBRARY.map((item) => [item.id, item]));
 
 const buildVimeoUrl = (videoId?: string | null, hash?: string | null) => {
   if (!videoId) {
@@ -216,6 +244,9 @@ const mergeResources = (localResources: TrainingResource[], dbResources: Trainin
 
 const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
   const titleToId = new Map(content.map((item) => [item.title.toLowerCase(), item.id]));
+  const fallbackIdToId = new Map(
+    content.map((item) => [item.fallbackContentId ?? item.id, item.id])
+  );
 
   return content.map((item) => ({
     ...item,
@@ -225,9 +256,10 @@ const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
       }
 
       const fallbackLinkedItem = FALLBACK_BY_ID.get(resource.linkedTrainingId);
-      const resolvedId = fallbackLinkedItem
-        ? titleToId.get(fallbackLinkedItem.title.toLowerCase())
-        : resource.linkedTrainingId;
+      const resolvedId =
+        fallbackIdToId.get(resource.linkedTrainingId) ??
+        (fallbackLinkedItem ? titleToId.get(fallbackLinkedItem.title.toLowerCase()) : undefined) ??
+        resource.linkedTrainingId;
 
       return {
         ...resource,
@@ -238,7 +270,6 @@ const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
 };
 
 const toTrainingContent = async (record: TrainingRecord): Promise<TrainingContent> => {
-  const localMatch = FALLBACK_BY_TITLE.get(record.title.toLowerCase());
   const videoAsset = record.training_assets?.find((asset) => asset.asset_type === 'video');
   const resourceAssets = record.training_assets?.filter((asset) => asset.asset_type !== 'video') ?? [];
   const dbResources = await Promise.all(resourceAssets.map(toDbResource));
@@ -251,39 +282,58 @@ const toTrainingContent = async (record: TrainingRecord): Promise<TrainingConten
     'training-thumbnails',
     extractStringMeta(videoAsset?.meta ?? null, 'thumbnail_url')
   );
-
-  return {
+  const preliminaryCatalogMetadata = resolveTrainingCatalogMetadata({
     id: record.id,
     title: record.title,
-    description: record.description ?? localMatch?.description ?? '',
-    thumbnailUrl: thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL,
-    duration: formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '--',
-    tags: normalizeTags(record.tags, localMatch?.tags ?? []),
-    level: localMatch?.level ?? 'Beginner',
-    summary: localMatch?.summary ?? 'Training content for Bloomjoy operators.',
-    learningPoints:
-      localMatch?.learningPoints?.length
-        ? localMatch.learningPoints
-        : ['Key takeaways will appear here once this module is finalized.'],
-    checklist:
-      localMatch?.checklist?.length
-        ? localMatch.checklist
-        : ['Checklist items will be added after the next training update.'],
-    searchTerms: localMatch?.searchTerms ?? [],
-    taskCategory: localMatch?.taskCategory ?? 'Unassigned',
-    audience: localMatch?.audience ?? 'Operator',
-    format: localMatch?.format ?? (embedUrl ? 'video' : 'guide'),
-    embed: {
-      title:
-        extractStringMeta(videoAsset?.meta ?? null, 'title') ??
-        localMatch?.embed.title ??
-        'Training module',
-      srcDoc: localMatch?.embed.srcDoc ?? '',
-      url: embedUrl,
+    tags: record.tags ?? [],
+    format: embedUrl ? 'video' : 'guide',
+    providerVideoId: videoAsset?.provider_video_id ?? undefined,
+    hasDocument: resourceAssets.length > 0 && !embedUrl,
+  });
+  const localMatch =
+    (preliminaryCatalogMetadata.fallbackId
+      ? FALLBACK_BY_ID.get(preliminaryCatalogMetadata.fallbackId)
+      : undefined) ?? FALLBACK_BY_TITLE.get(record.title.toLowerCase());
+
+  return applyCatalogMetadata(
+    {
+      id: record.id,
+      fallbackContentId: localMatch?.id,
+      title: record.title,
+      description: record.description ?? localMatch?.description ?? '',
+      thumbnailUrl: thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL,
+      providerVideoId: videoAsset?.provider_video_id ?? undefined,
+      duration: formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '--',
+      tags: normalizeTags(record.tags, localMatch?.tags ?? []),
+      level: localMatch?.level ?? 'Beginner',
+      summary: localMatch?.summary ?? 'Training content for Bloomjoy operators.',
+      learningPoints:
+        localMatch?.learningPoints?.length
+          ? localMatch.learningPoints
+          : ['Key takeaways will appear here once this module is finalized.'],
+      checklist:
+        localMatch?.checklist?.length
+          ? localMatch.checklist
+          : ['Checklist items will be added after the next training update.'],
+      searchTerms: localMatch?.searchTerms ?? [],
+      taskCategory: localMatch?.taskCategory ?? 'Reference',
+      audience: localMatch?.audience ?? 'Operator',
+      format: localMatch?.format ?? (embedUrl ? 'video' : 'guide'),
+      embed: {
+        title:
+          extractStringMeta(videoAsset?.meta ?? null, 'title') ??
+          localMatch?.embed.title ??
+          'Training module',
+        srcDoc: localMatch?.embed.srcDoc ?? '',
+        url: embedUrl,
+      },
+      document: localMatch?.document,
+      resources: mergeResources(localMatch?.resources ?? [], dbResources),
     },
-    document: localMatch?.document,
-    resources: mergeResources(localMatch?.resources ?? [], dbResources),
-  };
+    {
+      providerVideoId: videoAsset?.provider_video_id ?? undefined,
+    }
+  );
 };
 
 export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
@@ -312,7 +362,7 @@ export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
     .order('sort_order', { ascending: true });
 
   if (error || !data || data.length === 0) {
-    return fallbackTrainingContent;
+    return FALLBACK_LIBRARY;
   }
 
   const records = data as TrainingRecord[];
@@ -367,8 +417,11 @@ export const bindTracksToLibrary = (
   library: TrainingContent[]
 ): TrainingTrack[] => {
   const trainingById = new Map(library.map((item) => [item.id, item]));
-  const fallbackTitleById = new Map(
-    fallbackTrainingContent.map((item) => [item.id, item.title.toLowerCase()])
+  const fallbackItemById = new Map(
+    FALLBACK_LIBRARY.map((item) => [item.id, item])
+  );
+  const trainingByFallbackId = new Map(
+    library.map((item) => [item.fallbackContentId ?? item.id, item])
   );
 
   return tracks.map((track) => ({
@@ -376,10 +429,10 @@ export const bindTracksToLibrary = (
     items: track.items
       .map((item) => {
         const directMatch = trainingById.get(item.trainingId);
-        const fallbackTitle = fallbackTitleById.get(item.trainingId);
-        const fallbackMatch = fallbackTitle
-          ? library.find((trainingItem) => trainingItem.title.toLowerCase() === fallbackTitle)
-          : undefined;
+        const fallbackItem = fallbackItemById.get(item.trainingId);
+        const fallbackMatch =
+          trainingByFallbackId.get(item.trainingId) ??
+          (fallbackItem ? trainingByFallbackId.get(fallbackItem.id) : undefined);
 
         return {
           ...item,
@@ -432,7 +485,7 @@ export const useTrainingLibrary = (enabled = true) =>
     queryKey: TRAINING_QUERY_KEY,
     queryFn: fetchTrainingLibrary,
     enabled,
-    placeholderData: fallbackTrainingContent,
+    placeholderData: FALLBACK_LIBRARY,
     refetchOnMount: 'always',
     staleTime: 1000 * 60 * 5,
   });
