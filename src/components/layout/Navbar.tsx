@@ -20,7 +20,7 @@ export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { getItemCount } = useCart();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAdmin } = useAuth();
   const itemCount = getItemCount();
 
   return (
@@ -63,12 +63,21 @@ export function Navbar() {
             )}
           </Link>
           {isAuthenticated ? (
-            <Link to="/portal">
-              <Button variant="outline" size="sm">
-                <User className="mr-1 h-4 w-4" />
-                Member Portal
-              </Button>
-            </Link>
+            <>
+              {isAdmin && (
+                <Link to="/admin">
+                  <Button variant="outline" size="sm">
+                    Admin Dashboard
+                  </Button>
+                </Link>
+              )}
+              <Link to="/portal">
+                <Button variant="outline" size="sm">
+                  <User className="mr-1 h-4 w-4" />
+                  Member Portal
+                </Button>
+              </Link>
+            </>
           ) : (
             <Link to="/login">
               <Button variant="outline" size="sm">
@@ -119,12 +128,21 @@ export function Navbar() {
               ))}
               <div className="mt-2 border-t border-border pt-4">
                 {isAuthenticated ? (
-                  <Link to="/portal" onClick={() => setMobileMenuOpen(false)}>
-                    <Button variant="outline" className="w-full">
-                      <User className="mr-2 h-4 w-4" />
-                      Member Portal
-                    </Button>
-                  </Link>
+                  <div className="flex flex-col gap-2">
+                    {isAdmin && (
+                      <Link to="/admin" onClick={() => setMobileMenuOpen(false)}>
+                        <Button variant="outline" className="w-full">
+                          Admin Dashboard
+                        </Button>
+                      </Link>
+                    )}
+                    <Link to="/portal" onClick={() => setMobileMenuOpen(false)}>
+                      <Button variant="outline" className="w-full">
+                        <User className="mr-2 h-4 w-4" />
+                        Member Portal
+                      </Button>
+                    </Link>
+                  </div>
                 ) : (
                   <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
                     <Button variant="outline" className="w-full">

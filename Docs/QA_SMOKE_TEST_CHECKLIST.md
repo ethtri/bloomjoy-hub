@@ -148,3 +148,4 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/audit`
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata
 - [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
+- [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually
