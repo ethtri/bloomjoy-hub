@@ -28,6 +28,7 @@
   - Operator job-aid expansion on `2026-03-20`: added four new document-first assets (`Timer Control Reference`, `Safe Power Off and Cooldown`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`) plus inline visual support for source-derived guide figures in training detail.
   - Added `scripts/sync-training-guides.mjs` on `2026-03-20` to keep the Supabase-backed guide/checklist rows aligned with the local portal content and attach the uploaded source PDFs as signed-download resources.
   - Source-document operations completed on `2026-03-20`: `Software setup.pdf` and `Cotton Candy Maintenance Guide.pdf` were uploaded to the private `training-documents` bucket and all 11 guide/checklist rows now have attached PDF storage paths in Supabase.
+  - UX polish follow-up logged on `2026-03-20` as issue `#125` and added to the GitHub project board so the next slice stays focused on hierarchy, visual density, and authenticated operator QA instead of more catalog plumbing.
 - Verification run on this branch:
   - `npm ci`
   - `npm run build`
