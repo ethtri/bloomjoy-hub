@@ -36,11 +36,27 @@
 1) Apply migration: `supabase/migrations/20260122_training_and_membership.sql`
    - Orders sync migration: `supabase/migrations/20260202_orders.sql`
    - WeChat onboarding support migration: `supabase/migrations/202603100001_wechat_onboarding_support.sql`
+   - Training experience upgrade migration: `supabase/migrations/202603190001_training_experience_upgrade.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
    - `provider_hash`
    - `meta.thumbnail_url` (first-party key in `training-thumbnails` bucket, for example `vimeo/<video_id>.jpg`)
+
+## Training document upload helper
+Use this after the training experience migration is applied and `training-documents` exists.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Run the upload helper:
+   - `npm run training:upload-docs`
+3) Optional alternate source root:
+   - `node scripts/upload-training-documents.mjs --source-root "I:/Shared drives/Bloomjoy Training/CottonCandy"`
+
+Notes:
+- The helper uploads `Software setup.pdf` and `Cotton Candy Maintenance Guide.pdf`.
+- Uploaded files are private; the portal should access them through signed URLs only.
 
 ## Vimeo module tag sync (operations helper)
 Use this when Vimeo uploads are missing module taxonomy tags (for example `Module 1`).
@@ -138,3 +154,4 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 ## Common issues
 - Missing env vars can break pages. Check console + `.env` (or `.env.local`).
 - If Stripe webhook forwarding isn't configured, subscription/order sync may not update locally.
+- If training documents do not open from Supabase-backed rows, confirm the `training-documents` bucket exists and that the upload helper was run with a valid service-role key.

@@ -16,19 +16,19 @@ const faqs = [
 
 const plusTeasers = [
   {
-    title: 'Procedure Docs',
+    title: 'Operator Guides',
     description:
-      'Step-by-step operating procedures for setup, calibration, and common operational handoffs.',
+      'Task-first setup, pricing, timer, and payment guides so operators can find answers fast.',
   },
   {
-    title: 'Daily Checklists',
+    title: 'Maintenance Checklists',
     description:
-      'Printable opening, shift, and close checklists to keep machine quality and consistency high.',
+      'Cleaning, hygiene, and function-check references pulled from Bloomjoy training materials.',
   },
   {
-    title: 'Frequently Updated Downloads',
+    title: 'Operator Certificate',
     description:
-      'Updated job aids and SOP references are published to Plus members on a recurring cadence.',
+      'Plus members can complete the Operator Essentials path and unlock a lightweight completion certificate.',
   },
 ];
 
@@ -67,8 +67,8 @@ export default function ResourcesPage() {
                 Premium resources unlocked with Plus
               </h2>
               <p className="text-muted-foreground">
-                Plus includes downloadable procedure docs, daily checklists, and frequently updated
-                operations materials.
+                Plus includes task-based operator guides, maintenance checklists, troubleshooting references,
+                and the Bloomjoy Operator Essentials certificate path.
               </p>
             </div>
 

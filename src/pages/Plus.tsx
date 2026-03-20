@@ -16,11 +16,11 @@ const benefits = [
   },
   {
     title: 'Training Library',
-    description: 'Video tutorials, operational playbooks, and best-practice guides hosted on our platform.',
+    description: 'Task-first videos, setup guides, maintenance checklists, and troubleshooting references hosted in the member portal.',
   },
   {
-    title: 'Member Community',
-    description: 'Connect with other Bloomjoy operators to share tips and experiences.',
+    title: 'Operator Certificate',
+    description: 'Complete the Operator Essentials path and unlock a lightweight Bloomjoy completion certificate.',
   },
   {
     title: 'Concierge Support',
@@ -105,7 +105,7 @@ export default function PlusPage() {
               Onboarding + Playbooks + Concierge
             </h1>
             <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-              Get up and running faster with guided onboarding, training resources, and concierge support from the Bloomjoy team.
+              Get up and running faster with guided onboarding, task-based training, operator job aids, and concierge support from the Bloomjoy team.
             </p>
           </div>
         </div>
@@ -226,6 +226,10 @@ export default function PlusPage() {
             <p className="mt-4 text-center text-muted-foreground">
               Clear expectations for what's included.
             </p>
+            <div className="mt-6 rounded-xl border border-border bg-background p-5 text-sm text-muted-foreground">
+              Plus training now focuses on operator outcomes: quick-start setup, software and payment settings,
+              daily operation, cleaning and hygiene, troubleshooting, and a lightweight completion certificate path.
+            </div>
             <div className="mt-10 grid gap-6 md:grid-cols-2">
               <div className="rounded-xl border border-border bg-background p-6">
                 <h3 className="font-display text-lg font-semibold text-foreground">
