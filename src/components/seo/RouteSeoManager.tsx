@@ -140,8 +140,19 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
     },
   },
   {
+    match: (pathname) => pathname === "/login/operator",
+    seo: {
+      title: "Operator Login | Bloomjoy Hub",
+      description:
+        "Operator portal access for Bloomjoy training, onboarding, support, and orders.",
+      robots: PRIVATE_ROBOTS,
+      ogType: "website",
+    },
+  },
+  {
     match: (pathname) =>
       pathname === "/login" ||
+      pathname.startsWith("/login/") ||
       pathname === "/reset-password" ||
       pathname === "/cart" ||
       pathname.startsWith("/portal") ||

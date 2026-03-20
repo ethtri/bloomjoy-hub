@@ -8,7 +8,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Browser tab title updates by route and includes Bloomjoy branding; favicon renders as Bloomjoy icon
 - [ ] Public routes set page-specific metadata (title + description + canonical + OG tags) in browser devtools
 - [ ] Public routes include JSON-LD structured data (`script[type="application/ld+json"]`) with Organization/WebSite/WebPage entries
-- [ ] Private/auth routes (`/login`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
+- [ ] Private/auth routes (`/login`, `/login/operator`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
 - [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
 - [ ] View page source on a direct-loaded public route (for example `/machines`) and confirm title/description/canonical are route-specific before client-side JS executes
 - [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
@@ -55,6 +55,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
+- [ ] `/login/operator` loads operator-first copy for training, onboarding, support, and orders while preserving the same auth methods
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
@@ -65,6 +66,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
 - [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
 - [ ] Logged-out visit to `/portal` redirects to login
+- [ ] Logged-out visit to `/portal` redirects to `/login/operator` and returns to the original portal path after sign-in
 - [ ] Dashboard loads and shows membership status placeholder
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging

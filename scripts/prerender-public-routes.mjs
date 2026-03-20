@@ -111,6 +111,7 @@ const publicRoutes = [
 
 const privateRoutes = [
   "/login",
+  "/login/operator",
   "/reset-password",
   "/cart",
   "/portal",

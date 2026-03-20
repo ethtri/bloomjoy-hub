@@ -70,9 +70,9 @@ export function Navbar() {
               </Button>
             </Link>
           ) : (
-            <Link to="/login">
+            <Link to="/login/operator">
               <Button variant="outline" size="sm">
-                Login
+                Operator Login
               </Button>
             </Link>
           )}
@@ -126,9 +126,9 @@ export function Navbar() {
                     </Button>
                   </Link>
                 ) : (
-                  <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
+                  <Link to="/login/operator" onClick={() => setMobileMenuOpen(false)}>
                     <Button variant="outline" className="w-full">
-                      Login
+                      Operator Login
                     </Button>
                   </Link>
                 )}
