@@ -90,6 +90,13 @@ To use all login methods in local dev:
 5) Run `npm run auth:preflight` when working on auth/OAuth launch tasks
 6) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
 
+## Session closeout hygiene (2 minutes)
+1) Run `git status -sb` and leave the worktree clean, or write down exactly what is intentionally left for the next session.
+2) Remove temp artifacts that are not meant to ship, such as scratch files, downloaded exports, ad hoc screenshots, and one-off debug scripts.
+3) Stop extra local dev servers you started, or document the active URL/port if the next agent needs the server left running.
+4) Update the PR, issue, or handoff note with the next step, blockers, and any env/setup details the next person will need.
+5) Investigate stale worktrees safely before deleting anything; only prune/delete a worktree after confirming its branch or PR is merged, closed, or intentionally abandoned.
+
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
 - Use a GitHub Project board for "Backlog -> Ready -> In Progress -> Review -> Done".
