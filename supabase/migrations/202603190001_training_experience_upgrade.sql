@@ -423,12 +423,13 @@ values
     'pdf',
     null,
     jsonb_build_object(
-      'title', 'Software Setup Quickstart',
-      'description', 'Condensed setup guide for admin access, Wi-Fi, and time configuration.',
-      'format_badge', 'Guide',
-      'action_label', 'Open guide',
+      'title', 'Software Setup Reference Manual',
+      'description', 'Download the full software setup PDF for the original admin, pricing, and scheduling instructions.',
+      'format_badge', 'PDF',
+      'action_label', 'Download PDF',
       'source_document_title', 'Software setup manual',
-      'read_minutes', 9
+      'read_minutes', 9,
+      'storage_path', 'manuals/software-setup.pdf'
     )
   ),
   (
@@ -465,12 +466,13 @@ values
     'pdf',
     null,
     jsonb_build_object(
-      'title', 'Maintenance Guide Reference Manual',
-      'description', 'Reference guide for module overview, power handling, cleaning, and inspections.',
-      'format_badge', 'Reference',
-      'action_label', 'Open manual',
+      'title', 'Cotton Candy Maintenance Guide (PDF)',
+      'description', 'Download the full maintenance guide for the original module map, cleaning, and inspection instructions.',
+      'format_badge', 'PDF',
+      'action_label', 'Download PDF',
       'source_document_title', 'Cotton Candy Maintenance Guide',
-      'read_minutes', 14
+      'read_minutes', 14,
+      'storage_path', 'manuals/cotton-candy-maintenance-guide.pdf'
     )
   ),
   (

@@ -119,8 +119,8 @@ export default function TrainingPage() {
   const [finalAcknowledgement, setFinalAcknowledgement] = useState(false);
   const { data: library = [], isLoading } = useTrainingLibrary();
   const { data: trackDefinitions = [] } = useTrainingTracks();
-  const { data: progress = [] } = useTrainingProgress(Boolean(user?.id && isMember));
-  const { data: certificates = [] } = useTrainingCertificates(Boolean(user?.id && isMember));
+  const { data: progress = [] } = useTrainingProgress(user?.id, isMember);
+  const { data: certificates = [] } = useTrainingCertificates(user?.id, isMember);
   const { data: source = 'local' } = useTrainingSourceStatus();
   const issueCertificateMutation = useIssueTrainingCertificate();
 

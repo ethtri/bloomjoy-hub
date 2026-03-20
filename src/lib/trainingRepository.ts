@@ -152,6 +152,8 @@ const resolveTrainingResourceUrl = async (asset: TrainingAssetRecord) => {
 };
 
 const toDbResource = async (asset: TrainingAssetRecord, index: number): Promise<TrainingResource> => {
+  const storagePath = extractStringMeta(asset.meta, 'storage_path');
+  const hasDirectLink = Boolean(asset.download_url?.trim() || storagePath);
   const title =
     extractStringMeta(asset.meta, 'title') ??
     `${asset.asset_type === 'pdf' ? 'PDF' : 'Resource'} ${index + 1}`;
@@ -162,7 +164,7 @@ const toDbResource = async (asset: TrainingAssetRecord, index: number): Promise<
   const href = await resolveTrainingResourceUrl(asset);
   const kind =
     asset.asset_type === 'pdf'
-      ? href
+      ? hasDirectLink
         ? 'download'
         : 'guide'
       : asset.asset_type === 'link'
@@ -172,7 +174,7 @@ const toDbResource = async (asset: TrainingAssetRecord, index: number): Promise<
   return {
     title,
     description,
-    status: href || kind === 'guide' ? 'available' : 'coming_soon',
+    status: hasDirectLink ? (href ? 'available' : 'coming_soon') : 'available',
     kind,
     actionLabel:
       actionLabel ??
@@ -182,7 +184,7 @@ const toDbResource = async (asset: TrainingAssetRecord, index: number): Promise<
           ? 'Open link'
           : 'Open guide'),
     href,
-    external: Boolean(href),
+    external: Boolean(href && !href.startsWith('/')),
     formatBadge,
   };
 };
@@ -444,20 +446,20 @@ export const useTrainingTracks = (enabled = true) =>
     staleTime: 1000 * 60 * 5,
   });
 
-export const useTrainingProgress = (enabled: boolean) =>
+export const useTrainingProgress = (userId?: string, enabled = true) =>
   useQuery({
-    queryKey: ['training-progress'],
+    queryKey: ['training-progress', userId ?? 'anonymous'],
     queryFn: fetchTrainingProgress,
-    enabled,
+    enabled: enabled && Boolean(userId),
     initialData: [] as TrainingProgressRecord[],
     staleTime: 1000 * 30,
   });
 
-export const useTrainingCertificates = (enabled: boolean) =>
+export const useTrainingCertificates = (userId?: string, enabled = true) =>
   useQuery({
-    queryKey: ['training-certifications'],
+    queryKey: ['training-certifications', userId ?? 'anonymous'],
     queryFn: fetchTrainingCertificates,
-    enabled,
+    enabled: enabled && Boolean(userId),
     initialData: [] as TrainingCertificate[],
     staleTime: 1000 * 30,
   });

@@ -57,7 +57,7 @@ export default function PortalDashboard() {
   const onboardingProgress = getOnboardingProgress(user?.email);
   const { data: library = [] } = useTrainingLibrary(isMember);
   const { data: trackDefinitions = [] } = useTrainingTracks(isMember);
-  const { data: trainingProgress = [] } = useTrainingProgress(Boolean(user?.id && isMember));
+  const { data: trainingProgress = [] } = useTrainingProgress(user?.id, isMember);
 
   useEffect(() => {
     trackEvent('view_dashboard');

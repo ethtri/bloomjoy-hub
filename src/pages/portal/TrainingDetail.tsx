@@ -26,7 +26,7 @@ export default function TrainingDetailPage() {
   const { id } = useParams();
   const { user, isMember } = useAuth();
   const { data: library = [] } = useTrainingLibrary();
-  const { data: progress = [] } = useTrainingProgress(Boolean(user?.id && isMember));
+  const { data: progress = [] } = useTrainingProgress(user?.id, isMember);
   const saveProgressMutation = useSaveTrainingProgress();
   const trainingItem = id ? library.find((item) => item.id === id) : undefined;
   const [videoLoaded, setVideoLoaded] = useState(false);
@@ -375,7 +375,7 @@ export default function TrainingDetailPage() {
                                 {resource.external && <ExternalLink className="ml-2 h-4 w-4" />}
                               </a>
                             </Button>
-                          ) : trainingItem.document ? (
+                          ) : resource.kind === 'guide' && trainingItem.document ? (
                             <Button
                               size="sm"
                               variant="outline"
