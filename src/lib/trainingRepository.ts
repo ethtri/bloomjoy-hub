@@ -451,7 +451,8 @@ export const useTrainingProgress = (userId?: string, enabled = true) =>
     queryKey: ['training-progress', userId ?? 'anonymous'],
     queryFn: fetchTrainingProgress,
     enabled: enabled && Boolean(userId),
-    initialData: [] as TrainingProgressRecord[],
+    placeholderData: [] as TrainingProgressRecord[],
+    refetchOnMount: 'always',
     staleTime: 1000 * 30,
   });
 
@@ -460,7 +461,8 @@ export const useTrainingCertificates = (userId?: string, enabled = true) =>
     queryKey: ['training-certifications', userId ?? 'anonymous'],
     queryFn: fetchTrainingCertificates,
     enabled: enabled && Boolean(userId),
-    initialData: [] as TrainingCertificate[],
+    placeholderData: [] as TrainingCertificate[],
+    refetchOnMount: 'always',
     staleTime: 1000 * 30,
   });
 
