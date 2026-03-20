@@ -79,6 +79,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training catalog visible to logged-in users
 - [ ] Training catalog shows `Data source: Supabase` in local dev after auth/session settles
 - [ ] Training hub hero makes the next action obvious (`Resume learning` or `Open start path`) without requiring deep scrolling
+- [ ] `Explore the full library` scrolls to the searchable library section and focuses the search field instead of appearing dead when `All` is already selected
 - [ ] Training hub shows an operator-first `Start Here` sequence plus task-based jump cards for `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`, `Build / Assembly`, and `Reference`
 - [ ] Training hub keeps advanced filters hidden behind `More filters` by default and does not expose an `Unassigned` section anywhere in the library
 - [ ] Training catalog supports supportive module filtering only when all visible catalog rows have module labels; otherwise module controls stay hidden and task navigation remains primary
@@ -93,6 +94,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training detail supports document-first guides with readable in-page guide sections when the primary asset is not a Vimeo video
 - [ ] Training detail sections below video/guide ("What you will learn", "Checklist", "Resources") have clear purpose and readable structure
 - [ ] Training resource cards expose real actions (`Open guide`, `Watch video`, `Go to support`, or `Download PDF`) instead of passive labels
+- [ ] Guide/checklist actions continue to open the correct detail page even if the route uses a fallback catalog slug (for example `alarm-and-power-timer-setup` or `daily-maintenance-routine`)
+- [ ] `Alarm and Power Timer Setup` shows the approved schedule values (`9:30` / `20:30`, `9:00-23:00`, `8:00-22:00`) plus the controller reference in the guide body
+- [ ] Maintenance-derived guides surface the key operator tasks from the PDF (`60°C` cooldown, cleaning hotspots, debug-page checks, and consumable loading rules) instead of only generic summaries
 - [ ] `Mark complete` persists to `training_progress` and the item remains completed after refresh/re-login
 - [ ] Operator Essentials certificate appears as a secondary section below the main library and stays locked until all required items are complete and the final acknowledgement is checked
 - [ ] After unlocking, the Operator Essentials certificate remains available for download on later visits

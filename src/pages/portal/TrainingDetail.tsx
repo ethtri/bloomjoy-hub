@@ -29,7 +29,9 @@ export default function TrainingDetailPage() {
   const { data: library = [] } = useTrainingLibrary();
   const { data: progress = [] } = useTrainingProgress(user?.id, isMember);
   const saveProgressMutation = useSaveTrainingProgress();
-  const trainingItem = id ? library.find((item) => item.id === id) : undefined;
+  const trainingItem = id
+    ? library.find((item) => item.id === id || item.fallbackContentId === id)
+    : undefined;
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [videoLoadStartedAt, setVideoLoadStartedAt] = useState<number | null>(null);
   const hasTrackedStart = useRef(false);

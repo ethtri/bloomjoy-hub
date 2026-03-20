@@ -301,7 +301,8 @@ async function main() {
       meta: {
         ...(existingAsset?.meta ?? {}),
         title: video.name,
-        thumbnail_url: existingAsset?.meta?.thumbnail_url || thumbnailUrl,
+        thumbnail_url: thumbnailUrl ?? existingAsset?.meta?.thumbnail_url ?? null,
+        vimeo_thumbnail_url: thumbnailUrl ?? existingAsset?.meta?.vimeo_thumbnail_url ?? null,
         catalog_track_id: catalogMetadata.trackId,
         module_label: catalogMetadata.moduleLabel ?? null,
         vimeo_tags: vimeoTags,

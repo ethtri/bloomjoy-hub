@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -141,6 +141,8 @@ export default function TrainingPage() {
   const [selectedFormat, setSelectedFormat] = useState('All formats');
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
   const [finalAcknowledgement, setFinalAcknowledgement] = useState(false);
+  const libraryExplorerRef = useRef<HTMLElement | null>(null);
+  const librarySearchRef = useRef<HTMLInputElement | null>(null);
   const { data: library = [], isLoading } = useTrainingLibrary();
   const { data: trackDefinitions = [] } = useTrainingTracks();
   const { data: progress = [] } = useTrainingProgress(user?.id, isMember);
@@ -262,6 +264,18 @@ export default function TrainingPage() {
     setSelectedModule('All modules');
     setSelectedFormat('All formats');
     setSelectedTopicTags([]);
+  };
+
+  const focusLibraryExplorer = () => {
+    setSearch('');
+    setSelectedTrack('all');
+    resetFilters();
+    setAdvancedFiltersOpen(false);
+
+    window.requestAnimationFrame(() => {
+      libraryExplorerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.setTimeout(() => librarySearchRef.current?.focus(), 250);
+    });
   };
 
   const handleUnlockCertificate = async () => {
@@ -511,7 +525,7 @@ export default function TrainingPage() {
                 <Button
                   variant="ghost"
                   className="w-fit px-0 text-primary hover:bg-transparent"
-                  onClick={() => setSelectedTrack('all')}
+                  onClick={focusLibraryExplorer}
                 >
                   Explore the full library
                   <ArrowRight className="ml-2 h-4 w-4" />
@@ -540,7 +554,7 @@ export default function TrainingPage() {
               </div>
               <Button
                 variant={selectedTrack === 'all' ? 'default' : 'outline'}
-                onClick={() => setSelectedTrack('all')}
+                onClick={focusLibraryExplorer}
               >
                 View all resources
               </Button>
@@ -581,12 +595,13 @@ export default function TrainingPage() {
             </div>
           </section>
 
-          <section className="mt-12">
+          <section id="training-library-explorer" ref={libraryExplorerRef} className="mt-12">
             <div className="flex flex-col gap-4 rounded-3xl border border-border bg-background p-5 sm:p-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
+                    ref={librarySearchRef}
                     placeholder="Search by topic, symptom, part, or setting..."
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}

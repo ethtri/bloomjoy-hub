@@ -170,6 +170,25 @@ const extractStringMeta = (meta: Record<string, unknown> | null | undefined, key
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 };
 
+const normalizeComparableText = (value?: string) =>
+  (value ?? '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+
+const resolveThumbnailUrl = (meta: Record<string, unknown> | null | undefined) => {
+  const rawThumbnailUrl = extractStringMeta(meta, 'thumbnail_url');
+  const vimeoThumbnailUrl = extractStringMeta(meta, 'vimeo_thumbnail_url');
+
+  if (vimeoThumbnailUrl) {
+    return vimeoThumbnailUrl;
+  }
+
+  return resolvePublicStorageUrl('training-thumbnails', rawThumbnailUrl);
+};
+
 const resolveTrainingResourceUrl = async (asset: TrainingAssetRecord) => {
   if (asset.download_url?.trim()) {
     return asset.download_url.trim();
@@ -244,6 +263,9 @@ const mergeResources = (localResources: TrainingResource[], dbResources: Trainin
 
 const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
   const titleToId = new Map(content.map((item) => [item.title.toLowerCase(), item.id]));
+  const normalizedTitleToId = new Map(
+    content.map((item) => [normalizeComparableText(item.title), item.id])
+  );
   const fallbackIdToId = new Map(
     content.map((item) => [item.fallbackContentId ?? item.id, item.id])
   );
@@ -259,6 +281,9 @@ const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
       const resolvedId =
         fallbackIdToId.get(resource.linkedTrainingId) ??
         (fallbackLinkedItem ? titleToId.get(fallbackLinkedItem.title.toLowerCase()) : undefined) ??
+        (fallbackLinkedItem
+          ? normalizedTitleToId.get(normalizeComparableText(fallbackLinkedItem.title))
+          : undefined) ??
         resource.linkedTrainingId;
 
       return {
@@ -338,10 +363,7 @@ const toTrainingContent = async (record: TrainingRecord): Promise<TrainingConten
     (videoAsset?.provider === 'vimeo'
       ? buildVimeoUrl(videoAsset.provider_video_id, videoAsset.provider_hash)
       : undefined);
-  const thumbnailFromMeta = resolvePublicStorageUrl(
-    'training-thumbnails',
-    extractStringMeta(videoAsset?.meta ?? null, 'thumbnail_url')
-  );
+  const thumbnailFromMeta = resolveThumbnailUrl(videoAsset?.meta ?? null);
   const preliminaryCatalogMetadata = resolveTrainingCatalogMetadata({
     id: record.id,
     title: record.title,

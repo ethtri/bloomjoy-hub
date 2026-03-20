@@ -167,7 +167,7 @@ export const trainingContent: TrainingContent[] = [
     id: 'alarm-and-power-timer-setup',
     title: 'Alarm and Power Timer Setup',
     description:
-      'Set the burner auto-start alarm and the daily power schedule so the machine opens and closes on time.',
+      'Set the machine clock, burner auto-start alarm, and approved daily power schedule before service begins.',
     duration: '6 min',
     tags: [
       'Audience: Operator',
@@ -180,16 +180,16 @@ export const trainingContent: TrainingContent[] = [
     ],
     level: 'Beginner',
     summary:
-      'This is the shortest path to getting the machine ready before opening time without missing the burner warm-up sequence.',
+      'This guide gives operators the approved open and close schedule plus the controller reference needed to leave the timer in Auto.',
     learningPoints: [
-      'Set the local alarm clock that automatically starts the burner.',
-      'Configure power-on and power-off timing for daylight saving and winter schedules.',
-      'Know when to confirm timer status with engineering before relying on automation.',
+      'Set local time and day before trusting any alarm or timer behavior.',
+      'Set the local alarm that automatically starts the burner at the approved window.',
+      'Configure the summer and winter power schedules and leave the controller in Auto mode.',
     ],
     checklist: [
-      'Open the local alarm clock and set the burner start and stop times.',
-      'Set the power timer to the approved daylight saving or winter schedule.',
-      'Confirm the timer is in auto mode and contact engineering if the timer state is unclear.',
+      'Set the machine clock and day of week first.',
+      'Set the local alarm to open at 9:30 and close at 20:30.',
+      'Set the power timer to 9:00-23:00 in daylight saving time or 8:00-22:00 in winter, then leave the controller in Auto.',
     ],
     searchTerms: [
       'local alarm',
@@ -197,6 +197,13 @@ export const trainingContent: TrainingContent[] = [
       'daylight saving',
       'winter time',
       'burner auto start',
+      '9:30',
+      '20:30',
+      '9:00',
+      '23:00',
+      '8:00',
+      '22:00',
+      'auto mode',
     ],
     taskCategory: 'Daily Operation',
     audience: 'Operator',
@@ -217,6 +224,15 @@ export const trainingContent: TrainingContent[] = [
         formatBadge: 'Video',
       },
       {
+        title: 'Software Setup Reference Manual',
+        description: 'Open the full setup reference if you need the original timer-control diagram and controller labels.',
+        status: 'available',
+        kind: 'guide',
+        actionLabel: 'Open manual',
+        linkedTrainingId: 'software-setup-quickstart',
+        formatBadge: 'Reference',
+      },
+      {
         title: 'Need help?',
         description: 'Reach Bloomjoy support if the machine schedule does not behave as expected.',
         status: 'available',
@@ -230,7 +246,7 @@ export const trainingContent: TrainingContent[] = [
     id: 'module-map-and-reference-manual',
     title: 'Maintenance Guide Reference Manual',
     description:
-      'Use the full maintenance manual to understand the major modules, cleaning points, and inspection steps.',
+      'Use the maintenance reference to find safe shutdown, daily cleaning hotspots, debug-page checks, and consumable-loading rules.',
     duration: '14 min',
     tags: [
       'Audience: Operator',
@@ -242,26 +258,25 @@ export const trainingContent: TrainingContent[] = [
     ],
     level: 'Beginner',
     summary:
-      'This is the long-form reference for the machine layout and recurring maintenance procedures.',
+      'This is the long-form maintenance reference, organized around the operator jobs you need most often.',
     learningPoints: [
-      'Recognize the main machine modules called out in the maintenance manual.',
-      'Understand where the power, cleaning, and function-check procedures live in the manual.',
+      'Find the safe shutdown and cooldown rule before opening the machine.',
+      'Jump straight to cleaning hotspots, function checks, and consumable loading guidance.',
       'Use the manual as a reference instead of guessing when you need a specific maintenance step.',
     ],
     checklist: [
-      'Review the module introduction before your first cleaning or inspection.',
-      'Use the power-off procedure before opening the machine for cleaning.',
-      'Keep the manual linked from your daily and troubleshooting guides.',
+      'Use the shutdown section before cleaning or opening panels.',
+      'Open the cleaning checklist for daily sanitation and debris control.',
+      'Use the function-check or consumables guide before escalating support.',
     ],
     searchTerms: [
       'maintenance guide',
-      'module introduction',
-      'burner module',
-      'sink',
-      'waste water',
-      'shaping knife',
-      'filter',
-      'stick output module',
+      'safe shutdown',
+      '60 c',
+      'cleaning hotspots',
+      'debug page',
+      'consumable loading',
+      'sensor blocked',
     ],
     taskCategory: 'Start Here',
     audience: 'Operator',
@@ -296,7 +311,7 @@ export const trainingContent: TrainingContent[] = [
     id: 'cleaning-and-hygiene-checklist',
     title: 'Cleaning and Hygiene Checklist',
     description:
-      'Follow the daily cleaning points that prevent sugar buildup, debris, and avoidable downtime.',
+      'Follow the daily cleaning points for the burner, filter, stick path, and sensor areas that prevent avoidable downtime.',
     duration: '7 min',
     tags: [
       'Audience: Operator',
@@ -308,16 +323,16 @@ export const trainingContent: TrainingContent[] = [
     ],
     level: 'Beginner',
     summary:
-      'Pulls the highest-frequency cleaning steps out of the full maintenance manual into one operator checklist.',
+      'Pulls the highest-frequency cleaning steps out of the maintenance guide into one operator checklist with the main debris hotspots.',
     learningPoints: [
-      'Clean the burner, sink, filter, and shaping components in the correct order.',
-      'Know which areas collect sugar stains or paper debris during normal use.',
+      'Clean the burner, sink, filter, shaping components, and stick path in the correct order.',
+      'Know which areas collect sugar residue, paper debris, or sensor contamination during normal use.',
       'Avoid reassembly mistakes that can create operational issues on the next run.',
     ],
     checklist: [
-      'Power the machine off fully before cleaning.',
+      'Use the safe shutdown path before cleaning and wait for the burner to cool.',
       'Clean burner surfaces, sink, shaping components, filter, and workspace contact points.',
-      'Check the stick-output area and sugar-picking area for debris before closing the machine.',
+      'Check the stick-output area and sugar-pickup sensor area for debris before closing the machine.',
     ],
     searchTerms: [
       'clean burner cover',
@@ -326,6 +341,8 @@ export const trainingContent: TrainingContent[] = [
       'filter',
       'sink cleaning',
       'waste water treatment',
+      'sensor area',
+      'shaping knife roller',
     ],
     taskCategory: 'Cleaning & Maintenance',
     audience: 'Operator',
@@ -337,7 +354,7 @@ export const trainingContent: TrainingContent[] = [
     document: cleaningChecklistDocument,
     resources: [
       {
-        title: 'Daily Maintenance Routine',
+        title: 'Daily Maintenance Routine (Operator Checklist)',
         description: 'Watch the paired video walkthrough for the daily cleaning rhythm.',
         status: 'available',
         kind: 'video',
@@ -360,7 +377,7 @@ export const trainingContent: TrainingContent[] = [
     id: 'module-function-check-guide',
     title: 'Module Function Check Guide',
     description:
-      'Run the module inspection steps when the burner, door, air pump, cooling, or output modules need verification.',
+      'Run the debug-page inspection steps when the burner, humidification, door, air, cooling, or output modules need verification.',
     duration: '10 min',
     tags: [
       'Audience: Operator',
@@ -375,12 +392,12 @@ export const trainingContent: TrainingContent[] = [
       'This guide turns the maintenance manual inspection section into a practical troubleshooting path.',
     learningPoints: [
       'Use the debugging page safely to test the key machine modules.',
-      'Verify humidity, cleaning spray, door, stick output, air pump, and water cooling behavior.',
+      'Verify burner rotation before heat, then check humidity, cleaning spray, door, stick output, air pump, and water cooling behavior.',
       'Know when a failed function check means you should escalate to support.',
     ],
     checklist: [
       'Power the machine on without starting production.',
-      'Use the debugging page to test the target module only.',
+      'Use the debugging page to test the target module only, starting with burner rotation before heat.',
       'Escalate with a clear module name and failed behavior if the test does not pass.',
     ],
     searchTerms: [
@@ -391,6 +408,8 @@ export const trainingContent: TrainingContent[] = [
       'automatic door',
       'air pump start',
       'water cooling module',
+      'robot sensor',
+      'cooling fan',
     ],
     taskCategory: 'Troubleshooting',
     audience: 'Operator',
@@ -424,7 +443,7 @@ export const trainingContent: TrainingContent[] = [
     id: 'consumables-loading-and-stick-handling',
     title: 'Consumables Loading and Stick Handling',
     description:
-      'Use the manual checks for sugar fill level, pipe routing, and paper-stick handling when output quality drops.',
+      'Use the manual checks for sugar fill level, cap seal, pipe routing, check-valve direction, and paper-stick handling when output quality drops.',
     duration: '6 min',
     tags: [
       'Audience: Operator',
@@ -445,7 +464,7 @@ export const trainingContent: TrainingContent[] = [
     ],
     checklist: [
       'Keep sugar below the marked fill line and tighten the cap fully after loading.',
-      'Check that pipes are smooth, unobstructed, and secured at the connection points.',
+      'Check that pipes are smooth, unobstructed, secured at the connection points, and flowing through the check valve in the correct direction.',
       'Load paper sticks flat and stay within the box capacity.',
     ],
     searchTerms: [
@@ -455,6 +474,8 @@ export const trainingContent: TrainingContent[] = [
       'fill line',
       'air leaks',
       'stuck sticks',
+      'check valve',
+      'sugar cap',
     ],
     taskCategory: 'Daily Operation',
     audience: 'Operator',
@@ -488,7 +509,7 @@ export const trainingContent: TrainingContent[] = [
   {
     id: 'start-up-shutdown-procedure',
     title: 'Start-Up & Shutdown Procedure (Safe Power Cycle)',
-    description: 'Safe startup and shutdown process for daily operation.',
+    description: 'Safe startup and shutdown process for daily operation, including the required burner cooldown before unplugging.',
     duration: '5 min',
     tags: [
       'Module 1',
@@ -504,15 +525,15 @@ export const trainingContent: TrainingContent[] = [
       'Use this before opening and closing so the machine is not powered off while the burner is still too hot.',
     learningPoints: [
       'Understand the difference between plugging the machine in, logging in, and fully shutting it down.',
-      'Know when the burner is cool enough to unplug the machine.',
+      'Know that the burner must cool to 60°C before the machine is unplugged.',
       'Use the on-screen temperature state before ending power.',
     ],
     checklist: [
       'Plug the machine in and confirm the status bar is visible.',
       'Use the backend power control instead of unplugging during active heat.',
-      'Wait for the burner to cool before unplugging power at shutdown.',
+      'Wait for the burner to cool to 60°C before unplugging power at shutdown.',
     ],
-    searchTerms: ['power on', 'power off', 'safe power cycle', 'burner temperature', 'shutdown'],
+    searchTerms: ['power on', 'power off', 'safe power cycle', 'burner temperature', 'shutdown', '60 c', 'cooldown'],
     taskCategory: 'Daily Operation',
     audience: 'Operator',
     format: 'video',
@@ -638,8 +659,8 @@ export const trainingContent: TrainingContent[] = [
   },
   {
     id: 'daily-maintenance-routine',
-    title: 'Daily Maintenance Routine',
-    description: 'Keep your machine running smoothly with this daily maintenance checklist.',
+    title: 'Daily Maintenance Routine (Operator Checklist)',
+    description: 'Keep your machine running smoothly with this daily maintenance checklist for the burner, filter, and debris hotspots.',
     duration: '10 min',
     tags: [
       'Module 1',
@@ -666,7 +687,7 @@ export const trainingContent: TrainingContent[] = [
     audience: 'Operator',
     format: 'video',
     embed: {
-      title: 'Daily maintenance demo',
+      title: 'Daily maintenance routine (operator checklist)',
       srcDoc: placeholderEmbed('Daily maintenance demo'),
     },
     resources: [

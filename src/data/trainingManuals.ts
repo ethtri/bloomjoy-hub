@@ -71,30 +71,48 @@ export const pricingAndPaymentsDocument: TrainingDocument = {
 export const alarmAndPowerTimerDocument: TrainingDocument = {
   title: 'Alarm and power timer setup',
   intro:
-    'Use this checklist to keep automatic warm-up and shutdown aligned with local operating hours.',
-  estimatedReadMinutes: 6,
+    'Use this guide to set the machine clock, burner auto-start, and daily power window before opening for service.',
+  estimatedReadMinutes: 7,
   sourceLabel: 'Software setup manual',
   sections: [
     {
-      heading: 'Local alarm settings',
+      heading: 'Set local time first',
       paragraphs: [
-        'The local alarm controls automatic burner start and is called out as a critical machine function in the setup guide.',
-        'Set the opening and closing times to the approved local operating window before testing power automation.',
+        'Confirm the machine clock and day of week before changing any timer settings. The timer behavior is unreliable if local time is wrong.',
+        'Set current time and day first, then move into the alarm and power timer screens.',
+      ],
+      bullets: ['Unlock the timer control before editing settings.', 'Do not leave the page until time and day are correct.'],
+    },
+    {
+      heading: 'Local alarm controls burner auto-start',
+      bullets: [
+        'Opening time: 9:30',
+        'Closing time: 20:30',
+        'Use the local alarm for burner warm-up timing, not full machine power scheduling.',
       ],
     },
     {
-      heading: 'Power timer settings',
+      heading: 'Power timer controls machine on and off',
       bullets: [
-        'During daylight saving time, use the summer schedule from the guide.',
-        'During winter time, use the winter schedule from the guide.',
-        'Leave the timer in auto mode after settings are confirmed.',
+        'Daylight saving / summer schedule: on at 9:00, off at 23:00.',
+        'Winter schedule: on at 8:00, off at 22:00.',
+        'After programming the schedule, leave the timer in Auto mode.',
+      ],
+    },
+    {
+      heading: 'Timer control reference',
+      bullets: [
+        'Lock / unlock: enter edit mode before changing settings.',
+        'Hours, minutes, and day-of-week buttons: set the current time first, then the on/off window.',
+        'Timer and Time buttons: switch between schedule programming and current time display.',
+        'On / Auto / Off: finish on Auto so the schedule runs by itself.',
       ],
     },
     {
       heading: 'Final verification',
       paragraphs: [
-        'Check that the machine clock is correct before trusting any timer behavior.',
-        'If the timer state is unclear, contact an engineer before venue launch.',
+        'Confirm the machine shows the approved open and close window for the current season before you leave setup.',
+        'If any timer status is unclear, confirm it with a Bloomjoy engineer before the venue launches.',
       ],
     },
   ],
@@ -103,36 +121,47 @@ export const alarmAndPowerTimerDocument: TrainingDocument = {
 export const maintenanceReferenceDocument: TrainingDocument = {
   title: 'Maintenance guide reference manual',
   intro:
-    'This reference condenses the attached maintenance guide so operators can find the right section faster during startup, cleaning, and inspection.',
+    'This reference pulls the highest-value operator tasks out of the maintenance guide so you can find shutdown, cleaning, check, and refill steps faster.',
   estimatedReadMinutes: 14,
   sourceLabel: 'Cotton Candy Maintenance Guide',
   sections: [
     {
-      heading: 'Machine module map',
-      bullets: [
-        'Burner module',
-        'Sink',
-        'Waste water bucket',
-        'Shaping knife',
-        'Removable filter',
-        'Stick output module',
-        'Stick picking module',
-        'Tail wire collection module',
-      ],
-    },
-    {
-      heading: 'Power operations in the manual',
+      heading: 'Start and stop safely',
       paragraphs: [
-        'The maintenance manual includes separate power-on, turning on and off, and full power-off steps.',
-        'The shutdown section matters because the burner must cool before the machine is unplugged.',
+        'Use the backend power flow instead of unplugging the machine during heat or cooldown.',
+        'The maintenance guide calls out a hard stop condition: do not unplug the machine until the burner cools to 60°C.',
+      ],
+      bullets: [
+        'Log in to the backend before changing machine state.',
+        'Wait for the burner to cool to 60°C before unplugging power.',
+        'Use this shutdown path before opening the machine for cleaning.',
       ],
     },
     {
-      heading: 'Where to go next',
+      heading: 'Daily cleaning hotspots',
       bullets: [
-        'Use the cleaning checklist for day-to-day sanitation and debris control.',
-        'Use the function check guide when a module does not behave as expected.',
-        'Use the consumables guide when sugar, pipes, or paper sticks may be causing the issue.',
+        'Burner outlet and burner base cleaning surfaces',
+        'Sink placement and reassembly points',
+        'Shaping-knife roller and nearby debris traps',
+        'Stick-output path and sugar-pickup / sensor area',
+        'Filter dry-before-reinstall requirement',
+      ],
+    },
+    {
+      heading: 'Machine checks from the debug page',
+      bullets: [
+        'Verify burner rotation before heating.',
+        'Run humidification and cleaning spray checks.',
+        'Check stick output, automatic door movement, and robot sensors.',
+        'Inspect air pump flow and water-cooling circulation before escalating.',
+      ],
+    },
+    {
+      heading: 'Refill and reload correctly',
+      bullets: [
+        'Keep sugar below the fill line and seal the sugar cap tightly.',
+        'Check pipe routing and check-valve direction before assuming a mechanical fault.',
+        'Stay within paper-stick box capacity and keep sticks laid flat during loading.',
       ],
     },
   ],
@@ -146,11 +175,20 @@ export const cleaningChecklistDocument: TrainingDocument = {
   sourceLabel: 'Cotton Candy Maintenance Guide',
   sections: [
     {
-      heading: 'Burner and sink',
+      heading: 'Before you open the machine',
       bullets: [
-        'Remove the sink first so the burner cover can be accessed safely.',
+        'Use the safe shutdown flow before cleaning so the burner has cooled correctly.',
+        'Remove the sink first so the burner area can be accessed safely.',
+        'Keep the waste-water pipe positioned correctly before and after cleaning.',
+      ],
+    },
+    {
+      heading: 'Daily cleaning hotspots',
+      bullets: [
         'Clean the burner cover outlet thoroughly and reassemble with the gasket in place.',
         'Use fine sandpaper on the main base cleaning area where the manual calls for it.',
+        'Clean the shaping-knife roller and the stick-output area where paper debris collects.',
+        'Clear the sugar-pickup and sensor area if residue or stick faults are present.',
       ],
     },
     {
@@ -158,14 +196,14 @@ export const cleaningChecklistDocument: TrainingDocument = {
       bullets: [
         'Wipe the marked cabinet surfaces and glass with a damp cloth.',
         'Remove and clean the tail-wire protective sheet metal clips where debris collects.',
-        'Clean the stick-output area where paper-stick friction creates residue.',
+        'Keep the removable filter clean and fully dry before reinstalling it.',
       ],
     },
     {
       heading: 'Closeout checks',
       paragraphs: [
-        'Return the waste water pipe to the bucket and keep it level after cleaning.',
-        'Make sure filters are dry before reinstalling and confirm moving parts rotate freely after cleaning.',
+        'Return the waste-water pipe to the bucket and keep it level after cleaning.',
+        'Confirm the filter is dry, the sink is seated, and moving parts rotate freely before restarting the machine.',
       ],
     },
   ],
@@ -184,20 +222,22 @@ export const moduleFunctionCheckDocument: TrainingDocument = {
         'The maintenance manual calls for powering the machine on without starting it before using the debugging page.',
         'Test one module at a time so you can describe the failure clearly if support escalation is needed.',
       ],
+      bullets: ['Verify burner rotation before you allow any heating test.', 'Use the debugging page instead of guessing from symptoms alone.'],
     },
     {
       heading: 'Key checks',
       bullets: [
-        'Burner low-speed rotation and heating behavior',
-        'Humidity and cleaning spray output',
-        'Stick output module and automatic door movement',
-        'Air pump airflow and water-cooling circulation',
+        'Burner low-speed rotation before heat is applied',
+        'Humidification and cleaning spray output',
+        'Stick output module, automatic door movement, and robot sensor behavior',
+        'Air pump airflow, cooling fan operation, and water-cooling circulation',
       ],
     },
     {
       heading: 'Escalation notes',
       paragraphs: [
         'If a module fails a guided check, capture the module name, the failed action, and the machine status before contacting support.',
+        'Call out whether the issue appeared during burner, door, air, cooling, or output testing so support can route the case faster.',
       ],
     },
   ],

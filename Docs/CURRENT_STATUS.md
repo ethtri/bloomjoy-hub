@@ -23,6 +23,8 @@
   - Added `scripts/sync-vimeo-training-catalog.mjs` to audit Vimeo uploads against Supabase, flag unmapped/duplicate/stale rows, and upsert missing catalog entries.
   - Follow-up catalog cleanup on `2026-03-20`: explicit MG320 Vimeo mappings now cover the full canonical 61-video library, duplicate Vimeo uploads are suppressed from the operator-facing portal library, and Supabase-backed guide rows match by title so they stay in the intended task tracks instead of collapsing into `Reference`.
   - Added `scripts/dedupe-training-catalog.mjs` on `2026-03-20` so duplicate Vimeo-backed Supabase rows can be marked `draft` without deleting the underlying Vimeo uploads.
+  - UAT feedback hardening on `2026-03-20`: the `Explore the full library` CTA now scrolls operators directly into the searchable library, training detail routes accept fallback guide IDs so checklist/manual actions keep working during catalog hydration, and the timer / maintenance guide content now reflects the source PDFs with concrete schedules, cooldown guidance, cleaning hotspots, and debug-page checks.
+  - Vimeo thumbnail metadata refreshed on `2026-03-20`: `scripts/sync-vimeo-training-catalog.mjs` now overwrites stale storage-path thumbnails with live Vimeo URLs and stores a dedicated `vimeo_thumbnail_url` fallback so operator cards stop rendering blank/gray media panels when old storage objects are missing.
 - Verification run on this branch:
   - `npm ci`
   - `npm run build`
