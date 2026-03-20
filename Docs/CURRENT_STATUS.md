@@ -66,15 +66,18 @@ Execution order is based on launch risk and dependency overlap.
 - Supabase remote migrations were pushed successfully to project `ygbzkgxktzqsiygjlqyg`, including:
   - `202603020001_custom_sticks_artwork_intake.sql`
 - Auth preflight status in this worktree:
-  - `npm run auth:preflight`: pass with `bloomjoyusa.com` values
+  - `npm run auth:preflight`: pass with canonical `www.bloomjoyusa.com` plus apex redirect-allowlist values
   - `npm run auth:preflight -- --require-custom-auth-domain`: expected fail until custom auth domain cutover is completed (`auth.bloomjoyusa.com`)
 
 1) **P0 - Auth redirect/domain cutover regression (Google login)**
 - UAT signal: Google callback currently lands on `localhost:3000` (`ERR_CONNECTION_REFUSED`) instead of the live domain flow.
-- Likely cause: OAuth/Supabase redirect/origin settings are still on legacy host values while the new deployment is on `bloomjoyusa.com`.
+- Fresh evidence (2026-03-19):
+  - User-captured live Google login returns to `http://localhost:3000/#access_token=...` with no `/portal` path.
+  - Repo audit confirms the app requests `${window.location.origin}/portal` for Google OAuth redirect, so the bare localhost fallback points to stale Supabase Site URL and/or missing allowlist entries for `https://www.bloomjoyusa.com`.
+- Likely cause: OAuth/Supabase redirect/origin settings are still on legacy host values while the production deployment is on canonical `https://www.bloomjoyusa.com`.
 - Plan:
-  - Update auth docs/checklists and auth preflight defaults from legacy Bloomjoy hostnames to the active `bloomjoyusa.com` hostnames.
-  - Validate Google OAuth origins + redirect URIs and Supabase Site URL + additional redirects for both local (`http://localhost:8080`) and production (`https://bloomjoyusa.com` + auth host).
+  - Update auth docs/checklists and auth preflight defaults from legacy Bloomjoy hostnames to canonical `https://www.bloomjoyusa.com`, while keeping apex `https://bloomjoyusa.com` allowlisted during cutover.
+  - Validate Google OAuth origins + redirect URIs and Supabase Site URL + additional redirects for both local (`http://localhost:8080`) and production (`https://www.bloomjoyusa.com` + apex alias + auth host).
   - Re-run `npm run auth:preflight` with local env configured and capture callback-host evidence in launch sign-off docs.
 - Owner dependency: Google Cloud + Supabase dashboard redirect/origin updates (credentials and DNS are owner-controlled).
 
@@ -171,7 +174,7 @@ Execution order is based on launch risk and dependency overlap.
 - UAT naming consistency hardening (`2026-03-02`): standardized public machine labels to `Commercial Machine`, `Mini Machine`, and `Micro Machine` across home, machines listing, contact, footer, and machine detail headers.
 - UAT supplies packaging alignment (`2026-03-18`): sugar quick presets now align to `240/400/800 KG`, blank paper sticks use box pricing (`$130/box`, `2000 pieces/box`) with size/address selection, 5+ box checkout ships free via dedicated Stripe flow, and custom sticks retain artwork upload with a `$750` first-order plate fee.
 - UAT resources hardening (`2026-03-02`): `/resources` now includes Bloomjoy Plus teaser cards for downloadable procedure docs, daily checklists, and frequently updated member content.
-- Auth launch alignment (`2026-03-02`): auth preflight defaults and auth runbooks now target `bloomjoyusa.com` + `auth.bloomjoyusa.com` for OAuth redirect/origin validation.
+- Auth launch alignment (`2026-03-19`): auth preflight defaults and auth runbooks now target canonical `www.bloomjoyusa.com`, keep apex `bloomjoyusa.com` allowlisted during cutover, and document the `localhost:3000` fallback as stale Supabase URL configuration.
 - Training performance hardening (`#89`): training detail now shows a clear Vimeo loading state, adds Vimeo preconnect hints, and emits iframe startup timing analytics.
 - Training detail clarity hardening (`#91`): renamed and clarified post-video sections with helper copy plus explicit empty-state fallbacks for learning outcomes/checklist/resources.
 - Training taxonomy hardening (`#90`): training catalog now supports module-specific filtering/grouping (for example `Module 1/2/3`) and includes an operations script to enforce Vimeo tags (`scripts/vimeo-ensure-tag.mjs`).
