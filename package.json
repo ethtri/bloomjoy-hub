@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development && node scripts/prerender-public-routes.mjs",
     "seo:check": "node scripts/seo-regression-check.mjs",
     "auth:preflight": "node scripts/auth-preflight.mjs",
+    "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",
     "training:upload-docs": "node scripts/upload-training-documents.mjs",
     "lint": "eslint .",
     "preview": "vite preview"

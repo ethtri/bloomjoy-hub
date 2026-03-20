@@ -22,6 +22,7 @@
   - Added a shared training catalog manifest for curated track assignment, featured content, start-here flags, and stable fallback mapping when Vimeo titles change.
   - Added `scripts/sync-vimeo-training-catalog.mjs` to audit Vimeo uploads against Supabase, flag unmapped/duplicate/stale rows, and upsert missing catalog entries.
   - Follow-up catalog cleanup on `2026-03-20`: explicit MG320 Vimeo mappings now cover the full canonical 61-video library, duplicate Vimeo uploads are suppressed from the operator-facing portal library, and Supabase-backed guide rows match by title so they stay in the intended task tracks instead of collapsing into `Reference`.
+  - Added `scripts/dedupe-training-catalog.mjs` on `2026-03-20` so duplicate Vimeo-backed Supabase rows can be marked `draft` without deleting the underlying Vimeo uploads.
 - Verification run on this branch:
   - `npm ci`
   - `npm run build`
