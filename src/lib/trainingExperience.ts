@@ -181,7 +181,7 @@ const buildCompositeTaskItem = (
     writtenGuide,
     ...(quickAidIds.map((id) => libraryById.get(id)).filter(Boolean) as TrainingContent[]),
     ...(manualIds.map((id) => libraryById.get(id)).filter(Boolean) as TrainingContent[]),
-  ];
+  ].filter((item): item is TrainingContent => Boolean(item));
   const resourceItems = [canonicalItem, primaryVideo, writtenGuide].filter(
     (item): item is TrainingContent => Boolean(item)
   );
