@@ -2,6 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { isCanonicalTrainingVideoId, resolveTrainingCatalogMetadata } from '@/lib/trainingCatalog';
 import {
+  bindTracksToTrainingExperience,
+  buildTrainingExperience,
+  getTrainingProgressWriteIds,
+  getTrainingRouteId,
+  mapTrainingProgressToCanonical,
+  resolveTrainingExperienceItem,
+} from '@/lib/trainingExperience';
+import {
   TrainingCertificate,
   TrainingContent,
   TrainingProgressRecord,
@@ -526,6 +534,15 @@ export const bindTracksToLibrary = (
   }));
 };
 
+export {
+  bindTracksToTrainingExperience,
+  buildTrainingExperience,
+  getTrainingProgressWriteIds,
+  getTrainingRouteId,
+  mapTrainingProgressToCanonical,
+  resolveTrainingExperienceItem,
+};
+
 export const fetchTrainingProgress = async (): Promise<TrainingProgressRecord[]> => {
   const { data, error } = await supabaseClient
     .from('training_progress')
@@ -624,21 +641,27 @@ export const useSaveTrainingProgress = () => {
   return useMutation({
     mutationFn: async ({
       trainingId,
+      trainingIds,
       markComplete,
       completionSource,
     }: {
       trainingId: string;
+      trainingIds?: string[];
       markComplete: boolean;
       completionSource: string;
     }) => {
-      const { error } = await supabaseClient.rpc('save_training_progress', {
-        training_id_input: trainingId,
-        mark_complete_input: markComplete,
-        completion_source_input: completionSource,
-      });
+      const idsToWrite = [...new Set(trainingIds?.length ? trainingIds : [trainingId])];
 
-      if (error) {
-        throw error;
+      for (const id of idsToWrite) {
+        const { error } = await supabaseClient.rpc('save_training_progress', {
+          training_id_input: id,
+          mark_complete_input: markComplete,
+          completion_source_input: completionSource,
+        });
+
+        if (error) {
+          throw error;
+        }
       }
     },
     onSuccess: async () => {

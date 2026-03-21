@@ -41,7 +41,7 @@ export const trainingContent: TrainingContent[] = [
     id: 'software-setup-quickstart',
     title: 'Software Setup Quickstart',
     description:
-      'Use this guide when you need fast admin access, Wi-Fi, time zone, and first-login setup.',
+      'Fast admin access, Wi-Fi, time zone, and first-login setup for a new machine or venue.',
     duration: '9 min',
     tags: [
       'Audience: Operator',
@@ -84,7 +84,7 @@ export const trainingContent: TrainingContent[] = [
     resources: [
       {
         title: 'Pricing, Passwords, and Payment Settings',
-        description: 'Open the next setup guide for prices, guest login, and Nayax payment settings.',
+        description: 'Next setup step for prices, guest login, and Nayax settings.',
         status: 'available',
         kind: 'guide',
         actionLabel: 'Open guide',
@@ -93,7 +93,7 @@ export const trainingContent: TrainingContent[] = [
       },
       {
         title: 'Alarm and Power Timer Setup',
-        description: 'Finish automatic burner start and daily power scheduling after the base setup is complete.',
+        description: 'Set the approved burner start and daily power schedule after base setup.',
         status: 'available',
         kind: 'guide',
         actionLabel: 'Open checklist',
@@ -102,7 +102,7 @@ export const trainingContent: TrainingContent[] = [
       },
       {
         title: 'Timer Control Reference',
-        description: 'Open the controller legend and approved programming order while you are at the timer.',
+        description: 'Open the one-page timer legend while you are standing at the controller.',
         status: 'available',
         kind: 'guide',
         actionLabel: 'Open guide',
@@ -180,7 +180,7 @@ export const trainingContent: TrainingContent[] = [
     id: 'alarm-and-power-timer-setup',
     title: 'Alarm and Power Timer Setup',
     description:
-      'Set the machine clock, burner auto-start alarm, and approved daily power schedule before service begins.',
+      'Set the machine clock, burner auto-start alarm, and approved daily power windows.',
     duration: '6 min',
     tags: [
       'Audience: Operator',
@@ -238,7 +238,7 @@ export const trainingContent: TrainingContent[] = [
       },
       {
         title: 'Timer Control Reference',
-        description: 'Use the visual controller legend if you need help finding the lock, time, timer, or Auto buttons.',
+        description: 'Use the visual controller legend if you need a quick button map at the timer.',
         status: 'available',
         kind: 'guide',
         actionLabel: 'Open guide',
@@ -267,7 +267,7 @@ export const trainingContent: TrainingContent[] = [
   {
     id: 'timer-control-reference',
     title: 'Timer Control Reference',
-    description: 'Use the controller button legend and approved programming order while setting local time and daily schedules.',
+    description: 'One-page timer controller legend and programming order for local time and daily schedules.',
     duration: '3 min',
     tags: [
       'Audience: Operator',
@@ -334,7 +334,7 @@ export const trainingContent: TrainingContent[] = [
     id: 'module-map-and-reference-manual',
     title: 'Maintenance Guide Reference Manual',
     description:
-      'Use the maintenance reference to find safe shutdown, daily cleaning hotspots, debug-page checks, and consumable-loading rules.',
+      'Long-form maintenance reference for shutdown, cleaning, debug-page checks, and consumable loading.',
     duration: '14 min',
     tags: [
       'Audience: Operator',
@@ -377,7 +377,7 @@ export const trainingContent: TrainingContent[] = [
     resources: [
       {
         title: 'Safe Power Off and Cooldown',
-        description: 'Open the shutdown checklist before cleaning or unplugging the machine.',
+        description: 'Quick shutdown checklist before cleaning, opening, or unplugging the machine.',
         status: 'available',
         kind: 'guide',
         actionLabel: 'Open checklist',
@@ -404,7 +404,7 @@ export const trainingContent: TrainingContent[] = [
       },
       {
         title: 'Consumables Loading Reference',
-        description: 'Open the quick sugar, pipe, and stick-loading checks before assuming a hardware fault.',
+        description: 'Quick sugar, pipe, and stick-loading checks before assuming a hardware fault.',
         status: 'available',
         kind: 'guide',
         actionLabel: 'Open guide',
@@ -416,7 +416,7 @@ export const trainingContent: TrainingContent[] = [
   {
     id: 'safe-power-off-and-cooldown',
     title: 'Safe Power Off and Cooldown',
-    description: 'Use this shutdown checklist to protect the burner before unplugging or opening the machine.',
+    description: 'Quick shutdown checklist to protect the burner before cleaning, opening, or unplugging.',
     duration: '4 min',
     tags: [
       'Audience: Operator',
@@ -548,7 +548,7 @@ export const trainingContent: TrainingContent[] = [
   {
     id: 'daily-cleaning-hotspots',
     title: 'Daily Cleaning Hotspots',
-    description: 'Use this quick hotspot guide to target the highest-risk residue, debris, and sensor areas during daily cleanup.',
+    description: 'Quick daily cleaning check for the burner, filter, output path, and sensor areas.',
     duration: '5 min',
     tags: [
       'Audience: Operator',
@@ -753,7 +753,7 @@ export const trainingContent: TrainingContent[] = [
   {
     id: 'consumables-loading-reference',
     title: 'Consumables Loading Reference',
-    description: 'Use this quick reference for sugar fill level, cap seal, pipe routing, check-valve direction, and stick loading.',
+    description: 'Quick checks for sugar fill level, cap seal, pipe routing, check-valve direction, and stick loading.',
     duration: '4 min',
     tags: [
       'Audience: Operator',
@@ -1081,9 +1081,8 @@ export const trainingTracks: TrainingTrack[] = [
       { trainingId: 'pricing-passwords-payment-settings', required: true, sortOrder: 3 },
       { trainingId: 'alarm-and-power-timer-setup', required: true, sortOrder: 4 },
       { trainingId: 'daily-maintenance-routine', required: true, sortOrder: 5 },
-      { trainingId: 'cleaning-and-hygiene-checklist', required: true, sortOrder: 6 },
-      { trainingId: 'consumables-loading-and-stick-handling', required: true, sortOrder: 7 },
-      { trainingId: 'module-function-check-guide', required: true, sortOrder: 8 },
+      { trainingId: 'consumables-loading-and-stick-handling', required: true, sortOrder: 6 },
+      { trainingId: 'troubleshooting-common-issues', required: true, sortOrder: 7 },
     ],
   },
 ];

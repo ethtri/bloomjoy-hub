@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -35,15 +35,19 @@ import {
   stripInternalTrainingTags,
 } from '@/lib/trainingCatalog';
 import {
-  bindTracksToLibrary,
+  bindTracksToTrainingExperience,
+  buildTrainingExperience,
+  getTrainingProgressWriteIds,
+  mapTrainingProgressToCanonical,
   useIssueTrainingCertificate,
+  useSaveTrainingProgress,
   useTrainingCertificates,
   useTrainingLibrary,
   useTrainingProgress,
   useTrainingSourceStatus,
   useTrainingTracks,
 } from '@/lib/trainingRepository';
-import type { TrainingContent } from '@/lib/trainingTypes';
+import type { TrainingExperienceItem } from '@/lib/trainingTypes';
 import { toast } from 'sonner';
 
 const MODULE_TAG_PATTERN = /^module\s+(\d+)$/i;
@@ -64,7 +68,15 @@ const getModuleNumber = (moduleLabel?: string) => {
   return match ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER;
 };
 
-const getFormatLabel = (item: TrainingContent) => {
+const getFormatLabel = (item: TrainingExperienceItem) => {
+  if (item.surface === 'quick-aid') {
+    return 'Quick aid';
+  }
+
+  if (item.surface === 'manual') {
+    return 'Reference manual';
+  }
+
   if (item.format === 'video') {
     return 'Video';
   }
@@ -84,29 +96,46 @@ const getFormatLabel = (item: TrainingContent) => {
   return 'Guide';
 };
 
-const getActionLabel = (item: TrainingContent) => {
-  if (item.format === 'video') {
-    return 'Watch video';
+const getSurfaceLabel = (item: TrainingExperienceItem) => {
+  if (item.surface === 'manual') {
+    return 'Reference manual';
   }
 
-  if (item.format === 'reference') {
+  if (item.surface === 'quick-aid') {
+    return 'Quick aid';
+  }
+
+  if (item.format === 'mixed') {
+    return 'Task + guide';
+  }
+
+  return 'Operator task';
+};
+
+const getActionLabel = (item: TrainingExperienceItem) => {
+  if (item.surface === 'manual') {
     return 'Open manual';
   }
 
-  if (item.format === 'checklist') {
-    return 'Open checklist';
+  if (item.surface === 'quick-aid') {
+    return 'Open quick aid';
   }
 
-  return 'Open guide';
+  return item.primaryVideo ? 'Open task' : 'Open task';
 };
 
-const getSearchableText = (content: TrainingContent) =>
+const getSearchableText = (content: TrainingExperienceItem) =>
   [
     content.title,
     content.description,
     content.summary,
     content.taskCategory,
     content.moduleLabel,
+    content.document?.title,
+    content.document?.intro,
+    ...content.document?.sections.map((section) => section.heading) ?? [],
+    ...content.document?.sections.flatMap((section) => section.paragraphs ?? []) ?? [],
+    ...content.document?.sections.flatMap((section) => section.bullets ?? []) ?? [],
     ...content.tags,
     ...content.searchTerms,
     ...content.resources.map((resource) => resource.title),
@@ -116,7 +145,7 @@ const getSearchableText = (content: TrainingContent) =>
     .join(' ')
     .toLowerCase();
 
-const sortTrainingItems = (left: TrainingContent, right: TrainingContent) => {
+const sortTrainingItems = (left: TrainingExperienceItem, right: TrainingExperienceItem) => {
   const leftFeatured = left.featuredOrder ?? Number.MAX_SAFE_INTEGER;
   const rightFeatured = right.featuredOrder ?? Number.MAX_SAFE_INTEGER;
   if (leftFeatured !== rightFeatured) {
@@ -149,14 +178,25 @@ export default function TrainingPage() {
   const { data: certificates = [] } = useTrainingCertificates(user?.id, isMember);
   const { data: source = 'local' } = useTrainingSourceStatus();
   const issueCertificateMutation = useIssueTrainingCertificate();
+  const saveProgressMutation = useSaveTrainingProgress();
 
   useEffect(() => {
     trackEvent('view_training_catalog');
   }, []);
 
-  const hydratedTracks = bindTracksToLibrary(trackDefinitions, library);
+  const trainingExperience = useMemo(() => buildTrainingExperience(library), [library]);
+  const canonicalProgress = useMemo(
+    () => mapTrainingProgressToCanonical(progress, trainingExperience),
+    [progress, trainingExperience]
+  );
+  const hydratedTracks = useMemo(
+    () => bindTracksToTrainingExperience(trackDefinitions, trainingExperience),
+    [trackDefinitions, trainingExperience]
+  );
   const operatorTrack = hydratedTracks.find((track) => track.slug === 'operator-essentials');
-  const progressByTrainingId = new Map(progress.map((item) => [item.trainingId, item]));
+  const progressByTrainingId = new Map(
+    canonicalProgress.map((item) => [item.trainingId, item])
+  );
   const requiredTrackItems = operatorTrack?.items.filter((item) => item.required) ?? [];
   const completedRequiredCount = requiredTrackItems.filter((item) =>
     progressByTrainingId.get(item.trainingId)?.completedAt
@@ -180,9 +220,9 @@ export default function TrainingPage() {
   const startHereSequence =
     operatorTrack?.items
       .map((item) => item.training)
-      .filter((item): item is TrainingContent => Boolean(item))
+      .filter((item): item is TrainingExperienceItem => Boolean(item))
       .slice(0, 4) ??
-    [...library]
+    [...trainingExperience.tasks]
       .filter((item) => item.isStartHere)
       .sort(sortTrainingItems)
       .slice(0, 4);
@@ -190,17 +230,17 @@ export default function TrainingPage() {
   const trackDefinitionsForNavigation = getTrainingTrackDefinitions().filter(
     (track) => track.id !== 'start-here'
   );
-  const moduleFilters = [...new Set(library.map((item) => item.moduleLabel).filter(Boolean))]
+  const moduleFilters = [...new Set(trainingExperience.tasks.map((item) => item.moduleLabel).filter(Boolean))]
     .map((item) => String(item))
     .sort((left, right) => getModuleNumber(left) - getModuleNumber(right));
   const supportsModuleFilter =
-    moduleFilters.length > 1 && library.every((item) => Boolean(item.moduleLabel));
-  const formatFilters = [...new Set(library.map(getFormatLabel))].sort((left, right) =>
+    moduleFilters.length > 1 && trainingExperience.tasks.every((item) => Boolean(item.moduleLabel));
+  const formatFilters = [...new Set(trainingExperience.allItems.map(getFormatLabel))].sort((left, right) =>
     left.localeCompare(right)
   );
-  const topicTags = [...new Set(library.flatMap((item) => stripInternalTrainingTags(item.tags)))].sort(
-    (left, right) => left.localeCompare(right)
-  );
+  const topicTags = [
+    ...new Set(trainingExperience.allItems.flatMap((item) => stripInternalTrainingTags(item.tags))),
+  ].sort((left, right) => left.localeCompare(right));
   const visibleTopicFilters = [
     ...topicTags.slice(0, 16),
     ...selectedTopicTags.filter((tag) => !topicTags.slice(0, 16).includes(tag)),
@@ -209,7 +249,7 @@ export default function TrainingPage() {
     (selectedModule === 'All modules' ? 0 : 1) +
     (selectedFormat === 'All formats' ? 0 : 1) +
     selectedTopicTags.length;
-  const filteredContent = library.filter((content) => {
+  const filteredItems = trainingExperience.allItems.filter((content) => {
     const matchesSearch = getSearchableText(content).includes(search.trim().toLowerCase());
     const matchesTrack = selectedTrack === 'all' || content.catalogTrackId === selectedTrack;
     const matchesModule = selectedModule === 'All modules' || content.moduleLabel === selectedModule;
@@ -224,11 +264,13 @@ export default function TrainingPage() {
   const showCuratedSections =
     search.trim().length === 0 && selectedTrack === 'all' && activeFilterCount === 0;
   const startHereIds = new Set(startHereSequence.map((item) => item.id));
-  const libraryResults = filteredContent.filter(
+  const filteredTasks = filteredItems.filter((item) => item.surface === 'task');
+  const filteredReferenceItems = filteredItems.filter((item) => item.surface !== 'task');
+  const libraryResults = filteredTasks.filter(
     (item) => !(showCuratedSections && startHereIds.has(item.id))
   );
-  const highlightedItems = [...filteredContent]
-    .filter((item) => !item.isStartHere && item.featuredOrder !== undefined)
+  const quickAidItems = [...trainingExperience.quickAids]
+    .filter((item) => !item.isStartHere)
     .sort(sortTrainingItems)
     .slice(0, 4);
   const groupedContent = trackDefinitionsForNavigation
@@ -243,6 +285,11 @@ export default function TrainingPage() {
     selectedTrack === 'all' ? undefined : getTrainingTrackDefinition(selectedTrack);
   const missingModuleCount = library.filter((item) => !item.moduleLabel).length;
   const derivedMappingCount = library.filter((item) => item.catalogSource === 'derived').length;
+  const matchingTaskCount = filteredTasks.length;
+  const matchingReferenceCount = filteredReferenceItems.length;
+  const showInternalCatalogQa =
+    import.meta.env.DEV &&
+    (source !== 'supabase' || derivedMappingCount > 0 || missingModuleCount > 0);
 
   useEffect(() => {
     if (!supportsModuleFilter && selectedModule !== 'All modules') {
@@ -250,7 +297,7 @@ export default function TrainingPage() {
     }
   }, [selectedModule, supportsModuleFilter]);
 
-  const handleOpenItem = (content: TrainingContent) => {
+  const handleOpenItem = (content: TrainingExperienceItem) => {
     trackEvent('open_training_item', { id: content.id, title: content.title, format: content.format });
   };
 
@@ -266,9 +313,9 @@ export default function TrainingPage() {
     setSelectedTopicTags([]);
   };
 
-  const focusLibraryExplorer = () => {
+  const focusLibraryExplorer = (nextTrack = 'all') => {
     setSearch('');
-    setSelectedTrack('all');
+    setSelectedTrack(nextTrack);
     resetFilters();
     setAdvancedFiltersOpen(false);
 
@@ -276,6 +323,10 @@ export default function TrainingPage() {
       libraryExplorerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       window.setTimeout(() => librarySearchRef.current?.focus(), 250);
     });
+  };
+
+  const handleSelectTrack = (trackId: string) => {
+    focusLibraryExplorer(trackId);
   };
 
   const handleUnlockCertificate = async () => {
@@ -289,6 +340,21 @@ export default function TrainingPage() {
     }
 
     try {
+      const completedTaskIds = requiredTrackItems
+        .filter((item) => progressByTrainingId.get(item.trainingId)?.completedAt)
+        .flatMap((item) =>
+          item.training ? getTrainingProgressWriteIds(item.training) : [item.trainingId]
+        );
+
+      if (completedTaskIds.length > 0) {
+        await saveProgressMutation.mutateAsync({
+          trainingId: completedTaskIds[0],
+          trainingIds: completedTaskIds,
+          markComplete: true,
+          completionSource: 'certificate_sync',
+        });
+      }
+
       await issueCertificateMutation.mutateAsync({
         trackSlug: operatorTrack.slug,
         finalAcknowledgement: true,
@@ -314,36 +380,42 @@ export default function TrainingPage() {
     trackEvent('training_certificate_downloaded', { track_id: issuedCertificate.trackId });
   };
 
-  const renderTrainingCard = (content: TrainingContent, options?: { showStep?: number }) => {
+  const renderTrainingCard = (content: TrainingExperienceItem, options?: { showStep?: number }) => {
     const CardIcon =
-      content.format === 'video'
-        ? Play
-        : content.format === 'reference'
-          ? BookOpen
-          : content.format === 'checklist'
-            ? CheckCircle2
+      content.surface === 'manual'
+        ? BookOpen
+        : content.surface === 'quick-aid'
+          ? CheckCircle2
+          : content.primaryVideo
+            ? Play
             : Wrench;
-    const progressRecord = progressByTrainingId.get(content.id);
+    const progressRecord = content.surface === 'task' ? progressByTrainingId.get(content.id) : undefined;
     const displayTags = getTrainingDisplayTags(content, 2);
     const hasVisualThumbnail =
-      content.format === 'video' &&
+      Boolean(content.primaryVideo?.embed.url || content.format === 'video' || content.format === 'mixed') &&
       Boolean(content.thumbnailUrl) &&
       content.thumbnailUrl !== PLACEHOLDER_THUMBNAIL_URL;
+    const isQuickAid = content.surface === 'quick-aid';
+    const surfaceLabel = getSurfaceLabel(content);
 
     return (
       <Link
         key={content.id}
         to={`/portal/training/${content.id}`}
         onClick={() => handleOpenItem(content)}
-        className="group overflow-hidden rounded-3xl border border-border bg-background transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-sm"
+        className={`group overflow-hidden rounded-3xl border bg-background transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-sm ${
+          isQuickAid ? 'border-primary/15' : 'border-border'
+        }`}
       >
         <div
           className={`relative ${
-            options?.showStep ? 'aspect-[1.1/1]' : 'aspect-video'
+            options?.showStep ? 'aspect-[1.08/1]' : isQuickAid ? 'aspect-[1.1/1]' : 'aspect-video'
           } overflow-hidden border-b border-border ${
             hasVisualThumbnail
               ? 'bg-muted'
-              : 'bg-gradient-to-br from-cream via-background to-primary/5'
+              : isQuickAid
+                ? 'bg-gradient-to-br from-primary/10 via-background to-cream'
+                : 'bg-gradient-to-br from-cream via-background to-primary/5'
           }`}
         >
           {hasVisualThumbnail && (
@@ -371,7 +443,7 @@ export default function TrainingPage() {
                   </span>
                 ) : (
                   <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground">
-                    {getFormatLabel(content)}
+                          {surfaceLabel}
                   </span>
                 )}
                 {content.moduleLabel && (
@@ -404,7 +476,7 @@ export default function TrainingPage() {
           </div>
         </div>
 
-        <div className="p-5">
+        <div className="p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               {content.taskCategory}
@@ -418,7 +490,7 @@ export default function TrainingPage() {
           <h3 className="mt-3 text-lg font-semibold text-foreground group-hover:text-primary">
             {content.title}
           </h3>
-          <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
+          <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground sm:line-clamp-2">
             {content.description}
           </p>
 
@@ -446,10 +518,10 @@ export default function TrainingPage() {
 
   return (
     <PortalLayout>
-      <section className="section-padding">
+      <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
-          <div className="rounded-[32px] border border-primary/10 bg-gradient-to-br from-cream via-background to-primary/5 p-6 sm:p-8">
-            <div className="grid gap-8 lg:grid-cols-[1.4fr,0.9fr] lg:items-end">
+          <div className="rounded-[32px] border border-primary/10 bg-gradient-to-br from-cream via-background to-primary/5 p-5 sm:p-7 lg:p-8">
+            <div className="grid gap-6 lg:grid-cols-[1.15fr,0.95fr] lg:items-center">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
                   Training Hub
@@ -457,25 +529,24 @@ export default function TrainingPage() {
                 <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-foreground">
                   Find the right training fast.
                 </h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
-                  This hub is organized for operators first. Start with the essentials if you are
-                  new, or jump straight to the task you need if you are solving something in the
-                  moment.
+                <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+                  Start with the operator essentials path, then jump by task or search by symptom
+                  when you need a fast answer on the machine.
                 </p>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <span className="rounded-full border border-primary/15 bg-background/80 px-4 py-2 text-sm font-medium text-foreground">
-                    {library.length} training resources
+                <div className="mt-5 flex flex-wrap gap-2.5">
+                  <span className="rounded-full border border-primary/10 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                    {trainingExperience.tasks.length} operator tasks
                   </span>
-                  <span className="rounded-full border border-primary/15 bg-background/80 px-4 py-2 text-sm font-medium text-foreground">
-                    {library.filter((item) => item.format === 'video').length} videos
+                  <span className="rounded-full border border-primary/10 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                    {trainingExperience.tasks.filter((item) => Boolean(item.primaryVideo?.embed.url)).length} walkthrough videos
                   </span>
-                  <span className="rounded-full border border-primary/15 bg-background/80 px-4 py-2 text-sm font-medium text-foreground">
-                    {trackDefinitionsForNavigation.length} task paths
+                  <span className="rounded-full border border-primary/10 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                    {trainingExperience.quickAids.length + trainingExperience.manuals.length} quick aids + manuals
                   </span>
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-primary/10 bg-background/85 p-5 shadow-sm">
+              <div className="rounded-[28px] border border-primary/15 bg-background/95 p-5 shadow-md sm:p-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
                   Recommended first move
                 </p>
@@ -485,8 +556,13 @@ export default function TrainingPage() {
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   {continueLearningItem
                     ? continueLearningItem.title
-                    : 'Follow the essential setup, daily operation, and cleaning steps before digging into repairs.'}
+                    : 'Follow the core setup, daily operation, cleaning, and recovery steps before digging into repairs.'}
                 </p>
+                {recommendedStartingItem && (
+                  <p className="mt-3 rounded-2xl bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground">
+                    {recommendedStartingItem.summary}
+                  </p>
+                )}
                 <div className="mt-5 h-2 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full bg-primary transition-all"
@@ -496,19 +572,29 @@ export default function TrainingPage() {
                 <p className="mt-3 text-sm text-muted-foreground">
                   {completedRequiredCount}/{requiredTrackItems.length} required essentials complete
                 </p>
-                {recommendedStartingItem && (
-                  <Button asChild className="mt-5 w-full sm:w-auto">
-                    <Link to={`/portal/training/${recommendedStartingItem.id}`}>
-                      {continueLearningItem ? 'Resume learning' : 'Open start path'}
-                    </Link>
-                  </Button>
-                )}
+                <div className="mt-5 flex flex-col items-start gap-3">
+                  {recommendedStartingItem && (
+                    <Button asChild className="btn-shadow w-full sm:w-auto">
+                      <Link to={`/portal/training/${recommendedStartingItem.id}`}>
+                        {continueLearningItem ? 'Resume learning' : 'Open start path'}
+                      </Link>
+                    </Button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => focusLibraryExplorer()}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80"
+                  >
+                    Search tasks and references
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
           {startHereSequence.length > 0 && (
-            <section className="mt-10">
+            <section className="mt-8 sm:mt-10">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
@@ -525,53 +611,55 @@ export default function TrainingPage() {
                 <Button
                   variant="ghost"
                   className="w-fit px-0 text-primary hover:bg-transparent"
-                  onClick={focusLibraryExplorer}
+                  onClick={() => focusLibraryExplorer()}
                 >
                   Explore the full library
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
 
-              <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {startHereSequence.map((item, index) => renderTrainingCard(item, { showStep: index + 1 }))}
               </div>
             </section>
           )}
 
-          <section className="mt-12">
+          <section className="mt-10 sm:mt-12">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
                   Jump By Task
                 </p>
-                <h2 className="mt-2 font-display text-3xl font-semibold text-foreground">
+                <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
                   Go straight to the type of help you need
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                  Use task paths for the fastest wayfinding. Search is always available when you
-                  know the symptom or topic.
+                  Pick a task path to jump directly into that library view, or use search below when
+                  you already know the symptom.
                 </p>
               </div>
               <Button
                 variant={selectedTrack === 'all' ? 'default' : 'outline'}
-                onClick={focusLibraryExplorer}
+                onClick={() => focusLibraryExplorer()}
               >
                 View all resources
               </Button>
             </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {trackDefinitionsForNavigation.map((trackDefinition) => {
                 const TrackIcon = trackIconMap[trackDefinition.id] ?? BookOpen;
-                const trackItems = library.filter((item) => item.catalogTrackId === trackDefinition.id);
+                const trackItems = trainingExperience.tasks.filter(
+                  (item) => item.catalogTrackId === trackDefinition.id
+                );
                 const isActive = selectedTrack === trackDefinition.id;
 
                 return (
                   <button
                     key={trackDefinition.id}
                     type="button"
-                    onClick={() => setSelectedTrack(trackDefinition.id)}
-                    className={`rounded-3xl border p-5 text-left transition-all ${
+                    onClick={() => handleSelectTrack(trackDefinition.id)}
+                    className={`rounded-3xl border p-4 text-left transition-all sm:p-5 ${
                       isActive
                         ? 'border-primary/30 bg-primary/5 shadow-sm'
                         : 'border-border bg-background hover:border-primary/20 hover:bg-muted/20'
@@ -585,8 +673,8 @@ export default function TrainingPage() {
                         {trackItems.length} {trackItems.length === 1 ? 'resource' : 'resources'}
                       </span>
                     </div>
-                    <h3 className="mt-4 text-lg font-semibold text-foreground">{trackDefinition.label}</h3>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    <h3 className="mt-3 text-lg font-semibold text-foreground">{trackDefinition.label}</h3>
+                    <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
                       {trackDefinition.description}
                     </p>
                   </button>
@@ -595,10 +683,71 @@ export default function TrainingPage() {
             </div>
           </section>
 
-          <section id="training-library-explorer" ref={libraryExplorerRef} className="mt-12">
-            <div className="flex flex-col gap-4 rounded-3xl border border-border bg-background p-5 sm:p-6">
+          {showCuratedSections && quickAidItems.length > 0 && (
+            <section className="mt-10 sm:mt-12">
+              <div className="rounded-[26px] border border-primary/10 bg-primary/5 p-4 sm:p-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                    Quick Job Aids
+                  </p>
+                  <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
+                    Fast references that support the main tasks
+                  </h2>
+                  <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    Use these short references when you already know the moment you are solving. The
+                    main task library stays separate below.
+                  </p>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {quickAidItems.map((item) => (
+                    <Link
+                      key={item.id}
+                      to={`/portal/training/${item.id}`}
+                      onClick={() => handleOpenItem(item)}
+                      className="rounded-2xl border border-primary/10 bg-background/90 p-4 transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-sm"
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+                        {item.taskCategory}
+                      </p>
+                      <h3 className="mt-2 text-base font-semibold text-foreground">{item.title}</h3>
+                      <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                        {item.description}
+                      </p>
+                      <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+                        <span className="rounded-full bg-muted px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          {getSurfaceLabel(item)}
+                        </span>
+                        <span className="inline-flex items-center gap-1 font-medium text-primary">
+                          Open
+                          <ArrowRight className="h-4 w-4" />
+                        </span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+
+          <section id="training-library-explorer" ref={libraryExplorerRef} className="mt-10 sm:mt-12">
+            <div className="flex flex-col gap-4 rounded-3xl border border-border bg-background p-4 sm:p-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="relative flex-1">
+                <div className="flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                    Training Library
+                  </p>
+                  <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
+                    {selectedTrackDefinition ? `Search ${selectedTrackDefinition.label}` : 'Search operator tasks first'}
+                  </h2>
+                  <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    {selectedTrackDefinition
+                      ? `You are browsing the ${selectedTrackDefinition.label} path. Search within it to find the right task page, then use the quick aids and manuals below only when you need a specific reference.`
+                      : 'Search by symptom, part, topic, or setting to find the right operator task. Matching quick aids and manuals appear below the task results as supporting references.'}
+                  </p>
+                </div>
+
+                <div className="relative flex-1 lg:max-w-xl">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     ref={librarySearchRef}
@@ -727,9 +876,14 @@ export default function TrainingPage() {
               {!isLoading && (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <span>
-                    Showing <span className="font-semibold text-foreground">{filteredContent.length}</span>{' '}
-                    {filteredContent.length === 1 ? 'result' : 'results'}
+                    Showing <span className="font-semibold text-foreground">{matchingTaskCount}</span>{' '}
+                    {matchingTaskCount === 1 ? 'task' : 'tasks'}
                   </span>
+                  {!showCuratedSections && matchingReferenceCount > 0 && (
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                      {matchingReferenceCount} {matchingReferenceCount === 1 ? 'reference' : 'references'}
+                    </span>
+                  )}
                   {selectedTrackDefinition && (
                     <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
                       {selectedTrackDefinition.label}
@@ -745,72 +899,50 @@ export default function TrainingPage() {
             </div>
           </section>
 
-          {!isLoading && import.meta.env.DEV && (
-            <div className="mt-6 rounded-3xl border border-amber/30 bg-amber/10 p-5 text-sm text-muted-foreground">
-              <p className="font-semibold text-foreground">Internal catalog QA</p>
-              <div className="mt-2 grid gap-2">
-                <p>Data source: {source === 'supabase' ? 'Supabase catalog' : 'Local fallback content'}</p>
-                {source !== 'supabase' && (
-                  <p>
-                    Supabase did not return live training rows. If Vimeo uploads already exist,
-                    run <code className="rounded bg-background px-1.5 py-0.5">node scripts/sync-vimeo-training-catalog.mjs --dry-run</code>{' '}
-                    to audit the catalog sync gap.
-                  </p>
-                )}
-                {derivedMappingCount > 0 && (
-                  <p>
-                    {derivedMappingCount} items are using derived task mapping. Add explicit catalog
-                    manifest entries where curation needs to be tighter.
-                  </p>
-                )}
-                {missingModuleCount > 0 && (
-                  <p>
-                    {missingModuleCount} items are missing module labels, so module filtering stays
-                    hidden until taxonomy is complete.
-                  </p>
-                )}
+            {showInternalCatalogQa && (
+              <div className="mt-6 rounded-3xl border border-amber/30 bg-amber/10 p-5 text-sm text-muted-foreground">
+                <p className="font-semibold text-foreground">Internal catalog QA</p>
+                <div className="mt-2 grid gap-2">
+                  <p>Data source: {source === 'supabase' ? 'Supabase catalog' : 'Local fallback content'}</p>
+                  {source !== 'supabase' && (
+                    <p>
+                      Supabase did not return live training rows. If Vimeo uploads already exist,
+                      run <code className="rounded bg-background px-1.5 py-0.5">node scripts/sync-vimeo-training-catalog.mjs --dry-run</code>{' '}
+                      to audit the catalog sync gap.
+                    </p>
+                  )}
+                  {derivedMappingCount > 0 && (
+                    <p>
+                      {derivedMappingCount} items are using derived task mapping. Add explicit catalog
+                      manifest entries where curation needs to be tighter.
+                    </p>
+                  )}
+                  {missingModuleCount > 0 && (
+                    <p>
+                      {missingModuleCount} items are missing module labels, so module filtering stays
+                      hidden until taxonomy is complete.
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {showCuratedSections && highlightedItems.length > 0 && (
-            <section className="mt-12">
+          <section className="mt-10 sm:mt-12">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Featured Tasks
+                    Task Library
                   </p>
-                  <h2 className="mt-2 font-display text-3xl font-semibold text-foreground">
-                    Common operator jobs
+                  <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
+                    {selectedTrackDefinition ? `Browse ${selectedTrackDefinition.label}` : 'Browse operator tasks'}
                   </h2>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                    These are the tasks most likely to unblock day-to-day operation quickly.
+                    {selectedTrackDefinition
+                      ? `${selectedTrackDefinition.description} Search stays active above if you want to narrow this path further.`
+                      : 'Everything below stays grouped by operator task so the main library is not split into duplicate video and guide cards.'}
                   </p>
                 </div>
               </div>
-
-              <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                {highlightedItems.map((item) => renderTrainingCard(item))}
-              </div>
-            </section>
-          )}
-
-          <section className="mt-12">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                  Full Library
-                </p>
-                <h2 className="mt-2 font-display text-3xl font-semibold text-foreground">
-                  {selectedTrackDefinition ? selectedTrackDefinition.label : 'Browse every training resource'}
-                </h2>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                  {selectedTrackDefinition
-                    ? selectedTrackDefinition.description
-                    : 'Everything below is grouped by task so operators can scan quickly without getting lost.'}
-                </p>
-              </div>
-            </div>
 
             {isLoading && (
               <div className="mt-8 text-sm text-muted-foreground">Loading training content...</div>
@@ -818,7 +950,7 @@ export default function TrainingPage() {
 
             {!isLoading &&
               groupedContent.map((trackGroup) => (
-                <section key={trackGroup.id} className="mt-8">
+                <section key={trackGroup.id} className="mt-7 sm:mt-8">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <h3 className="font-display text-2xl font-semibold text-foreground">
@@ -833,13 +965,36 @@ export default function TrainingPage() {
                     </span>
                   </div>
 
-                  <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {trackGroup.items.map((item) => renderTrainingCard(item))}
                   </div>
                 </section>
               ))}
 
-            {!isLoading && filteredContent.length === 0 && (
+            {!isLoading && !showCuratedSections && filteredReferenceItems.length > 0 && (
+              <section className="mt-7 sm:mt-8">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-display text-2xl font-semibold text-foreground">
+                      Quick aids and manuals
+                    </h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      These are supporting references for the task results above, not separate peer lessons.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    {filteredReferenceItems.length}{' '}
+                    {filteredReferenceItems.length === 1 ? 'item' : 'items'}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {[...filteredReferenceItems].sort(sortTrainingItems).map((item) => renderTrainingCard(item))}
+                </div>
+              </section>
+            )}
+
+            {!isLoading && matchingTaskCount + matchingReferenceCount === 0 && (
               <div className="mt-8 rounded-3xl border border-border bg-muted/20 px-6 py-10 text-center">
                 <p className="text-lg font-semibold text-foreground">No training matches this view.</p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -862,14 +1017,14 @@ export default function TrainingPage() {
           </section>
 
           {operatorTrack && (
-            <section className="mt-12 grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
-              <div className="rounded-3xl border border-border bg-background p-6">
+            <section className="mt-10 grid gap-5 xl:grid-cols-[1.2fr,0.8fr] sm:mt-12">
+              <div className="rounded-3xl border border-border bg-muted/15 p-5 sm:p-6">
                 <div className="flex items-start gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber/15">
-                    <Award className="h-6 w-6 text-amber" />
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted">
+                    <Award className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                       Optional certificate
                     </p>
                     <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
@@ -883,7 +1038,7 @@ export default function TrainingPage() {
                 </div>
 
                 {issuedCertificate ? (
-                  <div className="mt-6 rounded-2xl border border-sage/30 bg-sage-light/40 p-5">
+                  <div className="mt-6 rounded-2xl border border-sage/20 bg-background p-5">
                     <p className="font-semibold text-foreground">{issuedCertificate.certificateTitle}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Issued on{' '}
@@ -894,13 +1049,13 @@ export default function TrainingPage() {
                       })}
                       .
                     </p>
-                    <Button className="mt-4" onClick={handleDownloadCertificate}>
+                    <Button variant="outline" className="mt-4" onClick={handleDownloadCertificate}>
                       Download certificate
                     </Button>
                   </div>
                 ) : (
                   <>
-                    <div className="mt-6 rounded-2xl border border-border bg-muted/30 p-5">
+                    <div className="mt-6 rounded-2xl border border-border bg-background p-5">
                       <p className="font-semibold text-foreground">
                         Progress: {completedRequiredCount}/{requiredTrackItems.length} required complete
                       </p>
@@ -908,7 +1063,7 @@ export default function TrainingPage() {
                         Finish the required essentials first, then confirm the acknowledgement to unlock the certificate.
                       </p>
                     </div>
-                    <label className="mt-5 flex items-start gap-3 rounded-2xl border border-border p-4">
+                    <label className="mt-5 flex items-start gap-3 rounded-2xl border border-border bg-background p-4">
                       <Checkbox
                         checked={finalAcknowledgement}
                         onCheckedChange={(checked) => setFinalAcknowledgement(Boolean(checked))}
@@ -920,6 +1075,7 @@ export default function TrainingPage() {
                       </span>
                     </label>
                     <Button
+                      variant="outline"
                       className="mt-4"
                       onClick={handleUnlockCertificate}
                       disabled={
@@ -933,7 +1089,7 @@ export default function TrainingPage() {
                 )}
               </div>
 
-              <div className="rounded-3xl border border-border bg-background p-6">
+              <div className="rounded-3xl border border-border bg-background p-5 sm:p-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
                   Need something specific?
                 </p>

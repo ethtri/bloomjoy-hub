@@ -15,7 +15,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { trackEvent } from '@/lib/analytics';
 import { getOnboardingProgress } from '@/lib/onboardingChecklist';
 import {
-  bindTracksToLibrary,
+  bindTracksToTrainingExperience,
+  buildTrainingExperience,
+  mapTrainingProgressToCanonical,
   useTrainingLibrary,
   useTrainingProgress,
   useTrainingTracks,
@@ -67,9 +69,11 @@ export default function PortalDashboard() {
     trackEvent('reorder_sugar_click');
   };
 
-  const hydratedTracks = bindTracksToLibrary(trackDefinitions, library);
+  const trainingExperience = buildTrainingExperience(library);
+  const canonicalProgress = mapTrainingProgressToCanonical(trainingProgress, trainingExperience);
+  const hydratedTracks = bindTracksToTrainingExperience(trackDefinitions, trainingExperience);
   const operatorTrack = hydratedTracks.find((track) => track.slug === 'operator-essentials');
-  const progressByTrainingId = new Map(trainingProgress.map((item) => [item.trainingId, item]));
+  const progressByTrainingId = new Map(canonicalProgress.map((item) => [item.trainingId, item]));
   const continueLearningItem =
     operatorTrack?.items.find(
       (item) =>

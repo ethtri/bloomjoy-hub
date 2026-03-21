@@ -93,3 +93,32 @@ export interface TrainingCertificate {
   issuedAt: string;
   certificateTitle: string;
 }
+
+export type TrainingExperienceSurface = 'task' | 'quick-aid' | 'manual';
+
+export interface TrainingExperienceItem extends TrainingContent {
+  surface: TrainingExperienceSurface;
+  canonicalId: string;
+  legacyAliasIds: string[];
+  primaryVideo?: TrainingContent;
+  writtenGuide?: TrainingContent;
+  quickAidIds: string[];
+  manualIds: string[];
+  sourceTrainingIds: string[];
+}
+
+export interface TrainingExperience {
+  tasks: TrainingExperienceItem[];
+  quickAids: TrainingExperienceItem[];
+  manuals: TrainingExperienceItem[];
+  allItems: TrainingExperienceItem[];
+  byId: Map<string, TrainingExperienceItem>;
+  routeIdByTrainingId: Map<string, string>;
+  aliasAnchorByTrainingId: Map<string, string>;
+}
+
+export interface TrainingExperienceResolution {
+  item?: TrainingExperienceItem;
+  redirectToId?: string;
+  redirectAnchor?: string;
+}

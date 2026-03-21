@@ -93,11 +93,19 @@ export const alarmAndPowerTimerDocument: TrainingDocument = {
     },
     {
       heading: 'Power timer controls machine on and off',
+      paragraphs: [
+        'The software setup guide shows the approved daily power window directly on the timer-setting screen, so operators can confirm the exact open and close hours before leaving the controller in Auto mode.',
+      ],
       bullets: [
         'Daylight saving / summer schedule: on at 9:00, off at 23:00.',
         'Winter schedule: on at 8:00, off at 22:00.',
         'After programming the schedule, leave the timer in Auto mode.',
       ],
+      visual: {
+        src: '/training-guides/power-timer-setting.jpg',
+        alt: 'Software setup guide page showing the approved power timer setting screen with summer and winter operating windows.',
+        caption: 'Source screenshot from the software setup PDF showing the timer-setting screen and approved operating windows.',
+      },
     },
     {
       heading: 'Timer control reference',
@@ -223,11 +231,20 @@ export const safePowerOffAndCooldownDocument: TrainingDocument = {
     },
     {
       heading: 'Critical cooldown rule',
+      paragraphs: [
+        'The maintenance guide states that shutdown is not complete until the burner temperature drops to 60 C and the burner stops rotating.',
+        'Use the on-screen temperature status during cooldown instead of guessing from elapsed time alone.',
+      ],
       bullets: [
         'Wait until the burner cools to 60 C before unplugging the machine.',
         'If the burner is still above 60 C, keep power connected and continue monitoring cooldown.',
         'Use this same rule before opening the machine for cleaning or inspection.',
       ],
+      visual: {
+        src: '/training-guides/shutdown-cooldown-reference.jpg',
+        alt: 'Maintenance guide page showing the powered-off machine state and the shutdown text that calls for waiting until the burner cools to 60 C before unplugging.',
+        caption: 'Source page from the maintenance guide covering the 60 C cooldown threshold and powered-off state.',
+      },
     },
     {
       heading: 'Before you walk away',
@@ -257,12 +274,20 @@ export const cleaningChecklistDocument: TrainingDocument = {
     },
     {
       heading: 'Daily cleaning hotspots',
+      paragraphs: [
+        'The maintenance guide does not treat burner cleanup as a generic wipe-down. It calls out the burner outlet, base, sink alignment, and the areas where paper debris or residue create follow-up faults on the next run.',
+      ],
       bullets: [
         'Clean the burner cover outlet thoroughly and reassemble with the gasket in place.',
         'Use fine sandpaper on the main base cleaning area where the manual calls for it.',
         'Clean the shaping-knife roller and the stick-output area where paper debris collects.',
         'Clear the sugar-pickup and sensor area if residue or stick faults are present.',
       ],
+      visual: {
+        src: '/training-guides/daily-cleaning-burner-base.jpg',
+        alt: 'Maintenance guide page showing the burner base cleaning area and sink alignment figure used during daily cleaning.',
+        caption: 'Source page from the maintenance guide showing the burner-base cleaning zone and sink placement reference.',
+      },
     },
     {
       heading: 'Interior hygiene',
@@ -278,6 +303,11 @@ export const cleaningChecklistDocument: TrainingDocument = {
         'Return the waste-water pipe to the bucket and keep it level after cleaning.',
         'Confirm the filter is dry, the sink is seated, and moving parts rotate freely before restarting the machine.',
       ],
+      visual: {
+        src: '/training-guides/daily-cleaning-output-sensor.jpg',
+        alt: 'Maintenance guide page highlighting the stick-output friction points and sugar-pickup sensor area that need daily cleaning.',
+        caption: 'Source page from the maintenance guide showing the stick-output and sensor areas that collect debris.',
+      },
     },
   ],
 };
@@ -299,11 +329,19 @@ export const dailyCleaningHotspotsDocument: TrainingDocument = {
     },
     {
       heading: 'Output and sensor zone',
+      paragraphs: [
+        'Use this visual pass when you need the fastest way to clear the debris points that most often cause missed picks, stick jams, or sensor faults.',
+      ],
       bullets: [
         'Clear the stick-output path where paper-stick friction creates debris.',
         'Check the sugar-pickup and sensor area if sticks are missed or material flow looks inconsistent.',
         'Inspect nearby rollers and moving parts for residue before closing the machine.',
       ],
+      visual: {
+        src: '/training-guides/daily-cleaning-output-sensor.jpg',
+        alt: 'Maintenance guide page showing the stick-output module friction points and sugar-pickup sensor area called out for daily cleaning.',
+        caption: 'Quick-reference source visual from the maintenance guide for the output path and sensor cleanup points.',
+      },
     },
     {
       heading: 'Filter and cabinet closeout',
@@ -333,9 +371,12 @@ export const moduleFunctionCheckDocument: TrainingDocument = {
     },
     {
       heading: 'Key checks',
+      paragraphs: [
+        'The manual’s debug-page flow is specific: verify burner rotation before any heating test, then move through humidity, cleaning spray, stick output, door, air-pump, and cooling checks one module at a time.',
+      ],
       bullets: [
-        'Burner low-speed rotation before heat is applied',
-        'Humidification and cleaning spray output',
+        'Burner low-speed rotation before heat is applied, then Heat and Start only after rotation looks normal',
+        'Humidification and cleaning spray output from the debugging page controls',
         'Stick output module, automatic door movement, and robot sensor behavior',
         'Air pump airflow, cooling fan operation, and water-cooling circulation',
       ],
@@ -359,14 +400,25 @@ export const consumablesGuideDocument: TrainingDocument = {
   sections: [
     {
       heading: 'Sugar usage',
+      paragraphs: [
+        'The maintenance guide ties output quality directly to fill level and cap seal. It specifically warns operators not to exceed the marked line in the sugar box and to tighten the cap fully after loading.',
+      ],
       bullets: [
         'Do not exceed the marked fill line in the sugar box.',
         'Tap sugar gently to distribute it evenly.',
         'Tighten the cap fully to avoid air leaks that stop sugar dispensing.',
       ],
+      visual: {
+        src: '/training-guides/consumables-loading-checks.jpg',
+        alt: 'Maintenance guide page showing the consumables loading checks for sugar fill level, cap seal, and pipe placement at the bottom of the bucket.',
+        caption: 'Source page from the maintenance guide showing the sugar fill and pipe-position checks used during consumables loading.',
+      },
     },
     {
       heading: 'Pipe checks',
+      paragraphs: [
+        'Check the pipe path before assuming a mechanical fault. The maintenance guide points operators to the line position at the bottom of the bucket and the connection point that most often creates leaks or feed issues.',
+      ],
       bullets: [
         'Keep pipes smooth and unobstructed.',
         'Check the connection point that can loosen and create leaks.',
@@ -405,6 +457,11 @@ export const consumablesLoadingReferenceDocument: TrainingDocument = {
         'Check the line that commonly loosens before assuming a pump failure.',
         'Verify check-valve direction if flow or feed behavior looks wrong.',
       ],
+      visual: {
+        src: '/training-guides/consumables-loading-checks.jpg',
+        alt: 'Maintenance guide quick-reference page showing the sugar fill, cap seal, and pipe position checks for consumables loading.',
+        caption: 'Quick-reference source visual from the maintenance guide for sugar and pipe checks.',
+      },
     },
     {
       heading: 'Paper-stick loading',
