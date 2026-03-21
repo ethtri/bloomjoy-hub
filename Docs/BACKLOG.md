@@ -88,3 +88,9 @@ Guidelines:
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.
+
+27. **Member portal dashboard UX/CX polish** (`#130`)
+   - Rework the authenticated `/portal` landing layout so the first viewport does not feel sparse on desktop.
+   - Pull Quick Actions, membership state, and onboarding guidance into a tighter above-the-fold hierarchy.
+   - Reduce unused whitespace and tighten section spacing so the dashboard feels production-ready instead of placeholder-like.
+   - Keep this follow-up separate from the dedicated operator login entry-point work in `#120`.
