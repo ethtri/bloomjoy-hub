@@ -82,9 +82,21 @@ Guidelines:
 23. Basic admin view for support requests
 24. Remove temporary static admin email allowlist and rely on `admin_roles` + RLS only
 25. Replace third-party Vimeo thumbnail fallback (`vumbnail`) with first-party stored thumbnail URLs
+26. **Parts taxonomy integration for training + parts assistance** (`#127`)
+   - Normalize the internal `Machine Part Taxonomy.pdf` into a structured parts reference with numbered part IDs, plain-English labels/aliases, and machine-area groupings.
+   - Use that taxonomy in the training hub so maintenance/troubleshooting guides can deep-link operators to the right assembly or part instead of relying on free-text descriptions only.
+   - Use the same taxonomy in the portal parts-assistance flow so inquiries can capture machine model, assembly, part ID/name, symptom, and photos in a structured way for faster triage.
+   - Start with the current taxonomy coverage visible in the PDF (for example humidification parts, sugar module, sensors, motors, relays, power supplies, robot arm/gripper, door assemblies, water modules, and vapor generator parts).
+   - Dependency: confirm the canonical English naming/translation set for the PDF and decide whether the taxonomy lives in Supabase tables/seed data or versioned app config.
+27. **Partner permission type (training operator manager without sales/admin visibility)** (`#128`)
+   - Add a `partner` role that can act like a training admin for their own account: invite/create operator users, manage operator training access, and monitor training-related account setup.
+   - Explicitly exclude `partner` users from sales/inquiry/admin governance surfaces and data (`/admin`, lead submissions, quote/inquiry management, order operations, super-admin role management).
+   - Bloomjoy Plus billing rule: `partner` access should not require the paid Bloomjoy Plus fee.
+   - Scope likely includes role model expansion in `admin_roles` (or adjacent membership tables), RLS/policy updates, invite/manage-user UI, and audit logging for partner-managed operator access changes.
+   - Dependency: record the post-MVP role-model decision in `Docs/DECISIONS.md` before implementation and define how a partner is linked to a customer account, machine inventory, and training entitlements.
 
 ## P2 - Ops hardening follow-ups
-26. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
+28. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.
