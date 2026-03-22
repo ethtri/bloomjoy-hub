@@ -2,6 +2,7 @@ import { ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
+import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { fetchPortalOrders, type OrderRecord } from '@/lib/orders';
 
 const formatCurrency = (amountTotal: number | null, currency: string | null) => {
@@ -59,24 +60,26 @@ export default function OrdersPage() {
 
   return (
     <PortalLayout>
-      <section className="section-padding">
+      <section className="portal-section">
         <div className="container-page">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h1 className="font-display text-3xl font-bold text-foreground">Order History</h1>
-              <p className="mt-2 text-muted-foreground">
-                View your past orders, tracking, and receipts.
-              </p>
-            </div>
-            <Button variant="outline" onClick={refreshOrders} disabled={isFetching}>
-              {isFetching ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Refresh
-            </Button>
-          </div>
+          <PortalPageIntro
+            title="Order History"
+            description="Track past purchases, open receipts, and check fulfillment status without dealing with a cramped mobile table."
+            badges={[
+              { label: `${orders.length} orders loaded`, tone: 'muted' },
+              { label: isFetching ? 'Refreshing' : 'Live sync available', tone: 'default' },
+            ]}
+            actions={
+              <Button variant="outline" onClick={refreshOrders} disabled={isFetching}>
+                {isFetching ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh
+              </Button>
+            }
+          />
 
           {error && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -84,7 +87,76 @@ export default function OrdersPage() {
             </div>
           )}
 
-          <div className="mt-8">
+          <div className="mt-6 md:hidden">
+            <div className="space-y-4">
+              {isLoading && (
+                <div className="card-elevated px-5 py-8 text-center text-sm text-muted-foreground">
+                  Loading orders...
+                </div>
+              )}
+              {!isLoading && orders.length === 0 && (
+                <div className="card-elevated px-5 py-8 text-center text-sm text-muted-foreground">
+                  No orders yet.
+                </div>
+              )}
+              {!isLoading &&
+                orders.map((order) => (
+                  <div key={order.id} className="card-elevated p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-foreground">{getOrderReference(order)}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {formatDate(order.created_at)}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                        {order.fulfillment_status}
+                      </span>
+                    </div>
+                    <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                      <p>{getLineItemsSummary(order.line_items)}</p>
+                      <p className="font-medium text-foreground">
+                        {formatCurrency(order.amount_total, order.currency)}
+                      </p>
+                      <p>Payment: {order.status}</p>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        asChild={Boolean(order.receipt_url)}
+                        variant="outline"
+                        size="sm"
+                        disabled={!order.receipt_url}
+                      >
+                        {order.receipt_url ? (
+                          <a href={order.receipt_url} target="_blank" rel="noreferrer">
+                            Receipt
+                          </a>
+                        ) : (
+                          <span>Receipt</span>
+                        )}
+                      </Button>
+                      <Button
+                        asChild={Boolean(order.fulfillment_tracking_url)}
+                        variant="ghost"
+                        size="sm"
+                        disabled={!order.fulfillment_tracking_url}
+                      >
+                        {order.fulfillment_tracking_url ? (
+                          <a href={order.fulfillment_tracking_url} target="_blank" rel="noreferrer">
+                            <ExternalLink className="mr-1 h-4 w-4" />
+                            Track
+                          </a>
+                        ) : (
+                          <span>Track</span>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          <div className="mt-6 hidden md:block">
             <div className="overflow-hidden rounded-xl border border-border bg-card">
               <table className="w-full">
                 <thead className="border-b border-border bg-muted/50">
@@ -113,10 +185,10 @@ export default function OrdersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {isLoading && (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-10 text-center text-sm text-muted-foreground">
-                        Loading orders...
+                   {isLoading && (
+                     <tr>
+                       <td colSpan={7} className="px-6 py-10 text-center text-sm text-muted-foreground">
+                         Loading orders...
                       </td>
                     </tr>
                   )}

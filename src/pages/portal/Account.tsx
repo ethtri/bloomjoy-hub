@@ -5,6 +5,7 @@ import { User, MapPin, CreditCard, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
+import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { useAuth } from '@/contexts/AuthContext';
 import { openCustomerPortal } from '@/lib/stripeCheckout';
 import { hasPlusAccess } from '@/lib/membership';
@@ -182,11 +183,35 @@ export default function AccountPage() {
 
   return (
     <PortalLayout>
-      <section className="section-padding overflow-x-clip">
+      <section className="portal-section overflow-x-clip">
         <div className="container-page">
-          <h1 className="font-display text-3xl font-bold text-foreground">Account Settings</h1>
+          <PortalPageIntro
+            title="Account Settings"
+            description="Manage the billing details, profile information, and shipping address that keep future orders and support handoffs running smoothly."
+            badges={[
+              { label: membershipStatusLabel, tone: isMember ? 'success' : 'accent' },
+              ...(nextBillingLabel
+                ? [{ label: `Renews ${nextBillingLabel}`, tone: 'muted' as const }]
+                : []),
+            ]}
+            actions={
+              isMember ? (
+                <Button
+                  variant="outline"
+                  onClick={handleManageBilling}
+                  disabled={isOpeningPortal || isMembershipLoading}
+                >
+                  {isOpeningPortal ? 'Opening billing…' : 'Manage Billing'}
+                </Button>
+              ) : (
+                <Button asChild variant="outline">
+                  <Link to="/plus">View Plus Membership</Link>
+                </Button>
+              )
+            }
+          />
 
-          <div className="mt-8 grid gap-8 lg:grid-cols-3">
+          <div className="mt-6 grid gap-8 lg:grid-cols-3">
             {/* Profile */}
             <div className="min-w-0 lg:col-span-2">
               <div className="card-elevated min-w-0 p-6">

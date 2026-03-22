@@ -66,9 +66,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
 - [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
 - [ ] Logged-out visit to `/portal` redirects to login
-- [ ] Dashboard loads and shows membership status placeholder
+- [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
+- [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
+- [ ] Non-Plus login still sees premium destinations in portal navigation and dashboard action cards with clear locked/Plus treatment
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
