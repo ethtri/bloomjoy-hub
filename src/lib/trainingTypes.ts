@@ -28,6 +28,7 @@ export interface TrainingResource {
   href?: string;
   external?: boolean;
   linkedTrainingId?: string;
+  linkedTrainingAnchor?: string;
   formatBadge?: string;
 }
 

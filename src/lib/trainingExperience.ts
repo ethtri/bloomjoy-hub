@@ -264,7 +264,8 @@ const buildCompositeTaskItem = (
 
 const canonicalizeItemResources = (
   item: TrainingExperienceItem,
-  routeIdByTrainingId: Map<string, string>
+  routeIdByTrainingId: Map<string, string>,
+  aliasAnchorByTrainingId: Map<string, string>
 ) => {
   const hiddenRouteIds = new Set([
     item.id,
@@ -275,13 +276,18 @@ const canonicalizeItemResources = (
   const resources = uniqueResources(
     item.resources
       .map((resource) => {
-        const linkedTrainingId = resource.linkedTrainingId
-          ? routeIdByTrainingId.get(resource.linkedTrainingId) ?? resource.linkedTrainingId
+        const originalLinkedTrainingId = resource.linkedTrainingId;
+        const linkedTrainingId = originalLinkedTrainingId
+          ? routeIdByTrainingId.get(originalLinkedTrainingId) ?? originalLinkedTrainingId
+          : undefined;
+        const linkedTrainingAnchor = originalLinkedTrainingId
+          ? aliasAnchorByTrainingId.get(originalLinkedTrainingId)
           : undefined;
 
         return {
           ...resource,
           linkedTrainingId,
+          linkedTrainingAnchor,
         };
       })
       .filter((resource) => {
@@ -366,7 +372,9 @@ export const buildTrainingExperience = (library: TrainingContent[]): TrainingExp
     }
   }
 
-  const canonicalizedItems = items.map((item) => canonicalizeItemResources(item, routeIdByTrainingId));
+  const canonicalizedItems = items.map((item) =>
+    canonicalizeItemResources(item, routeIdByTrainingId, aliasAnchorByTrainingId)
+  );
   const byId = new Map(canonicalizedItems.map((item) => [item.id, item]));
 
   return {

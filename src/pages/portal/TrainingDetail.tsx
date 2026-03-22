@@ -79,6 +79,11 @@ const getCompanionLabel = (item: TrainingExperienceItem) => {
 
 const normalizeTrainingCopy = (value: string) => value.replaceAll('â€™', "'");
 
+const getLinkedTrainingPath = (resource: Pick<TrainingResource, 'linkedTrainingId' | 'linkedTrainingAnchor'>) =>
+  resource.linkedTrainingId
+    ? `/portal/training/${resource.linkedTrainingId}${resource.linkedTrainingAnchor ? `#${resource.linkedTrainingAnchor}` : ''}`
+    : undefined;
+
 export default function TrainingDetailPage() {
   const { id } = useParams();
   const { user, isMember } = useAuth();
@@ -267,7 +272,7 @@ export default function TrainingDetailPage() {
       return (
         <Button asChild size={options?.emphasize ? 'default' : 'sm'} variant="outline" className={className}>
           <Link
-            to={`/portal/training/${resource.linkedTrainingId}`}
+            to={getLinkedTrainingPath(resource) ?? `/portal/training/${resource.linkedTrainingId}`}
             onClick={() => handleResourceOpen(resource.title)}
           >
             {resource.actionLabel ?? 'Open guide'}
