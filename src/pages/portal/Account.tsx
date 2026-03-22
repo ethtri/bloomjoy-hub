@@ -211,10 +211,10 @@ export default function AccountPage() {
             }
           />
 
-          <div className="mt-6 grid gap-8 lg:grid-cols-3">
+          <div className="mt-6 grid gap-6 lg:grid-cols-3 lg:gap-8">
             {/* Profile */}
             <div className="min-w-0 lg:col-span-2">
-              <div className="card-elevated min-w-0 p-6">
+              <div className="card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <User className="h-5 w-5 text-primary" />
@@ -258,7 +258,7 @@ export default function AccountPage() {
                   </div>
                 </div>
                 <Button
-                  className="mt-6"
+                  className="mt-6 w-full sm:w-auto"
                   onClick={saveProfileSection}
                   disabled={saveProfileMutation.isPending || isProfileLoading}
                 >
@@ -267,7 +267,7 @@ export default function AccountPage() {
               </div>
 
               {/* Shipping */}
-              <div className="mt-6 card-elevated min-w-0 p-6">
+              <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <MapPin className="h-5 w-5 text-primary" />
@@ -343,7 +343,7 @@ export default function AccountPage() {
                   </div>
                 </div>
                 <Button
-                  className="mt-6"
+                  className="mt-6 w-full sm:w-auto"
                   onClick={saveShippingSection}
                   disabled={saveProfileMutation.isPending || isProfileLoading}
                 >
@@ -354,7 +354,7 @@ export default function AccountPage() {
 
             {/* Billing */}
             <div className="min-w-0">
-              <div className="card-elevated min-w-0 p-6">
+              <div className="card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <CreditCard className="h-5 w-5 text-primary" />
@@ -384,7 +384,7 @@ export default function AccountPage() {
                 </p>
               </div>
 
-              <div className="mt-6 card-elevated min-w-0 p-6">
+              <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
                 <h3 className="font-semibold text-foreground">Membership</h3>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">Plan</span>

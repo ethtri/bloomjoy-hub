@@ -216,7 +216,7 @@ export default function PortalDashboard() {
                   {primaryAction.description}
                 </p>
                 <p className="mt-3 text-sm text-muted-foreground">{primaryAction.helper}</p>
-                <div className="mt-5 flex flex-wrap gap-3">
+                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                   <Button asChild>
                     <Link to={primaryAction.href} onClick={() => handleDashboardActionClick(primaryAction.href)}>
                       {primaryAction.label}
@@ -248,7 +248,7 @@ export default function PortalDashboard() {
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                       Setup progress
                     </p>
-                    <div className="mt-3 flex items-center justify-between">
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <span className="font-display text-3xl font-bold text-foreground">
                         {onboardingProgress.progressPercent}%
                       </span>
@@ -357,7 +357,7 @@ export default function PortalDashboard() {
           {isMember ? (
             <div className="grid gap-5 xl:grid-cols-[1.05fr,0.95fr]">
               <div className="rounded-[28px] border border-border bg-background p-5 shadow-[var(--shadow-sm)] sm:p-6">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                       Onboarding snapshot
@@ -366,7 +366,7 @@ export default function PortalDashboard() {
                       {onboardingComplete ? 'Setup is in a good place' : 'Setup still needs attention'}
                     </h2>
                   </div>
-                  <span className="rounded-full bg-sage-light px-3 py-1.5 text-sm font-medium text-sage">
+                  <span className="self-start rounded-full bg-sage-light px-3 py-1.5 text-sm font-medium text-sage">
                     {onboardingProgress.progressPercent}% complete
                   </span>
                 </div>
@@ -388,7 +388,7 @@ export default function PortalDashboard() {
                     ))
                   )}
                 </div>
-                <Button asChild className="mt-5">
+                <Button asChild className="mt-5 w-full sm:w-auto">
                   <Link to="/portal/onboarding">
                     {onboardingComplete ? 'Review setup checklist' : 'Continue setup'}
                   </Link>
@@ -396,7 +396,7 @@ export default function PortalDashboard() {
               </div>
 
               <div className="rounded-[28px] border border-border bg-background p-5 shadow-[var(--shadow-sm)] sm:p-6">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                       Recommended training
@@ -434,7 +434,7 @@ export default function PortalDashboard() {
                     tasks, quick aids, and manuals without relying on placeholders.
                   </div>
                 )}
-                <Button asChild variant="outline" className="mt-5">
+                <Button asChild variant="outline" className="mt-5 w-full sm:w-auto">
                   <Link to="/portal/training">
                     Open training hub
                   </Link>
@@ -505,7 +505,7 @@ export default function PortalDashboard() {
                       </div>
                     ))}
                 </div>
-                <Button asChild className="mt-5">
+                <Button asChild className="mt-5 w-full sm:w-auto">
                   <Link to="/plus">Explore Bloomjoy Plus</Link>
                 </Button>
               </div>

@@ -437,7 +437,7 @@ export default function TrainingPage() {
             }`}
           />
           <div className="relative flex h-full flex-col justify-between p-4">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 {options?.showStep ? (
                   <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground">
@@ -479,7 +479,7 @@ export default function TrainingPage() {
         </div>
 
         <div className="p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               {content.taskCategory}
             </p>
@@ -522,13 +522,13 @@ export default function TrainingPage() {
     <PortalLayout>
       <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
-          <div className="rounded-[32px] border border-primary/10 bg-gradient-to-br from-cream via-background to-primary/5 p-5 sm:p-7 lg:p-8">
+          <div className="rounded-[32px] border border-primary/10 bg-gradient-to-br from-cream via-background to-primary/5 p-4 sm:p-7 lg:p-8">
             <div className="grid gap-6 lg:grid-cols-[1.15fr,0.95fr] lg:items-center">
-              <div>
+              <div className="order-2 lg:order-1">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
                   Training Hub
                 </p>
-                <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-foreground">
+                <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
                   Find the right training fast.
                 </h1>
                 <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
@@ -548,7 +548,7 @@ export default function TrainingPage() {
                 </div>
               </div>
 
-              <div className="rounded-[28px] border border-primary/15 bg-background/95 p-5 shadow-md sm:p-6">
+              <div className="order-1 rounded-[28px] border border-primary/15 bg-background/95 p-5 shadow-md sm:p-6 lg:order-2">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
                   Recommended first move
                 </p>
@@ -612,7 +612,7 @@ export default function TrainingPage() {
                 </div>
                 <Button
                   variant="ghost"
-                  className="w-fit px-0 text-primary hover:bg-transparent"
+                  className="w-full justify-start px-0 text-primary hover:bg-transparent sm:w-fit"
                   onClick={() => focusLibraryExplorer()}
                 >
                   Explore the full library
@@ -642,6 +642,7 @@ export default function TrainingPage() {
               </div>
               <Button
                 variant={selectedTrack === 'all' ? 'default' : 'outline'}
+                className="w-full sm:w-auto"
                 onClick={() => focusLibraryExplorer()}
               >
                 View all resources
@@ -716,7 +717,7 @@ export default function TrainingPage() {
                       <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted-foreground">
                         {item.description}
                       </p>
-                      <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+                      <div className="mt-4 flex flex-col items-start gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                         <span className="rounded-full bg-muted px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                           {getSurfaceLabel(item)}
                         </span>
@@ -760,10 +761,10 @@ export default function TrainingPage() {
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex w-full flex-wrap items-center gap-3 lg:w-auto">
                   <Collapsible open={advancedFiltersOpen} onOpenChange={setAdvancedFiltersOpen}>
                     <CollapsibleTrigger asChild>
-                      <Button variant="outline">
+                      <Button variant="outline" className="w-full sm:w-auto">
                         More filters
                         {activeFilterCount > 0 && (
                           <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
@@ -953,7 +954,7 @@ export default function TrainingPage() {
             {!isLoading &&
               groupedContent.map((trackGroup) => (
                 <section key={trackGroup.id} className="mt-7 sm:mt-8">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <h3 className="font-display text-2xl font-semibold text-foreground">
                         {trackGroup.label}
@@ -975,7 +976,7 @@ export default function TrainingPage() {
 
             {!isLoading && !showCuratedSections && filteredReferenceItems.length > 0 && (
               <section className="mt-7 sm:mt-8">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="font-display text-2xl font-semibold text-foreground">
                       Quick aids and manuals
@@ -1051,7 +1052,7 @@ export default function TrainingPage() {
                       })}
                       .
                     </p>
-                    <Button variant="outline" className="mt-4" onClick={handleDownloadCertificate}>
+                    <Button variant="outline" className="mt-4 w-full sm:w-auto" onClick={handleDownloadCertificate}>
                       Download certificate
                     </Button>
                   </div>
@@ -1078,7 +1079,7 @@ export default function TrainingPage() {
                     </label>
                     <Button
                       variant="outline"
-                      className="mt-4"
+                      className="mt-4 w-full sm:w-auto"
                       onClick={handleUnlockCertificate}
                       disabled={
                         completedRequiredCount !== requiredTrackItems.length ||
@@ -1108,7 +1109,7 @@ export default function TrainingPage() {
                     point operators to the right module or guide.
                   </p>
                 </div>
-                <Button asChild variant="outline" className="mt-6">
+                <Button asChild variant="outline" className="mt-6 w-full sm:w-auto">
                   <Link to="/portal/support">Go to support</Link>
                 </Button>
               </div>

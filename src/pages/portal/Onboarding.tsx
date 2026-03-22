@@ -61,7 +61,7 @@ export default function OnboardingPage() {
               }
             >
               <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <span className="font-semibold text-foreground">
                     {completedCount} of {totalSteps} complete
                   </span>
@@ -76,8 +76,8 @@ export default function OnboardingPage() {
               </div>
             </PortalPageIntro>
 
-            <div className="mt-6 card-elevated p-6">
-              <div className="flex items-center justify-between">
+            <div className="mt-6 card-elevated p-5 sm:p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     Current milestone
@@ -86,7 +86,7 @@ export default function OnboardingPage() {
                     Keep setup momentum
                   </h2>
                 </div>
-                <span className="rounded-full bg-sage-light px-3 py-1.5 text-sm font-medium text-sage">
+                <span className="self-start rounded-full bg-sage-light px-3 py-1.5 text-sm font-medium text-sage">
                   {progressPercent}% ready
                 </span>
               </div>
@@ -128,8 +128,8 @@ export default function OnboardingPage() {
                       </h3>
                       <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
                       {step.action && !step.completed && (
-                        <Link to={step.action.href} className="mt-3 inline-block">
-                          <Button variant="outline" size="sm">
+                        <Link to={step.action.href} className="mt-3 inline-block w-full sm:w-auto">
+                          <Button variant="outline" size="sm" className="w-full sm:w-auto">
                             {step.action.label}
                             <ArrowRight className="ml-2 h-4 w-4" />
                           </Button>

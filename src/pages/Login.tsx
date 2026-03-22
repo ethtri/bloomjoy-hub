@@ -506,15 +506,15 @@ export default function LoginPage() {
     <AppLayout>
       <section className="portal-section">
         <div className="container-page">
-          <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
-            <div className="rounded-[28px] border border-border bg-gradient-to-br from-background via-background to-muted/40 p-6 shadow-[var(--shadow-md)] sm:p-7">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-                <Mail className="h-7 w-7" />
+          <div className="grid gap-5 xl:grid-cols-[0.95fr,1.05fr]">
+            <div className="order-2 rounded-[28px] border border-border bg-gradient-to-br from-background via-background to-muted/40 p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-1">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground sm:h-14 sm:w-14">
+                <Mail className="h-6 w-6 sm:h-7 sm:w-7" />
               </div>
               <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
                 Operator access
               </p>
-              <h1 className="mt-3 font-display text-3xl font-bold text-foreground sm:text-4xl">
+              <h1 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-4xl">
                 Sign in to the Bloomjoy operator app
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
@@ -522,7 +522,7 @@ export default function LoginPage() {
                 training, onboarding, and support without bouncing through the sales shell.
               </p>
 
-              <div className="mt-6 space-y-3">
+              <div className="mt-6 space-y-2.5 sm:space-y-3">
                 {operatorHighlights.map((highlight) => {
                   const HighlightIcon = highlight.icon;
 
@@ -557,7 +557,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-border bg-background p-6 shadow-[var(--shadow-md)] sm:p-7">
+            <div className="order-1 rounded-[28px] border border-border bg-background p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-2">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   Sign in
