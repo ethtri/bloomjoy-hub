@@ -4,11 +4,12 @@ import path from "node:path";
 const DIST_DIR = path.resolve(process.cwd(), "dist");
 const TEMPLATE_PATH = path.join(DIST_DIR, "index.html");
 
-const SITE_ORIGIN = "https://www.bloomjoyusa.com";
+const MARKETING_ORIGIN = "https://www.bloomjoyusa.com";
+const APP_ORIGIN = "https://app.bloomjoyusa.com";
 const PUBLIC_ROBOTS =
   "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
-const DEFAULT_IMAGE = `${SITE_ORIGIN}/favicon.svg`;
+const DEFAULT_IMAGE = `${MARKETING_ORIGIN}/favicon.svg`;
 const DEFAULT_DESCRIPTION =
   "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.";
 const WEBSITE_NAME = "Bloomjoy Hub";
@@ -110,20 +111,26 @@ const publicRoutes = [
 ];
 
 const privateRoutes = [
-  "/login",
-  "/reset-password",
-  "/cart",
-  "/portal",
-  "/portal/orders",
-  "/portal/account",
-  "/portal/training",
-  "/portal/support",
-  "/portal/onboarding",
-  "/admin",
-  "/admin/orders",
-  "/admin/support",
-  "/admin/accounts",
-  "/admin/audit",
+  { path: "/cart", canonicalOrigin: MARKETING_ORIGIN, title: "Bloomjoy Hub" },
+  { path: "/login", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  {
+    path: "/login/operator",
+    canonicalOrigin: APP_ORIGIN,
+    canonicalPath: "/login",
+    title: "Bloomjoy Operator App",
+  },
+  { path: "/reset-password", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/portal", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/portal/orders", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/portal/account", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/portal/training", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/portal/support", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/portal/onboarding", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/admin", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/admin/orders", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/admin/support", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/admin/accounts", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/admin/audit", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
 ];
 
 const escapeAttribute = (value) =>
@@ -190,26 +197,26 @@ const removeStructuredDataScript = (html) =>
 const upsertTitle = (html, title) =>
   html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeAttribute(title)}</title>`);
 
-const canonicalForPath = (pathname) =>
-  pathname === "/" ? `${SITE_ORIGIN}/` : `${SITE_ORIGIN}${pathname}`;
+const canonicalForPath = (origin, pathname) =>
+  pathname === "/" ? `${origin}/` : `${origin}${pathname}`;
 
 const buildStructuredData = ({ canonicalUrl, title, description }) => ({
   "@context": "https://schema.org",
   "@graph": [
     {
       "@type": "Organization",
-      "@id": `${SITE_ORIGIN}/#organization`,
+      "@id": `${MARKETING_ORIGIN}/#organization`,
       name: ORGANIZATION_NAME,
-      url: `${SITE_ORIGIN}/`,
+      url: `${MARKETING_ORIGIN}/`,
       logo: DEFAULT_IMAGE,
     },
     {
       "@type": "WebSite",
-      "@id": `${SITE_ORIGIN}/#website`,
+      "@id": `${MARKETING_ORIGIN}/#website`,
       name: WEBSITE_NAME,
-      url: `${SITE_ORIGIN}/`,
+      url: `${MARKETING_ORIGIN}/`,
       publisher: {
-        "@id": `${SITE_ORIGIN}/#organization`,
+        "@id": `${MARKETING_ORIGIN}/#organization`,
       },
     },
     {
@@ -219,17 +226,17 @@ const buildStructuredData = ({ canonicalUrl, title, description }) => ({
       name: title,
       description,
       isPartOf: {
-        "@id": `${SITE_ORIGIN}/#website`,
+        "@id": `${MARKETING_ORIGIN}/#website`,
       },
       about: {
-        "@id": `${SITE_ORIGIN}/#organization`,
+        "@id": `${MARKETING_ORIGIN}/#organization`,
       },
     },
   ],
 });
 
 const withSeoTags = (template, route) => {
-  const canonicalUrl = canonicalForPath(route.path);
+  const canonicalUrl = canonicalForPath(MARKETING_ORIGIN, route.path);
   let html = template;
 
   html = upsertTitle(html, route.title);
@@ -257,20 +264,23 @@ const withSeoTags = (template, route) => {
   return html;
 };
 
-const withPrivateSeoTags = (template, pathname) => {
-  const canonicalUrl = canonicalForPath(pathname);
+const withPrivateSeoTags = (template, route) => {
+  const canonicalUrl = canonicalForPath(
+    route.canonicalOrigin,
+    route.canonicalPath ?? route.path
+  );
   let html = template;
 
-  html = upsertTitle(html, "Bloomjoy Hub");
+  html = upsertTitle(html, route.title);
   html = upsertMetaTag(html, "name", "description", DEFAULT_DESCRIPTION);
   html = upsertMetaTag(html, "name", "robots", PRIVATE_ROBOTS);
-  html = upsertMetaTag(html, "property", "og:title", "Bloomjoy Hub");
+  html = upsertMetaTag(html, "property", "og:title", route.title);
   html = upsertMetaTag(html, "property", "og:description", DEFAULT_DESCRIPTION);
   html = upsertMetaTag(html, "property", "og:type", "website");
   html = upsertMetaTag(html, "property", "og:url", canonicalUrl);
   html = upsertMetaTag(html, "property", "og:image", DEFAULT_IMAGE);
   html = upsertMetaTag(html, "name", "twitter:card", "summary_large_image");
-  html = upsertMetaTag(html, "name", "twitter:title", "Bloomjoy Hub");
+  html = upsertMetaTag(html, "name", "twitter:title", route.title);
   html = upsertMetaTag(html, "name", "twitter:description", DEFAULT_DESCRIPTION);
   html = upsertMetaTag(html, "name", "twitter:image", DEFAULT_IMAGE);
   html = upsertCanonical(html, canonicalUrl);
@@ -297,9 +307,9 @@ const main = async () => {
     await writeFile(outputPath, rendered, "utf8");
   }
 
-  for (const pathname of privateRoutes) {
-    const rendered = withPrivateSeoTags(template, pathname);
-    const outputPath = outputFileForRoute(pathname);
+  for (const route of privateRoutes) {
+    const rendered = withPrivateSeoTags(template, route);
+    const outputPath = outputFileForRoute(route.path);
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, rendered, "utf8");
   }

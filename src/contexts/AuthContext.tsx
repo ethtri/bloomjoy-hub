@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
+import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { hasPlusAccess, type MembershipStatus } from '@/lib/membership';
 
 interface User {
@@ -194,9 +195,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const getAuthRedirectUrl = () =>
-    typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
+    typeof window !== 'undefined'
+      ? getCanonicalUrlForSurface('app', '/portal', '', '', window.location)
+      : undefined;
   const getRecoveryRedirectUrl = () =>
-    typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined;
+    typeof window !== 'undefined'
+      ? getCanonicalUrlForSurface('app', '/reset-password', '', '', window.location)
+      : undefined;
 
   const signInWithMagicLink = async (email: string): Promise<{ error: AuthError | null }> => {
     const redirectTo = getAuthRedirectUrl();

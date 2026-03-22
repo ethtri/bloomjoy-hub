@@ -12,6 +12,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
 - [ ] View page source on a direct-loaded public route (for example `/machines`) and confirm title/description/canonical are route-specific before client-side JS executes
 - [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
+- [ ] `https://www.bloomjoyusa.com/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `https://app.bloomjoyusa.com/...`
+- [ ] `https://app.bloomjoyusa.com/` plus public marketing/storefront paths redirect back to `https://www.bloomjoyusa.com/...`
 - [ ] `robots.txt` is reachable and includes a sitemap reference
 - [ ] `sitemap.xml` is reachable and lists core public routes
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
@@ -55,17 +57,20 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
+- [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
+- [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Password sign-in works for an existing email/password user
 - [ ] Forgot-password flow sends reset email and `/reset-password` successfully updates password
 - [ ] Google sign-in works when Supabase Google provider is enabled
-- [ ] Google sign-in returns to the app host `/portal` route (for production: `https://www.bloomjoyusa.com/portal`, not `http://localhost:3000`)
+- [ ] Google sign-in returns to the app host `/portal` route (for production: `https://app.bloomjoyusa.com/portal`, not `http://localhost:3000`)
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
 - [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
 - [ ] Logged-out visit to `/portal` redirects to login
+- [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)

@@ -1,5 +1,24 @@
 # Decisions
 
+## 2026-03-22 - Split the operator app from the public marketing site
+Bloomjoy now uses three host roles:
+
+- `www.bloomjoyusa.com` for public marketing, storefront, and legal pages
+- `app.bloomjoyusa.com` for operator login, password reset, portal, and admin workflows
+- `auth.bloomjoyusa.com` for Supabase/Auth callback infrastructure
+
+**Why this choice**
+- Logged-in operators should not stay inside the public sales navbar/footer shell.
+- The operator experience should feel like an application, not a marketing site with gated tabs.
+- This keeps the change incremental in the existing Vite SPA and Vercel deployment instead of introducing a second frontend codebase.
+
+**Implementation notes**
+- Public routes stay indexable only on `www`.
+- App routes stay `noindex` and are excluded from the public sitemap.
+- `www` requests for `/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `app`.
+- `app` requests for public marketing/storefront routes redirect back to `www`.
+- `/login/operator` remains a temporary alias that canonicalizes to `/login`.
+
 Record decisions here so agents don’t “thrash” the stack.
 
 ## 2026-01-11 — Starting point and baseline stack (Loveable POC)

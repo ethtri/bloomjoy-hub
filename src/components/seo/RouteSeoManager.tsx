@@ -1,10 +1,13 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import type { AppSurface } from "@/lib/appSurface";
+import { getCanonicalOriginForSurface } from "@/lib/appSurface";
 
 type RouteSeo = {
   title: string;
   description: string;
   robots: string;
+  surface: AppSurface;
   ogType?: "website" | "article";
   canonicalPath?: string;
 };
@@ -27,6 +30,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Explore Bloomjoy robotic cotton candy machines, sugar supplies, and optional Plus support for operators.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
       ogType: "website",
     },
   },
@@ -37,6 +41,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Compare Bloomjoy machine options and find the right cotton candy setup for your venue.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -46,6 +51,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Review the Bloomjoy commercial robotic cotton candy machine, specs, operating footprint, and quote flow.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -55,6 +61,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Learn about Bloomjoy Mini and join the waitlist for upcoming availability and launch updates.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -64,6 +71,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Explore Bloomjoy Micro machine details, features, and setup fit for compact locations.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -73,6 +81,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Order Bloomjoy cotton candy sugar and supplies with high-volume-friendly quantity controls.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -82,6 +91,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "View Bloomjoy Plus membership benefits, support boundaries, and per-machine monthly pricing.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -91,6 +101,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Get quick answers on training, support boundaries, and how Bloomjoy operations work.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -100,6 +111,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Contact Bloomjoy for machine quotes, demo requests, procurement questions, and general support.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -109,6 +121,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Meet Bloomjoy and our operator-focused approach to machines, training, and field support.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
     },
   },
   {
@@ -117,6 +130,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       title: "Privacy Policy | Bloomjoy Hub",
       description: DEFAULT_DESCRIPTION,
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
       ogType: "article",
     },
   },
@@ -126,6 +140,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       title: "Terms of Service | Bloomjoy Hub",
       description: DEFAULT_DESCRIPTION,
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
       ogType: "article",
     },
   },
@@ -136,20 +151,42 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
       description:
         "Understand billing cadence, cancellations, and account management for Bloomjoy services.",
       robots: PUBLIC_ROBOTS,
+      surface: "marketing",
       ogType: "article",
+    },
+  },
+  {
+    match: (pathname) => pathname === "/cart",
+    seo: {
+      title: "Cart | Bloomjoy Hub",
+      description: DEFAULT_DESCRIPTION,
+      robots: PRIVATE_ROBOTS,
+      surface: "marketing",
+      ogType: "website",
+    },
+  },
+  {
+    match: (pathname) => pathname === "/login/operator",
+    seo: {
+      title: "Bloomjoy Operator App",
+      description: DEFAULT_DESCRIPTION,
+      robots: PRIVATE_ROBOTS,
+      surface: "app",
+      ogType: "website",
+      canonicalPath: "/login",
     },
   },
   {
     match: (pathname) =>
       pathname === "/login" ||
       pathname === "/reset-password" ||
-      pathname === "/cart" ||
       pathname.startsWith("/portal") ||
       pathname.startsWith("/admin"),
     seo: {
-      title: "Bloomjoy Hub",
+      title: "Bloomjoy Operator App",
       description: DEFAULT_DESCRIPTION,
       robots: PRIVATE_ROBOTS,
+      surface: "app",
       ogType: "website",
     },
   },
@@ -165,6 +202,7 @@ const getRouteSeo = (pathname: string): RouteSeo => {
     title: "Page Not Found | Bloomjoy Hub",
     description: DEFAULT_DESCRIPTION,
     robots: PRIVATE_ROBOTS,
+    surface: "marketing",
     ogType: "website",
   };
 };
@@ -269,8 +307,9 @@ export const RouteSeoManager = () => {
     const { pathname } = location;
     const seo = getRouteSeo(pathname);
     const canonicalPath = seo.canonicalPath ?? pathname;
-    const canonicalUrl = `${window.location.origin}${canonicalPath}`;
-    const imageUrl = `${window.location.origin}${DEFAULT_IMAGE_PATH}`;
+    const canonicalOrigin = getCanonicalOriginForSurface(seo.surface, window.location);
+    const canonicalUrl = `${canonicalOrigin}${canonicalPath}`;
+    const imageUrl = `${canonicalOrigin}${DEFAULT_IMAGE_PATH}`;
 
     document.title = seo.title;
     upsertMetaTag("name", "description", seo.description);
@@ -291,7 +330,7 @@ export const RouteSeoManager = () => {
     if (seo.robots === PUBLIC_ROBOTS) {
       upsertStructuredData(
         buildStructuredData({
-          origin: window.location.origin,
+          origin: canonicalOrigin,
           canonicalUrl,
           title: seo.title,
           description: seo.description,

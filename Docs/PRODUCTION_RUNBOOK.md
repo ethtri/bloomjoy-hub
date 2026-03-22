@@ -47,7 +47,9 @@ Security rule:
   - [ ] `npm run lint --if-present`
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
-- [ ] Domain and HTTPS for frontend production URL confirmed.
+- [ ] Domain and HTTPS confirmed for both production frontend hosts:
+  - [ ] `https://www.bloomjoyusa.com`
+  - [ ] `https://app.bloomjoyusa.com`
 
 ## 4) Deploy sequence (launch day)
 Use this order exactly.
@@ -110,11 +112,17 @@ After endpoint creation/update, copy new signing secret to `STRIPE_WEBHOOK_SECRE
 Deploy current launch commit to your chosen host (Vercel/Netlify/etc.) with:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- Production host expectations:
+  - `www.bloomjoyusa.com` serves marketing/storefront routes
+  - `app.bloomjoyusa.com` serves operator login, reset-password, portal, and admin routes
+  - host redirects are active so `www` forwards app-only paths to `app`, and `app` forwards public routes back to `www`
 
 ## 5) Launch verification checklist (T+0)
 Run immediately after deploy:
 - [ ] Public routes load (`/`, `/machines`, `/supplies`, `/plus`, `/resources`, `/contact`).
-- [ ] Login works, password recovery works, and protected routes redirect correctly.
+- [ ] `https://www.bloomjoyusa.com/login` and `https://www.bloomjoyusa.com/portal` redirect to `https://app.bloomjoyusa.com/...`
+- [ ] `https://app.bloomjoyusa.com/` and public marketing paths on `app` redirect back to `https://www.bloomjoyusa.com/...`
+- [ ] Login works, password recovery works, and protected routes redirect correctly on `app.bloomjoyusa.com`.
 - [ ] Auth launch sign-off checklist is completed with evidence (`Docs/AUTH_PRODUCTION_SIGNOFF.md`).
 - [ ] `Docs/QA_SMOKE_TEST_CHECKLIST.md` core payment/auth checks pass.
 - [ ] Sugar checkout test order creates `orders` record in Supabase.

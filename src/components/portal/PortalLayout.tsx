@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { ChevronDown, Shield } from 'lucide-react';
-import { Layout } from '@/components/layout/Layout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { NavLink } from '@/components/NavLink';
 import {
   Sheet,
@@ -29,7 +29,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
   );
 
   return (
-    <Layout>
+    <AppLayout>
       <div className="border-b border-border bg-gradient-to-b from-background via-background to-muted/30">
         <div className="container-page py-4 sm:py-5">
           <div className="flex flex-col gap-4">
@@ -208,6 +208,6 @@ export function PortalLayout({ children }: PortalLayoutProps) {
         </div>
       </div>
       <div className="portal-shell">{children}</div>
-    </Layout>
+    </AppLayout>
   );
 }

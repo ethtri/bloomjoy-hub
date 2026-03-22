@@ -3,6 +3,7 @@ import { ArrowRight, Download, Lock } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
+import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 
 const faqs = [
@@ -33,6 +34,8 @@ const plusTeasers = [
 ];
 
 export default function ResourcesPage() {
+  const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', window.location);
+
   return (
     <Layout>
       <section className="bg-gradient-to-b from-cream to-background section-padding">
@@ -98,7 +101,7 @@ export default function ResourcesPage() {
                 </Link>
               </Button>
               <Button asChild variant="outline">
-                <Link to="/login">Member Login</Link>
+                <a href={operatorLoginUrl}>Operator Login</a>
               </Button>
             </div>
           </div>

@@ -15,6 +15,45 @@
       "status": 308
     },
     {
+      "src": "/(login(?:/operator)?|reset-password|portal(?:/.*)?|admin(?:/.*)?)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.bloomjoyusa.com"
+        }
+      ],
+      "headers": {
+        "Location": "https://app.bloomjoyusa.com/$1"
+      },
+      "status": 308
+    },
+    {
+      "src": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.bloomjoyusa.com"
+        }
+      ],
+      "headers": {
+        "Location": "https://www.bloomjoyusa.com/"
+      },
+      "status": 308
+    },
+    {
+      "src": "/(machines(?:/.*)?|products(?:/.*)?|supplies|plus|resources|about|contact|privacy|terms|billing-cancellation|cart)",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.bloomjoyusa.com"
+        }
+      ],
+      "headers": {
+        "Location": "https://www.bloomjoyusa.com/$1"
+      },
+      "status": 308
+    },
+    {
       "src": "/products/?",
       "headers": {
         "Location": "/machines"
@@ -36,7 +75,7 @@
       "continue": true
     },
     {
-      "src": "/(login|reset-password|cart)",
+      "src": "/(login(?:/operator)?|reset-password|cart)",
       "headers": {
         "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
       },

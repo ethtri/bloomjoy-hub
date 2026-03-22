@@ -9,6 +9,22 @@
 ## Next P0 milestones
 - Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
 
+## Operator app surface split (2026-03-22)
+- Authenticated operator routes now have a dedicated application shell and canonical host instead of inheriting the public sales navbar/footer.
+- Canonical host roles for this slice:
+  - `https://www.bloomjoyusa.com` for public marketing/storefront pages
+  - `https://app.bloomjoyusa.com` for `/login`, `/reset-password`, `/portal*`, and `/admin*`
+  - `https://auth.bloomjoyusa.com` for Supabase/Auth callback infrastructure
+- Host behavior now expected:
+  - `www` redirects app-only routes to `app`
+  - `app` redirects public marketing/storefront routes back to `www`
+  - `/login/operator` stays available as a temporary alias to `/login`
+- Operator UX changes delivered in this slice:
+  - login and reset-password now render inside the app shell
+  - portal and admin no longer render the public footer or sales-oriented top navigation
+  - the public navbar now sends operators to the canonical app host
+- This supersedes the narrower “operator login page only” follow-up if that branch/PR is still open.
+
 ## Training experience upgrade snapshot (2026-03-19)
 - New training experience slice delivered on branch `codex/training-experience-upgrade`:
   - Task-first training discovery now sits on top of the existing Vimeo catalog (`Start Here`, `Software & Payments`, `Daily Operation`, `Cleaning & Maintenance`, `Troubleshooting`).
@@ -86,7 +102,7 @@ Execution order is based on launch risk and dependency overlap.
 - Supabase remote migrations were pushed successfully to project `ygbzkgxktzqsiygjlqyg`, including:
   - `202603020001_custom_sticks_artwork_intake.sql`
 - Auth preflight status in this worktree:
-  - `npm run auth:preflight`: pass with canonical `www.bloomjoyusa.com` plus apex redirect-allowlist values
+  - `npm run auth:preflight`: pass with canonical operator-app values on `app.bloomjoyusa.com`
   - `npm run auth:preflight -- --require-custom-auth-domain`: expected fail until custom auth domain cutover is completed (`auth.bloomjoyusa.com`)
 
 1) **P0 - Auth redirect/domain cutover recovery (Google login)**
@@ -194,7 +210,7 @@ Execution order is based on launch risk and dependency overlap.
 - UAT naming consistency hardening (`2026-03-02`): standardized public machine labels to `Commercial Machine`, `Mini Machine`, and `Micro Machine` across home, machines listing, contact, footer, and machine detail headers.
 - UAT supplies packaging alignment (`2026-03-18`): sugar quick presets now align to `240/400/800 KG`, blank paper sticks use box pricing (`$130/box`, `2000 pieces/box`) with size/address selection, 5+ box checkout ships free via dedicated Stripe flow, and custom sticks retain artwork upload with a `$750` first-order plate fee.
 - UAT resources hardening (`2026-03-02`): `/resources` now includes Bloomjoy Plus teaser cards for downloadable procedure docs, daily checklists, and frequently updated member content.
-- Auth launch alignment (`2026-03-19`): auth preflight defaults and auth runbooks now target canonical `www.bloomjoyusa.com`, keep apex `bloomjoyusa.com` allowlisted during cutover, and document the `localhost:3000` fallback as stale Supabase URL configuration.
+- Auth launch alignment (`2026-03-22`): auth preflight defaults and auth runbooks now target canonical operator-app routes on `app.bloomjoyusa.com`, while the storefront stays on `www.bloomjoyusa.com` and the callback host remains `auth.bloomjoyusa.com`.
 - Training performance hardening (`#89`): training detail now shows a clear Vimeo loading state, adds Vimeo preconnect hints, and emits iframe startup timing analytics.
 - Training detail clarity hardening (`#91`): renamed and clarified post-video sections with helper copy plus explicit empty-state fallbacks for learning outcomes/checklist/resources.
 - Training taxonomy hardening (`#90`): training catalog now supports module-specific filtering/grouping (for example `Module 1/2/3`) and includes an operations script to enforce Vimeo tags (`scripts/vimeo-ensure-tag.mjs`).

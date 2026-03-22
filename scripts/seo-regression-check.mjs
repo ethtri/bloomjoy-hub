@@ -9,7 +9,8 @@ const PUBLIC_ROBOTS =
 const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
 const STRUCTURED_DATA_SCRIPT_ID = "seo-structured-data";
 const SITEMAP_URL = "https://www.bloomjoyusa.com/sitemap.xml";
-const CANONICAL_HOST = "https://www.bloomjoyusa.com";
+const MARKETING_CANONICAL_HOST = "https://www.bloomjoyusa.com";
+const APP_CANONICAL_HOST = "https://app.bloomjoyusa.com";
 
 const publicRoutes = [
   "/",
@@ -28,20 +29,26 @@ const publicRoutes = [
 ];
 
 const privateRoutes = [
-  "/login",
-  "/reset-password",
-  "/cart",
-  "/portal",
-  "/portal/orders",
-  "/portal/account",
-  "/portal/training",
-  "/portal/support",
-  "/portal/onboarding",
-  "/admin",
-  "/admin/orders",
-  "/admin/support",
-  "/admin/accounts",
-  "/admin/audit",
+  { path: "/cart", canonicalOrigin: MARKETING_CANONICAL_HOST, title: "Bloomjoy Hub" },
+  { path: "/login", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  {
+    path: "/login/operator",
+    canonicalOrigin: APP_CANONICAL_HOST,
+    canonicalPath: "/login",
+    title: "Bloomjoy Operator App",
+  },
+  { path: "/reset-password", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/portal", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/portal/orders", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/portal/account", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/portal/training", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/portal/support", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/portal/onboarding", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/admin", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/admin/orders", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/admin/support", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/admin/accounts", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/admin/audit", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
 ];
 
 const routeToDistHtml = (routePath) => {
@@ -51,8 +58,8 @@ const routeToDistHtml = (routePath) => {
   return path.join(DIST_DIR, routePath.replace(/^\//, ""), "index.html");
 };
 
-const canonicalForRoute = (routePath) =>
-  routePath === "/" ? `${CANONICAL_HOST}/` : `${CANONICAL_HOST}${routePath}`;
+const canonicalForRoute = (origin, routePath) =>
+  routePath === "/" ? `${origin}/` : `${origin}${routePath}`;
 
 const assertIncludes = (text, expected, failureMessage) => {
   if (!text.includes(expected)) {
@@ -68,7 +75,7 @@ const assertExcludes = (text, forbidden, failureMessage) => {
 
 const validatePublicRouteHtml = async (routePath) => {
   const html = await readFile(routeToDistHtml(routePath), "utf8");
-  const canonical = canonicalForRoute(routePath);
+  const canonical = canonicalForRoute(MARKETING_CANONICAL_HOST, routePath);
 
   assertIncludes(
     html,
@@ -97,24 +104,32 @@ const validatePublicRouteHtml = async (routePath) => {
   );
 };
 
-const validatePrivateRouteHtml = async (routePath) => {
-  const html = await readFile(routeToDistHtml(routePath), "utf8");
-  const canonical = canonicalForRoute(routePath);
+const validatePrivateRouteHtml = async (route) => {
+  const html = await readFile(routeToDistHtml(route.path), "utf8");
+  const canonical = canonicalForRoute(
+    route.canonicalOrigin,
+    route.canonicalPath ?? route.path
+  );
 
   assertIncludes(
     html,
     `<meta name="robots" content="${PRIVATE_ROBOTS}"`,
-    `Private route ${routePath} is missing noindex robots meta`
+    `Private route ${route.path} is missing noindex robots meta`
   );
   assertIncludes(
     html,
     `<link rel="canonical" href="${canonical}"`,
-    `Private route ${routePath} has incorrect canonical link`
+    `Private route ${route.path} has incorrect canonical link`
+  );
+  assertIncludes(
+    html,
+    `<title>${route.title}</title>`,
+    `Private route ${route.path} has incorrect title`
   );
   assertExcludes(
     html,
     `<script id="${STRUCTURED_DATA_SCRIPT_ID}" type="application/ld+json">`,
-    `Private route ${routePath} should not include JSON-LD script`
+    `Private route ${route.path} should not include JSON-LD script`
   );
 };
 
@@ -132,7 +147,7 @@ const validateSitemap = async () => {
   const sitemap = await readFile(path.join(DIST_DIR, "sitemap.xml"), "utf8");
 
   for (const routePath of publicRoutes) {
-    const canonical = canonicalForRoute(routePath);
+    const canonical = canonicalForRoute(MARKETING_CANONICAL_HOST, routePath);
     assertIncludes(
       sitemap,
       `<loc>${canonical}</loc>`,
@@ -170,6 +185,45 @@ const hasLegacyProductsRedirectRule = (routes) => {
   return directProducts && detailProducts;
 };
 
+const hasWwwToAppRedirectRule = (routes) =>
+  routes.some(
+    (route) =>
+      route?.src === "/(login(?:/operator)?|reset-password|portal(?:/.*)?|admin(?:/.*)?)" &&
+      route?.status === 308 &&
+      route?.headers?.Location === "https://app.bloomjoyusa.com/$1" &&
+      Array.isArray(route?.has) &&
+      route.has.some(
+        (condition) =>
+          condition?.type === "host" && condition?.value === "www.bloomjoyusa.com"
+      )
+  );
+
+const hasAppToWwwRedirectRules = (routes) => {
+  const rootRedirect = routes.some(
+    (route) =>
+      route?.src === "/" &&
+      route?.status === 308 &&
+      route?.headers?.Location === "https://www.bloomjoyusa.com/" &&
+      Array.isArray(route?.has) &&
+      route.has.some(
+        (condition) => condition?.type === "host" && condition?.value === "app.bloomjoyusa.com"
+      )
+  );
+
+  const groupedRedirect = routes.some(
+    (route) =>
+      route?.src === "/(machines(?:/.*)?|products(?:/.*)?|supplies|plus|resources|about|contact|privacy|terms|billing-cancellation|cart)" &&
+      route?.status === 308 &&
+      route?.headers?.Location === "https://www.bloomjoyusa.com/$1" &&
+      Array.isArray(route?.has) &&
+      route.has.some(
+        (condition) => condition?.type === "host" && condition?.value === "app.bloomjoyusa.com"
+      )
+  );
+
+  return rootRedirect && groupedRedirect;
+};
+
 const validateVercelConfig = async () => {
   const raw = await readFile(VERCEL_CONFIG_PATH, "utf8");
   const parsed = JSON.parse(raw);
@@ -182,6 +236,14 @@ const validateVercelConfig = async () => {
   if (!hasLegacyProductsRedirectRule(routes)) {
     throw new Error("vercel.json is missing legacy /products* -> /machines* redirect rules");
   }
+
+  if (!hasWwwToAppRedirectRule(routes)) {
+    throw new Error("vercel.json is missing www -> app redirect rules for private app routes");
+  }
+
+  if (!hasAppToWwwRedirectRules(routes)) {
+    throw new Error("vercel.json is missing app -> www redirect rules for public marketing routes");
+  }
 };
 
 const main = async () => {
@@ -193,8 +255,8 @@ const main = async () => {
     await validatePublicRouteHtml(routePath);
   }
 
-  for (const routePath of privateRoutes) {
-    await validatePrivateRouteHtml(routePath);
+  for (const route of privateRoutes) {
+    await validatePrivateRouteHtml(route);
   }
 
   console.log(

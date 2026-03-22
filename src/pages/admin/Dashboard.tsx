@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ShieldCheck, ShoppingBag, LifeBuoy, Users, ClipboardList } from 'lucide-react';
-import { Layout } from '@/components/layout/Layout';
-import { useAuth } from '@/contexts/AuthContext';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 
 const adminModules = [
@@ -32,27 +31,20 @@ const adminModules = [
 ];
 
 export default function AdminDashboardPage() {
-  const { user, signOut } = useAuth();
-
   return (
-    <Layout>
+    <AppLayout>
       <section className="border-b border-border bg-muted/20">
         <div className="container-page py-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Bloomjoy Operations
-              </p>
-              <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Admin Dashboard
-              </h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Signed in as {user?.email || 'admin user'}
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => signOut()}>
-              Sign Out
-            </Button>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              Bloomjoy Operations
+            </p>
+            <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
+              Admin Dashboard
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Use the app shell for quick switches between portal and operations tools.
+            </p>
           </div>
         </div>
       </section>
@@ -87,6 +79,6 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       </section>
-    </Layout>
+    </AppLayout>
   );
 }
