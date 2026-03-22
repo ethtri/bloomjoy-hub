@@ -247,6 +247,9 @@ const buildCompositeTaskItem = (
     tags: mergeUniqueStrings(...searchableItems.map((item) => item.tags)),
     duration: primaryVideo?.duration ?? canonicalItem.duration,
     thumbnailUrl: primaryVideo?.thumbnailUrl ?? canonicalItem.thumbnailUrl,
+    thumbnailAlt: primaryVideo?.thumbnailAlt ?? canonicalItem.thumbnailAlt,
+    thumbnailSourceKind:
+      primaryVideo?.thumbnailSourceKind ?? canonicalItem.thumbnailSourceKind,
     format: hasPrimaryVideo && hasWrittenGuide ? 'mixed' : canonicalItem.format,
     embed: primaryVideo?.embed ?? canonicalItem.embed,
     document: writtenGuide?.document ?? canonicalItem.document,

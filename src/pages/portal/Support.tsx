@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PortalLayout } from '@/components/portal/PortalLayout';
+import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { trackEvent } from '@/lib/analytics';
 import { createSupportRequest } from '@/lib/supportRequests';
 import { useAuth } from '@/contexts/AuthContext';
@@ -152,14 +153,18 @@ export default function SupportPage() {
 
   return (
     <PortalLayout>
-      <section className="section-padding">
+      <section className="portal-section">
         <div className="container-page">
-          <h1 className="font-display text-3xl font-bold text-foreground">Support</h1>
-          <p className="mt-2 text-muted-foreground">
-            Choose the type of support you need.
-          </p>
+          <PortalPageIntro
+            title="Support"
+            description="Get to the right support path faster, whether you need manufacturer help, guided WeChat onboarding, concierge guidance, or replacement parts assistance."
+            badges={[
+              { label: 'Plus member support', tone: 'success' },
+              { label: 'Choose the right lane first', tone: 'muted' },
+            ]}
+          />
 
-          <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
             {/* WeChat Setup */}
             <div className="card-elevated p-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sage-light">

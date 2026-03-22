@@ -66,9 +66,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
 - [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
 - [ ] Logged-out visit to `/portal` redirects to login
-- [ ] Dashboard loads and shows membership status placeholder
+- [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
+- [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
+- [ ] Non-Plus login still sees premium destinations in portal navigation and dashboard action cards with clear locked/Plus treatment
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
@@ -92,6 +94,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training search finds relevant items by PDF-derived terms such as `burner`, `Nayax`, `timer`, and `waste water`
 - [ ] Training search shows canonical tasks first and, when relevant, places matching quick aids/manuals in a separate secondary reference section below the task results
 - [ ] Training catalog cards render thumbnail images for Vimeo-backed rows from first-party URLs (`training_assets.meta.thumbnail_url`) with no `vumbnail.com` dependency
+- [ ] Visible training library cards do not fall back to the blank gradient/icon media state when an intentional guide/checklist/manual thumbnail exists
+- [ ] No visible training library card resolves to `/placeholder.svg`
+- [ ] Guide, checklist, quick-aid, and manual cards all render image covers cleanly while keeping their chips, progress badges, and durations legible
 - [ ] Training hub cards show live progress state (`In progress` / `Completed`) after training progress rows exist
 - [ ] Training detail page opens and loads an embed frame (Vimeo for seeded modules; placeholder for local-only fallback modules)
 - [ ] Training detail page loads Vimeo player iframe for Vimeo-backed rows (not `about:srcdoc` placeholder)

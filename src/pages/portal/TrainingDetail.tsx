@@ -152,7 +152,7 @@ export default function TrainingDetailPage() {
   if (!trainingItem) {
     return (
       <PortalLayout>
-        <section className="section-padding">
+        <section className="portal-section">
           <div className="container-page">
             <div className="card-elevated p-8 text-center">
               <h1 className="font-display text-2xl font-semibold text-foreground">
