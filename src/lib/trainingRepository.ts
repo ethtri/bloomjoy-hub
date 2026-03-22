@@ -9,6 +9,7 @@ import {
   mapTrainingProgressToCanonical,
   resolveTrainingExperienceItem,
 } from '@/lib/trainingExperience';
+import { applyTrainingCardThumbnailMetadata } from '@/lib/trainingThumbnailMetadata';
 import {
   TrainingCertificate,
   TrainingContent,
@@ -385,44 +386,48 @@ const toTrainingContent = async (record: TrainingRecord): Promise<TrainingConten
       ? FALLBACK_BY_ID.get(preliminaryCatalogMetadata.fallbackId)
       : undefined) ?? FALLBACK_BY_TITLE.get(record.title.toLowerCase());
 
-  return applyCatalogMetadata(
-    {
-      id: record.id,
-      fallbackContentId: localMatch?.id,
-      title: record.title,
-      description: record.description ?? localMatch?.description ?? '',
-      thumbnailUrl: thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL,
-      providerVideoId: videoAsset?.provider_video_id ?? undefined,
-      duration: formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '--',
-      tags: normalizeTags(record.tags, localMatch?.tags ?? []),
-      level: localMatch?.level ?? 'Beginner',
-      summary: localMatch?.summary ?? 'Training content for Bloomjoy operators.',
-      learningPoints:
-        localMatch?.learningPoints?.length
-          ? localMatch.learningPoints
-          : ['Key takeaways will appear here once this module is finalized.'],
-      checklist:
-        localMatch?.checklist?.length
-          ? localMatch.checklist
-          : ['Checklist items will be added after the next training update.'],
-      searchTerms: localMatch?.searchTerms ?? [],
-      taskCategory: localMatch?.taskCategory ?? 'Reference',
-      audience: localMatch?.audience ?? 'Operator',
-      format: localMatch?.format ?? (embedUrl ? 'video' : 'guide'),
-      embed: {
-        title:
-          extractStringMeta(videoAsset?.meta ?? null, 'title') ??
-          localMatch?.embed.title ??
-          'Training module',
-        srcDoc: localMatch?.embed.srcDoc ?? '',
-        url: embedUrl,
+  return applyTrainingCardThumbnailMetadata(
+    applyCatalogMetadata(
+      {
+        id: record.id,
+        fallbackContentId: localMatch?.id,
+        title: record.title,
+        description: record.description ?? localMatch?.description ?? '',
+        thumbnailUrl: thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL,
+        thumbnailAlt: localMatch?.thumbnailAlt,
+        thumbnailSourceKind: thumbnailFromMeta ? 'vimeo' : localMatch?.thumbnailSourceKind,
+        providerVideoId: videoAsset?.provider_video_id ?? undefined,
+        duration: formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '--',
+        tags: normalizeTags(record.tags, localMatch?.tags ?? []),
+        level: localMatch?.level ?? 'Beginner',
+        summary: localMatch?.summary ?? 'Training content for Bloomjoy operators.',
+        learningPoints:
+          localMatch?.learningPoints?.length
+            ? localMatch.learningPoints
+            : ['Key takeaways will appear here once this module is finalized.'],
+        checklist:
+          localMatch?.checklist?.length
+            ? localMatch.checklist
+            : ['Checklist items will be added after the next training update.'],
+        searchTerms: localMatch?.searchTerms ?? [],
+        taskCategory: localMatch?.taskCategory ?? 'Reference',
+        audience: localMatch?.audience ?? 'Operator',
+        format: localMatch?.format ?? (embedUrl ? 'video' : 'guide'),
+        embed: {
+          title:
+            extractStringMeta(videoAsset?.meta ?? null, 'title') ??
+            localMatch?.embed.title ??
+            'Training module',
+          srcDoc: localMatch?.embed.srcDoc ?? '',
+          url: embedUrl,
+        },
+        document: localMatch?.document,
+        resources: mergeResources(localMatch?.resources ?? [], dbResources),
       },
-      document: localMatch?.document,
-      resources: mergeResources(localMatch?.resources ?? [], dbResources),
-    },
-    {
-      providerVideoId: videoAsset?.provider_video_id ?? undefined,
-    }
+      {
+        providerVideoId: videoAsset?.provider_video_id ?? undefined,
+      }
+    )
   );
 };
 

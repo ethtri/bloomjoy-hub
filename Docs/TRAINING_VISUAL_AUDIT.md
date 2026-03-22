@@ -9,6 +9,24 @@ Scope: `/portal/training` task-first library and detail pages in `agent/training
 - Visuals should clarify a control, threshold, location, or sequence. Avoid decorative galleries.
 - Quick aids belong near the current task. `Recommended next task` should only point to downstream training.
 
+## Card thumbnail coverage pass (2026-03-22)
+- Added a shared training-card thumbnail metadata layer keyed by training id so card art no longer depends on ad hoc `thumbnailUrl` edits.
+- Reused existing source-manual imagery for the visible document-first library cards instead of introducing stock or AI assets in this pass.
+- Updated the training-card renderer so any non-placeholder thumbnail can render, including guides, checklists, quick aids, and manuals that do not have a primary video.
+- Visible card coverage now includes:
+  - `Software Setup Quickstart`
+  - `Pricing, Passwords, and Payment Settings`
+  - `Alarm and Power Timer Setup`
+  - `Timer Control Reference`
+  - `Maintenance Guide Reference Manual`
+  - `Safe Power Off and Cooldown`
+  - `Cleaning and Hygiene Checklist`
+  - `Daily Cleaning Hotspots`
+  - `Module Function Check Guide`
+  - `Consumables Loading and Stick Handling`
+  - `Consumables Loading Reference`
+- No procured, licensed, or AI-generated assets were required to close the current visible thumbnail gaps. Future modules should use the same priority order: explicit card-thumbnail metadata, existing live thumbnail, first purposeful document visual, then placeholder only as a last resort.
+
 ## Remediation completed in this pass
 - `Software Setup Quickstart`
   - Added admin-access visual from `Software setup.pdf`
@@ -40,8 +58,8 @@ Scope: `/portal/training` task-first library and detail pages in `agent/training
 - Shared manuals no longer pollute canonical task search terms, so task search is closer to MECE boundaries.
 
 ## Remaining content gaps
-- No confirmed content/visual blocker is open after the `2026-03-21` metadata correction for `provider_video_id=1167976486`.
-- Future polish, if needed, should focus on instructional depth or tighter crops, not mislabeled routes.
+- No confirmed visible card-thumbnail blocker is open after the `2026-03-22` coverage pass.
+- Future polish, if needed, should focus on tighter crops or selectively replacing a low-signal screenshot with a stronger operational visual, not reintroducing placeholder cards.
 
 ## Source-manual figure map used in this pass
 - `Software setup.pdf`
@@ -62,5 +80,5 @@ Scope: `/portal/training` task-first library and detail pages in `agent/training
   - Paper-stick loading
 
 ## Next recommended pass
-1. Re-test detail pages on desktop and mobile with authenticated localhost QA.
-2. If operators still need more clarity, add 1 more image only to the highest-friction guide pages instead of expanding every page indiscriminately.
+1. Re-test the library cards and detail pages on desktop and mobile with authenticated localhost QA.
+2. If operators still need more clarity, replace only the weakest card crop or highest-friction guide with a stronger dedicated cover instead of expanding every page indiscriminately.

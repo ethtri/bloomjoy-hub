@@ -392,7 +392,6 @@ export default function TrainingPage() {
     const progressRecord = content.surface === 'task' ? progressByTrainingId.get(content.id) : undefined;
     const displayTags = getTrainingDisplayTags(content, 2);
     const hasVisualThumbnail =
-      Boolean(content.primaryVideo?.embed.url || content.format === 'video' || content.format === 'mixed') &&
       Boolean(content.thumbnailUrl) &&
       content.thumbnailUrl !== PLACEHOLDER_THUMBNAIL_URL;
     const isQuickAid = content.surface === 'quick-aid';
@@ -421,16 +420,19 @@ export default function TrainingPage() {
           {hasVisualThumbnail && (
             <img
               src={content.thumbnailUrl}
-              alt=""
+              alt={content.thumbnailAlt ?? ''}
               loading="lazy"
               className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
               referrerPolicy="no-referrer"
             />
           )}
+          {hasVisualThumbnail && (
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-transparent to-cream/30 mix-blend-screen" />
+          )}
           <div
             className={`absolute inset-0 ${
               hasVisualThumbnail
-                ? 'bg-gradient-to-t from-black/55 via-black/10 to-black/10'
+                ? 'bg-gradient-to-t from-black/65 via-black/20 to-black/10'
                 : 'bg-gradient-to-br from-transparent via-transparent to-primary/10'
             }`}
           />

@@ -34,12 +34,26 @@ export interface TrainingResource {
 
 export type TrainingFormat = 'video' | 'guide' | 'checklist' | 'reference' | 'mixed';
 
+export type TrainingThumbnailSourceKind =
+  | 'vimeo'
+  | 'manual-crop'
+  | 'licensed-photo'
+  | 'generated-cover';
+
+export interface TrainingThumbnailMetadata {
+  cardThumbnailUrl: string;
+  cardThumbnailAlt?: string;
+  sourceKind: TrainingThumbnailSourceKind;
+}
+
 export interface TrainingContent {
   id: string;
   fallbackContentId?: string;
   title: string;
   description: string;
   thumbnailUrl?: string;
+  thumbnailAlt?: string;
+  thumbnailSourceKind?: TrainingThumbnailSourceKind;
   providerVideoId?: string;
   duration: string;
   tags: string[];
