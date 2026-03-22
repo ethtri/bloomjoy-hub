@@ -94,6 +94,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Training search finds relevant items by PDF-derived terms such as `burner`, `Nayax`, `timer`, and `waste water`
 - [ ] Training search shows canonical tasks first and, when relevant, places matching quick aids/manuals in a separate secondary reference section below the task results
 - [ ] Training catalog cards render thumbnail images for Vimeo-backed rows from first-party URLs (`training_assets.meta.thumbnail_url`) with no `vumbnail.com` dependency
+- [ ] Visible training library cards do not fall back to the blank gradient/icon media state when an intentional guide/checklist/manual thumbnail exists
+- [ ] No visible training library card resolves to `/placeholder.svg`
+- [ ] Guide, checklist, quick-aid, and manual cards all render image covers cleanly while keeping their chips, progress badges, and durations legible
 - [ ] Training hub cards show live progress state (`In progress` / `Completed`) after training progress rows exist
 - [ ] Training detail page opens and loads an embed frame (Vimeo for seeded modules; placeholder for local-only fallback modules)
 - [ ] Training detail page loads Vimeo player iframe for Vimeo-backed rows (not `about:srcdoc` placeholder)

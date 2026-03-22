@@ -1,4 +1,5 @@
 import type { TrainingContent, TrainingTrack } from '@/lib/trainingTypes';
+import { applyTrainingCardThumbnailMetadata } from '@/lib/trainingThumbnailMetadata';
 import {
   alarmAndPowerTimerDocument,
   cleaningChecklistDocument,
@@ -36,7 +37,7 @@ const placeholderEmbed = (title: string) => `<!doctype html>
   </body>
 </html>`;
 
-export const trainingContent: TrainingContent[] = [
+const baseTrainingContent: TrainingContent[] = [
   {
     id: 'software-setup-quickstart',
     title: 'Software Setup Quickstart',
@@ -1065,6 +1066,10 @@ export const trainingContent: TrainingContent[] = [
     ],
   },
 ];
+
+export const trainingContent: TrainingContent[] = baseTrainingContent.map((item) =>
+  applyTrainingCardThumbnailMetadata(item)
+);
 
 export const trainingTracks: TrainingTrack[] = [
   {
