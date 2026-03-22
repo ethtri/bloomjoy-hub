@@ -133,22 +133,22 @@ export function AppLayout({ children }: AppLayoutProps) {
       .filter((item) => !item.requiresAdmin || isAdmin)
       .map((item) => {
         if (mobile) {
+          const isActive = item.match(location.pathname);
+
           return (
             <SheetClose asChild key={item.href}>
-              <NavLink
+              <Link
                 to={item.href}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center justify-between rounded-2xl border px-4 py-3 text-sm font-medium transition-colors',
-                    isActive || item.match(location.pathname)
-                      ? 'border-primary/20 bg-primary/10 text-primary'
-                      : 'border-border bg-background text-foreground hover:bg-muted/40'
-                  )
-                }
+                className={cn(
+                  'flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'border-primary/20 bg-primary/10 text-primary'
+                    : 'border-border bg-background text-foreground hover:bg-muted/40'
+                )}
               >
                 <span>{item.label}</span>
                 {item.label === 'Admin' && <Shield className="h-4 w-4" />}
-              </NavLink>
+              </Link>
             </SheetClose>
           );
         }
