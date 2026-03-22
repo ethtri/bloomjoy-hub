@@ -40,16 +40,18 @@ export function PortalPageIntro({
   return (
     <div
       className={cn(
-        'rounded-[28px] border border-border bg-gradient-to-br from-background via-background to-muted/40 p-6 shadow-[var(--shadow-md)] sm:p-7',
+        'rounded-[28px] border border-border bg-gradient-to-br from-background via-background to-muted/40 p-5 shadow-[var(--shadow-md)] sm:p-7',
         className
       )}
     >
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
         {eyebrow}
       </p>
-      <div className="mt-3 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+      <div className="mt-3 flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">{title}</h1>
+          <h1 className="font-display text-[2rem] font-bold leading-none text-foreground sm:text-4xl">
+            {title}
+          </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
             {description}
           </p>
@@ -74,9 +76,13 @@ export function PortalPageIntro({
             </div>
           )}
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap gap-3">{actions}</div>}
+        {actions && (
+          <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end [&>*]:w-full sm:[&>*]:w-auto">
+            {actions}
+          </div>
+        )}
       </div>
-      {children && <div className="mt-5">{children}</div>}
+      {children && <div className="mt-4 sm:mt-5">{children}</div>}
     </div>
   );
 }

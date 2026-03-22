@@ -78,7 +78,7 @@ export default function OrdersPage() {
               { label: isFetching ? 'Refreshing' : 'Live sync available', tone: 'default' },
             ]}
             actions={
-              <div className="flex flex-wrap gap-3">
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
                 <Button asChild variant="outline">
                   <a href={reorderSuppliesUrl}>Reorder Supplies</a>
                 </Button>
@@ -114,7 +114,7 @@ export default function OrdersPage() {
               )}
               {!isLoading &&
                 orders.map((order) => (
-                  <div key={order.id} className="card-elevated p-5">
+                  <div key={order.id} className="card-elevated p-4 sm:p-5">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-semibold text-foreground">{getOrderReference(order)}</p>
@@ -133,7 +133,7 @@ export default function OrdersPage() {
                       </p>
                       <p>Payment: {order.status}</p>
                     </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-4 flex gap-2 [&>*]:flex-1">
                       <Button
                         asChild={Boolean(order.receipt_url)}
                         variant="outline"

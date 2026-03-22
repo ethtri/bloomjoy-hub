@@ -59,6 +59,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Login flow works (magic link or configured method)
 - [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
+- [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights and the top app header stays compact without an extra context row pushing content below the fold
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
@@ -73,6 +74,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
+- [ ] On mobile app routes, page-intro actions stack cleanly full width instead of squeezing side-by-side on `/portal`, `/portal/orders`, `/portal/account`, `/portal/onboarding`, `/portal/support`, and `/portal/training`
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
 - [ ] Non-Plus login still sees premium destinations in portal navigation and dashboard action cards with clear locked/Plus treatment
@@ -121,6 +123,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] New job aids (`Safe Power Off and Cooldown`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`) appear in the library/search and open from linked resource cards
 - [ ] `Unlock Machine Door (Physical Service Access)` is titled to match the footage and is grouped under `Build / Assembly`, not `Software & Payments` or `Start Here`
 - [ ] On mobile widths (360x800, 390x844, 414x896), the training hub keeps Start Here, task cards, quick job aids, and library search readable without oversized gaps between sections
+- [ ] On mobile widths (360x800, 390x844, 414x896), training filters, onboarding checklist CTAs, support forms, and order-card actions stack cleanly without cramped button rows
 - [ ] `Mark complete` persists to `training_progress` and the item remains completed after refresh/re-login
 - [ ] Operator Essentials certificate appears as a secondary section below the main library and stays locked until all required items are complete and the final acknowledgement is checked
 - [ ] After unlocking, the Operator Essentials certificate remains available for download on later visits

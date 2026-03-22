@@ -1,14 +1,12 @@
 import type { ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  ClipboardList,
   ExternalLink,
   KeyRound,
   LogOut,
   Menu,
   Settings,
   Shield,
-  ShoppingBag,
   User,
 } from 'lucide-react';
 import logo from '@/assets/logo.png';
@@ -176,15 +174,15 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-muted/20">
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-        <div className="container-page py-3 sm:py-4">
+        <div className="container-page py-2.5 sm:py-4">
           <div className="flex items-center justify-between gap-4">
-            <Link to={homeUrl} className="flex min-w-0 items-center gap-3">
-              <img src={logo} alt="Bloomjoy Sweets" className="h-11 w-11 shrink-0" />
+            <Link to={homeUrl} className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <img src={logo} alt="Bloomjoy Sweets" className="h-10 w-10 shrink-0 sm:h-11 sm:w-11" />
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-[11px]">
                   Operator App
                 </p>
-                <p className="truncate font-display text-lg font-semibold text-foreground">
+                <p className="truncate font-display text-base font-semibold text-foreground sm:text-lg">
                   {appContext.title}
                 </p>
                 <p className="hidden truncate text-sm text-muted-foreground sm:block">
@@ -229,11 +227,14 @@ export function AppLayout({ children }: AppLayoutProps) {
             <div className="md:hidden">
               <Sheet>
                 <SheetTrigger asChild>
-                  <button className="rounded-xl border border-border bg-background p-2 text-muted-foreground transition-colors hover:text-foreground">
+                  <button className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:text-foreground">
                     <Menu className="h-5 w-5" />
                   </button>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-[320px] border-border bg-background px-5 py-6">
+                <SheetContent
+                  side="right"
+                  className="w-[min(92vw,360px)] border-border bg-background px-5 py-6"
+                >
                   <SheetHeader className="text-left">
                     <SheetTitle>Operator app</SheetTitle>
                     <SheetDescription>{appContext.description}</SheetDescription>
@@ -282,17 +283,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </SheetContent>
               </Sheet>
             </div>
-          </div>
-
-          <div className="mt-3 flex items-center gap-2 text-xs font-medium text-muted-foreground md:hidden">
-            {location.pathname.startsWith('/admin') ? (
-              <Shield className="h-4 w-4" />
-            ) : location.pathname.startsWith('/portal') ? (
-              <ClipboardList className="h-4 w-4" />
-            ) : (
-              <ShoppingBag className="h-4 w-4" />
-            )}
-            <span>{appContext.description}</span>
           </div>
         </div>
       </header>

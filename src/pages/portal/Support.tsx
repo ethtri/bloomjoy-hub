@@ -164,9 +164,9 @@ export default function SupportPage() {
             ]}
           />
 
-          <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {/* WeChat Setup */}
-            <div className="card-elevated p-6">
+            <div className="card-elevated p-5 sm:p-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sage-light">
                 <MessageSquare className="h-6 w-6 text-sage" />
               </div>
@@ -187,7 +187,7 @@ export default function SupportPage() {
             </div>
 
             {/* WeChat Onboarding */}
-            <div className="card-elevated p-6">
+            <div className="card-elevated p-5 sm:p-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100">
                 <UserCheck className="h-6 w-6 text-sky-700" />
               </div>
@@ -203,7 +203,7 @@ export default function SupportPage() {
             </div>
 
             {/* Concierge */}
-            <div className="card-elevated p-6">
+            <div className="card-elevated p-5 sm:p-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
                 <Wrench className="h-6 w-6 text-primary" />
               </div>
@@ -219,7 +219,7 @@ export default function SupportPage() {
             </div>
 
             {/* Parts */}
-            <div className="card-elevated p-6">
+            <div className="card-elevated p-5 sm:p-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber/10">
                 <Package className="h-6 w-6 text-amber" />
               </div>
@@ -237,7 +237,7 @@ export default function SupportPage() {
 
           {/* WeChat Guide */}
           {activeForm === 'wechat' && (
-            <div className="mt-8 card-elevated p-6">
+            <div className="mt-8 card-elevated p-5 sm:p-6">
               <h2 className="font-display text-xl font-semibold text-foreground">
                 WeChat Setup Guide
               </h2>
@@ -260,18 +260,27 @@ export default function SupportPage() {
                   The manufacturer support team provides 24/7 first-line technical support. They can help with machine diagnostics, troubleshooting, and warranty issues.
                 </p>
               </div>
-              <Button variant="outline" className="mt-6" onClick={() => setActiveForm(null)}>
-                Close
-              </Button>
-              <Button className="mt-3" onClick={() => setActiveForm('wechat_onboarding')}>
-                Need onboarding help
-              </Button>
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => setActiveForm(null)}
+                >
+                  Close
+                </Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={() => setActiveForm('wechat_onboarding')}
+                >
+                  Need onboarding help
+                </Button>
+              </div>
             </div>
           )}
 
           {/* WeChat Onboarding Form */}
           {activeForm === 'wechat_onboarding' && (
-            <div className="mt-8 card-elevated p-6">
+            <div className="mt-8 card-elevated p-5 sm:p-6">
               <h2 className="font-display text-xl font-semibold text-foreground">
                 WeChat Onboarding Concierge
               </h2>
@@ -425,11 +434,16 @@ export default function SupportPage() {
                   />
                 </div>
 
-                <div className="flex gap-3">
-                  <Button type="submit" disabled={loading}>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
                     {loading ? 'Submitting...' : 'Submit Onboarding Request'}
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => setActiveForm(null)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full sm:w-auto"
+                    onClick={() => setActiveForm(null)}
+                  >
                     Cancel
                   </Button>
                 </div>
@@ -439,7 +453,7 @@ export default function SupportPage() {
 
           {/* Concierge Form */}
           {activeForm === 'concierge' && (
-            <div className="mt-8 card-elevated p-6">
+            <div className="mt-8 card-elevated p-5 sm:p-6">
               <h2 className="font-display text-xl font-semibold text-foreground">
                 Request Concierge Help
               </h2>
@@ -474,11 +488,16 @@ export default function SupportPage() {
                     className="mt-1"
                   />
                 </div>
-                <div className="flex gap-3">
-                  <Button type="submit" disabled={loading}>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
                     {loading ? 'Submitting...' : 'Submit Request'}
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => setActiveForm(null)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full sm:w-auto"
+                    onClick={() => setActiveForm(null)}
+                  >
                     Cancel
                   </Button>
                 </div>
@@ -488,7 +507,7 @@ export default function SupportPage() {
 
           {/* Parts Form */}
           {activeForm === 'parts' && (
-            <div className="mt-8 card-elevated p-6">
+            <div className="mt-8 card-elevated p-5 sm:p-6">
               <h2 className="font-display text-xl font-semibold text-foreground">
                 Parts Assistance Request
               </h2>
@@ -522,11 +541,16 @@ export default function SupportPage() {
                     className="mt-1"
                   />
                 </div>
-                <div className="flex gap-3">
-                  <Button type="submit" disabled={loading}>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
                     {loading ? 'Submitting...' : 'Submit Request'}
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => setActiveForm(null)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full sm:w-auto"
+                    onClick={() => setActiveForm(null)}
+                  >
                     Cancel
                   </Button>
                 </div>

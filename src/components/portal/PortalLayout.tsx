@@ -31,7 +31,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
   return (
     <AppLayout>
       <div className="border-b border-border bg-gradient-to-b from-background via-background to-muted/30">
-        <div className="container-page py-4 sm:py-5">
+        <div className="container-page py-3 sm:py-5">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
@@ -85,7 +85,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                   </SheetTrigger>
                   <SheetContent
                     side="bottom"
-                    className="rounded-t-[28px] border-border bg-background px-5 pb-8 pt-6"
+                    className="max-h-[85vh] overflow-y-auto rounded-t-[28px] border-border bg-background px-5 pb-8 pt-6"
                   >
                     <SheetHeader className="text-left">
                       <SheetTitle>Portal navigation</SheetTitle>
