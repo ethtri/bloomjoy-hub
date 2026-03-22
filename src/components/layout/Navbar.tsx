@@ -4,6 +4,7 @@ import { Menu, X, ShoppingCart, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/lib/cart';
 import { useAuth } from '@/contexts/AuthContext';
+import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { cn } from '@/lib/utils';
 import logo from '@/assets/logo.png';
 
@@ -22,6 +23,9 @@ export function Navbar() {
   const { getItemCount } = useCart();
   const { isAuthenticated, isAdmin } = useAuth();
   const itemCount = getItemCount();
+  const operatorAppUrl = getCanonicalUrlForSurface('app', '/portal', '', '', window.location);
+  const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', window.location);
+  const adminAppUrl = getCanonicalUrlForSurface('app', '/admin', '', '', window.location);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -65,25 +69,25 @@ export function Navbar() {
           {isAuthenticated ? (
             <>
               {isAdmin && (
-                <Link to="/admin">
+                <a href={adminAppUrl}>
                   <Button variant="outline" size="sm">
-                    Admin Dashboard
+                    Admin App
                   </Button>
-                </Link>
+                </a>
               )}
-              <Link to="/portal">
+              <a href={operatorAppUrl}>
                 <Button variant="outline" size="sm">
                   <User className="mr-1 h-4 w-4" />
-                  Member Portal
+                  Open App
                 </Button>
-              </Link>
+              </a>
             </>
           ) : (
-            <Link to="/login">
+            <a href={operatorLoginUrl}>
               <Button variant="outline" size="sm">
-                Login
+                Operator Login
               </Button>
-            </Link>
+            </a>
           )}
         </div>
 
@@ -130,25 +134,25 @@ export function Navbar() {
                 {isAuthenticated ? (
                   <div className="flex flex-col gap-2">
                     {isAdmin && (
-                      <Link to="/admin" onClick={() => setMobileMenuOpen(false)}>
+                      <a href={adminAppUrl} onClick={() => setMobileMenuOpen(false)}>
                         <Button variant="outline" className="w-full">
-                          Admin Dashboard
+                          Admin App
                         </Button>
-                      </Link>
+                      </a>
                     )}
-                    <Link to="/portal" onClick={() => setMobileMenuOpen(false)}>
+                    <a href={operatorAppUrl} onClick={() => setMobileMenuOpen(false)}>
                       <Button variant="outline" className="w-full">
                         <User className="mr-2 h-4 w-4" />
-                        Member Portal
+                        Open App
                       </Button>
-                    </Link>
+                    </a>
                   </div>
                 ) : (
-                  <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
+                  <a href={operatorLoginUrl} onClick={() => setMobileMenuOpen(false)}>
                     <Button variant="outline" className="w-full">
-                      Login
+                      Operator Login
                     </Button>
-                  </Link>
+                  </a>
                 )}
               </div>
             </div>

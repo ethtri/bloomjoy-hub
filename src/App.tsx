@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { MemberRoute } from "@/components/auth/MemberRoute";
 import { AdminRoute } from "@/components/auth/AdminRoute";
+import { HostRedirectGate } from "@/components/routing/HostRedirectGate";
 import { RouteSeoManager } from "@/components/seo/RouteSeoManager";
 
 import Index from "./pages/Index";
@@ -54,56 +55,59 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <RouteSeoManager />
-          <Suspense fallback={<RouteFallback />}>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/machines" element={<Products />} />
-              <Route
-                path="/machines/commercial-robotic-machine"
-                element={<CommercialRobotic />}
-              />
-              <Route path="/machines/mini" element={<Mini />} />
-              <Route path="/machines/micro" element={<Micro />} />
-              <Route path="/products" element={<Navigate to="/machines" replace />} />
-              <Route
-                path="/products/commercial-robotic-machine"
-                element={<Navigate to="/machines/commercial-robotic-machine" replace />}
-              />
-              <Route path="/products/mini" element={<Navigate to="/machines/mini" replace />} />
-              <Route path="/products/micro" element={<Navigate to="/machines/micro" replace />} />
-              <Route path="/supplies" element={<Supplies />} />
-              <Route path="/plus" element={<Plus />} />
-              <Route path="/contact" element={<Contact />} />
-              <Route path="/about" element={<About />} />
-              <Route path="/resources" element={<Resources />} />
-              <Route path="/privacy" element={<Privacy />} />
-              <Route path="/terms" element={<Terms />} />
-              <Route path="/billing-cancellation" element={<BillingCancellation />} />
-              <Route path="/cart" element={<Cart />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              <Route element={<ProtectedRoute />}>
-                <Route path="/portal" element={<PortalDashboard />} />
-                <Route path="/portal/orders" element={<PortalOrders />} />
-                <Route path="/portal/account" element={<PortalAccount />} />
-                <Route element={<MemberRoute />}>
-                  <Route path="/portal/training" element={<PortalTraining />} />
-                  <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
-                  <Route path="/portal/support" element={<PortalSupport />} />
-                  <Route path="/portal/onboarding" element={<PortalOnboarding />} />
+          <HostRedirectGate>
+            <RouteSeoManager />
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/machines" element={<Products />} />
+                <Route
+                  path="/machines/commercial-robotic-machine"
+                  element={<CommercialRobotic />}
+                />
+                <Route path="/machines/mini" element={<Mini />} />
+                <Route path="/machines/micro" element={<Micro />} />
+                <Route path="/products" element={<Navigate to="/machines" replace />} />
+                <Route
+                  path="/products/commercial-robotic-machine"
+                  element={<Navigate to="/machines/commercial-robotic-machine" replace />}
+                />
+                <Route path="/products/mini" element={<Navigate to="/machines/mini" replace />} />
+                <Route path="/products/micro" element={<Navigate to="/machines/micro" replace />} />
+                <Route path="/supplies" element={<Supplies />} />
+                <Route path="/plus" element={<Plus />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/resources" element={<Resources />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/terms" element={<Terms />} />
+                <Route path="/billing-cancellation" element={<BillingCancellation />} />
+                <Route path="/cart" element={<Cart />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/login/operator" element={<Navigate to="/login" replace />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/portal" element={<PortalDashboard />} />
+                  <Route path="/portal/orders" element={<PortalOrders />} />
+                  <Route path="/portal/account" element={<PortalAccount />} />
+                  <Route element={<MemberRoute />}>
+                    <Route path="/portal/training" element={<PortalTraining />} />
+                    <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
+                    <Route path="/portal/support" element={<PortalSupport />} />
+                    <Route path="/portal/onboarding" element={<PortalOnboarding />} />
+                  </Route>
+                  <Route element={<AdminRoute />}>
+                    <Route path="/admin" element={<AdminDashboard />} />
+                    <Route path="/admin/orders" element={<AdminOrders />} />
+                    <Route path="/admin/support" element={<AdminSupport />} />
+                    <Route path="/admin/accounts" element={<AdminAccounts />} />
+                    <Route path="/admin/audit" element={<AdminAudit />} />
+                  </Route>
                 </Route>
-                <Route element={<AdminRoute />}>
-                  <Route path="/admin" element={<AdminDashboard />} />
-                  <Route path="/admin/orders" element={<AdminOrders />} />
-                  <Route path="/admin/support" element={<AdminSupport />} />
-                  <Route path="/admin/accounts" element={<AdminAccounts />} />
-                  <Route path="/admin/audit" element={<AdminAudit />} />
-                </Route>
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
+          </HostRedirectGate>
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>

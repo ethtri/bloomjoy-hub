@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 const DEFAULTS = {
   appOrigin: 'http://localhost:8080',
-  prodAppOrigin: 'https://www.bloomjoyusa.com',
+  prodAppOrigin: 'https://app.bloomjoyusa.com',
+  prodMarketingOrigin: 'https://www.bloomjoyusa.com',
   projectRef: 'ygbzkgxktzqsiygjlqyg',
   customAuthHost: 'auth.bloomjoyusa.com',
   requireCustomAuthDomain: false,
@@ -37,6 +38,12 @@ function parseArgs(argv) {
 
     if (arg === '--prod-app-origin' && next) {
       parsed.prodAppOrigin = next;
+      i += 1;
+      continue;
+    }
+
+    if (arg === '--prod-marketing-origin' && next) {
+      parsed.prodMarketingOrigin = next;
       i += 1;
       continue;
     }
@@ -124,7 +131,7 @@ function validUrl(value) {
   }
 }
 
-function getRelatedOrigins(origin) {
+function getRelatedOrigins(origin, { includeWwwAlias = false } = {}) {
   if (!validUrl(origin)) {
     return [origin];
   }
@@ -137,10 +144,12 @@ function getRelatedOrigins(origin) {
     return origins;
   }
 
-  if (url.hostname.startsWith('www.')) {
-    origins.push(`${url.protocol}//${url.hostname.slice(4)}`);
-  } else {
-    origins.push(`${url.protocol}//www.${url.hostname}`);
+  if (includeWwwAlias) {
+    if (url.hostname.startsWith('www.')) {
+      origins.push(`${url.protocol}//${url.hostname.slice(4)}`);
+    } else {
+      origins.push(`${url.protocol}//www.${url.hostname}`);
+    }
   }
 
   return [...new Set(origins)];
@@ -240,13 +249,16 @@ function run() {
 
   const googleRedirectLegacy = `https://${args.projectRef}.supabase.co/auth/v1/callback`;
   const googleRedirectCustom = `https://${args.customAuthHost}/auth/v1/callback`;
-  const productionOrigins = getRelatedOrigins(args.prodAppOrigin);
+  const productionAppOrigins = getRelatedOrigins(args.prodAppOrigin);
+  const productionMarketingOrigins = getRelatedOrigins(args.prodMarketingOrigin, {
+    includeWwwAlias: true,
+  });
   const additionalRedirectUrls = [
     `${args.appOrigin}`,
     `${args.appOrigin}/login`,
     `${args.appOrigin}/portal`,
     `${args.appOrigin}/reset-password`,
-    ...productionOrigins.flatMap((origin) => [
+    ...productionAppOrigins.flatMap((origin) => [
       `${origin}`,
       `${origin}/login`,
       `${origin}/portal`,
@@ -256,7 +268,7 @@ function run() {
 
   printList('Google OAuth Authorized JavaScript origins (copy/paste)', [
     args.appOrigin,
-    ...productionOrigins,
+    ...productionAppOrigins,
   ]);
 
   printList('Google OAuth Authorized redirect URIs (copy/paste)', [
@@ -265,8 +277,13 @@ function run() {
   ]);
 
   printList('Supabase URL Configuration values (copy/paste)', [
-    `Site URL: ${productionOrigins[0]}`,
+    `Site URL: ${productionAppOrigins[0]}`,
     ...additionalRedirectUrls.map((value) => `Additional redirect URL: ${value}`),
+  ]);
+
+  printList('Operator app / storefront host split (reference)', [
+    `Operator app host: ${productionAppOrigins[0]}`,
+    `Marketing host: ${productionMarketingOrigins[0]}`,
   ]);
 
   if (warnings.length > 0) {

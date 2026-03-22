@@ -53,8 +53,8 @@ const sortTrainingItems = (left: TrainingExperienceItem, right: TrainingExperien
 
 const dashboardActions: DashboardAction[] = [
   {
-    title: 'Reorder Sugar',
-    description: 'Place a refill order fast with the current supply checkout.',
+    title: 'Reorder Supplies',
+    description: 'Jump into the current supply checkout without using the sales navigation.',
     href: '/supplies',
     icon: Package,
     access: 'baseline',
@@ -123,10 +123,10 @@ export default function PortalDashboard() {
 
   const primaryAction = !isMember
     ? {
-        label: 'Reorder Sugar',
+        label: 'Reorder Supplies',
         href: '/supplies',
-        description: 'Place a refill order fast with the current supply checkout.',
-        helper: 'Baseline access starts with fast reorders, account details, and order history.',
+        description: 'Jump into the current supply checkout without using the public sales nav.',
+        helper: 'Baseline access starts with reorders, account details, and order history.',
       }
     : !onboardingComplete
       ? {

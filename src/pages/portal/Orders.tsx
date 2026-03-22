@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { fetchPortalOrders, type OrderRecord } from '@/lib/orders';
 
 const formatCurrency = (amountTotal: number | null, currency: string | null) => {
@@ -43,6 +44,13 @@ const getLineItemsSummary = (lineItems: Array<Record<string, unknown>>) => {
 
 export default function OrdersPage() {
   const queryClient = useQueryClient();
+  const reorderSuppliesUrl = getCanonicalUrlForSurface(
+    'marketing',
+    '/supplies',
+    '',
+    '',
+    window.location
+  );
   const {
     data: orders = [],
     isLoading,
@@ -70,14 +78,19 @@ export default function OrdersPage() {
               { label: isFetching ? 'Refreshing' : 'Live sync available', tone: 'default' },
             ]}
             actions={
-              <Button variant="outline" onClick={refreshOrders} disabled={isFetching}>
-                {isFetching ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Refresh
-              </Button>
+              <div className="flex flex-wrap gap-3">
+                <Button asChild variant="outline">
+                  <a href={reorderSuppliesUrl}>Reorder Supplies</a>
+                </Button>
+                <Button variant="outline" onClick={refreshOrders} disabled={isFetching}>
+                  {isFetching ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Refresh
+                </Button>
+              </div>
             }
           />
 
