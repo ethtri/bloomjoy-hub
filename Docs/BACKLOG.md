@@ -82,9 +82,14 @@ Guidelines:
 23. Basic admin view for support requests
 24. Remove temporary static admin email allowlist and rely on `admin_roles` + RLS only
 25. Replace third-party Vimeo thumbnail fallback (`vumbnail`) with first-party stored thumbnail URLs
+26. **Training hub UX polish after content expansion** (`#125`)
+   - Simplify the above-the-fold hierarchy so one primary next action is obvious.
+   - Rebalance `Start Here`, task paths, featured items, and full-library stacking.
+   - Make the new document-first job aids feel curated without adding clutter.
+   - Validate final desktop/mobile hierarchy with authenticated QA on `/portal/training`.
 
 ## P2 - Ops hardening follow-ups
-26. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
+27. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.

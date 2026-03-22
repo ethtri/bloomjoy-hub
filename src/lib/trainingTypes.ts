@@ -2,6 +2,11 @@ export interface TrainingDocumentSection {
   heading: string;
   paragraphs?: string[];
   bullets?: string[];
+  visual?: {
+    src: string;
+    alt: string;
+    caption?: string;
+  };
 }
 
 export interface TrainingDocument {
@@ -23,6 +28,7 @@ export interface TrainingResource {
   href?: string;
   external?: boolean;
   linkedTrainingId?: string;
+  linkedTrainingAnchor?: string;
   formatBadge?: string;
 }
 
@@ -30,9 +36,11 @@ export type TrainingFormat = 'video' | 'guide' | 'checklist' | 'reference' | 'mi
 
 export interface TrainingContent {
   id: string;
+  fallbackContentId?: string;
   title: string;
   description: string;
   thumbnailUrl?: string;
+  providerVideoId?: string;
   duration: string;
   tags: string[];
   level: 'Beginner' | 'Intermediate' | 'Advanced';
@@ -41,6 +49,12 @@ export interface TrainingContent {
   checklist: string[];
   searchTerms: string[];
   taskCategory: string;
+  catalogTrackId?: string;
+  moduleLabel?: string;
+  featuredOrder?: number;
+  isStartHere?: boolean;
+  operatorPriority?: number;
+  catalogSource?: 'manifest' | 'derived';
   audience: string;
   format: TrainingFormat;
   embed: {
@@ -79,4 +93,33 @@ export interface TrainingCertificate {
   trackId: string;
   issuedAt: string;
   certificateTitle: string;
+}
+
+export type TrainingExperienceSurface = 'task' | 'quick-aid' | 'manual';
+
+export interface TrainingExperienceItem extends TrainingContent {
+  surface: TrainingExperienceSurface;
+  canonicalId: string;
+  legacyAliasIds: string[];
+  primaryVideo?: TrainingContent;
+  writtenGuide?: TrainingContent;
+  quickAidIds: string[];
+  manualIds: string[];
+  sourceTrainingIds: string[];
+}
+
+export interface TrainingExperience {
+  tasks: TrainingExperienceItem[];
+  quickAids: TrainingExperienceItem[];
+  manuals: TrainingExperienceItem[];
+  allItems: TrainingExperienceItem[];
+  byId: Map<string, TrainingExperienceItem>;
+  routeIdByTrainingId: Map<string, string>;
+  aliasAnchorByTrainingId: Map<string, string>;
+}
+
+export interface TrainingExperienceResolution {
+  item?: TrainingExperienceItem;
+  redirectToId?: string;
+  redirectAnchor?: string;
 }

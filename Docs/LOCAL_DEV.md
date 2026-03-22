@@ -58,6 +58,21 @@ Notes:
 - The helper uploads `Software setup.pdf` and `Cotton Candy Maintenance Guide.pdf`.
 - Uploaded files are private; the portal should access them through signed URLs only.
 
+## Training guide catalog sync (operations helper)
+Use this after uploading the source PDFs when guide/checklist rows need to be created or refreshed in Supabase.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Audit without writing:
+   - `npm run training:sync-guides -- --dry-run`
+3) Upsert the guide/checklist rows and attach the source PDFs:
+   - `npm run training:sync-guides`
+
+Notes:
+- This keeps the document-first training rows aligned with the local portal content for software setup, shutdown/cooldown, cleaning hotspots, diagnostics, and consumables.
+- Run `npm run training:upload-docs` first so the signed PDF downloads resolve correctly from the portal.
+
 ## Vimeo module tag sync (operations helper)
 Use this when Vimeo uploads are missing module taxonomy tags (for example `Module 1`).
 
@@ -70,6 +85,38 @@ Use this when Vimeo uploads are missing module taxonomy tags (for example `Modul
 Notes:
 - Script is idempotent and skips videos that already have the target tag.
 - Current helper targets all videos visible to the authenticated Vimeo account (`/me/videos`).
+
+## Vimeo catalog sync (operations helper)
+Use this when Vimeo uploads already exist but are not discoverable in the portal because Supabase catalog rows are missing or stale.
+
+1) Ensure your local env includes:
+   - `VIMEO_ACCESS_TOKEN`
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Audit without writing:
+   - `node scripts/sync-vimeo-training-catalog.mjs --dry-run`
+3) Upsert missing rows and refresh existing Vimeo-backed entries:
+   - `node scripts/sync-vimeo-training-catalog.mjs`
+
+Notes:
+- The script flags unmapped uploads, duplicate catalog rows, stale Vimeo references, and uploads missing module labels.
+- Vimeo remains the media host, but Supabase `trainings` + `training_assets` stay the portal source of truth.
+
+## Training catalog duplicate cleanup (operations helper)
+Use this after the Vimeo catalog sync if duplicate uploads exist in Vimeo and you want the Supabase-backed operator library to show only the canonical rows.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Audit duplicate rows without writing:
+   - `npm run training:dedupe-catalog -- --dry-run`
+3) Mark non-canonical duplicate training rows as `draft`:
+   - `npm run training:dedupe-catalog`
+
+Notes:
+- The helper only updates duplicate Vimeo-backed `trainings` rows in Supabase; it does not delete Vimeo uploads.
+- Canonical MG320 Vimeo IDs from the shared catalog manifest are preserved automatically.
+- Existing `draft` rows stay draft on later syncs because the Vimeo sync helper does not overwrite visibility.
 
 ## Supabase auth setup (password + Google + magic link)
 To use all login methods in local dev:

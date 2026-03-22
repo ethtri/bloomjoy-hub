@@ -78,22 +78,45 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
 - [ ] Training catalog shows `Data source: Supabase` in local dev after auth/session settles
-- [ ] Training hub shows an operator-first `Start Here` section and an `Operator Essentials` track card
-- [ ] Training hub supports task filters (`Start Here`, `Software & Payments`, `Daily Operation`, `Cleaning & Maintenance`, `Troubleshooting`) plus format filters
-- [ ] Training catalog supports module tag filtering/grouping (for example, Module 1/2/3) when tagged rows exist
+- [ ] Training hub hero makes the next action obvious (`Resume learning` or `Open start path`) without requiring deep scrolling
+- [ ] `Explore the full library` scrolls to the searchable library section and focuses the search field instead of appearing dead when `All` is already selected
+- [ ] Training hub shows an operator-first `Start Here` sequence plus task-based jump cards for `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`, `Build / Assembly`, and `Reference`
+- [ ] Selecting a task-path card scrolls into the searchable library with that path active instead of only changing above-the-fold state
+- [ ] Training hub surfaces compact quick job aids near the library entry as supporting references, with the main task library clearly separated below
+- [ ] Main task-library browse cards show canonical operator tasks only; duplicate sibling video/checklist rows are collapsed for shutdown, cleaning, troubleshooting, and consumables
+- [ ] When live Supabase training rows load, the hub hero shows non-zero quick-aid/manual counts and those same quick aids do not reappear as peer cards in the main task library
+- [ ] Training hub keeps advanced filters hidden behind `More filters` by default and does not expose an `Unassigned` section anywhere in the library
+- [ ] Training catalog supports supportive module filtering only when all visible catalog rows have module labels; otherwise module controls stay hidden and task navigation remains primary
+- [ ] Training catalog suppresses duplicate Vimeo uploads in the operator-facing library; only intentional module-specific variants remain if they are truly distinct lessons
+- [ ] Supabase-backed training guides stay in their intended task tracks (`Start Here`, `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`) instead of collapsing into `Reference`
 - [ ] Training search finds relevant items by PDF-derived terms such as `burner`, `Nayax`, `timer`, and `waste water`
+- [ ] Training search shows canonical tasks first and, when relevant, places matching quick aids/manuals in a separate secondary reference section below the task results
 - [ ] Training catalog cards render thumbnail images for Vimeo-backed rows from first-party URLs (`training_assets.meta.thumbnail_url`) with no `vumbnail.com` dependency
 - [ ] Training hub cards show live progress state (`In progress` / `Completed`) after training progress rows exist
 - [ ] Training detail page opens and loads an embed frame (Vimeo for seeded modules; placeholder for local-only fallback modules)
 - [ ] Training detail page loads Vimeo player iframe for Vimeo-backed rows (not `about:srcdoc` placeholder)
 - [ ] Training detail Vimeo player shows a clear loading state and begins playback without excessive startup delay
+- [ ] Canonical task detail pages combine the walkthrough video and written essentials on one page when both exist, instead of splitting them into peer routes
 - [ ] Training detail supports document-first guides with readable in-page guide sections when the primary asset is not a Vimeo video
 - [ ] Training detail sections below video/guide ("What you will learn", "Checklist", "Resources") have clear purpose and readable structure
+- [ ] Training detail separates `Use during this task` companion aids from the `Recommended next task` CTA so quick references do not appear as downstream steps
 - [ ] Training resource cards expose real actions (`Open guide`, `Watch video`, `Go to support`, or `Download PDF`) instead of passive labels
+- [ ] Guide/checklist actions continue to open the correct detail page even if the route uses a fallback catalog slug (for example `alarm-and-power-timer-setup` or `daily-maintenance-routine`)
+- [ ] Absorbed legacy routes (`safe-power-off-and-cooldown`, `cleaning-and-hygiene-checklist`, `module-function-check-guide`, `sugar-loading-best-practices`) resolve to the canonical task page instead of rendering duplicate peer destinations
+- [ ] `Alarm and Power Timer Setup` shows the approved schedule values (`9:30` / `20:30`, `9:00-23:00`, `8:00-22:00`) plus the controller reference in the guide body
+- [ ] `Timer Control Reference` renders the annotated controller image and remains readable on both desktop and mobile widths
+- [ ] Maintenance-derived task pages surface the key operator tasks from the PDF (`60 C` cooldown, cleaning hotspots, debug-page checks, and consumable loading rules) instead of only generic summaries
+- [ ] Source-manual visuals from the PDFs appear inline where they clarify the task, including timer setup, shutdown/cooldown, cleaning hotspots, and consumables checks
+- [ ] `Software Setup Quickstart`, `Pricing, Passwords, and Payment Settings`, and `Module Function Check Guide` no longer render as text-only guides when source-manual figures are available
+- [ ] New job aids (`Safe Power Off and Cooldown`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`) appear in the library/search and open from linked resource cards
+- [ ] `Unlock Machine Door (Physical Service Access)` is titled to match the footage and is grouped under `Build / Assembly`, not `Software & Payments` or `Start Here`
+- [ ] On mobile widths (360x800, 390x844, 414x896), the training hub keeps Start Here, task cards, quick job aids, and library search readable without oversized gaps between sections
 - [ ] `Mark complete` persists to `training_progress` and the item remains completed after refresh/re-login
-- [ ] Operator Essentials certificate stays locked until all required items are complete and the final acknowledgement is checked
+- [ ] Operator Essentials certificate appears as a secondary section below the main library and stays locked until all required items are complete and the final acknowledgement is checked
 - [ ] After unlocking, the Operator Essentials certificate remains available for download on later visits
+- [ ] In local QA, when Supabase returns no live training rows, the page surfaces the internal catalog warning and points to `node scripts/sync-vimeo-training-catalog.mjs --dry-run`
 - [ ] Private training documents are not publicly reachable by direct URL when using Supabase-backed document assets
+- [ ] Source-PDF download actions for document-first guides resolve through signed `training-documents` URLs rather than public bucket links
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 - [ ] Submitted support request triggers a WeCom alert with request type, customer email, and subject

@@ -1,5 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { isCanonicalTrainingVideoId, resolveTrainingCatalogMetadata } from '@/lib/trainingCatalog';
+import {
+  bindTracksToTrainingExperience,
+  buildTrainingExperience,
+  getTrainingProgressWriteIds,
+  getTrainingRouteId,
+  mapTrainingProgressToCanonical,
+  resolveTrainingExperienceItem,
+} from '@/lib/trainingExperience';
 import {
   TrainingCertificate,
   TrainingContent,
@@ -68,10 +77,37 @@ type TrainingCertificateDbRecord = {
 };
 
 const DEFAULT_TRAINING_THUMBNAIL_URL = '/placeholder.svg';
-const FALLBACK_BY_TITLE = new Map(
-  fallbackTrainingContent.map((item) => [item.title.toLowerCase(), item])
-);
-const FALLBACK_BY_ID = new Map(fallbackTrainingContent.map((item) => [item.id, item]));
+
+const applyCatalogMetadata = (
+  content: TrainingContent,
+  options?: { providerVideoId?: string }
+): TrainingContent => {
+  const catalogMetadata = resolveTrainingCatalogMetadata({
+    id: content.id,
+    title: content.title,
+    tags: content.tags,
+    format: content.format,
+    providerVideoId: options?.providerVideoId ?? content.providerVideoId,
+    hasDocument: Boolean(content.document),
+  });
+
+  return {
+    ...content,
+    fallbackContentId: catalogMetadata.fallbackId ?? content.fallbackContentId ?? content.id,
+    providerVideoId: options?.providerVideoId ?? content.providerVideoId,
+    taskCategory: catalogMetadata.trackLabel,
+    catalogTrackId: catalogMetadata.trackId,
+    moduleLabel: catalogMetadata.moduleLabel,
+    featuredOrder: catalogMetadata.featuredOrder,
+    isStartHere: catalogMetadata.isStartHere,
+    operatorPriority: catalogMetadata.operatorPriority,
+    catalogSource: catalogMetadata.source,
+  };
+};
+
+const FALLBACK_LIBRARY = fallbackTrainingContent.map((item) => applyCatalogMetadata(item));
+const FALLBACK_BY_TITLE = new Map(FALLBACK_LIBRARY.map((item) => [item.title.toLowerCase(), item]));
+const FALLBACK_BY_ID = new Map(FALLBACK_LIBRARY.map((item) => [item.id, item]));
 
 const buildVimeoUrl = (videoId?: string | null, hash?: string | null) => {
   if (!videoId) {
@@ -140,6 +176,25 @@ const normalizeTags = (tags: string[] | null | undefined, localTags: string[]) =
 const extractStringMeta = (meta: Record<string, unknown> | null | undefined, key: string) => {
   const value = meta?.[key];
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+};
+
+const normalizeComparableText = (value?: string) =>
+  (value ?? '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+
+const resolveThumbnailUrl = (meta: Record<string, unknown> | null | undefined) => {
+  const rawThumbnailUrl = extractStringMeta(meta, 'thumbnail_url');
+  const vimeoThumbnailUrl = extractStringMeta(meta, 'vimeo_thumbnail_url');
+
+  if (vimeoThumbnailUrl) {
+    return vimeoThumbnailUrl;
+  }
+
+  return resolvePublicStorageUrl('training-thumbnails', rawThumbnailUrl);
 };
 
 const resolveTrainingResourceUrl = async (asset: TrainingAssetRecord) => {
@@ -216,6 +271,12 @@ const mergeResources = (localResources: TrainingResource[], dbResources: Trainin
 
 const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
   const titleToId = new Map(content.map((item) => [item.title.toLowerCase(), item.id]));
+  const normalizedTitleToId = new Map(
+    content.map((item) => [normalizeComparableText(item.title), item.id])
+  );
+  const fallbackIdToId = new Map(
+    content.map((item) => [item.fallbackContentId ?? item.id, item.id])
+  );
 
   return content.map((item) => ({
     ...item,
@@ -225,9 +286,13 @@ const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
       }
 
       const fallbackLinkedItem = FALLBACK_BY_ID.get(resource.linkedTrainingId);
-      const resolvedId = fallbackLinkedItem
-        ? titleToId.get(fallbackLinkedItem.title.toLowerCase())
-        : resource.linkedTrainingId;
+      const resolvedId =
+        fallbackIdToId.get(resource.linkedTrainingId) ??
+        (fallbackLinkedItem ? titleToId.get(fallbackLinkedItem.title.toLowerCase()) : undefined) ??
+        (fallbackLinkedItem
+          ? normalizedTitleToId.get(normalizeComparableText(fallbackLinkedItem.title))
+          : undefined) ??
+        resource.linkedTrainingId;
 
       return {
         ...resource,
@@ -237,8 +302,67 @@ const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
   }));
 };
 
+const normalizeLibraryTitle = (title?: string) => (title ?? '').trim().toLowerCase();
+
+const compareDuplicateCandidates = (left: TrainingContent, right: TrainingContent) => {
+  const leftManifestRank = left.catalogSource === 'manifest' ? 0 : 1;
+  const rightManifestRank = right.catalogSource === 'manifest' ? 0 : 1;
+  if (leftManifestRank !== rightManifestRank) {
+    return leftManifestRank - rightManifestRank;
+  }
+
+  const leftModuleRank = left.moduleLabel ? 0 : 1;
+  const rightModuleRank = right.moduleLabel ? 0 : 1;
+  if (leftModuleRank !== rightModuleRank) {
+    return leftModuleRank - rightModuleRank;
+  }
+
+  const leftPriority = left.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+  const rightPriority = right.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+  if (leftPriority !== rightPriority) {
+    return leftPriority - rightPriority;
+  }
+
+  return left.id.localeCompare(right.id);
+};
+
+const filterDuplicatePortalVideos = (content: TrainingContent[]) => {
+  const videoGroups = new Map<string, TrainingContent[]>();
+
+  for (const item of content) {
+    if (!item.providerVideoId) {
+      continue;
+    }
+
+    const key = normalizeLibraryTitle(item.title);
+    const bucket = videoGroups.get(key) ?? [];
+    bucket.push(item);
+    videoGroups.set(key, bucket);
+  }
+
+  const keepIds = new Set<string>();
+  for (const items of videoGroups.values()) {
+    if (items.length === 1) {
+      keepIds.add(items[0].id);
+      continue;
+    }
+
+    const canonicalItems = items.filter((item) => isCanonicalTrainingVideoId(item.providerVideoId));
+    if (canonicalItems.length > 0) {
+      canonicalItems.forEach((item) => keepIds.add(item.id));
+      continue;
+    }
+
+    const [preferredItem] = [...items].sort(compareDuplicateCandidates);
+    if (preferredItem) {
+      keepIds.add(preferredItem.id);
+    }
+  }
+
+  return content.filter((item) => !item.providerVideoId || keepIds.has(item.id));
+};
+
 const toTrainingContent = async (record: TrainingRecord): Promise<TrainingContent> => {
-  const localMatch = FALLBACK_BY_TITLE.get(record.title.toLowerCase());
   const videoAsset = record.training_assets?.find((asset) => asset.asset_type === 'video');
   const resourceAssets = record.training_assets?.filter((asset) => asset.asset_type !== 'video') ?? [];
   const dbResources = await Promise.all(resourceAssets.map(toDbResource));
@@ -247,43 +371,59 @@ const toTrainingContent = async (record: TrainingRecord): Promise<TrainingConten
     (videoAsset?.provider === 'vimeo'
       ? buildVimeoUrl(videoAsset.provider_video_id, videoAsset.provider_hash)
       : undefined);
-  const thumbnailFromMeta = resolvePublicStorageUrl(
-    'training-thumbnails',
-    extractStringMeta(videoAsset?.meta ?? null, 'thumbnail_url')
-  );
-
-  return {
+  const thumbnailFromMeta = resolveThumbnailUrl(videoAsset?.meta ?? null);
+  const preliminaryCatalogMetadata = resolveTrainingCatalogMetadata({
     id: record.id,
     title: record.title,
-    description: record.description ?? localMatch?.description ?? '',
-    thumbnailUrl: thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL,
-    duration: formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '--',
-    tags: normalizeTags(record.tags, localMatch?.tags ?? []),
-    level: localMatch?.level ?? 'Beginner',
-    summary: localMatch?.summary ?? 'Training content for Bloomjoy operators.',
-    learningPoints:
-      localMatch?.learningPoints?.length
-        ? localMatch.learningPoints
-        : ['Key takeaways will appear here once this module is finalized.'],
-    checklist:
-      localMatch?.checklist?.length
-        ? localMatch.checklist
-        : ['Checklist items will be added after the next training update.'],
-    searchTerms: localMatch?.searchTerms ?? [],
-    taskCategory: localMatch?.taskCategory ?? 'Unassigned',
-    audience: localMatch?.audience ?? 'Operator',
-    format: localMatch?.format ?? (embedUrl ? 'video' : 'guide'),
-    embed: {
-      title:
-        extractStringMeta(videoAsset?.meta ?? null, 'title') ??
-        localMatch?.embed.title ??
-        'Training module',
-      srcDoc: localMatch?.embed.srcDoc ?? '',
-      url: embedUrl,
+    tags: record.tags ?? [],
+    format: embedUrl ? 'video' : 'guide',
+    providerVideoId: videoAsset?.provider_video_id ?? undefined,
+    hasDocument: resourceAssets.length > 0 && !embedUrl,
+  });
+  const localMatch =
+    (preliminaryCatalogMetadata.fallbackId
+      ? FALLBACK_BY_ID.get(preliminaryCatalogMetadata.fallbackId)
+      : undefined) ?? FALLBACK_BY_TITLE.get(record.title.toLowerCase());
+
+  return applyCatalogMetadata(
+    {
+      id: record.id,
+      fallbackContentId: localMatch?.id,
+      title: record.title,
+      description: record.description ?? localMatch?.description ?? '',
+      thumbnailUrl: thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL,
+      providerVideoId: videoAsset?.provider_video_id ?? undefined,
+      duration: formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '--',
+      tags: normalizeTags(record.tags, localMatch?.tags ?? []),
+      level: localMatch?.level ?? 'Beginner',
+      summary: localMatch?.summary ?? 'Training content for Bloomjoy operators.',
+      learningPoints:
+        localMatch?.learningPoints?.length
+          ? localMatch.learningPoints
+          : ['Key takeaways will appear here once this module is finalized.'],
+      checklist:
+        localMatch?.checklist?.length
+          ? localMatch.checklist
+          : ['Checklist items will be added after the next training update.'],
+      searchTerms: localMatch?.searchTerms ?? [],
+      taskCategory: localMatch?.taskCategory ?? 'Reference',
+      audience: localMatch?.audience ?? 'Operator',
+      format: localMatch?.format ?? (embedUrl ? 'video' : 'guide'),
+      embed: {
+        title:
+          extractStringMeta(videoAsset?.meta ?? null, 'title') ??
+          localMatch?.embed.title ??
+          'Training module',
+        srcDoc: localMatch?.embed.srcDoc ?? '',
+        url: embedUrl,
+      },
+      document: localMatch?.document,
+      resources: mergeResources(localMatch?.resources ?? [], dbResources),
     },
-    document: localMatch?.document,
-    resources: mergeResources(localMatch?.resources ?? [], dbResources),
-  };
+    {
+      providerVideoId: videoAsset?.provider_video_id ?? undefined,
+    }
+  );
 };
 
 export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
@@ -312,12 +452,12 @@ export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
     .order('sort_order', { ascending: true });
 
   if (error || !data || data.length === 0) {
-    return fallbackTrainingContent;
+    return FALLBACK_LIBRARY;
   }
 
   const records = data as TrainingRecord[];
   const content = await Promise.all(records.map(toTrainingContent));
-  return rehydrateLinkedTrainingIds(content);
+  return rehydrateLinkedTrainingIds(filterDuplicatePortalVideos(content));
 };
 
 export const fetchTrainingTracks = async (): Promise<TrainingTrack[]> => {
@@ -367,8 +507,11 @@ export const bindTracksToLibrary = (
   library: TrainingContent[]
 ): TrainingTrack[] => {
   const trainingById = new Map(library.map((item) => [item.id, item]));
-  const fallbackTitleById = new Map(
-    fallbackTrainingContent.map((item) => [item.id, item.title.toLowerCase()])
+  const fallbackItemById = new Map(
+    FALLBACK_LIBRARY.map((item) => [item.id, item])
+  );
+  const trainingByFallbackId = new Map(
+    library.map((item) => [item.fallbackContentId ?? item.id, item])
   );
 
   return tracks.map((track) => ({
@@ -376,10 +519,10 @@ export const bindTracksToLibrary = (
     items: track.items
       .map((item) => {
         const directMatch = trainingById.get(item.trainingId);
-        const fallbackTitle = fallbackTitleById.get(item.trainingId);
-        const fallbackMatch = fallbackTitle
-          ? library.find((trainingItem) => trainingItem.title.toLowerCase() === fallbackTitle)
-          : undefined;
+        const fallbackItem = fallbackItemById.get(item.trainingId);
+        const fallbackMatch =
+          trainingByFallbackId.get(item.trainingId) ??
+          (fallbackItem ? trainingByFallbackId.get(fallbackItem.id) : undefined);
 
         return {
           ...item,
@@ -389,6 +532,15 @@ export const bindTracksToLibrary = (
       })
       .filter((item) => Boolean(item.training)),
   }));
+};
+
+export {
+  bindTracksToTrainingExperience,
+  buildTrainingExperience,
+  getTrainingProgressWriteIds,
+  getTrainingRouteId,
+  mapTrainingProgressToCanonical,
+  resolveTrainingExperienceItem,
 };
 
 export const fetchTrainingProgress = async (): Promise<TrainingProgressRecord[]> => {
@@ -432,7 +584,7 @@ export const useTrainingLibrary = (enabled = true) =>
     queryKey: TRAINING_QUERY_KEY,
     queryFn: fetchTrainingLibrary,
     enabled,
-    placeholderData: fallbackTrainingContent,
+    placeholderData: FALLBACK_LIBRARY,
     refetchOnMount: 'always',
     staleTime: 1000 * 60 * 5,
   });
@@ -489,21 +641,27 @@ export const useSaveTrainingProgress = () => {
   return useMutation({
     mutationFn: async ({
       trainingId,
+      trainingIds,
       markComplete,
       completionSource,
     }: {
       trainingId: string;
+      trainingIds?: string[];
       markComplete: boolean;
       completionSource: string;
     }) => {
-      const { error } = await supabaseClient.rpc('save_training_progress', {
-        training_id_input: trainingId,
-        mark_complete_input: markComplete,
-        completion_source_input: completionSource,
-      });
+      const idsToWrite = [...new Set(trainingIds?.length ? trainingIds : [trainingId])];
 
-      if (error) {
-        throw error;
+      for (const id of idsToWrite) {
+        const { error } = await supabaseClient.rpc('save_training_progress', {
+          training_id_input: id,
+          mark_complete_input: markComplete,
+          completion_source_input: completionSource,
+        });
+
+        if (error) {
+          throw error;
+        }
       }
     },
     onSuccess: async () => {
