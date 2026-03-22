@@ -89,8 +89,8 @@ Guidelines:
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.
 
-27. **Member portal dashboard UX/CX polish** (`#130`)
-   - Rework the authenticated `/portal` landing layout so the first viewport does not feel sparse on desktop.
-   - Pull Quick Actions, membership state, and onboarding guidance into a tighter above-the-fold hierarchy.
-   - Reduce unused whitespace and tighten section spacing so the dashboard feels production-ready instead of placeholder-like.
-   - Keep this follow-up separate from the dedicated operator login entry-point work in `#120`.
+27. **Member portal UX/CX optimization pass** (`#130`)
+   - Broaden this follow-up from the `/portal` dashboard alone to the full authenticated member portal shell and navigation experience.
+   - Replace the current mobile portal navigation pattern that requires horizontal scrolling on common phone widths.
+   - Rework the landing layout so membership state, Quick Actions, and onboarding guidance use the first viewport more intentionally.
+   - Tighten spacing, hierarchy, and visual rhythm so the portal feels modern and production-ready without overlapping the dedicated operator login work in `#120`.
