@@ -77,6 +77,8 @@ const getCompanionLabel = (item: TrainingExperienceItem) => {
   return 'Task';
 };
 
+const normalizeTrainingCopy = (value: string) => value.replaceAll('â€™', "'");
+
 export default function TrainingDetailPage() {
   const { id } = useParams();
   const { user, isMember } = useAuth();
@@ -196,7 +198,15 @@ export default function TrainingDetailPage() {
       .filter((item): item is TrainingExperienceItem => Boolean(item)),
   ];
   const [primaryCompanion, ...secondaryCompanions] = companionItems;
-  const [primaryResource, ...secondaryResources] = trainingItem.resources;
+  const taskResources = trainingItem.resources.filter((resource) => {
+    if (!resource.linkedTrainingId) {
+      return false;
+    }
+
+    return trainingExperience.byId.get(resource.linkedTrainingId)?.surface === 'task';
+  });
+  const [primaryTaskResource] = taskResources;
+  const nearbyResources = trainingItem.resources.filter((resource) => resource !== primaryTaskResource);
   const detailSectionTitle =
     trainingItem.surface === 'manual'
       ? 'Reference details'
@@ -333,7 +343,7 @@ export default function TrainingDetailPage() {
             {getResourceLabel(resource)}
           </span>
         </div>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">{resource.description}</p>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">{normalizeTrainingCopy(resource.description)}</p>
         <div className="mt-4">{renderResourceAction(resource)}</div>
       </div>
     );
@@ -357,7 +367,7 @@ export default function TrainingDetailPage() {
           {item.duration}
         </span>
       </div>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{normalizeTrainingCopy(item.description)}</p>
       <div className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary">
         {item.surface === 'manual' ? 'Open manual' : 'Open'}
         <ArrowRight className="h-4 w-4" />
@@ -397,7 +407,7 @@ export default function TrainingDetailPage() {
               <h1 className="mt-4 font-display text-3xl font-bold text-foreground">
                 {trainingItem.title}
               </h1>
-              <p className="mt-2 text-muted-foreground">{trainingItem.description}</p>
+              <p className="mt-2 text-muted-foreground">{normalizeTrainingCopy(trainingItem.description)}</p>
 
               {trainingItem.embed.url ? (
                 <div
@@ -451,7 +461,7 @@ export default function TrainingDetailPage() {
                         {trainingItem.document.title}
                       </h2>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        {trainingItem.document.intro}
+                        {normalizeTrainingCopy(trainingItem.document.intro)}
                       </p>
                     </div>
                   </div>
@@ -490,7 +500,7 @@ export default function TrainingDetailPage() {
                         <h3 className="font-semibold text-foreground">{section.heading}</h3>
                         {section.paragraphs?.map((paragraph) => (
                           <p key={paragraph} className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                            {paragraph}
+                            {normalizeTrainingCopy(paragraph)}
                           </p>
                         ))}
                         {section.bullets && (
@@ -498,7 +508,7 @@ export default function TrainingDetailPage() {
                             {section.bullets.map((bullet) => (
                               <li key={bullet} className="flex items-start gap-2">
                                 <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary" />
-                                <span>{bullet}</span>
+                                <span>{normalizeTrainingCopy(bullet)}</span>
                               </li>
                             ))}
                           </ul>
@@ -524,58 +534,39 @@ export default function TrainingDetailPage() {
                 </div>
               )}
 
-              {(primaryCompanion || (!primaryCompanion && primaryResource)) && (
+              {primaryCompanion && (
                 <div className="mt-6 rounded-[28px] border border-primary/10 bg-primary/5 p-5 sm:p-6">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Use this next
+                    Use during this task
                   </p>
-                  {primaryCompanion ? (
-                    <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="max-w-2xl">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            {getCompanionLabel(primaryCompanion)}
-                          </span>
-                          <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Supporting reference
-                          </span>
-                        </div>
-                        <h2 className="mt-3 font-display text-2xl font-semibold text-foreground">
-                          {primaryCompanion.title}
-                        </h2>
-                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                          {primaryCompanion.description}
-                        </p>
+                  <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-2xl">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          {getCompanionLabel(primaryCompanion)}
+                        </span>
+                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Companion reference
+                        </span>
                       </div>
-                      <div className="shrink-0">
-                        <Button asChild className="w-full sm:w-auto">
-                          <Link
-                            to={`/portal/training/${primaryCompanion.id}`}
-                            onClick={() => handleResourceOpen(primaryCompanion.title)}
-                          >
-                            {primaryCompanion.surface === 'manual' ? 'Open manual' : 'Open quick aid'}
-                          </Link>
-                        </Button>
-                      </div>
+                      <h2 className="mt-3 font-display text-2xl font-semibold text-foreground">
+                        {primaryCompanion.title}
+                      </h2>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        {normalizeTrainingCopy(primaryCompanion.description)}
+                      </p>
                     </div>
-                  ) : primaryResource ? (
-                    <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="max-w-2xl">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            {getResourceLabel(primaryResource)}
-                          </span>
-                        </div>
-                        <h2 className="mt-3 font-display text-2xl font-semibold text-foreground">
-                          {primaryResource.title}
-                        </h2>
-                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                          {primaryResource.description}
-                        </p>
-                      </div>
-                      <div className="shrink-0">{renderResourceAction(primaryResource, { emphasize: true })}</div>
+                    <div className="shrink-0">
+                      <Button asChild className="w-full sm:w-auto">
+                        <Link
+                          to={`/portal/training/${primaryCompanion.id}`}
+                          onClick={() => handleResourceOpen(primaryCompanion.title)}
+                        >
+                          {primaryCompanion.surface === 'manual' ? 'Open manual' : 'Open quick aid'}
+                        </Link>
+                      </Button>
                     </div>
-                  ) : null}
+                  </div>
                 </div>
               )}
 
@@ -596,7 +587,7 @@ export default function TrainingDetailPage() {
                       {learningPoints.map((point) => (
                         <li key={point} className="flex items-start gap-2">
                           <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
-                          <span>{point}</span>
+                          <span>{normalizeTrainingCopy(point)}</span>
                         </li>
                       ))}
                     </ul>
@@ -618,7 +609,7 @@ export default function TrainingDetailPage() {
                       {checklistItems.map((item) => (
                         <li key={item} className="flex items-start gap-2">
                           <CheckCircle2 className="mt-0.5 h-4 w-4 text-sage" />
-                          <span>{item}</span>
+                          <span>{normalizeTrainingCopy(item)}</span>
                         </li>
                       ))}
                     </ul>
@@ -626,16 +617,42 @@ export default function TrainingDetailPage() {
                 </div>
               </div>
 
-              {(secondaryCompanions.length > 0 || secondaryResources.length > 0 || (primaryCompanion && primaryResource)) && (
+              {primaryTaskResource && (
+                <div className="mt-6 rounded-[28px] border border-primary/10 bg-primary/5 p-5 sm:p-6">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                    Recommended next task
+                  </p>
+                  <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-2xl">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          {getResourceLabel(primaryTaskResource)}
+                        </span>
+                        <span className="rounded-full bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Follow-up training
+                        </span>
+                      </div>
+                      <h2 className="mt-3 font-display text-2xl font-semibold text-foreground">
+                        {primaryTaskResource.title}
+                      </h2>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        {normalizeTrainingCopy(primaryTaskResource.description)}
+                      </p>
+                    </div>
+                    <div className="shrink-0">{renderResourceAction(primaryTaskResource, { emphasize: true })}</div>
+                  </div>
+                </div>
+              )}
+
+              {(secondaryCompanions.length > 0 || nearbyResources.length > 0) && (
                 <div className="mt-6 card-elevated p-5 sm:p-6">
                   <h2 className="font-display text-lg font-semibold text-foreground">Keep these nearby</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Use these quick aids, manuals, and follow-up links when you need the next step.
+                    Use these quick aids, manuals, downloads, and support links when you need more detail or help.
                   </p>
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     {secondaryCompanions.map((item) => renderCompanionCard(item))}
-                    {primaryCompanion && primaryResource && renderResourceCard(primaryResource)}
-                    {secondaryResources.map((resource) => renderResourceCard(resource))}
+                    {nearbyResources.map((resource) => renderResourceCard(resource))}
                   </div>
                 </div>
               )}

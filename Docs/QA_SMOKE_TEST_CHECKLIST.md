@@ -84,6 +84,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Selecting a task-path card scrolls into the searchable library with that path active instead of only changing above-the-fold state
 - [ ] Training hub surfaces compact quick job aids near the library entry as supporting references, with the main task library clearly separated below
 - [ ] Main task-library browse cards show canonical operator tasks only; duplicate sibling video/checklist rows are collapsed for shutdown, cleaning, troubleshooting, and consumables
+- [ ] When live Supabase training rows load, the hub hero shows non-zero quick-aid/manual counts and those same quick aids do not reappear as peer cards in the main task library
 - [ ] Training hub keeps advanced filters hidden behind `More filters` by default and does not expose an `Unassigned` section anywhere in the library
 - [ ] Training catalog supports supportive module filtering only when all visible catalog rows have module labels; otherwise module controls stay hidden and task navigation remains primary
 - [ ] Training catalog suppresses duplicate Vimeo uploads in the operator-facing library; only intentional module-specific variants remain if they are truly distinct lessons
@@ -98,7 +99,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Canonical task detail pages combine the walkthrough video and written essentials on one page when both exist, instead of splitting them into peer routes
 - [ ] Training detail supports document-first guides with readable in-page guide sections when the primary asset is not a Vimeo video
 - [ ] Training detail sections below video/guide ("What you will learn", "Checklist", "Resources") have clear purpose and readable structure
-- [ ] Training detail promotes the most relevant quick aid or manual as a prominent `Use this next` action before the supporting resource list
+- [ ] Training detail separates `Use during this task` companion aids from the `Recommended next task` CTA so quick references do not appear as downstream steps
 - [ ] Training resource cards expose real actions (`Open guide`, `Watch video`, `Go to support`, or `Download PDF`) instead of passive labels
 - [ ] Guide/checklist actions continue to open the correct detail page even if the route uses a fallback catalog slug (for example `alarm-and-power-timer-setup` or `daily-maintenance-routine`)
 - [ ] Absorbed legacy routes (`safe-power-off-and-cooldown`, `cleaning-and-hygiene-checklist`, `module-function-check-guide`, `sugar-loading-best-practices`) resolve to the canonical task page instead of rendering duplicate peer destinations
@@ -106,7 +107,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `Timer Control Reference` renders the annotated controller image and remains readable on both desktop and mobile widths
 - [ ] Maintenance-derived task pages surface the key operator tasks from the PDF (`60 C` cooldown, cleaning hotspots, debug-page checks, and consumable loading rules) instead of only generic summaries
 - [ ] Source-manual visuals from the PDFs appear inline where they clarify the task, including timer setup, shutdown/cooldown, cleaning hotspots, and consumables checks
+- [ ] `Software Setup Quickstart`, `Pricing, Passwords, and Payment Settings`, and `Module Function Check Guide` no longer render as text-only guides when source-manual figures are available
 - [ ] New job aids (`Safe Power Off and Cooldown`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`) appear in the library/search and open from linked resource cards
+- [ ] `Unlock Machine Door (Physical Service Access)` is titled to match the footage and is grouped under `Build / Assembly`, not `Software & Payments` or `Start Here`
 - [ ] On mobile widths (360x800, 390x844, 414x896), the training hub keeps Start Here, task cards, quick job aids, and library search readable without oversized gaps between sections
 - [ ] `Mark complete` persists to `training_progress` and the item remains completed after refresh/re-login
 - [ ] Operator Essentials certificate appears as a secondary section below the main library and stays locked until all required items are complete and the final acknowledgement is checked

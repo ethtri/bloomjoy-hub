@@ -75,6 +75,39 @@ const ABSORBED_TRAINING_IDS = new Set(
   TRAINING_TASK_GROUPS.flatMap((group) => group.absorbedIds ?? [])
 );
 
+const getTrainingLookupKeys = (
+  item?: Pick<TrainingContent, 'id' | 'fallbackContentId'>
+) =>
+  [...new Set([item?.id, item?.fallbackContentId].filter((value): value is string => Boolean(value)))];
+
+const getStableTrainingId = (item: Pick<TrainingContent, 'id' | 'fallbackContentId'>) =>
+  item.fallbackContentId ?? item.id;
+
+const buildTrainingLookup = (library: TrainingContent[]) => {
+  const lookup = new Map<string, TrainingContent>();
+
+  for (const item of library) {
+    for (const key of getTrainingLookupKeys(item)) {
+      lookup.set(key, item);
+    }
+  }
+
+  return lookup;
+};
+
+const resolveTrainingItem = (
+  lookup: Map<string, TrainingContent>,
+  id?: string
+) => (id ? lookup.get(id) : undefined);
+
+const resolveTrainingItems = (
+  lookup: Map<string, TrainingContent>,
+  ids?: string[]
+) =>
+  (ids ?? [])
+    .map((id) => resolveTrainingItem(lookup, id))
+    .filter((item): item is TrainingContent => Boolean(item));
+
 const mergeUniqueStrings = (...lists: Array<string[] | undefined>) => {
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -160,27 +193,34 @@ const buildStandaloneItem = (
 
 const buildCompositeTaskItem = (
   group: TrainingTaskGroupDefinition,
-  libraryById: Map<string, TrainingContent>
+  trainingLookup: Map<string, TrainingContent>
 ): TrainingExperienceItem | undefined => {
-  const canonicalItem = libraryById.get(group.canonicalId);
+  const canonicalItem = resolveTrainingItem(trainingLookup, group.canonicalId);
   if (!canonicalItem) {
     return undefined;
   }
 
   const primaryVideo =
-    (group.primaryVideoId ? libraryById.get(group.primaryVideoId) : undefined) ??
+    resolveTrainingItem(trainingLookup, group.primaryVideoId) ??
     (canonicalItem.embed.url ? canonicalItem : undefined);
   const writtenGuide =
-    (group.writtenGuideId ? libraryById.get(group.writtenGuideId) : undefined) ??
+    resolveTrainingItem(trainingLookup, group.writtenGuideId) ??
     (canonicalItem.document ? canonicalItem : undefined);
-  const quickAidIds = (group.quickAidIds ?? []).filter((id) => libraryById.has(id));
-  const manualIds = (group.manualIds ?? []).filter((id) => libraryById.has(id));
+  const quickAidItems = resolveTrainingItems(trainingLookup, group.quickAidIds);
+  const manualItems = resolveTrainingItems(trainingLookup, group.manualIds);
+  const absorbedItems = resolveTrainingItems(trainingLookup, group.absorbedIds);
   const sourceItems = [
     canonicalItem,
     primaryVideo,
     writtenGuide,
-    ...(quickAidIds.map((id) => libraryById.get(id)).filter(Boolean) as TrainingContent[]),
-    ...(manualIds.map((id) => libraryById.get(id)).filter(Boolean) as TrainingContent[]),
+    ...quickAidItems,
+    ...manualItems,
+  ].filter((item): item is TrainingContent => Boolean(item));
+  const searchableItems = [
+    canonicalItem,
+    primaryVideo,
+    writtenGuide,
+    ...quickAidItems,
   ].filter((item): item is TrainingContent => Boolean(item));
   const resourceItems = [canonicalItem, primaryVideo, writtenGuide].filter(
     (item): item is TrainingContent => Boolean(item)
@@ -203,8 +243,8 @@ const buildCompositeTaskItem = (
       canonicalItem.checklist,
       primaryVideo?.checklist
     ),
-    searchTerms: mergeUniqueStrings(...sourceItems.map((item) => item.searchTerms)),
-    tags: mergeUniqueStrings(...sourceItems.map((item) => item.tags)),
+    searchTerms: mergeUniqueStrings(...searchableItems.map((item) => item.searchTerms)),
+    tags: mergeUniqueStrings(...searchableItems.map((item) => item.tags)),
     duration: primaryVideo?.duration ?? canonicalItem.duration,
     thumbnailUrl: primaryVideo?.thumbnailUrl ?? canonicalItem.thumbnailUrl,
     format: hasPrimaryVideo && hasWrittenGuide ? 'mixed' : canonicalItem.format,
@@ -213,11 +253,11 @@ const buildCompositeTaskItem = (
     resources: mergedResources,
     surface: 'task',
     canonicalId: canonicalItem.id,
-    legacyAliasIds: [...(group.absorbedIds ?? [])],
+    legacyAliasIds: [...new Set(absorbedItems.map((item) => item.id))],
     primaryVideo,
     writtenGuide,
-    quickAidIds,
-    manualIds,
+    quickAidIds: quickAidItems.map((item) => item.id),
+    manualIds: manualItems.map((item) => item.id),
     sourceTrainingIds: [...new Set(sourceItems.map((item) => item.id))],
   };
 };
@@ -260,9 +300,9 @@ const canonicalizeItemResources = (
 };
 
 export const buildTrainingExperience = (library: TrainingContent[]): TrainingExperience => {
-  const libraryById = new Map(library.map((item) => [item.id, item]));
+  const trainingLookup = buildTrainingLookup(library);
   const items: TrainingExperienceItem[] = [];
-  const handledIds = new Set<string>();
+  const handledLookupKeys = new Set<string>();
   const routeIdByTrainingId = new Map<string, string>();
   const aliasAnchorByTrainingId = new Map<string, string>();
 
@@ -274,45 +314,56 @@ export const buildTrainingExperience = (library: TrainingContent[]): TrainingExp
   }
 
   for (const group of TRAINING_TASK_GROUPS) {
-    const experienceItem = buildCompositeTaskItem(group, libraryById);
+    const experienceItem = buildCompositeTaskItem(group, trainingLookup);
     if (!experienceItem) {
       continue;
     }
 
     items.push(experienceItem);
-    handledIds.add(group.canonicalId);
-    routeIdByTrainingId.set(group.canonicalId, group.canonicalId);
+    for (const key of getTrainingLookupKeys(experienceItem)) {
+      handledLookupKeys.add(key);
+      routeIdByTrainingId.set(key, experienceItem.id);
+    }
+    routeIdByTrainingId.set(group.canonicalId, experienceItem.id);
 
     for (const absorbedId of group.absorbedIds ?? []) {
-      routeIdByTrainingId.set(absorbedId, group.canonicalId);
-      const fallbackContentId = libraryById.get(absorbedId)?.fallbackContentId;
-      if (fallbackContentId) {
-        routeIdByTrainingId.set(fallbackContentId, group.canonicalId);
+      const absorbedItem = resolveTrainingItem(trainingLookup, absorbedId);
+      const absorbedKeys = absorbedItem ? getTrainingLookupKeys(absorbedItem) : [absorbedId];
+
+      for (const key of absorbedKeys) {
+        handledLookupKeys.add(key);
+        routeIdByTrainingId.set(key, experienceItem.id);
       }
 
       const anchor = group.aliasAnchors?.[absorbedId];
       if (anchor) {
         aliasAnchorByTrainingId.set(absorbedId, anchor);
-        if (fallbackContentId) {
-          aliasAnchorByTrainingId.set(fallbackContentId, anchor);
+        for (const key of absorbedItem ? getTrainingLookupKeys(absorbedItem) : []) {
+          aliasAnchorByTrainingId.set(key, anchor);
         }
       }
     }
   }
 
   for (const item of library) {
-    if (handledIds.has(item.id) || ABSORBED_TRAINING_IDS.has(item.id)) {
+    if (
+      getTrainingLookupKeys(item).some((key) => handledLookupKeys.has(key)) ||
+      ABSORBED_TRAINING_IDS.has(getStableTrainingId(item))
+    ) {
       continue;
     }
 
-    const surface: TrainingExperienceItem['surface'] = MANUAL_IDS.has(item.id)
+    const stableTrainingId = getStableTrainingId(item);
+    const surface: TrainingExperienceItem['surface'] = MANUAL_IDS.has(stableTrainingId)
       ? 'manual'
-      : QUICK_AID_IDS.has(item.id)
+      : QUICK_AID_IDS.has(stableTrainingId)
         ? 'quick-aid'
         : 'task';
 
     items.push(buildStandaloneItem(item, surface));
-    handledIds.add(item.id);
+    for (const key of getTrainingLookupKeys(item)) {
+      handledLookupKeys.add(key);
+    }
   }
 
   const canonicalizedItems = items.map((item) => canonicalizeItemResources(item, routeIdByTrainingId));

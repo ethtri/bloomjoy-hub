@@ -17,6 +17,11 @@ export const softwareSetupQuickstartDocument: TrainingDocument = {
         'Do not log in before the Android menu appears.',
         'Tap the circle icon again to reveal the settings gear.',
       ],
+      visual: {
+        src: '/training-guides/software-admin-access.jpg',
+        alt: 'Software setup manual page showing the upper-right long press, the administrator login screen, and the Android menu bar reveal steps.',
+        caption: 'Source page from the software setup PDF covering the hidden admin-access gesture and the Android menu reveal.',
+      },
     },
     {
       heading: 'Set connectivity and local time first',
@@ -24,6 +29,11 @@ export const softwareSetupQuickstartDocument: TrainingDocument = {
         'Open settings and configure Wi-Fi before changing settings that depend on time or payment services.',
         'Turn on automatic network time, set the local time zone, and confirm the displayed machine time matches venue time.',
       ],
+      visual: {
+        src: '/training-guides/software-wifi-timezone.jpg',
+        alt: 'Software setup manual page showing the settings screen for Wi-Fi, automatic network time, and local time zone confirmation.',
+        caption: 'Source page from the software setup PDF showing the Wi-Fi and date-time screens used during first setup.',
+      },
     },
     {
       heading: 'Return to normal admin mode',
@@ -49,6 +59,11 @@ export const pricingAndPaymentsDocument: TrainingDocument = {
         'On old software versions, update the gold-coin column and ignore the Yuan column.',
         'Review any popcorn-only screens separately so cotton candy settings are not copied by mistake.',
       ],
+      visual: {
+        src: '/training-guides/software-price-settings.jpg',
+        alt: 'Software setup manual page showing the cotton candy price-edit screen and the highlighted price rows that should be updated.',
+        caption: 'Source page from the software setup PDF showing the price-edit screen used for DIY and pattern pricing.',
+      },
     },
     {
       heading: 'Passwords and account access',
@@ -64,6 +79,11 @@ export const pricingAndPaymentsDocument: TrainingDocument = {
         'Update the phone number and email shown in the machine contact fields.',
         'Change the local currency symbol to $.',
       ],
+      visual: {
+        src: '/training-guides/software-payment-settings.jpg',
+        alt: 'Software setup manual page showing the staff-password, Nayax payment selection, and related software settings screens.',
+        caption: 'Source page from the software setup PDF showing the password-change and Nayax payment settings context.',
+      },
     },
   ],
 };
@@ -90,6 +110,11 @@ export const alarmAndPowerTimerDocument: TrainingDocument = {
         'Closing time: 20:30',
         'Use the local alarm for burner warm-up timing, not full machine power scheduling.',
       ],
+      visual: {
+        src: '/training-guides/local-alarm-setting.jpg',
+        alt: 'Software setup guide page showing the local alarm screen with the approved opening and closing times for burner auto-start.',
+        caption: 'Source screenshot from the software setup PDF showing the local alarm screen used for burner auto-start timing.',
+      },
     },
     {
       heading: 'Power timer controls machine on and off',
@@ -184,6 +209,11 @@ export const maintenanceReferenceDocument: TrainingDocument = {
         'Wait for the burner to cool to 60 C before unplugging power.',
         'Use this shutdown path before opening the machine for cleaning.',
       ],
+      visual: {
+        src: '/training-guides/shutdown-cooldown-reference.jpg',
+        alt: 'Maintenance guide page showing the powered-off machine state and the 60 C cooldown requirement before unplugging.',
+        caption: 'Maintenance-guide shutdown reference showing the powered-off state and the burner cooldown threshold.',
+      },
     },
     {
       heading: 'Daily cleaning hotspots',
@@ -194,6 +224,11 @@ export const maintenanceReferenceDocument: TrainingDocument = {
         'Stick-output path and sugar-pickup / sensor area',
         'Filter dry-before-reinstall requirement',
       ],
+      visual: {
+        src: '/training-guides/daily-cleaning-output-sensor.jpg',
+        alt: 'Maintenance guide page highlighting the output-path friction points and sugar-pickup sensor area that require routine cleaning.',
+        caption: 'Maintenance-guide hotspot visual for the output path and sensor cleanup areas that most often affect the next run.',
+      },
     },
     {
       heading: 'Machine checks from the debug page',
@@ -203,6 +238,11 @@ export const maintenanceReferenceDocument: TrainingDocument = {
         'Check stick output, automatic door movement, and robot sensors.',
         'Inspect air pump flow and water-cooling circulation before escalating.',
       ],
+      visual: {
+        src: '/training-guides/module-function-debug-page.jpg',
+        alt: 'Maintenance guide page showing the backend debugging page used for structured module checks.',
+        caption: 'Maintenance-guide debug-page visual used for structured burner, door, sensor, and pump checks.',
+      },
     },
     {
       heading: 'Refill and reload correctly',
@@ -211,6 +251,11 @@ export const maintenanceReferenceDocument: TrainingDocument = {
         'Check pipe routing and check-valve direction before assuming a mechanical fault.',
         'Stay within paper-stick box capacity and keep sticks laid flat during loading.',
       ],
+      visual: {
+        src: '/training-guides/consumables-sugar-fill-line.jpg',
+        alt: 'Maintenance guide page showing the sugar container with the red maximum fill line operators should not exceed.',
+        caption: 'Maintenance-guide consumables reference showing the sugar bin fill line that should not be exceeded.',
+      },
     },
   ],
 };
@@ -368,6 +413,11 @@ export const moduleFunctionCheckDocument: TrainingDocument = {
         'Test one module at a time so you can describe the failure clearly if support escalation is needed.',
       ],
       bullets: ['Verify burner rotation before you allow any heating test.', 'Use the debugging page instead of guessing from symptoms alone.'],
+      visual: {
+        src: '/training-guides/module-function-debug-page.jpg',
+        alt: 'Maintenance guide page showing the debugging screen with the module test buttons used for guided checks.',
+        caption: 'Start with the debugging page so each module test is run intentionally instead of guessing from symptoms.',
+      },
     },
     {
       heading: 'Key checks',
@@ -380,6 +430,11 @@ export const moduleFunctionCheckDocument: TrainingDocument = {
         'Stick output module, automatic door movement, and robot sensor behavior',
         'Air pump airflow, cooling fan operation, and water-cooling circulation',
       ],
+      visual: {
+        src: '/training-guides/module-function-stick-output.jpg',
+        alt: 'Maintenance guide page showing the stick output and nearby module checks called out during function testing.',
+        caption: 'Verify output and adjacent module behavior in the sequence shown by the maintenance guide before escalating a failure.',
+      },
     },
     {
       heading: 'Escalation notes',
@@ -409,9 +464,9 @@ export const consumablesGuideDocument: TrainingDocument = {
         'Tighten the cap fully to avoid air leaks that stop sugar dispensing.',
       ],
       visual: {
-        src: '/training-guides/consumables-loading-checks.jpg',
-        alt: 'Maintenance guide page showing the consumables loading checks for sugar fill level, cap seal, and pipe placement at the bottom of the bucket.',
-        caption: 'Source page from the maintenance guide showing the sugar fill and pipe-position checks used during consumables loading.',
+        src: '/training-guides/consumables-sugar-fill-line.jpg',
+        alt: 'Maintenance guide image showing the sugar container with a red maximum fill line.',
+        caption: 'Do not load sugar above the red line shown in the maintenance guide. Overfilling changes feed behavior and output quality.',
       },
     },
     {
@@ -424,6 +479,11 @@ export const consumablesGuideDocument: TrainingDocument = {
         'Check the connection point that can loosen and create leaks.',
         'Verify check-valve direction if liquid flow appears wrong.',
       ],
+      visual: {
+        src: '/training-guides/consumables-pipe-checks.jpg',
+        alt: 'Maintenance guide page showing the consumables pipe routing and the connection point that commonly loosens.',
+        caption: 'Check the routed line and connection point before assuming the pump or feed hardware has failed.',
+      },
     },
     {
       heading: 'Paper sticks',
@@ -449,6 +509,11 @@ export const consumablesLoadingReferenceDocument: TrainingDocument = {
         'Tap sugar gently to level it instead of packing it down hard.',
         'Tighten the sugar cap fully so air leaks do not interrupt dispensing.',
       ],
+      visual: {
+        src: '/training-guides/consumables-sugar-fill-line.jpg',
+        alt: 'Maintenance guide quick-reference image showing the red maximum fill line for the sugar container.',
+        caption: 'Stay below the red line when loading sugar so the feed path and cap seal behave correctly.',
+      },
     },
     {
       heading: 'Pipe routing and flow',
@@ -458,9 +523,9 @@ export const consumablesLoadingReferenceDocument: TrainingDocument = {
         'Verify check-valve direction if flow or feed behavior looks wrong.',
       ],
       visual: {
-        src: '/training-guides/consumables-loading-checks.jpg',
-        alt: 'Maintenance guide quick-reference page showing the sugar fill, cap seal, and pipe position checks for consumables loading.',
-        caption: 'Quick-reference source visual from the maintenance guide for sugar and pipe checks.',
+        src: '/training-guides/consumables-pipe-checks.jpg',
+        alt: 'Maintenance guide quick-reference page showing the consumables pipe routing and connection checks.',
+        caption: 'Quick-reference source visual for pipe routing, connection, and check-valve checks.',
       },
     },
     {

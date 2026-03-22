@@ -30,10 +30,11 @@
   - Source-document operations completed on `2026-03-20`: `Software setup.pdf` and `Cotton Candy Maintenance Guide.pdf` were uploaded to the private `training-documents` bucket and all 11 guide/checklist rows now have attached PDF storage paths in Supabase.
   - UX polish follow-up logged on `2026-03-20` as issue `#125` and added to the GitHub project board so the next slice stays focused on hierarchy, visual density, and authenticated operator QA instead of more catalog plumbing.
   - UX polish follow-up delivered on `2026-03-20`: `/portal/training` now centers one dominant CTA, folds the old featured layer into compact quick job aids near the library entry, sends task-path clicks directly into the filtered library view, tightens mobile spacing, and keeps certificate treatment visually secondary.
-  - Training detail polish delivered on `2026-03-20`: document-first guides now surface the first linked job aid as a clear `Use this next` action before the longer guide details, with supporting resources grouped into a more scannable secondary section.
+  - Training detail polish delivered on `2026-03-20`: document-first guides now separate companion `Use during this task` aids from true downstream `Recommended next task` links, with supporting resources grouped into a more scannable secondary section.
   - Training library reframe delivered on `2026-03-20`: the portal training library now browses canonical operator tasks instead of separate sibling video/checklist rows, absorbed legacy routes (`safe-power-off-and-cooldown`, `cleaning-and-hygiene-checklist`, `module-function-check-guide`, `sugar-loading-best-practices`) resolve to the unified task page, and quick aids/manuals now surface as secondary references instead of equal-weight library cards.
   - Source-manual content upgrade delivered on `2026-03-20`: shutdown, timer, cleaning, and consumables task pages now use the original `Software setup.pdf` and `Cotton Candy Maintenance Guide.pdf` as written/visual source material, including inline screenshots from the PDFs instead of text-only companion pages.
   - Authenticated QA blocker on `2026-03-20`: browser automation reached the login screen at `http://127.0.0.1:8082/portal/training`, but no Plus/admin test session was available in-session, so final authenticated hierarchy confirmation for the task-first library stopped at auth after local build/lint verification.
+  - Authenticated agent QA completed on `2026-03-21`: a temporary Plus/super-admin test account is now available for browser automation, quick aids/manuals again resolve into the secondary reference surface instead of leaking into the main task library, and `provider_video_id=1167976486` was corrected in Vimeo + Supabase to `Unlock Machine Door (Physical Service Access)` under `Build / Assembly`.
 - Verification run on this branch:
   - `npm ci`
   - `npm run build`
@@ -137,7 +138,7 @@ Execution order is based on launch risk and dependency overlap.
 - Enable Supabase Custom Domain add-on for project `ygbzkgxktzqsiygjlqyg` to unblock `auth.bloomjoyusa.com` cutover (required for issue `#78`).
 - Run `node scripts/sync-vimeo-training-catalog.mjs --dry-run` against the target environment, review unmapped/duplicate/stale output, then run without `--dry-run` to catalog uploaded Vimeo videos into Supabase.
 - Add or normalize Vimeo module tags for Module 2/3 so the supportive module filter can be enabled consistently once taxonomy is complete.
-- Upload the original training PDFs into the private `training-documents` bucket with `npm run training:upload-docs` once the target Supabase environment is ready.
+- Validate signed-link delivery for the private `training-documents` assets on authenticated training detail pages once the target Supabase environment is ready.
 - Execute issue `#110` to operationalize WeCom alert monitoring and WeChat onboarding concierge process ownership (referral buddy roster + SLA + weekly reliability snapshot).
 
 ## Upcoming scope clarification (next sprint)
@@ -199,6 +200,7 @@ Execution order is based on launch risk and dependency overlap.
 - Vimeo operations update (`#90`): current Vimeo library was normalized so all 17 uploaded videos are tagged `Module 1`.
 - Training experience upgrade (`2026-03-19`): portal training is now task-first, includes document-first guides from the software setup and maintenance manuals, persists server-backed progress, replaces dashboard placeholders with live recommendations, and supports the lightweight `Bloomjoy Operator Essentials` completion certificate.
 - Training hub findability hardening (`2026-03-19`): `/portal/training` now prioritizes start-here guidance, task-based wayfinding, persistent search, collapsed advanced filters, and secondary certificate treatment, with a new Vimeo-to-Supabase catalog sync script for uploaded videos.
+- Training content audit hardening (`2026-03-21`): document-first training pages now pull additional source-manual visuals across software setup, pricing/payments, timer setup, troubleshooting, and consumables guidance; detail pages now separate `Use during this task` from `Recommended next task`; audit notes live in `Docs/TRAINING_VISUAL_AUDIT.md`.
 - SEO hardening: added route-level page metadata management (title/description/canonical/OG) and private-route `noindex` handling plus robots disallows for auth/admin/portal paths.
 - SEO crawlability hardening (`2026-03-09`): added Vercel SPA fallback routing (`vercel.json`) so direct loads for public routes do not 404 at the edge, added `public/sitemap.xml` for indexable public URLs, and linked sitemap in `public/robots.txt`.
 - SEO prerender hardening (`2026-03-09`): build now generates static route HTML for public marketing/legal paths with route-specific title/description/canonical/OG metadata before JS executes; known auth/admin/portal paths are also emitted with static `noindex` metadata.
@@ -221,7 +223,7 @@ Execution order is based on launch risk and dependency overlap.
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.
 - Additional Vimeo uploads may exist before the portal catalog is synced; uploaded videos are not discoverable until `trainings` and `training_assets` are populated in Supabase.
 - Module taxonomy UX is implemented, but supportive module filtering remains hidden until cataloged training rows have complete module labels.
-- Original PDF binaries still need to be uploaded to the private `training-documents` bucket for signed-link delivery in Supabase-backed environments.
+- Private `training-documents` assets are uploaded, but signed-link download behavior still needs authenticated QA confirmation in the task-first training detail pages.
 - Lint passes but still shows fast-refresh warnings in generated UI files
 - Apex host canonicalization currently returns `307` (`https://bloomjoyusa.com` -> `https://www.bloomjoyusa.com/`) instead of preferred permanent redirect behavior.
 

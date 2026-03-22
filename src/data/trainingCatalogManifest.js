@@ -200,10 +200,8 @@ const mg320VimeoCatalogManifest = [
   {
     providerVideoId: '1167976486',
     module: 'Module 1',
-    trackId: 'software-payments',
-    featuredOrder: 11,
-    isStartHere: true,
-    operatorPriority: 12,
+    trackId: 'build-assembly',
+    operatorPriority: 27,
   },
   {
     providerVideoId: '1167976439',
