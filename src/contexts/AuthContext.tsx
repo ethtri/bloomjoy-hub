@@ -1,9 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { hasPlusAccess, type MembershipStatus } from '@/lib/membership';
+import {
+  acceptPendingInvite,
+  fetchPortalAccessContext,
+  type PortalAccessContext,
+} from '@/lib/customerAccounts';
+import type { PortalAccessTier, PortalAccountRole } from '@/lib/portalAccess';
 
 interface User {
   id: string;
@@ -11,6 +17,10 @@ interface User {
   membershipStatus?: MembershipStatus;
   membershipPlan?: string;
   isAdmin: boolean;
+  accessTier: PortalAccessTier;
+  portalRole: PortalAccountRole;
+  accountId: string | null;
+  canManageOperators: boolean;
 }
 
 interface AuthContextType {
@@ -28,16 +38,17 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isMember: boolean;
   isAdmin: boolean;
+  accessTier: PortalAccessTier;
+  portalRole: PortalAccountRole;
+  canAccessTraining: boolean;
+  canAccessPlus: boolean;
+  canManageOperators: boolean;
 }
 
 type SubscriptionRecord = {
   status: string;
   current_period_end: string | null;
   updated_at: string;
-};
-
-type AdminRoleRecord = {
-  role: string;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -113,30 +124,38 @@ const getMembershipStatus = async (userId: string): Promise<MembershipStatus> =>
   return normalizeMembershipStatus(records[0]?.status);
 };
 
-const getIsAdmin = async (userId: string): Promise<boolean> => {
-  const { data, error } = await supabaseClient
-    .from('admin_roles')
-    .select('role')
-    .eq('user_id', userId)
-    .eq('role', 'super_admin')
-    .eq('active', true)
-    .limit(1)
-    .maybeSingle();
+const getFallbackPortalAccessContext = (): PortalAccessContext => ({
+  accountId: null,
+  accountRole: null,
+  accessTier: 'baseline',
+  canManageOperators: false,
+  isAdmin: false,
+});
 
-  if (error) {
-    return false;
+const resolvePortalAccessContext = async (): Promise<PortalAccessContext> => {
+  try {
+    return await acceptPendingInvite();
+  } catch (error) {
+    console.error('Unable to accept pending customer-account invite', error);
   }
 
-  return Boolean((data as AdminRoleRecord | null)?.role);
+  try {
+    return await fetchPortalAccessContext();
+  } catch (error) {
+    console.error('Unable to fetch portal access context', error);
+    return getFallbackPortalAccessContext();
+  }
 };
 
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
-  const [membershipStatus, dbIsAdmin] = await Promise.all([
+  const [membershipStatus, portalAccessContext] = await Promise.all([
     getMembershipStatus(supabaseUser.id),
-    getIsAdmin(supabaseUser.id),
+    resolvePortalAccessContext(),
   ]);
-  const isAdmin = dbIsAdmin || hasDevAdminEmailOverride(email);
+
+  const isAdmin = portalAccessContext.isAdmin || hasDevAdminEmailOverride(email);
+  const accessTier: PortalAccessTier = isAdmin ? 'plus' : portalAccessContext.accessTier;
 
   return {
     id: supabaseUser.id,
@@ -144,6 +163,10 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
     membershipStatus,
     membershipPlan: hasPlusAccess(membershipStatus) ? 'Plus Basic' : undefined,
     isAdmin,
+    accessTier,
+    portalRole: portalAccessContext.accountRole,
+    accountId: portalAccessContext.accountId,
+    canManageOperators: isAdmin || portalAccessContext.canManageOperators,
   };
 };
 
@@ -163,12 +186,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const authUser = await buildAuthUser(supabaseUser);
+      try {
+        const authUser = await buildAuthUser(supabaseUser);
 
-      if (!mounted) return;
-      setUser(authUser);
-      identifyUser(authUser.id, { email: authUser.email, is_admin: authUser.isAdmin });
-      setLoading(false);
+        if (!mounted) return;
+
+        setUser(authUser);
+        identifyUser(authUser.id, {
+          email: authUser.email,
+          is_admin: authUser.isAdmin,
+          access_tier: authUser.accessTier,
+          portal_role: authUser.portalRole ?? 'none',
+        });
+      } catch (error) {
+        console.error('Unable to build auth user', error);
+
+        if (!mounted) return;
+        setUser(null);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
     };
 
     const hydrateSession = async () => {
@@ -301,6 +340,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const accessTier = user?.accessTier ?? 'baseline';
+  const canAccessTraining = accessTier === 'training' || accessTier === 'plus';
+  const canAccessPlus = accessTier === 'plus';
+
   return (
     <AuthContext.Provider
       value={{
@@ -316,8 +359,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         isAuthenticated: !!user,
-        isMember: hasPlusAccess(user?.membershipStatus) || (user?.isAdmin ?? false),
+        isMember: canAccessPlus,
         isAdmin: user?.isAdmin ?? false,
+        accessTier,
+        portalRole: user?.portalRole ?? null,
+        canAccessTraining,
+        canAccessPlus,
+        canManageOperators: user?.canManageOperators ?? false,
       }}
     >
       {children}

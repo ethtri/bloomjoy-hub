@@ -94,6 +94,29 @@ serve(async (req) => {
       });
     }
 
+    const { data: hasPlusAccess, error: accessError } = await supabase.rpc(
+      "can_access_plus_portal_for_user",
+      {
+        p_user_id: user.id,
+      },
+    );
+
+    if (accessError) {
+      throw new Error(accessError.message || "Unable to verify support access.");
+    }
+
+    if (!hasPlusAccess) {
+      return new Response(
+        JSON.stringify({
+          error: "Support access requires Bloomjoy Plus or partner access.",
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
     const body = await req.json();
 
     const requestType = sanitizeText(body?.requestType).toLowerCase();

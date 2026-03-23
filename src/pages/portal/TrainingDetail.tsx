@@ -86,9 +86,9 @@ const getLinkedTrainingPath = (resource: Pick<TrainingResource, 'linkedTrainingI
 
 export default function TrainingDetailPage() {
   const { id } = useParams();
-  const { user, isMember } = useAuth();
-  const { data: library = [] } = useTrainingLibrary();
-  const { data: progress = [] } = useTrainingProgress(user?.id, isMember);
+  const { user, canAccessTraining } = useAuth();
+  const { data: library = [] } = useTrainingLibrary(canAccessTraining);
+  const { data: progress = [] } = useTrainingProgress(user?.id, canAccessTraining);
   const saveProgressMutation = useSaveTrainingProgress();
   const trainingExperience = useMemo(() => buildTrainingExperience(library), [library]);
   const canonicalProgress = useMemo(
@@ -131,7 +131,7 @@ export default function TrainingDetailPage() {
   }, [trainingItem?.id, trainingItem?.embed.url]);
 
   useEffect(() => {
-    if (!trainingItem || trainingItem.surface !== 'task' || !isMember || hasTrackedStart.current) {
+    if (!trainingItem || trainingItem.surface !== 'task' || !canAccessTraining || hasTrackedStart.current) {
       return;
     }
 
@@ -142,7 +142,7 @@ export default function TrainingDetailPage() {
       markComplete: false,
       completionSource: 'detail_view',
     });
-  }, [isMember, saveProgressMutation, trainingItem]);
+  }, [canAccessTraining, saveProgressMutation, trainingItem]);
 
   if (resolution.redirectToId && resolution.redirectToId !== id) {
     const redirectHash = resolution.redirectAnchor ? `#${resolution.redirectAnchor}` : '';

@@ -62,7 +62,9 @@ type OperatorHighlight = {
   icon: LucideIcon;
 };
 
-const operatorHighlights: OperatorHighlight[] = [
+type InviteRole = 'partner' | 'operator' | null;
+
+const defaultOperatorHighlights: OperatorHighlight[] = [
   {
     title: 'Training library',
     description: 'Start operator essentials, task-based guides, and progress-aware recommendations.',
@@ -81,6 +83,52 @@ const operatorHighlights: OperatorHighlight[] = [
   {
     title: 'Orders and account',
     description: 'Jump into reorders, order history, shipping details, and membership settings.',
+    icon: Package,
+  },
+];
+
+const operatorInviteHighlights: OperatorHighlight[] = [
+  {
+    title: 'Training library',
+    description: 'Open the operator training hub with task-based videos, quick aids, and guides.',
+    icon: GraduationCap,
+  },
+  {
+    title: 'Progress tracking',
+    description: 'Resume where you left off and keep certificate progress tied to your account.',
+    icon: ClipboardCheck,
+  },
+  {
+    title: 'Operator app shell',
+    description: 'Stay inside the app for training, order lookups, and account basics.',
+    icon: Package,
+  },
+  {
+    title: 'Invite-specific access',
+    description: 'Your training seat is tied to the exact invited email address.',
+    icon: Mail,
+  },
+];
+
+const partnerInviteHighlights: OperatorHighlight[] = [
+  {
+    title: 'Training and resources',
+    description: 'Access the full training hub for yourself while provisioning operators.',
+    icon: GraduationCap,
+  },
+  {
+    title: 'Setup milestones',
+    description: 'Open onboarding milestones and support workflows without a paid subscription.',
+    icon: ClipboardCheck,
+  },
+  {
+    title: 'Support workflows',
+    description: 'Use concierge, parts, and WeChat onboarding support directly from the app.',
+    icon: Headset,
+  },
+  {
+    title: 'Team access',
+    description: 'Add and revoke operator seats from your account settings after sign-in.',
     icon: Package,
   },
 ];
@@ -217,6 +265,14 @@ const getRedirectErrorMessage = (errorCode?: string | null, errorDescription?: s
   return undefined;
 };
 
+const parseInviteRole = (value: string | null): InviteRole => {
+  if (value === 'partner' || value === 'operator') {
+    return value;
+  }
+
+  return null;
+};
+
 export default function LoginPage() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
   const useGisRenderedButton =
@@ -246,10 +302,61 @@ export default function LoginPage() {
   } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const inviteParams = new URLSearchParams(location.search);
+  const inviteRole = parseInviteRole(inviteParams.get('role'));
+  const inviteEmail = safeDecode(inviteParams.get('email')).trim().toLowerCase();
+  const inviteAccountName = safeDecode(inviteParams.get('account')).trim();
+  const hasInviteContext = inviteParams.get('invite') === '1' && Boolean(inviteRole && inviteEmail);
   const fromPath =
-    (location.state as { from?: { pathname?: string } })?.from?.pathname || '/portal';
+    (location.state as { from?: { pathname?: string } })?.from?.pathname ||
+    (hasInviteContext
+      ? inviteRole === 'partner'
+        ? '/portal/account'
+        : '/portal/training'
+      : '/portal');
   const mainSiteUrl = getCanonicalUrlForSurface('marketing', '/', '', '', window.location);
   const plusUrl = getCanonicalUrlForSurface('marketing', '/plus', '', '', window.location);
+  const activeHighlights = hasInviteContext
+    ? inviteRole === 'partner'
+      ? partnerInviteHighlights
+      : operatorInviteHighlights
+    : defaultOperatorHighlights;
+  const heroEyebrow = hasInviteContext
+    ? inviteRole === 'partner'
+      ? 'Partner invite'
+      : 'Operator invite'
+    : 'Operator access';
+  const heroTitle = hasInviteContext
+    ? inviteRole === 'partner'
+      ? 'Accept your Bloomjoy partner invite'
+      : `Accept your operator invite${inviteAccountName ? ` for ${inviteAccountName}` : ''}`
+    : 'Sign in to the Bloomjoy operator app';
+  const heroDescription = hasInviteContext
+    ? inviteRole === 'partner'
+      ? `Use the invited email address to activate partner access${
+          inviteAccountName ? ` for ${inviteAccountName}` : ''
+        }.`
+      : `Use the invited email address to claim operator training access${
+          inviteAccountName ? ` for ${inviteAccountName}` : ''
+        }.`
+    : 'Use password, Google, or email-link sign-in to reach orders, account details, training, onboarding, and support without bouncing through the sales shell.';
+  const authCardTitle = hasInviteContext
+    ? inviteRole === 'partner'
+      ? 'Sign in or create the partner account that will own this invite'
+      : 'Sign in or create the operator account for this invite'
+    : 'Choose the fastest way back in';
+  const authCardDescription = hasInviteContext
+    ? `Use ${inviteEmail} when you continue. The invite will be accepted automatically after sign-in.`
+    : 'Password, Google, and email-link sign-in all route into the operator app.';
+
+  useEffect(() => {
+    if (!hasInviteContext || !inviteEmail) {
+      return;
+    }
+
+    setEmail(inviteEmail);
+    setSent(false);
+  }, [hasInviteContext, inviteEmail]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -512,18 +619,17 @@ export default function LoginPage() {
                 <Mail className="h-6 w-6 sm:h-7 sm:w-7" />
               </div>
               <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                Operator access
+                {heroEyebrow}
               </p>
               <h1 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-4xl">
-                Sign in to the Bloomjoy operator app
+                {heroTitle}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-                Use password, Google, or email-link sign-in to reach orders, account details,
-                training, onboarding, and support without bouncing through the sales shell.
+                {heroDescription}
               </p>
 
               <div className="mt-6 space-y-2.5 sm:space-y-3">
-                {operatorHighlights.map((highlight) => {
+                {activeHighlights.map((highlight) => {
                   const HighlightIcon = highlight.icon;
 
                   return (
@@ -560,17 +666,28 @@ export default function LoginPage() {
             <div className="order-1 rounded-[28px] border border-border bg-background p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-2">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Sign in
+                  {hasInviteContext ? 'Accept invite' : 'Sign in'}
                 </p>
                 <h2 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-3xl">
-                  Choose the fastest way back in
+                  {authCardTitle}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Password, Google, and email-link sign-in all route into the operator app.
+                  {authCardDescription}
                 </p>
               </div>
 
               <div className="mt-6 space-y-4">
+              {hasInviteContext && (
+                <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4 text-sm">
+                  <p className="font-medium text-foreground">
+                    {inviteRole === 'partner' ? 'Partner invite detected' : 'Operator invite detected'}
+                  </p>
+                  <p className="mt-1 leading-6 text-muted-foreground">
+                    Use <strong>{inviteEmail}</strong>
+                    {inviteAccountName ? ` to claim access for ${inviteAccountName}.` : ' to claim this access.'}
+                  </p>
+                </div>
+              )}
               <div className="space-y-2">
                 {useGisRenderedButton ? (
                   <>
@@ -688,6 +805,11 @@ export default function LoginPage() {
                         required
                         className="mt-1"
                       />
+                      {hasInviteContext && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          This invite must be claimed with <strong>{inviteEmail}</strong>.
+                        </p>
+                      )}
                     </div>
                     <Button
                       type="submit"
@@ -733,6 +855,11 @@ export default function LoginPage() {
                       required
                       className="mt-1"
                     />
+                    {hasInviteContext && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This invite must be claimed with <strong>{inviteEmail}</strong>.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="password" className="block text-sm font-medium text-foreground">
@@ -797,12 +924,19 @@ export default function LoginPage() {
                 </form>
               )}
 
-              <p className="text-center text-sm text-muted-foreground">
-                Need premium training, onboarding, and support?{' '}
-                <a href={plusUrl} className="font-medium text-primary hover:underline">
-                  Learn about Plus
-                </a>
-              </p>
+              {hasInviteContext ? (
+                <p className="text-center text-sm text-muted-foreground">
+                  If this invite was sent to the wrong email address, ask the sender to revoke it
+                  and send a new one before you continue.
+                </p>
+              ) : (
+                <p className="text-center text-sm text-muted-foreground">
+                  Need premium training, onboarding, and support?{' '}
+                  <a href={plusUrl} className="font-medium text-primary hover:underline">
+                    Learn about Plus
+                  </a>
+                </p>
+              )}
             </div>
             </div>
           </div>

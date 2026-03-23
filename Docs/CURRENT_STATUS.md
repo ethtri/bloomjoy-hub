@@ -9,6 +9,19 @@
 ## Next P0 milestones
 - Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
 
+## Partner/operator UAT access slice (2026-03-22)
+- Partner access is now implemented as a billing-independent account role instead of reusing Stripe membership alone.
+- Partners can manage up to 50 operator seats from `/portal/account`.
+- Operator invites now send transactional Resend emails that point to the normal operator login page with invite-specific copy and prefilled email.
+- After login, matching pending invites are accepted automatically and the user receives either partner access or operator training access.
+- Portal access tiers are now:
+  - `baseline` for standard logged-in users
+  - `training` for invited operators
+  - `plus` for paid Plus users, partners, and super-admins
+- Support intake is now enforced server-side for `plus` access only, so operator seats cannot bypass the UI and submit support requests directly.
+- Remaining external dependency for production invite delivery:
+  - Resend sender configuration should expose a valid transactional sender via `PARTNER_INVITE_FROM_EMAIL`, `TRANSACTIONAL_FROM_EMAIL`, or the existing internal sender fallback.
+
 ## Operator app surface split (2026-03-22)
 - Authenticated operator routes now have a dedicated application shell and canonical host instead of inheriting the public sales navbar/footer.
 - Canonical host roles for this slice:

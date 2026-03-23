@@ -84,7 +84,7 @@ const App = () => (
                 <Route path="/billing-cancellation" element={<BillingCancellation />} />
                 <Route path="/cart" element={<Cart />} />
                 <Route path="/login" element={<Login />} />
-                <Route path="/login/operator" element={<Navigate to="/login" replace />} />
+                <Route path="/login/operator" element={<Login />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route element={<ProtectedRoute />}>
                   <Route path="/portal" element={<PortalDashboard />} />

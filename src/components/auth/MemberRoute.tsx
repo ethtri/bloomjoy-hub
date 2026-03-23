@@ -5,9 +5,10 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { getPortalDestinationByPath } from '@/components/portal/portalNavigation';
 import { Button } from '@/components/ui/button';
+import { hasPortalAccess } from '@/lib/portalAccess';
 
 export function MemberRoute() {
-  const { loading, isMember, isAdmin } = useAuth();
+  const { loading, accessTier, isAdmin } = useAuth();
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
 
@@ -19,9 +20,11 @@ export function MemberRoute() {
     );
   }
 
-  if (isMember || isAdmin) {
+  if (isAdmin || hasPortalAccess(accessTier, lockedDestination.access)) {
     return <Outlet />;
   }
+
+  const requiresTrainingTier = lockedDestination.access === 'training';
 
   return (
     <PortalLayout>
@@ -29,13 +32,21 @@ export function MemberRoute() {
         <div className="container-page">
           <div className="mx-auto max-w-3xl">
             <PortalPageIntro
-              title={`${lockedDestination.label} requires Bloomjoy Plus`}
+              title={`${lockedDestination.label} requires ${
+                requiresTrainingTier ? 'training access' : 'partner or Bloomjoy Plus access'
+              }`}
               description={
                 lockedDestination.upsellCopy ??
-                'This area is part of Bloomjoy Plus. Baseline access still includes dashboard, orders, and account basics.'
+                'This area is not part of baseline access. Dashboard, orders, and account basics still stay available.'
               }
               badges={[
-                { label: 'Locked for baseline access', tone: 'accent', icon: Lock },
+                {
+                  label: requiresTrainingTier
+                    ? 'Locked for baseline access'
+                    : 'Locked for training-only access',
+                  tone: 'accent',
+                  icon: Lock,
+                },
                 { label: 'Orders and account stay available', tone: 'muted' },
               ]}
             >
@@ -46,20 +57,27 @@ export function MemberRoute() {
                   </div>
                   <div>
                     <h2 className="font-display text-xl font-semibold text-foreground">
-                      Upgrade to unlock this workflow
+                      {requiresTrainingTier
+                        ? 'Training access is required for this workflow'
+                        : 'Partner or Bloomjoy Plus access is required here'}
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Plus adds guided onboarding, the full training hub, and concierge support
-                      lanes without changing your existing baseline access.
+                      {requiresTrainingTier
+                        ? 'Operator training seats unlock the training library, progress tracking, and certificates without changing baseline orders or account access.'
+                        : 'Partner and Bloomjoy Plus access add guided onboarding and concierge support without removing your existing baseline access.'}
                     </p>
                   </div>
                 </div>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  <Button asChild>
-                    <Link to="/plus">View Plus Membership</Link>
-                  </Button>
+                  {!requiresTrainingTier && (
+                    <Button asChild>
+                      <Link to="/plus">View Plus Membership</Link>
+                    </Button>
+                  )}
                   <Button asChild variant="outline">
-                    <Link to="/portal/orders">Go to Order History</Link>
+                    <Link to={requiresTrainingTier ? '/portal/account' : '/portal/orders'}>
+                      {requiresTrainingTier ? 'Open Account Settings' : 'Go to Order History'}
+                    </Link>
                   </Button>
                 </div>
               </div>

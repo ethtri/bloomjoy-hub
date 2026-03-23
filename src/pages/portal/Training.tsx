@@ -162,7 +162,7 @@ const sortTrainingItems = (left: TrainingExperienceItem, right: TrainingExperien
 };
 
 export default function TrainingPage() {
-  const { user, isMember } = useAuth();
+  const { user, canAccessTraining } = useAuth();
   const [search, setSearch] = useState('');
   const [selectedTrack, setSelectedTrack] = useState('all');
   const [selectedTopicTags, setSelectedTopicTags] = useState<string[]>([]);
@@ -172,10 +172,10 @@ export default function TrainingPage() {
   const [finalAcknowledgement, setFinalAcknowledgement] = useState(false);
   const libraryExplorerRef = useRef<HTMLElement | null>(null);
   const librarySearchRef = useRef<HTMLInputElement | null>(null);
-  const { data: library = [], isLoading } = useTrainingLibrary();
-  const { data: trackDefinitions = [] } = useTrainingTracks();
-  const { data: progress = [] } = useTrainingProgress(user?.id, isMember);
-  const { data: certificates = [] } = useTrainingCertificates(user?.id, isMember);
+  const { data: library = [], isLoading } = useTrainingLibrary(canAccessTraining);
+  const { data: trackDefinitions = [] } = useTrainingTracks(canAccessTraining);
+  const { data: progress = [] } = useTrainingProgress(user?.id, canAccessTraining);
+  const { data: certificates = [] } = useTrainingCertificates(user?.id, canAccessTraining);
   const { data: source = 'local' } = useTrainingSourceStatus();
   const issueCertificateMutation = useIssueTrainingCertificate();
   const saveProgressMutation = useSaveTrainingProgress();

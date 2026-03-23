@@ -8,7 +8,7 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 
-export type PortalAccessLevel = 'baseline' | 'plus';
+export type PortalAccessLevel = 'baseline' | 'training' | 'plus';
 
 export interface PortalDestination {
   href: string;
@@ -52,7 +52,7 @@ export const portalDestinations: PortalDestination[] = [
     label: 'Training',
     description: 'Task-first videos, quick aids, and operator guides.',
     icon: BookOpen,
-    access: 'plus',
+    access: 'training',
     mobileOrder: 4,
     upsellCopy: 'Unlock the operator hub, quick aids, and certificate path.',
   },

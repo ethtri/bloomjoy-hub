@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { User, MapPin, CreditCard, ExternalLink } from 'lucide-react';
+import { CreditCard, ExternalLink, MailPlus, MapPin, User, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
@@ -9,6 +9,13 @@ import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { useAuth } from '@/contexts/AuthContext';
 import { openCustomerPortal } from '@/lib/stripeCheckout';
 import { hasPlusAccess } from '@/lib/membership';
+import {
+  createOperatorInvite,
+  fetchCurrentAccountState,
+  resendInvite,
+  revokeInviteOrMembership,
+} from '@/lib/customerAccounts';
+import { getPortalAccessBadgeLabel } from '@/lib/portalAccess';
 import {
   fetchPortalAccountProfile,
   fetchPortalMembershipSummary,
@@ -35,14 +42,26 @@ const formatMembershipStatus = (status: string) =>
     .map((token) => token[0].toUpperCase() + token.slice(1))
     .join(' ');
 
+const formatDateTime = (value?: string | null) =>
+  value
+    ? new Date(value).toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : 'Not sent yet';
+
 export default function AccountPage() {
-  const { user } = useAuth();
+  const { user, accessTier, portalRole, canManageOperators } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const hasHandledBillingReturn = useRef(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [profileForm, setProfileForm] = useState<PortalAccountProfileInput>(DEFAULT_PROFILE_FORM);
+  const [operatorEmail, setOperatorEmail] = useState('');
 
   const { data: accountProfile, isLoading: isProfileLoading } = useQuery({
     queryKey: ['portal-account-profile', user?.id],
@@ -62,6 +81,13 @@ export default function AccountPage() {
     staleTime: 1000 * 30,
   });
 
+  const { data: teamAccessState, isLoading: isTeamAccessLoading } = useQuery({
+    queryKey: ['customer-account-team-state', user?.accountId],
+    queryFn: () => fetchCurrentAccountState(user!.accountId!),
+    enabled: Boolean(user?.accountId) && canManageOperators,
+    staleTime: 1000 * 15,
+  });
+
   const saveProfileMutation = useMutation({
     mutationFn: async (payload: PortalAccountProfileInput) => {
       if (!user?.id) {
@@ -72,6 +98,39 @@ export default function AccountPage() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['portal-account-profile', user?.id] });
+    },
+  });
+
+  const createOperatorInviteMutation = useMutation({
+    mutationFn: (email: string) => createOperatorInvite(email),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['customer-account-team-state', user?.accountId],
+      });
+    },
+  });
+
+  const resendInviteMutation = useMutation({
+    mutationFn: (inviteId: string) => resendInvite(inviteId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['customer-account-team-state', user?.accountId],
+      });
+    },
+  });
+
+  const revokeAccessMutation = useMutation({
+    mutationFn: ({
+      inviteId,
+      membershipId,
+    }: {
+      inviteId?: string;
+      membershipId?: string;
+    }) => revokeInviteOrMembership({ inviteId, membershipId }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['customer-account-team-state', user?.accountId],
+      });
     },
   });
 
@@ -117,26 +176,46 @@ export default function AccountPage() {
   }, [location.pathname, location.search, navigate, refetchMembershipSummary]);
 
   const effectiveMembershipStatus = membershipSummary?.status ?? user?.membershipStatus ?? 'none';
-  const isMember = hasPlusAccess(effectiveMembershipStatus);
+  const hasPaidMembership = hasPlusAccess(effectiveMembershipStatus);
+  const accessBadgeLabel = getPortalAccessBadgeLabel({
+    accessTier,
+    portalRole,
+    hasPaidMembership,
+    isAdmin: user?.isAdmin,
+  });
   const membershipStatusLabel = useMemo(() => {
     if (effectiveMembershipStatus === 'none') {
-      return 'Upgrade available';
+      return 'No active billing plan';
     }
 
     return formatMembershipStatus(effectiveMembershipStatus);
   }, [effectiveMembershipStatus]);
   const nextBillingLabel =
-    isMember && membershipSummary?.currentPeriodEnd
+    hasPaidMembership && membershipSummary?.currentPeriodEnd
       ? new Date(membershipSummary.currentPeriodEnd).toLocaleDateString(undefined, {
           year: 'numeric',
           month: 'short',
           day: 'numeric',
         })
       : null;
+  const seatUsageLabel = teamAccessState
+    ? `${teamAccessState.usedSeats}/${teamAccessState.seatLimit} seats used`
+    : 'Up to 50 operator seats';
+  const billingDescription = hasPaidMembership
+    ? 'Manage your payment methods, invoices, and cancellations through the Stripe customer portal.'
+    : portalRole === 'partner'
+      ? 'Partner access is provisioned outside Stripe billing. The billing portal appears here only if this user also has a direct Plus subscription.'
+      : portalRole === 'operator'
+        ? 'Operator seats do not manage billing from this screen.'
+        : 'Upgrade to Plus to unlock premium training, onboarding, and concierge support.';
+  const pageDescription = portalRole === 'partner'
+    ? 'Manage your partner access, operator seats, profile information, and shipping details from one place.'
+    : portalRole === 'operator'
+      ? 'Manage your profile and shipping details while keeping your operator training seat attached to this account.'
+      : 'Manage the billing details, profile information, and shipping address that keep future orders and support handoffs running smoothly.';
 
   const handleManageBilling = async () => {
-    if (!user?.email) {
-      toast.error('Log in to manage billing.');
+    if (!user?.email || !hasPaidMembership) {
       return;
     }
 
@@ -154,10 +233,7 @@ export default function AccountPage() {
     }
   };
 
-  const updateProfileField = (
-    key: keyof PortalAccountProfileInput,
-    value: string
-  ) => {
+  const updateProfileField = (key: keyof PortalAccountProfileInput, value: string) => {
     setProfileForm((current) => ({ ...current, [key]: value }));
   };
 
@@ -181,38 +257,107 @@ export default function AccountPage() {
     }
   };
 
+  const handleCreateOperatorInvite = async () => {
+    const normalizedEmail = operatorEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast.error('Enter an operator email address first.');
+      return;
+    }
+
+    try {
+      const result = await createOperatorInviteMutation.mutateAsync(normalizedEmail);
+      setOperatorEmail('');
+
+      if (result.deliveryStatus === 'failed') {
+        toast.error(
+          `Operator access was created for ${result.invite.email}, but the invite email failed to send. Use resend after checking the sender configuration.`
+        );
+        return;
+      }
+
+      toast.success(`Operator invite sent to ${result.invite.email}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to add operator access.';
+      toast.error(message);
+    }
+  };
+
+  const handleResendInvite = async (inviteId: string, email: string) => {
+    try {
+      const result = await resendInviteMutation.mutateAsync(inviteId);
+
+      if (result.deliveryStatus === 'failed') {
+        toast.error(
+          `Invite resend failed for ${email}. The invite is still pending and can be retried again.`
+        );
+        return;
+      }
+
+      toast.success(`Invite resent to ${email}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to resend invite.';
+      toast.error(message);
+    }
+  };
+
+  const handleRevokeAccess = async ({
+    inviteId,
+    membershipId,
+    email,
+  }: {
+    inviteId?: string;
+    membershipId?: string;
+    email: string;
+  }) => {
+    try {
+      await revokeAccessMutation.mutateAsync({ inviteId, membershipId });
+      toast.success(`Access revoked for ${email}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to revoke access.';
+      toast.error(message);
+    }
+  };
+
   return (
     <PortalLayout>
       <section className="portal-section overflow-x-clip">
         <div className="container-page">
           <PortalPageIntro
             title="Account Settings"
-            description="Manage the billing details, profile information, and shipping address that keep future orders and support handoffs running smoothly."
+            description={pageDescription}
             badges={[
-              { label: membershipStatusLabel, tone: isMember ? 'success' : 'accent' },
+              {
+                label: accessBadgeLabel,
+                tone: accessTier === 'plus' ? 'success' : accessTier === 'training' ? 'muted' : 'accent',
+              },
               ...(nextBillingLabel
                 ? [{ label: `Renews ${nextBillingLabel}`, tone: 'muted' as const }]
                 : []),
+              ...(canManageOperators
+                ? [{ label: seatUsageLabel, tone: 'muted' as const }]
+                : []),
             ]}
             actions={
-              isMember ? (
+              hasPaidMembership ? (
                 <Button
                   variant="outline"
                   onClick={handleManageBilling}
                   disabled={isOpeningPortal || isMembershipLoading}
                 >
-                  {isOpeningPortal ? 'Opening billing…' : 'Manage Billing'}
+                  {isOpeningPortal ? 'Opening billing...' : 'Manage Billing'}
                 </Button>
-              ) : (
+              ) : canManageOperators ? (
+                <Button asChild variant="outline">
+                  <a href="#team-access">Manage Team Access</a>
+                </Button>
+              ) : accessTier === 'baseline' ? (
                 <Button asChild variant="outline">
                   <Link to="/plus">View Plus Membership</Link>
                 </Button>
-              )
+              ) : null
             }
           />
-
           <div className="mt-6 grid gap-6 lg:grid-cols-3 lg:gap-8">
-            {/* Profile */}
             <div className="min-w-0 lg:col-span-2">
               <div className="card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
@@ -266,7 +411,6 @@ export default function AccountPage() {
                 </Button>
               </div>
 
-              {/* Shipping */}
               <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
@@ -352,7 +496,6 @@ export default function AccountPage() {
               </div>
             </div>
 
-            {/* Billing */}
             <div className="min-w-0">
               <div className="card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
@@ -361,19 +504,23 @@ export default function AccountPage() {
                   </div>
                   <h2 className="font-display text-lg font-semibold text-foreground">Billing</h2>
                 </div>
-                <p className="mt-4 text-sm text-muted-foreground">
-                  {isMember
-                    ? 'Manage your payment methods, invoices, and cancellations through the Stripe customer portal.'
-                    : 'Upgrade to Plus to unlock premium training, onboarding, and concierge support.'}
-                </p>
+                <p className="mt-4 text-sm text-muted-foreground">{billingDescription}</p>
                 <Button
                   variant="outline"
                   className="mt-4 w-full"
                   onClick={handleManageBilling}
-                  disabled={isOpeningPortal || !user?.email || !isMember || isMembershipLoading}
+                  disabled={isOpeningPortal || !user?.email || !hasPaidMembership || isMembershipLoading}
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  {isMember ? (isOpeningPortal ? 'Opening...' : 'Open Billing Portal') : 'Plus Required'}
+                  {hasPaidMembership
+                    ? isOpeningPortal
+                      ? 'Opening...'
+                      : 'Open Billing Portal'
+                    : portalRole === 'partner'
+                      ? 'No direct billing plan'
+                      : portalRole === 'operator'
+                        ? 'Billing not available'
+                        : 'Plus Required'}
                 </Button>
                 <p className="mt-3 text-xs text-muted-foreground">
                   Review{' '}
@@ -385,30 +532,48 @@ export default function AccountPage() {
               </div>
 
               <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
-                <h3 className="font-semibold text-foreground">Membership</h3>
+                <h3 className="font-semibold text-foreground">Portal Access</h3>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm text-muted-foreground">Plan</span>
-                  <span className="font-semibold text-foreground">
-                    {isMember ? 'Plus Basic' : 'Baseline'}
+                  <span className="text-sm text-muted-foreground">Access level</span>
+                  <span className="font-semibold text-foreground">{accessBadgeLabel}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm text-muted-foreground">Billing plan</span>
+                  <span className="text-sm text-foreground">
+                    {hasPaidMembership
+                      ? 'Plus Basic'
+                      : portalRole === 'partner'
+                        ? 'None (partner-provisioned)'
+                        : portalRole === 'operator'
+                          ? 'None (operator seat)'
+                          : 'Baseline'}
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">Status</span>
-                  {isMember ? (
-                    <span className="max-w-full rounded-full bg-sage-light px-2 py-0.5 text-xs font-semibold text-sage">
-                      {membershipStatusLabel}
-                    </span>
-                  ) : (
-                    <span className="max-w-full rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-                      {membershipStatusLabel}
-                    </span>
-                  )}
+                  <span className="max-w-full rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                    {hasPaidMembership
+                      ? membershipStatusLabel
+                      : portalRole === 'partner'
+                        ? 'Partner access active'
+                        : portalRole === 'operator'
+                          ? 'Training access active'
+                          : membershipStatusLabel}
+                  </span>
                 </div>
-                {isMember && (
+                {nextBillingLabel && (
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm text-muted-foreground">Next billing</span>
+                    <span className="text-sm text-foreground">{nextBillingLabel}</span>
+                  </div>
+                )}
+                {canManageOperators && (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm text-muted-foreground">Operator seats</span>
                     <span className="text-sm text-foreground">
-                      {nextBillingLabel ?? 'Not available'}
+                      {teamAccessState
+                        ? `${teamAccessState.usedSeats}/${teamAccessState.seatLimit} used`
+                        : 'Loading...'}
                     </span>
                   </div>
                 )}
@@ -420,6 +585,198 @@ export default function AccountPage() {
               </div>
             </div>
           </div>
+
+          {canManageOperators && (
+            <div id="team-access" className="mt-8 card-elevated p-5 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                      <Users className="h-5 w-5 text-primary" />
+                    </div>
+                    <h2 className="font-display text-lg font-semibold text-foreground">
+                      Team Access
+                    </h2>
+                  </div>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    Partners can provision up to 50 operator seats. Operators get training access
+                    only and must sign in with the exact email address you invite here.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm">
+                  {isTeamAccessLoading || !teamAccessState ? (
+                    'Loading seats...'
+                  ) : (
+                    <span className="font-medium text-foreground">
+                      {teamAccessState.usedSeats}/{teamAccessState.seatLimit} seats used
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-6 xl:grid-cols-[0.88fr,1.12fr]">
+                <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
+                  <div className="flex items-center gap-3">
+                    <MailPlus className="h-5 w-5 text-primary" />
+                    <h3 className="font-semibold text-foreground">Add operator access</h3>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    The invite email sends operators to the existing login page. They can use
+                    password, Google, or email link after you add them here.
+                  </p>
+                  <div className="mt-5 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground">
+                        Operator email
+                      </label>
+                      <Input
+                        type="email"
+                        value={operatorEmail}
+                        onChange={(event) => setOperatorEmail(event.target.value)}
+                        placeholder="operator@example.com"
+                        className="mt-1"
+                        disabled={
+                          createOperatorInviteMutation.isPending ||
+                          Boolean(teamAccessState && teamAccessState.availableSeats <= 0)
+                        }
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={handleCreateOperatorInvite}
+                      disabled={
+                        createOperatorInviteMutation.isPending ||
+                        Boolean(teamAccessState && teamAccessState.availableSeats <= 0)
+                      }
+                    >
+                      {createOperatorInviteMutation.isPending
+                        ? 'Sending invite...'
+                        : teamAccessState && teamAccessState.availableSeats <= 0
+                          ? 'Seat limit reached'
+                          : 'Add operator'}
+                    </Button>
+                    {teamAccessState && (
+                      <p className="text-xs text-muted-foreground">
+                        {teamAccessState.availableSeats > 0
+                          ? `${teamAccessState.availableSeats} seats still available. Pending invites count against the limit until revoked or accepted.`
+                          : 'All seats are currently allocated. Revoke an active operator or pending invite to free a seat.'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Active operators
+                        </p>
+                        <h3 className="mt-1 font-semibold text-foreground">
+                          {teamAccessState?.activeOperatorCount ?? 0} active seats
+                        </h3>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {teamAccessState?.activeOperators.length ? (
+                        teamAccessState.activeOperators.map((membership) => (
+                          <div
+                            key={membership.id}
+                            className="rounded-[20px] border border-border bg-muted/20 p-4"
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="font-medium text-foreground">{membership.email}</p>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  Joined {formatDateTime(membership.joinedAt)}
+                                </p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  handleRevokeAccess({
+                                    membershipId: membership.id,
+                                    email: membership.email,
+                                  })}
+                                disabled={revokeAccessMutation.isPending}
+                              >
+                                Revoke access
+                              </Button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-[20px] border border-dashed border-border bg-muted/10 p-4 text-sm text-muted-foreground">
+                          No operators are active yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Pending invites
+                        </p>
+                        <h3 className="mt-1 font-semibold text-foreground">
+                          {teamAccessState?.pendingInviteCount ?? 0} pending
+                        </h3>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {teamAccessState?.pendingInvites.length ? (
+                        teamAccessState.pendingInvites.map((invite) => (
+                          <div
+                            key={invite.id}
+                            className="rounded-[20px] border border-border bg-muted/20 p-4"
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="font-medium text-foreground">{invite.email}</p>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  {invite.lastSendError
+                                    ? `Send failed: ${invite.lastSendError}`
+                                    : `Last sent ${formatDateTime(invite.lastSentAt)}`}
+                                </p>
+                              </div>
+                              <div className="flex flex-col gap-2 sm:flex-row">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleResendInvite(invite.id, invite.email)}
+                                  disabled={resendInviteMutation.isPending}
+                                >
+                                  Resend invite
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    handleRevokeAccess({
+                                      inviteId: invite.id,
+                                      email: invite.email,
+                                    })}
+                                  disabled={revokeAccessMutation.isPending}
+                                >
+                                  Revoke invite
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-[20px] border border-dashed border-border bg-muted/10 p-4 text-sm text-muted-foreground">
+                          No pending operator invites.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </PortalLayout>

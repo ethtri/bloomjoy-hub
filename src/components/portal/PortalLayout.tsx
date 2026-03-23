@@ -15,18 +15,30 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { getPortalDestinationByPath, portalDestinations } from '@/components/portal/portalNavigation';
+import {
+  getPortalAccessBadgeLabel,
+  getPortalRequirementLabel,
+  hasPortalAccess,
+} from '@/lib/portalAccess';
 
 interface PortalLayoutProps {
   children: ReactNode;
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
-  const { isMember, isAdmin } = useAuth();
+  const { accessTier, portalRole, isAdmin, user } = useAuth();
   const location = useLocation();
   const currentDestination = getPortalDestinationByPath(location.pathname);
   const sortedDestinations = [...portalDestinations].sort(
     (left, right) => left.mobileOrder - right.mobileOrder
   );
+  const hasPaidMembership = Boolean(user?.membershipStatus && user.membershipPlan);
+  const accessBadgeLabel = getPortalAccessBadgeLabel({
+    accessTier,
+    portalRole,
+    hasPaidMembership,
+    isAdmin,
+  });
 
   return (
     <AppLayout>
@@ -36,24 +48,26 @@ export function PortalLayout({ children }: PortalLayoutProps) {
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  Member Portal
+                  Bloomjoy App
                 </p>
                 <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                  Move between orders, account details, training, onboarding, and support
-                  without losing context.
+                  Move between orders, account details, training, onboarding, support, and team
+                  access without dropping back into the public sales shell.
                 </p>
               </div>
               <div className="hidden md:flex">
                 <span
                   className={cn(
                     'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium',
-                    isMember
+                    accessTier === 'plus'
                       ? 'border-sage/20 bg-sage-light text-sage'
-                      : 'border-primary/20 bg-primary/10 text-primary'
+                      : accessTier === 'training'
+                        ? 'border-sky-200 bg-sky-50 text-sky-700'
+                        : 'border-primary/20 bg-primary/10 text-primary'
                   )}
                 >
                   <currentDestination.icon className="h-4 w-4" />
-                  {isMember ? 'Plus active' : 'Baseline access'}
+                  {accessBadgeLabel}
                 </span>
               </div>
               <div className="md:hidden">
@@ -74,9 +88,9 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                         </span>
                       </span>
                       <span className="ml-3 flex items-center gap-2">
-                        {currentDestination.access === 'plus' && !isMember && (
+                        {!hasPortalAccess(accessTier, currentDestination.access) && (
                           <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-                            Plus
+                            {getPortalRequirementLabel(currentDestination.access)}
                           </span>
                         )}
                         <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -95,7 +109,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                     </SheetHeader>
                     <div className="mt-6 space-y-2">
                       {sortedDestinations.map((destination) => {
-                        const locked = destination.access === 'plus' && !isMember;
+                        const locked = !hasPortalAccess(accessTier, destination.access);
 
                         return (
                           <SheetClose asChild key={destination.href}>
@@ -127,7 +141,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                                   </span>
                                   {locked && (
                                     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-                                      Plus
+                                      {getPortalRequirementLabel(destination.access)}
                                     </span>
                                   )}
                                 </span>
@@ -166,7 +180,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
 
             <nav className="hidden flex-wrap gap-2 md:flex">
               {sortedDestinations.map((destination) => {
-                const locked = destination.access === 'plus' && !isMember;
+                const locked = !hasPortalAccess(accessTier, destination.access);
 
                 return (
                   <NavLink
@@ -184,7 +198,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                       <span>{destination.label}</span>
                       {locked && (
                         <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
-                          Plus
+                          {getPortalRequirementLabel(destination.access)}
                         </span>
                       )}
                     </span>

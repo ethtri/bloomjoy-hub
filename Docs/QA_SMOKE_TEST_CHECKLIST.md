@@ -58,11 +58,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
 - [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
-- [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
+- [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` loads the same app-shell login experience and preserves invite query params
 - [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights and the top app header stays compact without an extra context row pushing content below the fold
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
+- [ ] Invite-aware login pre-fills the invited email and shows role-specific copy for both partner and operator invites
 - [ ] Password sign-in works for an existing email/password user
 - [ ] Forgot-password flow sends reset email and `/reset-password` successfully updates password
 - [ ] Google sign-in works when Supabase Google provider is enabled
@@ -76,13 +77,19 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] On mobile app routes, page-intro actions stack cleanly full width instead of squeezing side-by-side on `/portal`, `/portal/orders`, `/portal/account`, `/portal/onboarding`, `/portal/support`, and `/portal/training`
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
-- [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
-- [ ] Non-Plus login still sees premium destinations in portal navigation and dashboard action cards with clear locked/Plus treatment
+- [ ] Baseline login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
+- [ ] Invited operator login can access `/portal/training` but is blocked from `/portal/onboarding`, `/portal/support`, and `/admin`
+- [ ] Partner login can access `/portal/training`, `/portal/onboarding`, `/portal/support`, and `/portal/account`, but is blocked from `/admin`
+- [ ] Baseline and operator users still see locked destinations in portal navigation and dashboard action cards with clear training/Plus treatment
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
 - [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
 - [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
+- [ ] Partner `/portal/account` shows Team Access with seat usage, add-operator form, active operators, and pending invites
+- [ ] Partner can add an operator, resend a pending invite, and revoke a pending or active operator seat from `/portal/account`
+- [ ] The 51st operator invite is blocked with a clear seat-limit error until a seat is freed
+- [ ] Invite-email delivery failures leave the pending invite visible in `/portal/account` with resend available
 - [ ] Onboarding checklist progress updates when steps are toggled
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
@@ -131,6 +138,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Private training documents are not publicly reachable by direct URL when using Supabase-backed document assets
 - [ ] Source-PDF download actions for document-first guides resolve through signed `training-documents` URLs rather than public bucket links
 - [ ] Support request forms submit and show success state
+- [ ] Support request edge-function intake rejects baseline and operator users with a `403` if they bypass the UI and call it directly
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 - [ ] Submitted support request triggers a WeCom alert with request type, customer email, and subject
 - [ ] `/portal/support` includes a WeChat onboarding concierge form with phone region/number, blocked-step selection, and referral-needed selection

@@ -1,5 +1,26 @@
 # Decisions
 
+## 2026-03-22 - Billing-independent partner/operator access for UAT
+Bloomjoy will use an account-linked access model alongside the existing Stripe subscription model:
+
+- `partner` access is provisioned by invite and is not tied to a Stripe Plus subscription.
+- `operator` access is provisioned by a partner and grants training access only.
+- A partner can provision up to 50 additional operator seats on the same customer account.
+- Partner access includes the same portal surfaces as Bloomjoy Plus (`training`, `onboarding`, `support`) but does not grant `/admin`.
+- Operator access includes the authenticated shell plus training resources only.
+
+**Why this choice**
+- UAT needs partner-led operator provisioning before a full billing/account refactor exists.
+- This keeps the existing subscription-backed billing model intact while unblocking training access delegation.
+- It avoids giving partner users super-admin access just to manage operator seats.
+
+**Implementation notes**
+- New tables: `customer_accounts`, `customer_account_memberships`, `customer_account_invites`.
+- Effective portal access tiers are now `baseline`, `training`, and `plus`.
+- Invite emails are transactional notifications that send the user to the normal login page with invite-aware copy and prefilled email.
+- Invite emails are not one-time auth tokens. Users still sign in with the normal password, Google, or email-link methods.
+- Pending invites continue to count against the 50-seat limit until they are accepted or revoked.
+
 ## 2026-03-22 - Split the operator app from the public marketing site
 Bloomjoy now uses three host roles:
 
