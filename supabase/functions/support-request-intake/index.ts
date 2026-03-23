@@ -24,6 +24,83 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
 
 const sanitizeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
+const hasLegacyPlusAccess = async (userId: string) => {
+  if (!supabase) {
+    return false;
+  }
+
+  const [{ data: adminRole, error: adminError }, { data: subscriptions, error: subscriptionError }] =
+    await Promise.all([
+      supabase
+        .from("admin_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .eq("role", "super_admin")
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("subscriptions")
+        .select("status,current_period_end")
+        .eq("user_id", userId)
+        .order("current_period_end", { ascending: false }),
+    ]);
+
+  if (adminError) {
+    throw new Error(adminError.message || "Unable to verify admin access.");
+  }
+
+  if (adminRole?.role === "super_admin") {
+    return true;
+  }
+
+  if (subscriptionError) {
+    throw new Error(subscriptionError.message || "Unable to verify subscription access.");
+  }
+
+  const now = Date.now();
+
+  return (subscriptions ?? []).some((subscription) => {
+    const status = sanitizeText(subscription.status).toLowerCase();
+    const periodEnd =
+      typeof subscription.current_period_end === "string" && subscription.current_period_end
+        ? new Date(subscription.current_period_end).getTime()
+        : null;
+
+    return (
+      (status === "active" || status === "trialing") &&
+      (periodEnd === null || Number.isNaN(periodEnd) || periodEnd > now)
+    );
+  });
+};
+
+const resolveHasSupportAccess = async (userId: string) => {
+  if (!supabase) {
+    return false;
+  }
+
+  const { data, error } = await supabase.rpc("can_access_plus_portal_for_user", {
+    p_user_id: userId,
+  });
+
+  if (!error) {
+    return Boolean(data);
+  }
+
+  const errorMessage = `${error.message || ""} ${error.details || ""}`.toLowerCase();
+  const missingAccessRpc =
+    errorMessage.includes("can_access_plus_portal_for_user") &&
+    (errorMessage.includes("does not exist") ||
+      errorMessage.includes("could not find the function") ||
+      errorMessage.includes("schema cache"));
+
+  if (!missingAccessRpc) {
+    throw new Error(error.message || "Unable to verify support access.");
+  }
+
+  return hasLegacyPlusAccess(userId);
+};
+
 const sanitizeIntakeMeta = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -94,16 +171,7 @@ serve(async (req) => {
       });
     }
 
-    const { data: hasPlusAccess, error: accessError } = await supabase.rpc(
-      "can_access_plus_portal_for_user",
-      {
-        p_user_id: user.id,
-      },
-    );
-
-    if (accessError) {
-      throw new Error(accessError.message || "Unable to verify support access.");
-    }
+    const hasPlusAccess = await resolveHasSupportAccess(user.id);
 
     if (!hasPlusAccess) {
       return new Response(
