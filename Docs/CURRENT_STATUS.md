@@ -22,6 +22,20 @@
 - Remaining external dependency for production invite delivery:
   - Resend sender configuration should expose a valid transactional sender via `PARTNER_INVITE_FROM_EMAIL`, `TRANSACTIONAL_FROM_EMAIL`, or the existing internal sender fallback.
 
+## Partner/operator production rollout snapshot (2026-03-27)
+- Remote migration `202603220001_partner_operator_accounts.sql` is applied to Supabase project `ygbzkgxktzqsiygjlqyg`.
+- Supabase edge functions `customer-account-team` and `support-request-intake` are active in production.
+- `app.bloomjoyusa.com` now resolves in DNS and `https://app.bloomjoyusa.com/login` returns `200`.
+- Supabase Auth URL configuration now uses:
+  - `site_url = https://app.bloomjoyusa.com`
+  - redirect allowlist entries for both `app.bloomjoyusa.com` and `www.bloomjoyusa.com` routes used by login, portal, reset-password, and invite flows
+- Live verification completed on `2026-03-27`:
+  - password sign-in on `https://app.bloomjoyusa.com/login` lands on `/portal`
+  - fresh magic-link/signup verification links redirect to `https://app.bloomjoyusa.com/portal` instead of `https://www.bloomjoyusa.com`
+- No platform blocker remains for Adam UAT.
+- Remaining operational step before Adam can test:
+  - provision `Adam@bloomjoysweets.com` with a partner invite and run one live partner/operator smoke pass.
+
 ## Operator app surface split (2026-03-22)
 - Authenticated operator routes now have a dedicated application shell and canonical host instead of inheriting the public sales navbar/footer.
 - Canonical host roles for this slice:
@@ -162,6 +176,7 @@ Execution order is based on launch risk and dependency overlap.
   - `npm run lint --if-present`
 
 ## Owner next steps
+- Provision `Adam@bloomjoysweets.com` with partner access, then validate one operator invite end to end before broader UAT distribution.
 - Execute production auth setup in `Docs/AUTH_OAUTH_BRANDING_RUNBOOK.md` (Google branding, custom auth domain, redirect/origin verification).
 - Provision and configure Resend SMTP for production auth emails per decision `2026-03-02` in `Docs/DECISIONS.md` (`#77`).
 - Complete launch evidence and approvals in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
@@ -247,6 +262,7 @@ Execution order is based on launch risk and dependency overlap.
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
+- Any auth emails generated before the `2026-03-27` Supabase URL-configuration fix can still contain stale `www.bloomjoyusa.com` redirects; use fresh auth emails for UAT.
 - Internal notification pipeline is restored for quote submissions, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender, recipient list).
 - WeCom alert dispatch reliability now depends on owner-managed function secrets and app visibility scope (`WECOM_CORP_ID`, `WECOM_AGENT_ID`, `WECOM_AGENT_SECRET`, `WECOM_ALERT_TO_USERIDS`).
 - WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).

@@ -2,7 +2,7 @@
 
 Purpose: make Google sign-in show Bloomjoy branding and move OAuth callbacks off `<project-ref>.supabase.co` to a Bloomjoy-owned auth subdomain.
 
-Last updated: 2026-03-22
+Last updated: 2026-03-27
 
 ## 1) Prerequisites
 - Domain access for Bloomjoy DNS (to create CNAME/TXT records).
@@ -39,7 +39,11 @@ Record status as `Not started`, `In progress`, `Done`, or `Blocked`.
 Current project snapshot (2026-03-19):
 - Bloomjoy Hub project ref: `ygbzkgxktzqsiygjlqyg`
 - Current blocker: Supabase Custom Domain add-on is not enabled yet, so domain commands fail until billing/add-on enablement is complete.
-- Current auth regression evidence: any live Google sign-in fallback to `http://localhost:3000/#access_token=...` indicates Supabase Site URL and/or the deployed production redirect allowlist is still on stale host values.
+- Production auth URL configuration fix completed on `2026-03-27`:
+  - Supabase `site_url` is now `https://app.bloomjoyusa.com`
+  - production redirect allowlist now includes the app-host login, portal, and reset-password routes
+  - fresh password and magic-link flows now land on `https://app.bloomjoyusa.com/portal`
+- Remaining auth-domain blocker: custom auth domain cutover to `auth.bloomjoyusa.com` is still pending the Supabase Custom Domain add-on.
 
 ## 2.1) Copy/paste setup values (Bloomjoy)
 Use these exact values when configuring Google OAuth + Supabase auth settings:

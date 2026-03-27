@@ -38,6 +38,8 @@ Bloomjoy now uses three host roles:
 - App routes stay `noindex` and are excluded from the public sitemap.
 - `www` requests for `/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `app`.
 - `app` requests for public marketing/storefront routes redirect back to `www`.
+- Supabase Auth `site_url` must point to `https://app.bloomjoyusa.com`, not `https://www.bloomjoyusa.com`.
+- Supabase redirect allowlists must include the app host routes (`/login`, `/login/operator`, `/portal`, `/reset-password`) and keep marketing-host aliases only as explicit cutover/compatibility entries.
 - `/login/operator` remains a temporary alias that canonicalizes to `/login`.
 
 Record decisions here so agents don’t “thrash” the stack.

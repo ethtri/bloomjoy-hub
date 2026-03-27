@@ -59,9 +59,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Login flow works (magic link or configured method)
 - [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` loads the same app-shell login experience and preserves invite query params
+- [ ] Supabase Auth URL configuration uses `Site URL = https://app.bloomjoyusa.com` and allowlists both `app.bloomjoyusa.com` and `www.bloomjoyusa.com` routes needed for auth redirects
 - [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights and the top app header stays compact without an extra context row pushing content below the fold
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
-- [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
+- [ ] Fresh magic-link or signup-confirmation email is received in the configured inbox and completes on `https://app.bloomjoyusa.com/portal` via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Invite-aware login pre-fills the invited email and shows role-specific copy for both partner and operator invites
 - [ ] Password sign-in works for an existing email/password user
