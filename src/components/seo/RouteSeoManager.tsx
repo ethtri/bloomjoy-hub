@@ -14,10 +14,13 @@ type RouteSeo = {
 
 const DEFAULT_DESCRIPTION =
   "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.";
-const DEFAULT_IMAGE_PATH = "/favicon.svg";
+const DEFAULT_SHARE_IMAGE_PATH = "/bloomjoy-share.jpg";
+const ORGANIZATION_LOGO_PATH = "/bloomjoy-icon.png";
 const WEBSITE_NAME = "Bloomjoy Hub";
 const ORGANIZATION_NAME = "Bloomjoy";
 const STRUCTURED_DATA_SCRIPT_ID = "seo-structured-data";
+const THEME_COLOR = "#f672a2";
+const DEFAULT_IMAGE_ALT = "Bloomjoy flower logo";
 
 const PUBLIC_ROBOTS = "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
@@ -273,7 +276,7 @@ const buildStructuredData = ({
       "@id": `${origin}/#organization`,
       name: ORGANIZATION_NAME,
       url: `${origin}/`,
-      logo: `${origin}${DEFAULT_IMAGE_PATH}`,
+      logo: `${origin}${ORGANIZATION_LOGO_PATH}`,
     },
     {
       "@type": "WebSite",
@@ -309,22 +312,26 @@ export const RouteSeoManager = () => {
     const canonicalPath = seo.canonicalPath ?? pathname;
     const canonicalOrigin = getCanonicalOriginForSurface(seo.surface, window.location);
     const canonicalUrl = `${canonicalOrigin}${canonicalPath}`;
-    const imageUrl = `${canonicalOrigin}${DEFAULT_IMAGE_PATH}`;
+    const imageUrl = `${canonicalOrigin}${DEFAULT_SHARE_IMAGE_PATH}`;
 
     document.title = seo.title;
     upsertMetaTag("name", "description", seo.description);
     upsertMetaTag("name", "robots", seo.robots);
+    upsertMetaTag("name", "theme-color", THEME_COLOR);
 
     upsertMetaTag("property", "og:title", seo.title);
+    upsertMetaTag("property", "og:site_name", WEBSITE_NAME);
     upsertMetaTag("property", "og:description", seo.description);
     upsertMetaTag("property", "og:type", seo.ogType ?? "website");
     upsertMetaTag("property", "og:url", canonicalUrl);
     upsertMetaTag("property", "og:image", imageUrl);
+    upsertMetaTag("property", "og:image:alt", DEFAULT_IMAGE_ALT);
 
     upsertMetaTag("name", "twitter:card", "summary_large_image");
     upsertMetaTag("name", "twitter:title", seo.title);
     upsertMetaTag("name", "twitter:description", seo.description);
     upsertMetaTag("name", "twitter:image", imageUrl);
+    upsertMetaTag("name", "twitter:image:alt", DEFAULT_IMAGE_ALT);
     upsertCanonicalLink(canonicalUrl);
 
     if (seo.robots === PUBLIC_ROBOTS) {
