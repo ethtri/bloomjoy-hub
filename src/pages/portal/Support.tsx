@@ -34,6 +34,60 @@ const blockedStepLabelMap: Record<WeChatBlockedStep, string> = {
   other: 'Other',
 };
 
+const wechatSetupSteps = [
+  {
+    title: '1. Download WeChat',
+    bullets: [
+      'On iPhone, open the App Store, search for WeChat, and install WeChat by Tencent.',
+      'On Android, open Google Play, search for WeChat, and tap Install.',
+    ],
+  },
+  {
+    title: '2. Create or log in to your account',
+    bullets: [
+      'Open WeChat after install and choose Sign Up if you are new to the app.',
+      'Use the phone number you want tied to manufacturer support.',
+      'If you already have a WeChat account, log in with your existing credentials.',
+    ],
+  },
+  {
+    title: '3. Complete the verification step',
+    bullets: [
+      'WeChat may require a registered user to scan a QR code before your account is approved.',
+      'That QR code expires in about 2 minutes, so plan the scan with Bloomjoy or your referral contact before you generate it.',
+      'If you get blocked on SMS verification, login, or the referral step, use the onboarding help form on this page.',
+    ],
+  },
+  {
+    title: '4. Add manufacturer contacts and groups',
+    bullets: [
+      'Use Contacts and the + button to add the manufacturer support contact from the QR code, WeChat ID, or phone number provided with your machine.',
+      'Accept any company or support-group invitations so you stay connected to the right threads.',
+      'In your first message, include your machine serial number and a short summary of the issue for faster troubleshooting.',
+    ],
+  },
+] as const;
+
+const wechatQuickActions = [
+  {
+    title: 'Translate messages',
+    description:
+      'Long-press a message, then tap Translate to read support messages in your preferred language.',
+  },
+  {
+    title: 'Send photos or videos',
+    description:
+      'Tap the + button, choose Camera, tap once to take a photo, or hold the button to record a video.',
+  },
+  {
+    title: 'Start a group call',
+    description:
+      'Tap the + button, choose Group Call, select the people you need, and tap OK.',
+  },
+] as const;
+
+const showLegacyWeChatGuide = false;
+
 export default function SupportPage() {
   const { user } = useAuth();
   const [activeForm, setActiveForm] = useState<SupportType>(null);
@@ -241,7 +295,63 @@ export default function SupportPage() {
               <h2 className="font-display text-xl font-semibold text-foreground">
                 WeChat Setup Guide
               </h2>
-              <div className="mt-4 prose prose-sm max-w-none text-muted-foreground">
+              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                Use this guide to get connected with the manufacturer support team, then keep it
+                handy for translation, photos, videos, and group-call troubleshooting.
+              </p>
+
+              <div className="mt-6 grid gap-4 xl:grid-cols-2">
+                {wechatSetupSteps.map((section) => (
+                  <section
+                    key={section.title}
+                    className="rounded-2xl border border-border/70 bg-background/80 p-4"
+                  >
+                    <h3 className="font-semibold text-foreground">{section.title}</h3>
+                    <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      {section.bullets.map((bullet) => (
+                        <li key={bullet} className="flex gap-2">
+                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                          <span>{bullet}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-sage/20 bg-sage-light p-4">
+                <p className="text-sm font-medium text-sage">Timing tip</p>
+                <p className="mt-2 text-sm text-sage">
+                  If WeChat asks for a QR-code verification scan, message Bloomjoy first so the
+                  registered user is ready before you generate the code. The approval window is
+                  short.
+                </p>
+              </div>
+
+              <div className="mt-6">
+                <h3 className="font-semibold text-foreground">Quick actions we use most</h3>
+                <div className="mt-3 grid gap-4 md:grid-cols-3">
+                  {wechatQuickActions.map((action) => (
+                    <section
+                      key={action.title}
+                      className="rounded-2xl border border-border/70 bg-muted/20 p-4"
+                    >
+                      <h4 className="text-sm font-semibold text-foreground">{action.title}</h4>
+                      <p className="mt-2 text-sm text-muted-foreground">{action.description}</p>
+                    </section>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-primary/15 bg-primary/5 p-4">
+                <p className="text-sm text-muted-foreground">
+                  The manufacturer support team provides 24/7 first-line technical support for
+                  machine diagnostics, troubleshooting, and warranty issues. Bloomjoy can help you
+                  get through setup blockers and referral steps during US business hours.
+                </p>
+              </div>
+              {showLegacyWeChatGuide && (
+                <div className="mt-4 prose prose-sm max-w-none text-muted-foreground">
                 <ol className="space-y-4">
                   <li>
                     <strong className="text-foreground">Download WeChat</strong> — Available on iOS and Android app stores.
@@ -259,7 +369,8 @@ export default function SupportPage() {
                 <p className="mt-4 rounded-lg bg-sage-light p-4 text-sage">
                   The manufacturer support team provides 24/7 first-line technical support. They can help with machine diagnostics, troubleshooting, and warranty issues.
                 </p>
-              </div>
+                </div>
+              )}
               <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <Button
                   variant="outline"
