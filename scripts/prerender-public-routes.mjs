@@ -9,12 +9,14 @@ const APP_ORIGIN = "https://app.bloomjoyusa.com";
 const PUBLIC_ROBOTS =
   "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
-const DEFAULT_IMAGE = `${MARKETING_ORIGIN}/favicon.svg`;
+const ORGANIZATION_LOGO = `${MARKETING_ORIGIN}/bloomjoy-icon.png`;
 const DEFAULT_DESCRIPTION =
   "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.";
 const WEBSITE_NAME = "Bloomjoy Hub";
 const ORGANIZATION_NAME = "Bloomjoy";
 const STRUCTURED_DATA_SCRIPT_ID = "seo-structured-data";
+const THEME_COLOR = "#f672a2";
+const DEFAULT_IMAGE_ALT = "Bloomjoy flower logo";
 
 const publicRoutes = [
   {
@@ -200,6 +202,8 @@ const upsertTitle = (html, title) =>
 const canonicalForPath = (origin, pathname) =>
   pathname === "/" ? `${origin}/` : `${origin}${pathname}`;
 
+const shareImageForOrigin = (origin) => `${origin}/bloomjoy-share.jpg`;
+
 const buildStructuredData = ({ canonicalUrl, title, description }) => ({
   "@context": "https://schema.org",
   "@graph": [
@@ -208,7 +212,7 @@ const buildStructuredData = ({ canonicalUrl, title, description }) => ({
       "@id": `${MARKETING_ORIGIN}/#organization`,
       name: ORGANIZATION_NAME,
       url: `${MARKETING_ORIGIN}/`,
-      logo: DEFAULT_IMAGE,
+      logo: ORGANIZATION_LOGO,
     },
     {
       "@type": "WebSite",
@@ -237,20 +241,25 @@ const buildStructuredData = ({ canonicalUrl, title, description }) => ({
 
 const withSeoTags = (template, route) => {
   const canonicalUrl = canonicalForPath(MARKETING_ORIGIN, route.path);
+  const shareImage = shareImageForOrigin(MARKETING_ORIGIN);
   let html = template;
 
   html = upsertTitle(html, route.title);
   html = upsertMetaTag(html, "name", "description", route.description);
   html = upsertMetaTag(html, "name", "robots", PUBLIC_ROBOTS);
+  html = upsertMetaTag(html, "name", "theme-color", THEME_COLOR);
   html = upsertMetaTag(html, "property", "og:title", route.title);
+  html = upsertMetaTag(html, "property", "og:site_name", WEBSITE_NAME);
   html = upsertMetaTag(html, "property", "og:description", route.description);
   html = upsertMetaTag(html, "property", "og:type", route.ogType);
   html = upsertMetaTag(html, "property", "og:url", canonicalUrl);
-  html = upsertMetaTag(html, "property", "og:image", DEFAULT_IMAGE);
+  html = upsertMetaTag(html, "property", "og:image", shareImage);
+  html = upsertMetaTag(html, "property", "og:image:alt", DEFAULT_IMAGE_ALT);
   html = upsertMetaTag(html, "name", "twitter:card", "summary_large_image");
   html = upsertMetaTag(html, "name", "twitter:title", route.title);
   html = upsertMetaTag(html, "name", "twitter:description", route.description);
-  html = upsertMetaTag(html, "name", "twitter:image", DEFAULT_IMAGE);
+  html = upsertMetaTag(html, "name", "twitter:image", shareImage);
+  html = upsertMetaTag(html, "name", "twitter:image:alt", DEFAULT_IMAGE_ALT);
   html = upsertCanonical(html, canonicalUrl);
   html = upsertStructuredDataScript(
     html,
@@ -269,20 +278,25 @@ const withPrivateSeoTags = (template, route) => {
     route.canonicalOrigin,
     route.canonicalPath ?? route.path
   );
+  const shareImage = shareImageForOrigin(route.canonicalOrigin);
   let html = template;
 
   html = upsertTitle(html, route.title);
   html = upsertMetaTag(html, "name", "description", DEFAULT_DESCRIPTION);
   html = upsertMetaTag(html, "name", "robots", PRIVATE_ROBOTS);
+  html = upsertMetaTag(html, "name", "theme-color", THEME_COLOR);
   html = upsertMetaTag(html, "property", "og:title", route.title);
+  html = upsertMetaTag(html, "property", "og:site_name", WEBSITE_NAME);
   html = upsertMetaTag(html, "property", "og:description", DEFAULT_DESCRIPTION);
   html = upsertMetaTag(html, "property", "og:type", "website");
   html = upsertMetaTag(html, "property", "og:url", canonicalUrl);
-  html = upsertMetaTag(html, "property", "og:image", DEFAULT_IMAGE);
+  html = upsertMetaTag(html, "property", "og:image", shareImage);
+  html = upsertMetaTag(html, "property", "og:image:alt", DEFAULT_IMAGE_ALT);
   html = upsertMetaTag(html, "name", "twitter:card", "summary_large_image");
   html = upsertMetaTag(html, "name", "twitter:title", route.title);
   html = upsertMetaTag(html, "name", "twitter:description", DEFAULT_DESCRIPTION);
-  html = upsertMetaTag(html, "name", "twitter:image", DEFAULT_IMAGE);
+  html = upsertMetaTag(html, "name", "twitter:image", shareImage);
+  html = upsertMetaTag(html, "name", "twitter:image:alt", DEFAULT_IMAGE_ALT);
   html = upsertCanonical(html, canonicalUrl);
   html = removeStructuredDataScript(html);
 
