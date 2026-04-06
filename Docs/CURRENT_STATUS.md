@@ -12,28 +12,34 @@
   - `stripe-webhook` was failing on every invocation because it used synchronous Stripe signature verification instead of `await constructEventAsync(...)`
   - paid orders were therefore not being persisted into `public.orders`
   - internal email / WeCom notifications and customer confirmations were not reliably sent
-- Current remediation slice on branch `agent/emergency-commerce-remediation` delivers:
+- Production remediation is now deployed on `main`:
   - server-enforced sugar pricing (`$8/kg` Plus, `$10/kg` everyone else)
   - repaired Stripe webhook parsing and durable order snapshot persistence
   - expanded order records for contact, address, pricing tier, shipping total, receipt URL, and channel-specific notification status
   - app-generated customer confirmation emails
   - admin order detail visibility for address, pricing tier, sugar color mix, receipt, and notification status
   - operational helpers: `npm run commerce:preflight` and `npm run orders:backfill`
-- Customer confirmation email follow-up on branch `agent/customer-confirmation-email-redesign`:
+- April 6 production follow-through completed:
+  - production secrets were updated for tiered sugar pricing
+  - the live `$10/kg` non-member Stripe sugar price was created and wired into checkout
+  - the April 6 paid sugar orders were backfilled into `public.orders`
+  - a follow-up live `$0` smoke order confirmed internal email and customer confirmation delivery through the repaired webhook
+- Customer confirmation email redesign is also deployed on `main`:
   - replaces the raw plain-text confirmation body with a branded HTML order email
   - keeps the plain-text fallback for mailbox clients that do not render HTML
   - presents totals, shipping details, item breakdown, receipt access, and support next steps in a customer-friendly layout
-- Production blocker still present until secrets are updated:
-  - `STRIPE_SUGAR_NON_MEMBER_PRICE_ID` is missing in production
-  - all required `WECOM_*` secrets are missing in production
-- Verified by `node scripts/commerce-preflight.mjs --project-ref ygbzkgxktzqsiygjlqyg`, which currently fails on those missing secrets as intended.
+- Remaining production issue:
+  - WeCom token auth now succeeds, but live message sends are still blocked by WeCom IP policy (`60020: not allow to access from your ip`)
+  - internal email and customer confirmation email are currently working in production
+- Verified on `2026-04-06` by:
+  - `node scripts/commerce-preflight.mjs --project-ref ygbzkgxktzqsiygjlqyg`
+  - a live `$0` Stripe checkout smoke order after the webhook email redesign deployment
 
 ## Next P0 milestones
-- Complete production rollout for the emergency commerce remediation slice:
-  - set `STRIPE_SUGAR_MEMBER_PRICE_ID` and `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`
-  - set `WECOM_CORP_ID`, `WECOM_AGENT_ID`, `WECOM_AGENT_SECRET`, and `WECOM_ALERT_TO_USERIDS`
-  - deploy the updated Stripe edge functions
-  - replay or manually backfill the paid April 6 orders into `orders`
+- Clear the remaining WeCom production blocker:
+  - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
+  - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully
+  - re-run the live `$0` order smoke test and confirm `wecom_alert_sent_at` populates in `public.orders`
 - Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
 
 ## Operator app surface split (2026-03-22)
@@ -262,7 +268,7 @@ Execution order is based on launch risk and dependency overlap.
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
 - Internal notification pipeline is restored for quote submissions, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender, recipient list).
-- WeCom alert dispatch reliability now depends on owner-managed function secrets and app visibility scope (`WECOM_CORP_ID`, `WECOM_AGENT_ID`, `WECOM_AGENT_SECRET`, `WECOM_ALERT_TO_USERIDS`).
+- WeCom alert dispatch reliability now depends on owner-managed app policy as well as valid secrets/recipient scope; current live failure is `60020: not allow to access from your ip`.
 - WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.
 - Additional Vimeo uploads may exist before the portal catalog is synced; uploaded videos are not discoverable until `trainings` and `training_assets` are populated in Supabase.
@@ -273,7 +279,7 @@ Execution order is based on launch risk and dependency overlap.
 
 ## Environments
 - Local: `npm run dev` on a PR branch/worktree
-- Production: runbook ready in `Docs/PRODUCTION_RUNBOOK.md`; execution pending owner credentials
+- Production: `main` deployed to `www.bloomjoyusa.com` / `app.bloomjoyusa.com`; remaining commerce follow-up is limited to WeCom alert delivery policy and dedicated Resend ownership
 
 ## How to test on localhost (simple steps)
 1) In the project folder, run `npm ci`

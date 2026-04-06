@@ -97,6 +97,9 @@ Before continuing, run:
 npm run commerce:preflight -- --project-ref <project-ref>
 ```
 
+WeCom note:
+- If token auth succeeds but live sends fail with `60020: not allow to access from your ip`, the remaining issue is WeCom-side network/IP policy, not the secret values. Fix the app/network restriction in WeCom admin, then re-run a live smoke order.
+
 ### Step C: Deploy Stripe Edge Functions
 Deploy all current checkout/submission functions:
 
@@ -143,11 +146,11 @@ Run immediately after deploy:
 - [ ] Bloomjoy Plus sugar checkout charges `$8/kg` and creates `orders` record in Supabase.
 - [ ] Sugar checkout test order stores customer contact, billing/shipping address, pricing tier, receipt URL, and color breakdown in `orders`.
 - [ ] Sugar checkout test order sends internal summary email to configured operations recipients.
-- [ ] Sugar checkout test order sends customer confirmation email with order summary and receipt link.
-- [ ] Sugar checkout test order sends WeCom alert when `WECOM_*` secrets are configured.
+- [ ] Sugar checkout test order sends customer confirmation email with the branded HTML confirmation layout, order summary, and receipt link.
+- [ ] Sugar checkout test order sends WeCom alert when `WECOM_*` secrets are configured and the WeCom app/network policy allows traffic from the live function egress IPs.
 - [ ] Blank sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
 - [ ] Blank sticks checkout test order sends internal summary email to configured operations recipients.
-- [ ] Blank sticks checkout test order sends customer confirmation email.
+- [ ] Blank sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
 - [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
