@@ -146,12 +146,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
 - [ ] Sugar checkout writes an `orders` row with customer email/name/phone, billing address, shipping address, pricing tier, unit price, shipping total, receipt URL, and sugar color mix
 - [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, pricing tier, sugar mix, line items)
-- [ ] Sugar checkout sends customer confirmation email with order reference, shipping address, color quantities, and receipt link
+- [ ] Sugar checkout sends customer confirmation email with branded HTML layout, clear totals, shipping address, color quantities, and receipt link
 - [ ] Sugar checkout completed webhook sends a WeCom internal alert with order ID, customer, and sugar breakdown
 - [ ] Blank sticks checkout completes with test card for 5+ boxes and shows free shipping in Stripe Checkout
 - [ ] Blank sticks checkout writes an `orders` row with billing/shipping address, shipping total, receipt URL, and order detail metadata
 - [ ] Blank sticks checkout completed webhook sends internal order summary email with box count, machine size, address type, and shipping total
-- [ ] Blank sticks checkout sends customer confirmation email with shipping address and receipt link
+- [ ] Blank sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
 - [ ] Blank sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
 - [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin

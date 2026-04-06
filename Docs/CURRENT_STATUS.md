@@ -19,6 +19,10 @@
   - app-generated customer confirmation emails
   - admin order detail visibility for address, pricing tier, sugar color mix, receipt, and notification status
   - operational helpers: `npm run commerce:preflight` and `npm run orders:backfill`
+- Customer confirmation email follow-up on branch `agent/customer-confirmation-email-redesign`:
+  - replaces the raw plain-text confirmation body with a branded HTML order email
+  - keeps the plain-text fallback for mailbox clients that do not render HTML
+  - presents totals, shipping details, item breakdown, receipt access, and support next steps in a customer-friendly layout
 - Production blocker still present until secrets are updated:
   - `STRIPE_SUGAR_NON_MEMBER_PRICE_ID` is missing in production
   - all required `WECOM_*` secrets are missing in production
