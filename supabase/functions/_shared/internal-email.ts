@@ -31,6 +31,7 @@ export type TransactionalEmailInput = {
   to: string[];
   subject: string;
   text: string;
+  html?: string;
 };
 
 const getResendConfig = () => {
@@ -55,6 +56,7 @@ export async function sendTransactionalEmail({
   to,
   subject,
   text,
+  html,
 }: TransactionalEmailInput) {
   const { resendApiKey, fromEmail } = getResendConfig();
 
@@ -68,18 +70,24 @@ export async function sendTransactionalEmail({
     throw new Error("No email recipients configured.");
   }
 
+  const payload: Record<string, unknown> = {
+    from: fromEmail,
+    to: recipients,
+    subject,
+    text,
+  };
+
+  if (html) {
+    payload.html = html;
+  }
+
   const response = await fetch(RESEND_API_BASE_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${resendApiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from: fromEmail,
-      to: recipients,
-      subject,
-      text,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {

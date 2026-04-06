@@ -7,6 +7,7 @@ import {
   sendTransactionalEmail,
 } from "../_shared/internal-email.ts";
 import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
+import { buildCustomerOrderEmail } from "../_shared/customer-order-email.ts";
 
 export const config = {
   verify_jwt: false,
@@ -484,48 +485,6 @@ const buildInternalOrderEmail = (context: OrderContext) => {
   };
 };
 
-const buildCustomerConfirmationEmail = (context: OrderContext) => {
-  const orderSpecificLines =
-    context.orderType === "blank_sticks"
-      ? [
-        "Blank sticks order details:",
-        `- Boxes: ${context.blankSticks?.box_count ?? "n/a"}`,
-        `- Pieces per box: ${context.blankSticks?.pieces_per_box ?? "n/a"}`,
-        `- Stick size: ${formatStickSize(context.blankSticks?.stick_size)}`,
-        `- Address type: ${formatAddressType(context.blankSticks?.address_type)}`,
-      ]
-      : [
-        "Sugar order details (KG):",
-        `- White: ${context.sugarMix.white_kg}`,
-        `- Blue: ${context.sugarMix.blue_kg}`,
-        `- Orange: ${context.sugarMix.orange_kg}`,
-        `- Red: ${context.sugarMix.red_kg}`,
-        `- Total: ${context.sugarMix.total_kg}`,
-      ];
-
-  return {
-    subject: `Bloomjoy order confirmation ${context.session.id}`,
-    text: [
-      `Thanks for your ${formatOrderType(context.orderType).toLowerCase()} order.`,
-      "",
-      `Order reference: ${context.session.id}`,
-      `Order type: ${formatOrderType(context.orderType)}`,
-      `Payment status: ${context.session.payment_status || "unpaid"}`,
-      `Total charged: ${formatCurrency(context.session.amount_total, context.session.currency)}`,
-      `Pricing tier: ${formatPricingTier(context.pricingTier)}`,
-      `Unit price: ${formatUnitPrice(context.unitPriceCents)}`,
-      `Shipping total: ${formatCurrency(context.shippingTotalCents, context.session.currency)}`,
-      `Shipping name: ${context.shippingName ?? context.customerName ?? "n/a"}`,
-      `Shipping address: ${formatAddress(context.shippingAddress)}`,
-      `Receipt link: ${context.receiptUrl ?? "Your Stripe receipt email will include the payment receipt."}`,
-      "",
-      ...orderSpecificLines,
-      "",
-      "If you need help with this order, include the order reference above when you reply to your Stripe receipt email or your existing Bloomjoy thread.",
-    ].join("\n"),
-  };
-};
-
 const buildWeComAlertLines = (context: OrderContext): string[] => [
   `Checkout Session ID: ${context.session.id}`,
   `Order Type: ${formatOrderType(context.orderType)}`,
@@ -769,13 +728,32 @@ const sendCustomerConfirmation = async (context: OrderContext) => {
     return;
   }
 
-  const email = buildCustomerConfirmationEmail(context);
+  const email = buildCustomerOrderEmail({
+    orderReference: context.session.id,
+    orderPlacedAt: context.session.created
+      ? new Date(context.session.created * 1000).toISOString()
+      : new Date().toISOString(),
+    orderType: context.orderType,
+    paymentStatus: context.session.payment_status || "unpaid",
+    amountTotal: context.session.amount_total,
+    currency: context.session.currency,
+    pricingTier: context.pricingTier,
+    unitPriceCents: context.unitPriceCents,
+    shippingTotalCents: context.shippingTotalCents,
+    customerName: context.customerName,
+    shippingName: context.shippingName,
+    shippingAddress: context.shippingAddress,
+    receiptUrl: context.receiptUrl,
+    sugarMix: context.sugarMix,
+    blankSticks: context.blankSticks,
+  });
 
   try {
     await sendTransactionalEmail({
       to: [context.customerEmail],
       subject: email.subject,
       text: email.text,
+      html: email.html,
     });
     await updateOrderNotificationState(context.orderId, {
       customer_confirmation_sent_at: new Date().toISOString(),
