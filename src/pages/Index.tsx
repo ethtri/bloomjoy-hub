@@ -153,7 +153,7 @@ export default function HomePage() {
                 Premium Sugar, Engineered for Consistent Spins
               </h2>
               <p className="mt-3 text-muted-foreground">
-                Optimized granularity. Dust-free formula. Quality controlled for our robotic machines. Starting at $8/kg.
+                Optimized granularity. Dust-free formula. Quality controlled for our robotic machines. Public pricing starts at $10/kg, and Bloomjoy Plus members pay $8/kg.
               </p>
             </div>
             <Link to="/supplies">

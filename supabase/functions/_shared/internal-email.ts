@@ -27,10 +27,15 @@ export type InternalEmailInput = {
   text: string;
 };
 
-export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
+export type TransactionalEmailInput = {
+  to: string[];
+  subject: string;
+  text: string;
+};
+
+const getResendConfig = () => {
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
   const fromEmail = Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
-  const recipients = getRecipients();
 
   if (!resendApiKey) {
     throw new Error("Missing RESEND_API_KEY.");
@@ -40,8 +45,27 @@ export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
     throw new Error("Missing INTERNAL_NOTIFICATION_FROM_EMAIL.");
   }
 
+  return {
+    resendApiKey,
+    fromEmail,
+  };
+};
+
+export async function sendTransactionalEmail({
+  to,
+  subject,
+  text,
+}: TransactionalEmailInput) {
+  const { resendApiKey, fromEmail } = getResendConfig();
+
+  if (!to.length) {
+    throw new Error("No email recipients configured.");
+  }
+
+  const recipients = to.map((value) => value.trim().toLowerCase()).filter(Boolean);
+
   if (!recipients.length) {
-    throw new Error("No internal email recipients configured.");
+    throw new Error("No email recipients configured.");
   }
 
   const response = await fetch(RESEND_API_BASE_URL, {
@@ -64,4 +88,18 @@ export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
       `Resend request failed (${response.status}): ${errorBody || "Unknown error"}`
     );
   }
+}
+
+export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
+  const recipients = getRecipients();
+
+  if (!recipients.length) {
+    throw new Error("No internal email recipients configured.");
+  }
+
+  await sendTransactionalEmail({
+    to: recipients,
+    subject,
+    text,
+  });
 }

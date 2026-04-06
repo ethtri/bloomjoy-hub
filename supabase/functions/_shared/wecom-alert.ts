@@ -26,6 +26,12 @@ type WeComSendResponse = {
   errMessage: string;
 };
 
+export type WeComAlertResult = {
+  ok: boolean;
+  skipped: boolean;
+  message: string;
+};
+
 export type WeComAlertInput = {
   title: string;
   lines: string[];
@@ -206,17 +212,36 @@ export async function sendWeComAlert(input: WeComAlertInput): Promise<void> {
   await sendAlertWithConfig(config, input);
 }
 
-export async function sendWeComAlertSafe(input: WeComAlertInput): Promise<boolean> {
+export async function sendWeComAlertResult(
+  input: WeComAlertInput
+): Promise<WeComAlertResult> {
   const config = getConfig();
   if (!config) {
-    return false;
+    return {
+      ok: false,
+      skipped: true,
+      message: "WeCom alert configuration is missing.",
+    };
   }
 
   try {
     await sendAlertWithConfig(config, input);
-    return true;
+    return {
+      ok: true,
+      skipped: false,
+      message: "WeCom alert sent.",
+    };
   } catch (error) {
     console.warn("WeCom alert send failed (non-blocking).", error);
-    return false;
+    return {
+      ok: false,
+      skipped: false,
+      message: error instanceof Error ? error.message : "Unknown WeCom alert failure.",
+    };
   }
+}
+
+export async function sendWeComAlertSafe(input: WeComAlertInput): Promise<boolean> {
+  const result = await sendWeComAlertResult(input);
+  return result.ok;
 }

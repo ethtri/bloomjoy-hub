@@ -79,7 +79,7 @@ export const products: Record<string, Product> = {
     sku: 'sugar-white-1kg',
     name: 'Premium Cotton Candy Sugar - White (Milk)',
     type: 'supply',
-    price: 8,
+    price: 10,
     description: 'Optimized granularity, dust-free formula for consistent spins. Resealable 1KG bags for freshness and easy storage.',
     shortDescription: 'White (milk) flavor, 1KG resealable bag',
     features: [
@@ -96,7 +96,7 @@ export const products: Record<string, Product> = {
     sku: 'sugar-blue-1kg',
     name: 'Premium Cotton Candy Sugar - Blue (Blueberry)',
     type: 'supply',
-    price: 8,
+    price: 10,
     description: 'Optimized granularity, dust-free formula for consistent spins. Resealable 1KG bags for freshness and easy storage.',
     shortDescription: 'Blue (blueberry) flavor, 1KG resealable bag',
     features: [
@@ -113,7 +113,7 @@ export const products: Record<string, Product> = {
     sku: 'sugar-orange-1kg',
     name: 'Premium Cotton Candy Sugar - Orange',
     type: 'supply',
-    price: 8,
+    price: 10,
     description: 'Optimized granularity, dust-free formula for consistent spins. Resealable 1KG bags for freshness and easy storage.',
     shortDescription: 'Orange flavor, 1KG resealable bag',
     features: [
@@ -130,7 +130,7 @@ export const products: Record<string, Product> = {
     sku: 'sugar-red-1kg',
     name: 'Premium Cotton Candy Sugar - Red (Strawberry)',
     type: 'supply',
-    price: 8,
+    price: 10,
     description: 'Optimized granularity, dust-free formula for consistent spins. Resealable 1KG bags for freshness and easy storage.',
     shortDescription: 'Red (strawberry) flavor, 1KG resealable bag',
     features: [

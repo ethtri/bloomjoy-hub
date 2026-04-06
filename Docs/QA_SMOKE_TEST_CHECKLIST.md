@@ -35,6 +35,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
 - [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
 - [ ] Sugar page quick presets show `240 KG`, `400 KG`, and `800 KG`, with `400 KG` as the default target
+- [ ] Sugar page shows public pricing at `$10/kg` for signed-out or non-Plus users
+- [ ] Sugar page shows Bloomjoy Plus pricing at `$8/kg` only for users whose `subscriptions.status` is `active` or `trialing`
 - [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
 - [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)
 - [ ] Sticks ordering clearly supports blank paper sticks and custom paper sticks at `$130/box` with `2000 pieces/box`
@@ -138,12 +140,18 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] WeChat onboarding concierge submit writes `support_requests.request_type=wechat_onboarding` and structured `support_requests.intake_meta` values (`phone_region`, `phone_number`, `device_type`, `blocked_step`, `referral_needed`, optional `wechat_id`)
 
 ## Payments (test mode)
+- [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
+- [ ] Bloomjoy Plus sugar checkout uses `$8/kg` in the cart summary and Stripe Checkout
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
 - [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
-- [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, sugar mix, line items)
+- [ ] Sugar checkout writes an `orders` row with customer email/name/phone, billing address, shipping address, pricing tier, unit price, shipping total, receipt URL, and sugar color mix
+- [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, pricing tier, sugar mix, line items)
+- [ ] Sugar checkout sends customer confirmation email with order reference, shipping address, color quantities, and receipt link
 - [ ] Sugar checkout completed webhook sends a WeCom internal alert with order ID, customer, and sugar breakdown
 - [ ] Blank sticks checkout completes with test card for 5+ boxes and shows free shipping in Stripe Checkout
+- [ ] Blank sticks checkout writes an `orders` row with billing/shipping address, shipping total, receipt URL, and order detail metadata
 - [ ] Blank sticks checkout completed webhook sends internal order summary email with box count, machine size, address type, and shipping total
+- [ ] Blank sticks checkout sends customer confirmation email with shipping address and receipt link
 - [ ] Blank sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
 - [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
@@ -176,6 +184,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/orders`
 - [ ] Super-admin user can access `/admin/orders`
 - [ ] Admin orders supports search by customer email/order ID and date range filtering
+- [ ] Admin orders detail panel shows billing/shipping address snapshots, pricing tier, unit price, receipt link, and notification statuses
+- [ ] Admin orders detail panel shows sugar color quantities for sugar orders and box/size/address metadata for blank-sticks orders
 - [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
 - [ ] Non-admin user cannot access `/admin/accounts`
 - [ ] Super-admin user can access `/admin/accounts`

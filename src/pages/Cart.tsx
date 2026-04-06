@@ -7,14 +7,30 @@ import { Layout } from '@/components/layout/Layout';
 import { useCart } from '@/lib/cart';
 import { trackEvent } from '@/lib/analytics';
 import { startSugarCheckout } from '@/lib/stripeCheckout';
-import { SUGAR_COLOR_OPTIONS, SUGAR_PRICE_PER_KG, getSugarColorBreakdown, isSugarSku } from '@/lib/sugar';
+import {
+  SUGAR_COLOR_OPTIONS,
+  getSugarColorBreakdown,
+  getSugarPricePerKg,
+  isSugarSku,
+} from '@/lib/sugar';
+import { useAuth } from '@/contexts/AuthContext';
+import { hasPlusAccess } from '@/lib/membership';
 import { toast } from 'sonner';
 
 export default function CartPage() {
-  const { items, updateQuantity, removeItem, getTotal, clearCart } = useCart();
+  const { user } = useAuth();
+  const { items, updateQuantity, removeItem, clearCart } = useCart();
+  const hasPlusMembership = hasPlusAccess(user?.membershipStatus);
+  const sugarPricePerKg = getSugarPricePerKg(hasPlusMembership);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const sugarBreakdown = getSugarColorBreakdown(items);
   const sugarTotalKg = Object.values(sugarBreakdown).reduce((sum, quantity) => sum + quantity, 0);
+  const getDisplayUnitPrice = (sku: string, fallbackPrice: number) =>
+    isSugarSku(sku) ? sugarPricePerKg : fallbackPrice;
+  const displayTotal = items.reduce(
+    (sum, item) => sum + getDisplayUnitPrice(item.sku, item.price) * item.quantity,
+    0
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -108,7 +124,7 @@ export default function CartPage() {
                     <div className="flex-1">
                       <h3 className="font-semibold text-foreground">{item.name}</h3>
                       <p className="text-sm text-muted-foreground">
-                        ${item.price.toFixed(2)} each
+                        ${getDisplayUnitPrice(item.sku, item.price).toFixed(2)} each
                       </p>
                     </div>
                     <div className="flex items-center gap-2 rounded-lg border border-border p-1">
@@ -144,7 +160,9 @@ export default function CartPage() {
                       />
                     </div>
                     <p className="w-20 text-right font-semibold text-foreground">
-                      ${(item.price * item.quantity).toFixed(2)}
+                      ${(
+                        getDisplayUnitPrice(item.sku, item.price) * item.quantity
+                      ).toFixed(2)}
                     </p>
                     <Button
                       variant="ghost"
@@ -196,16 +214,23 @@ export default function CartPage() {
                       <div className="mt-1 flex justify-between text-foreground">
                         <span>Sugar subtotal</span>
                         <span className="font-semibold">
-                          ${(sugarTotalKg * SUGAR_PRICE_PER_KG).toFixed(2)}
+                          ${(sugarTotalKg * sugarPricePerKg).toFixed(2)}
                         </span>
                       </div>
                     </div>
                   </div>
                 )}
+                {sugarTotalKg > 0 && (
+                  <p className="mt-4 text-xs text-muted-foreground">
+                    {hasPlusMembership
+                      ? 'Bloomjoy Plus pricing is applied at $8/KG.'
+                      : 'Standard sugar pricing is applied at $10/KG. Active Bloomjoy Plus members pay $8/KG.'}
+                  </p>
+                )}
                 <div className="mt-4 space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Subtotal</span>
-                    <span className="font-medium text-foreground">${getTotal().toFixed(2)}</span>
+                    <span className="font-medium text-foreground">${displayTotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Shipping</span>
@@ -216,7 +241,7 @@ export default function CartPage() {
                   <div className="flex justify-between">
                     <span className="font-semibold text-foreground">Total</span>
                     <span className="font-display text-xl font-bold text-primary">
-                      ${getTotal().toFixed(2)}
+                      ${displayTotal.toFixed(2)}
                     </span>
                   </div>
                 </div>

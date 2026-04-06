@@ -152,7 +152,8 @@ To use all login methods in local dev:
 3) Run `git fetch origin` to update your view of recent merges
 4) Run `git status -sb` and make sure it looks clean
 5) Run `npm run auth:preflight` when working on auth/OAuth launch tasks
-6) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
+6) Run `npm run commerce:preflight` when working on Stripe/order/notification changes
+7) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
 
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
@@ -176,7 +177,9 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 1) Install Supabase CLI (once): https://supabase.com/docs/guides/cli
 2) Set function secrets (server-only):
    - `supabase secrets set STRIPE_SECRET_KEY=...`
-   - `supabase secrets set STRIPE_SUGAR_PRICE_ID=...`
+   - `supabase secrets set STRIPE_SUGAR_MEMBER_PRICE_ID=...`
+   - `supabase secrets set STRIPE_SUGAR_NON_MEMBER_PRICE_ID=...`
+   - Optional migration bridge only: `supabase secrets set STRIPE_SUGAR_PRICE_ID=...`
    - `supabase secrets set STRIPE_STICKS_PRICE_ID=...`
    - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`
@@ -187,8 +190,11 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set WECOM_AGENT_ID=...`
    - `supabase secrets set WECOM_AGENT_SECRET=...`
    - `supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager`
-   - Ensure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
-3) Run functions locally:
+   - Ensure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
+3) Run the commerce release preflight before deploy:
+   - Local env check: `npm run commerce:preflight`
+   - Remote secret presence check: `npm run commerce:preflight -- --project-ref <project-ref>`
+4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
    - `supabase functions serve stripe-plus-checkout --no-verify-jwt`
@@ -196,7 +202,24 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve stripe-webhook --no-verify-jwt`
    - `supabase functions serve lead-submission-intake --no-verify-jwt`
    - `supabase functions serve support-request-intake --no-verify-jwt`
-4) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
+5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
+
+## Stripe order backfill helper
+Use this when a paid Stripe checkout must be imported into `public.orders` because webhook replay is unavailable or the webhook failed before persistence.
+
+1) Ensure your local env includes:
+   - `STRIPE_SECRET_KEY`
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Find the Stripe Checkout Session ID(s) in Stripe Dashboard.
+3) Dry run one or more sessions:
+   - `npm run orders:backfill -- --session-id <cs_...> --dry-run`
+4) Import the order snapshot into Supabase:
+   - `npm run orders:backfill -- --session-id <cs_...>`
+
+Notes:
+- The helper writes the order snapshot only. It does not resend internal/customer/WeCom notifications.
+- Use Stripe event replay first when possible; use the backfill helper when replay is unavailable or insufficient.
 
 ## Common issues
 - Missing env vars can break pages. Check console + `.env` (or `.env.local`).

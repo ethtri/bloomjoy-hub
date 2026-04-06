@@ -57,15 +57,21 @@ export async function openCustomerPortal(origin: string) {
 }
 
 export async function startSugarCheckout(items: CartItem[], origin: string) {
-  const data = await invokeEdgeFunction<CheckoutResponse>('stripe-sugar-checkout', {
-    items: items.map((item) => ({
-      sku: item.sku,
-      quantity: item.quantity,
-      type: item.type,
-    })),
-    successUrl: `${origin}/cart?checkout=success`,
-    cancelUrl: `${origin}/cart?checkout=cancel`,
-  });
+  const data = await invokeEdgeFunction<CheckoutResponse>(
+    'stripe-sugar-checkout',
+    {
+      items: items.map((item) => ({
+        sku: item.sku,
+        quantity: item.quantity,
+        type: item.type,
+      })),
+      successUrl: `${origin}/cart?checkout=success`,
+      cancelUrl: `${origin}/cart?checkout=cancel`,
+    },
+    {
+      includeUserAuth: true,
+    }
+  );
 
   if (!data?.url) {
     throw new Error(data?.error || 'Checkout URL missing.');

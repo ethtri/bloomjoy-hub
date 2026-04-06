@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-03-10
+Last updated: 2026-04-06
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -19,7 +19,9 @@ Set the following values before launch.
 | `VITE_SUPABASE_URL` | Frontend (public) | SPA Supabase client | Supabase project settings | Technical owner |
 | `VITE_SUPABASE_ANON_KEY` | Frontend (public) | SPA Supabase client | Supabase project API keys | Technical owner |
 | `STRIPE_SECRET_KEY` | Server-only | Stripe Edge Functions | Stripe Dashboard > Developers > API keys | Billing owner |
-| `STRIPE_SUGAR_PRICE_ID` | Server-only | `stripe-sugar-checkout` | Stripe product/price config | Billing owner |
+| `STRIPE_SUGAR_MEMBER_PRICE_ID` | Server-only | `stripe-sugar-checkout` | Stripe member sugar price (`$8/kg`) | Billing owner |
+| `STRIPE_SUGAR_NON_MEMBER_PRICE_ID` | Server-only | `stripe-sugar-checkout` | Stripe public sugar price (`$10/kg`) | Billing owner |
+| `STRIPE_SUGAR_PRICE_ID` | Server-only (legacy bridge only) | `stripe-sugar-checkout` fallback | Legacy member sugar price during rollout | Billing owner |
 | `STRIPE_STICKS_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
@@ -30,8 +32,9 @@ Set the following values before launch.
 | `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_AGENT_SECRET` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
-| `SUPABASE_URL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `support-request-intake` | Supabase project URL | Technical owner |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `support-request-intake` | Supabase service role key | Technical owner |
+| `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions | Supabase project URL | Technical owner |
+| `SUPABASE_ANON_KEY` | Server-only | `stripe-sugar-checkout`, `stripe-plus-checkout`, `stripe-customer-portal` | Supabase project anon key | Technical owner |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake` | Supabase service role key | Technical owner |
 
 Security rule:
 - Never place secrets in `VITE_` variables.
@@ -45,8 +48,9 @@ Security rule:
   - [ ] `npm run build`
   - [ ] `npm test --if-present`
   - [ ] `npm run lint --if-present`
+- [ ] `npm run commerce:preflight -- --project-ref <project-ref>` passes
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
-- [ ] Stripe products/prices verified (`STRIPE_SUGAR_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
+- [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
   - [ ] `https://www.bloomjoyusa.com`
   - [ ] `https://app.bloomjoyusa.com`
@@ -68,6 +72,9 @@ Run once per environment or when values rotate:
 
 ```bash
 supabase secrets set STRIPE_SECRET_KEY=...
+supabase secrets set STRIPE_SUGAR_MEMBER_PRICE_ID=...
+supabase secrets set STRIPE_SUGAR_NON_MEMBER_PRICE_ID=...
+# Optional migration bridge only:
 supabase secrets set STRIPE_SUGAR_PRICE_ID=...
 supabase secrets set STRIPE_STICKS_PRICE_ID=...
 supabase secrets set STRIPE_PLUS_PRICE_ID=...
@@ -80,7 +87,14 @@ supabase secrets set WECOM_AGENT_ID=...
 supabase secrets set WECOM_AGENT_SECRET=...
 supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager
 supabase secrets set SUPABASE_URL=...
+supabase secrets set SUPABASE_ANON_KEY=...
 supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Before continuing, run:
+
+```bash
+npm run commerce:preflight -- --project-ref <project-ref>
 ```
 
 ### Step C: Deploy Stripe Edge Functions
@@ -125,16 +139,38 @@ Run immediately after deploy:
 - [ ] Login works, password recovery works, and protected routes redirect correctly on `app.bloomjoyusa.com`.
 - [ ] Auth launch sign-off checklist is completed with evidence (`Docs/AUTH_PRODUCTION_SIGNOFF.md`).
 - [ ] `Docs/QA_SMOKE_TEST_CHECKLIST.md` core payment/auth checks pass.
-- [ ] Sugar checkout test order creates `orders` record in Supabase.
+- [ ] Anonymous/non-member sugar checkout charges `$10/kg` and creates `orders` record in Supabase.
+- [ ] Bloomjoy Plus sugar checkout charges `$8/kg` and creates `orders` record in Supabase.
+- [ ] Sugar checkout test order stores customer contact, billing/shipping address, pricing tier, receipt URL, and color breakdown in `orders`.
 - [ ] Sugar checkout test order sends internal summary email to configured operations recipients.
+- [ ] Sugar checkout test order sends customer confirmation email with order summary and receipt link.
+- [ ] Sugar checkout test order sends WeCom alert when `WECOM_*` secrets are configured.
 - [ ] Blank sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
 - [ ] Blank sticks checkout test order sends internal summary email to configured operations recipients.
+- [ ] Blank sticks checkout test order sends customer confirmation email.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
 - [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
+- [ ] `/admin/orders` shows address, pricing tier, receipt URL, order breakdown, and notification status for the test orders.
 - [ ] WeChat onboarding concierge submit on `/portal/support` creates `support_requests.request_type=wechat_onboarding` with populated `intake_meta`.
 - [ ] Stripe customer portal opens from `/portal/account`.
 - [ ] No critical frontend console errors on key pages.
+
+## 5b) Incident recovery for missed order sync
+Use this when a payment succeeded in Stripe but the order is missing in `public.orders`.
+
+Preferred order of operations:
+1) Repair and deploy the webhook.
+2) Replay the Stripe event to the repaired webhook.
+3) If replay is unavailable or insufficient, import the order snapshot manually:
+   - `npm run orders:backfill -- --session-id <cs_...> --dry-run`
+   - `npm run orders:backfill -- --session-id <cs_...>`
+4) Verify the imported order appears in `/admin/orders` with:
+   - customer email and phone
+   - billing and shipping address
+   - pricing tier and unit price
+   - sugar color breakdown or blank-sticks order details
+   - notification status fields
 
 ## 6) Rollback checklist
 Trigger rollback if critical checkout/auth/data sync regressions are found.
