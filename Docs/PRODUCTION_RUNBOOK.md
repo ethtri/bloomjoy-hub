@@ -99,6 +99,7 @@ npm run commerce:preflight -- --project-ref <project-ref>
 
 WeCom note:
 - If token auth succeeds but live sends fail with `60020: not allow to access from your ip`, the remaining issue is WeCom-side network/IP policy, not the secret values. Fix the app/network restriction in WeCom admin, then re-run a live smoke order.
+- Do not assume one observed Supabase function IP is permanent. If live retries show different egress IPs, a WeCom trusted-IP allowlist will keep breaking unless Bloomjoy removes that restriction or routes WeCom calls through infrastructure with static outbound IPs.
 
 ### Step C: Deploy Stripe Edge Functions
 Deploy all current checkout/submission functions:

@@ -30,6 +30,7 @@
   - presents totals, shipping details, item breakdown, receipt access, and support next steps in a customer-friendly layout
 - Remaining production issue:
   - WeCom token auth now succeeds, but live message sends are still blocked by WeCom IP policy (`60020: not allow to access from your ip`)
+  - Observed Supabase Edge Function egress IPs already changed across live retries (`52.13.72.229` on the last `40001` failure, `44.252.107.253` on the latest `60020` failure), so a strict WeCom trusted-IP allowlist is not a stable long-term fix unless Bloomjoy inserts a static-egress proxy or self-hosted relay in front of WeCom
   - internal email and customer confirmation email are currently working in production
 - Verified on `2026-04-06` by:
   - `node scripts/commerce-preflight.mjs --project-ref ygbzkgxktzqsiygjlqyg`
@@ -38,7 +39,8 @@
 ## Next P0 milestones
 - Clear the remaining WeCom production blocker:
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
-  - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully
+  - if the WeCom app can run without a trusted-IP restriction, remove/relax that policy and re-test
+  - if Bloomjoy must keep a trusted-IP restriction, move WeCom delivery behind a static-egress proxy or self-hosted relay before re-testing
   - re-run the live `$0` order smoke test and confirm `wecom_alert_sent_at` populates in `public.orders`
 - Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
 
@@ -268,7 +270,7 @@ Execution order is based on launch risk and dependency overlap.
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
 - Internal notification pipeline is restored for quote submissions, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender, recipient list).
-- WeCom alert dispatch reliability now depends on owner-managed app policy as well as valid secrets/recipient scope; current live failure is `60020: not allow to access from your ip`.
+- WeCom alert dispatch reliability now depends on owner-managed app policy as well as valid secrets/recipient scope; current live failure is `60020: not allow to access from your ip`, and the observed Supabase egress IP already changed across live retries.
 - WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.
 - Additional Vimeo uploads may exist before the portal catalog is synced; uploaded videos are not discoverable until `trainings` and `training_assets` are populated in Supabase.
