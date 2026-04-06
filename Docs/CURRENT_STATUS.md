@@ -6,7 +6,30 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Emergency commerce remediation snapshot (2026-04-06)
+- A production payments incident was confirmed on `2026-04-06`:
+  - sugar checkout was publicly charging the Bloomjoy Plus member rate (`$8/kg`) instead of the public rate (`$10/kg`)
+  - `stripe-webhook` was failing on every invocation because it used synchronous Stripe signature verification instead of `await constructEventAsync(...)`
+  - paid orders were therefore not being persisted into `public.orders`
+  - internal email / WeCom notifications and customer confirmations were not reliably sent
+- Current remediation slice on branch `agent/emergency-commerce-remediation` delivers:
+  - server-enforced sugar pricing (`$8/kg` Plus, `$10/kg` everyone else)
+  - repaired Stripe webhook parsing and durable order snapshot persistence
+  - expanded order records for contact, address, pricing tier, shipping total, receipt URL, and channel-specific notification status
+  - app-generated customer confirmation emails
+  - admin order detail visibility for address, pricing tier, sugar color mix, receipt, and notification status
+  - operational helpers: `npm run commerce:preflight` and `npm run orders:backfill`
+- Production blocker still present until secrets are updated:
+  - `STRIPE_SUGAR_NON_MEMBER_PRICE_ID` is missing in production
+  - all required `WECOM_*` secrets are missing in production
+- Verified by `node scripts/commerce-preflight.mjs --project-ref ygbzkgxktzqsiygjlqyg`, which currently fails on those missing secrets as intended.
+
 ## Next P0 milestones
+- Complete production rollout for the emergency commerce remediation slice:
+  - set `STRIPE_SUGAR_MEMBER_PRICE_ID` and `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`
+  - set `WECOM_CORP_ID`, `WECOM_AGENT_ID`, `WECOM_AGENT_SECRET`, and `WECOM_ALERT_TO_USERIDS`
+  - deploy the updated Stripe edge functions
+  - replay or manually backfill the paid April 6 orders into `orders`
 - Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
 
 ## Operator app surface split (2026-03-22)

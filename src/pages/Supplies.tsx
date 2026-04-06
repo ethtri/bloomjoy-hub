@@ -20,6 +20,8 @@ import {
 } from '@/lib/customSticksArtwork';
 import { createLeadSubmission } from '@/lib/leadSubmissions';
 import { startBlankSticksCheckout } from '@/lib/stripeCheckout';
+import { useAuth } from '@/contexts/AuthContext';
+import { hasPlusAccess } from '@/lib/membership';
 import {
   BLANK_STICKS_ADDRESS_TYPE_OPTIONS,
   BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD,
@@ -42,8 +44,10 @@ import {
   BULK_SUGAR_PRESETS_KG,
   DEFAULT_BULK_SUGAR_KG,
   MAX_SUGAR_KG_TOTAL,
+  NON_MEMBER_SUGAR_PRICE_PER_KG,
+  PLUS_MEMBER_SUGAR_PRICE_PER_KG,
   SUGAR_COLOR_OPTIONS,
-  SUGAR_PRICE_PER_KG,
+  getSugarPricePerKg,
   type SugarMix,
   type SugarSku,
   buildEqualSugarSplit,
@@ -65,7 +69,10 @@ const hasBlankAddressType = (
 ): value is BlankSticksAddressType => value !== '';
 
 export default function SuppliesPage() {
+  const { user, loading: isAuthLoading } = useAuth();
   const { addItem, items } = useCart();
+  const hasPlusMembership = hasPlusAccess(user?.membershipStatus);
+  const sugarPricePerKg = getSugarPricePerKg(hasPlusMembership);
   const [targetTotalKg, setTargetTotalKg] = useState(DEFAULT_BULK_SUGAR_KG);
   const [sticksBoxCount, setSticksBoxCount] = useState(1);
   const [stickVariant, setStickVariant] = useState<StickVariant>('plain');
@@ -105,7 +112,7 @@ export default function SuppliesPage() {
   }, []);
 
   const mixTotalKg = getSugarMixTotalKg(sugarMix);
-  const mixTotalCost = mixTotalKg * SUGAR_PRICE_PER_KG;
+  const mixTotalCost = mixTotalKg * sugarPricePerKg;
   const cartSugarBreakdown = getSugarColorBreakdown(items);
   const cartSugarTotalKg = getSugarMixTotalKg(cartSugarBreakdown);
   const normalizedStickBoxCount = normalizeStickBoxCount(sticksBoxCount);
@@ -155,7 +162,7 @@ export default function SuppliesPage() {
         {
           sku: option.sku,
           name: getSugarName(option.color, option.flavor),
-          price: SUGAR_PRICE_PER_KG,
+          price: sugarPricePerKg,
           type: 'supply',
         },
         quantity
@@ -324,13 +331,22 @@ export default function SuppliesPage() {
               </div>
               <div className="p-6">
                 <h2 className="font-display text-xl font-semibold text-foreground">Premium Cotton Candy Sugar</h2>
-                <p className="mt-1 font-display text-2xl font-bold text-primary">
-                  ${SUGAR_PRICE_PER_KG}{' '}
+                  <p className="mt-1 font-display text-2xl font-bold text-primary">
+                  ${sugarPricePerKg}{' '}
                   <span className="text-base font-normal text-muted-foreground">/ 1KG bag</span>
                 </p>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
                   Pick your mix across all four core colors and use packaging-friendly quick presets
-                  for the most common shipment sizes.
+                  for the most common shipment sizes. Bloomjoy Plus members pay $
+                  {PLUS_MEMBER_SUGAR_PRICE_PER_KG}/KG. Everyone else pays $
+                  {NON_MEMBER_SUGAR_PRICE_PER_KG}/KG.
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {isAuthLoading
+                    ? 'Checking member pricing...'
+                    : hasPlusMembership
+                      ? 'Plus pricing is active for this session.'
+                      : 'Standard pricing is active. Log in with an active Bloomjoy Plus membership to pay $8/KG.'}
                 </p>
                 <div className="mt-6 rounded-xl border border-border bg-muted/30 p-4">
                   <p className="text-sm font-semibold text-foreground">Bulk Order Builder</p>

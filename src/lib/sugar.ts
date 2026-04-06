@@ -1,8 +1,11 @@
-export const SUGAR_PRICE_PER_KG = 8;
+export const PLUS_MEMBER_SUGAR_PRICE_PER_KG = 8;
+export const NON_MEMBER_SUGAR_PRICE_PER_KG = 10;
+export const SUGAR_PRICE_PER_KG = NON_MEMBER_SUGAR_PRICE_PER_KG;
 export const MAX_SUGAR_KG_PER_COLOR = 50000;
 export const MAX_SUGAR_KG_TOTAL = MAX_SUGAR_KG_PER_COLOR * 4;
 export const DEFAULT_BULK_SUGAR_KG = 400;
 export const BULK_SUGAR_PRESETS_KG = [240, 400, 800] as const;
+export type SugarPricingTier = 'plus_member' | 'standard';
 
 export const SUGAR_COLOR_OPTIONS = [
   {
@@ -117,3 +120,11 @@ export const getSugarColorBreakdown = (items: SugarLineItemLike[]): SugarMix => 
 
 export const getSugarMixTotalKg = (mix: SugarMix): number =>
   Object.values(mix).reduce((sum, quantity) => sum + quantity, 0);
+
+export const getSugarPricingTier = (hasPlusMembership: boolean): SugarPricingTier =>
+  hasPlusMembership ? 'plus_member' : 'standard';
+
+export const getSugarPricePerKg = (hasPlusMembership: boolean): number =>
+  hasPlusMembership
+    ? PLUS_MEMBER_SUGAR_PRICE_PER_KG
+    : NON_MEMBER_SUGAR_PRICE_PER_KG;

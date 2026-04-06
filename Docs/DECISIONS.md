@@ -1,5 +1,27 @@
 # Decisions
 
+## 2026-04-06 - Emergency commerce remediation: Plus-only sugar pricing, durable order capture, and customer confirmations
+For sugar ordering, Bloomjoy Plus members receive the discounted rate and all other buyers pay the public rate.
+
+**Canonical pricing**
+- Bloomjoy Plus members (`subscriptions.status in ('active', 'trialing')`) pay **`$8/kg`**
+- All other customers, including anonymous buyers, pay **`$10/kg`**
+- Free shipping remains in effect for sugar orders for now
+
+**Canonical order-processing choices**
+- Sugar pricing is enforced **server-side** in `stripe-sugar-checkout`; the client may display pricing but does not decide the Stripe price ID.
+- `orders` must persist the operational order snapshot before any email or WeCom notification is attempted.
+- Order records must retain customer contact details, billing/shipping address snapshots, pricing tier, unit price, shipping total, receipt URL, and line-item order breakdown.
+- Customer order confirmations are sent by the app via Resend in addition to the Stripe receipt.
+- Notification channel failures must be recorded on the `orders` row and must not block order persistence.
+- Production release verification for commerce must fail if required Stripe/Resend/WeCom secrets are missing.
+
+**Why this choice**
+- The April 6 incident showed that public sugar checkout was incorrectly charging the member rate to everyone.
+- The webhook runtime bug prevented paid orders from being captured in Supabase at all.
+- Internal visibility cannot depend on a single notification channel succeeding.
+- Ops needs order data inside Bloomjoy Hub, not only inside Stripe.
+
 ## 2026-03-22 - Split the operator app from the public marketing site
 Bloomjoy now uses three host roles:
 

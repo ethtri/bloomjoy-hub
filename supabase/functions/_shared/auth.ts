@@ -6,8 +6,11 @@ const parseBearerToken = (authorizationHeader: string | null): string => {
   return match?.[1]?.trim() ?? "";
 };
 
+export const resolveForwardedSupabaseAccessToken = (req: Request): string =>
+  req.headers.get(forwardedAccessTokenHeader)?.trim() ?? "";
+
 export const resolveSupabaseAccessToken = (req: Request): string => {
-  const forwardedToken = req.headers.get(forwardedAccessTokenHeader)?.trim();
+  const forwardedToken = resolveForwardedSupabaseAccessToken(req);
   if (forwardedToken) {
     return forwardedToken;
   }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,32 @@ type EditorState = {
   fulfillmentNotes: string;
 };
 
+type JsonRecord = Record<string, unknown>;
+
+type SugarMixSummary = {
+  white: number;
+  blue: number;
+  orange: number;
+  red: number;
+  total: number;
+};
+
+type BlankSticksSummary = {
+  boxCount: number;
+  piecesPerBox: number;
+  stickSize: string;
+  addressType: string;
+  shippingRatePerBoxUsd: number;
+  freeShipping: boolean;
+};
+
+type DisplayLineItem = {
+  description: string;
+  quantity: number | null;
+  amountTotal: number | null;
+  currency: string | null;
+};
+
 const formatDate = (value: string) =>
   new Date(value).toLocaleString(undefined, {
     year: 'numeric',
@@ -40,13 +66,56 @@ const formatDate = (value: string) =>
 
 const formatCurrency = (amountTotal: number | null, currency: string | null) => {
   if (amountTotal === null || !currency) {
-    return '—';
+    return 'n/a';
   }
 
   return new Intl.NumberFormat(undefined, {
     style: 'currency',
     currency: currency.toUpperCase(),
   }).format(amountTotal / 100);
+};
+
+const formatUnitPrice = (unitPriceCents: number | null) =>
+  unitPriceCents === null ? 'n/a' : `$${(unitPriceCents / 100).toFixed(2)}`;
+
+const formatPricingTier = (pricingTier: OrderRecord['pricing_tier']) => {
+  switch (pricingTier) {
+    case 'plus_member':
+      return 'Bloomjoy Plus';
+    case 'standard':
+      return 'Standard';
+    default:
+      return 'n/a';
+  }
+};
+
+const formatNotificationStatus = (sentAt: string | null, error: string | null) => {
+  if (sentAt) {
+    return `Sent ${formatDate(sentAt)}`;
+  }
+
+  if (error) {
+    return `Failed: ${error}`;
+  }
+
+  return 'Pending';
+};
+
+const formatAddressSnapshot = (address: OrderRecord['shipping_address']) => {
+  if (!address) {
+    return 'n/a';
+  }
+
+  return [
+    address.line1,
+    address.line2,
+    address.city,
+    address.state,
+    address.postal_code,
+    address.country,
+  ]
+    .filter(Boolean)
+    .join(', ') || 'n/a';
 };
 
 const getOrderReference = (order: OrderRecord) =>
@@ -58,6 +127,97 @@ const toEditorState = (order: OrderRecord): EditorState => ({
   assignedTo: order.fulfillment_assigned_to ?? '',
   fulfillmentNotes: order.fulfillment_notes ?? '',
 });
+
+const asRecord = (value: unknown): JsonRecord | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : null;
+
+const getNumberValue = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getSugarMixSummary = (order: OrderRecord): SugarMixSummary | null => {
+  for (const item of order.line_items) {
+    const record = asRecord(item);
+    const metadata = asRecord(record?.metadata);
+
+    if (!metadata) {
+      continue;
+    }
+
+    if (
+      'white_kg' in metadata ||
+      'blue_kg' in metadata ||
+      'orange_kg' in metadata ||
+      'red_kg' in metadata ||
+      'total_kg' in metadata
+    ) {
+      return {
+        white: getNumberValue(metadata.white_kg),
+        blue: getNumberValue(metadata.blue_kg),
+        orange: getNumberValue(metadata.orange_kg),
+        red: getNumberValue(metadata.red_kg),
+        total: getNumberValue(metadata.total_kg),
+      };
+    }
+  }
+
+  return null;
+};
+
+const getBlankSticksSummary = (order: OrderRecord): BlankSticksSummary | null => {
+  for (const item of order.line_items) {
+    const record = asRecord(item);
+    const metadata = asRecord(record?.metadata);
+
+    if (!metadata) {
+      continue;
+    }
+
+    if ('box_count' in metadata || 'pieces_per_box' in metadata || 'stick_size' in metadata) {
+      return {
+        boxCount: getNumberValue(metadata.box_count),
+        piecesPerBox: getNumberValue(metadata.pieces_per_box),
+        stickSize: typeof metadata.stick_size === 'string' ? metadata.stick_size : 'n/a',
+        addressType: typeof metadata.address_type === 'string' ? metadata.address_type : 'n/a',
+        shippingRatePerBoxUsd: getNumberValue(metadata.shipping_rate_per_box_usd),
+        freeShipping: Boolean(metadata.free_shipping),
+      };
+    }
+  }
+
+  return null;
+};
+
+const getDisplayLineItems = (order: OrderRecord): DisplayLineItem[] =>
+  order.line_items
+    .map((item) => asRecord(item))
+    .filter((item): item is JsonRecord => Boolean(item))
+    .map((item) => ({
+      description: typeof item.description === 'string' ? item.description : 'Line item',
+      quantity:
+        typeof item.quantity === 'number' && Number.isFinite(item.quantity) ? item.quantity : null,
+      amountTotal:
+        typeof item.amount_total === 'number' && Number.isFinite(item.amount_total)
+          ? item.amount_total
+          : null,
+      currency: typeof item.currency === 'string' ? item.currency : order.currency,
+    }));
+
+const InfoCard = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) => (
+  <div className="rounded-lg border border-border/70 bg-background/60 p-3">
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {label}
+    </p>
+    <p className="mt-1 text-sm text-foreground">{value}</p>
+  </div>
+);
 
 export default function AdminOrdersPage() {
   const queryClient = useQueryClient();
@@ -95,16 +255,23 @@ export default function AdminOrdersPage() {
       const ref = getOrderReference(order).toLowerCase();
       const id = order.id.toLowerCase();
       const email = (order.customer_email ?? '').toLowerCase();
+      const customerName = (order.customer_name ?? '').toLowerCase();
+      const orderType = order.order_type.toLowerCase();
 
       return (
         ref.includes(normalizedSearch) ||
         id.includes(normalizedSearch) ||
-        email.includes(normalizedSearch)
+        email.includes(normalizedSearch) ||
+        customerName.includes(normalizedSearch) ||
+        orderType.includes(normalizedSearch)
       );
     });
   }, [orders, search]);
 
   const selectedOrder = filteredOrders.find((order) => order.id === selectedId) ?? null;
+  const selectedSugarMix = selectedOrder ? getSugarMixSummary(selectedOrder) : null;
+  const selectedBlankSticks = selectedOrder ? getBlankSticksSummary(selectedOrder) : null;
+  const selectedLineItems = selectedOrder ? getDisplayLineItems(selectedOrder) : [];
 
   const selectOrder = (order: OrderRecord) => {
     setSelectedId(order.id);
@@ -172,7 +339,7 @@ export default function AdminOrdersPage() {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by customer email or order ID"
+              placeholder="Search by email, customer, order type, or order ID"
             />
             <Input
               type="date"
@@ -250,9 +417,16 @@ export default function AdminOrdersPage() {
                       >
                         <td className="px-4 py-3 text-sm text-foreground">{getOrderReference(order)}</td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">
-                          {order.customer_email ?? 'Unknown'}
+                          <div className="font-medium text-foreground">
+                            {order.customer_name ?? 'Unknown'}
+                          </div>
+                          <div>{order.customer_email ?? 'Unknown'}</div>
                         </td>
-                        <td className="px-4 py-3 text-sm text-foreground">{order.status}</td>
+                        <td className="px-4 py-3 text-sm text-foreground">
+                          <div className="font-medium">{formatCurrency(order.amount_total, order.currency)}</div>
+                          <div className="text-muted-foreground">{order.status}</div>
+                          <div className="text-xs text-muted-foreground">{order.order_type}</div>
+                        </td>
                         <td className="px-4 py-3 text-sm text-foreground">
                           {order.fulfillment_status}
                         </td>
@@ -271,16 +445,183 @@ export default function AdminOrdersPage() {
                   Select an order to update fulfillment state and notes.
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <div>
                     <h2 className="font-semibold text-foreground">{getOrderReference(selectedOrder)}</h2>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {selectedOrder.customer_email ?? 'Unknown customer'}
+                      {selectedOrder.customer_name ?? 'Unknown customer'}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Payment: {selectedOrder.status} • Total:{' '}
+                      {selectedOrder.customer_email ?? 'No email on file'}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Payment: {selectedOrder.status} | Total:{' '}
                       {formatCurrency(selectedOrder.amount_total, selectedOrder.currency)}
                     </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <InfoCard label="Order Type" value={selectedOrder.order_type} />
+                    <InfoCard label="Pricing Tier" value={formatPricingTier(selectedOrder.pricing_tier)} />
+                    <InfoCard label="Unit Price" value={formatUnitPrice(selectedOrder.unit_price_cents)} />
+                    <InfoCard
+                      label="Shipping Total"
+                      value={formatCurrency(selectedOrder.shipping_total_cents, selectedOrder.currency)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Customer
+                    </p>
+                    <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
+                      <p>Name: {selectedOrder.customer_name ?? 'n/a'}</p>
+                      <p className="mt-1">Email: {selectedOrder.customer_email ?? 'n/a'}</p>
+                      <p className="mt-1">Phone: {selectedOrder.customer_phone ?? 'n/a'}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Addresses
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
+                        <p className="font-medium">Billing</p>
+                        <p className="mt-2 text-muted-foreground">
+                          {formatAddressSnapshot(selectedOrder.billing_address)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
+                        <p className="font-medium">Shipping</p>
+                        <p className="mt-2">{selectedOrder.shipping_name ?? 'n/a'}</p>
+                        <p className="mt-1 text-muted-foreground">
+                          {formatAddressSnapshot(selectedOrder.shipping_address)}
+                        </p>
+                        <p className="mt-1 text-muted-foreground">
+                          {selectedOrder.shipping_phone ?? 'No shipping phone'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Receipt
+                      </p>
+                      {selectedOrder.receipt_url ? (
+                        <a
+                          href={selectedOrder.receipt_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                        >
+                          Open receipt
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      ) : null}
+                    </div>
+                    <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-muted-foreground">
+                      {selectedOrder.receipt_url ?? 'Stripe receipt URL not captured yet.'}
+                    </div>
+                  </div>
+
+                  {selectedSugarMix ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Sugar Mix
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
+                          <p>White: {selectedSugarMix.white} KG</p>
+                          <p className="mt-1">Blue: {selectedSugarMix.blue} KG</p>
+                          <p className="mt-1">Orange: {selectedSugarMix.orange} KG</p>
+                          <p className="mt-1">Red: {selectedSugarMix.red} KG</p>
+                        </div>
+                        <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
+                          <p className="font-medium">Total ordered</p>
+                          <p className="mt-2 text-2xl font-semibold">{selectedSugarMix.total} KG</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {selectedBlankSticks ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Blank Sticks Details
+                      </p>
+                      <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
+                        <p>Boxes: {selectedBlankSticks.boxCount}</p>
+                        <p className="mt-1">Pieces per box: {selectedBlankSticks.piecesPerBox}</p>
+                        <p className="mt-1">Stick size: {selectedBlankSticks.stickSize}</p>
+                        <p className="mt-1">Address type: {selectedBlankSticks.addressType}</p>
+                        <p className="mt-1">
+                          Shipping rate per box: ${selectedBlankSticks.shippingRatePerBoxUsd.toFixed(2)}
+                        </p>
+                        <p className="mt-1">
+                          Free shipping: {selectedBlankSticks.freeShipping ? 'Yes' : 'No'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Line Items
+                    </p>
+                    <div className="space-y-2">
+                      {selectedLineItems.length === 0 ? (
+                        <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-muted-foreground">
+                          No line items captured.
+                        </div>
+                      ) : (
+                        selectedLineItems.map((item, index) => (
+                          <div
+                            key={`${item.description}-${index}`}
+                            className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground"
+                          >
+                            <p className="font-medium">{item.description}</p>
+                            <p className="mt-1 text-muted-foreground">
+                              Quantity: {item.quantity ?? 'n/a'}
+                            </p>
+                            <p className="mt-1 text-muted-foreground">
+                              Total: {formatCurrency(item.amountTotal, item.currency)}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Notification Status
+                    </p>
+                    <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
+                      <p>
+                        Internal email:{' '}
+                        {formatNotificationStatus(
+                          selectedOrder.internal_notification_sent_at,
+                          selectedOrder.internal_notification_error
+                        )}
+                      </p>
+                      <p className="mt-2">
+                        Customer confirmation:{' '}
+                        {formatNotificationStatus(
+                          selectedOrder.customer_confirmation_sent_at,
+                          selectedOrder.customer_confirmation_error
+                        )}
+                      </p>
+                      <p className="mt-2">
+                        WeCom alert:{' '}
+                        {formatNotificationStatus(
+                          selectedOrder.wecom_alert_sent_at,
+                          selectedOrder.wecom_alert_error
+                        )}
+                      </p>
+                    </div>
                   </div>
 
                   <div>

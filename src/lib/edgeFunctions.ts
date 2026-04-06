@@ -9,6 +9,7 @@ type EdgeFunctionResponse = {
 
 type InvokeEdgeFunctionOptions = {
   requireUserAuth?: boolean;
+  includeUserAuth?: boolean;
   authErrorMessage?: string;
 };
 
@@ -36,14 +37,16 @@ export const invokeEdgeFunction = async <T extends EdgeFunctionResponse>(
     'Content-Type': 'application/json',
   };
 
-  if (options.requireUserAuth) {
+  if (options.requireUserAuth || options.includeUserAuth) {
     const accessToken = await getAuthenticatedAccessToken();
 
-    if (!accessToken) {
+    if (!accessToken && options.requireUserAuth) {
       throw new Error(options.authErrorMessage ?? 'Authentication required.');
     }
 
-    headers[EDGE_FUNCTION_AUTH_HEADER] = accessToken;
+    if (accessToken) {
+      headers[EDGE_FUNCTION_AUTH_HEADER] = accessToken;
+    }
   }
 
   const response = await fetch(`${appConfig.supabaseUrl}/functions/v1/${functionName}`, {
