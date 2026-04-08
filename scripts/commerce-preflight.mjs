@@ -131,6 +131,23 @@ function parseRecipients(value) {
     .filter(Boolean);
 }
 
+function hasValue(value) {
+  return !!value && String(value).trim() !== '';
+}
+
+function hasDirectWeComConfig(env) {
+  return (
+    hasValue(env.WECOM_CORP_ID) &&
+    hasValue(env.WECOM_AGENT_ID) &&
+    hasValue(env.WECOM_AGENT_SECRET) &&
+    hasValue(env.WECOM_ALERT_TO_USERIDS)
+  );
+}
+
+function hasRelayWeComConfig(env) {
+  return hasValue(env.WECOM_RELAY_URL) && hasValue(env.WECOM_RELAY_HMAC_SECRET);
+}
+
 function isValidUrl(value) {
   try {
     const url = new URL(value);
@@ -189,10 +206,6 @@ function run() {
     'INTERNAL_NOTIFICATION_FROM_EMAIL',
     'INTERNAL_NOTIFICATION_RECIPIENTS',
     'STRIPE_SUGAR_NON_MEMBER_PRICE_ID',
-    'WECOM_CORP_ID',
-    'WECOM_AGENT_ID',
-    'WECOM_AGENT_SECRET',
-    'WECOM_ALERT_TO_USERIDS',
   ];
 
   for (const key of requiredKeys) {
@@ -205,6 +218,47 @@ function run() {
     errors.push(
       'Missing member sugar price. Set STRIPE_SUGAR_MEMBER_PRICE_ID (preferred) or legacy STRIPE_SUGAR_PRICE_ID.'
     );
+  }
+
+  const hasDirectWeCom = hasDirectWeComConfig(env);
+  const hasRelayWeCom = hasRelayWeComConfig(env);
+
+  if (!hasDirectWeCom && !hasRelayWeCom) {
+    errors.push(
+      'Missing WeCom alert configuration. Set either WECOM_CORP_ID/WECOM_AGENT_ID/WECOM_AGENT_SECRET/WECOM_ALERT_TO_USERIDS or WECOM_RELAY_URL/WECOM_RELAY_HMAC_SECRET.'
+    );
+  }
+
+  if (
+    hasValue(env.WECOM_CORP_ID) ||
+    hasValue(env.WECOM_AGENT_ID) ||
+    hasValue(env.WECOM_AGENT_SECRET) ||
+    hasValue(env.WECOM_ALERT_TO_USERIDS)
+  ) {
+    const missingDirectKeys = [
+      'WECOM_CORP_ID',
+      'WECOM_AGENT_ID',
+      'WECOM_AGENT_SECRET',
+      'WECOM_ALERT_TO_USERIDS',
+    ].filter((key) => !hasValue(env[key]));
+
+    if (missingDirectKeys.length > 0) {
+      errors.push(
+        `WeCom direct-send config is partial. Missing: ${missingDirectKeys.join(', ')}.`
+      );
+    }
+  }
+
+  if (hasValue(env.WECOM_RELAY_URL) || hasValue(env.WECOM_RELAY_HMAC_SECRET)) {
+    const missingRelayKeys = ['WECOM_RELAY_URL', 'WECOM_RELAY_HMAC_SECRET'].filter(
+      (key) => !hasValue(env[key])
+    );
+
+    if (missingRelayKeys.length > 0) {
+      errors.push(
+        `WeCom relay config is partial. Missing: ${missingRelayKeys.join(', ')}.`
+      );
+    }
   }
 
   if (env.STRIPE_SUGAR_PRICE_ID && !env.STRIPE_SUGAR_MEMBER_PRICE_ID) {
@@ -225,8 +279,16 @@ function run() {
     errors.push('INTERNAL_NOTIFICATION_FROM_EMAIL must be a valid sender email address.');
   }
 
-  if (!isRemoteSource && env.WECOM_AGENT_ID && !/^\d+$/.test(String(env.WECOM_AGENT_ID).trim())) {
+  if (
+    !isRemoteSource &&
+    env.WECOM_AGENT_ID &&
+    !/^\d+$/.test(String(env.WECOM_AGENT_ID).trim())
+  ) {
     errors.push('WECOM_AGENT_ID must be numeric.');
+  }
+
+  if (!isRemoteSource && env.WECOM_RELAY_URL && !isValidUrl(env.WECOM_RELAY_URL)) {
+    errors.push('WECOM_RELAY_URL must be a valid absolute URL.');
   }
 
   if (!isRemoteSource) {
@@ -253,7 +315,7 @@ function run() {
     'Webhook secret present',
     'Member and non-member sugar price IDs configured',
     'Internal email sender and recipients configured',
-    'WeCom alert secrets configured',
+    'WeCom alert path configured (direct or relay)',
     'Supabase service-role and anon keys configured',
   ]);
 

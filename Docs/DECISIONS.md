@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-04-08 - WeCom alert delivery must support a static-egress relay
+Production WeCom alert delivery must support a relay endpoint with fixed outbound IP instead of relying only on direct Supabase Edge Function calls to the WeCom API.
+
+**Canonical choice**
+- Supabase Edge Functions may call WeCom directly when no IP restriction applies.
+- If WeCom enforces trusted-IP policy, Supabase Edge Functions should send alerts to a small HTTPS relay using:
+  - `WECOM_RELAY_URL`
+  - `WECOM_RELAY_HMAC_SECRET`
+- The relay is responsible for the final WeCom API calls using the existing `WECOM_CORP_ID`, `WECOM_AGENT_ID`, `WECOM_AGENT_SECRET`, and `WECOM_ALERT_TO_USERIDS` values.
+
+**Why this choice**
+- Live production failures now show WeCom API error `60020: not allow to access from your ip`.
+- Bloomjoy already observed multiple Supabase egress IPs across live retries, so allowlisting direct Supabase IPs is not a durable fix.
+- This keeps customer-facing checkout behavior unchanged while isolating the WeCom network-policy workaround to the alerting path only.
+
 ## 2026-04-06 - Emergency commerce remediation: Plus-only sugar pricing, durable order capture, and customer confirmations
 For sugar ordering, Bloomjoy Plus members receive the discounted rate and all other buyers pay the public rate.
 

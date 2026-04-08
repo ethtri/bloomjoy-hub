@@ -6,7 +6,7 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
-## Emergency commerce remediation snapshot (2026-04-06)
+## Emergency commerce remediation snapshot (2026-04-08)
 - A production payments incident was confirmed on `2026-04-06`:
   - sugar checkout was publicly charging the Bloomjoy Plus member rate (`$8/kg`) instead of the public rate (`$10/kg`)
   - `stripe-webhook` was failing on every invocation because it used synchronous Stripe signature verification instead of `await constructEventAsync(...)`
@@ -31,6 +31,9 @@
 - Remaining production issue:
   - WeCom token auth now succeeds, but live message sends are still blocked by WeCom IP policy (`60020: not allow to access from your ip`)
   - Observed Supabase Edge Function egress IPs already changed across live retries (`52.13.72.229` on the last `40001` failure, `44.252.107.253` on the latest `60020` failure), so a strict WeCom trusted-IP allowlist is not a stable long-term fix unless Bloomjoy inserts a static-egress proxy or self-hosted relay in front of WeCom
+  - Manual WeCom app send was re-verified on `2026-04-08`, and both intended recipients are valid internal members with exact Account IDs `ethantrifari` and `GuoYanHong`
+  - Production `WECOM_ALERT_TO_USERIDS` was corrected to `ethantrifari,GuoYanHong` on `2026-04-08`
+  - Repo support for a signed WeCom relay is now prepared on branch `agent/wecom-alert-debug`; production still needs that relay hosted on infrastructure with a fixed public IP before WeCom order alerts can pass
   - internal email and customer confirmation email are currently working in production
 - Verified on `2026-04-06` by:
   - `node scripts/commerce-preflight.mjs --project-ref ygbzkgxktzqsiygjlqyg`
@@ -38,10 +41,11 @@
 
 ## Next P0 milestones
 - Clear the remaining WeCom production blocker:
-  - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
-  - if the WeCom app can run without a trusted-IP restriction, remove/relax that policy and re-test
-  - if Bloomjoy must keep a trusted-IP restriction, move WeCom delivery behind a static-egress proxy or self-hosted relay before re-testing
-  - re-run the live `$0` order smoke test and confirm `wecom_alert_sent_at` populates in `public.orders`
+  - host the new `scripts/wecom-alert-relay.mjs` service on a tiny VM or similar infrastructure with a fixed public IP
+  - allowlist only that relay IP in WeCom if Bloomjoy keeps WeCom trusted-IP enforcement enabled
+  - set `WECOM_RELAY_URL` and `WECOM_RELAY_HMAC_SECRET` in Supabase Edge Function secrets
+  - run the relay smoke test, then re-run the live `$0` order smoke test and confirm `wecom_alert_sent_at` populates
+  - if Bloomjoy can fully remove WeCom trusted-IP enforcement instead, direct WeCom delivery may be kept without the relay
 - Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
 
 ## Operator app surface split (2026-03-22)

@@ -5,12 +5,20 @@ const TOKEN_RETRYABLE_ERROR_CODES = new Set([40014, 42001, 42007, 42009]);
 
 let cachedAccessToken: { token: string; expiresAtMs: number } | null = null;
 let hasWarnedMissingConfig = false;
+let hasWarnedMissingRelayConfig = false;
+
+const textEncoder = new TextEncoder();
 
 type WeComConfig = {
   corpId: string;
   agentId: number;
   agentSecret: string;
   toUser: string;
+};
+
+type WeComRelayConfig = {
+  url: string;
+  hmacSecret: string;
 };
 
 type WeComApiResponse = {
@@ -48,7 +56,79 @@ const parseToUser = (value: string): string =>
     .filter(Boolean)
     .join("|");
 
-const getConfig = (): WeComConfig | null => {
+const parseRelayUrl = (value: string): string | null => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+const hexEncode = (buffer: ArrayBuffer): string =>
+  Array.from(new Uint8Array(buffer))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+
+const signRelayPayload = async (
+  hmacSecret: string,
+  timestamp: string,
+  body: string
+): Promise<string> => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    textEncoder.encode(hmacSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    textEncoder.encode(`${timestamp}.${body}`)
+  );
+
+  return hexEncode(signature);
+};
+
+const getRelayConfig = (): WeComRelayConfig | null => {
+  const relayUrlRaw = sanitize(Deno.env.get("WECOM_RELAY_URL"));
+  const relaySecret = sanitize(Deno.env.get("WECOM_RELAY_HMAC_SECRET"));
+
+  if (!relayUrlRaw && !relaySecret) {
+    return null;
+  }
+
+  if (!relayUrlRaw || !relaySecret) {
+    if (!hasWarnedMissingRelayConfig) {
+      console.warn(
+        "WeCom relay is partially configured. Set both WECOM_RELAY_URL and WECOM_RELAY_HMAC_SECRET."
+      );
+      hasWarnedMissingRelayConfig = true;
+    }
+    return null;
+  }
+
+  const relayUrl = parseRelayUrl(relayUrlRaw);
+  if (!relayUrl) {
+    if (!hasWarnedMissingRelayConfig) {
+      console.warn("WECOM_RELAY_URL must be a valid absolute http(s) URL.");
+      hasWarnedMissingRelayConfig = true;
+    }
+    return null;
+  }
+
+  return {
+    url: relayUrl,
+    hmacSecret: relaySecret,
+  };
+};
+
+const getDirectConfig = (): WeComConfig | null => {
   const corpId = sanitize(Deno.env.get("WECOM_CORP_ID"));
   const agentIdRaw = sanitize(Deno.env.get("WECOM_AGENT_ID"));
   const agentSecret = sanitize(Deno.env.get("WECOM_AGENT_SECRET"));
@@ -203,20 +283,79 @@ const sendAlertWithConfig = async (
   }
 };
 
+const sendAlertViaRelay = async (
+  relayConfig: WeComRelayConfig,
+  input: WeComAlertInput
+): Promise<void> => {
+  const body = JSON.stringify(input);
+  const timestamp = Date.now().toString();
+  const signature = await signRelayPayload(
+    relayConfig.hmacSecret,
+    timestamp,
+    body
+  );
+
+  const response = await fetch(relayConfig.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Bloomjoy-Timestamp": timestamp,
+      "X-Bloomjoy-Signature": signature,
+    },
+    body,
+  });
+
+  const responseText = await response.text();
+  let responsePayload: { ok?: boolean; message?: string } | null = null;
+
+  if (responseText) {
+    try {
+      responsePayload = JSON.parse(responseText) as {
+        ok?: boolean;
+        message?: string;
+      };
+    } catch {
+      responsePayload = null;
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      responsePayload?.message
+        ? `WeCom relay failed (${response.status}): ${responsePayload.message}`
+        : `WeCom relay request failed (${response.status}).`
+    );
+  }
+
+  if (responsePayload?.ok === false) {
+    throw new Error(
+      responsePayload.message || "WeCom relay reported an unknown failure."
+    );
+  }
+};
+
 export async function sendWeComAlert(input: WeComAlertInput): Promise<void> {
-  const config = getConfig();
-  if (!config) {
+  const relayConfig = getRelayConfig();
+  if (relayConfig) {
+    await sendAlertViaRelay(relayConfig, input);
+    return;
+  }
+
+  const directConfig = getDirectConfig();
+  if (!directConfig) {
     throw new Error("WeCom alert configuration is missing.");
   }
 
-  await sendAlertWithConfig(config, input);
+  await sendAlertWithConfig(directConfig, input);
 }
 
 export async function sendWeComAlertResult(
   input: WeComAlertInput
 ): Promise<WeComAlertResult> {
-  const config = getConfig();
-  if (!config) {
+  const relayConfig = getRelayConfig();
+  const directConfig = relayConfig ? null : getDirectConfig();
+
+  if (!relayConfig && !directConfig) {
     return {
       ok: false,
       skipped: true,
@@ -225,11 +364,15 @@ export async function sendWeComAlertResult(
   }
 
   try {
-    await sendAlertWithConfig(config, input);
+    if (relayConfig) {
+      await sendAlertViaRelay(relayConfig, input);
+    } else if (directConfig) {
+      await sendAlertWithConfig(directConfig, input);
+    }
     return {
       ok: true,
       skipped: false,
-      message: "WeCom alert sent.",
+      message: relayConfig ? "WeCom alert sent via relay." : "WeCom alert sent.",
     };
   } catch (error) {
     console.warn("WeCom alert send failed (non-blocking).", error);

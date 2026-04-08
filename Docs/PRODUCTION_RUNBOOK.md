@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-04-06
+Last updated: 2026-04-08
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -32,6 +32,8 @@ Set the following values before launch.
 | `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_AGENT_SECRET` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
+| `WECOM_RELAY_URL` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | Fixed-IP WeCom relay URL | Technical owner |
+| `WECOM_RELAY_HMAC_SECRET` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | Shared secret between Edge Functions and relay | Technical owner |
 | `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions | Supabase project URL | Technical owner |
 | `SUPABASE_ANON_KEY` | Server-only | `stripe-sugar-checkout`, `stripe-plus-checkout`, `stripe-customer-portal` | Supabase project anon key | Technical owner |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake` | Supabase service role key | Technical owner |
@@ -82,10 +84,14 @@ supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
 supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...
 supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com
+# Direct WeCom mode (use when WeCom does not enforce trusted IPs):
 supabase secrets set WECOM_CORP_ID=...
 supabase secrets set WECOM_AGENT_ID=...
 supabase secrets set WECOM_AGENT_SECRET=...
-supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager
+supabase secrets set WECOM_ALERT_TO_USERIDS=ethantrifari,GuoYanHong
+# Relay mode (recommended when WeCom trusted IPs are enforced):
+supabase secrets set WECOM_RELAY_URL=https://<fixed-ip-host>/wecom-alert
+supabase secrets set WECOM_RELAY_HMAC_SECRET=...
 supabase secrets set SUPABASE_URL=...
 supabase secrets set SUPABASE_ANON_KEY=...
 supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
@@ -100,6 +106,42 @@ npm run commerce:preflight -- --project-ref <project-ref>
 WeCom note:
 - If token auth succeeds but live sends fail with `60020: not allow to access from your ip`, the remaining issue is WeCom-side network/IP policy, not the secret values. Fix the app/network restriction in WeCom admin, then re-run a live smoke order.
 - Do not assume one observed Supabase function IP is permanent. If live retries show different egress IPs, a WeCom trusted-IP allowlist will keep breaking unless Bloomjoy removes that restriction or routes WeCom calls through infrastructure with static outbound IPs.
+- Recommended durable fix: host `scripts/wecom-alert-relay.mjs` on a small VM with a fixed public IP, allowlist only that IP in WeCom if needed, and point Supabase at the relay via `WECOM_RELAY_URL` + `WECOM_RELAY_HMAC_SECRET`.
+
+### Step B1: If WeCom trusted IPs are enforced, deploy the relay first
+Use this only when direct Supabase-to-WeCom traffic is blocked by WeCom IP policy.
+
+Relay host requirements:
+- fixed public IPv4 address
+- HTTPS termination for the relay endpoint
+- Node 20+ runtime
+- outbound internet access to `https://qyapi.weixin.qq.com`
+
+Relay host env vars:
+- `WECOM_CORP_ID`
+- `WECOM_AGENT_ID`
+- `WECOM_AGENT_SECRET`
+- `WECOM_ALERT_TO_USERIDS=ethantrifari,GuoYanHong`
+- `WECOM_RELAY_HMAC_SECRET=<shared secret>`
+
+Relay boot command:
+
+```bash
+npm ci
+npm run wecom-relay:serve
+```
+
+Relay verification:
+
+```bash
+curl https://<fixed-ip-host>/health
+npm run wecom-relay:smoke -- --relay-url https://<fixed-ip-host>/wecom-alert --hmac-secret <shared secret> --title "Bloomjoy production relay smoke"
+```
+
+Expected result:
+- `/health` returns `ok: true`
+- smoke returns `HTTP 200`
+- both intended internal WeCom recipients receive the test message
 
 ### Step C: Deploy Stripe Edge Functions
 Deploy all current checkout/submission functions:
@@ -148,7 +190,7 @@ Run immediately after deploy:
 - [ ] Sugar checkout test order stores customer contact, billing/shipping address, pricing tier, receipt URL, and color breakdown in `orders`.
 - [ ] Sugar checkout test order sends internal summary email to configured operations recipients.
 - [ ] Sugar checkout test order sends customer confirmation email with the branded HTML confirmation layout, order summary, and receipt link.
-- [ ] Sugar checkout test order sends WeCom alert when `WECOM_*` secrets are configured and the WeCom app/network policy allows traffic from the live function egress IPs.
+- [ ] Sugar checkout test order sends WeCom alert when direct WeCom access is allowed or when `WECOM_RELAY_URL` + `WECOM_RELAY_HMAC_SECRET` are configured to a healthy fixed-IP relay.
 - [ ] Blank sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
 - [ ] Blank sticks checkout test order sends internal summary email to configured operations recipients.
 - [ ] Blank sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.

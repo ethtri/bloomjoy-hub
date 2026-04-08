@@ -189,11 +189,15 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set WECOM_CORP_ID=...`
    - `supabase secrets set WECOM_AGENT_ID=...`
    - `supabase secrets set WECOM_AGENT_SECRET=...`
-   - `supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager`
+   - `supabase secrets set WECOM_ALERT_TO_USERIDS=ethantrifari,GuoYanHong`
+   - Optional relay mode instead of direct WeCom API calls:
+     - `supabase secrets set WECOM_RELAY_URL=https://<fixed-ip-host>/wecom-alert`
+     - `supabase secrets set WECOM_RELAY_HMAC_SECRET=...`
    - Ensure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
 3) Run the commerce release preflight before deploy:
    - Local env check: `npm run commerce:preflight`
    - Remote secret presence check: `npm run commerce:preflight -- --project-ref <project-ref>`
+   - Relay-based WeCom delivery is also supported. Set either the direct `WECOM_*` credentials or `WECOM_RELAY_URL` + `WECOM_RELAY_HMAC_SECRET`.
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
@@ -203,6 +207,29 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve lead-submission-intake --no-verify-jwt`
    - `supabase functions serve support-request-intake --no-verify-jwt`
 5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
+
+## WeCom relay helper (recommended when WeCom enforces trusted IPs)
+Use this when WeCom rejects Supabase Edge Function traffic with `60020: not allow to access from your ip`.
+
+1) On the relay host, set:
+   - `WECOM_CORP_ID`
+   - `WECOM_AGENT_ID`
+   - `WECOM_AGENT_SECRET`
+   - `WECOM_ALERT_TO_USERIDS`
+   - `WECOM_RELAY_HMAC_SECRET`
+2) Start the relay:
+   - `npm run wecom-relay:serve`
+3) Confirm the relay is up:
+   - `curl http://127.0.0.1:8787/health`
+4) From the caller environment, set:
+   - `WECOM_RELAY_URL=https://<your-fixed-ip-host>/wecom-alert`
+   - `WECOM_RELAY_HMAC_SECRET=<same shared secret>`
+5) Send a smoke alert through the relay:
+   - `npm run wecom-relay:smoke -- --title "Bloomjoy relay smoke"`
+
+Notes:
+- The relay should run on infrastructure with a fixed public IP. A tiny VM with an elastic/static IP is the intended production target.
+- Keep TLS termination in front of the relay for production. The local `http://127.0.0.1:8787` example is only for machine-local validation.
 
 ## Stripe order backfill helper
 Use this when a paid Stripe checkout must be imported into `public.orders` because webhook replay is unavailable or the webhook failed before persistence.
