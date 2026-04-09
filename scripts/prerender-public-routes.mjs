@@ -44,7 +44,7 @@ const publicRoutes = [
     path: "/machines/mini",
     title: "Mini Machine | Bloomjoy Hub",
     description:
-      "Learn about Bloomjoy Mini and join the waitlist for upcoming availability and launch updates.",
+      "Explore the Bloomjoy Mini machine, live availability, key limitations, and the quote flow for current orders.",
     ogType: "website",
   },
   {

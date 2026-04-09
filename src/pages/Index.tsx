@@ -24,7 +24,7 @@ const productCards = [
     price: '$4,000',
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
     href: '/machines/mini',
-    badge: 'Coming Soon',
+    badge: 'Available Now',
     image: miniMain,
   },
   {

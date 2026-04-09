@@ -54,8 +54,8 @@ export const products: Record<string, Product> = {
     limitations: [
       'No automatic stick dispenser—operator manually feeds each stick'
     ],
-    ctaType: 'waitlist',
-    inStock: false,
+    ctaType: 'quote',
+    inStock: true,
   },
   'micro': {
     sku: 'micro',

@@ -6,6 +6,13 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Mini launch update (2026-04-09)
+- Mini is now live on the public site as a sales-led machine offer at `$4,000`.
+- Public Mini demand no longer goes to a waitlist form:
+  - `/machines/mini` now routes into the standard quote/contact flow
+  - Home and `/machines` now present Mini as available now instead of coming soon
+  - historical `mini_waitlist_submissions` data remains for ops reference only
+
 ## Emergency commerce remediation snapshot (2026-04-06)
 - A production payments incident was confirmed on `2026-04-06`:
   - sugar checkout was publicly charging the Bloomjoy Plus member rate (`$8/kg`) instead of the public rate (`$10/kg`)
@@ -264,7 +271,6 @@ Execution order is based on launch risk and dependency overlap.
 - WeChat onboarding concierge merged (PR `#109`, `2026-03-10`): support flow now includes structured onboarding intake (`phone/device/blocked step/referral`) persisted in `support_requests.intake_meta` and surfaced in `/admin/support` triage filters/cards.
 
 ## Known risks / blockers
-- Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
 - Internal notification pipeline is restored for quote submissions, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender, recipient list).
