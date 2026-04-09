@@ -175,6 +175,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Regression sanity
 - [ ] Quote, order, and support primary flows still succeed when WeCom alert delivery fails (verify non-blocking warning logs in function output)
+- [ ] `npm run submission:preflight -- --project-ref <project-ref>` passes before deploying submission-related Edge Functions
 - [ ] `npm run build` passes
 - [ ] `npm run lint` passes (if configured)
 - [ ] `npm run seo:check` passes

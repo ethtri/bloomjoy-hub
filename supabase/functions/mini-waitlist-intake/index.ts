@@ -45,6 +45,76 @@ type WaitlistRecord = {
   internal_notification_sent_at: string | null;
 };
 
+const baseSelectedColumns = "id, product_slug, email, source_page, created_at";
+const notificationSelectedColumns = `${baseSelectedColumns}, internal_notification_sent_at`;
+
+const isDispatchBookkeepingError = (code: string | undefined) =>
+  code === "23514" || code === "42501" || code === "42P01";
+
+const isMissingNotificationColumnError = (code: string | undefined) =>
+  code === "42703";
+
+const normalizeWaitlistRecord = (value: Record<string, unknown> | null): WaitlistRecord | null => {
+  if (!value) {
+    return null;
+  }
+
+  return {
+    id: String(value.id ?? ""),
+    product_slug: String(value.product_slug ?? "mini"),
+    email: String(value.email ?? ""),
+    source_page: String(value.source_page ?? "/machines/mini"),
+    created_at: String(value.created_at ?? new Date().toISOString()),
+    internal_notification_sent_at:
+      typeof value.internal_notification_sent_at === "string"
+        ? value.internal_notification_sent_at
+        : null,
+  };
+};
+
+const fetchWaitlistEntry = async (email: string): Promise<{
+  entry: WaitlistRecord | null;
+  supportsNotificationColumn: boolean;
+}> => {
+  if (!supabase) {
+    return { entry: null, supportsNotificationColumn: false };
+  }
+
+  const fullResult = await supabase
+    .from("mini_waitlist_submissions")
+    .select(notificationSelectedColumns)
+    .eq("product_slug", "mini")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (!fullResult.error) {
+    return {
+      entry: normalizeWaitlistRecord(fullResult.data as Record<string, unknown> | null),
+      supportsNotificationColumn: true,
+    };
+  }
+
+  if (!isMissingNotificationColumnError(fullResult.error.code)) {
+    throw new Error(fullResult.error.message || "Unable to load the waitlist entry.");
+  }
+
+  const fallbackResult = await supabase
+    .from("mini_waitlist_submissions")
+    .select(baseSelectedColumns)
+    .eq("product_slug", "mini")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (fallbackResult.error) {
+    throw new Error(fallbackResult.error.message || "Unable to load the waitlist entry.");
+  }
+
+  return {
+    entry: normalizeWaitlistRecord(fallbackResult.data as Record<string, unknown> | null),
+    supportsNotificationColumn: false,
+  };
+};
+
 const claimDispatch = async (eventKey: string, sourceId: string): Promise<boolean> => {
   if (!supabase) return false;
 
@@ -63,7 +133,7 @@ const claimDispatch = async (eventKey: string, sourceId: string): Promise<boolea
     return false;
   }
 
-  if (error.code === "42501" || error.code === "42P01") {
+  if (isDispatchBookkeepingError(error.code)) {
     console.warn(
       "Dispatch claim fallback: proceeding without dedupe bookkeeping.",
       error
@@ -114,20 +184,14 @@ serve(async (req) => {
       return buildJsonResponse({ error: "Please enter a valid email address." }, 400);
     }
 
-    const selectedColumns =
-      "id, product_slug, email, source_page, created_at, internal_notification_sent_at";
-
-    const { data: insertedEntry, error: insertError } = await supabase
+    const { error: insertError } = await supabase
       .from("mini_waitlist_submissions")
       .insert({
         product_slug: "mini",
         email,
         source_page: sourcePage,
-      })
-      .select(selectedColumns)
-      .single();
+      });
 
-    let waitlistEntry = insertedEntry as WaitlistRecord | null;
     let alreadyExists = false;
 
     if (insertError) {
@@ -136,32 +200,29 @@ serve(async (req) => {
       }
 
       alreadyExists = true;
-      const { data: existingEntry, error: existingEntryError } = await supabase
-        .from("mini_waitlist_submissions")
-        .select(selectedColumns)
-        .eq("product_slug", "mini")
-        .eq("email", email)
-        .maybeSingle();
-
-      if (existingEntryError || !existingEntry) {
-        throw new Error("Unable to join the waitlist right now.");
-      }
-
-      waitlistEntry = existingEntry as WaitlistRecord;
     }
+
+    const {
+      entry: waitlistEntry,
+      supportsNotificationColumn,
+    } = await fetchWaitlistEntry(email);
 
     if (!waitlistEntry || waitlistEntry.internal_notification_sent_at) {
       return buildJsonResponse({ ok: true, alreadyExists });
     }
 
-    const eventKey = `mini_waitlist:${waitlistEntry.id}`;
-    const dispatchClaimed = await claimDispatch(eventKey, waitlistEntry.id);
-
-    if (!dispatchClaimed) {
+    if (alreadyExists && !supportsNotificationColumn) {
       return buildJsonResponse({ ok: true, alreadyExists });
     }
 
     try {
+      const eventKey = `mini_waitlist:${waitlistEntry.id}`;
+      const dispatchClaimed = await claimDispatch(eventKey, waitlistEntry.id);
+
+      if (!dispatchClaimed) {
+        return buildJsonResponse({ ok: true, alreadyExists });
+      }
+
       await sendInternalEmail({
         subject: `New Mini waitlist sign-up: ${waitlistEntry.email}`,
         text: [
@@ -174,35 +235,37 @@ serve(async (req) => {
           `Source Page: ${waitlistEntry.source_page}`,
         ].join("\n"),
       });
-    } catch (error) {
-      console.error("mini-waitlist-intake internal email failed", error);
-      await releaseDispatch(eventKey);
-      return buildJsonResponse({ ok: true, alreadyExists });
-    }
 
-    await sendWeComAlertSafe({
-      tag: "Bloomjoy Mini",
-      title: "New Mini waitlist sign-up",
-      lines: [
-        `Submission ID: ${waitlistEntry.id}`,
-        `Submitted At (UTC): ${waitlistEntry.created_at}`,
-        `Product: ${waitlistEntry.product_slug}`,
-        `Email: ${waitlistEntry.email}`,
-        `Source Page: ${waitlistEntry.source_page}`,
-      ],
-    });
+      await sendWeComAlertSafe({
+        tag: "Bloomjoy Mini",
+        title: "New Mini waitlist sign-up",
+        lines: [
+          `Submission ID: ${waitlistEntry.id}`,
+          `Submitted At (UTC): ${waitlistEntry.created_at}`,
+          `Product: ${waitlistEntry.product_slug}`,
+          `Email: ${waitlistEntry.email}`,
+          `Source Page: ${waitlistEntry.source_page}`,
+        ],
+      });
 
-    await Promise.all([
-      supabase
-        .from("mini_waitlist_submissions")
-        .update({ internal_notification_sent_at: new Date().toISOString() })
-        .eq("id", waitlistEntry.id),
-      markDispatchSent(eventKey, {
+      if (supportsNotificationColumn) {
+        await supabase
+          .from("mini_waitlist_submissions")
+          .update({ internal_notification_sent_at: new Date().toISOString() })
+          .eq("id", waitlistEntry.id);
+      }
+
+      await markDispatchSent(eventKey, {
         product_slug: waitlistEntry.product_slug,
         source_page: waitlistEntry.source_page,
         email: waitlistEntry.email,
-      }),
-    ]);
+      });
+    } catch (error) {
+      const eventKey = `mini_waitlist:${waitlistEntry.id}`;
+      console.error("mini-waitlist-intake notification follow-up failed", error);
+      await releaseDispatch(eventKey);
+      return buildJsonResponse({ ok: true, alreadyExists });
+    }
 
     return buildJsonResponse({ ok: true, alreadyExists });
   } catch (error) {

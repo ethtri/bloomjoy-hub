@@ -35,7 +35,38 @@
   - `node scripts/commerce-preflight.mjs --project-ref ygbzkgxktzqsiygjlqyg`
   - a live `$0` Stripe checkout smoke order after the webhook email redesign deployment
 
+## Go-live submissions hotfix snapshot (2026-04-09)
+- A second production-readiness incident was confirmed on `2026-04-09`:
+  - support request email delivery worked in production, but live lead and Mini waitlist flows were exposed to database schema drift after the new submission functions were deployed before the related migration
+  - `lead-submission-intake` returned `500` after writing the durable `lead_submissions` row when the new dispatch bookkeeping hit the old `internal_notification_dispatches` constraint
+  - `mini-waitlist-intake` returned `500` because production did not yet have `mini_waitlist_submissions.internal_notification_sent_at`
+  - `/admin/leads` could not load the Mini waitlist section against the old schema
+- Emergency remediation is now live in production:
+  - `lead-submission-intake` now keeps customer responses successful after the durable lead row is written, even if notification bookkeeping/schema drift blocks the follow-up write
+  - `mini-waitlist-intake` now tolerates the missing waitlist notification column and still delivers internal email alerts plus friendly duplicate handling
+  - `stripe-webhook` now keeps the first Plus activation alert resilient to the same dispatch-type schema drift
+  - `/admin/leads` now falls back cleanly when production is still missing the Mini waitlist notification timestamp column
+  - production frontend was redeployed so public Mini waitlist traffic now uses the new Edge Function instead of the old direct table insert path
+  - new operator tooling was added:
+    - `npm run submission:preflight` verifies the remote submission schema before deployment
+    - `npm run submission:backfill` replays missed internal alerts for unsent lead/waitlist rows
+- Verified live on `2026-04-09` by:
+  - raw production POST to `lead-submission-intake` returning `200 {"ok":true}` plus internal email delivery
+  - raw production POST to `mini-waitlist-intake` returning `200 {"ok":true,"alreadyExists":false}` plus internal email delivery
+  - duplicate Mini waitlist submit returning `200 {"ok":true,"alreadyExists":true}`
+  - Gmail confirmation of `New general inquiry: Codex Final` and `New Mini waitlist sign-up: codex-final-mini-1775767856927@example.com`
+  - production host verification for `www`, `app`, and `/admin/leads`
+- Remaining production blockers after the hotfix:
+  - the SQL migration is still pending in production:
+    - `internal_notification_dispatches` still does not accept `lead_submission`, `mini_waitlist`, or `plus_subscription_activated`
+    - `mini_waitlist_submissions.internal_notification_sent_at` is still missing
+  - `https://bloomjoyusa.com/` still returns `307` instead of the expected permanent `308`
+  - a live Plus activation smoke test still needs to be run after the production SQL migration is applied
+
 ## Next P0 milestones
+- Apply the production submission migration and confirm the new schema state with `npm run submission:preflight -- --project-ref ygbzkgxktzqsiygjlqyg`.
+- Re-run live `/contact`, Mini waitlist, `/admin/leads`, and Plus activation smoke checks after the migration, then backfill any missed real-customer alerts with `npm run submission:backfill`.
+- Fix the apex-domain redirect so `https://bloomjoyusa.com/` returns `308` to `https://www.bloomjoyusa.com/`.
 - Clear the remaining WeCom production blocker:
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
   - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully

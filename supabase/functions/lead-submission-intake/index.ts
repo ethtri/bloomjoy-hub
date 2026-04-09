@@ -46,6 +46,9 @@ const submissionTypeLabels: Record<string, string> = {
   general: "general inquiry",
 };
 
+const isDispatchBookkeepingError = (code: string | undefined) =>
+  code === "23514" || code === "42501" || code === "42P01";
+
 const claimDispatch = async (
   eventKey: string,
   dispatchType: "lead_submission",
@@ -68,9 +71,11 @@ const claimDispatch = async (
     return false;
   }
 
-  // Keep quote intake resilient if dispatch bookkeeping cannot write due
-  // transient schema drift or non-service-role function credentials.
-  if (error.code === "42501" || error.code === "42P01") {
+  // Keep lead intake resilient if dispatch bookkeeping cannot write due to
+  // schema drift or missing privileges. The durable submission row already
+  // exists, so the operator follow-up should not surface as a customer-facing
+  // failure.
+  if (isDispatchBookkeepingError(error.code)) {
     console.warn(
       "Dispatch claim fallback: proceeding without dedupe bookkeeping.",
       error
@@ -187,71 +192,72 @@ serve(async (req) => {
       return buildJsonResponse({ ok: true });
     }
 
-    const eventKey = `lead_submission:${leadSubmission.id}`;
-    const dispatchClaimed = await claimDispatch(
-      eventKey,
-      "lead_submission",
-      leadSubmission.id
-    );
-
-    if (!dispatchClaimed) {
-      return buildJsonResponse({ ok: true });
-    }
-
     const submissionLabel =
       submissionTypeLabels[leadSubmission.submission_type] || "lead submission";
-    const internalSubject = `New ${submissionLabel}: ${leadSubmission.name}`;
-    const internalText = [
-      `A new ${submissionLabel} was submitted.`,
-      "",
-      `Submission ID: ${leadSubmission.id}`,
-      `Submitted At (UTC): ${leadSubmission.created_at}`,
-      `Inquiry Type: ${leadSubmission.submission_type}`,
-      `Name: ${leadSubmission.name}`,
-      `Email: ${leadSubmission.email}`,
-      `Source Page: ${leadSubmission.source_page}`,
-      "",
-      "Message:",
-      leadSubmission.message,
-    ].join("\n");
-
     try {
-      await sendInternalEmail({
-        subject: internalSubject,
-        text: internalText,
-      });
-    } catch (error) {
-      console.error("lead-submission-intake internal email failed", error);
-      await releaseDispatch(eventKey);
-      return buildJsonResponse({ ok: true });
-    }
+      const eventKey = `lead_submission:${leadSubmission.id}`;
+      const dispatchClaimed = await claimDispatch(
+        eventKey,
+        "lead_submission",
+        leadSubmission.id
+      );
 
-    await sendWeComAlertSafe({
-      tag: "Bloomjoy Lead",
-      title: `New ${submissionLabel}: ${leadSubmission.name}`,
-      lines: [
+      if (!dispatchClaimed) {
+        return buildJsonResponse({ ok: true });
+      }
+
+      const internalSubject = `New ${submissionLabel}: ${leadSubmission.name}`;
+      const internalText = [
+        `A new ${submissionLabel} was submitted.`,
+        "",
         `Submission ID: ${leadSubmission.id}`,
         `Submitted At (UTC): ${leadSubmission.created_at}`,
         `Inquiry Type: ${leadSubmission.submission_type}`,
         `Name: ${leadSubmission.name}`,
         `Email: ${leadSubmission.email}`,
         `Source Page: ${leadSubmission.source_page}`,
+        "",
         "Message:",
         leadSubmission.message,
-      ],
-    });
+      ].join("\n");
 
-    await Promise.all([
-      supabase
-        .from("lead_submissions")
-        .update({ internal_notification_sent_at: new Date().toISOString() })
-        .eq("id", leadSubmission.id),
-      markDispatchSent(eventKey, {
-        submission_type: leadSubmission.submission_type,
-        source_page: leadSubmission.source_page,
-        email: leadSubmission.email,
-      }),
-    ]);
+      await sendInternalEmail({
+        subject: internalSubject,
+        text: internalText,
+      });
+
+      await sendWeComAlertSafe({
+        tag: "Bloomjoy Lead",
+        title: `New ${submissionLabel}: ${leadSubmission.name}`,
+        lines: [
+          `Submission ID: ${leadSubmission.id}`,
+          `Submitted At (UTC): ${leadSubmission.created_at}`,
+          `Inquiry Type: ${leadSubmission.submission_type}`,
+          `Name: ${leadSubmission.name}`,
+          `Email: ${leadSubmission.email}`,
+          `Source Page: ${leadSubmission.source_page}`,
+          "Message:",
+          leadSubmission.message,
+        ],
+      });
+
+      await Promise.all([
+        supabase
+          .from("lead_submissions")
+          .update({ internal_notification_sent_at: new Date().toISOString() })
+          .eq("id", leadSubmission.id),
+        markDispatchSent(eventKey, {
+          submission_type: leadSubmission.submission_type,
+          source_page: leadSubmission.source_page,
+          email: leadSubmission.email,
+        }),
+      ]);
+    } catch (error) {
+      const eventKey = `lead_submission:${leadSubmission.id}`;
+      console.error("lead-submission-intake notification follow-up failed", error);
+      await releaseDispatch(eventKey);
+      return buildJsonResponse({ ok: true });
+    }
 
     return buildJsonResponse({ ok: true });
   } catch (error) {

@@ -132,6 +132,13 @@ type SubscriptionContext = {
   machineCount: number | null;
 };
 
+const shouldFallbackDispatchClaim = (
+  dispatchType: NotificationDispatchType,
+  code: string | undefined
+) =>
+  dispatchType === "plus_subscription_activated" &&
+  (code === "23514" || code === "42501" || code === "42P01");
+
 const claimDispatch = async (
   eventKey: string,
   dispatchType: NotificationDispatchType,
@@ -155,6 +162,14 @@ const claimDispatch = async (
 
   if (error.code === "23505") {
     return false;
+  }
+
+  if (shouldFallbackDispatchClaim(dispatchType, error.code)) {
+    console.warn(
+      "Dispatch claim fallback: proceeding without dedupe bookkeeping.",
+      { eventKey, dispatchType, error },
+    );
+    return true;
   }
 
   throw new Error(error.message || "Failed to claim order notification dispatch.");

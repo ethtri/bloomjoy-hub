@@ -49,6 +49,7 @@ Security rule:
   - [ ] `npm test --if-present`
   - [ ] `npm run lint --if-present`
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref>` passes
+- [ ] `npm run submission:preflight -- --project-ref <project-ref>` passes
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
@@ -66,6 +67,10 @@ Recommended:
    - `supabase link --project-ref <project-ref>`
 2) Push migrations:
    - `supabase db push`
+
+Important for the `202604090001_go_live_readiness_hardening.sql` slice:
+- Apply the migration before deploying `lead-submission-intake`, `mini-waitlist-intake`, or `stripe-webhook`.
+- Use the revised migration that first normalizes legacy `internal_notification_dispatches.dispatch_type='lead_quote'` rows to `lead_submission` before re-adding the stricter dispatch-type constraint.
 
 ### Step B: Set/refresh Edge Function secrets
 Run once per environment or when values rotate:
@@ -95,6 +100,7 @@ Before continuing, run:
 
 ```bash
 npm run commerce:preflight -- --project-ref <project-ref>
+npm run submission:preflight -- --project-ref <project-ref>
 ```
 
 WeCom note:
@@ -181,6 +187,22 @@ Preferred order of operations:
    - pricing tier and unit price
    - sugar color breakdown or blank-sticks order details
    - notification status fields
+
+## 5c) Incident recovery for missed lead or Mini waitlist notifications
+Use this when a public submission row was durably written but internal ops alerts were missed or schema drift blocked the follow-up bookkeeping.
+
+Preferred order of operations:
+1) Apply the production submission migration and confirm the remote schema with:
+   - `npm run submission:preflight -- --project-ref <project-ref>`
+2) Re-run the affected public smoke flows:
+   - `/contact` for `quote`, `demo`, `procurement`, and `general`
+   - `/machines/mini`
+   - `/admin/leads`
+3) Inspect `lead_submissions` and `mini_waitlist_submissions` for rows where `internal_notification_sent_at is null` during the incident window.
+4) Replay the missed alerts:
+   - `npm run submission:backfill -- --since <ISO timestamp> --dry-run`
+   - `npm run submission:backfill -- --since <ISO timestamp>`
+5) Verify the recovered rows now appear in `/admin/leads` with notification timestamps populated where the production schema supports them.
 
 ## 6) Rollback checklist
 Trigger rollback if critical checkout/auth/data sync regressions are found.
