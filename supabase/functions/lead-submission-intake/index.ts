@@ -32,10 +32,23 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
   : null;
 
 const sanitizeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+const buildJsonResponse = (body: Record<string, unknown>, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: jsonHeaders,
+  });
+
+const submissionTypeLabels: Record<string, string> = {
+  quote: "quote request",
+  demo: "demo request",
+  procurement: "procurement inquiry",
+  general: "general inquiry",
+};
 
 const claimDispatch = async (
   eventKey: string,
-  dispatchType: "lead_quote",
+  dispatchType: "lead_submission",
   sourceId: string
 ): Promise<boolean> => {
   if (!supabase) return false;
@@ -87,14 +100,12 @@ serve(async (req) => {
   }
 
   try {
+    if (req.method !== "POST") {
+      return buildJsonResponse({ error: "Method not allowed." }, 405);
+    }
+
     if (!supabase) {
-      return new Response(
-        JSON.stringify({ error: "Lead intake is not configured." }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return buildJsonResponse({ error: "Lead intake is not configured." }, 500);
     }
 
     const body = await req.json();
@@ -106,44 +117,28 @@ serve(async (req) => {
     const message = sanitizeText(body?.message);
     const machineInterest = sanitizeText(body?.machineInterest);
     const clientSubmissionId = sanitizeText(body?.clientSubmissionId).toLowerCase();
+    const website = sanitizeText(body?.website);
+
+    if (website) {
+      return buildJsonResponse({ ok: true });
+    }
 
     if (!validSubmissionTypes.has(submissionType)) {
-      return new Response(
-        JSON.stringify({ error: "Invalid inquiry type." }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return buildJsonResponse({ error: "Invalid inquiry type." }, 400);
     }
 
     if (!name || !email || !message) {
-      return new Response(
-        JSON.stringify({ error: "Name, email, and message are required." }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return buildJsonResponse({ error: "Name, email, and message are required." }, 400);
     }
 
     if (!emailPattern.test(email)) {
-      return new Response(
-        JSON.stringify({ error: "Please enter a valid email address." }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return buildJsonResponse({ error: "Please enter a valid email address." }, 400);
     }
 
     if (!clientSubmissionId || !uuidPattern.test(clientSubmissionId)) {
-      return new Response(
-        JSON.stringify({ error: "Missing submission token. Refresh and try again." }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return buildJsonResponse(
+        { error: "Missing submission token. Refresh and try again." },
+        400
       );
     }
 
@@ -188,28 +183,26 @@ serve(async (req) => {
       leadSubmission = existingLead;
     }
 
-    if (
-      submissionType !== "quote" ||
-      !leadSubmission ||
-      leadSubmission.internal_notification_sent_at
-    ) {
-      return new Response(JSON.stringify({ ok: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!leadSubmission || leadSubmission.internal_notification_sent_at) {
+      return buildJsonResponse({ ok: true });
     }
 
-    const eventKey = `lead_quote:${leadSubmission.id}`;
-    const dispatchClaimed = await claimDispatch(eventKey, "lead_quote", leadSubmission.id);
+    const eventKey = `lead_submission:${leadSubmission.id}`;
+    const dispatchClaimed = await claimDispatch(
+      eventKey,
+      "lead_submission",
+      leadSubmission.id
+    );
 
     if (!dispatchClaimed) {
-      return new Response(JSON.stringify({ ok: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return buildJsonResponse({ ok: true });
     }
 
-    const quoteSubject = `New quote request: ${leadSubmission.name}`;
-    const quoteText = [
-      "A new quote request was submitted.",
+    const submissionLabel =
+      submissionTypeLabels[leadSubmission.submission_type] || "lead submission";
+    const internalSubject = `New ${submissionLabel}: ${leadSubmission.name}`;
+    const internalText = [
+      `A new ${submissionLabel} was submitted.`,
       "",
       `Submission ID: ${leadSubmission.id}`,
       `Submitted At (UTC): ${leadSubmission.created_at}`,
@@ -224,17 +217,18 @@ serve(async (req) => {
 
     try {
       await sendInternalEmail({
-        subject: quoteSubject,
-        text: quoteText,
+        subject: internalSubject,
+        text: internalText,
       });
     } catch (error) {
+      console.error("lead-submission-intake internal email failed", error);
       await releaseDispatch(eventKey);
-      throw error;
+      return buildJsonResponse({ ok: true });
     }
 
     await sendWeComAlertSafe({
-      tag: "Bloomjoy Quote",
-      title: `New quote request: ${leadSubmission.name}`,
+      tag: "Bloomjoy Lead",
+      title: `New ${submissionLabel}: ${leadSubmission.name}`,
       lines: [
         `Submission ID: ${leadSubmission.id}`,
         `Submitted At (UTC): ${leadSubmission.created_at}`,
@@ -255,20 +249,13 @@ serve(async (req) => {
       markDispatchSent(eventKey, {
         submission_type: leadSubmission.submission_type,
         source_page: leadSubmission.source_page,
+        email: leadSubmission.email,
       }),
     ]);
 
-    return new Response(JSON.stringify({ ok: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return buildJsonResponse({ ok: true });
   } catch (error) {
     console.error("lead-submission-intake error", error);
-    return new Response(
-      JSON.stringify({ error: "Unable to submit contact request." }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return buildJsonResponse({ error: "Unable to submit contact request." }, 500);
   }
 });

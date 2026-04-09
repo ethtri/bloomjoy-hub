@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { sendInternalEmail } from "../_shared/internal-email.ts";
 import { sendWeComAlertSafe } from "../_shared/wecom-alert.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -161,20 +162,35 @@ serve(async (req) => {
           ]
         : [];
 
+    const alertLines = [
+      `Support Request ID: ${supportRequest.id}`,
+      `Submitted At (UTC): ${supportRequest.created_at}`,
+      `Request Type: ${supportRequest.request_type}`,
+      `Customer User ID: ${supportRequest.customer_user_id}`,
+      `Customer Email: ${supportRequest.customer_email}`,
+      `Subject: ${supportRequest.subject}`,
+      ...onboardingLines,
+      "Message:",
+      supportRequest.message || "(none provided)",
+    ];
+
+    try {
+      await sendInternalEmail({
+        subject: `New support request: ${supportRequest.subject}`,
+        text: [
+          "A new support request was submitted.",
+          "",
+          ...alertLines,
+        ].join("\n"),
+      });
+    } catch (error) {
+      console.error("support-request-intake internal email failed", error);
+    }
+
     await sendWeComAlertSafe({
       tag: "Bloomjoy Support",
       title: `New ${supportRequest.request_type} request`,
-      lines: [
-        `Support Request ID: ${supportRequest.id}`,
-        `Submitted At (UTC): ${supportRequest.created_at}`,
-        `Request Type: ${supportRequest.request_type}`,
-        `Customer User ID: ${supportRequest.customer_user_id}`,
-        `Customer Email: ${supportRequest.customer_email}`,
-        `Subject: ${supportRequest.subject}`,
-        ...onboardingLines,
-        "Message:",
-        supportRequest.message || "(none provided)",
-      ],
+      lines: alertLines,
     });
 
     return new Response(JSON.stringify({ supportRequest }), {

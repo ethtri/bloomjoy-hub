@@ -34,17 +34,15 @@ export default function MiniPage() {
   const handleWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (website.trim()) {
-      setSubmitted(true);
-      toast.success('You\'ve been added to the Mini waitlist!');
-      return;
-    }
-
     setSubmitting(true);
     try {
-      await createMiniWaitlistSubmission({ email: email.trim().toLowerCase() });
+      await createMiniWaitlistSubmission({
+        email: email.trim().toLowerCase(),
+        website,
+      });
       setSubmitted(true);
       setEmail('');
+      setWebsite('');
       toast.success('You\'ve been added to the Mini waitlist!');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to join the waitlist.';

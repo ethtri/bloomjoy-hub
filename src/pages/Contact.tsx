@@ -36,19 +36,6 @@ export default function ContactPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (formData.website.trim()) {
-      toast.success('Message sent! We\'ll be in touch soon.');
-      setFormData({
-        name: '',
-        email: '',
-        type: initialType,
-        interest: initialInterest,
-        message: '',
-        website: '',
-      });
-      return;
-    }
-
     setSubmitting(true);
     try {
       const cleanedMessage = formData.message.trim();
@@ -60,6 +47,7 @@ export default function ContactPage() {
         message: cleanedMessage,
         machineInterest: formData.type === 'quote' ? formData.interest.trim() : undefined,
         sourcePage: querySource?.trim() || '/contact',
+        website: formData.website,
       });
       toast.success('Message sent! We\'ll be in touch soon.');
       setFormData({

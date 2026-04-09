@@ -94,6 +94,10 @@ type PersistedOrderRow = {
   wecom_alert_sent_at: string | null;
 };
 
+type NotificationDispatchType =
+  | "order_checkout"
+  | "plus_subscription_activated";
+
 type OrderContext = {
   orderId: string;
   session: Stripe.Checkout.Session;
@@ -117,8 +121,21 @@ type OrderContext = {
   existingWeComAlertSentAt: string | null;
 };
 
+type SubscriptionContext = {
+  stripeSubscriptionId: string;
+  stripeCustomerId: string;
+  customerEmail: string | null;
+  resolvedUserId: string;
+  status: string;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  machineCount: number | null;
+};
+
 const claimDispatch = async (
   eventKey: string,
+  dispatchType: NotificationDispatchType,
+  sourceTable: string,
   sourceId: string,
   meta: Record<string, unknown>
 ): Promise<boolean> => {
@@ -126,8 +143,8 @@ const claimDispatch = async (
 
   const { error } = await supabase.from("internal_notification_dispatches").insert({
     event_key: eventKey,
-    dispatch_type: "order_checkout",
-    source_table: "orders",
+    dispatch_type: dispatchType,
+    source_table: sourceTable,
     source_id: sourceId,
     meta,
   });
@@ -336,7 +353,7 @@ async function resolveUserIdByEmail(email: string | null | undefined) {
 }
 
 async function upsertSubscription(subscription: Stripe.Subscription) {
-  if (!supabase) return;
+  if (!supabase) return null;
 
   const metadataUserId = subscription.metadata?.user_id;
   const customer =
@@ -354,7 +371,7 @@ async function upsertSubscription(subscription: Stripe.Subscription) {
     resolvedUserId = await resolveUserId(metadataUserId);
     if (!resolvedUserId) {
       console.warn("Subscription metadata user_id did not resolve", subscription.id);
-      return;
+      return null;
     }
   } else {
     resolvedUserId = await resolveUserIdByEmail(customerEmail);
@@ -362,12 +379,18 @@ async function upsertSubscription(subscription: Stripe.Subscription) {
 
   if (!resolvedUserId) {
     console.warn("No matching user for subscription", subscription.id);
-    return;
+    return null;
   }
 
   const currentPeriodEnd = subscription.current_period_end
     ? new Date(subscription.current_period_end * 1000).toISOString()
     : null;
+  const machineCount =
+    parseNumber(subscription.metadata?.machine_count) ||
+    subscription.items.data.reduce(
+      (total: number, item: Stripe.SubscriptionItem) => total + (item.quantity ?? 0),
+      0
+    );
 
   const payload = {
     user_id: resolvedUserId,
@@ -384,7 +407,19 @@ async function upsertSubscription(subscription: Stripe.Subscription) {
 
   if (error) {
     console.error("Failed to upsert subscription", error);
+    return null;
   }
+
+  return {
+    stripeSubscriptionId: subscription.id,
+    stripeCustomerId: String(subscription.customer),
+    customerEmail,
+    resolvedUserId,
+    status: subscription.status,
+    currentPeriodEnd,
+    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    machineCount: machineCount > 0 ? machineCount : null,
+  } satisfies SubscriptionContext;
 }
 
 const buildLineItemSummary = (lineItems: StripeLineItemSummary[]) =>
@@ -670,11 +705,17 @@ const sendInternalOrderNotification = async (context: OrderContext) => {
   }
 
   const eventKey = `order_checkout:internal:${context.session.id}`;
-  const dispatchClaimed = await claimDispatch(eventKey, context.orderId, {
-    checkout_session_id: context.session.id,
-    order_type: context.orderType,
-    channel: "internal_email",
-  });
+  const dispatchClaimed = await claimDispatch(
+    eventKey,
+    "order_checkout",
+    "orders",
+    context.orderId,
+    {
+      checkout_session_id: context.session.id,
+      order_type: context.orderType,
+      channel: "internal_email",
+    }
+  );
 
   if (!dispatchClaimed) {
     return;
@@ -710,11 +751,17 @@ const sendCustomerConfirmation = async (context: OrderContext) => {
   }
 
   const eventKey = `order_checkout:customer:${context.session.id}`;
-  const dispatchClaimed = await claimDispatch(eventKey, context.orderId, {
-    checkout_session_id: context.session.id,
-    order_type: context.orderType,
-    channel: "customer_confirmation",
-  });
+  const dispatchClaimed = await claimDispatch(
+    eventKey,
+    "order_checkout",
+    "orders",
+    context.orderId,
+    {
+      checkout_session_id: context.session.id,
+      order_type: context.orderType,
+      channel: "customer_confirmation",
+    }
+  );
 
   if (!dispatchClaimed) {
     return;
@@ -781,11 +828,17 @@ const sendWeComOrderAlert = async (context: OrderContext) => {
   }
 
   const eventKey = `order_checkout:wecom:${context.session.id}`;
-  const dispatchClaimed = await claimDispatch(eventKey, context.orderId, {
-    checkout_session_id: context.session.id,
-    order_type: context.orderType,
-    channel: "wecom_alert",
-  });
+  const dispatchClaimed = await claimDispatch(
+    eventKey,
+    "order_checkout",
+    "orders",
+    context.orderId,
+    {
+      checkout_session_id: context.session.id,
+      order_type: context.orderType,
+      channel: "wecom_alert",
+    }
+  );
 
   if (!dispatchClaimed) {
     return;
@@ -823,6 +876,81 @@ const sendOrderNotifications = async (context: OrderContext | null) => {
   await sendInternalOrderNotification(context);
   await sendCustomerConfirmation(context);
   await sendWeComOrderAlert(context);
+};
+
+const sendPlusSubscriptionActivationAlert = async (
+  context: SubscriptionContext | null
+) => {
+  if (!supabase || !context) {
+    return;
+  }
+
+  if (context.status !== "trialing" && context.status !== "active") {
+    return;
+  }
+
+  const eventKey = `plus_subscription_activated:${context.stripeSubscriptionId}`;
+  const dispatchClaimed = await claimDispatch(
+    eventKey,
+    "plus_subscription_activated",
+    "subscriptions",
+    context.stripeSubscriptionId,
+    {
+      stripe_subscription_id: context.stripeSubscriptionId,
+      user_id: context.resolvedUserId,
+      status: context.status,
+    }
+  );
+
+  if (!dispatchClaimed) {
+    return;
+  }
+
+  const subject = `Bloomjoy Plus activated: ${context.customerEmail ?? context.resolvedUserId}`;
+  const emailLines = [
+    "A Bloomjoy Plus subscription reached an active state.",
+    "",
+    `Stripe Subscription ID: ${context.stripeSubscriptionId}`,
+    `Stripe Customer ID: ${context.stripeCustomerId}`,
+    `Resolved User ID: ${context.resolvedUserId}`,
+    `Customer Email: ${context.customerEmail ?? "n/a"}`,
+    `Status: ${context.status}`,
+    `Machine Count: ${context.machineCount ?? "n/a"}`,
+    `Current Period End (UTC): ${context.currentPeriodEnd ?? "n/a"}`,
+    `Cancel At Period End: ${context.cancelAtPeriodEnd ? "yes" : "no"}`,
+  ];
+
+  try {
+    await sendInternalEmail({
+      subject,
+      text: emailLines.join("\n"),
+    });
+  } catch (error) {
+    console.error("stripe-webhook plus activation email failed", error);
+    await releaseDispatch(eventKey);
+    return;
+  }
+
+  await sendWeComAlertResult({
+    tag: "Bloomjoy Plus",
+    title: `Plus subscription active: ${context.customerEmail ?? context.resolvedUserId}`,
+    lines: [
+      `Stripe Subscription ID: ${context.stripeSubscriptionId}`,
+      `Resolved User ID: ${context.resolvedUserId}`,
+      `Customer Email: ${context.customerEmail ?? "n/a"}`,
+      `Status: ${context.status}`,
+      `Machine Count: ${context.machineCount ?? "n/a"}`,
+      `Current Period End (UTC): ${context.currentPeriodEnd ?? "n/a"}`,
+    ],
+  });
+
+  await markDispatchSent(eventKey, {
+    stripe_subscription_id: context.stripeSubscriptionId,
+    user_id: context.resolvedUserId,
+    customer_email: context.customerEmail,
+    status: context.status,
+    machine_count: context.machineCount,
+  });
 };
 
 serve(async (req) => {
@@ -875,7 +1003,8 @@ serve(async (req) => {
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
-        await upsertSubscription(subscription);
+        const subscriptionContext = await upsertSubscription(subscription);
+        await sendPlusSubscriptionActivationAlert(subscriptionContext);
         break;
       }
       default:

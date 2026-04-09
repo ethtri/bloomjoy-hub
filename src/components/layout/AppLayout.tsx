@@ -41,6 +41,11 @@ const adminDestinations = [
     description: 'Operations modules, queue visibility, and internal governance tools.',
   },
   {
+    href: '/admin/leads',
+    label: 'Admin leads',
+    description: 'Inbound lead submissions and Mini waitlist visibility.',
+  },
+  {
     href: '/admin/orders',
     label: 'Admin orders',
     description: 'Fulfillment updates, tracking links, and order operations.',

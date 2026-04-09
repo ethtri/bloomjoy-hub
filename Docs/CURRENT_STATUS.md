@@ -262,12 +262,13 @@ Execution order is based on launch risk and dependency overlap.
 - Session closeout smoke snapshot (`2026-03-09`): production-config API checks passed for quote notification dispatch, magic-link trigger, and password-reset trigger; remaining launch evidence is now limited to manual inbox/browser screenshots in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
 - WeCom alerting POC merged (`#107` via PR `#108`, `2026-03-10`): quote/order/support flows now attempt WeCom dispatch using server-only `WECOM_*` secrets with token cache + non-blocking failure logging.
 - WeChat onboarding concierge merged (PR `#109`, `2026-03-10`): support flow now includes structured onboarding intake (`phone/device/blocked step/referral`) persisted in `support_requests.intake_meta` and surfaced in `/admin/support` triage filters/cards.
+- Go-live readiness hardening (`2026-04-09`): all contact lead types now alert through `lead-submission-intake`, Mini waitlist now uses a server-side intake with internal email + best-effort WeCom, support intake now sends internal email alerts, Plus subscription activations now alert ops on first `trialing`/`active` webhook transition, `/admin/leads` provides read-only visibility for lead + waitlist inboxes, and direct public inserts to `lead_submissions` / `mini_waitlist_submissions` were removed so public writes must go through Edge Functions.
 
 ## Known risks / blockers
 - Product photography availability (Mini may launch as waitlist/coming soon)
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
-- Internal notification pipeline is restored for quote submissions, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender, recipient list).
+- Internal notification pipeline is restored for leads, waitlist, orders, and support alerts, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender, recipient list).
 - WeCom alert dispatch reliability now depends on owner-managed app policy as well as valid secrets/recipient scope; current live failure is `60020: not allow to access from your ip`.
 - WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.

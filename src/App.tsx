@@ -36,6 +36,7 @@ const PortalOnboarding = lazy(() => import("./pages/portal/Onboarding"));
 const PortalOrders = lazy(() => import("./pages/portal/Orders"));
 const PortalAccount = lazy(() => import("./pages/portal/Account"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
+const AdminLeads = lazy(() => import("./pages/admin/Leads"));
 const AdminOrders = lazy(() => import("./pages/admin/Orders"));
 const AdminSupport = lazy(() => import("./pages/admin/Support"));
 const AdminAccounts = lazy(() => import("./pages/admin/Accounts"));
@@ -98,6 +99,7 @@ const App = () => (
                   </Route>
                   <Route element={<AdminRoute />}>
                     <Route path="/admin" element={<AdminDashboard />} />
+                    <Route path="/admin/leads" element={<AdminLeads />} />
                     <Route path="/admin/orders" element={<AdminOrders />} />
                     <Route path="/admin/support" element={<AdminSupport />} />
                     <Route path="/admin/accounts" element={<AdminAccounts />} />

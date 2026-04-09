@@ -1,25 +1,30 @@
-import { supabaseClient } from '@/lib/supabaseClient';
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 
 type CreateMiniWaitlistInput = {
   email: string;
   sourcePage?: string;
+  website?: string;
 };
 
 export const createMiniWaitlistSubmission = async ({
   email,
-  sourcePage = '/products/mini',
+  sourcePage = '/machines/mini',
+  website = '',
 }: CreateMiniWaitlistInput) => {
-  const { error } = await supabaseClient.from('mini_waitlist_submissions').insert({
-    product_slug: 'mini',
-    email,
-    source_page: sourcePage,
-  });
+  const data = await invokeEdgeFunction<{ error?: string; alreadyExists?: boolean }>(
+    'mini-waitlist-intake',
+    {
+      email,
+      sourcePage,
+      website,
+    }
+  );
 
-  if (error?.code === '23505') {
+  if (data?.alreadyExists) {
     throw new Error("You're already on the Mini waitlist.");
   }
 
-  if (error) {
-    throw new Error(error.message || 'Unable to join the waitlist right now.');
+  if (data?.error) {
+    throw new Error(data.error);
   }
 };

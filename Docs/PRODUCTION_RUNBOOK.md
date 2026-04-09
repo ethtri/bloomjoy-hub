@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-04-06
+Last updated: 2026-04-09
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -25,16 +25,16 @@ Set the following values before launch.
 | `STRIPE_STICKS_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
-| `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake` | Resend API key | Technical owner |
-| `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake` | Verified sender in Resend | Technical owner |
-| `INTERNAL_NOTIFICATION_RECIPIENTS` | Server-only | `stripe-webhook`, `lead-submission-intake` | Internal recipient list (comma-separated) | Release owner |
-| `WECOM_CORP_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
-| `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
-| `WECOM_AGENT_SECRET` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
-| `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
-| `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions | Supabase project URL | Technical owner |
+| `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `mini-waitlist-intake`, `support-request-intake` | Resend API key | Technical owner |
+| `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `mini-waitlist-intake`, `support-request-intake` | Verified sender in Resend | Technical owner |
+| `INTERNAL_NOTIFICATION_RECIPIENTS` | Server-only | `stripe-webhook`, `lead-submission-intake`, `mini-waitlist-intake`, `support-request-intake` | Internal recipient list (comma-separated) | Release owner |
+| `WECOM_CORP_ID` | Server-only | `lead-submission-intake`, `mini-waitlist-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
+| `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `mini-waitlist-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
+| `WECOM_AGENT_SECRET` | Server-only | `lead-submission-intake`, `mini-waitlist-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
+| `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `mini-waitlist-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
+| `SUPABASE_URL` | Server-only | Stripe/order/lead/support Edge Functions | Supabase project URL | Technical owner |
 | `SUPABASE_ANON_KEY` | Server-only | `stripe-sugar-checkout`, `stripe-plus-checkout`, `stripe-customer-portal` | Supabase project anon key | Technical owner |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake` | Supabase service role key | Technical owner |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `mini-waitlist-intake`, `support-request-intake` | Supabase service role key | Technical owner |
 
 Security rule:
 - Never place secrets in `VITE_` variables.
@@ -110,6 +110,7 @@ supabase functions deploy stripe-plus-checkout --no-verify-jwt
 supabase functions deploy stripe-customer-portal --no-verify-jwt
 supabase functions deploy stripe-webhook --no-verify-jwt
 supabase functions deploy lead-submission-intake --no-verify-jwt
+supabase functions deploy mini-waitlist-intake --no-verify-jwt
 supabase functions deploy support-request-intake --no-verify-jwt
 ```
 
@@ -153,10 +154,16 @@ Run immediately after deploy:
 - [ ] Blank sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
-- [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
+- [ ] Demo, procurement, and general contact requests on `/contact` send internal summary email to configured operations recipients.
+- [ ] Mini waitlist submit sends internal summary email to configured operations recipients.
+- [ ] Support request submit sends internal summary email to configured operations recipients.
+- [ ] Lead/waitlist/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
+- [ ] First Plus subscription activation (`trialing` or `active`) sends an internal summary email to configured operations recipients.
 - [ ] `/admin/orders` shows address, pricing tier, receipt URL, order breakdown, and notification status for the test orders.
+- [ ] `/admin/leads` shows the submitted lead and Mini waitlist rows with notification timestamps.
 - [ ] WeChat onboarding concierge submit on `/portal/support` creates `support_requests.request_type=wechat_onboarding` with populated `intake_meta`.
 - [ ] Stripe customer portal opens from `/portal/account`.
+- [ ] `https://bloomjoyusa.com` returns a permanent redirect to `https://www.bloomjoyusa.com/`.
 - [ ] No critical frontend console errors on key pages.
 
 ## 5b) Incident recovery for missed order sync

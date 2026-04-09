@@ -1,9 +1,15 @@
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ShoppingBag, LifeBuoy, Users, ClipboardList } from 'lucide-react';
+import { ShieldCheck, ShoppingBag, LifeBuoy, Users, ClipboardList, Inbox } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 
 const adminModules = [
+  {
+    title: 'Leads Inbox',
+    description: 'Review sales inquiries, procurement requests, and Mini waitlist sign-ups.',
+    icon: Inbox,
+    href: '/admin/leads',
+  },
   {
     title: 'Orders',
     description: 'Search and manage operational order workflows.',
@@ -52,8 +58,8 @@ export default function AdminDashboardPage() {
       <section className="section-padding">
         <div className="container-page">
           <div className="rounded-xl border border-sage/30 bg-sage-light px-4 py-3 text-sm text-sage">
-            Admin workspace is active. Use the modules below for orders, support, accounts, and
-            governance operations.
+            Admin workspace is active. Use the modules below for leads, orders, support, accounts,
+            and governance operations.
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">

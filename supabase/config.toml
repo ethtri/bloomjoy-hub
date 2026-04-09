@@ -16,5 +16,8 @@ verify_jwt = false
 [functions.lead-submission-intake]
 verify_jwt = false
 
+[functions.mini-waitlist-intake]
+verify_jwt = false
+
 [functions.support-request-intake]
 verify_jwt = false

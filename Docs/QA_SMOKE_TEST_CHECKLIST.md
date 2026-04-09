@@ -55,7 +55,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Quote submissions send internal notification email with full request summary (name/email/source/type/message)
 - [ ] Quote submissions send a WeCom internal alert to configured `WECOM_ALERT_TO_USERIDS` recipients
+- [ ] Demo, procurement, and general contact submissions also send internal notification email and appear in `/admin/leads`
+- [ ] Blank sticks procurement requests (under 5 boxes) and custom sticks requests send internal notification email and appear in `/admin/leads`
 - [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
+- [ ] Mini waitlist submit sends internal notification email and appears in `/admin/leads`
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
@@ -134,6 +137,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Source-PDF download actions for document-first guides resolve through signed `training-documents` URLs rather than public bucket links
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
+- [ ] Submitted support request triggers an internal notification email with request type, customer email, and subject
 - [ ] Submitted support request triggers a WeCom alert with request type, customer email, and subject
 - [ ] `/portal/support` -> `View Setup Guide` includes install steps, QR verification timing, contact/group setup, and quick-use actions for translation, photo/video sharing, and group calls
 - [ ] `/portal/support` includes a WeChat onboarding concierge form with phone region/number, blocked-step selection, and referral-needed selection
@@ -156,6 +160,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
 - [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`
+- [ ] First Plus subscription activation (`trialing` or `active`) sends an internal notification email with subscription ID, customer email, machine count, and period end
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
 - [ ] In Stripe test customer portal, cancel Plus subscription and return to `/portal/account?billing=return`
@@ -176,6 +181,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Admin (super-admin)
 - [ ] Non-admin user cannot access `/admin/support`
+- [ ] Non-admin user cannot access `/admin/leads`
+- [ ] Super-admin user can access `/admin/leads`
+- [ ] Admin leads inbox supports search and lead-type filtering and shows lead submissions plus Mini waitlist rows with notification timestamps
 - [ ] Super-admin user can access `/admin/support`
 - [ ] Admin can search/filter support queue and update status/priority/assignment/notes
 - [ ] Admin support queue can filter by request type and includes `wechat_onboarding`
@@ -197,3 +205,4 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata
 - [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 - [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually
+- [ ] Direct client inserts to `lead_submissions` and `mini_waitlist_submissions` with the anon key fail after the RLS hardening

@@ -192,7 +192,7 @@ export default function HomePage() {
                 {[
                   'Onboarding checklist & WeChat setup assistance',
                   'Training library access with video guides',
-                  'Member community access',
+                  'Operator playbooks and launch guidance',
                   'Concierge support (triage, best-practices, escalation)',
                 ].map((benefit) => (
                   <div key={benefit} className="flex items-start gap-3">
