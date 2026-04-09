@@ -56,16 +56,20 @@
   - duplicate Mini waitlist submit returning `200 {"ok":true,"alreadyExists":true}`
   - Gmail confirmation of `New general inquiry: Codex Final` and `New Mini waitlist sign-up: codex-final-mini-1775767856927@example.com`
   - production host verification for `www`, `app`, and `/admin/leads`
-- Remaining production blockers after the hotfix:
-  - the SQL migration is still pending in production:
-    - `internal_notification_dispatches` still does not accept `lead_submission`, `mini_waitlist`, or `plus_subscription_activated`
-    - `mini_waitlist_submissions.internal_notification_sent_at` is still missing
+- Production follow-through completed later on `2026-04-09`:
+  - applied `202604090001_go_live_readiness_hardening.sql` to production after restoring the missing historical migration file `202603220001_partner_operator_accounts.sql` into the repo
+  - `npm run submission:preflight -- --project-ref ygbzkgxktzqsiygjlqyg` now passes against production
+  - live smoke verification confirmed:
+    - all four `/contact` submission types return `200`, persist rows, stamp `internal_notification_sent_at`, write `lead_submission` dispatch rows, and deliver internal emails
+    - Mini waitlist first-submit and duplicate-submit return `200`, stamp `internal_notification_sent_at`, write `mini_waitlist` dispatch rows, and deliver internal email
+    - anonymous direct inserts to `lead_submissions` and `mini_waitlist_submissions` fail with `42501`
+    - super-admin reads for lead and Mini waitlist rows succeed again through the production RLS path used by `/admin/leads`
+- Remaining production blockers after the migration:
   - `https://bloomjoyusa.com/` still returns `307` instead of the expected permanent `308`
-  - a live Plus activation smoke test still needs to be run after the production SQL migration is applied
+  - a live Plus activation smoke test is still pending because it requires a real billing-path verification
 
 ## Next P0 milestones
-- Apply the production submission migration and confirm the new schema state with `npm run submission:preflight -- --project-ref ygbzkgxktzqsiygjlqyg`.
-- Re-run live `/contact`, Mini waitlist, `/admin/leads`, and Plus activation smoke checks after the migration, then backfill any missed real-customer alerts with `npm run submission:backfill`.
+- Run a safe live Plus activation verification and confirm the one-time `plus_subscription_activated` ops email path.
 - Fix the apex-domain redirect so `https://bloomjoyusa.com/` returns `308` to `https://www.bloomjoyusa.com/`.
 - Clear the remaining WeCom production blocker:
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom

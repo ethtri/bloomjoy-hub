@@ -1,11 +1,11 @@
+alter table public.internal_notification_dispatches
+  drop constraint if exists internal_notification_dispatches_dispatch_type_check;
+
 update public.internal_notification_dispatches
 set
   dispatch_type = 'lead_submission',
   event_key = regexp_replace(event_key, '^lead_quote:', 'lead_submission:')
 where dispatch_type = 'lead_quote';
-
-alter table public.internal_notification_dispatches
-  drop constraint if exists internal_notification_dispatches_dispatch_type_check;
 
 alter table public.internal_notification_dispatches
   add constraint internal_notification_dispatches_dispatch_type_check
