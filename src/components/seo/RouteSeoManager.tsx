@@ -62,7 +62,7 @@ const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo
     seo: {
       title: "Mini Machine | Bloomjoy Hub",
       description:
-        "Learn about Bloomjoy Mini and join the waitlist for upcoming availability and launch updates.",
+        "Explore the Bloomjoy Mini machine, live availability, key limitations, and the quote flow for current orders.",
       robots: PUBLIC_ROBOTS,
       surface: "marketing",
     },

@@ -26,12 +26,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Home machine cards show correct model images (Commercial, Mini, Micro) without awkward clipping
 - [ ] Machine naming is consistent as `Commercial Machine`, `Mini Machine`, and `Micro Machine` on Home, Machines, Contact, and footer links
 - [ ] Product pages load (Full, Micro, Mini)
-  - [ ] Mini shows "Coming soon / Waitlist" when enabled
+- [ ] Home and `/machines` no longer present Mini as `Coming Soon`; Mini shows `Available Now` or equivalent live-availability treatment
 - [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)
 - [ ] Commercial page shows native specs content (not image-only text for core specs)
 - [ ] Commercial page "Open full size" actions open in-page modal and can be closed to return to the same screen
 - [ ] Commercial machine sales copy/quote CTA clearly shows wrap options and marks custom wrap as Commercial-only with offline design-team handoff
 - [ ] Mini and Micro machine pages do not advertise custom wrap as an available option
+- [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
+- [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=/machines/mini`
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
 - [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
 - [ ] Sugar page quick presets show `240 KG`, `400 KG`, and `800 KG`, with `400 KG` as the default target
@@ -52,10 +54,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
+- [ ] Mini quote CTA preselects `Mini Machine` on `/contact` and submits as a normal quote lead (not a waitlist)
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Quote submissions send internal notification email with full request summary (name/email/source/type/message)
 - [ ] Quote submissions send a WeCom internal alert to configured `WECOM_ALERT_TO_USERIDS` recipients
-- [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
+- [ ] `/machines/mini` SEO/meta copy no longer references waitlist or upcoming launch language
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
