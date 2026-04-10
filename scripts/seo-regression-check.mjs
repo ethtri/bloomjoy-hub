@@ -102,6 +102,19 @@ const validatePublicRouteHtml = async (routePath) => {
     `"url":"${canonical}"`,
     `Public route ${routePath} JSON-LD is missing canonical url`
   );
+
+  if (routePath === "/machines/mini") {
+    assertExcludes(
+      html,
+      "join the waitlist",
+      "Mini route prerender still references waitlist copy"
+    );
+    assertExcludes(
+      html,
+      "upcoming availability",
+      "Mini route prerender still references upcoming-availability copy"
+    );
+  }
 };
 
 const validatePrivateRouteHtml = async (route) => {

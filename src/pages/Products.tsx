@@ -25,7 +25,7 @@ const machineProducts = [
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
     href: '/machines/mini',
     image: miniMain,
-    badge: 'Coming Soon',
+    badge: 'Available Now',
   },
   {
     sku: 'micro',
