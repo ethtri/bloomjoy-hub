@@ -229,7 +229,7 @@ Execution order is based on launch risk and dependency overlap.
 - Governance polish (`#47`): `/admin/audit` view with filters, super-admin grant/revoke role flows, and role/audit RPCs linked to `admin_audit_log`
 - Go-live auth/session (`#56`): Supabase session auth + protected route redirect are now the active portal auth baseline
 - Go-live hardening (`#57`): Plus checkout now requires authenticated session identity, writes durable `user_id` metadata to Stripe checkout/subscription objects, and webhook mapping treats metadata user ID as authoritative when present
-- Go-live submission pipelines (`#62` scoped): Contact form + Mini waitlist now persist to Supabase (`lead_submissions`, `mini_waitlist_submissions`) with clear success/error handling and honeypot anti-spam fields
+- Go-live submission pipelines (`#62` scoped): Contact form persists to Supabase (`lead_submissions`) with clear success/error handling and honeypot anti-spam fields; historical Mini waitlist records remain in `mini_waitlist_submissions` for ops reference after the public site moved Mini to the live quote flow
 - Go-live account data hardening (`#63`): portal account page now loads and saves persisted profile/shipping data (`customer_profiles`) and uses live membership period/status from `subscriptions`
 - Go-live release operations runbook (`#64`): production env var matrix, deployment sequence, launch verification, and rollback checklist documented in `Docs/PRODUCTION_RUNBOOK.md`
 - Legal/compliance launch hardening (`#59`): added Privacy Policy, Terms of Service, Billing & Cancellation pages, and global footer/legal links
