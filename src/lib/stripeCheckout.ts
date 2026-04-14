@@ -13,14 +13,10 @@ interface BlankSticksCheckoutInput {
   addressType: BlankSticksAddressType;
 }
 
-export async function startPlusCheckout(
-  origin: string,
-  machineCount: number
-) {
+export async function startPlusCheckout(origin: string) {
   const data = await invokeEdgeFunction<CheckoutResponse>(
     'stripe-plus-checkout',
     {
-      machineCount,
       successUrl: `${origin}/plus?checkout=success`,
       cancelUrl: `${origin}/plus?checkout=cancel`,
     },

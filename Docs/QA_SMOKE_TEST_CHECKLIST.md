@@ -156,9 +156,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Bloomjoy branded sticks checkout completed webhook sends internal order summary email with box count, machine size, address type, and shipping total
 - [ ] Bloomjoy branded sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
 - [ ] Bloomjoy branded sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
-- [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
+- [ ] Plus subscription checkout shows flat `$100/month` account pricing and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
-- [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`
+- [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.billing_model=flat_monthly`
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
 - [ ] In Stripe test customer portal, cancel Plus subscription and return to `/portal/account?billing=return`
