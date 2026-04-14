@@ -128,7 +128,7 @@ as $$
   );
 $$;
 
-create or replace function public.get_portal_access_tier_for_user(uid uuid)
+create or replace function public.get_portal_access_tier_for_user(p_user_id uuid)
 returns text
 language sql
 stable
@@ -136,10 +136,10 @@ security definer
 set search_path = public
 as $$
   select case
-    when uid is null then 'baseline'
-    when public.is_super_admin(uid) then 'plus'
-    when public.has_plus_access(uid) then 'plus'
-    when public.has_active_operator_training_grant(uid) then 'training'
+    when p_user_id is null then 'baseline'
+    when public.is_super_admin(p_user_id) then 'plus'
+    when public.has_plus_access(p_user_id) then 'plus'
+    when public.has_active_operator_training_grant(p_user_id) then 'training'
     else 'baseline'
   end;
 $$;
