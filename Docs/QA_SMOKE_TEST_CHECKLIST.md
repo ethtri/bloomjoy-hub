@@ -85,6 +85,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
 - [ ] Non-Plus login still sees gated destinations in portal navigation and dashboard action cards with clear locked/access-tier treatment
 - [ ] Active Plus member or super-admin can add multiple operator emails from `/portal/account` under Operator Training Access
+- [ ] Adding operator training access sends the operator an invite email with a login link
 - [ ] Operator Training Access shows a simple list of people with training access and a clear setup message when the database rollout is missing
 - [ ] Training-only operator login can access `/portal` and `/portal/training*`
 - [ ] Training-only operator login cannot access `/portal/orders`, `/portal/account`, `/portal/onboarding`, or `/portal/support`

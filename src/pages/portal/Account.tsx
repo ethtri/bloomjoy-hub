@@ -28,6 +28,7 @@ import {
   fetchMyOperatorTrainingGrants,
   grantOperatorTrainingAccess,
   revokeOperatorTrainingAccess,
+  sendOperatorTrainingInvite,
 } from '@/lib/operatorTrainingAccess';
 import { toast } from 'sonner';
 
@@ -122,26 +123,54 @@ export default function AccountPage() {
         throw new Error('Enter at least one operator email.');
       }
 
+      const loginUrl = `${window.location.origin}/login`;
       const results = await Promise.allSettled(
-        emails.map((email) => grantOperatorTrainingAccess(email))
+        emails.map(async (email) => {
+          const grant = await grantOperatorTrainingAccess(email);
+
+          try {
+            await sendOperatorTrainingInvite(grant.id, loginUrl);
+            return { grant, inviteSent: true, inviteErrorMessage: '' };
+          } catch (error) {
+            const inviteErrorMessage =
+              error instanceof Error ? error.message : 'Unable to send invite email.';
+            return { grant, inviteSent: false, inviteErrorMessage };
+          }
+        })
       );
       const added = results.filter((result) => result.status === 'fulfilled').length;
       const failed = results.length - added;
+      const inviteFailed = results.filter(
+        (result) => result.status === 'fulfilled' && !result.value.inviteSent
+      ).length;
       const firstFailure = results.find(
         (result): result is PromiseRejectedResult => result.status === 'rejected'
+      );
+      const firstInviteFailure = results.find(
+        (result) => result.status === 'fulfilled' && !result.value.inviteSent
       );
       const firstFailureMessage =
         firstFailure?.reason instanceof Error
           ? firstFailure.reason.message
           : 'Unable to grant operator training access.';
+      const firstInviteFailureMessage =
+        firstInviteFailure?.status === 'fulfilled'
+          ? firstInviteFailure.value.inviteErrorMessage
+          : 'Unable to send invite email.';
 
       if (added === 0 && failed > 0) {
         throw new Error(firstFailureMessage);
       }
 
-      return { added, failed, firstFailureMessage };
+      return { added, failed, inviteFailed, firstFailureMessage, firstInviteFailureMessage };
     },
-    onSuccess: async ({ added, failed, firstFailureMessage }) => {
+    onSuccess: async ({
+      added,
+      failed,
+      inviteFailed,
+      firstFailureMessage,
+      firstInviteFailureMessage,
+    }) => {
       setOperatorEmails('');
       await queryClient.invalidateQueries({ queryKey: ['operator-training-grants', user?.id] });
 
@@ -150,7 +179,18 @@ export default function AccountPage() {
         return;
       }
 
-      toast.success(`${added} training operator${added === 1 ? '' : 's'} added.`);
+      if (inviteFailed > 0) {
+        toast.error(
+          `${added} operator${added === 1 ? '' : 's'} added, but ${inviteFailed} invite email${
+            inviteFailed === 1 ? '' : 's'
+          } failed. ${firstInviteFailureMessage}`
+        );
+        return;
+      }
+
+      toast.success(
+        `${added} training operator${added === 1 ? '' : 's'} added and invited.`
+      );
     },
   });
 

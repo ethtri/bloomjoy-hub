@@ -1,4 +1,5 @@
 import { supabaseClient } from '@/lib/supabaseClient';
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 
 export type OperatorTrainingGrant = {
   id: string;
@@ -92,6 +93,23 @@ export const grantOperatorTrainingAccess = async (
   }
 
   return mapGrantRecord(data as OperatorTrainingGrantRecord);
+};
+
+export const sendOperatorTrainingInvite = async (
+  grantId: string,
+  loginUrl: string
+): Promise<void> => {
+  await invokeEdgeFunction(
+    'operator-training-invite',
+    {
+      grantId,
+      loginUrl,
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to send an operator invite.',
+    }
+  );
 };
 
 export const revokeOperatorTrainingAccess = async (
