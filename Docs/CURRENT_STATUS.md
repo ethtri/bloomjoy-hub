@@ -49,6 +49,13 @@
   - re-run the live `$0` order smoke test and confirm `wecom_alert_sent_at` populates in `public.orders`
 - Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
 
+## Access model roadmap (2026-04-14)
+- Current `main` supports Supabase identity, paid Plus subscription access, DB-driven `super_admin`, and admin-managed free Plus grants.
+- Training-only operator access is proposed in PR `#148` so Plus members can grant training access without granting the full paid Plus bundle.
+- Long-term consolidation of customer-account roles and product entitlements is tracked in issue `#150`.
+- Until issue `#150` lands, avoid adding more one-off access tables or route checks without tying them back to the future account membership + entitlement model.
+- PR `#136` should be reconciled against issue `#150` before merge because it overlaps partner/operator invite semantics.
+
 ## Operator app surface split (2026-03-22)
 - Authenticated operator routes now have a dedicated application shell and canonical host instead of inheriting the public sales navbar/footer.
 - Canonical host roles for this slice:

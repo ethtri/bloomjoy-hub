@@ -93,3 +93,9 @@ Guidelines:
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.
+
+28. **Consolidate scalable account roles and entitlement model** (`#150`)
+   - Define the durable model for identity, customer accounts/orgs, account membership roles, product entitlements, and internal staff roles.
+   - Add one canonical server-backed access context for route guards, RLS helpers, pricing decisions, support intake, and admin pages.
+   - Reconcile current free Plus grants, proposed training-only operator grants, and stale partner/operator invite work before adding more access paths.
+   - Dependency: keep changes incremental and preserve existing Plus/admin behavior while migrating callers onto the shared access context.

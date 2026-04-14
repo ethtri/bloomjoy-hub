@@ -1,5 +1,28 @@
 # Decisions
 
+## 2026-04-14 - Access model consolidation roadmap
+The current MVP access model is acceptable short term, but it should not grow through more unrelated role/grant checks.
+
+**Current access sources**
+- Supabase Auth user identity
+- Paid Plus subscription access from `subscriptions`
+- Internal `super_admin` access from `admin_roles`
+- Admin-managed free Plus grants from `plus_access_grants`
+- Proposed training-only operator grants from PR `#148`
+
+**Target model**
+- Identity: Supabase Auth user
+- Customer account/org: the business, location, franchisee, or fleet that owns machines and billing context
+- Account membership role: `owner`, `account_admin`, `billing_manager`, `operator`, or `support_contact`
+- Product entitlement: explicit access such as `training`, `plus_portal`, `member_sugar_pricing`, `concierge_support`, `billing_portal`, or `admin_console`
+- Internal staff role: scoped Bloomjoy operations roles such as `support_agent`, `orders_ops`, `training_admin`, `billing_ops`, and existing `super_admin`
+
+**Implementation direction**
+- Track this as issue `#150`.
+- Add a canonical server-backed access-context layer before adding another major portal/admin access path.
+- Keep training-only operator access incremental, but treat it as a product entitlement rather than a paid Plus membership.
+- Reconcile stale partner/operator invite work against this model before merge.
+
 ## 2026-04-06 - Emergency commerce remediation: Plus-only sugar pricing, durable order capture, and customer confirmations
 For sugar ordering, Bloomjoy Plus members receive the discounted rate and all other buyers pay the public rate.
 
