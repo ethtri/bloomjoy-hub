@@ -14,19 +14,36 @@ import {
 } from '@/components/ui/sheet';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
-import { getPortalDestinationByPath, portalDestinations } from '@/components/portal/portalNavigation';
+import {
+  canAccessPortalLevel,
+  getAccessLevelLabel,
+  getPortalDestinationByPath,
+  portalDestinations,
+} from '@/components/portal/portalNavigation';
 
 interface PortalLayoutProps {
   children: ReactNode;
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
-  const { isMember, isAdmin } = useAuth();
+  const { isAdmin, portalAccessTier } = useAuth();
   const location = useLocation();
   const currentDestination = getPortalDestinationByPath(location.pathname);
   const sortedDestinations = [...portalDestinations].sort(
     (left, right) => left.mobileOrder - right.mobileOrder
   );
+  const visibleDestinations =
+    portalAccessTier === 'training'
+      ? sortedDestinations.filter((destination) =>
+          canAccessPortalLevel(portalAccessTier, destination.access)
+        )
+      : sortedDestinations;
+  const accessStatusLabel =
+    portalAccessTier === 'plus'
+      ? 'Plus active'
+      : portalAccessTier === 'training'
+        ? 'Training access'
+        : 'Baseline access';
 
   return (
     <AppLayout>
@@ -47,13 +64,15 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                 <span
                   className={cn(
                     'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium',
-                    isMember
+                    portalAccessTier === 'plus'
                       ? 'border-sage/20 bg-sage-light text-sage'
-                      : 'border-primary/20 bg-primary/10 text-primary'
+                      : portalAccessTier === 'training'
+                        ? 'border-amber/30 bg-amber/10 text-amber'
+                        : 'border-primary/20 bg-primary/10 text-primary'
                   )}
                 >
                   <currentDestination.icon className="h-4 w-4" />
-                  {isMember ? 'Plus active' : 'Baseline access'}
+                  {accessStatusLabel}
                 </span>
               </div>
               <div className="md:hidden">
@@ -74,9 +93,9 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                         </span>
                       </span>
                       <span className="ml-3 flex items-center gap-2">
-                        {currentDestination.access === 'plus' && !isMember && (
+                        {!canAccessPortalLevel(portalAccessTier, currentDestination.access) && (
                           <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-                            Plus
+                            {getAccessLevelLabel(currentDestination.access)}
                           </span>
                         )}
                         <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -94,8 +113,8 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                       </SheetDescription>
                     </SheetHeader>
                     <div className="mt-6 space-y-2">
-                      {sortedDestinations.map((destination) => {
-                        const locked = destination.access === 'plus' && !isMember;
+                      {visibleDestinations.map((destination) => {
+                        const locked = !canAccessPortalLevel(portalAccessTier, destination.access);
 
                         return (
                           <SheetClose asChild key={destination.href}>
@@ -127,7 +146,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                                   </span>
                                   {locked && (
                                     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-                                      Plus
+                                      {getAccessLevelLabel(destination.access)}
                                     </span>
                                   )}
                                 </span>
@@ -165,8 +184,8 @@ export function PortalLayout({ children }: PortalLayoutProps) {
             </div>
 
             <nav className="hidden flex-wrap gap-2 md:flex">
-              {sortedDestinations.map((destination) => {
-                const locked = destination.access === 'plus' && !isMember;
+              {visibleDestinations.map((destination) => {
+                const locked = !canAccessPortalLevel(portalAccessTier, destination.access);
 
                 return (
                   <NavLink
@@ -184,7 +203,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                       <span>{destination.label}</span>
                       {locked && (
                         <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
-                          Plus
+                          {getAccessLevelLabel(destination.access)}
                         </span>
                       )}
                     </span>

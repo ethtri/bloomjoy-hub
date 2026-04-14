@@ -1,5 +1,24 @@
 # Decisions
 
+## 2026-04-14 - Training-only operator access grants
+Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.
+
+**Canonical access model**
+- `baseline`: authenticated customer basics only (`/portal`, orders, account).
+- `training`: operator training access only (`/portal`, `/portal/training*`, training progress, and certificate flow).
+- `plus`: full Bloomjoy Plus portal access (`training`, onboarding, support, customer account tools, and Plus commerce benefits).
+- `super_admin`: internal operations access; treated as `plus` for portal gating.
+
+**Grant model**
+- Active Bloomjoy Plus members and super-admins can grant training-only operator access by email.
+- Operator grants are stored separately from Stripe-backed `subscriptions` so they do not create Plus billing, sugar pricing, support, or onboarding entitlements.
+- If a Plus sponsor loses active/trialing subscription status, their sponsored operator grants stop conferring training access until Plus is active again.
+
+**Why this choice**
+- Operators often need training materials but should not inherit account-owner commerce, billing, support, or onboarding workflows.
+- Keeping operator training separate from free Plus grants avoids confusing unpaid training seats with customer membership benefits.
+- Email-based grants let the operator sign in later with the same address without requiring a full invitation system in this slice.
+
 ## 2026-04-06 - Emergency commerce remediation: Plus-only sugar pricing, durable order capture, and customer confirmations
 For sugar ordering, Bloomjoy Plus members receive the discounted rate and all other buyers pay the public rate.
 

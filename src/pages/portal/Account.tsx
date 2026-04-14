@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { User, MapPin, CreditCard, ExternalLink } from 'lucide-react';
+import { User, MapPin, CreditCard, ExternalLink, GraduationCap, UserMinus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
@@ -15,6 +15,11 @@ import {
   upsertPortalAccountProfile,
   type PortalAccountProfileInput,
 } from '@/lib/accountProfile';
+import {
+  fetchMyOperatorTrainingGrants,
+  grantOperatorTrainingAccess,
+  revokeOperatorTrainingAccess,
+} from '@/lib/operatorTrainingAccess';
 import { toast } from 'sonner';
 
 const DEFAULT_PROFILE_FORM: PortalAccountProfileInput = {
@@ -36,13 +41,14 @@ const formatMembershipStatus = (status: string) =>
     .join(' ');
 
 export default function AccountPage() {
-  const { user } = useAuth();
+  const { user, canManageOperatorTraining } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const hasHandledBillingReturn = useRef(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [profileForm, setProfileForm] = useState<PortalAccountProfileInput>(DEFAULT_PROFILE_FORM);
+  const [operatorEmail, setOperatorEmail] = useState('');
 
   const { data: accountProfile, isLoading: isProfileLoading } = useQuery({
     queryKey: ['portal-account-profile', user?.id],
@@ -72,6 +78,41 @@ export default function AccountPage() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['portal-account-profile', user?.id] });
+    },
+  });
+
+  const {
+    data: operatorTrainingGrants = [],
+    isLoading: operatorTrainingGrantsLoading,
+  } = useQuery({
+    queryKey: ['operator-training-grants', user?.id],
+    queryFn: fetchMyOperatorTrainingGrants,
+    enabled: Boolean(user?.id && canManageOperatorTraining),
+    staleTime: 1000 * 30,
+  });
+
+  const grantOperatorMutation = useMutation({
+    mutationFn: async () => {
+      const trimmedEmail = operatorEmail.trim();
+
+      if (!trimmedEmail) {
+        throw new Error('Enter an operator email.');
+      }
+
+      return grantOperatorTrainingAccess(trimmedEmail);
+    },
+    onSuccess: async () => {
+      setOperatorEmail('');
+      await queryClient.invalidateQueries({ queryKey: ['operator-training-grants', user?.id] });
+      toast.success('Operator training access granted.');
+    },
+  });
+
+  const revokeOperatorMutation = useMutation({
+    mutationFn: revokeOperatorTrainingAccess,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['operator-training-grants', user?.id] });
+      toast.success('Operator training access revoked.');
     },
   });
 
@@ -177,6 +218,26 @@ export default function AccountPage() {
       toast.success('Shipping address updated.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to update shipping address.';
+      toast.error(message);
+    }
+  };
+
+  const handleGrantOperatorAccess = async () => {
+    try {
+      await grantOperatorMutation.mutateAsync();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to grant operator training access.';
+      toast.error(message);
+    }
+  };
+
+  const handleRevokeOperatorAccess = async (grantId: string) => {
+    try {
+      await revokeOperatorMutation.mutateAsync(grantId);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to revoke operator training access.';
       toast.error(message);
     }
   };
@@ -418,6 +479,93 @@ export default function AccountPage() {
                   </div>
                 )}
               </div>
+
+              {canManageOperatorTraining && (
+                <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                      <GraduationCap className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-foreground">Operator Training Access</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Add operator emails for training-only access.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground">
+                        Operator email
+                      </label>
+                      <Input
+                        type="email"
+                        value={operatorEmail}
+                        onChange={(event) => setOperatorEmail(event.target.value)}
+                        placeholder="operator@example.com"
+                        className="mt-1"
+                        disabled={grantOperatorMutation.isPending}
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={handleGrantOperatorAccess}
+                      disabled={grantOperatorMutation.isPending || !operatorEmail.trim()}
+                    >
+                      {grantOperatorMutation.isPending ? 'Adding...' : 'Add Training Operator'}
+                    </Button>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Operators can open training and save their progress. Orders, billing,
+                      onboarding, support, and Plus pricing stay with the Plus account owner.
+                    </p>
+                  </div>
+
+                  <div className="mt-5 space-y-3">
+                    {operatorTrainingGrantsLoading && (
+                      <p className="text-sm text-muted-foreground">Loading operators...</p>
+                    )}
+                    {!operatorTrainingGrantsLoading && operatorTrainingGrants.length === 0 && (
+                      <p className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                        No operator training access has been added yet.
+                      </p>
+                    )}
+                    {operatorTrainingGrants.map((grant) => (
+                      <div
+                        key={grant.id}
+                        className="rounded-md border border-border bg-muted/20 px-3 py-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {grant.operatorEmail}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {grant.isActive
+                                ? 'Training access active'
+                                : grant.revokedAt
+                                  ? 'Access revoked'
+                                  : 'Access inactive'}
+                            </p>
+                          </div>
+                          {grant.isActive && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRevokeOperatorAccess(grant.id)}
+                              disabled={revokeOperatorMutation.isPending}
+                            >
+                              <UserMinus className="mr-1.5 h-4 w-4" />
+                              Revoke
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

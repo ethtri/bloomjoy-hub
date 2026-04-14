@@ -88,9 +88,9 @@ const App = () => (
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route element={<ProtectedRoute />}>
                   <Route path="/portal" element={<PortalDashboard />} />
-                  <Route path="/portal/orders" element={<PortalOrders />} />
-                  <Route path="/portal/account" element={<PortalAccount />} />
                   <Route element={<MemberRoute />}>
+                    <Route path="/portal/orders" element={<PortalOrders />} />
+                    <Route path="/portal/account" element={<PortalAccount />} />
                     <Route path="/portal/training" element={<PortalTraining />} />
                     <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
                     <Route path="/portal/support" element={<PortalSupport />} />
