@@ -38,6 +38,8 @@ type EventName =
   | 'admin_support_request_updated'
   | 'admin_order_fulfillment_updated'
   | 'admin_machine_inventory_updated'
+  | 'admin_plus_access_granted'
+  | 'admin_plus_access_revoked'
   | 'admin_role_granted'
   | 'admin_role_revoked';
 

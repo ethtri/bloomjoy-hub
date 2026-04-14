@@ -3,13 +3,19 @@ import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
-import { hasPlusAccess, type MembershipStatus } from '@/lib/membership';
+import {
+  emptyPlusAccessSummary,
+  type MembershipStatus,
+  type PlusAccessSummary,
+} from '@/lib/membership';
+import { fetchMyPlusAccess } from '@/lib/plusAccess';
 
 interface User {
   id: string;
   email: string;
   membershipStatus?: MembershipStatus;
   membershipPlan?: string;
+  plusAccess: PlusAccessSummary;
   isAdmin: boolean;
 }
 
@@ -29,12 +35,6 @@ interface AuthContextType {
   isMember: boolean;
   isAdmin: boolean;
 }
-
-type SubscriptionRecord = {
-  status: string;
-  current_period_end: string | null;
-  updated_at: string;
-};
 
 type AdminRoleRecord = {
   role: string;
@@ -65,54 +65,6 @@ const devAdminEmailAllowlist = getDevAdminEmailAllowlist();
 const hasDevAdminEmailOverride = (email: string): boolean =>
   import.meta.env.DEV && devAdminEmailAllowlist.has(email.toLowerCase());
 
-const normalizeMembershipStatus = (status: string | undefined): MembershipStatus => {
-  if (!status) return 'none';
-
-  switch (status) {
-    case 'active':
-    case 'trialing':
-    case 'past_due':
-    case 'canceled':
-    case 'inactive':
-    case 'none':
-      return status;
-    default:
-      return 'none';
-  }
-};
-
-const getMembershipStatus = async (userId: string): Promise<MembershipStatus> => {
-  const { data, error } = await supabaseClient
-    .from('subscriptions')
-    .select('status,current_period_end,updated_at')
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false });
-
-  if (error || !data || data.length === 0) {
-    return 'none';
-  }
-
-  const records = data as SubscriptionRecord[];
-  const now = Date.now();
-
-  const activeMembership = records.find((subscription) => {
-    const normalizedStatus = normalizeMembershipStatus(subscription.status);
-    const isPlus = normalizedStatus === 'active' || normalizedStatus === 'trialing';
-    const periodEnd =
-      subscription.current_period_end !== null
-        ? new Date(subscription.current_period_end).getTime()
-        : null;
-
-    return isPlus && (periodEnd === null || periodEnd > now);
-  });
-
-  if (activeMembership) {
-    return normalizeMembershipStatus(activeMembership.status);
-  }
-
-  return normalizeMembershipStatus(records[0]?.status);
-};
-
 const getIsAdmin = async (userId: string): Promise<boolean> => {
   const { data, error } = await supabaseClient
     .from('admin_roles')
@@ -130,10 +82,18 @@ const getIsAdmin = async (userId: string): Promise<boolean> => {
   return Boolean((data as AdminRoleRecord | null)?.role);
 };
 
+const getPlusAccess = async (): Promise<PlusAccessSummary> => {
+  try {
+    return await fetchMyPlusAccess();
+  } catch {
+    return emptyPlusAccessSummary;
+  }
+};
+
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
-  const [membershipStatus, dbIsAdmin] = await Promise.all([
-    getMembershipStatus(supabaseUser.id),
+  const [plusAccess, dbIsAdmin] = await Promise.all([
+    getPlusAccess(),
     getIsAdmin(supabaseUser.id),
   ]);
   const isAdmin = dbIsAdmin || hasDevAdminEmailOverride(email);
@@ -141,8 +101,9 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   return {
     id: supabaseUser.id,
     email,
-    membershipStatus,
-    membershipPlan: hasPlusAccess(membershipStatus) ? 'Plus Basic' : undefined,
+    membershipStatus: plusAccess.membershipStatus,
+    membershipPlan: plusAccess.hasPlusAccess || isAdmin ? 'Plus Basic' : undefined,
+    plusAccess,
     isAdmin,
   };
 };
@@ -316,7 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         isAuthenticated: !!user,
-        isMember: hasPlusAccess(user?.membershipStatus) || (user?.isAdmin ?? false),
+        isMember: Boolean(user?.plusAccess.hasPlusAccess) || (user?.isAdmin ?? false),
         isAdmin: user?.isAdmin ?? false,
       }}
     >

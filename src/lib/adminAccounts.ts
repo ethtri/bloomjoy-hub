@@ -1,4 +1,5 @@
 import { supabaseClient } from '@/lib/supabaseClient';
+import type { PlusAccessSource } from '@/lib/membership';
 
 export type MachineType = 'commercial' | 'mini' | 'micro';
 
@@ -7,6 +8,14 @@ export type AdminAccountSummary = {
   customer_email: string | null;
   membership_status: string | null;
   current_period_end: string | null;
+  membership_cancel_at_period_end: boolean;
+  paid_subscription_active: boolean;
+  plus_access_source: PlusAccessSource;
+  has_plus_access: boolean;
+  plus_grant_id: string | null;
+  plus_grant_starts_at: string | null;
+  plus_grant_expires_at: string | null;
+  plus_grant_active: boolean;
   total_orders: number;
   last_order_at: string | null;
   open_support_requests: number;
@@ -26,11 +35,36 @@ export type CustomerMachineInventoryRecord = {
   updated_at: string;
 };
 
+export type PlusAccessGrantRecord = {
+  id: string;
+  user_id: string;
+  starts_at: string;
+  expires_at: string;
+  grant_reason: string;
+  granted_by: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  revoke_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type UpsertMachineInventoryInput = {
   customerUserId: string;
   machineType: MachineType;
   quantity: number;
   updatedReason: string;
+};
+
+type GrantPlusAccessInput = {
+  customerUserId: string;
+  expiresAt: string;
+  reason: string;
+};
+
+type RevokePlusAccessInput = {
+  grantId: string;
+  reason: string;
 };
 
 export const fetchAdminAccountSummaries = async (
@@ -81,4 +115,38 @@ export const upsertMachineInventoryAdmin = async ({
   }
 
   return data as CustomerMachineInventoryRecord;
+};
+
+export const grantPlusAccessAdmin = async ({
+  customerUserId,
+  expiresAt,
+  reason,
+}: GrantPlusAccessInput): Promise<PlusAccessGrantRecord> => {
+  const { data, error } = await supabaseClient.rpc('admin_grant_plus_access', {
+    p_customer_user_id: customerUserId,
+    p_expires_at: expiresAt,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to grant free Plus access.');
+  }
+
+  return data as PlusAccessGrantRecord;
+};
+
+export const revokePlusAccessAdmin = async ({
+  grantId,
+  reason,
+}: RevokePlusAccessInput): Promise<PlusAccessGrantRecord> => {
+  const { data, error } = await supabaseClient.rpc('admin_revoke_plus_access', {
+    p_grant_id: grantId,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to revoke free Plus access.');
+  }
+
+  return data as PlusAccessGrantRecord;
 };

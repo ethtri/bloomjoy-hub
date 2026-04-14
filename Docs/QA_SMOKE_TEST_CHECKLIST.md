@@ -194,6 +194,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/accounts`
 - [ ] Super-admin user can access `/admin/accounts`
 - [ ] Admin account search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
+- [ ] Admin Accounts shows paid subscription status separately from free Plus grant status
+- [ ] Super-admin cannot grant free Plus access without a future expiry date and grant reason
+- [ ] Super-admin cannot grant free Plus access while the account has an active paid Stripe subscription that is not scheduled to cancel
+- [ ] Super-admin can grant or extend free Plus access and the customer can reach Plus-only portal pages without a paid Stripe subscription
+- [ ] Super-admin can revoke free Plus access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
+- [ ] Free Plus grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
+- [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
 - [ ] Admin machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
 - [ ] Non-admin user cannot access `/admin/audit`

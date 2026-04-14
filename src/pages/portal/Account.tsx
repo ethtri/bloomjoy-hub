@@ -116,18 +116,47 @@ export default function AccountPage() {
     );
   }, [location.pathname, location.search, navigate, refetchMembershipSummary]);
 
-  const effectiveMembershipStatus = membershipSummary?.status ?? user?.membershipStatus ?? 'none';
-  const isMember = hasPlusAccess(effectiveMembershipStatus);
+  const effectiveMembershipStatus =
+    membershipSummary?.membershipStatus ?? user?.membershipStatus ?? 'none';
+  const hasSummaryPlusAccess =
+    membershipSummary?.hasPlusAccess ?? user?.plusAccess.hasPlusAccess ?? false;
+  const isMember = hasSummaryPlusAccess || hasPlusAccess(effectiveMembershipStatus);
+  const hasPaidBilling =
+    membershipSummary?.paidSubscriptionActive ??
+    user?.plusAccess.paidSubscriptionActive ??
+    hasPlusAccess(effectiveMembershipStatus);
+  const accessSource = membershipSummary?.source ?? user?.plusAccess.source ?? 'none';
+  const currentPeriodEnd =
+    membershipSummary?.currentPeriodEnd ?? user?.plusAccess.currentPeriodEnd ?? null;
+  const cancelAtPeriodEnd =
+    membershipSummary?.cancelAtPeriodEnd ?? user?.plusAccess.cancelAtPeriodEnd ?? false;
+  const freeGrantExpiresAt =
+    membershipSummary?.freeGrantExpiresAt ?? user?.plusAccess.freeGrantExpiresAt ?? null;
+  const freeGrantExpiryLabel = freeGrantExpiresAt
+    ? new Date(freeGrantExpiresAt).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    : null;
   const membershipStatusLabel = useMemo(() => {
+    if (accessSource === 'free_grant' && freeGrantExpiryLabel) {
+      return `Waived until ${freeGrantExpiryLabel}`;
+    }
+
+    if (accessSource === 'admin') {
+      return 'Admin access';
+    }
+
     if (effectiveMembershipStatus === 'none') {
       return 'Upgrade available';
     }
 
     return formatMembershipStatus(effectiveMembershipStatus);
-  }, [effectiveMembershipStatus]);
+  }, [accessSource, effectiveMembershipStatus, freeGrantExpiryLabel]);
   const nextBillingLabel =
-    isMember && membershipSummary?.currentPeriodEnd
-      ? new Date(membershipSummary.currentPeriodEnd).toLocaleDateString(undefined, {
+    hasPaidBilling && currentPeriodEnd
+      ? new Date(currentPeriodEnd).toLocaleDateString(undefined, {
           year: 'numeric',
           month: 'short',
           day: 'numeric',
@@ -195,21 +224,28 @@ export default function AccountPage() {
                 : []),
             ]}
             actions={
-              isMember ? (
+              hasPaidBilling ? (
                 <Button
                   variant="outline"
                   onClick={handleManageBilling}
                   disabled={isOpeningPortal || isMembershipLoading}
                 >
-                  {isOpeningPortal ? 'Opening billing…' : 'Manage Billing'}
+                  {isOpeningPortal ? 'Opening billing...' : 'Manage Billing'}
                 </Button>
-              ) : (
+              ) : !isMember ? (
                 <Button asChild variant="outline">
                   <Link to="/plus">View Plus Membership</Link>
                 </Button>
-              )
+              ) : undefined
             }
           />
+
+          {accessSource === 'free_grant' && freeGrantExpiryLabel && (
+            <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
+              Plus access is waived through {freeGrantExpiryLabel}. No subscription fee is being
+              billed for this grant.
+            </div>
+          )}
 
           <div className="mt-6 grid gap-6 lg:grid-cols-3 lg:gap-8">
             {/* Profile */}
@@ -362,19 +398,27 @@ export default function AccountPage() {
                   <h2 className="font-display text-lg font-semibold text-foreground">Billing</h2>
                 </div>
                 <p className="mt-4 text-sm text-muted-foreground">
-                  {isMember
+                  {hasPaidBilling
                     ? 'Manage your payment methods, invoices, and cancellations through the Stripe customer portal.'
-                    : 'Upgrade to Plus to unlock premium training, onboarding, and concierge support.'}
+                    : isMember
+                      ? 'Your current Plus access is waived by Bloomjoy. No Stripe billing action is needed for this grant.'
+                      : 'Upgrade to Plus to unlock premium training, onboarding, and concierge support.'}
                 </p>
-                <Button
-                  variant="outline"
-                  className="mt-4 w-full"
-                  onClick={handleManageBilling}
-                  disabled={isOpeningPortal || !user?.email || !isMember || isMembershipLoading}
-                >
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  {isMember ? (isOpeningPortal ? 'Opening...' : 'Open Billing Portal') : 'Plus Required'}
-                </Button>
+                {hasPaidBilling ? (
+                  <Button
+                    variant="outline"
+                    className="mt-4 w-full"
+                    onClick={handleManageBilling}
+                    disabled={isOpeningPortal || !user?.email || isMembershipLoading}
+                  >
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    {isOpeningPortal ? 'Opening...' : 'Open Billing Portal'}
+                  </Button>
+                ) : !isMember ? (
+                  <Button asChild variant="outline" className="mt-4 w-full">
+                    <Link to="/plus">View Plus Membership</Link>
+                  </Button>
+                ) : null}
                 <p className="mt-3 text-xs text-muted-foreground">
                   Review{' '}
                   <Link to="/billing-cancellation" className="underline hover:text-foreground">
@@ -406,13 +450,17 @@ export default function AccountPage() {
                 </div>
                 {isMember && (
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm text-muted-foreground">Next billing</span>
+                    <span className="text-sm text-muted-foreground">
+                      {hasPaidBilling ? 'Next billing' : 'Waived until'}
+                    </span>
                     <span className="text-sm text-foreground">
-                      {nextBillingLabel ?? 'Not available'}
+                      {hasPaidBilling
+                        ? nextBillingLabel ?? 'Not available'
+                        : freeGrantExpiryLabel ?? 'Not available'}
                     </span>
                   </div>
                 )}
-                {membershipSummary?.cancelAtPeriodEnd && (
+                {cancelAtPeriodEnd && hasPaidBilling && (
                   <div className="mt-3 rounded-md border border-amber/30 bg-amber/10 px-3 py-2 text-xs text-amber">
                     Subscription is set to cancel at the end of the current billing period.
                   </div>
