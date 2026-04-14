@@ -5,8 +5,11 @@ import { trackEvent, identifyUser } from '@/lib/analytics';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import {
   emptyPlusAccessSummary,
+  hasTrainingAccess,
+  normalizePortalAccessTier,
   type MembershipStatus,
   type PlusAccessSummary,
+  type PortalAccessTier,
 } from '@/lib/membership';
 import { fetchMyPlusAccess } from '@/lib/plusAccess';
 
@@ -15,6 +18,9 @@ interface User {
   email: string;
   membershipStatus?: MembershipStatus;
   membershipPlan?: string;
+  portalAccessTier: PortalAccessTier;
+  isTrainingOperator: boolean;
+  canManageOperatorTraining: boolean;
   plusAccess: PlusAccessSummary;
   isAdmin: boolean;
 }
@@ -33,11 +39,23 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
   isMember: boolean;
+  portalAccessTier: PortalAccessTier;
+  canAccessTraining: boolean;
+  isTrainingOperator: boolean;
+  canManageOperatorTraining: boolean;
   isAdmin: boolean;
 }
 
 type AdminRoleRecord = {
   role: string;
+};
+
+type PortalAccessContextRecord = {
+  access_tier: string | null;
+  is_plus_member: boolean | null;
+  is_training_operator: boolean | null;
+  is_admin: boolean | null;
+  can_manage_operator_training: boolean | null;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -90,19 +108,41 @@ const getPlusAccess = async (): Promise<PlusAccessSummary> => {
   }
 };
 
+const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | null> => {
+  const { data, error } = await supabaseClient.rpc('get_my_portal_access_context');
+
+  if (error || !data) {
+    return null;
+  }
+
+  return Array.isArray(data)
+    ? ((data as PortalAccessContextRecord[])[0] ?? null)
+    : ((data as PortalAccessContextRecord | null) ?? null);
+};
+
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
-  const [plusAccess, dbIsAdmin] = await Promise.all([
+  const [plusAccess, dbIsAdmin, portalAccessContext] = await Promise.all([
     getPlusAccess(),
     getIsAdmin(supabaseUser.id),
+    getPortalAccessContext(),
   ]);
   const isAdmin = dbIsAdmin || hasDevAdminEmailOverride(email);
+  const hasFullPlusAccess = isAdmin || plusAccess.hasPlusAccess;
+  const portalAccessTier = hasFullPlusAccess
+    ? 'plus'
+    : normalizePortalAccessTier(portalAccessContext?.access_tier ?? undefined, 'baseline');
 
   return {
     id: supabaseUser.id,
     email,
     membershipStatus: plusAccess.membershipStatus,
-    membershipPlan: plusAccess.hasPlusAccess || isAdmin ? 'Plus Basic' : undefined,
+    membershipPlan: hasFullPlusAccess ? 'Plus Basic' : undefined,
+    portalAccessTier,
+    isTrainingOperator:
+      portalAccessTier === 'training' || Boolean(portalAccessContext?.is_training_operator),
+    canManageOperatorTraining:
+      hasFullPlusAccess || Boolean(portalAccessContext?.can_manage_operator_training),
     plusAccess,
     isAdmin,
   };
@@ -128,7 +168,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!mounted) return;
       setUser(authUser);
-      identifyUser(authUser.id, { email: authUser.email, is_admin: authUser.isAdmin });
+      identifyUser(authUser.id, {
+        email: authUser.email,
+        is_admin: authUser.isAdmin,
+        portal_access_tier: authUser.portalAccessTier,
+      });
       setLoading(false);
     };
 
@@ -277,7 +321,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         isAuthenticated: !!user,
-        isMember: Boolean(user?.plusAccess.hasPlusAccess) || (user?.isAdmin ?? false),
+        isMember: user?.portalAccessTier === 'plus',
+        portalAccessTier: user?.portalAccessTier ?? 'baseline',
+        canAccessTraining: hasTrainingAccess(user?.portalAccessTier),
+        isTrainingOperator: user?.isTrainingOperator ?? false,
+        canManageOperatorTraining: user?.canManageOperatorTraining ?? false,
         isAdmin: user?.isAdmin ?? false,
       }}
     >

@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { User, MapPin, CreditCard, ExternalLink } from 'lucide-react';
+import {
+  AlertCircle,
+  User,
+  MapPin,
+  CreditCard,
+  ExternalLink,
+  GraduationCap,
+  UserMinus,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,6 +24,12 @@ import {
   upsertPortalAccountProfile,
   type PortalAccountProfileInput,
 } from '@/lib/accountProfile';
+import {
+  fetchMyOperatorTrainingGrants,
+  grantOperatorTrainingAccess,
+  revokeOperatorTrainingAccess,
+  sendOperatorTrainingInvite,
+} from '@/lib/operatorTrainingAccess';
 import { toast } from 'sonner';
 
 const DEFAULT_PROFILE_FORM: PortalAccountProfileInput = {
@@ -35,14 +50,25 @@ const formatMembershipStatus = (status: string) =>
     .map((token) => token[0].toUpperCase() + token.slice(1))
     .join(' ');
 
+const parseOperatorEmails = (value: string): string[] =>
+  Array.from(
+    new Set(
+      value
+        .split(/[\s,;]+/)
+        .map((email) => email.trim().toLowerCase())
+        .filter((email) => email.length > 0)
+    )
+  );
+
 export default function AccountPage() {
-  const { user } = useAuth();
+  const { user, canManageOperatorTraining } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const hasHandledBillingReturn = useRef(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [profileForm, setProfileForm] = useState<PortalAccountProfileInput>(DEFAULT_PROFILE_FORM);
+  const [operatorEmails, setOperatorEmails] = useState('');
 
   const { data: accountProfile, isLoading: isProfileLoading } = useQuery({
     queryKey: ['portal-account-profile', user?.id],
@@ -72,6 +98,107 @@ export default function AccountPage() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['portal-account-profile', user?.id] });
+    },
+  });
+
+  const {
+    data: operatorTrainingGrants = [],
+    isLoading: operatorTrainingGrantsLoading,
+    error: operatorTrainingGrantsError,
+  } = useQuery({
+    queryKey: ['operator-training-grants', user?.id],
+    queryFn: fetchMyOperatorTrainingGrants,
+    enabled: Boolean(user?.id && canManageOperatorTraining),
+    staleTime: 1000 * 30,
+  });
+
+  const parsedOperatorEmails = useMemo(() => parseOperatorEmails(operatorEmails), [operatorEmails]);
+  const activeOperatorGrants = operatorTrainingGrants.filter((grant) => grant.isActive);
+  const operatorTrainingErrorMessage =
+    operatorTrainingGrantsError instanceof Error ? operatorTrainingGrantsError.message : null;
+
+  const grantOperatorMutation = useMutation({
+    mutationFn: async (emails: string[]) => {
+      if (emails.length === 0) {
+        throw new Error('Enter at least one operator email.');
+      }
+
+      const loginUrl = `${window.location.origin}/login`;
+      const results = await Promise.allSettled(
+        emails.map(async (email) => {
+          const grant = await grantOperatorTrainingAccess(email);
+
+          try {
+            await sendOperatorTrainingInvite(grant.id, loginUrl);
+            return { grant, inviteSent: true, inviteErrorMessage: '' };
+          } catch (error) {
+            const inviteErrorMessage =
+              error instanceof Error ? error.message : 'Unable to send invite email.';
+            return { grant, inviteSent: false, inviteErrorMessage };
+          }
+        })
+      );
+      const added = results.filter((result) => result.status === 'fulfilled').length;
+      const failed = results.length - added;
+      const inviteFailed = results.filter(
+        (result) => result.status === 'fulfilled' && !result.value.inviteSent
+      ).length;
+      const firstFailure = results.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected'
+      );
+      const firstInviteFailure = results.find(
+        (result) => result.status === 'fulfilled' && !result.value.inviteSent
+      );
+      const firstFailureMessage =
+        firstFailure?.reason instanceof Error
+          ? firstFailure.reason.message
+          : 'Unable to grant operator training access.';
+      const firstInviteFailureMessage =
+        firstInviteFailure?.status === 'fulfilled'
+          ? firstInviteFailure.value.inviteErrorMessage
+          : 'Unable to send invite email.';
+
+      if (added === 0 && failed > 0) {
+        throw new Error(firstFailureMessage);
+      }
+
+      return { added, failed, inviteFailed, firstFailureMessage, firstInviteFailureMessage };
+    },
+    onSuccess: async ({
+      added,
+      failed,
+      inviteFailed,
+      firstFailureMessage,
+      firstInviteFailureMessage,
+    }) => {
+      setOperatorEmails('');
+      await queryClient.invalidateQueries({ queryKey: ['operator-training-grants', user?.id] });
+
+      if (failed > 0) {
+        toast.error(`${added} operator${added === 1 ? '' : 's'} added; ${failed} failed. ${firstFailureMessage}`);
+        return;
+      }
+
+      if (inviteFailed > 0) {
+        toast.error(
+          `${added} operator${added === 1 ? '' : 's'} added, but ${inviteFailed} invite email${
+            inviteFailed === 1 ? '' : 's'
+          } failed. ${firstInviteFailureMessage}`
+        );
+        return;
+      }
+
+      toast.success(
+        `${added} training operator${added === 1 ? '' : 's'} added and invited.`
+      );
+    },
+  });
+
+  const revokeOperatorMutation = useMutation({
+    mutationFn: revokeOperatorTrainingAccess,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['operator-training-grants', user?.id] });
+      toast.success('Operator training access revoked.');
     },
   });
 
@@ -206,6 +333,26 @@ export default function AccountPage() {
       toast.success('Shipping address updated.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to update shipping address.';
+      toast.error(message);
+    }
+  };
+
+  const handleGrantOperatorAccess = async () => {
+    try {
+      await grantOperatorMutation.mutateAsync(parsedOperatorEmails);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to grant operator training access.';
+      toast.error(message);
+    }
+  };
+
+  const handleRevokeOperatorAccess = async (grantId: string) => {
+    try {
+      await revokeOperatorMutation.mutateAsync(grantId);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to revoke operator training access.';
       toast.error(message);
     }
   };
@@ -466,8 +613,121 @@ export default function AccountPage() {
                   </div>
                 )}
               </div>
+
             </div>
           </div>
+
+          {canManageOperatorTraining && (
+            <div className="mt-8 card-elevated min-w-0 p-5 sm:p-6">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                  <GraduationCap className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="font-display text-lg font-semibold text-foreground">
+                    Operator Training Access
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    Add people who need the training library. Operators do not get billing, orders,
+                    support, onboarding, or Plus pricing access.
+                  </p>
+                </div>
+              </div>
+
+              {operatorTrainingErrorMessage && (
+                <div className="mt-5 flex gap-3 rounded-md border border-amber/30 bg-amber/10 px-4 py-3 text-sm text-amber">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>{operatorTrainingErrorMessage}</p>
+                </div>
+              )}
+
+              <div className="mt-6 space-y-8">
+                <div className="min-w-0">
+                  <label className="block text-sm font-medium text-foreground">
+                    Add operators
+                  </label>
+                  <Textarea
+                    value={operatorEmails}
+                    onChange={(event) => setOperatorEmails(event.target.value)}
+                    placeholder="operator1@example.com, operator2@example.com"
+                    className="mt-2 min-h-24"
+                    disabled={grantOperatorMutation.isPending || Boolean(operatorTrainingErrorMessage)}
+                  />
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Paste one email, multiple lines, or a comma-separated list.
+                      {parsedOperatorEmails.length > 0
+                        ? ` ${parsedOperatorEmails.length} ready.`
+                        : ''}
+                    </p>
+                    <Button
+                      className="w-full sm:w-auto"
+                      onClick={handleGrantOperatorAccess}
+                      disabled={
+                        grantOperatorMutation.isPending ||
+                        parsedOperatorEmails.length === 0 ||
+                        Boolean(operatorTrainingErrorMessage)
+                      }
+                    >
+                      {grantOperatorMutation.isPending
+                        ? 'Adding...'
+                        : parsedOperatorEmails.length > 1
+                          ? `Add ${parsedOperatorEmails.length} Operators`
+                          : 'Add Operator'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-foreground">People with training access</h3>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    Revoke access when someone no longer needs the training library.
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    {operatorTrainingGrantsLoading && (
+                      <p className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                        Loading operators...
+                      </p>
+                    )}
+                    {!operatorTrainingGrantsLoading &&
+                      !operatorTrainingErrorMessage &&
+                      activeOperatorGrants.length === 0 && (
+                        <p className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                          No operator training access has been added yet.
+                        </p>
+                      )}
+                    {activeOperatorGrants.map((grant) => (
+                      <div
+                        key={grant.id}
+                        className="rounded-md border border-border bg-muted/20 px-3 py-3"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="break-words text-sm font-medium text-foreground">
+                              {grant.operatorEmail}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">Training access</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRevokeOperatorAccess(grant.id)}
+                            disabled={revokeOperatorMutation.isPending}
+                            className="w-full sm:w-auto"
+                          >
+                            <UserMinus className="mr-1.5 h-4 w-4" />
+                            Revoke
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </PortalLayout>

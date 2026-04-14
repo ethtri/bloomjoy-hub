@@ -3,13 +3,18 @@ import { Lock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
-import { getPortalDestinationByPath } from '@/components/portal/portalNavigation';
+import {
+  canAccessPortalLevel,
+  getAccessLevelLabel,
+  getPortalDestinationByPath,
+} from '@/components/portal/portalNavigation';
 import { Button } from '@/components/ui/button';
 
 export function MemberRoute() {
-  const { loading, isMember, isAdmin } = useAuth();
+  const { loading, portalAccessTier } = useAuth();
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
+  const accessLabel = getAccessLevelLabel(lockedDestination.access);
 
   if (loading) {
     return (
@@ -19,7 +24,7 @@ export function MemberRoute() {
     );
   }
 
-  if (isMember || isAdmin) {
+  if (canAccessPortalLevel(portalAccessTier, lockedDestination.access)) {
     return <Outlet />;
   }
 
@@ -29,14 +34,14 @@ export function MemberRoute() {
         <div className="container-page">
           <div className="mx-auto max-w-3xl">
             <PortalPageIntro
-              title={`${lockedDestination.label} requires Bloomjoy Plus`}
+              title={`${lockedDestination.label} requires ${accessLabel} access`}
               description={
                 lockedDestination.upsellCopy ??
-                'This area is part of Bloomjoy Plus. Baseline access still includes dashboard, orders, and account basics.'
+                'This area is not included with the current portal access level.'
               }
               badges={[
-                { label: 'Locked for baseline access', tone: 'accent', icon: Lock },
-                { label: 'Orders and account stay available', tone: 'muted' },
+                { label: `Locked for ${portalAccessTier} access`, tone: 'accent', icon: Lock },
+                { label: `${accessLabel} access required`, tone: 'muted' },
               ]}
             >
               <div className="rounded-[24px] border border-primary/15 bg-background p-6 shadow-[var(--shadow-sm)]">
@@ -46,38 +51,27 @@ export function MemberRoute() {
                   </div>
                   <div>
                     <h2 className="font-display text-xl font-semibold text-foreground">
-                      Upgrade to unlock this workflow
+                      This workflow is outside your current access
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Plus adds guided onboarding, the full training hub, and concierge support
-                      lanes without changing your existing baseline access.
+                      Training-only operators can use the training hub. Customer account tools,
+                      onboarding, support, and billing stay reserved for the account owner or
+                      Bloomjoy Plus members.
                     </p>
                   </div>
                 </div>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  <Button asChild>
-                    <Link to="/plus">View Plus Membership</Link>
-                  </Button>
+                  {lockedDestination.access !== 'baseline' && (
+                    <Button asChild>
+                      <Link to="/plus">View Plus Membership</Link>
+                    </Button>
+                  )}
                   <Button asChild variant="outline">
-                    <Link to="/portal/orders">Go to Order History</Link>
+                    <Link to="/portal">Back to Dashboard</Link>
                   </Button>
                 </div>
               </div>
             </PortalPageIntro>
-
-            <div className="mt-6 rounded-[24px] border border-border bg-background p-6 shadow-[var(--shadow-sm)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Still available with baseline access
-              </p>
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                <Button asChild>
-                  <Link to="/portal">Return to Dashboard</Link>
-                </Button>
-                <Button asChild variant="outline">
-                  <Link to="/portal/account">Open Account Settings</Link>
-                </Button>
-              </div>
-            </div>
           </div>
         </div>
       </section>

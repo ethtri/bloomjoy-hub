@@ -115,12 +115,13 @@ const workspaceLinks = [
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const { isAdmin, isAuthenticated, signOut, user } = useAuth();
+  const { isAdmin, isAuthenticated, portalAccessTier, signOut, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const appContext = getAppContext(location.pathname);
   const marketingHomeUrl = getCanonicalUrlForSurface('marketing', '/', '', '', window.location);
   const accountUrl = '/portal/account';
+  const showAccountLink = portalAccessTier !== 'training';
   const homeUrl = isAuthenticated ? '/portal' : '/login';
 
   const handleSignOut = async () => {
@@ -204,12 +205,14 @@ export function AppLayout({ children }: AppLayoutProps) {
 
               {isAuthenticated ? (
                 <>
-                  <Link to={accountUrl}>
-                    <Button variant="outline" size="sm">
-                      <Settings className="mr-2 h-4 w-4" />
-                      Account
-                    </Button>
-                  </Link>
+                  {showAccountLink && (
+                    <Link to={accountUrl}>
+                      <Button variant="outline" size="sm">
+                        <Settings className="mr-2 h-4 w-4" />
+                        Account
+                      </Button>
+                    </Link>
+                  )}
                   <Button variant="outline" size="sm" onClick={handleSignOut}>
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign Out
@@ -241,7 +244,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   </SheetHeader>
                   <div className="mt-6 space-y-3">
                     {isAuthenticated && renderWorkspaceLinks(true)}
-                    {isAuthenticated && (
+                    {isAuthenticated && showAccountLink && (
                       <SheetClose asChild>
                         <Link
                           to={accountUrl}

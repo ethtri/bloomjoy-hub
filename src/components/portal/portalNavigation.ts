@@ -7,8 +7,9 @@ import {
   Settings,
   ShoppingBag,
 } from 'lucide-react';
+import type { PortalAccessTier } from '@/lib/membership';
 
-export type PortalAccessLevel = 'baseline' | 'plus';
+export type PortalAccessLevel = 'all' | 'baseline' | 'training' | 'plus';
 
 export interface PortalDestination {
   href: string;
@@ -27,7 +28,7 @@ export const portalDestinations: PortalDestination[] = [
     label: 'Dashboard',
     description: 'Your next actions, progress, and account status.',
     icon: LayoutDashboard,
-    access: 'baseline',
+    access: 'all',
     mobileOrder: 1,
     end: true,
   },
@@ -52,7 +53,7 @@ export const portalDestinations: PortalDestination[] = [
     label: 'Training',
     description: 'Task-first videos, quick aids, and operator guides.',
     icon: BookOpen,
-    access: 'plus',
+    access: 'training',
     mobileOrder: 4,
     upsellCopy: 'Unlock the operator hub, quick aids, and certificate path.',
   },
@@ -82,3 +83,35 @@ export const getPortalDestinationByPath = (pathname: string) =>
       ? pathname === destination.href
       : pathname === destination.href || pathname.startsWith(`${destination.href}/`)
   ) ?? portalDestinations[0];
+
+export const canAccessPortalLevel = (
+  accessTier: PortalAccessTier,
+  accessLevel: PortalAccessLevel
+): boolean => {
+  switch (accessLevel) {
+    case 'all':
+      return true;
+    case 'baseline':
+      return accessTier === 'baseline' || accessTier === 'plus';
+    case 'training':
+      return accessTier === 'training' || accessTier === 'plus';
+    case 'plus':
+      return accessTier === 'plus';
+    default:
+      return false;
+  }
+};
+
+export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
+  switch (accessLevel) {
+    case 'baseline':
+      return 'Customer';
+    case 'training':
+      return 'Training';
+    case 'plus':
+      return 'Plus';
+    case 'all':
+    default:
+      return 'Open';
+  }
+};

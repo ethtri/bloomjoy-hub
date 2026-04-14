@@ -82,8 +82,16 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] On mobile app routes, page-intro actions stack cleanly full width instead of squeezing side-by-side on `/portal`, `/portal/orders`, `/portal/account`, `/portal/onboarding`, `/portal/support`, and `/portal/training`
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
-- [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
-- [ ] Non-Plus login still sees premium destinations in portal navigation and dashboard action cards with clear locked/Plus treatment
+- [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
+- [ ] Non-Plus login still sees gated destinations in portal navigation and dashboard action cards with clear locked/access-tier treatment
+- [ ] Active Plus member or super-admin can add multiple operator emails from `/portal/account` under Operator Training Access
+- [ ] Adding operator training access sends the operator an invite email with a login link
+- [ ] Operator Training Access shows a simple list of people with training access and a clear setup message when the database rollout is missing
+- [ ] Training-only operator login can access `/portal` and `/portal/training*`
+- [ ] Training-only operator login cannot access `/portal/orders`, `/portal/account`, `/portal/onboarding`, or `/portal/support`
+- [ ] Training-only operator portal navigation stays focused on dashboard and training, without customer billing/order links
+- [ ] Training-only operator does not receive Plus commerce benefits such as `$8/kg` sugar pricing
+- [ ] Revoking operator training access removes `/portal/training*` access on the next session refresh/re-login
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
