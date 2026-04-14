@@ -9,7 +9,6 @@ import {
   ExternalLink,
   GraduationCap,
   UserMinus,
-  Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -113,8 +112,7 @@ export default function AccountPage() {
   });
 
   const parsedOperatorEmails = useMemo(() => parseOperatorEmails(operatorEmails), [operatorEmails]);
-  const activeOperatorCount = operatorTrainingGrants.filter((grant) => grant.isActive).length;
-  const revokedOperatorCount = operatorTrainingGrants.filter((grant) => !grant.isActive).length;
+  const activeOperatorGrants = operatorTrainingGrants.filter((grant) => grant.isActive);
   const operatorTrainingErrorMessage =
     operatorTrainingGrantsError instanceof Error ? operatorTrainingGrantsError.message : null;
 
@@ -581,30 +579,18 @@ export default function AccountPage() {
 
           {canManageOperatorTraining && (
             <div className="mt-8 card-elevated min-w-0 p-5 sm:p-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                    <GraduationCap className="h-5 w-5 text-primary" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="font-display text-lg font-semibold text-foreground">
-                      Operator Training Access
-                    </h2>
-                    <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-                      Add team members who need the training library without giving them billing,
-                      orders, support, onboarding, or Plus pricing access.
-                    </p>
-                  </div>
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                  <GraduationCap className="h-5 w-5 text-primary" />
                 </div>
-                <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center">
-                  <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-                    <p className="text-xs text-muted-foreground">Active</p>
-                    <p className="text-lg font-semibold text-foreground">{activeOperatorCount}</p>
-                  </div>
-                  <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-                    <p className="text-xs text-muted-foreground">Revoked</p>
-                    <p className="text-lg font-semibold text-foreground">{revokedOperatorCount}</p>
-                  </div>
+                <div className="min-w-0">
+                  <h2 className="font-display text-lg font-semibold text-foreground">
+                    Operator Training Access
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    Add people who need the training library. Operators do not get billing, orders,
+                    support, onboarding, or Plus pricing access.
+                  </p>
                 </div>
               </div>
 
@@ -615,51 +601,47 @@ export default function AccountPage() {
                 </div>
               )}
 
-              <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="mt-6 space-y-8">
                 <div className="min-w-0">
                   <label className="block text-sm font-medium text-foreground">
-                    Add operator emails
+                    Add operators
                   </label>
                   <Textarea
                     value={operatorEmails}
                     onChange={(event) => setOperatorEmails(event.target.value)}
                     placeholder="operator1@example.com, operator2@example.com"
-                    className="mt-2 min-h-28"
+                    className="mt-2 min-h-24"
                     disabled={grantOperatorMutation.isPending || Boolean(operatorTrainingErrorMessage)}
                   />
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    Paste one email, multiple lines, or a comma-separated list.
-                    {parsedOperatorEmails.length > 0
-                      ? ` ${parsedOperatorEmails.length} unique email${parsedOperatorEmails.length === 1 ? '' : 's'} ready.`
-                      : ''}
-                  </p>
-                  <Button
-                    className="mt-4 w-full sm:w-auto"
-                    onClick={handleGrantOperatorAccess}
-                    disabled={
-                      grantOperatorMutation.isPending ||
-                      parsedOperatorEmails.length === 0 ||
-                      Boolean(operatorTrainingErrorMessage)
-                    }
-                  >
-                    {grantOperatorMutation.isPending
-                      ? 'Adding operators...'
-                      : parsedOperatorEmails.length > 0
-                        ? `Add ${parsedOperatorEmails.length} Operator${
-                            parsedOperatorEmails.length === 1 ? '' : 's'
-                          }`
-                        : 'Add Operators'}
-                  </Button>
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Paste one email, multiple lines, or a comma-separated list.
+                      {parsedOperatorEmails.length > 0
+                        ? ` ${parsedOperatorEmails.length} ready.`
+                        : ''}
+                    </p>
+                    <Button
+                      className="w-full sm:w-auto"
+                      onClick={handleGrantOperatorAccess}
+                      disabled={
+                        grantOperatorMutation.isPending ||
+                        parsedOperatorEmails.length === 0 ||
+                        Boolean(operatorTrainingErrorMessage)
+                      }
+                    >
+                      {grantOperatorMutation.isPending
+                        ? 'Adding...'
+                        : parsedOperatorEmails.length > 1
+                          ? `Add ${parsedOperatorEmails.length} Operators`
+                          : 'Add Operator'}
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="font-semibold text-foreground">Managed Operators</h3>
-                  </div>
+                  <h3 className="font-semibold text-foreground">People with training access</h3>
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    Operators can open training and save progress. Revoking removes their
-                    training-only access after their next refresh or sign-in.
+                    Revoke access when someone no longer needs the training library.
                   </p>
 
                   <div className="mt-4 space-y-3">
@@ -670,12 +652,12 @@ export default function AccountPage() {
                     )}
                     {!operatorTrainingGrantsLoading &&
                       !operatorTrainingErrorMessage &&
-                      operatorTrainingGrants.length === 0 && (
+                      activeOperatorGrants.length === 0 && (
                         <p className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
                           No operator training access has been added yet.
                         </p>
                       )}
-                    {operatorTrainingGrants.map((grant) => (
+                    {activeOperatorGrants.map((grant) => (
                       <div
                         key={grant.id}
                         className="rounded-md border border-border bg-muted/20 px-3 py-3"
@@ -685,27 +667,19 @@ export default function AccountPage() {
                             <p className="break-words text-sm font-medium text-foreground">
                               {grant.operatorEmail}
                             </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {grant.isActive
-                                ? 'Training access active'
-                                : grant.revokedAt
-                                  ? 'Access revoked'
-                                  : 'Access inactive'}
-                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">Training access</p>
                           </div>
-                          {grant.isActive && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleRevokeOperatorAccess(grant.id)}
-                              disabled={revokeOperatorMutation.isPending}
-                              className="w-full sm:w-auto"
-                            >
-                              <UserMinus className="mr-1.5 h-4 w-4" />
-                              Revoke
-                            </Button>
-                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRevokeOperatorAccess(grant.id)}
+                            disabled={revokeOperatorMutation.isPending}
+                            className="w-full sm:w-auto"
+                          >
+                            <UserMinus className="mr-1.5 h-4 w-4" />
+                            Revoke
+                          </Button>
                         </div>
                       </div>
                     ))}
