@@ -35,6 +35,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
 - [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=/machines/mini`
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
+- [ ] `/supplies` sugar and sticks product cards render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
 - [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
 - [ ] Sugar page quick presets show `240 KG`, `400 KG`, and `800 KG`, with `400 KG` as the default target
 - [ ] Sugar page shows public pricing at `$10/kg` for signed-out or non-Plus users
