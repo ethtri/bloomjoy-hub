@@ -4,12 +4,14 @@ import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import {
-  hasPlusAccess,
+  emptyPlusAccessSummary,
   hasTrainingAccess,
   normalizePortalAccessTier,
   type MembershipStatus,
+  type PlusAccessSummary,
   type PortalAccessTier,
 } from '@/lib/membership';
+import { fetchMyPlusAccess } from '@/lib/plusAccess';
 
 interface User {
   id: string;
@@ -19,6 +21,7 @@ interface User {
   portalAccessTier: PortalAccessTier;
   isTrainingOperator: boolean;
   canManageOperatorTraining: boolean;
+  plusAccess: PlusAccessSummary;
   isAdmin: boolean;
 }
 
@@ -42,12 +45,6 @@ interface AuthContextType {
   canManageOperatorTraining: boolean;
   isAdmin: boolean;
 }
-
-type SubscriptionRecord = {
-  status: string;
-  current_period_end: string | null;
-  updated_at: string;
-};
 
 type AdminRoleRecord = {
   role: string;
@@ -86,54 +83,6 @@ const devAdminEmailAllowlist = getDevAdminEmailAllowlist();
 const hasDevAdminEmailOverride = (email: string): boolean =>
   import.meta.env.DEV && devAdminEmailAllowlist.has(email.toLowerCase());
 
-const normalizeMembershipStatus = (status: string | undefined): MembershipStatus => {
-  if (!status) return 'none';
-
-  switch (status) {
-    case 'active':
-    case 'trialing':
-    case 'past_due':
-    case 'canceled':
-    case 'inactive':
-    case 'none':
-      return status;
-    default:
-      return 'none';
-  }
-};
-
-const getMembershipStatus = async (userId: string): Promise<MembershipStatus> => {
-  const { data, error } = await supabaseClient
-    .from('subscriptions')
-    .select('status,current_period_end,updated_at')
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false });
-
-  if (error || !data || data.length === 0) {
-    return 'none';
-  }
-
-  const records = data as SubscriptionRecord[];
-  const now = Date.now();
-
-  const activeMembership = records.find((subscription) => {
-    const normalizedStatus = normalizeMembershipStatus(subscription.status);
-    const isPlus = normalizedStatus === 'active' || normalizedStatus === 'trialing';
-    const periodEnd =
-      subscription.current_period_end !== null
-        ? new Date(subscription.current_period_end).getTime()
-        : null;
-
-    return isPlus && (periodEnd === null || periodEnd > now);
-  });
-
-  if (activeMembership) {
-    return normalizeMembershipStatus(activeMembership.status);
-  }
-
-  return normalizeMembershipStatus(records[0]?.status);
-};
-
 const getIsAdmin = async (userId: string): Promise<boolean> => {
   const { data, error } = await supabaseClient
     .from('admin_roles')
@@ -151,6 +100,14 @@ const getIsAdmin = async (userId: string): Promise<boolean> => {
   return Boolean((data as AdminRoleRecord | null)?.role);
 };
 
+const getPlusAccess = async (): Promise<PlusAccessSummary> => {
+  try {
+    return await fetchMyPlusAccess();
+  } catch {
+    return emptyPlusAccessSummary;
+  }
+};
+
 const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | null> => {
   const { data, error } = await supabaseClient.rpc('get_my_portal_access_context');
 
@@ -165,30 +122,28 @@ const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | nul
 
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
-  const [membershipStatus, dbIsAdmin, portalAccessContext] = await Promise.all([
-    getMembershipStatus(supabaseUser.id),
+  const [plusAccess, dbIsAdmin, portalAccessContext] = await Promise.all([
+    getPlusAccess(),
     getIsAdmin(supabaseUser.id),
     getPortalAccessContext(),
   ]);
   const isAdmin = dbIsAdmin || hasDevAdminEmailOverride(email);
-  const paidPlusAccess = hasPlusAccess(membershipStatus);
-  const portalAccessTier = isAdmin
+  const hasFullPlusAccess = isAdmin || plusAccess.hasPlusAccess;
+  const portalAccessTier = hasFullPlusAccess
     ? 'plus'
-    : normalizePortalAccessTier(
-        portalAccessContext?.access_tier ?? undefined,
-        paidPlusAccess ? 'plus' : 'baseline'
-      );
+    : normalizePortalAccessTier(portalAccessContext?.access_tier ?? undefined, 'baseline');
 
   return {
     id: supabaseUser.id,
     email,
-    membershipStatus,
-    membershipPlan: paidPlusAccess ? 'Plus Basic' : undefined,
+    membershipStatus: plusAccess.membershipStatus,
+    membershipPlan: hasFullPlusAccess ? 'Plus Basic' : undefined,
     portalAccessTier,
     isTrainingOperator:
       portalAccessTier === 'training' || Boolean(portalAccessContext?.is_training_operator),
     canManageOperatorTraining:
-      isAdmin || paidPlusAccess || Boolean(portalAccessContext?.can_manage_operator_training),
+      hasFullPlusAccess || Boolean(portalAccessContext?.can_manage_operator_training),
+    plusAccess,
     isAdmin,
   };
 };

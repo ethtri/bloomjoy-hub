@@ -102,7 +102,7 @@ security definer
 set search_path = public
 as $$
   select public.is_super_admin(uid)
-    or public.has_active_paid_plus_subscription(uid);
+    or public.has_plus_access(uid);
 $$;
 
 create or replace function public.has_active_operator_training_grant(uid uuid)
@@ -124,10 +124,7 @@ as $$
       and g.revoked_at is null
       and g.starts_at <= now()
       and (g.expires_at is null or g.expires_at > now())
-      and (
-        public.is_super_admin(g.sponsor_user_id)
-        or public.has_active_paid_plus_subscription(g.sponsor_user_id)
-      )
+      and public.has_plus_access(g.sponsor_user_id)
   );
 $$;
 
@@ -141,7 +138,7 @@ as $$
   select case
     when uid is null then 'baseline'
     when public.is_super_admin(uid) then 'plus'
-    when public.has_active_paid_plus_subscription(uid) then 'plus'
+    when public.has_plus_access(uid) then 'plus'
     when public.has_active_operator_training_grant(uid) then 'training'
     else 'baseline'
   end;
@@ -197,7 +194,7 @@ begin
   return query
   select
     resolved_tier as access_tier,
-    public.has_active_paid_plus_subscription(current_user_id) as is_plus_member,
+    public.has_plus_access(current_user_id) as is_plus_member,
     public.has_active_operator_training_grant(current_user_id) as is_training_operator,
     public.is_super_admin(current_user_id) as is_admin,
     public.can_manage_operator_training_grants_for_user(current_user_id)

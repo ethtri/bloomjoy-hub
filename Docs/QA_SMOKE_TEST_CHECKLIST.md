@@ -35,6 +35,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
 - [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=/machines/mini`
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
+- [ ] `/supplies` sugar and sticks product cards render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
 - [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
 - [ ] Sugar page quick presets show `240 KG`, `400 KG`, and `800 KG`, with `400 KG` as the default target
 - [ ] Sugar page shows public pricing at `$10/kg` for signed-out or non-Plus users
@@ -83,7 +84,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
 - [ ] Non-Plus login still sees gated destinations in portal navigation and dashboard action cards with clear locked/access-tier treatment
-- [ ] Active Plus member can add an operator email from `/portal/account` under Operator Training Access
+- [ ] Active Plus member or super-admin can add multiple operator emails from `/portal/account` under Operator Training Access
+- [ ] Operator Training Access shows active/revoked counts, a managed operator list, and a clear setup message when the database rollout is missing
 - [ ] Training-only operator login can access `/portal` and `/portal/training*`
 - [ ] Training-only operator login cannot access `/portal/orders`, `/portal/account`, `/portal/onboarding`, or `/portal/support`
 - [ ] Training-only operator portal navigation stays focused on dashboard and training, without customer billing/order links
@@ -162,9 +164,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Bloomjoy branded sticks checkout completed webhook sends internal order summary email with box count, machine size, address type, and shipping total
 - [ ] Bloomjoy branded sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
 - [ ] Bloomjoy branded sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
-- [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
+- [ ] Plus subscription checkout shows flat `$100/month` account pricing and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
-- [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`
+- [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.billing_model=flat_monthly`
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
 - [ ] In Stripe test customer portal, cancel Plus subscription and return to `/portal/account?billing=return`
@@ -199,6 +201,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/accounts`
 - [ ] Super-admin user can access `/admin/accounts`
 - [ ] Admin account search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
+- [ ] Admin Accounts shows paid subscription status separately from free Plus grant status
+- [ ] Super-admin cannot grant free Plus access without a future expiry date and grant reason
+- [ ] Super-admin cannot grant free Plus access while the account has an active paid Stripe subscription that is not scheduled to cancel
+- [ ] Super-admin can grant or extend free Plus access and the customer can reach Plus-only portal pages without a paid Stripe subscription
+- [ ] Super-admin can revoke free Plus access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
+- [ ] Free Plus grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
+- [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
 - [ ] Admin machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
 - [ ] Non-admin user cannot access `/admin/audit`

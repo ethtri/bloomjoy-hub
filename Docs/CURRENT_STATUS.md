@@ -217,7 +217,7 @@ Execution order is based on launch risk and dependency overlap.
 13) Replace placeholder public-site imagery with real Bloomjoy assets (machines, supplies, and about page visuals)
 
 ## Recently completed (post-P0)
-- Plus pricing model by machine count (`$100 per machine/month`) with Stripe quantity-based checkout
+- Plus pricing model simplified to flat account pricing (`$100/month`) with Stripe checkout quantity fixed at `1`
 - Supplies UX improvement: typed bulk quantity input for paper stick box ordering
 - Public-site asset refresh: real machine/supplies/about photography, improved model image coverage, and homepage machine card visuals
 - Machine detail UX upgrade: per-model image galleries with selectable thumbnails

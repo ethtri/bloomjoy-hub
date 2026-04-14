@@ -65,7 +65,7 @@ const publicRoutes = [
     path: "/plus",
     title: "Bloomjoy Plus | Membership",
     description:
-      "View Bloomjoy Plus membership benefits, support boundaries, and per-machine monthly pricing.",
+      "View Bloomjoy Plus membership benefits, support boundaries, and flat monthly pricing.",
     ogType: "website",
   },
   {

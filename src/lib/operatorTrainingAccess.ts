@@ -30,6 +30,24 @@ type OperatorTrainingGrantRecord = {
   is_active: boolean | null;
 };
 
+const getOperatorTrainingErrorMessage = (
+  message: string | undefined,
+  fallback: string
+): string => {
+  const rawMessage = message ?? '';
+  const missingRpc =
+    rawMessage.includes('schema cache') &&
+    (rawMessage.includes('grant_operator_training_access') ||
+      rawMessage.includes('revoke_operator_training_access') ||
+      rawMessage.includes('get_my_operator_training_grants'));
+
+  if (missingRpc) {
+    return 'Operator training access is not enabled in this environment yet. Bloomjoy needs to finish the database rollout before grants can be managed.';
+  }
+
+  return rawMessage || fallback;
+};
+
 const mapGrantRecord = (record: OperatorTrainingGrantRecord): OperatorTrainingGrant => ({
   id: record.id,
   sponsorUserId: record.sponsor_user_id,
@@ -49,7 +67,9 @@ export const fetchMyOperatorTrainingGrants = async (): Promise<OperatorTrainingG
   const { data, error } = await supabaseClient.rpc('get_my_operator_training_grants');
 
   if (error) {
-    throw new Error(error.message || 'Unable to load operator training access.');
+    throw new Error(
+      getOperatorTrainingErrorMessage(error.message, 'Unable to load operator training access.')
+    );
   }
 
   return ((data as OperatorTrainingGrantRecord[] | null) ?? []).map(mapGrantRecord);
@@ -66,7 +86,9 @@ export const grantOperatorTrainingAccess = async (
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to grant operator training access.');
+    throw new Error(
+      getOperatorTrainingErrorMessage(error?.message, 'Unable to grant operator training access.')
+    );
   }
 
   return mapGrantRecord(data as OperatorTrainingGrantRecord);
@@ -82,7 +104,9 @@ export const revokeOperatorTrainingAccess = async (
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to revoke operator training access.');
+    throw new Error(
+      getOperatorTrainingErrorMessage(error?.message, 'Unable to revoke operator training access.')
+    );
   }
 
   return mapGrantRecord(data as OperatorTrainingGrantRecord);

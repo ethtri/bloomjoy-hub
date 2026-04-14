@@ -25,7 +25,7 @@ export default function BillingCancellationPage() {
                 Subscription billing
               </h2>
               <p className="text-muted-foreground">
-                Bloomjoy Plus Basic is billed monthly based on machine count at checkout. Charges
+                Bloomjoy Plus Basic is billed at a flat monthly account price. Charges
                 recur automatically each billing cycle unless canceled.
               </p>
             </section>
