@@ -97,10 +97,10 @@ export default function SuppliesPage() {
     const sticksCheckoutStatus = params.get('sticksCheckout');
     if (!sticksCheckoutStatus) return;
     if (sticksCheckoutStatus === 'success') {
-      toast.success('Thanks! Your blank stick order is being processed.');
+      toast.success('Thanks! Your Bloomjoy branded stick order is being processed.');
     }
     if (sticksCheckoutStatus === 'cancel') {
-      toast.info('Blank sticks checkout canceled.');
+      toast.info('Bloomjoy branded sticks checkout canceled.');
     }
     params.delete('sticksCheckout');
     const nextQuery = params.toString();
@@ -208,7 +208,7 @@ export default function SuppliesPage() {
 
   const handleSubmitBlankSticksRequest = async () => {
     if (!hasStickSize(stickSize)) {
-      toast.error('Select the machine size before submitting a blank sticks request.');
+      toast.error('Select the machine size before submitting a Bloomjoy branded sticks request.');
       return;
     }
     if (!hasBlankAddressType(blankAddressType)) {
@@ -224,7 +224,7 @@ export default function SuppliesPage() {
         email: sticksContactEmail.trim().toLowerCase(),
         sourcePage: '/supplies',
         message: [
-          'Blank Paper Sticks Request',
+          'Bloomjoy Branded Paper Sticks Request',
           `Requested boxes: ${normalizedStickBoxCount}`,
           `Pieces per box: ${STICKS_PIECES_PER_BOX}`,
           `Selected size: ${getStickSizeLabel(stickSize)}`,
@@ -236,7 +236,7 @@ export default function SuppliesPage() {
         ].join('\n'),
       });
       trackEvent('click_buy_sticks', { variant: 'blank_request', boxes: normalizedStickBoxCount });
-      toast.success('Blank sticks request submitted. We will confirm shipping and fulfillment.');
+      toast.success('Bloomjoy branded sticks request submitted. We will confirm shipping and fulfillment.');
       resetStickRequestFields();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to submit your request.');
@@ -247,7 +247,7 @@ export default function SuppliesPage() {
 
   const handleStartBlankCheckout = async () => {
     if (!hasStickSize(stickSize)) {
-      toast.error('Select the machine size before starting blank sticks checkout.');
+      toast.error('Select the machine size before starting Bloomjoy branded sticks checkout.');
       return;
     }
     if (!hasBlankAddressType(blankAddressType)) {
@@ -264,7 +264,7 @@ export default function SuppliesPage() {
       );
       window.location.assign(checkoutUrl);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to start blank sticks checkout.');
+      toast.error(error instanceof Error ? error.message : 'Unable to start Bloomjoy branded sticks checkout.');
       setStartingBlankCheckout(false);
     }
   };
@@ -457,8 +457,9 @@ export default function SuppliesPage() {
                   <span className="text-base font-normal text-muted-foreground">/ {STICKS_PIECES_PER_BOX.toLocaleString()}-piece box</span>
                 </p>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                  Choose blank or custom paper sticks for Commercial/Full or Mini machines. Custom
-                  sticks add a ${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE} first-order plate fee.
+                  Choose Bloomjoy branded or custom paper sticks for Commercial/Full or Mini
+                  machines. Custom sticks add a ${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE}{' '}
+                  first-order plate fee.
                 </p>
                 <div className="mt-6 space-y-4">
                   <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-muted/30 p-2">
@@ -469,7 +470,7 @@ export default function SuppliesPage() {
                         stickVariant === 'plain' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      Blank sticks
+                      Bloomjoy branded
                     </button>
                     <button
                       type="button"
@@ -497,8 +498,8 @@ export default function SuppliesPage() {
                       </div>
                     </div>
                     <p className="mt-3 text-xs text-muted-foreground">
-                      Blank sticks ship at $35/box to business addresses or $40/box to residential
-                      addresses for orders under {BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD} boxes.
+                      Bloomjoy branded sticks ship at $35/box to business addresses or $40/box to
+                      residential addresses for orders under {BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD} boxes.
                     </p>
                   </div>
                   <div>
@@ -669,10 +670,10 @@ export default function SuppliesPage() {
                       {blankSticksCheckoutEligible
                         ? startingBlankCheckout
                           ? 'Redirecting...'
-                          : 'Checkout Blank Sticks'
+                          : 'Checkout Bloomjoy Branded Sticks'
                         : submittingSticksRequest
                           ? 'Submitting...'
-                          : 'Submit Blank Stick Request'}
+                          : 'Submit Bloomjoy Branded Stick Request'}
                     </Button>
                   ) : (
                     <Button onClick={handleSubmitCustomSticksRequest} className="w-full" disabled={submittingSticksRequest}>
@@ -681,8 +682,8 @@ export default function SuppliesPage() {
                   )}
 
                   <p className="text-sm text-muted-foreground">
-                    Blank sticks checkout starts at {BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD} boxes.
-                    The shared cart remains sugar-only.
+                    Bloomjoy branded sticks checkout starts at {BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD}{' '}
+                    boxes. The shared cart remains sugar-only.
                   </p>
 
                   {cartSugarTotalKg > 0 && (

@@ -229,7 +229,7 @@ const formatOrderType = (orderType: OrderType) => {
     case "sugar":
       return "Sugar";
     case "blank_sticks":
-      return "Blank sticks";
+      return "Bloomjoy branded sticks";
     default:
       return "Unknown";
   }
@@ -434,7 +434,7 @@ const buildInternalOrderEmail = (context: OrderContext) => {
     context.orderType === "blank_sticks"
       ? [
         "",
-        "Blank Sticks Details:",
+        "Bloomjoy Branded Stick Details:",
         `- Boxes: ${context.blankSticks?.box_count ?? "n/a"}`,
         `- Pieces per box: ${context.blankSticks?.pieces_per_box ?? "n/a"}`,
         `- Stick size: ${formatStickSize(context.blankSticks?.stick_size)}`,
@@ -557,7 +557,7 @@ async function upsertOrder(session: Stripe.Checkout.Session): Promise<OrderConte
 
   if (blankSticks.box_count > 0 || blankSticks.pieces_per_box > 0) {
     lineItems.push({
-      description: "Blank sticks order details",
+      description: "Bloomjoy branded sticks order details",
       quantity: blankSticks.box_count || null,
       amount_total: null,
       currency: expanded.currency,
