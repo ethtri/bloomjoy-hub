@@ -13,6 +13,12 @@
   - Home and `/machines` now present Mini as available now instead of coming soon
   - historical `mini_waitlist_submissions` data remains for ops reference only
 
+## Supplies ordering UX simplification (2026-04-14)
+- `/supplies` now guides visitors into one ordering path at a time instead of showing sugar, branded sticks, and custom sticks workflows all at once.
+- The page supports direct links for `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom`.
+- Sugar still uses the 400 KG default equal split, with color-level adjustments tucked behind a "Customize Color Mix" control.
+- Bloomjoy branded sticks keep the existing under-5-box confirmation path and 5+ box direct checkout path, while custom sticks now have their own focused request flow.
+
 ## Emergency commerce remediation snapshot (2026-04-06)
 - A production payments incident was confirmed on `2026-04-06`:
   - sugar checkout was publicly charging the Bloomjoy Plus member rate (`$8/kg`) instead of the public rate (`$10/kg`)

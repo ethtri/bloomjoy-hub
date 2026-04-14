@@ -35,18 +35,20 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
 - [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=/machines/mini`
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
-- [ ] `/supplies` sugar and sticks product cards render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
-- [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
-- [ ] Sugar page quick presets show `240 KG`, `400 KG`, and `800 KG`, with `400 KG` as the default target
-- [ ] Sugar page shows public pricing at `$10/kg` for signed-out or non-Plus users
-- [ ] Sugar page shows Bloomjoy Plus pricing at `$8/kg` only for users whose `subscriptions.status` is `active` or `trialing`
-- [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
-- [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)
+- [ ] `/supplies` product images render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
+- [ ] `/supplies` defaults to Sugar ordering; `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom` direct-load with the matching selected flow
+- [ ] Supplies order chooser switches between Sugar, Bloomjoy Branded Sticks, and Custom Sticks without showing every order flow at once
+- [ ] Sugar flow supports one-click equal split across white/blue/orange/red and allows custom per-color override behind the "Customize Color Mix" control
+- [ ] Sugar flow quick presets show `240 KG`, `400 KG`, and `800 KG`, with `400 KG` as the default target
+- [ ] Sugar flow shows public pricing at `$10/kg` for signed-out or non-Plus users
+- [ ] Sugar flow shows Bloomjoy Plus pricing at `$8/kg` only for users whose `subscriptions.status` is `active` or `trialing`
+- [ ] Sugar flow handles high-volume setup (e.g., 500KG+) without repetitive click controls
+- [ ] Sticks ordering on `/supplies?order=sticks` allows direct typed quantity input (not only +/- controls)
 - [ ] Sticks ordering clearly supports Bloomjoy branded paper sticks and custom paper sticks at `$130/box` with `2000 pieces/box`
-- [ ] Bloomjoy branded sticks flow requires machine size selection and shipping address type selection before request/checkout
+- [ ] Bloomjoy branded sticks flow requires machine size selection and delivery location type selection before request/checkout
 - [ ] Bloomjoy branded sticks orders under 5 boxes submit a procurement lead with box count, size, address type, and estimated shipping summary
 - [ ] Bloomjoy branded sticks orders of 5+ boxes launch direct Stripe checkout with free shipping and do not use the shared cart
-- [ ] Custom sticks flow accepts logo/image upload and submits a procurement lead with artwork URL, requested box count, selected size, and `$750` first-order plate-fee note
+- [ ] Custom sticks flow on `/supplies?order=custom` accepts logo/image upload and submits a procurement lead with artwork URL, requested box count, selected size, and `$750` first-order plate-fee note
 - [ ] Shared cart remains sugar-only and legacy stick items do not block checkout
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads (procedure docs, daily checklists, frequent updates)
