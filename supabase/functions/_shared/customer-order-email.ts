@@ -116,7 +116,7 @@ const formatOrderType = (orderType: OrderType) => {
     case "sugar":
       return "Sugar";
     case "blank_sticks":
-      return "Paper sticks";
+      return "Bloomjoy branded paper sticks";
     default:
       return "Order";
   }
@@ -127,7 +127,7 @@ const formatOrderTypeNoun = (orderType: OrderType) => {
     case "sugar":
       return "sugar";
     case "blank_sticks":
-      return "paper sticks";
+      return "branded paper sticks";
     default:
       return "order";
   }
@@ -190,7 +190,7 @@ const formatAddressLines = (address: AddressSnapshot | null | undefined): string
 const buildOrderSpecificRows = (context: CustomerOrderEmailContext): DetailRow[] => {
   if (context.orderType === "blank_sticks") {
     return [
-      ["Product", "Bloomjoy paper sticks"],
+      ["Product", "Bloomjoy branded paper sticks"],
       ["Boxes", String(context.blankSticks?.box_count ?? "n/a")],
       ["Pieces per box", String(context.blankSticks?.pieces_per_box ?? "n/a")],
       ["Stick size", formatStickSize(context.blankSticks?.stick_size)],
@@ -267,7 +267,7 @@ export const buildCustomerOrderEmail = (
 
   const subject =
     context.orderType === "blank_sticks"
-      ? "Your Bloomjoy paper sticks order is confirmed"
+      ? "Your Bloomjoy branded paper sticks order is confirmed"
       : context.orderType === "sugar"
         ? "Your Bloomjoy sugar order is confirmed"
         : "Your Bloomjoy order is confirmed";

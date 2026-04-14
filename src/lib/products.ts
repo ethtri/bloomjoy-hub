@@ -145,12 +145,12 @@ export const products: Record<string, Product> = {
   },
   'sticks-plain': {
     sku: 'sticks-plain',
-    name: 'Blank Cotton Candy Sticks',
+    name: 'Bloomjoy Branded Cotton Candy Sticks',
     type: 'supply',
     price: STICKS_PRICE_PER_BOX,
     description:
-      'Plain paper sticks, 2000 pieces per box. Available in Commercial/Full 10mm x 300mm and Mini 10mm x 220mm sizes.',
-    shortDescription: `${STICKS_PIECES_PER_BOX} plain paper sticks per box`,
+      'Bloomjoy branded paper sticks, 2000 pieces per box. Available in Commercial/Full 10mm x 300mm and Mini 10mm x 220mm sizes.',
+    shortDescription: `${STICKS_PIECES_PER_BOX} Bloomjoy branded paper sticks per box`,
     features: [
       'Compatible with all Bloomjoy machines',
       'Food-grade materials',

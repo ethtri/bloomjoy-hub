@@ -148,9 +148,9 @@ Run immediately after deploy:
 - [ ] Sugar checkout test order sends internal summary email to configured operations recipients.
 - [ ] Sugar checkout test order sends customer confirmation email with the branded HTML confirmation layout, order summary, and receipt link.
 - [ ] Sugar checkout test order sends WeCom alert when `WECOM_*` secrets are configured and the WeCom app/network policy allows traffic from the live function egress IPs.
-- [ ] Blank sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
-- [ ] Blank sticks checkout test order sends internal summary email to configured operations recipients.
-- [ ] Blank sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.
+- [ ] Bloomjoy branded sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
+- [ ] Bloomjoy branded sticks checkout test order sends internal summary email to configured operations recipients.
+- [ ] Bloomjoy branded sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
 - [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
@@ -172,7 +172,7 @@ Preferred order of operations:
    - customer email and phone
    - billing and shipping address
    - pricing tier and unit price
-   - sugar color breakdown or blank-sticks order details
+   - sugar color breakdown or Bloomjoy branded stick order details
    - notification status fields
 
 ## 6) Rollback checklist

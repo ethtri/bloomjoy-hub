@@ -550,7 +550,7 @@ export default function AdminOrdersPage() {
                   {selectedBlankSticks ? (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Blank Sticks Details
+                        Bloomjoy Branded Stick Details
                       </p>
                       <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
                         <p>Boxes: {selectedBlankSticks.boxCount}</p>

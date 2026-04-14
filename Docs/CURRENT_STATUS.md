@@ -168,9 +168,9 @@ Execution order is based on launch risk and dependency overlap.
 - UAT signal: sugar presets and sticks packaging/pricing needed to match current shipping realities.
 - Delivered:
   - Sugar quick presets updated to `240 KG`, `400 KG`, and `800 KG` with `400 KG` as the default packaging-friendly target.
-  - Blank paper sticks now use box-based pricing (`$130/box`, `2000 pieces/box`) with required machine-size and address-type selection.
-  - Blank sticks orders under 5 boxes submit procurement requests with shipping estimate context (`$35/box` business, `$40/box` residential).
-  - Blank sticks orders of 5+ boxes now use a dedicated Stripe checkout flow with free shipping.
+  - Bloomjoy branded paper sticks now use box-based pricing (`$130/box`, `2000 pieces/box`) with required machine-size and address-type selection.
+  - Bloomjoy branded sticks orders under 5 boxes submit procurement requests with shipping estimate context (`$35/box` business, `$40/box` residential).
+  - Bloomjoy branded sticks orders of 5+ boxes now use a dedicated Stripe checkout flow with free shipping.
   - Custom sticks remain request-based with artwork upload and a clearly stated `$750` first-order plate fee.
 
 4) **P1 - Resources page Plus-content teasers**
@@ -248,7 +248,7 @@ Execution order is based on launch risk and dependency overlap.
 - Quote-intake clarity hardening (`PR #88`): machine quote CTA now carries machine-of-interest context into contact submissions.
 - Local QA admin access helper (`PR #88`): optional `VITE_DEV_ADMIN_EMAILS` local-only override for internal Plus feature testing.
 - UAT naming consistency hardening (`2026-03-02`): standardized public machine labels to `Commercial Machine`, `Mini Machine`, and `Micro Machine` across home, machines listing, contact, footer, and machine detail headers.
-- UAT supplies packaging alignment (`2026-03-18`): sugar quick presets now align to `240/400/800 KG`, blank paper sticks use box pricing (`$130/box`, `2000 pieces/box`) with size/address selection, 5+ box checkout ships free via dedicated Stripe flow, and custom sticks retain artwork upload with a `$750` first-order plate fee.
+- UAT supplies packaging alignment (`2026-03-18`): sugar quick presets now align to `240/400/800 KG`, Bloomjoy branded paper sticks use box pricing (`$130/box`, `2000 pieces/box`) with size/address selection, 5+ box checkout ships free via dedicated Stripe flow, and custom sticks retain artwork upload with a `$750` first-order plate fee.
 - UAT resources hardening (`2026-03-02`): `/resources` now includes Bloomjoy Plus teaser cards for downloadable procedure docs, daily checklists, and frequently updated member content.
 - Auth launch alignment (`2026-03-22`): auth preflight defaults and auth runbooks now target canonical operator-app routes on `app.bloomjoyusa.com`, while the storefront stays on `www.bloomjoyusa.com` and the callback host remains `auth.bloomjoyusa.com`.
 - Training performance hardening (`#89`): training detail now shows a clear Vimeo loading state, adds Vimeo preconnect hints, and emits iframe startup timing analytics.

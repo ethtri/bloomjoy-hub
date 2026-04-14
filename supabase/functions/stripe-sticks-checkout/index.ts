@@ -139,7 +139,7 @@ serve(async (req) => {
       },
       metadata: {
         order_type: "blank_sticks",
-        sticks_type: "blank",
+        sticks_type: "bloomjoy_branded",
         stick_size: stickSize,
         sticks_box_count: String(boxCount),
         sticks_pieces_per_box: String(piecesPerBox),

@@ -41,10 +41,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sugar page shows Bloomjoy Plus pricing at `$8/kg` only for users whose `subscriptions.status` is `active` or `trialing`
 - [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
 - [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)
-- [ ] Sticks ordering clearly supports blank paper sticks and custom paper sticks at `$130/box` with `2000 pieces/box`
-- [ ] Blank sticks flow requires machine size selection and shipping address type selection before request/checkout
-- [ ] Blank sticks orders under 5 boxes submit a procurement lead with box count, size, address type, and estimated shipping summary
-- [ ] Blank sticks orders of 5+ boxes launch direct Stripe checkout with free shipping and do not use the shared cart
+- [ ] Sticks ordering clearly supports Bloomjoy branded paper sticks and custom paper sticks at `$130/box` with `2000 pieces/box`
+- [ ] Bloomjoy branded sticks flow requires machine size selection and shipping address type selection before request/checkout
+- [ ] Bloomjoy branded sticks orders under 5 boxes submit a procurement lead with box count, size, address type, and estimated shipping summary
+- [ ] Bloomjoy branded sticks orders of 5+ boxes launch direct Stripe checkout with free shipping and do not use the shared cart
 - [ ] Custom sticks flow accepts logo/image upload and submits a procurement lead with artwork URL, requested box count, selected size, and `$750` first-order plate-fee note
 - [ ] Shared cart remains sugar-only and legacy stick items do not block checkout
 - [ ] Plus page: pricing and boundaries are visible and clear
@@ -151,11 +151,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, pricing tier, sugar mix, line items)
 - [ ] Sugar checkout sends customer confirmation email with branded HTML layout, clear totals, shipping address, color quantities, and receipt link
 - [ ] Sugar checkout completed webhook sends a WeCom internal alert with order ID, customer, and sugar breakdown
-- [ ] Blank sticks checkout completes with test card for 5+ boxes and shows free shipping in Stripe Checkout
-- [ ] Blank sticks checkout writes an `orders` row with billing/shipping address, shipping total, receipt URL, and order detail metadata
-- [ ] Blank sticks checkout completed webhook sends internal order summary email with box count, machine size, address type, and shipping total
-- [ ] Blank sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
-- [ ] Blank sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
+- [ ] Bloomjoy branded sticks checkout completes with test card for 5+ boxes and shows free shipping in Stripe Checkout
+- [ ] Bloomjoy branded sticks checkout writes an `orders` row with billing/shipping address, shipping total, receipt URL, and order detail metadata
+- [ ] Bloomjoy branded sticks checkout completed webhook sends internal order summary email with box count, machine size, address type, and shipping total
+- [ ] Bloomjoy branded sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
+- [ ] Bloomjoy branded sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
 - [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
 - [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`
@@ -188,7 +188,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/orders`
 - [ ] Admin orders supports search by customer email/order ID and date range filtering
 - [ ] Admin orders detail panel shows billing/shipping address snapshots, pricing tier, unit price, receipt link, and notification statuses
-- [ ] Admin orders detail panel shows sugar color quantities for sugar orders and box/size/address metadata for blank-sticks orders
+- [ ] Admin orders detail panel shows sugar color quantities for sugar orders and box/size/address metadata for Bloomjoy branded stick orders
 - [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
 - [ ] Non-admin user cannot access `/admin/accounts`
 - [ ] Super-admin user can access `/admin/accounts`
