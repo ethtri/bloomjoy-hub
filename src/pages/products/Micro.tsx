@@ -66,20 +66,20 @@ export default function MicroPage() {
               </p>
 
               <div className="mt-8 space-y-4">
-                <Link
-                  to="/contact?type=quote&interest=micro&source=/machines/micro"
-                  onClick={handleQuoteRequest}
-                >
-                  <Button variant="hero" size="xl" className="w-full">
+                <Button asChild variant="hero" size="xl" className="w-full">
+                  <Link
+                    to="/contact?type=quote&interest=micro&source=/machines/micro"
+                    onClick={handleQuoteRequest}
+                  >
                     Request a Quote
                     <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                </Link>
-                <Link to="/supplies">
-                  <Button variant="hero-outline" size="lg" className="w-full">
+                  </Link>
+                </Button>
+                <Button asChild variant="hero-outline" size="lg" className="w-full">
+                  <Link to="/supplies">
                     Reorder Sugar
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
 
               {/* Features */}
