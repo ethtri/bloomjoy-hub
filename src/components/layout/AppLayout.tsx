@@ -230,7 +230,11 @@ export function AppLayout({ children }: AppLayoutProps) {
             <div className="md:hidden">
               <Sheet>
                 <SheetTrigger asChild>
-                  <button className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:text-foreground">
+                  <button
+                    type="button"
+                    className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label="Open operator navigation menu"
+                  >
                     <Menu className="h-5 w-5" />
                   </button>
                 </SheetTrigger>

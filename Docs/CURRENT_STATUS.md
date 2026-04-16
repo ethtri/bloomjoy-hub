@@ -19,6 +19,17 @@
 - Sugar still uses the 400 KG default equal split, with color-level adjustments tucked behind a "Customize Color Mix" control.
 - Bloomjoy branded sticks keep the existing under-5-box confirmation path and 5+ box direct checkout path, while custom sticks now have their own focused request flow.
 
+## Public CX polish audit (2026-04-16)
+- A public-site CX/UX/UI audit confirmed the biggest polish issues were flow clarity and mobile resilience, not a need for a redesign.
+- Micro Machine is now treated as quote-led for this remediation: `/machines/micro` should send visitors to `/contact?type=quote&interest=micro&source=/machines/micro`, keeping the shared cart sugar-only.
+- Confirmed remediation targets:
+  - Micro direct-cart behavior and cart empty-state copy
+  - cart line-item mobile overflow resilience
+  - excessive hero-to-content spacing on `/machines`, `/resources`, `/plus`, and `/contact`
+  - associated labels and input semantics on the contact form
+  - accessible names for mobile icon-only navigation controls and product-gallery thumbnails
+- This is tracked as a P1 backlog item and should stay incremental: no CMS, schema, Stripe machine-checkout, or platform change is included.
+
 ## Emergency commerce remediation snapshot (2026-04-06)
 - A production payments incident was confirmed on `2026-04-06`:
   - sugar checkout was publicly charging the Bloomjoy Plus member rate (`$8/kg`) instead of the public rate (`$10/kg`)

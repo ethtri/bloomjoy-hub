@@ -24,6 +24,7 @@ export function ProductImageGallery({ images, className }: ProductImageGalleryPr
         <img
           src={images[activeIndex].src}
           alt={images[activeIndex].alt}
+          decoding="async"
           className="h-full w-full object-contain p-3"
         />
       </div>
@@ -34,12 +35,20 @@ export function ProductImageGallery({ images, className }: ProductImageGalleryPr
               key={image.src}
               type="button"
               onClick={() => setActiveIndex(index)}
+              aria-label={`View image ${index + 1}: ${image.alt}`}
+              aria-current={index === activeIndex ? 'true' : undefined}
               className={cn(
-                'aspect-square overflow-hidden rounded-md border bg-muted transition',
+                'aspect-square overflow-hidden rounded-md border bg-muted transition-colors',
                 index === activeIndex ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:border-primary/40'
               )}
             >
-              <img src={image.src} alt={image.alt} className="h-full w-full object-contain p-1" />
+              <img
+                src={image.src}
+                alt={image.alt}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-contain p-1"
+              />
             </button>
           ))}
         </div>

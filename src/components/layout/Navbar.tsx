@@ -26,6 +26,8 @@ export function Navbar() {
   const operatorAppUrl = getCanonicalUrlForSurface('app', '/portal', '', '', window.location);
   const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', window.location);
   const adminAppUrl = getCanonicalUrlForSurface('app', '/admin', '', '', window.location);
+  const cartLabel =
+    itemCount > 0 ? `View cart with ${itemCount} item${itemCount === 1 ? '' : 's'}` : 'View cart';
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -58,7 +60,11 @@ export function Navbar() {
 
         {/* Desktop Actions */}
         <div className="hidden items-center gap-3 md:flex">
-          <Link to="/cart" className="relative p-2 text-muted-foreground hover:text-foreground">
+          <Link
+            to="/cart"
+            className="relative p-2 text-muted-foreground hover:text-foreground"
+            aria-label={cartLabel}
+          >
             <ShoppingCart className="h-5 w-5" />
             {itemCount > 0 && (
               <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
@@ -93,7 +99,11 @@ export function Navbar() {
 
         {/* Mobile Menu Button */}
         <div className="flex items-center gap-3 md:hidden">
-          <Link to="/cart" className="relative p-2 text-muted-foreground hover:text-foreground">
+          <Link
+            to="/cart"
+            className="relative p-2 text-muted-foreground hover:text-foreground"
+            aria-label={cartLabel}
+          >
             <ShoppingCart className="h-5 w-5" />
             {itemCount > 0 && (
               <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
@@ -102,8 +112,12 @@ export function Navbar() {
             )}
           </Link>
           <button
+            type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="p-2 text-muted-foreground hover:text-foreground"
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-controls="mobile-navigation-menu"
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
@@ -112,7 +126,7 @@ export function Navbar() {
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="border-t border-border bg-background md:hidden">
+        <div id="mobile-navigation-menu" className="border-t border-border bg-background md:hidden">
           <div className="container-page py-4">
             <div className="flex flex-col gap-2">
               {navLinks.map((link) => (

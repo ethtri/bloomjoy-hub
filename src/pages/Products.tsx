@@ -46,7 +46,7 @@ export default function ProductsPage() {
   return (
     <Layout>
       {/* Hero */}
-      <section className="bg-gradient-to-b from-cream to-background section-padding">
+      <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
         <div className="container-page text-center">
           <h1 className="font-display text-4xl font-bold text-foreground sm:text-5xl">
             Machines
@@ -58,7 +58,7 @@ export default function ProductsPage() {
       </section>
 
       {/* Machines */}
-      <section className="section-padding">
+      <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <h2 className="font-display text-2xl font-bold text-foreground">Machines</h2>
           <div className="mt-8 grid gap-8 md:grid-cols-3">
@@ -66,12 +66,14 @@ export default function ProductsPage() {
               <Link
                 key={product.sku}
                 to={product.href}
-                className="group card-elevated overflow-hidden transition-all hover:-translate-y-1"
+                className="group card-elevated overflow-hidden transition-[box-shadow,transform] duration-200 hover:-translate-y-1"
               >
                 <div className="aspect-square overflow-hidden bg-muted">
                   <img
                     src={product.image}
                     alt={product.name}
+                    loading="lazy"
+                    decoding="async"
                     className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
                   />
                 </div>
@@ -104,7 +106,7 @@ export default function ProductsPage() {
       </section>
 
       {/* Supplies Callout */}
-      <section className="bg-muted/50 section-padding">
+      <section className="bg-muted/50 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="card-elevated flex flex-col items-center gap-6 p-8 text-center md:flex-row md:text-left">
             <div className="flex-1">

@@ -35,6 +35,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
 - [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=/machines/mini`
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
+- [ ] Micro page primary CTA opens `/contact?type=quote&interest=micro&source=/machines/micro` and preselects `Micro Machine`
+- [ ] Micro page does not add machines to the shared cart; machine review stays quote-led
 - [ ] `/supplies` product images render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
 - [ ] `/supplies` defaults to Sugar ordering; `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom` direct-load with the matching selected flow
 - [ ] Supplies order chooser switches between Sugar, Bloomjoy Branded Sticks, and Custom Sticks without showing every order flow at once
@@ -50,14 +52,20 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Bloomjoy branded sticks orders of 5+ boxes launch direct Stripe checkout with free shipping and do not use the shared cart
 - [ ] Custom sticks flow on `/supplies?order=custom` accepts logo/image upload and submits a procurement lead with artwork URL, requested box count, selected size, and `$750` first-order plate-fee note
 - [ ] Shared cart remains sugar-only and legacy stick items do not block checkout
+- [ ] Cart remains sugar-only and has no horizontal overflow on mobile viewports (`360x800`, `390x844`, `414x896`)
+- [ ] Cart line-item title, quantity controls, price, and remove action stack cleanly on mobile
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads (procedure docs, daily checklists, frequent updates)
+- [ ] `/machines`, `/resources`, `/plus`, and `/contact` show primary content without excessive dead space on desktop and mobile
 - [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`
 - [ ] Footer support links navigate to valid Resources anchors (`/resources#faq` and `/resources#support-boundaries`)
 - [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
+- [ ] Contact form labels are clickable, and all visible fields have associated labels
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
 - [ ] Mini quote CTA preselects `Mini Machine` on `/contact` and submits as a normal quote lead (not a waitlist)
+- [ ] Mobile icon-only cart/menu controls have accessible names
+- [ ] Product-gallery thumbnail buttons are keyboard operable and announce selected image state
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Quote submissions send internal notification email with full request summary (name/email/source/type/message)
 - [ ] Quote submissions send a WeCom internal alert to configured `WECOM_ALERT_TO_USERIDS` recipients

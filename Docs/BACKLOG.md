@@ -87,9 +87,15 @@ Guidelines:
    - Rebalance `Start Here`, task paths, featured items, and full-library stacking.
    - Make the new document-first job aids feel curated without adding clutter.
    - Validate final desktop/mobile hierarchy with authenticated QA on `/portal/training`.
+27. **Public CX polish audit remediation**
+   - Keep Micro Machine quote-led and remove direct machine cart behavior until direct machine commerce is intentionally implemented.
+   - Make the shared cart resilient on mobile and keep checkout clearly sugar-only.
+   - Tighten public page spacing on `/machines`, `/resources`, `/plus`, and `/contact` without changing the global visual system.
+   - Improve contact form labels/input semantics, mobile icon-button labels, and product-gallery thumbnail state.
+   - Validate the remediated public routes on desktop and common mobile viewport sizes.
 
 ## P2 - Ops hardening follow-ups
-27. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
+28. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.
