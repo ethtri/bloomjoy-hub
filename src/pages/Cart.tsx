@@ -89,7 +89,8 @@ export default function CartPage() {
                 Your cart is empty
               </h1>
               <p className="mt-2 text-muted-foreground">
-                Add some supplies or machines to get started.
+                Checkout is available for sugar supplies. Machines are reviewed through the
+                quote process.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-4">
                 <Link to="/supplies">
@@ -117,22 +118,26 @@ export default function CartPage() {
             <div className="lg:col-span-2">
               <div className="divide-y divide-border rounded-xl border border-border bg-card">
                 {items.map((item) => (
-                  <div key={item.sku} className="flex items-center gap-4 p-4">
+                  <div
+                    key={item.sku}
+                    className="grid gap-4 p-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] sm:items-center"
+                  >
                     <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-muted">
                       <ShoppingBag className="h-8 w-8 text-muted-foreground/50" />
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-foreground">{item.name}</h3>
+                    <div className="min-w-0">
+                      <h3 className="break-words font-semibold text-foreground">{item.name}</h3>
                       <p className="text-sm text-muted-foreground">
                         ${getDisplayUnitPrice(item.sku, item.price).toFixed(2)} each
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 rounded-lg border border-border p-1">
+                    <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-border p-1 sm:w-auto sm:flex-nowrap">
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => updateQuantity(item.sku, item.quantity - 1)}
+                        aria-label={`Decrease quantity for ${item.name}`}
                       >
                         <Minus className="h-4 w-4" />
                       </Button>
@@ -142,11 +147,15 @@ export default function CartPage() {
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => updateQuantity(item.sku, item.quantity + 1)}
+                        aria-label={`Increase quantity for ${item.name}`}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
                       <Input
+                        aria-label={`Quantity for ${item.name}`}
+                        name={`quantity-${item.sku}`}
                         type="number"
+                        inputMode="numeric"
                         min={0}
                         value={item.quantity}
                         onChange={(event) => {
@@ -156,10 +165,10 @@ export default function CartPage() {
                             Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
                           );
                         }}
-                        className="h-8 w-20 text-right"
+                        className="h-8 min-w-0 flex-1 text-right sm:w-20 sm:flex-none"
                       />
                     </div>
-                    <p className="w-20 text-right font-semibold text-foreground">
+                    <p className="text-right font-semibold text-foreground sm:w-20">
                       ${(
                         getDisplayUnitPrice(item.sku, item.price) * item.quantity
                       ).toFixed(2)}
@@ -169,6 +178,7 @@ export default function CartPage() {
                       size="icon"
                       className="text-muted-foreground hover:text-destructive"
                       onClick={() => removeItem(item.sku)}
+                      aria-label={`Remove ${item.name} from cart`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -252,7 +262,7 @@ export default function CartPage() {
                   onClick={handleCheckout}
                   disabled={isCheckingOut}
                 >
-                  {isCheckingOut ? 'Redirecting...' : 'Checkout'}
+                  {isCheckingOut ? 'Redirecting…' : 'Checkout'}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
                 <p className="mt-3 text-center text-xs text-muted-foreground">

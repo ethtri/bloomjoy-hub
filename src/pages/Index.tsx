@@ -105,12 +105,14 @@ export default function HomePage() {
               <Link
                 key={product.title}
                 to={product.href}
-                className="group card-elevated overflow-hidden transition-all hover:-translate-y-1"
+                className="group card-elevated overflow-hidden transition-[box-shadow,transform] duration-200 hover:-translate-y-1"
               >
                 <div className="aspect-square overflow-hidden bg-muted">
                   <img
                     src={product.image}
                     alt={product.title}
+                    loading="lazy"
+                    decoding="async"
                     className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
                   />
                 </div>

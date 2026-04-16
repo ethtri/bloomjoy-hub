@@ -38,13 +38,13 @@ export default function ResourcesPage() {
 
   return (
     <Layout>
-      <section className="bg-gradient-to-b from-cream to-background section-padding">
+      <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
         <div className="container-page text-center">
           <h1 className="font-display text-4xl font-bold text-foreground">Resources</h1>
           <p className="mt-4 text-lg text-muted-foreground">FAQs, guides, and what to expect.</p>
         </div>
       </section>
-      <section id="faq" className="section-padding scroll-mt-24">
+      <section id="faq" className="scroll-mt-24 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
             <h2 className="font-display text-2xl font-bold text-foreground">Frequently Asked Questions</h2>
@@ -59,7 +59,7 @@ export default function ResourcesPage() {
           </div>
         </div>
       </section>
-      <section className="section-padding border-y border-border bg-muted/20">
+      <section className="border-y border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-4xl">
             <div className="flex flex-col gap-3 text-center">

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Mail, MapPin, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -80,7 +79,7 @@ export default function ContactPage() {
 
   return (
     <Layout>
-      <section className="bg-gradient-to-b from-cream to-background section-padding">
+      <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-2xl text-center">
             <h1 className="font-display text-4xl font-bold text-foreground">Contact Us</h1>
@@ -91,7 +90,7 @@ export default function ContactPage() {
         </div>
       </section>
 
-      <section className="section-padding">
+      <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
             <div className="card-elevated p-8">
@@ -100,6 +99,7 @@ export default function ContactPage() {
                   <label htmlFor="website">Website</label>
                   <Input
                     id="website"
+                    name="website"
                     value={formData.website}
                     onChange={(e) => setFormData({ ...formData, website: e.target.value })}
                     tabIndex={-1}
@@ -108,17 +108,57 @@ export default function ContactPage() {
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Name</label>
-                    <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required className="mt-1" />
+                    <label
+                      htmlFor="contact-name"
+                      className="block text-sm font-medium text-foreground"
+                    >
+                      Name
+                    </label>
+                    <Input
+                      id="contact-name"
+                      name="name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      autoComplete="name"
+                      required
+                      className="mt-1"
+                    />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Email</label>
-                    <Input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required className="mt-1" />
+                    <label
+                      htmlFor="contact-email"
+                      className="block text-sm font-medium text-foreground"
+                    >
+                      Email
+                    </label>
+                    <Input
+                      id="contact-email"
+                      name="email"
+                      type="email"
+                      inputMode="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      autoComplete="email"
+                      spellCheck={false}
+                      required
+                      className="mt-1"
+                    />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Inquiry Type</label>
-                  <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm">
+                  <label
+                    htmlFor="contact-type"
+                    className="block text-sm font-medium text-foreground"
+                  >
+                    Inquiry Type
+                  </label>
+                  <select
+                    id="contact-type"
+                    name="type"
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  >
                     <option value="quote">Request a Quote</option>
                     <option value="demo">Demo Request</option>
                     <option value="procurement">Procurement Questions</option>
@@ -127,10 +167,15 @@ export default function ContactPage() {
                 </div>
                 {formData.type === 'quote' && (
                   <div>
-                    <label className="block text-sm font-medium text-foreground">
+                    <label
+                      htmlFor="contact-interest"
+                      className="block text-sm font-medium text-foreground"
+                    >
                       Machine of Interest
                     </label>
                     <select
+                      id="contact-interest"
+                      name="interest"
                       value={formData.interest}
                       onChange={(e) => setFormData({ ...formData, interest: e.target.value })}
                       className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
@@ -145,11 +190,24 @@ export default function ContactPage() {
                   </div>
                 )}
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Message</label>
-                  <Textarea value={formData.message} onChange={(e) => setFormData({ ...formData, message: e.target.value })} rows={5} required className="mt-1" />
+                  <label
+                    htmlFor="contact-message"
+                    className="block text-sm font-medium text-foreground"
+                  >
+                    Message
+                  </label>
+                  <Textarea
+                    id="contact-message"
+                    name="message"
+                    value={formData.message}
+                    onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                    rows={5}
+                    required
+                    className="mt-1"
+                  />
                 </div>
                 <Button type="submit" variant="hero" size="lg" className="w-full" disabled={submitting}>
-                  {submitting ? 'Sending...' : 'Send Message'}
+                  {submitting ? 'Sending…' : 'Send Message'}
                 </Button>
               </form>
             </div>

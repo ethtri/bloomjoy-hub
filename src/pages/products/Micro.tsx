@@ -1,13 +1,11 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, AlertCircle, ShoppingCart } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
-import { useCart } from '@/lib/cart';
 import { MACHINE_NAMES } from '@/lib/machineNames';
-import { toast } from 'sonner';
 import microMain from '@/assets/real/micro-main.webp';
 import microGallery1 from '@/assets/real/micro-gallery-1.webp';
 import microGallery2 from '@/assets/real/micro-gallery-2.webp';
@@ -25,21 +23,12 @@ const microImages = [
 ];
 
 export default function MicroPage() {
-  const { addItem } = useCart();
-
   useEffect(() => {
     trackEvent('view_product_micro');
   }, []);
 
-  const handleBuyNow = () => {
-    trackEvent('click_buy_micro');
-    addItem({
-      sku: 'micro',
-      name: `Bloomjoy Sweets ${MACHINE_NAMES.micro}`,
-      price: 2200,
-      type: 'machine',
-    });
-    toast.success('Micro added to cart!');
+  const handleQuoteRequest = () => {
+    trackEvent('click_quote_micro');
   };
 
   return (
@@ -77,10 +66,15 @@ export default function MicroPage() {
               </p>
 
               <div className="mt-8 space-y-4">
-                <Button variant="hero" size="xl" className="w-full" onClick={handleBuyNow}>
-                  <ShoppingCart className="mr-2 h-5 w-5" />
-                  Add to Cart
-                </Button>
+                <Link
+                  to="/contact?type=quote&interest=micro&source=/machines/micro"
+                  onClick={handleQuoteRequest}
+                >
+                  <Button variant="hero" size="xl" className="w-full">
+                    Request a Quote
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Button>
+                </Link>
                 <Link to="/supplies">
                   <Button variant="hero-outline" size="lg" className="w-full">
                     Reorder Sugar

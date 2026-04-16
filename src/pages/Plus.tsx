@@ -80,7 +80,7 @@ export default function PlusPage() {
   return (
     <Layout>
       {/* Hero */}
-      <section className="bg-gradient-to-b from-cream to-background section-padding">
+      <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-3xl text-center">
             <span className="rounded-full bg-primary/10 px-4 py-1.5 text-sm font-semibold text-primary">
@@ -97,7 +97,7 @@ export default function PlusPage() {
       </section>
 
       {/* Pricing Card */}
-      <section className="section-padding">
+      <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
             <div className="card-elevated overflow-hidden">
@@ -142,7 +142,7 @@ export default function PlusPage() {
                   disabled={isStartingCheckout}
                 >
                   {isStartingCheckout
-                    ? 'Redirecting...'
+                    ? 'Redirecting…'
                     : user
                       ? 'Start Membership'
                       : 'Log In to Start Membership'}
@@ -167,7 +167,7 @@ export default function PlusPage() {
       </section>
 
       {/* Support Boundaries */}
-      <section className="bg-muted/50 section-padding">
+      <section className="bg-muted/50 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-3xl">
             <h2 className="text-center font-display text-2xl font-bold text-foreground">
@@ -239,7 +239,7 @@ export default function PlusPage() {
       </section>
 
       {/* CTA */}
-      <section className="section-padding">
+      <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page text-center">
           <h2 className="font-display text-2xl font-bold text-foreground">
             Questions about Plus?
