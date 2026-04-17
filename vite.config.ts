@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     // Set an explicit JS chunk budget below Vite's default 500 kB.
     chunkSizeWarningLimit: 450,
+    manifest: true,
     rollupOptions: {
       output: {
         manualChunks(id) {

@@ -31,6 +31,10 @@ export default function AboutPage() {
             <img
               src={aboutHero}
               alt="Customers interacting with a Bloomjoy cotton candy machine"
+              width={1800}
+              height={1200}
+              loading="eager"
+              decoding="async"
               className="h-[360px] w-full object-cover sm:h-[440px]"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-foreground/65 via-foreground/30 to-transparent" />
@@ -94,6 +98,10 @@ export default function AboutPage() {
               <img
                 src={foundersPhoto}
                 alt="Bloomjoy founders Ethan and Yanhong"
+                width={720}
+                height={720}
+                loading="lazy"
+                decoding="async"
                 className="w-full rounded-lg object-cover"
               />
               <figcaption className="mt-3 text-center text-sm text-muted-foreground">
@@ -115,6 +123,10 @@ export default function AboutPage() {
               <img
                 src={aboutGallery1}
                 alt="Bloomjoy cotton candy activation in a mall environment"
+                width={600}
+                height={450}
+                loading="lazy"
+                decoding="async"
                 className="h-72 w-full object-cover"
               />
             </div>
@@ -122,6 +134,10 @@ export default function AboutPage() {
               <img
                 src={aboutGallery2}
                 alt="Customers using a Bloomjoy cotton candy machine"
+                width={600}
+                height={450}
+                loading="lazy"
+                decoding="async"
                 className="h-72 w-full object-cover"
               />
             </div>
@@ -129,6 +145,10 @@ export default function AboutPage() {
               <img
                 src={aboutGallery3}
                 alt="Fresh cotton candy served at a Bloomjoy event"
+                width={600}
+                height={450}
+                loading="lazy"
+                decoding="async"
                 className="h-72 w-full object-cover"
               />
             </div>

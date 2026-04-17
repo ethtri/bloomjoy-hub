@@ -119,7 +119,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const appContext = getAppContext(location.pathname);
-  const marketingHomeUrl = getCanonicalUrlForSurface('marketing', '/', '', '', window.location);
+  const currentLocation = typeof window === 'undefined' ? undefined : window.location;
+  const marketingHomeUrl = getCanonicalUrlForSurface('marketing', '/', '', '', currentLocation);
   const accountUrl = '/portal/account';
   const showAccountLink = portalAccessTier !== 'training';
   const homeUrl = isAuthenticated ? '/portal' : '/login';
@@ -178,7 +179,14 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div className="container-page py-2.5 sm:py-4">
           <div className="flex items-center justify-between gap-4">
             <Link to={homeUrl} className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-              <img src={logo} alt="Bloomjoy Sweets" className="h-10 w-10 shrink-0 sm:h-11 sm:w-11" />
+              <img
+                src={logo}
+                alt="Bloomjoy Sweets"
+                width={44}
+                height={44}
+                decoding="async"
+                className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+              />
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-[11px]">
                   Operator App
