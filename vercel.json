@@ -90,8 +90,16 @@
       "dest": "/$1.html"
     },
     {
-      "src": "/(cart|login(?:/operator)?|reset-password|portal(?:/(?:orders|account|training|support|onboarding))?|admin(?:/(?:orders|support|accounts|audit))?)/?",
+      "src": "/(cart|login(?:/operator)?|reset-password)/?",
       "dest": "/$1.html"
+    },
+    {
+      "src": "/portal(?:/.*)?/?",
+      "dest": "/portal.html"
+    },
+    {
+      "src": "/admin(?:/.*)?/?",
+      "dest": "/admin.html"
     },
     {
       "handle": "filesystem"

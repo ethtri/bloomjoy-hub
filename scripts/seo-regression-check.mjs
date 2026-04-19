@@ -382,13 +382,31 @@ const hasStaticPrerenderRewriteRules = (routes) => {
       route?.dest === "/$1.html"
   );
 
-  const privateRewrite = routes.some(
+  const authPrivateRewrite = routes.some(
     (route) =>
-      route?.src === "/(cart|login(?:/operator)?|reset-password|portal(?:/(?:orders|account|training|support|onboarding))?|admin(?:/(?:orders|support|accounts|audit))?)/?" &&
+      route?.src === "/(cart|login(?:/operator)?|reset-password)/?" &&
       route?.dest === "/$1.html"
   );
 
-  return machineDetailRewrite && publicRewrite && privateRewrite;
+  const portalCatchAllRewrite = routes.some(
+    (route) =>
+      route?.src === "/portal(?:/.*)?/?" &&
+      route?.dest === "/portal.html"
+  );
+
+  const adminCatchAllRewrite = routes.some(
+    (route) =>
+      route?.src === "/admin(?:/.*)?/?" &&
+      route?.dest === "/admin.html"
+  );
+
+  return (
+    machineDetailRewrite &&
+    publicRewrite &&
+    authPrivateRewrite &&
+    portalCatchAllRewrite &&
+    adminCatchAllRewrite
+  );
 };
 
 const validateVercelConfig = async () => {
