@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-04-23 - Autonomous marketing foundation
+Bloomjoy will run v1 autonomous marketing as an owned-first, opt-in-only system optimized for qualified machine quote leads.
+
+**Canonical choices**
+- Primary KPI: qualified machine quote leads.
+- Channel priority: website/SEO, conversion improvements, opt-in email, LinkedIn, YouTube/short-form repurposing, and lightweight social distribution.
+- Monthly budget cap: under `$500`; paid tests are deferred until attribution and scorecard reporting work.
+- Email policy: opt-in only for marketing campaigns; no cold outreach in v1.
+- Resend may be used for marketing only through Audience/Broadcast workflows with unsubscribe handling; do not add another email platform for v1.
+- One-to-one Gmail lead/vendor replies remain draft-only under the existing Bloomjoy Gmail automation workflow.
+
+**Implementation notes**
+- Quote submissions capture campaign attribution, buyer segment, purchase timeline, budget/procurement status, Plus interest, marketing consent, and a server-computed `A`/`B`/`C` lead grade.
+- GA4 page-view tracking is optional through `VITE_GA4_MEASUREMENT_ID`; do not place analytics or ad-platform secrets in `VITE_` variables.
+- Weekly reporting runs through `npm run marketing:scorecard`.
+- Public content may use anonymized event learnings, but client names/logos require documented permission before publication.
+
 ## 2026-04-14 - Training-only operator access grants
 Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.
 

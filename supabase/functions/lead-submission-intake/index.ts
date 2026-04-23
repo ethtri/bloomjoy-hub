@@ -11,6 +11,45 @@ export const config = {
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const validSubmissionTypes = new Set(["quote", "demo", "procurement", "general"]);
+const validAudienceSegments = new Set([
+  "commercial_operator",
+  "event_operator",
+  "venue_or_procurement",
+  "consumer_home_buyer",
+  "not_sure",
+]);
+const validPurchaseTimelines = new Set([
+  "now_30_days",
+  "one_to_three_months",
+  "three_to_six_months",
+  "six_plus_months",
+  "not_sure",
+]);
+const validBudgetStatuses = new Set([
+  "budget_approved",
+  "procurement_started",
+  "evaluating_budget",
+  "no_budget_yet",
+  "not_sure",
+]);
+const attributionKeys = new Set([
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "gclid",
+  "gbraid",
+  "wbraid",
+  "fbclid",
+  "first_landing_page",
+  "latest_page",
+  "source_page",
+  "first_referrer",
+  "latest_referrer",
+  "first_seen_at",
+  "latest_seen_at",
+]);
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,7 +70,90 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
     })
   : null;
 
-const sanitizeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+const sanitizeText = (value: unknown, maxLength = 2000) =>
+  typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+
+const sanitizeEnum = (value: unknown, allowed: Set<string>) => {
+  const cleaned = sanitizeText(value, 100);
+  return allowed.has(cleaned) ? cleaned : null;
+};
+
+const sanitizeBoolean = (value: unknown) => value === true;
+
+const sanitizeAttribution = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (!attributionKeys.has(key) || typeof rawValue !== "string") {
+      continue;
+    }
+
+    const cleaned = rawValue.trim().slice(0, 300);
+    if (cleaned) {
+      result[key] = cleaned;
+    }
+  }
+
+  return result;
+};
+
+const hasSpecificValue = (value: string | null | undefined) =>
+  Boolean(value && value !== "not_sure");
+
+const scoreLead = ({
+  submissionType,
+  machineInterest,
+  audienceSegment,
+  purchaseTimeline,
+  budgetStatus,
+  name,
+  email,
+  companyName,
+}: {
+  submissionType: string;
+  machineInterest: string;
+  audienceSegment: string | null;
+  purchaseTimeline: string | null;
+  budgetStatus: string | null;
+  name: string;
+  email: string;
+  companyName: string;
+}) => {
+  const hasUseCase =
+    submissionType === "quote" &&
+    (Boolean(machineInterest) || hasSpecificValue(audienceSegment));
+  const hasTimeline =
+    purchaseTimeline === "now_30_days" ||
+    purchaseTimeline === "one_to_three_months" ||
+    purchaseTimeline === "three_to_six_months";
+  const hasBudgetOrProcurement =
+    budgetStatus === "budget_approved" ||
+    budgetStatus === "procurement_started" ||
+    budgetStatus === "evaluating_budget";
+  const hasContactQuality =
+    Boolean(name && email) &&
+    (Boolean(companyName) || audienceSegment === "consumer_home_buyer");
+  const matchedSignals = [
+    hasUseCase,
+    hasTimeline,
+    hasBudgetOrProcurement,
+    hasContactQuality,
+  ].filter(Boolean).length;
+
+  return {
+    grade: matchedSignals === 4 ? "A" : matchedSignals >= 3 ? "B" : "C",
+    signals: {
+      has_use_case: hasUseCase,
+      has_timeline: hasTimeline,
+      has_budget_or_procurement: hasBudgetOrProcurement,
+      has_contact_quality: hasContactQuality,
+      matched_signal_count: matchedSignals,
+    },
+  };
+};
 
 const claimDispatch = async (
   eventKey: string,
@@ -100,11 +222,18 @@ serve(async (req) => {
     const body = await req.json();
 
     const submissionType = sanitizeText(body?.submissionType).toLowerCase();
-    const name = sanitizeText(body?.name);
+    const name = sanitizeText(body?.name, 200);
     const email = sanitizeText(body?.email).toLowerCase();
-    const sourcePage = sanitizeText(body?.sourcePage) || "/contact";
+    const sourcePage = sanitizeText(body?.sourcePage, 300) || "/contact";
     const message = sanitizeText(body?.message);
-    const machineInterest = sanitizeText(body?.machineInterest);
+    const companyName = sanitizeText(body?.companyName, 200);
+    const machineInterest = sanitizeText(body?.machineInterest, 100);
+    const audienceSegment = sanitizeEnum(body?.audienceSegment, validAudienceSegments);
+    const purchaseTimeline = sanitizeEnum(body?.purchaseTimeline, validPurchaseTimelines);
+    const budgetStatus = sanitizeEnum(body?.budgetStatus, validBudgetStatuses);
+    const plusInterest = sanitizeBoolean(body?.plusInterest);
+    const marketingConsent = sanitizeBoolean(body?.marketingConsent);
+    const attribution = sanitizeAttribution(body?.attribution);
     const clientSubmissionId = sanitizeText(body?.clientSubmissionId).toLowerCase();
 
     if (!validSubmissionTypes.has(submissionType)) {
@@ -152,8 +281,19 @@ serve(async (req) => {
         ? `Machine of interest: ${machineInterest}\n\n${message}`
         : message;
 
+    const leadScore = scoreLead({
+      submissionType,
+      machineInterest,
+      audienceSegment,
+      purchaseTimeline,
+      budgetStatus,
+      name,
+      email,
+      companyName,
+    });
+
     const selectedColumns =
-      "id, submission_type, name, email, source_page, message, created_at, internal_notification_sent_at";
+      "id, submission_type, name, email, source_page, message, machine_interest, audience_segment, purchase_timeline, budget_status, plus_interest, marketing_consent, qualification_grade, qualification_signals, attribution, created_at, internal_notification_sent_at";
 
     const { data: insertedLead, error: insertError } = await supabase
       .from("lead_submissions")
@@ -161,8 +301,19 @@ serve(async (req) => {
         submission_type: submissionType,
         name,
         email,
+        company_name: companyName || null,
         message: normalizedMessage,
         source_page: sourcePage,
+        machine_interest: machineInterest || null,
+        audience_segment: audienceSegment,
+        purchase_timeline: purchaseTimeline,
+        budget_status: budgetStatus,
+        plus_interest: plusInterest,
+        marketing_consent: marketingConsent,
+        marketing_consent_at: marketingConsent ? new Date().toISOString() : null,
+        attribution,
+        qualification_grade: leadScore.grade,
+        qualification_signals: leadScore.signals,
         client_submission_id: clientSubmissionId,
       })
       .select(selectedColumns)
@@ -214,9 +365,17 @@ serve(async (req) => {
       `Submission ID: ${leadSubmission.id}`,
       `Submitted At (UTC): ${leadSubmission.created_at}`,
       `Inquiry Type: ${leadSubmission.submission_type}`,
+      `Qualification Grade: ${leadSubmission.qualification_grade ?? "n/a"}`,
       `Name: ${leadSubmission.name}`,
       `Email: ${leadSubmission.email}`,
       `Source Page: ${leadSubmission.source_page}`,
+      `Machine Interest: ${leadSubmission.machine_interest ?? "n/a"}`,
+      `Audience Segment: ${leadSubmission.audience_segment ?? "n/a"}`,
+      `Timeline: ${leadSubmission.purchase_timeline ?? "n/a"}`,
+      `Budget / Procurement: ${leadSubmission.budget_status ?? "n/a"}`,
+      `Plus Interest: ${leadSubmission.plus_interest ? "yes" : "no"}`,
+      `Marketing Consent: ${leadSubmission.marketing_consent ? "yes" : "no"}`,
+      `Attribution: ${JSON.stringify(leadSubmission.attribution ?? {})}`,
       "",
       "Message:",
       leadSubmission.message,
@@ -239,9 +398,16 @@ serve(async (req) => {
         `Submission ID: ${leadSubmission.id}`,
         `Submitted At (UTC): ${leadSubmission.created_at}`,
         `Inquiry Type: ${leadSubmission.submission_type}`,
+        `Qualification Grade: ${leadSubmission.qualification_grade ?? "n/a"}`,
         `Name: ${leadSubmission.name}`,
         `Email: ${leadSubmission.email}`,
         `Source Page: ${leadSubmission.source_page}`,
+        `Machine Interest: ${leadSubmission.machine_interest ?? "n/a"}`,
+        `Audience Segment: ${leadSubmission.audience_segment ?? "n/a"}`,
+        `Timeline: ${leadSubmission.purchase_timeline ?? "n/a"}`,
+        `Budget / Procurement: ${leadSubmission.budget_status ?? "n/a"}`,
+        `Plus Interest: ${leadSubmission.plus_interest ? "yes" : "no"}`,
+        `Marketing Consent: ${leadSubmission.marketing_consent ? "yes" : "no"}`,
         "Message:",
         leadSubmission.message,
       ],
@@ -255,10 +421,11 @@ serve(async (req) => {
       markDispatchSent(eventKey, {
         submission_type: leadSubmission.submission_type,
         source_page: leadSubmission.source_page,
+        qualification_grade: leadSubmission.qualification_grade,
       }),
     ]);
 
-    return new Response(JSON.stringify({ ok: true }), {
+    return new Response(JSON.stringify({ ok: true, qualificationGrade: leadScore.grade }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

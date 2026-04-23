@@ -14,6 +14,7 @@
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",
     "training:sync-guides": "node scripts/sync-training-guides.mjs",
     "training:upload-docs": "node scripts/upload-training-documents.mjs",
+    "marketing:scorecard": "node scripts/marketing-scorecard.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

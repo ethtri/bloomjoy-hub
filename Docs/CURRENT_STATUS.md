@@ -6,6 +6,14 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Autonomous marketing foundation (2026-04-23)
+- Added the v1 autonomous marketing operating contract in `Docs/AUTONOMOUS_MARKETING_AGENCY.md`.
+- Website quote submissions now capture campaign attribution, buyer segment, purchase timeline, budget/procurement status, Plus interest, and opt-in marketing consent.
+- Lead intake now stores a server-computed qualification grade (`A`, `B`, or `C`) so the weekly KPI can focus on qualified machine quote leads instead of raw form count.
+- Optional GA4 page-view tracking is wired through the client-safe `VITE_GA4_MEASUREMENT_ID` env var.
+- Added `npm run marketing:scorecard` for the weekly CMO/orchestrator scorecard across leads, orders, and Plus activations.
+- GitHub issue `#99` for the dedicated Resend account is closed; docs should treat Resend as an ongoing secret/sender-health dependency rather than an open P0 blocker.
+
 ## Mini launch update (2026-04-09)
 - Mini is now live on the public site as a sales-led machine offer at `$4,000`.
 - Public Mini demand no longer goes to a waitlist form:
@@ -64,7 +72,6 @@
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
   - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully
   - re-run the live `$0` order smoke test and confirm `wecom_alert_sent_at` populates in `public.orders`
-- Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
 
 ## Operator app surface split (2026-03-22)
 - Authenticated operator routes now have a dedicated application shell and canonical host instead of inheriting the public sales navbar/footer.
@@ -302,7 +309,7 @@ Execution order is based on launch risk and dependency overlap.
 
 ## Environments
 - Local: `npm run dev` on a PR branch/worktree
-- Production: `main` deployed to `www.bloomjoyusa.com` / `app.bloomjoyusa.com`; remaining commerce follow-up is limited to WeCom alert delivery policy and dedicated Resend ownership
+- Production: `main` deployed to `www.bloomjoyusa.com` / `app.bloomjoyusa.com`; remaining commerce follow-up is limited to WeCom alert delivery policy plus normal Resend sender/secret health
 
 ## How to test on localhost (simple steps)
 1) In the project folder, run `npm ci`

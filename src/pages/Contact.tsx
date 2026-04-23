@@ -5,7 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Layout } from '@/components/layout/Layout';
 import { toast } from 'sonner';
-import { createLeadSubmission } from '@/lib/leadSubmissions';
+import {
+  createLeadSubmission,
+  type LeadAudienceSegment,
+  type LeadBudgetStatus,
+  type LeadPurchaseTimeline,
+} from '@/lib/leadSubmissions';
 import { MACHINE_INTEREST_OPTIONS, normalizeMachineInterest } from '@/lib/machineNames';
 
 const validInquiryTypes = new Set(['quote', 'demo', 'procurement', 'general']);
@@ -13,6 +18,30 @@ const validInquiryTypes = new Set(['quote', 'demo', 'procurement', 'general']);
 const machineInterestOptions = [
   ...MACHINE_INTEREST_OPTIONS,
   'Not sure yet',
+];
+
+const audienceSegmentOptions: Array<{ value: LeadAudienceSegment; label: string }> = [
+  { value: 'commercial_operator', label: 'Commercial operator / venue' },
+  { value: 'event_operator', label: 'Events, fairs, or pop-ups' },
+  { value: 'venue_or_procurement', label: 'Procurement / facilities team' },
+  { value: 'consumer_home_buyer', label: 'Home / gift buyer' },
+  { value: 'not_sure', label: 'Not sure yet' },
+];
+
+const purchaseTimelineOptions: Array<{ value: LeadPurchaseTimeline; label: string }> = [
+  { value: 'now_30_days', label: 'Now / next 30 days' },
+  { value: 'one_to_three_months', label: '1-3 months' },
+  { value: 'three_to_six_months', label: '3-6 months' },
+  { value: 'six_plus_months', label: '6+ months' },
+  { value: 'not_sure', label: 'Not sure yet' },
+];
+
+const budgetStatusOptions: Array<{ value: LeadBudgetStatus; label: string }> = [
+  { value: 'budget_approved', label: 'Budget approved' },
+  { value: 'procurement_started', label: 'Procurement started' },
+  { value: 'evaluating_budget', label: 'Evaluating budget' },
+  { value: 'no_budget_yet', label: 'No budget yet' },
+  { value: 'not_sure', label: 'Not sure yet' },
 ];
 
 export default function ContactPage() {
@@ -25,26 +54,41 @@ export default function ContactPage() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    companyName: '',
     type: initialType,
     interest: initialInterest,
+    audienceSegment: 'not_sure' as LeadAudienceSegment,
+    purchaseTimeline: 'not_sure' as LeadPurchaseTimeline,
+    budgetStatus: 'not_sure' as LeadBudgetStatus,
+    plusInterest: false,
+    marketingConsent: false,
     message: '',
     website: '',
   });
   const [submitting, setSubmitting] = useState(false);
+
+  const resetForm = () =>
+    setFormData({
+      name: '',
+      email: '',
+      companyName: '',
+      type: initialType,
+      interest: initialInterest,
+      audienceSegment: 'not_sure',
+      purchaseTimeline: 'not_sure',
+      budgetStatus: 'not_sure',
+      plusInterest: false,
+      marketingConsent: false,
+      message: '',
+      website: '',
+    });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (formData.website.trim()) {
       toast.success('Message sent! We\'ll be in touch soon.');
-      setFormData({
-        name: '',
-        email: '',
-        type: initialType,
-        interest: initialInterest,
-        message: '',
-        website: '',
-      });
+      resetForm();
       return;
     }
 
@@ -57,18 +101,17 @@ export default function ContactPage() {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
         message: cleanedMessage,
+        companyName: formData.companyName.trim() || undefined,
         machineInterest: formData.type === 'quote' ? formData.interest.trim() : undefined,
+        audienceSegment: formData.type === 'quote' ? formData.audienceSegment : undefined,
+        purchaseTimeline: formData.type === 'quote' ? formData.purchaseTimeline : undefined,
+        budgetStatus: formData.type === 'quote' ? formData.budgetStatus : undefined,
+        plusInterest: formData.plusInterest,
+        marketingConsent: formData.marketingConsent,
         sourcePage: querySource?.trim() || '/contact',
       });
       toast.success('Message sent! We\'ll be in touch soon.');
-      setFormData({
-        name: '',
-        email: '',
-        type: initialType,
-        interest: initialInterest,
-        message: '',
-        website: '',
-      });
+      resetForm();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to send message.';
       toast.error(message);
@@ -144,6 +187,22 @@ export default function ContactPage() {
                       className="mt-1"
                     />
                   </div>
+                  <div className="sm:col-span-2">
+                    <label
+                      htmlFor="contact-company"
+                      className="block text-sm font-medium text-foreground"
+                    >
+                      Company / Venue
+                    </label>
+                    <Input
+                      id="contact-company"
+                      name="company"
+                      value={formData.companyName}
+                      onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                      autoComplete="organization"
+                      className="mt-1"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label
@@ -166,27 +225,107 @@ export default function ContactPage() {
                   </select>
                 </div>
                 {formData.type === 'quote' && (
-                  <div>
-                    <label
-                      htmlFor="contact-interest"
-                      className="block text-sm font-medium text-foreground"
-                    >
-                      Machine of Interest
-                    </label>
-                    <select
-                      id="contact-interest"
-                      name="interest"
-                      value={formData.interest}
-                      onChange={(e) => setFormData({ ...formData, interest: e.target.value })}
-                      className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      <option value="">Select a machine (optional)</option>
-                      {machineInterestOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="contact-interest"
+                        className="block text-sm font-medium text-foreground"
+                      >
+                        Machine of Interest
+                      </label>
+                      <select
+                        id="contact-interest"
+                        name="interest"
+                        value={formData.interest}
+                        onChange={(e) => setFormData({ ...formData, interest: e.target.value })}
+                        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">Select a machine (optional)</option>
+                        {machineInterestOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="contact-segment"
+                        className="block text-sm font-medium text-foreground"
+                      >
+                        Best Fit
+                      </label>
+                      <select
+                        id="contact-segment"
+                        name="audienceSegment"
+                        value={formData.audienceSegment}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            audienceSegment: e.target.value as LeadAudienceSegment,
+                          })
+                        }
+                        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        {audienceSegmentOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="contact-timeline"
+                        className="block text-sm font-medium text-foreground"
+                      >
+                        Timeline
+                      </label>
+                      <select
+                        id="contact-timeline"
+                        name="purchaseTimeline"
+                        value={formData.purchaseTimeline}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            purchaseTimeline: e.target.value as LeadPurchaseTimeline,
+                          })
+                        }
+                        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        {purchaseTimelineOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="contact-budget"
+                        className="block text-sm font-medium text-foreground"
+                      >
+                        Budget / Procurement
+                      </label>
+                      <select
+                        id="contact-budget"
+                        name="budgetStatus"
+                        value={formData.budgetStatus}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            budgetStatus: e.target.value as LeadBudgetStatus,
+                          })
+                        }
+                        className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        {budgetStatusOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
                 <div>
@@ -206,8 +345,32 @@ export default function ContactPage() {
                     className="mt-1"
                   />
                 </div>
+                <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+                  <label className="flex gap-3 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={formData.plusInterest}
+                      onChange={(e) =>
+                        setFormData({ ...formData, plusInterest: e.target.checked })
+                      }
+                      className="mt-1 h-4 w-4 rounded border-input"
+                    />
+                    <span>I'm interested in Bloomjoy Plus onboarding, training, and support.</span>
+                  </label>
+                  <label className="flex gap-3 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={formData.marketingConsent}
+                      onChange={(e) =>
+                        setFormData({ ...formData, marketingConsent: e.target.checked })
+                      }
+                      className="mt-1 h-4 w-4 rounded border-input"
+                    />
+                    <span>Send me occasional Bloomjoy product, training, and supply updates.</span>
+                  </label>
+                </div>
                 <Button type="submit" variant="hero" size="lg" className="w-full" disabled={submitting}>
-                  {submitting ? 'Sending…' : 'Send Message'}
+                  {submitting ? 'Sending...' : 'Send Message'}
                 </Button>
               </form>
             </div>

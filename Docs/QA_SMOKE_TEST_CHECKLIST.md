@@ -64,6 +64,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Contact form labels are clickable, and all visible fields have associated labels
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
 - [ ] Mini quote CTA preselects `Mini Machine` on `/contact` and submits as a normal quote lead (not a waitlist)
+- [ ] Contact/Quote form captures company/venue, buyer segment, timeline, budget/procurement status, Plus interest, and opt-in marketing consent
+- [ ] Contact/Quote submission with UTM parameters stores attribution in `lead_submissions.attribution`
+- [ ] Contact/Quote submission stores `qualification_grade` as `A`, `B`, or `C` based on use case, timeline, budget/procurement, and contact-quality signals
+- [ ] Marketing consent stays opt-in only; unchecked submissions persist `marketing_consent=false`
 - [ ] Mobile icon-only cart/menu controls have accessible names
 - [ ] Product-gallery thumbnail buttons are keyboard operable and announce selected image state
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email

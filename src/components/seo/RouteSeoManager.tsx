@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import type { AppSurface } from "@/lib/appSurface";
 import { getCanonicalOriginForSurface } from "@/lib/appSurface";
+import { trackPageView } from "@/lib/analytics";
 
 type RouteSeo = {
   title: string;
@@ -346,6 +347,8 @@ export const RouteSeoManager = () => {
     } else {
       removeStructuredData();
     }
+
+    trackPageView(`${pathname}${location.search}`, seo.title);
   }, [location]);
 
   return null;

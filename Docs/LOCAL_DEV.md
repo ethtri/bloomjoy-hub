@@ -19,6 +19,8 @@
      - `VITE_USE_GIS_BUTTON=true` (optional; if omitted, app uses redirect-based Google sign-in)
    - Optional local QA-only admin override:
      - `VITE_DEV_ADMIN_EMAILS=ethtri@gmail.com` (comma-separated list; applies only in local dev mode)
+   - Optional marketing analytics:
+     - `VITE_GA4_MEASUREMENT_ID` (client-safe GA4 measurement ID; leave blank for local dev if not testing analytics)
 3) Install deps:
    - `npm ci`
 4) Start dev server (from your worktree folder, e.g. `C:\Repos\wt-<task>`):
@@ -161,6 +163,22 @@ To use all login methods in local dev:
   Board: https://github.com/users/ethtri/projects/2
 - Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot.
 - If you keep personal notes, store them locally and do not commit them.
+
+## Autonomous marketing scorecard
+Use this for the weekly CMO/orchestrator readout after the marketing attribution migration is applied.
+
+1) Ensure local env includes:
+   - `SUPABASE_URL` or `VITE_SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Run:
+   - `npm run marketing:scorecard -- --days 7`
+3) Optional JSON output for agent tooling:
+   - `npm run marketing:scorecard -- --days 7 --format json`
+
+Notes:
+- The scorecard is read-only.
+- It reports qualified quote leads, marketing opt-ins, Plus-interest leads, orders, Plus activations, and UTM/source breakdowns.
+- Marketing email sends remain opt-in only; use `Docs/AUTONOMOUS_MARKETING_AGENCY.md` before creating campaigns.
 
 
 ## Asset access (local-only)

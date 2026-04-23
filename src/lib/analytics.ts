@@ -1,5 +1,4 @@
-// Analytics event tracking stub (PostHog/GA4 style)
-// Replace with actual implementation when ready
+import { appConfig } from '@/lib/config';
 
 type EventName =
   | 'view_home'
@@ -35,6 +34,9 @@ type EventName =
   | 'add_to_cart'
   | 'remove_from_cart'
   | 'view_cart'
+  | 'submit_lead_form'
+  | 'lead_qualification_assigned'
+  | 'marketing_attribution_captured'
   | 'admin_support_request_updated'
   | 'admin_order_fulfillment_updated'
   | 'admin_machine_inventory_updated'
@@ -49,15 +51,18 @@ interface EventProperties {
 
 type PosthogClient = {
   capture: (name: EventName, properties?: EventProperties) => void;
-  identify: (userId: string, traits?: Record<string, unknown>) => void;
+  identify?: (userId: string, traits?: Record<string, unknown>) => void;
 };
 
-type GtagClient = (command: "event", name: EventName, params?: EventProperties) => void;
+type GtagClient = (...args: unknown[]) => void;
 
 type AnalyticsWindow = Window & {
+  dataLayer?: unknown[];
   posthog?: PosthogClient;
   gtag?: GtagClient;
 };
+
+let ga4Initialized = false;
 
 const getAnalyticsWindow = (): AnalyticsWindow | undefined => {
   if (typeof window === 'undefined') {
@@ -67,19 +72,67 @@ const getAnalyticsWindow = (): AnalyticsWindow | undefined => {
   return window as AnalyticsWindow;
 };
 
+export function initAnalytics(): void {
+  const measurementId = appConfig.ga4MeasurementId;
+  const analyticsWindow = getAnalyticsWindow();
+
+  if (!measurementId || !analyticsWindow || ga4Initialized) {
+    return;
+  }
+
+  analyticsWindow.dataLayer = analyticsWindow.dataLayer ?? [];
+  analyticsWindow.gtag =
+    analyticsWindow.gtag ??
+    function gtag(...args: unknown[]) {
+      analyticsWindow.dataLayer?.push(args);
+    };
+
+  if (!document.getElementById('bloomjoy-ga4')) {
+    const script = document.createElement('script');
+    script.id = 'bloomjoy-ga4';
+    script.async = true;
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(
+      measurementId
+    )}`;
+    document.head.appendChild(script);
+  }
+
+  analyticsWindow.gtag('js', new Date());
+  analyticsWindow.gtag('config', measurementId, {
+    anonymize_ip: true,
+    send_page_view: false,
+  });
+  ga4Initialized = true;
+}
+
+export function trackPageView(path: string, title?: string): void {
+  const analyticsWindow = getAnalyticsWindow();
+
+  if (analyticsWindow?.posthog) {
+    analyticsWindow.posthog.capture('$pageview' as EventName, {
+      path,
+      title,
+    });
+  }
+
+  if (analyticsWindow?.gtag && appConfig.ga4MeasurementId) {
+    analyticsWindow.gtag('event', 'page_view', {
+      page_path: path,
+      page_title: title,
+    });
+  }
+}
+
 export function trackEvent(name: EventName, properties?: EventProperties): void {
-  // Development logging
   if (import.meta.env.DEV) {
     console.log('[Analytics]', name, properties);
   }
 
-  // PostHog stub
   const analyticsWindow = getAnalyticsWindow();
   if (analyticsWindow?.posthog) {
     analyticsWindow.posthog.capture(name, properties);
   }
 
-  // GA4 stub
   if (analyticsWindow?.gtag) {
     analyticsWindow.gtag('event', name, properties);
   }
@@ -91,7 +144,7 @@ export function identifyUser(userId: string, traits?: Record<string, unknown>): 
   }
 
   const analyticsWindow = getAnalyticsWindow();
-  if (analyticsWindow?.posthog) {
+  if (analyticsWindow?.posthog?.identify) {
     analyticsWindow.posthog.identify(userId, traits);
   }
 }

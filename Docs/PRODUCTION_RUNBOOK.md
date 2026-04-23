@@ -18,6 +18,7 @@ Set the following values before launch.
 |---|---|---|---|---|
 | `VITE_SUPABASE_URL` | Frontend (public) | SPA Supabase client | Supabase project settings | Technical owner |
 | `VITE_SUPABASE_ANON_KEY` | Frontend (public) | SPA Supabase client | Supabase project API keys | Technical owner |
+| `VITE_GA4_MEASUREMENT_ID` | Frontend (public, optional) | GA4 page-view tracking | Google Analytics property | Marketing owner |
 | `STRIPE_SECRET_KEY` | Server-only | Stripe Edge Functions | Stripe Dashboard > Developers > API keys | Billing owner |
 | `STRIPE_SUGAR_MEMBER_PRICE_ID` | Server-only | `stripe-sugar-checkout` | Stripe member sugar price (`$8/kg`) | Billing owner |
 | `STRIPE_SUGAR_NON_MEMBER_PRICE_ID` | Server-only | `stripe-sugar-checkout` | Stripe public sugar price (`$10/kg`) | Billing owner |
@@ -38,6 +39,7 @@ Set the following values before launch.
 
 Security rule:
 - Never place secrets in `VITE_` variables.
+- GA4 measurement IDs are client-safe identifiers, but ad-platform secrets, API keys, or service-role credentials are never client-safe.
 
 ## 3) Pre-launch checklist (T-24h)
 - [ ] Launch freeze announced (no unrelated merges to `main` during launch window).
