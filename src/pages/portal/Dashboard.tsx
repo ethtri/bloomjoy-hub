@@ -77,7 +77,8 @@ const dashboardActions: DashboardAction[] = [
 ];
 
 export default function PortalDashboard() {
-  const { user, isMember, canAccessTraining, portalAccessTier, signOut } = useAuth();
+  const { user, isMember, canAccessTraining, hasReportingAccess, portalAccessTier, signOut } =
+    useAuth();
   const onboardingProgress = getOnboardingProgress(user?.email);
   const { data: library = [] } = useTrainingLibrary(canAccessTraining);
   const { data: trackDefinitions = [] } = useTrainingTracks(canAccessTraining);
@@ -360,11 +361,15 @@ export default function PortalDashboard() {
               {dashboardActions
                 .filter((action) =>
                   portalAccessTier === 'training'
-                    ? canAccessPortalLevel(portalAccessTier, action.access)
+                    ? canAccessPortalLevel(portalAccessTier, action.access, hasReportingAccess)
                     : true
                 )
                 .map((action) => {
-                const locked = !canAccessPortalLevel(portalAccessTier, action.access);
+                const locked = !canAccessPortalLevel(
+                  portalAccessTier,
+                  action.access,
+                  hasReportingAccess
+                );
                 const ActionIcon = action.icon;
 
                 return (

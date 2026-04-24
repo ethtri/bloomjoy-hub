@@ -41,6 +41,7 @@ const privateRoutes = [
   { path: "/portal", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
   { path: "/portal/orders", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
   { path: "/portal/account", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/portal/reports", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
   { path: "/portal/training", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
   { path: "/portal/support", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
   { path: "/portal/onboarding", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
@@ -48,6 +49,7 @@ const privateRoutes = [
   { path: "/admin/orders", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
   { path: "/admin/support", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
   { path: "/admin/accounts", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
+  { path: "/admin/reporting", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
   { path: "/admin/audit", canonicalOrigin: APP_CANONICAL_HOST, title: "Bloomjoy Operator App" },
 ];
 

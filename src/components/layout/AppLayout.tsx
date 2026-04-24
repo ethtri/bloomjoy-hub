@@ -56,6 +56,11 @@ const adminDestinations = [
     description: 'Memberships, machine counts, and account-level review.',
   },
   {
+    href: '/admin/reporting',
+    label: 'Admin reporting',
+    description: 'Reporting machines, entitlements, imports, and partner report schedules.',
+  },
+  {
     href: '/admin/audit',
     label: 'Admin audit log',
     description: 'Sensitive action history and role change visibility.',

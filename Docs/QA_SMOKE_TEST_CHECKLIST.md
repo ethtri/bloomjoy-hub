@@ -160,6 +160,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/support` -> `View Setup Guide` includes install steps, QR verification timing, contact/group setup, and quick-use actions for translation, photo/video sharing, and group calls
 - [ ] `/portal/support` includes a WeChat onboarding concierge form with phone region/number, blocked-step selection, and referral-needed selection
 - [ ] WeChat onboarding concierge submit writes `support_requests.request_type=wechat_onboarding` and structured `support_requests.intake_meta` values (`phone_region`, `phone_number`, `device_type`, `blocked_step`, `referral_needed`, optional `wechat_id`)
+- [ ] User with no reporting entitlement is blocked from `/portal/reports` with clear reporting-access copy
+- [ ] User with one reporting machine entitlement can open `/portal/reports` and sees only that machine in filters/results
+- [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, location, machine, and cash/credit payment filters
+- [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
+- [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 
 ## Payments (test mode)
 - [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
@@ -222,6 +227,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
 - [ ] Admin machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
+- [ ] Non-admin user cannot access `/admin/reporting`
+- [ ] Super-admin user can access `/admin/reporting`
+- [ ] Admin can register or update a reporting machine with account, location, machine label, machine type, Sunze ID, and required reason
+- [ ] Admin can grant machine reporting access to an existing user by email and sees the entitlement in the recent access list
+- [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
+- [ ] Admin reporting shows recent sales/refund import runs and stale/failed sync status clearly
 - [ ] Non-admin user cannot access `/admin/audit`
 - [ ] Super-admin user can access `/admin/audit`
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata

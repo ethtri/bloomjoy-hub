@@ -1,0 +1,5 @@
+sale_date,sunze_machine_id,payment_method,net_sales_usd,transaction_count
+2026-04-13,BUBBLE-PLANET-01,credit,425.00,85
+2026-04-13,BUBBLE-PLANET-01,cash,95.00,19
+2026-04-14,BUBBLE-PLANET-01,credit,390.00,78
+2026-04-14,BUBBLE-PLANET-01,cash,70.00,14

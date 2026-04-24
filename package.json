@@ -11,6 +11,8 @@
     "auth:preflight": "node scripts/auth-preflight.mjs",
     "commerce:preflight": "node scripts/commerce-preflight.mjs",
     "orders:backfill": "node scripts/backfill-stripe-orders.mjs",
+    "reporting:import-sales": "node scripts/import-sales-reporting-csv.mjs",
+    "reporting:import-refunds": "node scripts/import-refund-adjustments-csv.mjs",
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",
     "training:sync-guides": "node scripts/sync-training-guides.mjs",
     "training:upload-docs": "node scripts/upload-training-documents.mjs",

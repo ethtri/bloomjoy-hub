@@ -21,3 +21,15 @@ verify_jwt = false
 
 [functions.operator-training-invite]
 verify_jwt = false
+
+[functions.sales-report-export]
+verify_jwt = false
+
+[functions.sales-report-scheduler]
+verify_jwt = false
+
+[functions.sunze-sales-sync]
+verify_jwt = false
+
+[functions.refund-adjustment-sync]
+verify_jwt = false
