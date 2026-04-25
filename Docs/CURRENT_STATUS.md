@@ -7,6 +7,7 @@
 - Write updates in plain language so non-technical readers can follow.
 
 ## Sales reporting foundation snapshot (2026-04-24)
+- Production runtime hotfix branch `agent/fix-reporting-chart-runtime` removes the forced Recharts manual chunk split that caused the app shell to crash with `Cannot access 'P' before initialization` after the reporting deployment.
 - Sales reporting is being added as a Supabase-backed extension to the existing operator app on branch `agent/sales-reporting-foundation`.
 - This slice adds account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
 - The portal now has `/portal/reports` for entitled users, with date/grain/location/machine/payment filters and on-demand PDF export.
