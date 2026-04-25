@@ -15,6 +15,49 @@ create table if not exists public.customer_accounts (
   constraint customer_accounts_name_present check (length(trim(name)) > 0)
 );
 
+alter table public.customer_accounts
+  add column if not exists account_type text not null default 'customer',
+  add column if not exists status text not null default 'active',
+  add column if not exists notes text,
+  add column if not exists created_by uuid references auth.users (id) on delete set null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'customer_accounts'
+      and column_name = 'created_by_user_id'
+  ) then
+    update public.customer_accounts
+    set created_by = created_by_user_id
+    where created_by is null
+      and created_by_user_id is not null;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  alter table public.customer_accounts
+    add constraint customer_accounts_account_type_check
+    check (account_type in ('customer', 'partner', 'internal'));
+exception
+  when duplicate_object then null;
+end;
+$$;
+
+do $$
+begin
+  alter table public.customer_accounts
+    add constraint customer_accounts_status_check
+    check (status in ('active', 'inactive'));
+exception
+  when duplicate_object then null;
+end;
+$$;
+
 create unique index if not exists customer_accounts_name_unique_idx
   on public.customer_accounts (lower(name));
 
@@ -43,6 +86,55 @@ create table if not exists public.customer_account_memberships (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.customer_account_memberships
+  add column if not exists active boolean not null default true,
+  add column if not exists created_by uuid references auth.users (id) on delete set null;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'customer_account_memberships'
+      and column_name = 'revoked_at'
+  ) then
+    update public.customer_account_memberships
+    set active = revoked_at is null;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'customer_account_memberships'
+      and column_name = 'invited_by_user_id'
+  ) then
+    update public.customer_account_memberships
+    set created_by = invited_by_user_id
+    where created_by is null
+      and invited_by_user_id is not null;
+  end if;
+end;
+$$;
+
+alter table public.customer_account_memberships
+  drop constraint if exists customer_account_memberships_role_check;
+
+alter table public.customer_account_memberships
+  add constraint customer_account_memberships_role_check
+  check (role in (
+    'owner',
+    'account_admin',
+    'billing_manager',
+    'operator',
+    'support_contact',
+    'report_viewer',
+    'report_manager',
+    'partner_viewer',
+    'partner'
+  ));
 
 create unique index if not exists customer_account_memberships_active_role_idx
   on public.customer_account_memberships (account_id, user_id, role)
