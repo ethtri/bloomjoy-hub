@@ -1,11 +1,8 @@
 -- Reporting admin RPC repair.
--- Keep this as a forward migration because production already marked
--- 202604260002 as applied by the Sunze reliability controls before the
--- admin/reporting foundation merged.
---
--- Includes the partner reporting foundation: admin partnership setup,
--- machine-level tax rates, effective-dated machine assignments, and
--- enriched order facts.
+-- This intentionally reapplies the partner reporting foundation under a new
+-- forward migration because production already marked 202604260002 as applied
+-- before the final RPC/table definitions were present there.
+-- It also refreshes admin account summaries and PostgREST's schema cache.
 
 alter table public.machine_sales_facts
   add column if not exists source_order_hash text,
@@ -1602,5 +1599,177 @@ grant execute on function public.admin_upsert_reporting_financial_rule(uuid, uui
 grant execute on function public.admin_preview_partner_weekly_report(uuid, date) to authenticated;
 grant execute on function public.admin_set_user_machine_reporting_access(text, uuid[], text, text) to authenticated;
 grant execute on function public.admin_grant_super_admin_by_email(text, text) to authenticated;
+
+drop function if exists public.admin_get_account_summaries(text);
+create or replace function public.admin_get_account_summaries(
+  p_search text default null
+)
+returns table (
+  user_id uuid,
+  customer_email text,
+  membership_status text,
+  current_period_end timestamptz,
+  total_orders bigint,
+  last_order_at timestamptz,
+  open_support_requests bigint,
+  total_machine_count bigint,
+  last_machine_update_at timestamptz,
+  membership_cancel_at_period_end boolean,
+  paid_subscription_active boolean,
+  plus_access_source text,
+  has_plus_access boolean,
+  plus_grant_id uuid,
+  plus_grant_starts_at timestamptz,
+  plus_grant_expires_at timestamptz,
+  plus_grant_active boolean
+)
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  normalized_search text;
+begin
+  if not public.is_super_admin(auth.uid()) then
+    raise exception 'Admin access required';
+  end if;
+
+  normalized_search := nullif(trim(lower(coalesce(p_search, ''))), '');
+
+  return query
+  with membership_candidates as (
+    select
+      s.user_id,
+      s.status,
+      s.current_period_end,
+      s.cancel_at_period_end,
+      s.updated_at,
+      (
+        s.status in ('active', 'trialing')
+        and (s.current_period_end is null or s.current_period_end > now())
+      ) as paid_subscription_active
+    from public.subscriptions s
+  ),
+  membership as (
+    select distinct on (mc.user_id)
+      mc.user_id,
+      mc.status,
+      mc.current_period_end,
+      mc.cancel_at_period_end,
+      mc.updated_at,
+      mc.paid_subscription_active
+    from membership_candidates mc
+    order by mc.user_id, mc.paid_subscription_active desc, mc.updated_at desc
+  ),
+  grant_rollup as (
+    select
+      g.user_id,
+      g.id,
+      g.starts_at,
+      g.expires_at,
+      g.updated_at,
+      (
+        g.revoked_at is null
+        and g.starts_at <= now()
+        and g.expires_at > now()
+      ) as grant_active
+    from public.plus_access_grants g
+    where g.revoked_at is null
+  ),
+  order_rollup as (
+    select
+      o.user_id,
+      max(o.customer_email) filter (where o.customer_email is not null) as customer_email,
+      count(*) as total_orders,
+      max(o.created_at) as last_order_at
+    from public.orders o
+    where o.user_id is not null
+    group by o.user_id
+  ),
+  support_rollup as (
+    select
+      s.customer_user_id as user_id,
+      max(s.customer_email) as customer_email,
+      count(*) filter (where s.status not in ('resolved', 'closed')) as open_support_requests
+    from public.support_requests s
+    group by s.customer_user_id
+  ),
+  machine_rollup as (
+    select
+      m.customer_user_id as user_id,
+      sum(m.quantity)::bigint as total_machine_count,
+      max(m.updated_at) as last_machine_update_at
+    from public.customer_machine_inventory m
+    group by m.customer_user_id
+  ),
+  auth_match as (
+    select
+      u.id as user_id,
+      u.email as customer_email
+    from auth.users u
+    where normalized_search is not null
+      and (
+        u.id::text like '%' || normalized_search || '%'
+        or lower(coalesce(u.email, '')) like '%' || normalized_search || '%'
+      )
+  ),
+  all_users as (
+    select m.user_id from membership m
+    union
+    select g.user_id from grant_rollup g
+    union
+    select o.user_id from order_rollup o
+    union
+    select s.user_id from support_rollup s
+    union
+    select m.user_id from machine_rollup m
+    union
+    select a.user_id from auth_match a
+  )
+  select
+    au.user_id,
+    coalesce(auth_user.email, am.customer_email, sr.customer_email, orr.customer_email) as customer_email,
+    mb.status as membership_status,
+    mb.current_period_end,
+    coalesce(orr.total_orders, 0)::bigint as total_orders,
+    orr.last_order_at,
+    coalesce(sr.open_support_requests, 0)::bigint as open_support_requests,
+    coalesce(mr.total_machine_count, 0)::bigint as total_machine_count,
+    mr.last_machine_update_at,
+    coalesce(mb.cancel_at_period_end, false) as membership_cancel_at_period_end,
+    coalesce(mb.paid_subscription_active, false) as paid_subscription_active,
+    case
+      when coalesce(mb.paid_subscription_active, false) then 'paid_subscription'
+      when coalesce(grant_rollup.grant_active, false) then 'free_grant'
+      when public.is_super_admin(au.user_id) then 'admin'
+      else 'none'
+    end as plus_access_source,
+    (
+      coalesce(mb.paid_subscription_active, false)
+      or coalesce(grant_rollup.grant_active, false)
+      or public.is_super_admin(au.user_id)
+    ) as has_plus_access,
+    grant_rollup.id as plus_grant_id,
+    grant_rollup.starts_at as plus_grant_starts_at,
+    grant_rollup.expires_at as plus_grant_expires_at,
+    coalesce(grant_rollup.grant_active, false) as plus_grant_active
+  from all_users au
+  left join membership mb on mb.user_id = au.user_id
+  left join grant_rollup on grant_rollup.user_id = au.user_id
+  left join order_rollup orr on orr.user_id = au.user_id
+  left join support_rollup sr on sr.user_id = au.user_id
+  left join machine_rollup mr on mr.user_id = au.user_id
+  left join auth_match am on am.user_id = au.user_id
+  left join auth.users auth_user on auth_user.id = au.user_id
+  where (
+    normalized_search is null
+    or au.user_id::text like '%' || normalized_search || '%'
+    or lower(coalesce(auth_user.email, am.customer_email, sr.customer_email, orr.customer_email, '')) like '%' || normalized_search || '%'
+  )
+  order by coalesce(orr.last_order_at, mr.last_machine_update_at, grant_rollup.updated_at, mb.updated_at) desc nulls last;
+end;
+$$;
+
+grant execute on function public.admin_get_account_summaries(text) to authenticated;
 
 select pg_notify('pgrst', 'reload schema');
