@@ -133,6 +133,8 @@ const privateRoutes = [
   { path: "/admin/orders", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
   { path: "/admin/support", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
   { path: "/admin/accounts", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/admin/access", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
+  { path: "/admin/partnerships", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
   { path: "/admin/reporting", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
   { path: "/admin/audit", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
 ];

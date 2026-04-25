@@ -92,6 +92,10 @@ try {
   assert.equal(parsed[2].paymentMethod, 'other');
   assert.equal(parsed[0].orderAmountCents, 1000);
   assert.equal(parsed[2].orderAmountCents, 0);
+  assert.equal(parsed[0].tradeName, 'Flower dream-2');
+  assert.equal(parsed[0].itemQuantity, 2);
+  assert.equal(parsed[1].itemQuantity, 2);
+  assert.equal(parsed[2].itemQuantity, 1);
 
   console.log(
     JSON.stringify(
