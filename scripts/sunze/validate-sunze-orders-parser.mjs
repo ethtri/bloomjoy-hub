@@ -115,6 +115,10 @@ try {
   assert.equal(parsed[2].paymentMethod, 'other');
   assert.equal(parsed[0].orderAmountCents, 1000);
   assert.equal(parsed[2].orderAmountCents, 0);
+  assert.equal(parsed[0].tradeName, 'Flower dream-2');
+  assert.equal(parsed[0].itemQuantity, 2);
+  assert.equal(parsed[1].itemQuantity, 2);
+  assert.equal(parsed[2].itemQuantity, 1);
   assert.equal(summary.rowCount, 3);
   assert.equal(summary.machineCount, 2);
   assert.equal(summary.orderAmountCents, 1800);
@@ -170,6 +174,7 @@ try {
           'unknown status rejection',
           'negative amount rejection',
           'zero no-pay normalization',
+          'trade item quantity parsing',
           'duplicate order preservation',
           'midnight date boundary',
         ],

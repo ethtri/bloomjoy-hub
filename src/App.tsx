@@ -39,8 +39,8 @@ const PortalReports = lazy(() => import("./pages/portal/Reports"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const AdminOrders = lazy(() => import("./pages/admin/Orders"));
 const AdminSupport = lazy(() => import("./pages/admin/Support"));
-const AdminAccounts = lazy(() => import("./pages/admin/Accounts"));
-const AdminAudit = lazy(() => import("./pages/admin/Audit"));
+const AdminAccess = lazy(() => import("./pages/admin/Access"));
+const AdminPartnerships = lazy(() => import("./pages/admin/Partnerships"));
 const AdminReporting = lazy(() => import("./pages/admin/Reporting"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -103,9 +103,17 @@ const App = () => (
                     <Route path="/admin" element={<AdminDashboard />} />
                     <Route path="/admin/orders" element={<AdminOrders />} />
                     <Route path="/admin/support" element={<AdminSupport />} />
-                    <Route path="/admin/accounts" element={<AdminAccounts />} />
+                    <Route path="/admin/access" element={<AdminAccess />} />
+                    <Route
+                      path="/admin/accounts"
+                      element={<Navigate to="/admin/access?tab=users" replace />}
+                    />
+                    <Route path="/admin/partnerships" element={<AdminPartnerships />} />
                     <Route path="/admin/reporting" element={<AdminReporting />} />
-                    <Route path="/admin/audit" element={<AdminAudit />} />
+                    <Route
+                      path="/admin/audit"
+                      element={<Navigate to="/admin/access?tab=audit" replace />}
+                    />
                   </Route>
                 </Route>
                 <Route path="*" element={<NotFound />} />

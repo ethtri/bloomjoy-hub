@@ -41,6 +41,8 @@
    - Sales reporting daily automation helpers: `supabase/migrations/202604250001_sales_reporting_daily_automation.sql`
    - Sunze sales reliability controls: `supabase/migrations/202604260002_sunze_sales_controls.sql`
    - Sunze unmapped machine queue: `supabase/migrations/202604260003_sunze_unmapped_machine_queue.sql`
+   - Reporting admin/partner foundation repair: `supabase/migrations/202604260004_reporting_admin_rpc_repair.sql`
+   - Sunze enriched sales upsert repair: `supabase/migrations/202604260005_sunze_enriched_fact_upsert.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`

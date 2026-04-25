@@ -23,6 +23,8 @@ const supabase =
 
 type SunzeIngestRow = {
   sourceOrderNumber?: unknown;
+  tradeName?: unknown;
+  itemQuantity?: unknown;
   machineCode?: unknown;
   machineName?: unknown;
   orderAmountCents?: unknown;
@@ -47,6 +49,11 @@ type SalesFact = {
   payment_method: string;
   net_sales_cents: number;
   transaction_count: number;
+  source_trade_name: string | null;
+  item_quantity: number;
+  tax_cents: number;
+  source_payment_status: string;
+  payment_time: string;
   source: "sunze_browser";
   source_order_hash: string;
   source_row_hash: string;
@@ -446,6 +453,7 @@ const normalizePayloadRows = async (
   for (const [index, row] of rows.entries()) {
     const rowNumber = index + 1;
     const sourceOrderNumber = requiredText(row.sourceOrderNumber, `rows[${rowNumber}].sourceOrderNumber`);
+    const tradeName = sanitizeText(row.tradeName, 500);
     const machineCode = requiredText(row.machineCode, `rows[${rowNumber}].machineCode`);
     const machine = machineBySunzeId.get(machineCode.toLowerCase());
     const discovery = discoveriesByCode.get(machineCode.toLowerCase());
@@ -459,6 +467,7 @@ const normalizePayloadRows = async (
       `rows[${rowNumber}].orderAmountCents`
     );
     const taxCents = nonNegativeInteger(row.taxCents ?? 0, `rows[${rowNumber}].taxCents`);
+    const itemQuantity = nonNegativeInteger(row.itemQuantity ?? 1, `rows[${rowNumber}].itemQuantity`);
 
     if (!datePattern.test(saleDate)) {
       throw new Error(`Invalid sale date at row ${rowNumber}.`);
@@ -482,9 +491,12 @@ const normalizePayloadRows = async (
         rowHashSalt,
         "sunze_order",
         sourceOrderNumber,
+        tradeName,
+        itemQuantity,
         machineCode,
         paymentTimeIso,
         orderAmountCents,
+        taxCents,
         paymentMethod,
         sourceStatus,
       ].join(":")
@@ -493,6 +505,8 @@ const normalizePayloadRows = async (
     const rawPayload = {
       source_order_hash: sourceOrderHash,
       source_row_hash: sourceRowHash,
+      trade_name: tradeName || null,
+      item_quantity: itemQuantity,
       machine_code: machineCode,
       machine_name: sanitizeText(row.machineName, 200),
       payment_method_source: sourcePaymentMethod,
@@ -526,6 +540,11 @@ const normalizePayloadRows = async (
       payment_method: paymentMethod,
       net_sales_cents: orderAmountCents,
       transaction_count: 1,
+      source_trade_name: tradeName || null,
+      item_quantity: itemQuantity,
+      tax_cents: taxCents,
+      source_payment_status: sourceStatus,
+      payment_time: paymentTimeIso,
       source: "sunze_browser",
       source_order_hash: sourceOrderHash,
       source_row_hash: sourceRowHash,

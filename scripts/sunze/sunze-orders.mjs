@@ -37,6 +37,26 @@ const buildDateString = (year, month, day) =>
 const buildUtcIso = ({ year, month, day, hour = 0, minute = 0, second = 0 }) =>
   `${buildDateString(year, month, day)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}.000Z`;
 
+export const parseTradeItemQuantity = (value) => {
+  const source = normalizeSourceLabel(value);
+
+  if (!source) {
+    return 0;
+  }
+
+  return source.split(',').reduce((total, segment) => {
+    const trimmed = segment.trim();
+    if (!trimmed) {
+      return total;
+    }
+
+    const quantityMatch = trimmed.match(/-(\d+)\s*$/);
+    const quantity = quantityMatch ? Number(quantityMatch[1]) : 1;
+
+    return total + (Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 1);
+  }, 0);
+};
+
 const parseCents = (value, columnName, rowNumber) => {
   if (value === null || value === undefined || value === '') {
     return 0;
@@ -185,6 +205,7 @@ export const parseSunzeOrderRows = (rows) => {
       const rowNumber = index + 2;
       const cell = (header) => row[headerIndexes[header]];
       const sourceOrderNumber = toText(cell('Order number'));
+      const tradeName = normalizeSourceLabel(cell('Trade name'));
       const machineCode = toText(cell('Machine code'));
       const machineName = toText(cell('Machine name'));
       const { paymentTimeIso, saleDate } = parsePaymentTime(cell('Payment time'), rowNumber);
@@ -204,6 +225,8 @@ export const parseSunzeOrderRows = (rows) => {
 
       return {
         sourceOrderNumber,
+        tradeName,
+        itemQuantity: parseTradeItemQuantity(tradeName),
         machineCode,
         machineName,
         orderAmountCents: parseCents(cell('Order amount'), 'Order amount', rowNumber),

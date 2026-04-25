@@ -217,30 +217,43 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin orders detail panel shows billing/shipping address snapshots, pricing tier, unit price, receipt link, and notification statuses
 - [ ] Admin orders detail panel shows sugar color quantities for sugar orders and box/size/address metadata for Bloomjoy branded stick orders
 - [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
-- [ ] Non-admin user cannot access `/admin/accounts`
-- [ ] Super-admin user can access `/admin/accounts`
-- [ ] Admin account search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Non-admin user cannot access `/admin/access`
+- [ ] Super-admin user can access `/admin/access`
+- [ ] `/admin/accounts` redirects to `/admin/access?tab=users`
+- [ ] `/admin/audit` redirects to `/admin/access?tab=audit`
+- [ ] Admin Access > Users search returns rows by email/user ID and shows membership/order/support summary data
 - [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
-- [ ] Admin Accounts shows paid subscription status separately from free Plus grant status
+- [ ] Admin Access > Users shows paid subscription status separately from free Plus grant status
 - [ ] Super-admin cannot grant free Plus access without a future expiry date and grant reason
 - [ ] Super-admin cannot grant free Plus access while the account has an active paid Stripe subscription that is not scheduled to cancel
 - [ ] Super-admin can grant or extend free Plus access and the customer can reach Plus-only portal pages without a paid Stripe subscription
 - [ ] Super-admin can revoke free Plus access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
 - [ ] Free Plus grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
 - [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
-- [ ] Admin machine count edits require update reason and persist in `customer_machine_inventory`
+- [ ] Admin Access > Users machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
+- [ ] Admin Access > Reporting Access uses a people-first explicit machine access matrix
+- [ ] Admin Access > Reporting Access can look up an existing user by email, select multiple machines, save with a reason, and update that person's machine grants in one transactional save
+- [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
+- [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
+- [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
+- [ ] Admin Access > Audit supports filtering and shows role + operational actions
+- [ ] Non-admin user cannot access `/admin/partnerships`
+- [ ] Super-admin user can access `/admin/partnerships`
+- [ ] Admin Partnerships can create/edit partner and partnership records
+- [ ] Admin Partnerships > Parties can attach partners to partnerships with role, optional share percentage, report-recipient flag, and required reason
+- [ ] Admin Partnerships > Machine Assignments can update Sunze machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
+- [ ] Admin Partnerships > Machine Assignments can assign machines to partnerships with effective dates and rejects overlapping active assignments
+- [ ] Admin Partnerships > Machine Tax Rates configures tax rates at the machine level with effective dates and rejects overlapping active tax rates
+- [ ] Admin Partnerships > Financial Rules can configure net split, gross split, per-order fee, and per-stick cost rules with effective dates
+- [ ] Admin Partnerships shows warnings for missing machine tax rate, missing partnership assignment, missing financial rule, and overlapping active assignments
+- [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
+- [ ] Admin Partnerships > Weekly Preview matches the Bubble Planet workbook math: Sunze order amount as gross, machine tax plus configured paid-order fee before split, no-pay orders counted as `$0`, and 60/40 split when configured
 - [ ] Non-admin user cannot access `/admin/reporting`
 - [ ] Super-admin user can access `/admin/reporting`
-- [ ] Admin reporting defaults to the Access tab with a people-first machine access matrix
-- [ ] Admin can look up an existing user by email, select multiple machines, save with a reason, and see that person’s machine count update
-- [ ] Admin can revoke one user’s machine access without removing other viewers from the same machine
-- [ ] Super-admin users show all-machine reporting access as read-only with a link to Governance & Audit
-- [ ] Machine Mapping tab flags imported holding-location machines as `Needs mapping`
-- [ ] Admin can update reporting machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
-- [ ] Admin can map, ignore, and reopen discovered Sunze machine IDs from the `/admin/reporting` Sunze mapping queue
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
-- [ ] Admin reporting shows recent sales/refund import runs and stale/failed sync status clearly
+- [ ] Admin reporting shows report export archive, recent sales/refund import runs, and stale/failed sync status clearly
+- [ ] Admin can open discovered Sunze machine IDs from `/admin/reporting`, map them in `/admin/partnerships`, ignore them, and reopen them
 - [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
 - [ ] Non-admin user cannot access `/admin/audit`
 - [ ] Super-admin user can access `/admin/audit`
