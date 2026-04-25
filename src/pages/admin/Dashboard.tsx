@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ShoppingBag, LifeBuoy, Users, ClipboardList } from 'lucide-react';
+import { BarChart3, ShieldCheck, ShoppingBag, LifeBuoy, Users, ClipboardList } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 
@@ -21,6 +21,12 @@ const adminModules = [
     description: 'Review memberships, machine counts, and account activity.',
     icon: Users,
     href: '/admin/accounts',
+  },
+  {
+    title: 'Reporting',
+    description: 'Configure reportable machines, user entitlements, imports, and scheduled PDFs.',
+    icon: BarChart3,
+    href: '/admin/reporting',
   },
   {
     title: 'Audit Log',

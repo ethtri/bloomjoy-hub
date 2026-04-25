@@ -1,5 +1,32 @@
 # Decisions
 
+## 2026-04-24 - Sales reporting foundation
+Bloomjoy sales reporting will use account/location/machine entitlements that are separate from Plus and training access.
+
+**Canonical reporting model**
+- Reporting visibility is scoped by `customer_accounts`, `reporting_locations`, and specific `reporting_machines`.
+- Users can gain report access through account membership or explicit reporting entitlements.
+- Reporting access does not imply Plus membership, training access, support access, billing access, or member sugar pricing.
+- Super-admins manage reporting machines, entitlements, imports, schedules, and export history from `/admin/reporting`.
+
+**Canonical reporting data**
+- Sunze sales rows are normalized into machine/date/payment facts.
+- Refunds and complaints are stored separately as adjustment facts, sourced first from Google Sheets or CSV import.
+- Until Sunze definitions are validated, Sunze totals are treated as net sales and gross sales is calculated as `net_sales + refund_amount`.
+- Imports must be idempotent by source and row hash.
+
+**Automation and delivery**
+- V1 uses Supabase Edge Functions for on-demand exports, scheduled partner report delivery, and locked ingest entrypoints.
+- Daily Sunze extraction runs as a GitHub Actions Playwright worker because the task needs a full browser runtime. The worker receives Sunze credentials plus an ingest token, but never receives the Supabase service-role key.
+- The Sunze worker uses the Orders page `Last 3 Days` preset for daily catch-up, validates the `.xlsx` workbook headers, deletes raw downloads after parsing, and sends normalized rows to `sunze-sales-ingest`.
+- Scheduled partner reports default to the previous Monday-Sunday week and email a private signed PDF link through the existing Resend pattern.
+- The automation must not bypass CAPTCHA, MFA, or Sunze access controls, and must not open machine-level settings or `More` menus.
+
+**Why this choice**
+- Reporting needs machine-level partner visibility without granting broader customer portal or commerce permissions.
+- Keeping sales facts and refund adjustments separate preserves source auditability while allowing gross/net calculations.
+- This keeps browser automation separate from database authority while still allowing daily imports, idempotent writes, and clear failure auditing.
+
 ## 2026-04-14 - Training-only operator access grants
 Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.
 

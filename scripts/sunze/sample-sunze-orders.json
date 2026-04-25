@@ -1,0 +1,52 @@
+{
+  "headers": [
+    "Order number",
+    "Trade name",
+    "Affiliated merchant",
+    "Machine code",
+    "Machine name",
+    "Order amount",
+    "Tax",
+    "Payment method",
+    "Payment time",
+    "Status"
+  ],
+  "rows": [
+    [
+      "sample-order-001",
+      "Sample product",
+      "Sample merchant",
+      "BUBBLE-PLANET-01",
+      "Bubble Planet Seattle",
+      10,
+      0,
+      "Credit card",
+      "2026-04-22T11:37:52.000Z",
+      "Payment success"
+    ],
+    [
+      "sample-order-002",
+      "Sample product",
+      "Sample merchant",
+      "BUBBLE-PLANET-01",
+      "Bubble Planet Seattle",
+      8,
+      0,
+      "Coin + Notes",
+      "2026-04-22T13:12:27.000Z",
+      "Payment success"
+    ],
+    [
+      "sample-order-003",
+      "Sample product",
+      "Sample merchant",
+      "BUBBLE-PLANET-02",
+      "Bubble Planet Atlanta",
+      0,
+      0,
+      "No-Pay",
+      "2026-04-23T09:14:00.000Z",
+      "Payment success"
+    ]
+  ]
+}

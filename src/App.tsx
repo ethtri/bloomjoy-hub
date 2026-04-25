@@ -35,11 +35,13 @@ const PortalSupport = lazy(() => import("./pages/portal/Support"));
 const PortalOnboarding = lazy(() => import("./pages/portal/Onboarding"));
 const PortalOrders = lazy(() => import("./pages/portal/Orders"));
 const PortalAccount = lazy(() => import("./pages/portal/Account"));
+const PortalReports = lazy(() => import("./pages/portal/Reports"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const AdminOrders = lazy(() => import("./pages/admin/Orders"));
 const AdminSupport = lazy(() => import("./pages/admin/Support"));
 const AdminAccounts = lazy(() => import("./pages/admin/Accounts"));
 const AdminAudit = lazy(() => import("./pages/admin/Audit"));
+const AdminReporting = lazy(() => import("./pages/admin/Reporting"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -91,6 +93,7 @@ const App = () => (
                   <Route element={<MemberRoute />}>
                     <Route path="/portal/orders" element={<PortalOrders />} />
                     <Route path="/portal/account" element={<PortalAccount />} />
+                    <Route path="/portal/reports" element={<PortalReports />} />
                     <Route path="/portal/training" element={<PortalTraining />} />
                     <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
                     <Route path="/portal/support" element={<PortalSupport />} />
@@ -101,6 +104,7 @@ const App = () => (
                     <Route path="/admin/orders" element={<AdminOrders />} />
                     <Route path="/admin/support" element={<AdminSupport />} />
                     <Route path="/admin/accounts" element={<AdminAccounts />} />
+                    <Route path="/admin/reporting" element={<AdminReporting />} />
                     <Route path="/admin/audit" element={<AdminAudit />} />
                   </Route>
                 </Route>

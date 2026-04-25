@@ -11,10 +11,11 @@ import {
 import { Button } from '@/components/ui/button';
 
 export function MemberRoute() {
-  const { loading, portalAccessTier } = useAuth();
+  const { hasReportingAccess, loading, portalAccessTier } = useAuth();
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
   const accessLabel = getAccessLevelLabel(lockedDestination.access);
+  const isReportingRoute = lockedDestination.access === 'reporting';
 
   if (loading) {
     return (
@@ -24,7 +25,7 @@ export function MemberRoute() {
     );
   }
 
-  if (canAccessPortalLevel(portalAccessTier, lockedDestination.access)) {
+  if (canAccessPortalLevel(portalAccessTier, lockedDestination.access, hasReportingAccess)) {
     return <Outlet />;
   }
 
@@ -54,14 +55,14 @@ export function MemberRoute() {
                       This workflow is outside your current access
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Training-only operators can use the training hub. Customer account tools,
-                      onboarding, support, and billing stay reserved for the account owner or
-                      Bloomjoy Plus members.
+                      {isReportingRoute
+                        ? 'Sales reporting access is granted by account, location, or specific machine. Ask Bloomjoy to add reporting permissions for the machines you should be able to view.'
+                        : 'Training-only operators can use the training hub. Customer account tools, onboarding, support, and billing stay reserved for the account owner or Bloomjoy Plus members.'}
                     </p>
                   </div>
                 </div>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  {lockedDestination.access !== 'baseline' && (
+                  {lockedDestination.access !== 'baseline' && !isReportingRoute && (
                     <Button asChild>
                       <Link to="/plus">View Plus Membership</Link>
                     </Button>
