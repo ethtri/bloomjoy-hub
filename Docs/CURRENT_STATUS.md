@@ -6,6 +6,26 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Machine-buyer SEO static generation (2026-04-17)
+- Public marketing/legal routes now build as static HTML with rendered body content, production asset URLs, route-specific metadata, canonical tags, and JSON-LD before client JavaScript runs.
+- Route SEO data is centralized in `src/lib/seoRoutes.ts` and shared by client route metadata plus the prerender/SEO regression scripts.
+- Machine-buyer pages now target national buyer intent:
+  - `/machines` is the comparison hub for Commercial, Mini, and Micro buyers.
+  - `/machines/commercial-robotic-machine` includes use cases, quote prep, specs, operations, support boundaries, and expanded FAQs.
+  - `/machines/mini` and `/machines/micro` clarify best fit, limits, pricing, and quote expectations.
+  - `/supplies` now explicitly targets cotton candy machine sugar, Bloomjoy branded paper sticks, and custom sticks.
+  - `/resources` now includes expanded buyer/operator/support/supplies/Plus FAQs.
+- Structured data now includes Organization, WebSite, WebPage, Product, Offer, BreadcrumbList, and FAQPage only where the visible public content supports it.
+- New page-specific social/share images live under `public/seo/`; the oversized logo/icon assets were reduced from 1920px to 512px.
+- `sitemap.xml` now includes `lastmod` for public URLs and image sitemap entries for key machine/supplies/about pages.
+- Verification run on this branch:
+  - `npm ci`
+  - `npm run build`
+  - `npm run seo:check`
+  - `npm test --if-present` (no test script present)
+  - `npm run lint --if-present` (passes with existing fast-refresh warnings only)
+- Production follow-up after deployment: recheck `curl -I https://bloomjoyusa.com/` and confirm the apex host now returns a permanent redirect to `https://www.bloomjoyusa.com/`; previous live verification saw a `307` outside the local build.
+
 ## Sales reporting/admin reporting snapshot (2026-04-25)
 - Production runtime hotfix branch `agent/fix-reporting-chart-runtime` removes the forced Recharts manual chunk split that caused the app shell to crash with `Cannot access 'P' before initialization` after the reporting deployment.
 - Sales reporting is now a Supabase-backed extension to the existing operator app on `main`.
@@ -341,7 +361,7 @@ Execution order is based on launch risk and dependency overlap.
 - Module taxonomy UX is implemented, but supportive module filtering remains hidden until cataloged training rows have complete module labels.
 - Private `training-documents` assets are uploaded, but signed-link download behavior still needs authenticated QA confirmation in the task-first training detail pages.
 - Lint passes but still shows fast-refresh warnings in generated UI files
-- Apex host canonicalization currently returns `307` (`https://bloomjoyusa.com` -> `https://www.bloomjoyusa.com/`) instead of preferred permanent redirect behavior.
+- Apex host canonicalization has a repo-level `308` rule, but live production must be rechecked after the next deploy because the last live verification still returned `307` (`https://bloomjoyusa.com` -> `https://www.bloomjoyusa.com/`).
 
 ## Environments
 - Local: `npm run dev` on a PR branch/worktree

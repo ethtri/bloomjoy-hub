@@ -1,214 +1,15 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import type { AppSurface } from "@/lib/appSurface";
 import { getCanonicalOriginForSurface } from "@/lib/appSurface";
-
-type RouteSeo = {
-  title: string;
-  description: string;
-  robots: string;
-  surface: AppSurface;
-  ogType?: "website" | "article";
-  canonicalPath?: string;
-};
-
-const DEFAULT_DESCRIPTION =
-  "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.";
-const DEFAULT_SHARE_IMAGE_PATH = "/bloomjoy-share.jpg";
-const ORGANIZATION_LOGO_PATH = "/bloomjoy-icon.png";
-const WEBSITE_NAME = "Bloomjoy Hub";
-const ORGANIZATION_NAME = "Bloomjoy";
-const STRUCTURED_DATA_SCRIPT_ID = "seo-structured-data";
-const THEME_COLOR = "#f672a2";
-const DEFAULT_IMAGE_ALT = "Bloomjoy flower logo";
-
-const PUBLIC_ROBOTS = "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
-const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
-
-const routeSeoRules: Array<{ match: (pathname: string) => boolean; seo: RouteSeo }> = [
-  {
-    match: (pathname) => pathname === "/",
-    seo: {
-      title: "Bloomjoy Hub | Robotic Cotton Candy Machines and Supplies",
-      description:
-        "Explore Bloomjoy robotic cotton candy machines, sugar supplies, and optional Plus support for operators.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-      ogType: "website",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/machines",
-    seo: {
-      title: "Machines | Bloomjoy Hub",
-      description:
-        "Compare Bloomjoy machine options and find the right cotton candy setup for your venue.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/machines/commercial-robotic-machine",
-    seo: {
-      title: "Commercial Robotic Machine | Bloomjoy Hub",
-      description:
-        "Review the Bloomjoy commercial robotic cotton candy machine, specs, operating footprint, and quote flow.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/machines/mini",
-    seo: {
-      title: "Mini Machine | Bloomjoy Hub",
-      description:
-        "Explore the Bloomjoy Mini machine, live availability, key limitations, and the quote flow for current orders.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/machines/micro",
-    seo: {
-      title: "Micro Machine | Bloomjoy Hub",
-      description:
-        "Explore Bloomjoy Micro machine details, features, and setup fit for compact locations.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/supplies",
-    seo: {
-      title: "Supplies | Bloomjoy Hub",
-      description:
-        "Order Bloomjoy cotton candy sugar and supplies with high-volume-friendly quantity controls.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/plus",
-    seo: {
-      title: "Bloomjoy Plus | Membership",
-      description:
-        "View Bloomjoy Plus membership benefits, support boundaries, and flat monthly pricing.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/resources",
-    seo: {
-      title: "Resources and FAQs | Bloomjoy Hub",
-      description:
-        "Get quick answers on training, support boundaries, and how Bloomjoy operations work.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/contact",
-    seo: {
-      title: "Contact and Quote Requests | Bloomjoy Hub",
-      description:
-        "Contact Bloomjoy for machine quotes, demo requests, procurement questions, and general support.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/about",
-    seo: {
-      title: "About Bloomjoy | Operator-Focused Support",
-      description:
-        "Meet Bloomjoy and our operator-focused approach to machines, training, and field support.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/privacy",
-    seo: {
-      title: "Privacy Policy | Bloomjoy Hub",
-      description: DEFAULT_DESCRIPTION,
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-      ogType: "article",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/terms",
-    seo: {
-      title: "Terms of Service | Bloomjoy Hub",
-      description: DEFAULT_DESCRIPTION,
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-      ogType: "article",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/billing-cancellation",
-    seo: {
-      title: "Billing and Cancellation | Bloomjoy Hub",
-      description:
-        "Understand billing cadence, cancellations, and account management for Bloomjoy services.",
-      robots: PUBLIC_ROBOTS,
-      surface: "marketing",
-      ogType: "article",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/cart",
-    seo: {
-      title: "Cart | Bloomjoy Hub",
-      description: DEFAULT_DESCRIPTION,
-      robots: PRIVATE_ROBOTS,
-      surface: "marketing",
-      ogType: "website",
-    },
-  },
-  {
-    match: (pathname) => pathname === "/login/operator",
-    seo: {
-      title: "Bloomjoy Operator App",
-      description: DEFAULT_DESCRIPTION,
-      robots: PRIVATE_ROBOTS,
-      surface: "app",
-      ogType: "website",
-      canonicalPath: "/login",
-    },
-  },
-  {
-    match: (pathname) =>
-      pathname === "/login" ||
-      pathname === "/reset-password" ||
-      pathname.startsWith("/portal") ||
-      pathname.startsWith("/admin"),
-    seo: {
-      title: "Bloomjoy Operator App",
-      description: DEFAULT_DESCRIPTION,
-      robots: PRIVATE_ROBOTS,
-      surface: "app",
-      ogType: "website",
-    },
-  },
-];
-
-const getRouteSeo = (pathname: string): RouteSeo => {
-  const matched = routeSeoRules.find((rule) => rule.match(pathname));
-  if (matched) {
-    return matched.seo;
-  }
-
-  return {
-    title: "Page Not Found | Bloomjoy Hub",
-    description: DEFAULT_DESCRIPTION,
-    robots: PRIVATE_ROBOTS,
-    surface: "marketing",
-    ogType: "website",
-  };
-};
+import {
+  buildStructuredData,
+  getRouteSeo,
+  getShareImageUrl,
+  PUBLIC_ROBOTS,
+  STRUCTURED_DATA_SCRIPT_ID,
+  THEME_COLOR,
+  WEBSITE_NAME,
+} from "@/lib/seoRoutes";
 
 const upsertMetaTag = (
   attribute: "name" | "property",
@@ -258,51 +59,6 @@ const removeStructuredData = () => {
   }
 };
 
-const buildStructuredData = ({
-  origin,
-  canonicalUrl,
-  title,
-  description,
-}: {
-  origin: string;
-  canonicalUrl: string;
-  title: string;
-  description: string;
-}) => ({
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "Organization",
-      "@id": `${origin}/#organization`,
-      name: ORGANIZATION_NAME,
-      url: `${origin}/`,
-      logo: `${origin}${ORGANIZATION_LOGO_PATH}`,
-    },
-    {
-      "@type": "WebSite",
-      "@id": `${origin}/#website`,
-      name: WEBSITE_NAME,
-      url: `${origin}/`,
-      publisher: {
-        "@id": `${origin}/#organization`,
-      },
-    },
-    {
-      "@type": "WebPage",
-      "@id": `${canonicalUrl}#webpage`,
-      url: canonicalUrl,
-      name: title,
-      description,
-      isPartOf: {
-        "@id": `${origin}/#website`,
-      },
-      about: {
-        "@id": `${origin}/#organization`,
-      },
-    },
-  ],
-});
-
 export const RouteSeoManager = () => {
   const location = useLocation();
 
@@ -312,7 +68,8 @@ export const RouteSeoManager = () => {
     const canonicalPath = seo.canonicalPath ?? pathname;
     const canonicalOrigin = getCanonicalOriginForSurface(seo.surface, window.location);
     const canonicalUrl = `${canonicalOrigin}${canonicalPath}`;
-    const imageUrl = `${canonicalOrigin}${DEFAULT_SHARE_IMAGE_PATH}`;
+    const imageUrl = getShareImageUrl(canonicalOrigin, seo);
+    const imageAlt = seo.ogImageAlt ?? WEBSITE_NAME;
 
     document.title = seo.title;
     upsertMetaTag("name", "description", seo.description);
@@ -325,22 +82,21 @@ export const RouteSeoManager = () => {
     upsertMetaTag("property", "og:type", seo.ogType ?? "website");
     upsertMetaTag("property", "og:url", canonicalUrl);
     upsertMetaTag("property", "og:image", imageUrl);
-    upsertMetaTag("property", "og:image:alt", DEFAULT_IMAGE_ALT);
+    upsertMetaTag("property", "og:image:alt", imageAlt);
 
     upsertMetaTag("name", "twitter:card", "summary_large_image");
     upsertMetaTag("name", "twitter:title", seo.title);
     upsertMetaTag("name", "twitter:description", seo.description);
     upsertMetaTag("name", "twitter:image", imageUrl);
-    upsertMetaTag("name", "twitter:image:alt", DEFAULT_IMAGE_ALT);
+    upsertMetaTag("name", "twitter:image:alt", imageAlt);
     upsertCanonicalLink(canonicalUrl);
 
     if (seo.robots === PUBLIC_ROBOTS) {
       upsertStructuredData(
         buildStructuredData({
+          route: seo,
           origin: canonicalOrigin,
           canonicalUrl,
-          title: seo.title,
-          description: seo.description,
         })
       );
     } else {

@@ -82,6 +82,26 @@
       "continue": true
     },
     {
+      "src": "/machines/(commercial-robotic-machine|mini|micro)/?",
+      "dest": "/machines/$1.html"
+    },
+    {
+      "src": "/(machines|supplies|plus|resources|about|contact|privacy|terms|billing-cancellation)/?",
+      "dest": "/$1.html"
+    },
+    {
+      "src": "/(cart|login(?:/operator)?|reset-password)/?",
+      "dest": "/$1.html"
+    },
+    {
+      "src": "/portal(?:/.*)?/?",
+      "dest": "/portal.html"
+    },
+    {
+      "src": "/admin(?:/.*)?/?",
+      "dest": "/admin.html"
+    },
+    {
       "handle": "filesystem"
     },
     {

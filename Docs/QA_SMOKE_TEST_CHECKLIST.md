@@ -11,11 +11,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Private/auth routes (`/login`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
 - [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
 - [ ] View page source on a direct-loaded public route (for example `/machines`) and confirm title/description/canonical are route-specific before client-side JS executes
+- [ ] View page source on `/machines/commercial-robotic-machine` and confirm the `#root` contains rendered body HTML, the H1 text is present, and there are no `/src/assets/` image URLs
+- [ ] View page source on `/machines/commercial-robotic-machine` and confirm JSON-LD includes `Product`, `BreadcrumbList`, and `FAQPage` nodes that match visible page content
+- [ ] View page source on `/supplies` and confirm JSON-LD includes Product/Offer data only for direct-price supplies (`$10/kg` sugar and `$130/box` sticks)
 - [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
 - [ ] `https://www.bloomjoyusa.com/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `https://app.bloomjoyusa.com/...`
 - [ ] `https://app.bloomjoyusa.com/` plus public marketing/storefront paths redirect back to `https://www.bloomjoyusa.com/...`
 - [ ] `robots.txt` is reachable and includes a sitemap reference
-- [ ] `sitemap.xml` is reachable and lists core public routes
+- [ ] `sitemap.xml` is reachable, lists core public routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about URLs
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
 - [ ] No console errors on home page load

@@ -81,6 +81,10 @@ export default function HomePage() {
                 <img
                   src={landingHero}
                   alt="Bloomjoy Sweets Robotic Cotton Candy Machine"
+                  width={800}
+                  height={600}
+                  fetchpriority="high"
+                  decoding="async"
                   className="h-full w-full object-cover"
                 />
               </div>
@@ -111,6 +115,8 @@ export default function HomePage() {
                   <img
                     src={product.image}
                     alt={product.title}
+                    width={520}
+                    height={520}
                     loading="lazy"
                     decoding="async"
                     className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"

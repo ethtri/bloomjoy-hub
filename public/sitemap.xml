@@ -1,42 +1,83 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://www.bloomjoyusa.com/</loc>
+    <lastmod>2026-04-17</lastmod>
+    <image:image>
+      <image:loc>https://www.bloomjoyusa.com/seo/home-machine.jpg</image:loc>
+      <image:title>Bloomjoy robotic cotton candy machine</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/machines</loc>
+    <lastmod>2026-04-17</lastmod>
+    <image:image>
+      <image:loc>https://www.bloomjoyusa.com/seo/machines-lineup.jpg</image:loc>
+      <image:title>Bloomjoy robotic cotton candy machines</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/machines/commercial-robotic-machine</loc>
+    <lastmod>2026-04-17</lastmod>
+    <image:image>
+      <image:loc>https://www.bloomjoyusa.com/seo/commercial-machine.jpg</image:loc>
+      <image:title>Bloomjoy Commercial Machine</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/machines/mini</loc>
+    <lastmod>2026-04-17</lastmod>
+    <image:image>
+      <image:loc>https://www.bloomjoyusa.com/seo/mini-machine.jpg</image:loc>
+      <image:title>Bloomjoy Mini Machine</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/machines/micro</loc>
+    <lastmod>2026-04-17</lastmod>
+    <image:image>
+      <image:loc>https://www.bloomjoyusa.com/seo/micro-machine.jpg</image:loc>
+      <image:title>Bloomjoy Micro Machine</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/supplies</loc>
+    <lastmod>2026-04-17</lastmod>
+    <image:image>
+      <image:loc>https://www.bloomjoyusa.com/seo/supplies.jpg</image:loc>
+      <image:title>Bloomjoy cotton candy machine sugar and paper sticks</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/plus</loc>
+    <lastmod>2026-04-17</lastmod>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/resources</loc>
+    <lastmod>2026-04-17</lastmod>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/contact</loc>
+    <lastmod>2026-04-17</lastmod>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/about</loc>
+    <lastmod>2026-04-17</lastmod>
+    <image:image>
+      <image:loc>https://www.bloomjoyusa.com/seo/about.jpg</image:loc>
+      <image:title>Bloomjoy operator experience</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/privacy</loc>
+    <lastmod>2026-04-17</lastmod>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/terms</loc>
+    <lastmod>2026-04-17</lastmod>
   </url>
   <url>
     <loc>https://www.bloomjoyusa.com/billing-cancellation</loc>
+    <lastmod>2026-04-17</lastmod>
   </url>
 </urlset>

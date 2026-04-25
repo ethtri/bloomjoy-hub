@@ -386,10 +386,11 @@ export default function SuppliesPage() {
         <div className="container-page">
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="font-display text-4xl font-bold text-foreground sm:text-5xl">
-              Supplies
+              Cotton Candy Machine Sugar and Paper Sticks
             </h1>
             <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
-              Choose what you need first. The order details stay focused on that one path.
+              Order Bloomjoy cotton candy sugar, Bloomjoy branded paper sticks, and custom sticks
+              for commercial robotic cotton candy machine operations.
             </p>
           </div>
 
@@ -416,6 +417,10 @@ export default function SuppliesPage() {
                   <img
                     src={option.image}
                     alt={option.imageAlt}
+                    width={160}
+                    height={160}
+                    loading="lazy"
+                    decoding="async"
                     className="h-20 w-20 flex-none rounded-lg bg-muted object-cover"
                   />
                   <span className="min-w-0 flex-1">
@@ -668,6 +673,10 @@ export default function SuppliesPage() {
                   <img
                     src={sugarProduct}
                     alt="Premium Cotton Candy Sugar"
+                    width={360}
+                    height={270}
+                    loading="lazy"
+                    decoding="async"
                     className="aspect-[4/3] w-full rounded-lg bg-background object-cover"
                   />
                   <div className="mt-4 space-y-3 text-sm">
@@ -972,6 +981,10 @@ export default function SuppliesPage() {
                   <img
                     src={sticksProduct}
                     alt="Bloomjoy branded cotton candy sticks"
+                    width={360}
+                    height={270}
+                    loading="lazy"
+                    decoding="async"
                     className="aspect-[4/3] w-full rounded-lg bg-background object-cover"
                   />
                   <div className="mt-4 space-y-3 text-sm">
@@ -1217,6 +1230,10 @@ export default function SuppliesPage() {
                   <img
                     src={sticksProduct}
                     alt="Custom cotton candy sticks"
+                    width={360}
+                    height={270}
+                    loading="lazy"
+                    decoding="async"
                     className="aspect-[4/3] w-full rounded-lg bg-background object-cover"
                   />
                   <div className="mt-4 space-y-3 text-sm">
@@ -1238,6 +1255,69 @@ export default function SuppliesPage() {
               </div>
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="border-t border-border bg-muted/25 py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <div>
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Supplies for robotic cotton candy operators
+              </h2>
+              <p className="mt-3 max-w-3xl text-muted-foreground">
+                Bloomjoy supplies are organized around the recurring machine-buyer needs that
+                usually happen after quote review: sugar replenishment, standard paper sticks, and
+                branded sticks that need artwork proofing.
+              </p>
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                <div className="rounded-lg border border-border bg-background p-5">
+                  <h3 className="font-display text-lg font-semibold text-foreground">
+                    Bulk sugar
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    Build a white, blue, orange, and red sugar mix. Standard pricing is $10/KG;
+                    Plus member pricing is $8/KG when membership is active.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border bg-background p-5">
+                  <h3 className="font-display text-lg font-semibold text-foreground">
+                    Paper sticks
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    Bloomjoy branded sticks are sold by box with 2,000 pieces per box and size
+                    options for Commercial/Full and Mini machines.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border bg-background p-5">
+                  <h3 className="font-display text-lg font-semibold text-foreground">
+                    Custom sticks
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    Custom stick requests use proofing before fulfillment and include a first-order
+                    plate fee in addition to the per-box stick price.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <aside className="rounded-lg border border-border bg-background p-5">
+              <h2 className="font-display text-xl font-semibold text-foreground">
+                Machine buyer note
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                If you are still selecting a machine, start with the machine comparison page before
+                ordering supplies so the stick size and opening sugar volume match your launch plan.
+              </p>
+              <Link
+                to="/machines"
+                className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+              >
+                Compare machines
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </aside>
+          </div>
         </div>
       </section>
     </Layout>
