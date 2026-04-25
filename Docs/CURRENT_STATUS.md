@@ -6,15 +6,16 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
-## Sales reporting foundation snapshot (2026-04-24)
+## Sales reporting/admin reporting snapshot (2026-04-25)
 - Production runtime hotfix branch `agent/fix-reporting-chart-runtime` removes the forced Recharts manual chunk split that caused the app shell to crash with `Cannot access 'P' before initialization` after the reporting deployment.
-- Sales reporting is being added as a Supabase-backed extension to the existing operator app on branch `agent/sales-reporting-foundation`.
-- This slice adds account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
+- Sales reporting is now a Supabase-backed extension to the existing operator app on `main`.
+- The reporting foundation includes account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
 - The portal now has `/portal/reports` for entitled users, with date/grain/location/machine/payment filters and on-demand PDF export.
-- Admin access and reporting operations are being split into clearer surfaces:
+- Admin access and reporting operations are split into clearer surfaces:
   - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
   - `/admin/partnerships` is the setup area for partners, partnerships, machine assignments, machine-level tax rates, and financial rules.
   - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
+- Production RPC repair is complete: migration `202604260004_reporting_admin_rpc_repair.sql` reapplied missing admin reporting/partnership RPCs, restored PostgREST schema visibility, and aligned production migration history with repo migrations through `202604260004`.
 - Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
 - Tax rates are configured directly on machines with effective dates, not on partnerships.
 - The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` paid-order fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.

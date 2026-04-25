@@ -221,6 +221,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/admin/accounts` redirects to `/admin/access?tab=users`
 - [ ] `/admin/audit` redirects to `/admin/access?tab=audit`
 - [ ] Admin Access > Users search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Admin Access > Users does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
 - [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
 - [ ] Admin Access > Users shows paid subscription status separately from free Plus grant status
 - [ ] Super-admin cannot grant free Plus access without a future expiry date and grant reason
@@ -233,12 +234,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
 - [ ] Admin Access > Reporting Access uses a people-first explicit machine access matrix
 - [ ] Admin Access > Reporting Access can look up an existing user by email, select multiple machines, save with a reason, and update that person's machine grants in one transactional save
+- [ ] Admin Access > Reporting Access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
 - [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
 - [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
 - [ ] Admin Access > Audit supports filtering and shows role + operational actions
 - [ ] Non-admin user cannot access `/admin/partnerships`
 - [ ] Super-admin user can access `/admin/partnerships`
+- [ ] Admin Partnerships setup loads without missing-RPC errors for `admin_get_partnership_reporting_setup`
 - [ ] Admin Partnerships can create/edit partner and partnership records
 - [ ] Admin Partnerships > Parties can attach partners to partnerships with role, optional share percentage, report-recipient flag, and required reason
 - [ ] Admin Partnerships > Machine Assignments can update Sunze machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
