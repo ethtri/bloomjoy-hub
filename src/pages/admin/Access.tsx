@@ -38,9 +38,8 @@ import {
 } from '@/lib/adminGovernance';
 import {
   fetchAdminReportingAccessMatrix,
-  grantMachineReportAccessAdmin,
   lookupReportingUserByEmailAdmin,
-  revokeReportingAccessAdmin,
+  setUserMachineReportingAccessAdmin,
   type AdminReportingAccessGrant,
   type AdminReportingAccessMachine,
   type AdminReportingAccessPerson,
@@ -707,24 +706,12 @@ function ReportingAccessTab() {
 
     setIsSavingAccess(true);
     try {
-      await Promise.all([
-        ...addedMachineIds.map((machineId) =>
-          grantMachineReportAccessAdmin({
-            userEmail: selectedPerson.userEmail as string,
-            machineId,
-            accessLevel,
-            reason: accessReason.trim(),
-          })
-        ),
-        ...removedMachineIds.map((machineId) => {
-          const grant = selectedMachineGrantByMachineId.get(machineId);
-          if (!grant) return Promise.resolve(null);
-          return revokeReportingAccessAdmin({
-            entitlementId: grant.id,
-            reason: accessReason.trim(),
-          });
-        }),
-      ]);
+      await setUserMachineReportingAccessAdmin({
+        userEmail: selectedPerson.userEmail as string,
+        machineIds: [...selectedMachineIds],
+        accessLevel,
+        reason: accessReason.trim(),
+      });
 
       trackEvent('admin_reporting_access_matrix_saved', {
         user_id: selectedPerson.userId,
@@ -956,6 +943,10 @@ function GlobalRolesTab() {
   const handleGrant = async () => {
     if (!grantEmail.trim()) {
       toast.error('Email is required.');
+      return;
+    }
+    if (!grantReason.trim()) {
+      toast.error('Grant reason is required.');
       return;
     }
 

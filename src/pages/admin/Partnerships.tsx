@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   AlertTriangle,
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -23,12 +24,14 @@ import {
   upsertReportingMachineAssignmentAdmin,
   upsertReportingMachineTaxRateAdmin,
   upsertReportingPartnerAdmin,
+  upsertReportingPartnershipPartyAdmin,
   upsertReportingPartnershipAdmin,
   type PartnerWeeklyReportPreview,
   type PartnershipReportingSetup,
   type ReportingMachinePartnershipAssignment,
   type ReportingMachineTaxRate,
   type ReportingPartner,
+  type ReportingPartnershipParty,
   type ReportingPartnership,
   type ReportingPartnershipFinancialRule,
 } from '@/lib/partnershipReporting';
@@ -37,7 +40,25 @@ import {
   upsertReportingMachineAdmin,
 } from '@/lib/reporting';
 
-const today = () => new Date().toISOString().slice(0, 10);
+const toDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const today = () => toDateInputValue(new Date());
+
+const getLastCompletedWeekEndingDate = (weekEndDay: number) => {
+  const date = new Date();
+  const currentDay = date.getDay();
+  let daysBack = (currentDay - weekEndDay + 7) % 7;
+  if (daysBack === 0) daysBack = 7;
+  date.setDate(date.getDate() - daysBack);
+  return toDateInputValue(date);
+};
+
+const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const centsFromDollars = (value: string) => Math.round((Number(value) || 0) * 100);
 const dollarsFromCents = (value: number) => (Number(value ?? 0) / 100).toFixed(2);
@@ -63,6 +84,15 @@ const partnerTypes = [
 const partnershipTypes = ['venue', 'event', 'platform', 'revenue_share', 'internal', 'other'];
 const statuses = ['active', 'archived'];
 const partnershipStatuses = ['draft', 'active', 'archived'];
+const partyRoles = [
+  'venue_partner',
+  'event_partner',
+  'platform_partner',
+  'revenue_share_recipient',
+  'operator',
+  'internal',
+  'other',
+];
 const assignmentRoles = ['primary_reporting', 'venue', 'event', 'platform', 'internal'];
 const machineTypes: ReportingMachineType[] = ['commercial', 'mini', 'micro', 'unknown'];
 const calculationModels = [
@@ -75,6 +105,7 @@ const calculationModels = [
 const splitBases = ['gross_sales', 'net_sales', 'contribution_after_costs'];
 const feeBases = ['none', 'per_order', 'per_stick', 'per_transaction'];
 const costBases = ['none', 'per_stick', 'per_order', 'percentage_of_sales'];
+const deductionTimings = ['before_split', 'after_split', 'reporting_only'];
 const grossToNetMethods = [
   'machine_tax_plus_configured_fees',
   'imported_tax_plus_configured_fees',
@@ -127,6 +158,16 @@ const emptyAssignmentForm = {
   reason: 'Machine partnership assignment update',
 };
 
+const emptyPartyForm = {
+  partyId: null as string | null,
+  partnershipId: '',
+  partnerId: '',
+  partyRole: 'revenue_share_recipient',
+  sharePercent: '',
+  isReportRecipient: false,
+  reason: 'Partnership party update',
+};
+
 const emptyTaxForm = {
   taxRateId: null as string | null,
   machineId: '',
@@ -167,6 +208,7 @@ export default function AdminPartnershipsPage() {
       partnerships: [],
       machines: [],
       assignments: [],
+      parties: [],
       taxRates: [],
       financialRules: [],
       warnings: [],
@@ -235,6 +277,7 @@ export default function AdminPartnershipsPage() {
             <TabsList className="h-auto flex-wrap justify-start">
               <TabsTrigger value="partners">Partners</TabsTrigger>
               <TabsTrigger value="partnerships">Partnerships</TabsTrigger>
+              <TabsTrigger value="parties">Parties</TabsTrigger>
               <TabsTrigger value="machines">Machine Assignments</TabsTrigger>
               <TabsTrigger value="tax">Machine Tax Rates</TabsTrigger>
               <TabsTrigger value="rules">Financial Rules</TabsTrigger>
@@ -251,6 +294,9 @@ export default function AdminPartnershipsPage() {
                 </TabsContent>
                 <TabsContent value="partnerships" className="mt-6">
                   <PartnershipsTab setup={setup} onRefresh={refresh} />
+                </TabsContent>
+                <TabsContent value="parties" className="mt-6">
+                  <PartiesTab setup={setup} onRefresh={refresh} />
                 </TabsContent>
                 <TabsContent value="machines" className="mt-6">
                   <MachineAssignmentsTab setup={setup} onRefresh={refresh} />
@@ -555,6 +601,160 @@ function PartnershipsTab({
               <div className="flex items-center gap-2">
                 <Badge variant={partnership.status === 'active' ? 'default' : 'outline'}>{partnership.status}</Badge>
                 <Button variant="outline" size="sm" onClick={() => editPartnership(partnership)}>
+                  Edit
+                </Button>
+              </div>
+            </Row>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PartiesTab({
+  setup,
+  onRefresh,
+}: {
+  setup: PartnershipReportingSetup;
+  onRefresh: () => Promise<unknown>;
+}) {
+  const [form, setForm] = useState(emptyPartyForm);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const editParty = (party: ReportingPartnershipParty) => {
+    setForm({
+      partyId: party.id,
+      partnershipId: party.partnership_id,
+      partnerId: party.partner_id,
+      partyRole: party.party_role,
+      sharePercent: party.share_basis_points
+        ? percentFromBasisPoints(party.share_basis_points)
+        : '',
+      isReportRecipient: party.is_report_recipient,
+      reason: 'Partnership party update',
+    });
+  };
+
+  const saveParty = async () => {
+    if (!form.partnershipId || !form.partnerId || !form.reason.trim()) {
+      toast.error('Partnership, partner, and reason are required.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await upsertReportingPartnershipPartyAdmin({
+        partyId: form.partyId,
+        partnershipId: form.partnershipId,
+        partnerId: form.partnerId,
+        partyRole: form.partyRole,
+        shareBasisPoints: form.sharePercent.trim()
+          ? basisPointsFromPercent(form.sharePercent)
+          : null,
+        isReportRecipient: form.isReportRecipient,
+        reason: form.reason,
+      });
+      toast.success(form.partyId ? 'Partnership party updated.' : 'Partnership party added.');
+      setForm(emptyPartyForm);
+      await onRefresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save partnership party.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
+      <div className="rounded-lg border border-border bg-card p-5">
+        <h2 className="font-semibold text-foreground">
+          {form.partyId ? 'Edit Partnership Party' : 'Add Partnership Party'}
+        </h2>
+        <div className="mt-4 space-y-3">
+          <PartnershipSelect
+            setup={setup}
+            value={form.partnershipId}
+            onChange={(partnershipId) => setForm({ ...form, partnershipId })}
+            id="party-partnership"
+          />
+          <PartnerSelect
+            setup={setup}
+            value={form.partnerId}
+            onChange={(partnerId) => setForm({ ...form, partnerId })}
+            id="party-partner"
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="party-role">Role</Label>
+              <FieldSelect
+                id="party-role"
+                value={form.partyRole}
+                onChange={(partyRole) => setForm({ ...form, partyRole })}
+                options={partyRoles}
+              />
+            </div>
+            <div>
+              <Label htmlFor="party-share">Share %</Label>
+              <Input
+                id="party-share"
+                type="number"
+                step="0.01"
+                min={0}
+                max={100}
+                value={form.sharePercent}
+                onChange={(event) => setForm({ ...form, sharePercent: event.target.value })}
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 rounded-md border border-border p-3 text-sm">
+            <Checkbox
+              checked={form.isReportRecipient}
+              onCheckedChange={(checked) =>
+                setForm({ ...form, isReportRecipient: Boolean(checked) })
+              }
+            />
+            Report recipient
+          </label>
+          <div>
+            <Label htmlFor="party-reason">Reason</Label>
+            <Input
+              id="party-reason"
+              value={form.reason}
+              onChange={(event) => setForm({ ...form, reason: event.target.value })}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={saveParty} disabled={isSaving}>
+              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+              Save Party
+            </Button>
+            {form.partyId && (
+              <Button variant="outline" onClick={() => setForm(emptyPartyForm)}>
+                New Party
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card">
+        <ListHeader title="Partnership Parties" count={setup.parties.length} />
+        {setup.parties.length === 0 ? (
+          <EmptyRow text="No partnership parties configured." />
+        ) : (
+          setup.parties.map((party) => (
+            <Row key={party.id}>
+              <div>
+                <div className="font-medium text-foreground">{party.partner_name}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {party.partnership_name} / {party.party_role.replaceAll('_', ' ')} / share{' '}
+                  {party.share_basis_points ? percentFromBasisPoints(party.share_basis_points) : 'n/a'}%
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {party.is_report_recipient && <Badge variant="secondary">Recipient</Badge>}
+                <Button variant="outline" size="sm" onClick={() => editParty(party)}>
                   Edit
                 </Button>
               </div>
@@ -1002,9 +1202,15 @@ function FinancialRulesTab({
               <FieldSelect id="cost-basis" value={form.costBasis} onChange={(value) => setForm({ ...form, costBasis: value })} options={costBases} />
             </div>
           </div>
-          <div>
-            <Label htmlFor="gross-to-net-method">Gross-to-net method</Label>
-            <FieldSelect id="gross-to-net-method" value={form.grossToNetMethod} onChange={(value) => setForm({ ...form, grossToNetMethod: value })} options={grossToNetMethods} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="gross-to-net-method">Gross-to-net method</Label>
+              <FieldSelect id="gross-to-net-method" value={form.grossToNetMethod} onChange={(value) => setForm({ ...form, grossToNetMethod: value })} options={grossToNetMethods} />
+            </div>
+            <div>
+              <Label htmlFor="deduction-timing">Cost deduction timing</Label>
+              <FieldSelect id="deduction-timing" value={form.deductionTiming} onChange={(value) => setForm({ ...form, deductionTiming: value })} options={deductionTimings} />
+            </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
@@ -1083,7 +1289,7 @@ function FinancialRulesTab({
 
 function WeeklyPreviewTab({ setup }: { setup: PartnershipReportingSetup }) {
   const [partnershipId, setPartnershipId] = useState(setup.partnerships[0]?.id ?? '');
-  const [weekEndingDate, setWeekEndingDate] = useState(today());
+  const [weekEndingDate, setWeekEndingDate] = useState(() => getLastCompletedWeekEndingDate(0));
   const [preview, setPreview] = useState<PartnerWeeklyReportPreview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -1091,10 +1297,36 @@ function WeeklyPreviewTab({ setup }: { setup: PartnershipReportingSetup }) {
     () => setup.partnerships.find((partnership) => partnership.id === partnershipId),
     [partnershipId, setup.partnerships]
   );
+  const firstPartnershipId = setup.partnerships[0]?.id ?? '';
+  const selectedPartnershipId = selectedPartnership?.id;
+  const selectedWeekEndDay = selectedPartnership?.reporting_week_end_day;
+
+  useEffect(() => {
+    if (!partnershipId && firstPartnershipId) {
+      setPartnershipId(firstPartnershipId);
+    }
+  }, [firstPartnershipId, partnershipId]);
+
+  useEffect(() => {
+    if (!selectedPartnershipId || selectedWeekEndDay === undefined) return;
+    setWeekEndingDate(getLastCompletedWeekEndingDate(selectedWeekEndDay));
+    setPreview(null);
+  }, [selectedPartnershipId, selectedWeekEndDay]);
 
   const loadPreview = async () => {
     if (!partnershipId || !weekEndingDate) {
       toast.error('Partnership and week ending date are required.');
+      return;
+    }
+
+    if (
+      selectedPartnership &&
+      new Date(`${weekEndingDate}T00:00:00`).getDay() !==
+        selectedPartnership.reporting_week_end_day
+    ) {
+      toast.error(
+        `Week ending date must be a ${dayNames[selectedPartnership.reporting_week_end_day]}.`
+      );
       return;
     }
 
@@ -1118,6 +1350,11 @@ function WeeklyPreviewTab({ setup }: { setup: PartnershipReportingSetup }) {
           <div>
             <Label htmlFor="week-ending">Week ending</Label>
             <Input id="week-ending" type="date" value={weekEndingDate} onChange={(event) => setWeekEndingDate(event.target.value)} />
+            {selectedPartnership && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                Week ends {dayNames[selectedPartnership.reporting_week_end_day]}
+              </div>
+            )}
           </div>
           <Button onClick={loadPreview} disabled={isLoading}>
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -1245,6 +1482,37 @@ function MachineSelect({
         {setup.machines.map((machine) => (
           <option key={machine.id} value={machine.id}>
             {machine.machine_label} / {machine.account_name} / {machine.location_name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function PartnerSelect({
+  setup,
+  value,
+  onChange,
+  id,
+}: {
+  setup: PartnershipReportingSetup;
+  value: string;
+  onChange: (partnerId: string) => void;
+  id: string;
+}) {
+  return (
+    <div>
+      <Label htmlFor={id}>Partner</Label>
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+      >
+        <option value="">Select partner</option>
+        {setup.partners.map((partner) => (
+          <option key={partner.id} value={partner.id}>
+            {partner.name}
           </option>
         ))}
       </select>

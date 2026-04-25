@@ -371,6 +371,22 @@ begin
     from public.reporting_machine_tax_rates tax
     join public.reporting_machines machine on machine.id = tax.machine_id
   ),
+  party_rows as (
+    select
+      party.id,
+      party.partnership_id,
+      partnership.name as partnership_name,
+      party.partner_id,
+      partner.name as partner_name,
+      party.party_role,
+      party.share_basis_points,
+      party.is_report_recipient,
+      party.created_at,
+      party.updated_at
+    from public.reporting_partnership_parties party
+    join public.reporting_partnerships partnership on partnership.id = party.partnership_id
+    join public.reporting_partners partner on partner.id = party.partner_id
+  ),
   rule_rows as (
     select
       rule.*,
@@ -461,6 +477,8 @@ begin
     coalesce((select jsonb_agg(to_jsonb(assignment_rows) order by assignment_rows.effective_start_date desc) from assignment_rows), '[]'::jsonb),
     'taxRates',
     coalesce((select jsonb_agg(to_jsonb(tax_rows) order by tax_rows.effective_start_date desc) from tax_rows), '[]'::jsonb),
+    'parties',
+    coalesce((select jsonb_agg(to_jsonb(party_rows) order by party_rows.partnership_name, party_rows.partner_name) from party_rows), '[]'::jsonb),
     'financialRules',
     coalesce((select jsonb_agg(to_jsonb(rule_rows) order by rule_rows.effective_start_date desc) from rule_rows), '[]'::jsonb),
     'warnings',
@@ -656,6 +674,99 @@ begin
     auth.uid(),
     case when before_row.id is null then 'reporting_partnership.created' else 'reporting_partnership.updated' end,
     'reporting_partnership',
+    after_row.id::text,
+    coalesce(to_jsonb(before_row), '{}'::jsonb),
+    to_jsonb(after_row),
+    jsonb_build_object('reason', normalized_reason)
+  );
+
+  return after_row;
+end;
+$$;
+
+drop function if exists public.admin_upsert_reporting_partnership_party(uuid, uuid, uuid, text, integer, boolean, text);
+create or replace function public.admin_upsert_reporting_partnership_party(
+  p_party_id uuid,
+  p_partnership_id uuid,
+  p_partner_id uuid,
+  p_party_role text,
+  p_share_basis_points integer,
+  p_is_report_recipient boolean,
+  p_reason text
+)
+returns public.reporting_partnership_parties
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  normalized_reason text;
+  normalized_role text;
+  before_row public.reporting_partnership_parties;
+  after_row public.reporting_partnership_parties;
+begin
+  if not public.is_super_admin(auth.uid()) then
+    raise exception 'Admin access required';
+  end if;
+
+  normalized_reason := public.reporting_admin_assert_reason(p_reason);
+  normalized_role := lower(coalesce(nullif(trim(p_party_role), ''), 'revenue_share_recipient'));
+
+  if p_partnership_id is null or p_partner_id is null then
+    raise exception 'Partnership and partner are required';
+  end if;
+
+  if coalesce(p_share_basis_points, 0) < 0 or coalesce(p_share_basis_points, 0) > 10000 then
+    raise exception 'Share percentage must be between 0 and 100';
+  end if;
+
+  if p_party_id is not null then
+    select * into before_row
+    from public.reporting_partnership_parties
+    where id = p_party_id;
+  end if;
+
+  if before_row.id is null then
+    insert into public.reporting_partnership_parties (
+      partnership_id,
+      partner_id,
+      party_role,
+      share_basis_points,
+      is_report_recipient
+    )
+    values (
+      p_partnership_id,
+      p_partner_id,
+      normalized_role,
+      nullif(coalesce(p_share_basis_points, 0), 0),
+      coalesce(p_is_report_recipient, false)
+    )
+    returning * into after_row;
+  else
+    update public.reporting_partnership_parties
+    set
+      partnership_id = p_partnership_id,
+      partner_id = p_partner_id,
+      party_role = normalized_role,
+      share_basis_points = nullif(coalesce(p_share_basis_points, 0), 0),
+      is_report_recipient = coalesce(p_is_report_recipient, false)
+    where id = before_row.id
+    returning * into after_row;
+  end if;
+
+  insert into public.admin_audit_log (
+    actor_user_id,
+    action,
+    entity_type,
+    entity_id,
+    before,
+    after,
+    meta
+  )
+  values (
+    auth.uid(),
+    case when before_row.id is null then 'reporting_partnership_party.created' else 'reporting_partnership_party.updated' end,
+    'reporting_partnership_party',
     after_row.id::text,
     coalesce(to_jsonb(before_row), '{}'::jsonb),
     to_jsonb(after_row),
@@ -1063,6 +1174,8 @@ as $$
 declare
   week_start date;
   result jsonb;
+  partnership_row public.reporting_partnerships;
+  actual_week_end_day integer;
 begin
   if not public.is_super_admin(auth.uid()) then
     raise exception 'Admin access required';
@@ -1070,6 +1183,21 @@ begin
 
   if p_partnership_id is null or p_week_ending_date is null then
     raise exception 'Partnership and week ending date are required';
+  end if;
+
+  select *
+  into partnership_row
+  from public.reporting_partnerships partnership
+  where partnership.id = p_partnership_id;
+
+  if partnership_row.id is null then
+    raise exception 'Partnership not found';
+  end if;
+
+  actual_week_end_day := extract(dow from p_week_ending_date)::integer;
+
+  if actual_week_end_day <> partnership_row.reporting_week_end_day then
+    raise exception 'Week ending date must match this partnership reporting week end day';
   end if;
 
   week_start := p_week_ending_date - 6;
@@ -1087,10 +1215,12 @@ begin
       fact.tax_cents as imported_tax_cents,
       tax.tax_rate_percent,
       rule.calculation_model,
+      rule.split_base,
       rule.fee_amount_cents,
       rule.fee_basis,
       rule.cost_amount_cents,
       rule.cost_basis,
+      rule.deduction_timing,
       rule.gross_to_net_method,
       rule.fever_share_basis_points,
       rule.partner_share_basis_points,
@@ -1130,11 +1260,10 @@ begin
     select
       fact.*,
       case
-        when fact.gross_sales_cents > 0 and fact.gross_to_net_method = 'imported_tax_plus_configured_fees'
-          then fact.imported_tax_cents
-        when fact.gross_sales_cents > 0
-          then round(fact.gross_sales_cents * coalesce(fact.tax_rate_percent, 0) / 100.0)::integer
-        else 0
+        when fact.gross_sales_cents <= 0 then 0
+        when fact.gross_to_net_method = 'imported_tax_plus_configured_fees' then fact.imported_tax_cents
+        when fact.gross_to_net_method = 'configured_fees_only' then 0
+        else round(fact.gross_sales_cents * coalesce(fact.tax_rate_percent, 0) / 100.0)::integer
       end as calculated_tax_cents,
       case
         when fact.gross_sales_cents <= 0 then 0
@@ -1154,16 +1283,19 @@ begin
   row_amounts as (
     select
       calculated.*,
-      greatest(calculated.gross_sales_cents - calculated.calculated_tax_cents - calculated.fee_cents, 0) as net_sales_cents
+      greatest(calculated.gross_sales_cents - calculated.calculated_tax_cents - calculated.fee_cents, 0) as net_sales_cents,
+      case
+        when calculated.deduction_timing = 'before_split' then calculated.cost_cents
+        else 0
+      end as split_deductible_cost_cents
     from calculated
   ),
   split_rows as (
     select
       row_amounts.*,
       case
-        when row_amounts.calculation_model = 'gross_split' then row_amounts.gross_sales_cents
-        when row_amounts.calculation_model = 'contribution_split' then greatest(row_amounts.net_sales_cents - row_amounts.cost_cents, 0)
-        when row_amounts.calculation_model = 'fixed_fee_plus_split' then greatest(row_amounts.net_sales_cents - row_amounts.cost_cents, 0)
+        when row_amounts.split_base = 'gross_sales' then row_amounts.gross_sales_cents
+        when row_amounts.split_base = 'contribution_after_costs' then greatest(row_amounts.net_sales_cents - row_amounts.split_deductible_cost_cents, 0)
         else row_amounts.net_sales_cents
       end as split_base_cents
     from row_amounts
@@ -1207,6 +1339,7 @@ begin
     ) as warning
     from scoped_facts fact
     where fact.tax_rate_percent is null
+      and coalesce(fact.gross_to_net_method, 'machine_tax_plus_configured_fees') <> 'configured_fees_only'
     group by fact.reporting_machine_id, fact.machine_label
     union all
     select jsonb_build_object(
@@ -1217,6 +1350,8 @@ begin
   )
   select jsonb_build_object(
     'partnershipId', p_partnership_id,
+    'partnershipName', partnership_row.name,
+    'reportingWeekEndDay', partnership_row.reporting_week_end_day,
     'weekEndingDate', p_week_ending_date,
     'weekStartDate', week_start,
     'summary', coalesce((select to_jsonb(summary) from summary), '{}'::jsonb),
@@ -1229,10 +1364,235 @@ begin
 end;
 $$;
 
+drop function if exists public.admin_set_user_machine_reporting_access(text, uuid[], text, text);
+create or replace function public.admin_set_user_machine_reporting_access(
+  p_user_email text,
+  p_machine_ids uuid[],
+  p_access_level text,
+  p_reason text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  normalized_email text;
+  normalized_reason text;
+  normalized_access_level text;
+  target_user_id uuid;
+  normalized_machine_ids uuid[];
+  existing_row public.reporting_machine_entitlements;
+  desired_machine_id uuid;
+  missing_machine_count bigint;
+  added_count integer := 0;
+  revoked_count integer := 0;
+begin
+  if not public.is_super_admin(auth.uid()) then
+    raise exception 'Admin access required';
+  end if;
+
+  normalized_email := lower(trim(coalesce(p_user_email, '')));
+  normalized_reason := public.reporting_admin_assert_reason(p_reason);
+  normalized_access_level := lower(coalesce(nullif(trim(p_access_level), ''), 'viewer'));
+
+  if normalized_email = '' then
+    raise exception 'User email is required';
+  end if;
+
+  if normalized_access_level not in ('viewer', 'report_manager') then
+    raise exception 'Invalid reporting access level';
+  end if;
+
+  select users.id
+  into target_user_id
+  from auth.users users
+  where lower(users.email) = normalized_email
+  limit 1;
+
+  if target_user_id is null then
+    raise exception 'No user found for email %', normalized_email;
+  end if;
+
+  select coalesce(array_agg(distinct requested.machine_id), '{}'::uuid[])
+  into normalized_machine_ids
+  from unnest(coalesce(p_machine_ids, '{}'::uuid[])) as requested(machine_id)
+  where requested.machine_id is not null;
+
+  select count(*)
+  into missing_machine_count
+  from unnest(normalized_machine_ids) as requested(machine_id)
+  left join public.reporting_machines machine on machine.id = requested.machine_id
+  where machine.id is null;
+
+  if missing_machine_count > 0 then
+    raise exception 'One or more reporting machines were not found';
+  end if;
+
+  for existing_row in
+    select *
+    from public.reporting_machine_entitlements entitlement
+    where entitlement.user_id = target_user_id
+      and entitlement.machine_id is not null
+      and public.reporting_entitlement_is_active(
+        entitlement.starts_at,
+        entitlement.expires_at,
+        entitlement.revoked_at
+      )
+  loop
+    if not (existing_row.machine_id = any(normalized_machine_ids)) then
+      perform public.admin_revoke_reporting_access(existing_row.id, normalized_reason);
+      revoked_count := revoked_count + 1;
+    end if;
+  end loop;
+
+  foreach desired_machine_id in array normalized_machine_ids
+  loop
+    if not exists (
+      select 1
+      from public.reporting_machine_entitlements entitlement
+      where entitlement.user_id = target_user_id
+        and entitlement.machine_id = desired_machine_id
+        and public.reporting_entitlement_is_active(
+          entitlement.starts_at,
+          entitlement.expires_at,
+          entitlement.revoked_at
+        )
+    ) then
+      added_count := added_count + 1;
+
+      perform public.admin_grant_reporting_access(
+        normalized_email,
+        null,
+        null,
+        desired_machine_id,
+        normalized_access_level,
+        normalized_reason
+      );
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'userId', target_user_id,
+    'machineCount', coalesce(array_length(normalized_machine_ids, 1), 0),
+    'addedCount', added_count,
+    'revokedCount', revoked_count
+  );
+end;
+$$;
+
+drop function if exists public.admin_grant_super_admin_by_email(text, text);
+create or replace function public.admin_grant_super_admin_by_email(
+  p_target_email text,
+  p_reason text default null
+)
+returns public.admin_roles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_user_id uuid;
+  before_row public.admin_roles;
+  after_row public.admin_roles;
+  normalized_email text;
+  normalized_reason text;
+begin
+  if not public.is_super_admin(auth.uid()) then
+    raise exception 'Admin access required';
+  end if;
+
+  normalized_email := trim(lower(coalesce(p_target_email, '')));
+  normalized_reason := public.reporting_admin_assert_reason(p_reason);
+
+  if normalized_email = '' then
+    raise exception 'Target email is required';
+  end if;
+
+  select u.id
+  into target_user_id
+  from auth.users u
+  where lower(u.email) = normalized_email
+  limit 1;
+
+  if target_user_id is null then
+    raise exception 'No user found for email %', normalized_email;
+  end if;
+
+  select *
+  into before_row
+  from public.admin_roles
+  where user_id = target_user_id
+    and role = 'super_admin'
+  order by updated_at desc
+  limit 1;
+
+  if before_row.id is null then
+    insert into public.admin_roles (
+      user_id,
+      role,
+      active,
+      granted_by,
+      granted_at,
+      revoked_by,
+      revoked_at
+    )
+    values (
+      target_user_id,
+      'super_admin',
+      true,
+      auth.uid(),
+      now(),
+      null,
+      null
+    )
+    returning * into after_row;
+  elsif before_row.active = true then
+    after_row := before_row;
+  else
+    update public.admin_roles
+    set
+      active = true,
+      granted_by = auth.uid(),
+      granted_at = now(),
+      revoked_by = null,
+      revoked_at = null
+    where id = before_row.id
+    returning * into after_row;
+  end if;
+
+  insert into public.admin_audit_log (
+    actor_user_id,
+    action,
+    entity_type,
+    entity_id,
+    target_user_id,
+    before,
+    after,
+    meta
+  )
+  values (
+    auth.uid(),
+    'admin_role.granted',
+    'admin_role',
+    after_row.id::text,
+    after_row.user_id,
+    coalesce(to_jsonb(before_row), '{}'::jsonb),
+    to_jsonb(after_row),
+    jsonb_build_object('reason', normalized_reason, 'target_email', normalized_email)
+  );
+
+  return after_row;
+end;
+$$;
+
 grant execute on function public.admin_get_partnership_reporting_setup() to authenticated;
 grant execute on function public.admin_upsert_reporting_partner(uuid, text, text, text, text, text, text, text) to authenticated;
 grant execute on function public.admin_upsert_reporting_partnership(uuid, text, text, integer, text, date, date, text, text, text) to authenticated;
+grant execute on function public.admin_upsert_reporting_partnership_party(uuid, uuid, uuid, text, integer, boolean, text) to authenticated;
 grant execute on function public.admin_upsert_reporting_machine_assignment(uuid, uuid, uuid, text, date, date, text, text, text) to authenticated;
 grant execute on function public.admin_upsert_reporting_machine_tax_rate(uuid, uuid, numeric, date, date, text, text, text) to authenticated;
 grant execute on function public.admin_upsert_reporting_financial_rule(uuid, uuid, text, text, integer, text, integer, text, text, text, integer, integer, integer, date, date, text, text, text) to authenticated;
 grant execute on function public.admin_preview_partner_weekly_report(uuid, date) to authenticated;
+grant execute on function public.admin_set_user_machine_reporting_access(text, uuid[], text, text) to authenticated;
+grant execute on function public.admin_grant_super_admin_by_email(text, text) to authenticated;

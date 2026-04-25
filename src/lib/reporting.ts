@@ -315,6 +315,13 @@ type RevokeReportingAccessInput = {
   reason: string;
 };
 
+type SetUserMachineReportingAccessInput = {
+  userEmail: string;
+  machineIds: string[];
+  accessLevel: ReportingAccessLevel;
+  reason: string;
+};
+
 export const emptyReportingAccessContext: ReportingAccessContext = {
   hasReportingAccess: false,
   accessibleMachineCount: 0,
@@ -624,6 +631,33 @@ export const revokeReportingAccessAdmin = async (
   }
 
   return data as AdminReportingEntitlement;
+};
+
+export const setUserMachineReportingAccessAdmin = async (
+  input: SetUserMachineReportingAccessInput
+): Promise<{
+  userId: string;
+  machineCount: number;
+  addedCount: number;
+  revokedCount: number;
+}> => {
+  const { data, error } = await supabaseClient.rpc('admin_set_user_machine_reporting_access', {
+    p_user_email: input.userEmail,
+    p_machine_ids: input.machineIds,
+    p_access_level: input.accessLevel,
+    p_reason: input.reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save report access.');
+  }
+
+  return data as {
+    userId: string;
+    machineCount: number;
+    addedCount: number;
+    revokedCount: number;
+  };
 };
 
 export const createReportScheduleAdmin = async (

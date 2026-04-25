@@ -51,6 +51,19 @@ export type ReportingMachinePartnershipAssignment = {
   notes: string | null;
 };
 
+export type ReportingPartnershipParty = {
+  id: string;
+  partnership_id: string;
+  partnership_name: string;
+  partner_id: string;
+  partner_name: string;
+  party_role: string;
+  share_basis_points: number | null;
+  is_report_recipient: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ReportingMachineTaxRate = {
   id: string;
   machine_id: string;
@@ -97,6 +110,7 @@ export type PartnershipReportingSetup = {
   partnerships: ReportingPartnership[];
   machines: PartnershipSetupMachine[];
   assignments: ReportingMachinePartnershipAssignment[];
+  parties: ReportingPartnershipParty[];
   taxRates: ReportingMachineTaxRate[];
   financialRules: ReportingPartnershipFinancialRule[];
   warnings: PartnershipSetupWarning[];
@@ -104,6 +118,8 @@ export type PartnershipReportingSetup = {
 
 export type PartnerWeeklyReportPreview = {
   partnershipId: string;
+  partnershipName?: string;
+  reportingWeekEndDay?: number;
   weekEndingDate: string;
   weekStartDate: string;
   summary: {
@@ -170,6 +186,16 @@ export type UpsertMachineAssignmentInput = {
   reason: string;
 };
 
+export type UpsertPartnershipPartyInput = {
+  partyId?: string | null;
+  partnershipId: string;
+  partnerId: string;
+  partyRole: string;
+  shareBasisPoints?: number | null;
+  isReportRecipient: boolean;
+  reason: string;
+};
+
 export type UpsertMachineTaxRateInput = {
   taxRateId?: string | null;
   machineId: string;
@@ -207,6 +233,7 @@ const emptySetup: PartnershipReportingSetup = {
   partnerships: [],
   machines: [],
   assignments: [],
+  parties: [],
   taxRates: [],
   financialRules: [],
   warnings: [],
@@ -288,6 +315,26 @@ export const upsertReportingMachineAssignmentAdmin = async (
   }
 
   return data as ReportingMachinePartnershipAssignment;
+};
+
+export const upsertReportingPartnershipPartyAdmin = async (
+  input: UpsertPartnershipPartyInput
+) => {
+  const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_partnership_party', {
+    p_party_id: input.partyId ?? null,
+    p_partnership_id: input.partnershipId,
+    p_partner_id: input.partnerId,
+    p_party_role: input.partyRole,
+    p_share_basis_points: input.shareBasisPoints ?? null,
+    p_is_report_recipient: input.isReportRecipient,
+    p_reason: input.reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save partnership party.');
+  }
+
+  return data as ReportingPartnershipParty;
 };
 
 export const upsertReportingMachineTaxRateAdmin = async (input: UpsertMachineTaxRateInput) => {

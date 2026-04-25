@@ -232,20 +232,22 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Access > Users machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
 - [ ] Admin Access > Reporting Access uses a people-first explicit machine access matrix
-- [ ] Admin Access > Reporting Access can look up an existing user by email, select multiple machines, save with a reason, and update that person's machine grants
+- [ ] Admin Access > Reporting Access can look up an existing user by email, select multiple machines, save with a reason, and update that person's machine grants in one transactional save
 - [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
-- [ ] Admin Access > Global Roles can grant and revoke super-admin role with reason metadata
+- [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
 - [ ] Admin Access > Audit supports filtering and shows role + operational actions
 - [ ] Non-admin user cannot access `/admin/partnerships`
 - [ ] Super-admin user can access `/admin/partnerships`
 - [ ] Admin Partnerships can create/edit partner and partnership records
+- [ ] Admin Partnerships > Parties can attach partners to partnerships with role, optional share percentage, report-recipient flag, and required reason
 - [ ] Admin Partnerships > Machine Assignments can update Sunze machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
 - [ ] Admin Partnerships > Machine Assignments can assign machines to partnerships with effective dates and rejects overlapping active assignments
 - [ ] Admin Partnerships > Machine Tax Rates configures tax rates at the machine level with effective dates and rejects overlapping active tax rates
 - [ ] Admin Partnerships > Financial Rules can configure net split, gross split, per-order fee, and per-stick cost rules with effective dates
 - [ ] Admin Partnerships shows warnings for missing machine tax rate, missing partnership assignment, missing financial rule, and overlapping active assignments
-- [ ] Admin Partnerships > Weekly Preview uses machine-level tax rates and shows gross, orders, sticks, fees, costs, net, split base, and partner/Fever/Bloomjoy shares
+- [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
+- [ ] Admin Partnerships > Weekly Preview matches the Bubble Planet workbook math: Sunze order amount as gross, machine tax plus configured paid-order fee before split, no-pay orders counted as `$0`, and 60/40 split when configured
 - [ ] Non-admin user cannot access `/admin/reporting`
 - [ ] Super-admin user can access `/admin/reporting`
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
