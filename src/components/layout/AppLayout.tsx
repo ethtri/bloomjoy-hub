@@ -56,9 +56,19 @@ const adminDestinations = [
     description: 'Users, Plus grants, global roles, reporting access, and audit history.',
   },
   {
+    href: '/admin/partner-records',
+    label: 'Partner records',
+    description: 'Reusable external organizations and reporting contacts.',
+  },
+  {
+    href: '/admin/machines',
+    label: 'Machines',
+    description: 'Machine aliases, Sunze mapping, assignment readiness, and tax rates.',
+  },
+  {
     href: '/admin/partnerships',
     label: 'Admin partnerships',
-    description: 'Partnership setup, participants, assigned machines, tax rates, and split terms.',
+    description: 'Guided agreement setup, participants, assigned machines, split terms, and preview.',
   },
   {
     href: '/admin/reporting',
@@ -69,9 +79,11 @@ const adminDestinations = [
 
 const getAdminContext = (pathname: string): AppContext => {
   const matched =
-    adminDestinations.find((destination) =>
-      pathname === destination.href || pathname.startsWith(`${destination.href}/`)
-    ) ?? adminDestinations[0];
+    adminDestinations.find((destination) => pathname === destination.href) ??
+    adminDestinations
+      .filter((destination) => destination.href !== '/admin')
+      .find((destination) => pathname.startsWith(`${destination.href}/`)) ??
+    adminDestinations[0];
 
   return {
     title: matched.label,

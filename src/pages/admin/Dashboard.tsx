@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { BarChart3, Handshake, ShieldCheck, ShoppingBag, LifeBuoy, Users } from 'lucide-react';
+import { BarChart3, Handshake, ShieldCheck, ShoppingBag, LifeBuoy, Users, Building2, MonitorCog } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 
@@ -23,8 +23,20 @@ const adminModules = [
     href: '/admin/access',
   },
   {
+    title: 'Partner Records',
+    description: 'Manage reusable organizations and contacts used in partnership setup.',
+    icon: Building2,
+    href: '/admin/partner-records',
+  },
+  {
+    title: 'Machines',
+    description: 'Manage machine aliases, Sunze mapping, tax status, and assignment readiness.',
+    icon: MonitorCog,
+    href: '/admin/machines',
+  },
+  {
     title: 'Partnerships',
-    description: 'Configure partnership setup, participants, assigned machines, tax rates, and split terms.',
+    description: 'Configure guided agreement setup, participants, assigned machines, split terms, and preview.',
     icon: Handshake,
     href: '/admin/partnerships',
   },
@@ -59,7 +71,7 @@ export default function AdminDashboardPage() {
         <div className="container-page">
           <div className="rounded-xl border border-sage/30 bg-sage-light px-4 py-3 text-sm text-sage">
             Admin workspace is active. Use the modules below for orders, support, access,
-            partnerships, and reporting operations.
+            partner records, machines, partnerships, and reporting operations.
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">

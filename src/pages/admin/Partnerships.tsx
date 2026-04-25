@@ -1,18 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Loader2,
-  RefreshCw,
-  Settings2,
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, Plus, RefreshCw } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -21,96 +25,66 @@ import {
   previewPartnerWeeklyReportAdmin,
   upsertReportingFinancialRuleAdmin,
   upsertReportingMachineAssignmentAdmin,
-  upsertReportingMachineTaxRateAdmin,
   upsertReportingPartnerAdmin,
-  upsertReportingPartnershipPartyAdmin,
   upsertReportingPartnershipAdmin,
+  upsertReportingPartnershipPartyAdmin,
   type PartnerWeeklyReportPreview,
   type PartnershipReportingSetup,
   type ReportingMachinePartnershipAssignment,
-  type ReportingMachineTaxRate,
   type ReportingPartner,
-  type ReportingPartnershipParty,
   type ReportingPartnership,
   type ReportingPartnershipFinancialRule,
+  type ReportingPartnershipParty,
 } from '@/lib/partnershipReporting';
 import {
-  type ReportingMachineType,
-  upsertReportingMachineAdmin,
-} from '@/lib/reporting';
+  assignmentRoles,
+  basisPointsFromPercent,
+  calculationModels,
+  centsFromDollars,
+  costBases,
+  dayNames,
+  deductionTimings,
+  dollarsFromCents,
+  feeBases,
+  formatDate,
+  formatLabel,
+  formatMoney,
+  getLastCompletedWeekEndingDate,
+  grossToNetMethods,
+  participantRoles,
+  partnerTypes,
+  partnershipStatuses,
+  partnershipTypes,
+  percentFromBasisPoints,
+  splitBases,
+  statuses,
+  today,
+} from '@/pages/admin/reportingSetupUi';
 
-const toDateInputValue = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+type PartnershipStep = 'details' | 'participants' | 'machines' | 'terms' | 'preview';
+
+const setupQueryKey = ['admin-partnership-reporting-setup'];
+
+const emptySetup: PartnershipReportingSetup = {
+  partners: [],
+  partnerships: [],
+  machines: [],
+  assignments: [],
+  parties: [],
+  taxRates: [],
+  financialRules: [],
+  warnings: [],
 };
 
-const today = () => toDateInputValue(new Date());
-
-const getLastCompletedWeekEndingDate = (weekEndDay: number) => {
-  const date = new Date();
-  const currentDay = date.getDay();
-  let daysBack = (currentDay - weekEndDay + 7) % 7;
-  if (daysBack === 0) daysBack = 7;
-  date.setDate(date.getDate() - daysBack);
-  return toDateInputValue(date);
-};
-
-const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-const centsFromDollars = (value: string) => Math.round((Number(value) || 0) * 100);
-const dollarsFromCents = (value: number) => (Number(value ?? 0) / 100).toFixed(2);
-const basisPointsFromPercent = (value: string) => Math.round((Number(value) || 0) * 100);
-const percentFromBasisPoints = (value: number) => (Number(value ?? 0) / 100).toFixed(2);
-
-const formatMoney = (cents: number | undefined) =>
-  new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-  }).format(Number(cents ?? 0) / 100);
-
-const formatDate = (value: string | null | undefined) => value || 'open-ended';
-const formatLabel = (value: string) => value.replaceAll('_', ' ');
-
-const partnerTypes = [
-  'venue',
-  'event_operator',
-  'platform_partner',
-  'revenue_share_partner',
-  'internal',
-  'other',
+const steps: Array<{ key: PartnershipStep; label: string; description: string }> = [
+  { key: 'details', label: 'Details', description: 'Name, status, cadence' },
+  { key: 'participants', label: 'Participants', description: 'Organizations in the agreement' },
+  { key: 'machines', label: 'Machines', description: 'Assign reporting machines' },
+  { key: 'terms', label: 'Financial Terms', description: 'Fees, split model, shares' },
+  { key: 'preview', label: 'Weekly Preview', description: 'Check report output' },
 ];
-const partnershipTypes = ['venue', 'event', 'platform', 'revenue_share', 'internal', 'other'];
-const statuses = ['active', 'archived'];
-const partnershipStatuses = ['draft', 'active', 'archived'];
-const partyRoles = [
-  'venue_partner',
-  'event_partner',
-  'platform_partner',
-  'revenue_share_recipient',
-  'operator',
-  'internal',
-  'other',
-];
-const assignmentRoles = ['primary_reporting', 'venue', 'event', 'platform', 'internal'];
-const machineTypes: ReportingMachineType[] = ['commercial', 'mini', 'micro', 'unknown'];
-const calculationModels = [
-  'gross_split',
-  'net_split',
-  'contribution_split',
-  'fixed_fee_plus_split',
-  'internal_only',
-];
-const splitBases = ['gross_sales', 'net_sales', 'contribution_after_costs'];
-const feeBases = ['none', 'per_order', 'per_stick', 'per_transaction'];
-const costBases = ['none', 'per_stick', 'per_order', 'percentage_of_sales'];
-const deductionTimings = ['before_split', 'after_split', 'reporting_only'];
-const grossToNetMethods = [
-  'machine_tax_plus_configured_fees',
-  'imported_tax_plus_configured_fees',
-  'configured_fees_only',
-];
+
+const validSteps = new Set<PartnershipStep>(steps.map((step) => step.key));
 
 const emptyPartnerForm = {
   partnerId: null as string | null,
@@ -120,7 +94,6 @@ const emptyPartnerForm = {
   primaryContactEmail: '',
   status: 'active',
   notes: '',
-  reason: 'Partner setup update',
 };
 
 const emptyPartnershipForm = {
@@ -133,17 +106,15 @@ const emptyPartnershipForm = {
   effectiveEndDate: '',
   status: 'draft',
   notes: '',
-  reason: 'Partnership setup update',
 };
 
-const emptyMachineForm = {
-  machineId: null as string | null,
-  accountName: '',
-  locationName: '',
-  machineLabel: '',
-  machineType: 'unknown' as ReportingMachineType,
-  sunzeMachineId: '',
-  reason: 'Machine mapping update',
+const emptyParticipantForm = {
+  partyId: null as string | null,
+  partnershipId: '',
+  partnerId: '',
+  partyRole: 'revenue_share_recipient',
+  sharePercent: '',
+  isReportRecipient: false,
 };
 
 const emptyAssignmentForm = {
@@ -155,17 +126,6 @@ const emptyAssignmentForm = {
   effectiveEndDate: '',
   status: 'active',
   notes: '',
-  reason: 'Machine partnership assignment update',
-};
-
-const emptyPartyForm = {
-  partyId: null as string | null,
-  partnershipId: '',
-  partnerId: '',
-  partyRole: 'revenue_share_recipient',
-  sharePercent: '',
-  isReportRecipient: false,
-  reason: 'Partnership participant update',
 };
 
 const emptyRuleForm = {
@@ -186,47 +146,56 @@ const emptyRuleForm = {
   effectiveEndDate: '',
   status: 'draft',
   notes: '',
-  reason: 'Financial rule update',
 };
 
 export default function AdminPartnershipsPage() {
   const queryClient = useQueryClient();
-  const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedPartnershipId = searchParams.get('partnershipId') ?? '';
+  const requestedStep = searchParams.get('step') as PartnershipStep | null;
+  const activeStep = requestedStep && validSteps.has(requestedStep) ? requestedStep : 'details';
+
   const {
-    data: setup = {
-      partners: [],
-      partnerships: [],
-      machines: [],
-      assignments: [],
-      parties: [],
-      taxRates: [],
-      financialRules: [],
-      warnings: [],
-    },
+    data: setup = emptySetup,
     isLoading,
     isFetching,
     error,
   } = useQuery({
-    queryKey: ['admin-partnership-reporting-setup'],
+    queryKey: setupQueryKey,
     queryFn: fetchPartnershipReportingSetup,
     staleTime: 1000 * 30,
   });
 
-  const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ['admin-partnership-reporting-setup'] });
-
-  const firstPartnershipId = setup.partnerships[0]?.id ?? '';
   const selectedPartnership = useMemo(
     () =>
       setup.partnerships.find((partnership) => partnership.id === selectedPartnershipId) ?? null,
     [selectedPartnershipId, setup.partnerships]
   );
 
-  useEffect(() => {
-    if (!selectedPartnershipId && firstPartnershipId) {
-      setSelectedPartnershipId(firstPartnershipId);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: setupQueryKey });
+
+  const updateRouteState = (partnershipId: string, step: PartnershipStep) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (partnershipId) {
+      nextParams.set('partnershipId', partnershipId);
+    } else {
+      nextParams.delete('partnershipId');
     }
-  }, [firstPartnershipId, selectedPartnershipId]);
+    nextParams.set('step', step);
+    setSearchParams(nextParams);
+  };
+
+  const stepCounts = useMemo(() => {
+    if (!selectedPartnership) {
+      return { participants: 0, machines: 0, terms: 0 };
+    }
+
+    return {
+      participants: setup.parties.filter((party) => party.partnership_id === selectedPartnership.id).length,
+      machines: setup.assignments.filter((assignment) => assignment.partnership_id === selectedPartnership.id).length,
+      terms: setup.financialRules.filter((rule) => rule.partnership_id === selectedPartnership.id).length,
+    };
+  }, [selectedPartnership, setup.assignments, setup.financialRules, setup.parties]);
 
   return (
     <AppLayout>
@@ -241,8 +210,8 @@ export default function AdminPartnershipsPage() {
                 Partnerships
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Configure partners, partnership agreements, machine assignments, machine-level tax
-                rates, and financial rules for partner reporting.
+                Set up reporting agreements in a guided flow. Partner records and machine tax
+                readiness live in their own admin pages.
               </p>
             </div>
             <Button variant="outline" onClick={refresh} disabled={isFetching}>
@@ -257,75 +226,80 @@ export default function AdminPartnershipsPage() {
             </div>
           )}
 
-          {setup.warnings.length > 0 && (
-            <div className="mt-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 h-5 w-5" />
-                <div>
-                  <h2 className="font-semibold">Setup warnings</h2>
-                  <div className="mt-2 grid gap-1 text-sm">
-                    {setup.warnings.slice(0, 8).map((warning, index) => (
-                      <div key={`${warning.warningType}-${index}`}>{warning.message}</div>
-                    ))}
-                    {setup.warnings.length > 8 && (
-                      <div>{setup.warnings.length - 8} more warnings hidden.</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {isLoading ? (
             <div className="mt-6 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
               Loading partnership setup...
             </div>
           ) : (
             <div className="mt-6 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-              <PartnershipPicker
-                setup={setup}
-                selectedPartnershipId={selectedPartnershipId}
-                onSelect={setSelectedPartnershipId}
-              />
-
-              <div className="space-y-6">
-                <PartnershipDetailsSection
-                  selectedPartnership={selectedPartnership}
-                  onSelect={setSelectedPartnershipId}
-                  onRefresh={refresh}
+              <aside className="space-y-4">
+                <PartnershipPicker
+                  setup={setup}
+                  selectedPartnershipId={selectedPartnershipId}
+                  onSelect={(partnershipId) => updateRouteState(partnershipId, 'details')}
                 />
+                <StepRail
+                  activeStep={activeStep}
+                  selectedPartnership={selectedPartnership}
+                  stepCounts={stepCounts}
+                  onStepChange={(step) => updateRouteState(selectedPartnershipId, step)}
+                />
+                <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                  <div className="font-medium text-foreground">Related setup</div>
+                  <div className="mt-3 grid gap-2">
+                    <Button asChild variant="outline" size="sm" className="justify-start">
+                      <Link to="/admin/partner-records">Open Partner Records</Link>
+                    </Button>
+                    <Button asChild variant="outline" size="sm" className="justify-start">
+                      <Link to="/admin/machines">Open Machines</Link>
+                    </Button>
+                  </div>
+                </div>
+              </aside>
 
-                {selectedPartnership ? (
-                  <>
+              <main>
+                <StepHeader
+                  activeStep={activeStep}
+                  selectedPartnership={selectedPartnership}
+                  onNew={() => updateRouteState('', 'details')}
+                />
+                <div className="mt-4">
+                  {activeStep === 'details' && (
+                    <PartnershipDetailsSection
+                      selectedPartnership={selectedPartnership}
+                      onSaved={(partnershipId) => updateRouteState(partnershipId, 'participants')}
+                      onRefresh={refresh}
+                    />
+                  )}
+                  {activeStep === 'participants' && selectedPartnership && (
                     <ParticipantsSection
                       setup={setup}
                       selectedPartnership={selectedPartnership}
                       onRefresh={refresh}
                     />
+                  )}
+                  {activeStep === 'machines' && selectedPartnership && (
                     <MachineAssignmentsSection
                       setup={setup}
                       selectedPartnership={selectedPartnership}
                       onRefresh={refresh}
                     />
-                    <MachineTaxSection
-                      setup={setup}
-                      selectedPartnership={selectedPartnership}
-                      onRefresh={refresh}
-                    />
+                  )}
+                  {activeStep === 'terms' && selectedPartnership && (
                     <FinancialTermsSection
                       setup={setup}
                       selectedPartnership={selectedPartnership}
                       onRefresh={refresh}
                     />
+                  )}
+                  {activeStep === 'preview' && selectedPartnership && (
                     <WeeklyPreviewSection selectedPartnership={selectedPartnership} />
-                  </>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
-                    Create or select a partnership to manage participants, machines, tax setup,
-                    financial terms, and weekly preview in one workflow.
-                  </div>
-                )}
-              </div>
+                  )}
+                  {activeStep !== 'details' && !selectedPartnership && (
+                    <EmptyState text="Create or select a partnership before continuing the setup flow." />
+                  )}
+                </div>
+              </main>
             </div>
           )}
         </div>
@@ -344,203 +318,130 @@ function PartnershipPicker({
   onSelect: (partnershipId: string) => void;
 }) {
   return (
-    <aside className="space-y-4">
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-foreground">Partnerships</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Select one setup workspace.
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => onSelect('')}>
-            New
-          </Button>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-foreground">Partnerships</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Choose the agreement to configure.</p>
         </div>
-
-        <div className="mt-4 space-y-2">
-          {setup.partnerships.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-              No partnerships yet.
-            </div>
-          ) : (
-            setup.partnerships.map((partnership) => {
-              const isSelected = selectedPartnershipId === partnership.id;
-
-              return (
-                <button
-                  key={partnership.id}
-                  type="button"
-                  onClick={() => onSelect(partnership.id)}
-                  className={`w-full rounded-md border px-3 py-3 text-left text-sm transition-colors ${
-                    isSelected
-                      ? 'border-primary/40 bg-primary/10 text-primary'
-                      : 'border-border bg-background text-foreground hover:bg-muted/40'
-                  }`}
-                >
-                  <div className="font-medium">{partnership.name}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {formatLabel(partnership.partnership_type)} / {partnership.status}
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
+        <Button variant="outline" size="sm" onClick={() => onSelect('')}>
+          New
+        </Button>
       </div>
 
-      <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-        Partnership setup now keeps participants, machine assignments, tax rates, financial terms,
-        and preview together. Report delivery recipients still live in Reporting Operations.
-      </div>
-    </aside>
-  );
-}
-
-function FieldSelect({
-  id,
-  value,
-  onChange,
-  options,
-}: {
-  id: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: string[];
-}) {
-  return (
-    <select
-      id={id}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-    >
-      {options.map((option) => (
-        <option key={option} value={option}>
-          {option.replaceAll('_', ' ')}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function PartnerRecordsSection({
-  setup,
-  onRefresh,
-}: {
-  setup: PartnershipReportingSetup;
-  onRefresh: () => Promise<unknown>;
-}) {
-  const [form, setForm] = useState(emptyPartnerForm);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const editPartner = (partner: ReportingPartner) => {
-    setForm({
-      partnerId: partner.id,
-      name: partner.name,
-      partnerType: partner.partner_type,
-      primaryContactName: partner.primary_contact_name ?? '',
-      primaryContactEmail: partner.primary_contact_email ?? '',
-      status: partner.status,
-      notes: partner.notes ?? '',
-      reason: 'Partner setup update',
-    });
-  };
-
-  const savePartner = async () => {
-    if (!form.name.trim() || !form.reason.trim()) {
-      toast.error('Partner name and reason are required.');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      await upsertReportingPartnerAdmin(form);
-      toast.success(form.partnerId ? 'Partner updated.' : 'Partner created.');
-      setForm(emptyPartnerForm);
-      await onRefresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save partner.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
-      <div className="rounded-lg border border-border bg-card p-5">
-        <h2 className="font-semibold text-foreground">
-          {form.partnerId ? 'Edit Partner Record' : 'Create Partner Record'}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Create reusable organizations or contacts before adding them as participants.
-        </p>
-        <div className="mt-4 space-y-3">
-          <div>
-            <Label htmlFor="partner-name">Partner name</Label>
-            <Input id="partner-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="partner-type">Partner type</Label>
-            <FieldSelect id="partner-type" value={form.partnerType} onChange={(value) => setForm({ ...form, partnerType: value })} options={partnerTypes} />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="partner-contact-name">Primary contact</Label>
-              <Input id="partner-contact-name" value={form.primaryContactName} onChange={(event) => setForm({ ...form, primaryContactName: event.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="partner-contact-email">Contact email</Label>
-              <Input id="partner-contact-email" type="email" value={form.primaryContactEmail} onChange={(event) => setForm({ ...form, primaryContactEmail: event.target.value })} />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="partner-status">Status</Label>
-            <FieldSelect id="partner-status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={statuses} />
-          </div>
-          <div>
-            <Label htmlFor="partner-notes">Notes</Label>
-            <Textarea id="partner-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="partner-reason">Reason</Label>
-            <Input id="partner-reason" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={savePartner} disabled={isSaving}>
-              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Save Partner Record
-            </Button>
-            {form.partnerId && (
-              <Button variant="outline" onClick={() => setForm(emptyPartnerForm)}>
-                New Partner
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-border bg-card">
-        <ListHeader title="Partner Records" count={setup.partners.length} />
-        {setup.partners.length === 0 ? (
-          <EmptyRow text="No partner records yet." />
+      <div className="mt-4 space-y-2">
+        {setup.partnerships.length === 0 ? (
+          <EmptyState text="No partnerships yet." />
         ) : (
-          setup.partners.map((partner) => (
-            <Row key={partner.id}>
-              <div>
-                <div className="font-medium text-foreground">{partner.name}</div>
+          setup.partnerships.map((partnership) => {
+            const isSelected = selectedPartnershipId === partnership.id;
+
+            return (
+              <button
+                key={partnership.id}
+                type="button"
+                onClick={() => onSelect(partnership.id)}
+                className={`w-full rounded-md border px-3 py-3 text-left text-sm transition-colors ${
+                  isSelected
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border bg-background text-foreground hover:bg-muted/40'
+                }`}
+              >
+                <div className="font-medium">{partnership.name}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {partner.partner_type.replaceAll('_', ' ')} / {partner.primary_contact_email ?? 'no contact email'}
+                  {formatLabel(partnership.partnership_type)} / {partnership.status}
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={partner.status === 'active' ? 'default' : 'outline'}>{partner.status}</Badge>
-                <Button variant="outline" size="sm" onClick={() => editPartner(partner)}>
-                  Edit
-                </Button>
-              </div>
-            </Row>
-          ))
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StepRail({
+  activeStep,
+  selectedPartnership,
+  stepCounts,
+  onStepChange,
+}: {
+  activeStep: PartnershipStep;
+  selectedPartnership: ReportingPartnership | null;
+  stepCounts: { participants: number; machines: number; terms: number };
+  onStepChange: (step: PartnershipStep) => void;
+}) {
+  const countByStep: Partial<Record<PartnershipStep, number>> = {
+    participants: stepCounts.participants,
+    machines: stepCounts.machines,
+    terms: stepCounts.terms,
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <h2 className="font-semibold text-foreground">Setup flow</h2>
+      <div className="mt-4 space-y-2">
+        {steps.map((step, index) => {
+          const isActive = activeStep === step.key;
+          const isDisabled = !selectedPartnership && step.key !== 'details';
+          const count = countByStep[step.key];
+
+          return (
+            <button
+              key={step.key}
+              type="button"
+              disabled={isDisabled}
+              onClick={() => onStepChange(step.key)}
+              className={`flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors ${
+                isActive
+                  ? 'border-primary/40 bg-primary/10'
+                  : 'border-border bg-background hover:bg-muted/40'
+              } ${isDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
+            >
+              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
+                {index + 1}
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  {step.label}
+                  {typeof count === 'number' && <Badge variant="outline">{count}</Badge>}
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">{step.description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StepHeader({
+  activeStep,
+  selectedPartnership,
+  onNew,
+}: {
+  activeStep: PartnershipStep;
+  selectedPartnership: ReportingPartnership | null;
+  onNew: () => void;
+}) {
+  const step = steps.find((candidate) => candidate.key === activeStep) ?? steps[0];
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            {selectedPartnership ? selectedPartnership.name : 'New partnership'}
+          </div>
+          <h2 className="mt-2 font-display text-2xl font-bold text-foreground">{step.label}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
+        </div>
+        {selectedPartnership && (
+          <Button variant="outline" size="sm" onClick={onNew}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Partnership
+          </Button>
         )}
       </div>
     </div>
@@ -549,11 +450,11 @@ function PartnerRecordsSection({
 
 function PartnershipDetailsSection({
   selectedPartnership,
-  onSelect,
+  onSaved,
   onRefresh,
 }: {
   selectedPartnership: ReportingPartnership | null;
-  onSelect: (partnershipId: string) => void;
+  onSaved: (partnershipId: string) => void;
   onRefresh: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyPartnershipForm);
@@ -575,13 +476,12 @@ function PartnershipDetailsSection({
       effectiveEndDate: selectedPartnership.effective_end_date ?? '',
       status: selectedPartnership.status,
       notes: selectedPartnership.notes ?? '',
-      reason: 'Partnership setup update',
     });
   }, [selectedPartnership]);
 
   const savePartnership = async () => {
-    if (!form.name.trim() || !form.effectiveStartDate || !form.reason.trim()) {
-      toast.error('Partnership name, effective start date, and reason are required.');
+    if (!form.name.trim() || !form.effectiveStartDate) {
+      toast.error('Partnership name and effective start date are required.');
       return;
     }
 
@@ -590,10 +490,11 @@ function PartnershipDetailsSection({
       const savedPartnership = await upsertReportingPartnershipAdmin({
         ...form,
         reportingWeekEndDay: Number(form.reportingWeekEndDay),
+        reason: form.partnershipId ? 'Partnership details updated' : 'Partnership created',
       });
       toast.success(form.partnershipId ? 'Partnership updated.' : 'Partnership created.');
-      onSelect(savedPartnership.id);
       await onRefresh();
+      onSaved(savedPartnership.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save partnership.');
     } finally {
@@ -602,55 +503,48 @@ function PartnershipDetailsSection({
   };
 
   return (
-    <div className="rounded-lg border border-border bg-card p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-semibold text-foreground">
-            {form.partnershipId ? 'Partnership Details' : 'Create Partnership'}
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            This is the reporting agreement that owns participants, assigned machines, financial
-            terms, and weekly preview.
-          </p>
-        </div>
-        {form.partnershipId && (
-          <Button variant="outline" size="sm" onClick={() => onSelect('')}>
-            New Partnership
-          </Button>
-        )}
-      </div>
-
-      <div className="mt-4 space-y-3">
+    <section className="rounded-lg border border-border bg-card p-5">
+      <div className="grid gap-4 lg:grid-cols-2">
         <div>
           <Label htmlFor="partnership-name">Partnership name</Label>
-          <Input id="partnership-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Bubble Planet Seattle" />
+          <Input
+            id="partnership-name"
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            placeholder="Bubble Planet Seattle"
+          />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="partnership-type">Type</Label>
-            <FieldSelect id="partnership-type" value={form.partnershipType} onChange={(value) => setForm({ ...form, partnershipType: value })} options={partnershipTypes} />
-          </div>
-          <div>
-            <Label htmlFor="partnership-week-end">Week ends</Label>
-            <select
-              id="partnership-week-end"
-              value={form.reportingWeekEndDay}
-              onChange={(event) => setForm({ ...form, reportingWeekEndDay: event.target.value })}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="0">Sunday</option>
-              <option value="1">Monday</option>
-              <option value="2">Tuesday</option>
-              <option value="3">Wednesday</option>
-              <option value="4">Thursday</option>
-              <option value="5">Friday</option>
-              <option value="6">Saturday</option>
-            </select>
-          </div>
+        <div>
+          <Label htmlFor="partnership-type">Type</Label>
+          <FieldSelect
+            id="partnership-type"
+            value={form.partnershipType}
+            onChange={(value) => setForm({ ...form, partnershipType: value })}
+            options={partnershipTypes}
+          />
+        </div>
+        <div>
+          <Label htmlFor="partnership-week-end">Reporting week ends</Label>
+          <select
+            id="partnership-week-end"
+            value={form.reportingWeekEndDay}
+            onChange={(event) => setForm({ ...form, reportingWeekEndDay: event.target.value })}
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+          >
+            {dayNames.map((dayName, index) => (
+              <option key={dayName} value={index}>
+                {dayName}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <Label htmlFor="partnership-timezone">Timezone</Label>
-          <Input id="partnership-timezone" value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} />
+          <Input
+            id="partnership-timezone"
+            value={form.timezone}
+            onChange={(event) => setForm({ ...form, timezone: event.target.value })}
+          />
         </div>
         <DateWindowFields
           startId="partnership-start"
@@ -662,22 +556,27 @@ function PartnershipDetailsSection({
         />
         <div>
           <Label htmlFor="partnership-status">Status</Label>
-          <FieldSelect id="partnership-status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={partnershipStatuses} />
+          <FieldSelect
+            id="partnership-status"
+            value={form.status}
+            onChange={(value) => setForm({ ...form, status: value })}
+            options={partnershipStatuses}
+          />
         </div>
-        <div>
+        <div className="lg:col-span-2">
           <Label htmlFor="partnership-notes">Notes</Label>
-          <Textarea id="partnership-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+          <Textarea
+            id="partnership-notes"
+            value={form.notes}
+            onChange={(event) => setForm({ ...form, notes: event.target.value })}
+          />
         </div>
-        <div>
-          <Label htmlFor="partnership-reason">Reason</Label>
-          <Input id="partnership-reason" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} />
-        </div>
-        <Button onClick={savePartnership} disabled={isSaving}>
-          {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-          Save Partnership
-        </Button>
       </div>
-    </div>
+      <Button className="mt-5" onClick={savePartnership} disabled={isSaving}>
+        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+        {form.partnershipId ? 'Save Details' : 'Create Partnership'}
+      </Button>
+    </section>
   );
 }
 
@@ -690,8 +589,9 @@ function ParticipantsSection({
   selectedPartnership: ReportingPartnership;
   onRefresh: () => Promise<unknown>;
 }) {
-  const [form, setForm] = useState(emptyPartyForm);
+  const [form, setForm] = useState({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
   const [isSaving, setIsSaving] = useState(false);
+  const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false);
 
   const participants = useMemo(
     () => setup.parties.filter((party) => party.partnership_id === selectedPartnership.id),
@@ -699,10 +599,7 @@ function ParticipantsSection({
   );
 
   useEffect(() => {
-    setForm({
-      ...emptyPartyForm,
-      partnershipId: selectedPartnership.id,
-    });
+    setForm({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
   }, [selectedPartnership.id]);
 
   const editParticipant = (party: ReportingPartnershipParty) => {
@@ -711,17 +608,14 @@ function ParticipantsSection({
       partnershipId: party.partnership_id,
       partnerId: party.partner_id,
       partyRole: party.party_role,
-      sharePercent: party.share_basis_points
-        ? percentFromBasisPoints(party.share_basis_points)
-        : '',
+      sharePercent: party.share_basis_points ? percentFromBasisPoints(party.share_basis_points) : '',
       isReportRecipient: party.is_report_recipient,
-      reason: 'Partnership participant update',
     });
   };
 
   const saveParticipant = async () => {
-    if (!form.partnerId || !form.reason.trim()) {
-      toast.error('Partner and reason are required.');
+    if (!form.partnerId) {
+      toast.error('Choose a partner record before saving.');
       return;
     }
 
@@ -732,17 +626,12 @@ function ParticipantsSection({
         partnershipId: selectedPartnership.id,
         partnerId: form.partnerId,
         partyRole: form.partyRole,
-        shareBasisPoints: form.sharePercent.trim()
-          ? basisPointsFromPercent(form.sharePercent)
-          : null,
+        shareBasisPoints: form.sharePercent.trim() ? basisPointsFromPercent(form.sharePercent) : null,
         isReportRecipient: form.isReportRecipient,
-        reason: form.reason,
+        reason: form.partyId ? 'Partnership participant updated' : 'Partnership participant added',
       });
       toast.success(form.partyId ? 'Participant updated.' : 'Participant added.');
-      setForm({
-        ...emptyPartyForm,
-        partnershipId: selectedPartnership.id,
-      });
+      setForm({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
       await onRefresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save participant.');
@@ -753,115 +642,108 @@ function ParticipantsSection({
 
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="font-semibold text-foreground">Participants</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Add every organization that participates in {selectedPartnership.name}. Use report
-          recipient for people who should be considered when schedules are configured.
-        </p>
-      </div>
+      <div className="rounded-lg border border-border bg-card p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="font-semibold text-foreground">
+              {form.partyId ? 'Edit Participant' : 'Add Participant'}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+              Participants are the organizations connected to this partnership. Partner record
+              management lives separately, but you can create a missing record here without leaving
+              the flow.
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/partner-records">Manage Partner Records</Link>
+          </Button>
+        </div>
 
-      <div className="grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
-        <div className="rounded-lg border border-border bg-background p-4">
-          <h3 className="font-medium text-foreground">
-            {form.partyId ? 'Edit Participant' : 'Add Participant'}
-          </h3>
-          <div className="mt-4 space-y-3">
-            <PartnerSelect
-              setup={setup}
-              value={form.partnerId}
-              onChange={(partnerId) => setForm({ ...form, partnerId })}
-              id="participant-partner"
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr_0.6fr]">
+          <PartnerSelectWithAdd
+            setup={setup}
+            value={form.partnerId}
+            onChange={(partnerId) => setForm({ ...form, partnerId })}
+            onAddNew={() => setIsPartnerDialogOpen(true)}
+          />
+          <div>
+            <Label htmlFor="participant-role">Role</Label>
+            <FieldSelect
+              id="participant-role"
+              value={form.partyRole}
+              onChange={(partyRole) => setForm({ ...form, partyRole })}
+              options={participantRoles}
             />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="participant-role">Role</Label>
-                <FieldSelect
-                  id="participant-role"
-                  value={form.partyRole}
-                  onChange={(partyRole) => setForm({ ...form, partyRole })}
-                  options={partyRoles}
-                />
-              </div>
-              <div>
-                <Label htmlFor="participant-share">Share % (optional)</Label>
-                <Input
-                  id="participant-share"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  max={100}
-                  value={form.sharePercent}
-                  onChange={(event) => setForm({ ...form, sharePercent: event.target.value })}
-                />
-              </div>
-            </div>
-            <label className="flex items-center gap-2 rounded-md border border-border p-3 text-sm">
-              <Checkbox
-                checked={form.isReportRecipient}
-                onCheckedChange={(checked) =>
-                  setForm({ ...form, isReportRecipient: Boolean(checked) })
-                }
-              />
-              Report recipient
-            </label>
-            <div>
-              <Label htmlFor="participant-reason">Reason</Label>
-              <Input
-                id="participant-reason"
-                value={form.reason}
-                onChange={(event) => setForm({ ...form, reason: event.target.value })}
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={saveParticipant} disabled={isSaving}>
-                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                Save Participant
-              </Button>
-              {form.partyId && (
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    setForm({
-                      ...emptyPartyForm,
-                      partnershipId: selectedPartnership.id,
-                    })
-                  }
-                >
-                  New Participant
-                </Button>
-              )}
-            </div>
+          </div>
+          <div>
+            <Label htmlFor="participant-share">Share %</Label>
+            <Input
+              id="participant-share"
+              type="number"
+              step="0.01"
+              min={0}
+              max={100}
+              value={form.sharePercent}
+              onChange={(event) => setForm({ ...form, sharePercent: event.target.value })}
+              placeholder="Optional"
+            />
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-background">
-          <ListHeader title="Participants in this Partnership" count={participants.length} />
-          {participants.length === 0 ? (
-            <EmptyRow text="No participants added yet." />
-          ) : (
-            participants.map((party) => (
-              <Row key={party.id}>
-                <div>
-                  <div className="font-medium text-foreground">{party.partner_name}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {formatLabel(party.party_role)} / share{' '}
-                    {party.share_basis_points ? percentFromBasisPoints(party.share_basis_points) : 'n/a'}%
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {party.is_report_recipient && <Badge variant="secondary">Recipient</Badge>}
-                  <Button variant="outline" size="sm" onClick={() => editParticipant(party)}>
-                    Edit
-                  </Button>
-                </div>
-              </Row>
-            ))
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+            <Checkbox
+              checked={form.isReportRecipient}
+              onCheckedChange={(checked) => setForm({ ...form, isReportRecipient: Boolean(checked) })}
+            />
+            Report recipient
+          </label>
+          <Button onClick={saveParticipant} disabled={isSaving}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+            Save Participant
+          </Button>
+          {form.partyId && (
+            <Button
+              variant="outline"
+              onClick={() => setForm({ ...emptyParticipantForm, partnershipId: selectedPartnership.id })}
+            >
+              New Participant
+            </Button>
           )}
         </div>
       </div>
 
-      <PartnerRecordsSection setup={setup} onRefresh={onRefresh} />
+      <div className="rounded-lg border border-border bg-card">
+        <ListHeader title="Participants" count={participants.length} />
+        {participants.length === 0 ? (
+          <EmptyRow text="No participants added yet." />
+        ) : (
+          participants.map((party) => (
+            <Row key={party.id}>
+              <div>
+                <div className="font-medium text-foreground">{party.partner_name}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {formatLabel(party.party_role)} / share{' '}
+                  {party.share_basis_points ? percentFromBasisPoints(party.share_basis_points) : 'n/a'}%
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {party.is_report_recipient && <Badge variant="secondary">Recipient</Badge>}
+                <Button variant="outline" size="sm" onClick={() => editParticipant(party)}>
+                  Edit
+                </Button>
+              </div>
+            </Row>
+          ))
+        )}
+      </div>
+
+      <PartnerRecordDialog
+        open={isPartnerDialogOpen}
+        onOpenChange={setIsPartnerDialogOpen}
+        onCreated={(partner) => setForm((current) => ({ ...current, partnerId: partner.id }))}
+        onRefresh={onRefresh}
+      />
     </section>
   );
 }
@@ -875,40 +757,33 @@ function MachineAssignmentsSection({
   selectedPartnership: ReportingPartnership;
   onRefresh: () => Promise<unknown>;
 }) {
-  const [machineForm, setMachineForm] = useState(emptyMachineForm);
-  const [assignmentForm, setAssignmentForm] = useState(emptyAssignmentForm);
-  const [isSavingMachine, setIsSavingMachine] = useState(false);
-  const [isSavingAssignment, setIsSavingAssignment] = useState(false);
+  const [form, setForm] = useState({ ...emptyAssignmentForm, partnershipId: selectedPartnership.id });
+  const [isSaving, setIsSaving] = useState(false);
 
   const partnershipAssignments = useMemo(
     () =>
-      setup.assignments.filter(
-        (assignment) => assignment.partnership_id === selectedPartnership.id
-      ),
+      setup.assignments.filter((assignment) => assignment.partnership_id === selectedPartnership.id),
     [selectedPartnership.id, setup.assignments]
   );
 
+  const assignedMachineIds = useMemo(
+    () => new Set(partnershipAssignments.map((assignment) => assignment.machine_id)),
+    [partnershipAssignments]
+  );
+
+  const assignmentWarnings = setup.warnings.filter(
+    (warning) =>
+      warning.machineId &&
+      assignedMachineIds.has(warning.machineId) &&
+      warning.warningType === 'overlapping_partnership_assignments'
+  );
+
   useEffect(() => {
-    setAssignmentForm({
-      ...emptyAssignmentForm,
-      partnershipId: selectedPartnership.id,
-    });
+    setForm({ ...emptyAssignmentForm, partnershipId: selectedPartnership.id });
   }, [selectedPartnership.id]);
 
-  const editMachine = (machine: PartnershipReportingSetup['machines'][number]) => {
-    setMachineForm({
-      machineId: machine.id,
-      accountName: machine.account_name,
-      locationName: machine.location_name,
-      machineLabel: machine.machine_label,
-      machineType: machine.machine_type,
-      sunzeMachineId: machine.sunze_machine_id ?? '',
-      reason: 'Machine mapping update',
-    });
-  };
-
   const editAssignment = (assignment: ReportingMachinePartnershipAssignment) => {
-    setAssignmentForm({
+    setForm({
       assignmentId: assignment.id,
       machineId: assignment.machine_id,
       partnershipId: selectedPartnership.id,
@@ -917,480 +792,143 @@ function MachineAssignmentsSection({
       effectiveEndDate: assignment.effective_end_date ?? '',
       status: assignment.status,
       notes: assignment.notes ?? '',
-      reason: 'Machine partnership assignment update',
     });
   };
 
-  const saveMachine = async () => {
-    if (!machineForm.accountName.trim() || !machineForm.locationName.trim() || !machineForm.machineLabel.trim() || !machineForm.reason.trim()) {
-      toast.error('Account, location, machine label, and reason are required.');
-      return;
-    }
-
-    setIsSavingMachine(true);
-    try {
-      await upsertReportingMachineAdmin(machineForm);
-      toast.success(machineForm.machineId ? 'Machine mapping updated.' : 'Machine mapping created.');
-      setMachineForm(emptyMachineForm);
-      await onRefresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save machine mapping.');
-    } finally {
-      setIsSavingMachine(false);
-    }
-  };
-
   const saveAssignment = async () => {
-    if (!assignmentForm.machineId || !assignmentForm.effectiveStartDate || !assignmentForm.reason.trim()) {
-      toast.error('Machine, effective start date, and reason are required.');
+    if (!form.machineId || !form.effectiveStartDate) {
+      toast.error('Machine and effective start date are required.');
       return;
     }
 
-    setIsSavingAssignment(true);
+    setIsSaving(true);
     try {
       await upsertReportingMachineAssignmentAdmin({
-        ...assignmentForm,
+        ...form,
         partnershipId: selectedPartnership.id,
+        reason: form.assignmentId ? 'Machine assignment updated' : 'Machine assigned to partnership',
       });
-      toast.success(assignmentForm.assignmentId ? 'Assignment updated.' : 'Assignment created.');
-      setAssignmentForm({
-        ...emptyAssignmentForm,
-        partnershipId: selectedPartnership.id,
-      });
+      toast.success(form.assignmentId ? 'Assignment updated.' : 'Machine assigned.');
+      setForm({ ...emptyAssignmentForm, partnershipId: selectedPartnership.id });
       await onRefresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save assignment.');
     } finally {
-      setIsSavingAssignment(false);
+      setIsSaving(false);
     }
   };
 
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="font-semibold text-foreground">Assigned Machines</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Map imported machines once, then assign the relevant machines to {selectedPartnership.name}.
-        </p>
-      </div>
+      {assignmentWarnings.length > 0 && <WarningList warnings={assignmentWarnings} />}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-border bg-background p-4">
-          <h3 className="font-medium text-foreground">Reporting Machine Directory</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Assign imported Sunze machines to real reporting account/location names before
-            partnership reporting uses them.
-          </p>
-          <div className="mt-4 space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="machine-account">Account</Label>
-                <Input id="machine-account" value={machineForm.accountName} onChange={(event) => setMachineForm({ ...machineForm, accountName: event.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="machine-location">Location</Label>
-                <Input id="machine-location" value={machineForm.locationName} onChange={(event) => setMachineForm({ ...machineForm, locationName: event.target.value })} />
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="machine-label">Machine label</Label>
-                <Input id="machine-label" value={machineForm.machineLabel} onChange={(event) => setMachineForm({ ...machineForm, machineLabel: event.target.value })} />
-              </div>
-              <div>
-                <Label htmlFor="machine-type">Machine type</Label>
-                <FieldSelect id="machine-type" value={machineForm.machineType} onChange={(value) => setMachineForm({ ...machineForm, machineType: value as ReportingMachineType })} options={machineTypes} />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="sunze-id">Sunze ID</Label>
-              <Input id="sunze-id" value={machineForm.sunzeMachineId} onChange={(event) => setMachineForm({ ...machineForm, sunzeMachineId: event.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="machine-reason">Reason</Label>
-              <Input id="machine-reason" value={machineForm.reason} onChange={(event) => setMachineForm({ ...machineForm, reason: event.target.value })} />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={saveMachine} disabled={isSavingMachine}>
-                {isSavingMachine ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings2 className="mr-2 h-4 w-4" />}
-                Save Machine Mapping
-              </Button>
-              {machineForm.machineId && (
-                <Button variant="outline" onClick={() => setMachineForm(emptyMachineForm)}>
-                  New Mapping
-                </Button>
-              )}
-            </div>
+      <div className="rounded-lg border border-border bg-card p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="font-semibold text-foreground">
+              {form.assignmentId ? 'Edit Machine Assignment' : 'Assign Machine'}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+              Assign existing reporting machines to this partnership. Machine aliases and tax
+              readiness are managed on the Machines page.
+            </p>
           </div>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/machines">Open Machines</Link>
+          </Button>
         </div>
 
-        <div className="rounded-lg border border-border bg-background p-4">
-          <h3 className="font-medium text-foreground">Assign to this Partnership</h3>
-          <div className="mt-4 space-y-3">
-            <MachineSelect setup={setup} value={assignmentForm.machineId} onChange={(machineId) => setAssignmentForm({ ...assignmentForm, machineId })} id="assignment-machine" />
-            <div>
-              <Label htmlFor="assignment-role">Assignment role</Label>
-              <FieldSelect id="assignment-role" value={assignmentForm.assignmentRole} onChange={(value) => setAssignmentForm({ ...assignmentForm, assignmentRole: value })} options={assignmentRoles} />
-            </div>
-            <DateWindowFields
-              startId="assignment-start"
-              endId="assignment-end"
-              startValue={assignmentForm.effectiveStartDate}
-              endValue={assignmentForm.effectiveEndDate}
-              onStartChange={(value) => setAssignmentForm({ ...assignmentForm, effectiveStartDate: value })}
-              onEndChange={(value) => setAssignmentForm({ ...assignmentForm, effectiveEndDate: value })}
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <MachineSelect
+            setup={setup}
+            value={form.machineId}
+            onChange={(machineId) => setForm({ ...form, machineId })}
+            id="assignment-machine"
+          />
+          <div>
+            <Label htmlFor="assignment-role">Assignment role</Label>
+            <FieldSelect
+              id="assignment-role"
+              value={form.assignmentRole}
+              onChange={(assignmentRole) => setForm({ ...form, assignmentRole })}
+              options={assignmentRoles}
             />
-            <div>
-              <Label htmlFor="assignment-status">Status</Label>
-              <FieldSelect id="assignment-status" value={assignmentForm.status} onChange={(value) => setAssignmentForm({ ...assignmentForm, status: value })} options={statuses} />
-            </div>
-            <div>
-              <Label htmlFor="assignment-notes">Notes</Label>
-              <Textarea id="assignment-notes" value={assignmentForm.notes} onChange={(event) => setAssignmentForm({ ...assignmentForm, notes: event.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="assignment-reason">Reason</Label>
-              <Input id="assignment-reason" value={assignmentForm.reason} onChange={(event) => setAssignmentForm({ ...assignmentForm, reason: event.target.value })} />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={saveAssignment} disabled={isSavingAssignment}>
-                {isSavingAssignment ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                Save Assignment
-              </Button>
-              {assignmentForm.assignmentId && (
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    setAssignmentForm({
-                      ...emptyAssignmentForm,
-                      partnershipId: selectedPartnership.id,
-                    })
-                  }
-                >
-                  New Assignment
-                </Button>
-              )}
-            </div>
           </div>
         </div>
-      </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-lg border border-border bg-background">
-          <ListHeader title="Mapped Machines" count={setup.machines.length} />
-          {setup.machines.map((machine) => (
-            <Row key={machine.id}>
-              <div>
-                <div className="font-medium text-foreground">{machine.machine_label}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {machine.account_name} / {machine.location_name} / Sunze: {machine.sunze_machine_id ?? 'n/a'}
-                </div>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => editMachine(machine)}>
-                Edit
-              </Button>
-            </Row>
-          ))}
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_1fr]">
+          <DateWindowFields
+            startId="assignment-start"
+            endId="assignment-end"
+            startValue={form.effectiveStartDate}
+            endValue={form.effectiveEndDate}
+            onStartChange={(value) => setForm({ ...form, effectiveStartDate: value })}
+            onEndChange={(value) => setForm({ ...form, effectiveEndDate: value })}
+          />
+          <div>
+            <Label htmlFor="assignment-status">Status</Label>
+            <FieldSelect
+              id="assignment-status"
+              value={form.status}
+              onChange={(status) => setForm({ ...form, status })}
+              options={statuses}
+            />
+          </div>
+          <div>
+            <Label htmlFor="assignment-notes">Notes</Label>
+            <Input
+              id="assignment-notes"
+              value={form.notes}
+              onChange={(event) => setForm({ ...form, notes: event.target.value })}
+              placeholder="Optional"
+            />
+          </div>
         </div>
-        <div className="rounded-lg border border-border bg-background">
-          <ListHeader title="Machines in this Partnership" count={partnershipAssignments.length} />
-          {partnershipAssignments.length === 0 ? (
-            <EmptyRow text="No machines assigned to this partnership yet." />
-          ) : (
-            partnershipAssignments.map((assignment) => (
-              <Row key={assignment.id}>
-                <div>
-                  <div className="font-medium text-foreground">{assignment.machine_label}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {formatLabel(assignment.assignment_role)} / {formatDate(assignment.effective_start_date)} to {formatDate(assignment.effective_end_date)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={assignment.status === 'active' ? 'default' : 'outline'}>{assignment.status}</Badge>
-                  <Button variant="outline" size="sm" onClick={() => editAssignment(assignment)}>
-                    Edit
-                  </Button>
-                </div>
-              </Row>
-            ))
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button onClick={saveAssignment} disabled={isSaving}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+            Save Assignment
+          </Button>
+          {form.assignmentId && (
+            <Button
+              variant="outline"
+              onClick={() => setForm({ ...emptyAssignmentForm, partnershipId: selectedPartnership.id })}
+            >
+              New Assignment
+            </Button>
           )}
         </div>
       </div>
+
+      <div className="rounded-lg border border-border bg-card">
+        <ListHeader title="Machines in this Partnership" count={partnershipAssignments.length} />
+        {partnershipAssignments.length === 0 ? (
+          <EmptyRow text="No machines assigned to this partnership yet." />
+        ) : (
+          partnershipAssignments.map((assignment) => (
+            <Row key={assignment.id}>
+              <div>
+                <div className="font-medium text-foreground">{assignment.machine_label}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {formatLabel(assignment.assignment_role)} / {formatDate(assignment.effective_start_date)} to{' '}
+                  {formatDate(assignment.effective_end_date)}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={assignment.status === 'active' ? 'default' : 'outline'}>{assignment.status}</Badge>
+                <Button variant="outline" size="sm" onClick={() => editAssignment(assignment)}>
+                  Edit
+                </Button>
+              </div>
+            </Row>
+          ))
+        )}
+      </div>
     </section>
   );
 }
 
-type MachineTaxFilter = 'all' | 'missing' | 'no_tax' | 'configured';
-type MachineTaxSort = 'machine' | 'account' | 'status' | 'latest_sale';
-
-function MachineTaxSection({
-  setup,
-  selectedPartnership,
-  onRefresh,
-}: {
-  setup: PartnershipReportingSetup;
-  selectedPartnership: ReportingPartnership;
-  onRefresh: () => Promise<unknown>;
-}) {
-  const [taxFilter, setTaxFilter] = useState<MachineTaxFilter>('all');
-  const [taxSort, setTaxSort] = useState<MachineTaxSort>('status');
-  const [taxDrafts, setTaxDrafts] = useState<Record<string, string>>({});
-  const [taxReason, setTaxReason] = useState('Current machine tax rate update');
-  const [savingMachineId, setSavingMachineId] = useState<string | null>(null);
-
-  const activeAssignedMachineIds = useMemo(() => {
-    return new Set(
-      setup.assignments
-        .filter(
-          (assignment) =>
-            assignment.partnership_id === selectedPartnership.id &&
-            assignment.status === 'active'
-        )
-        .map((assignment) => assignment.machine_id)
-    );
-  }, [selectedPartnership.id, setup.assignments]);
-
-  const taxRows = useMemo(() => {
-    const currentDate = today();
-
-    return setup.machines
-      .filter((machine) => activeAssignedMachineIds.has(machine.id))
-      .map((machine) => {
-        const taxRate = setup.taxRates
-          .filter(
-            (candidate) =>
-              candidate.machine_id === machine.id &&
-              candidate.status === 'active' &&
-              candidate.effective_start_date <= currentDate &&
-              (!candidate.effective_end_date || candidate.effective_end_date >= currentDate)
-          )
-          .sort((left, right) =>
-            right.effective_start_date.localeCompare(left.effective_start_date)
-          )[0];
-        const numericRate = Number(taxRate?.tax_rate_percent ?? NaN);
-        const taxStatus = !taxRate ? 'missing' : numericRate === 0 ? 'no_tax' : 'configured';
-
-        return {
-          machine,
-          taxRate,
-          taxStatus,
-          draftValue:
-            taxDrafts[machine.id] ??
-            (taxRate ? String(Number(taxRate.tax_rate_percent)) : ''),
-        };
-      })
-      .filter((row) => taxFilter === 'all' || row.taxStatus === taxFilter)
-      .sort((left, right) => {
-        if (taxSort === 'account') {
-          return `${left.machine.account_name} ${left.machine.location_name}`.localeCompare(
-            `${right.machine.account_name} ${right.machine.location_name}`
-          );
-        }
-        if (taxSort === 'latest_sale') {
-          return (right.machine.latest_sale_date ?? '').localeCompare(
-            left.machine.latest_sale_date ?? ''
-          );
-        }
-        if (taxSort === 'status') {
-          return left.taxStatus.localeCompare(right.taxStatus);
-        }
-
-        return left.machine.machine_label.localeCompare(right.machine.machine_label);
-      });
-  }, [activeAssignedMachineIds, setup.machines, setup.taxRates, taxDrafts, taxFilter, taxSort]);
-
-  const saveTaxRate = async (
-    machine: PartnershipReportingSetup['machines'][number],
-    taxRate: ReportingMachineTaxRate | undefined,
-    draftValue: string
-  ) => {
-    const parsedRate = Number(draftValue);
-
-    if (!draftValue.trim() || Number.isNaN(parsedRate) || parsedRate < 0 || parsedRate > 100) {
-      toast.error('Enter a tax rate from 0 to 100. Use 0 for explicit no-tax machines.');
-      return;
-    }
-
-    if (!taxReason.trim()) {
-      toast.error('Reason is required.');
-      return;
-    }
-
-    setSavingMachineId(machine.id);
-    try {
-      await upsertReportingMachineTaxRateAdmin({
-        taxRateId: taxRate?.id ?? null,
-        machineId: machine.id,
-        taxRatePercent: parsedRate,
-        effectiveStartDate: taxRate?.effective_start_date ?? today(),
-        effectiveEndDate: taxRate?.effective_end_date ?? '',
-        status: 'active',
-        notes: taxRate?.notes ?? '',
-        reason: taxReason,
-      });
-      toast.success(`${machine.machine_label} tax rate updated.`);
-      setTaxDrafts((current) => {
-        const next = { ...current };
-        delete next[machine.id];
-        return next;
-      });
-      await onRefresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save machine tax rate.');
-    } finally {
-      setSavingMachineId(null);
-    }
-  };
-
-  return (
-    <section className="rounded-lg border border-border bg-card p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-semibold text-foreground">Current Machine Tax Rates</h2>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Update current tax rates inline for machines assigned to {selectedPartnership.name}.
-            Effective dates stay in the backend for audit/history.
-          </p>
-        </div>
-        <Badge variant="outline">{taxRows.length} shown</Badge>
-      </div>
-
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
-        <div>
-          <Label htmlFor="tax-reason">Reason for tax updates</Label>
-          <Input
-            id="tax-reason"
-            value={taxReason}
-            onChange={(event) => setTaxReason(event.target.value)}
-          />
-        </div>
-        <div>
-          <Label htmlFor="tax-filter">Filter</Label>
-          <select
-            id="tax-filter"
-            value={taxFilter}
-            onChange={(event) => setTaxFilter(event.target.value as MachineTaxFilter)}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="all">All tax states</option>
-            <option value="missing">Missing tax</option>
-            <option value="no_tax">Explicit no tax</option>
-            <option value="configured">Configured tax</option>
-          </select>
-        </div>
-        <div>
-          <Label htmlFor="tax-sort">Sort</Label>
-          <select
-            id="tax-sort"
-            value={taxSort}
-            onChange={(event) => setTaxSort(event.target.value as MachineTaxSort)}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="status">Status</option>
-            <option value="machine">Machine</option>
-            <option value="account">Account/location</option>
-            <option value="latest_sale">Latest sale</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-        <table className="min-w-[900px] w-full divide-y divide-border text-sm">
-          <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-3 py-3 text-left font-semibold">Machine</th>
-              <th className="px-3 py-3 text-left font-semibold">Account / Location</th>
-              <th className="px-3 py-3 text-left font-semibold">Sunze ID</th>
-              <th className="px-3 py-3 text-left font-semibold">Tax status</th>
-              <th className="px-3 py-3 text-left font-semibold">Current rate %</th>
-              <th className="px-3 py-3 text-left font-semibold">Latest sale</th>
-              <th className="px-3 py-3 text-right font-semibold">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border bg-background">
-            {taxRows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
-                  {activeAssignedMachineIds.size === 0
-                    ? 'Assign machines to this partnership before setting tax rates.'
-                    : 'No machines match this tax filter.'}
-                </td>
-              </tr>
-            ) : (
-              taxRows.map(({ machine, taxRate, taxStatus, draftValue }) => (
-                <tr key={machine.id}>
-                  <td className="px-3 py-3 font-medium text-foreground">
-                    {machine.machine_label}
-                  </td>
-                  <td className="px-3 py-3 text-muted-foreground">
-                    {machine.account_name} / {machine.location_name}
-                  </td>
-                  <td className="px-3 py-3 text-muted-foreground">
-                    {machine.sunze_machine_id ?? 'n/a'}
-                  </td>
-                  <td className="px-3 py-3">
-                    <Badge
-                      variant={
-                        taxStatus === 'missing'
-                          ? 'destructive'
-                          : taxStatus === 'no_tax'
-                            ? 'secondary'
-                            : 'default'
-                      }
-                    >
-                      {taxStatus === 'missing'
-                        ? 'Missing'
-                        : taxStatus === 'no_tax'
-                          ? 'No tax'
-                          : 'Configured'}
-                    </Badge>
-                  </td>
-                  <td className="px-3 py-3">
-                    <Input
-                      aria-label={`${machine.machine_label} current tax rate percent`}
-                      type="number"
-                      step="0.0001"
-                      min={0}
-                      max={100}
-                      value={draftValue}
-                      onChange={(event) =>
-                        setTaxDrafts((current) => ({
-                          ...current,
-                          [machine.id]: event.target.value,
-                        }))
-                      }
-                      placeholder="0 or 7.25"
-                      className="w-32"
-                    />
-                  </td>
-                  <td className="px-3 py-3 text-muted-foreground">
-                    {machine.latest_sale_date ?? 'n/a'}
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    <Button
-                      size="sm"
-                      onClick={() => saveTaxRate(machine, taxRate, draftValue)}
-                      disabled={savingMachineId === machine.id}
-                    >
-                      {savingMachineId === machine.id && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      Save
-                    </Button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <p className="mt-3 text-xs text-muted-foreground">
-        A blank row is missing configuration. Enter 0 to mark a machine as intentionally no-tax.
-      </p>
-    </section>
-  );
-}
 function FinancialTermsSection({
   setup,
   selectedPartnership,
@@ -1400,7 +938,7 @@ function FinancialTermsSection({
   selectedPartnership: ReportingPartnership;
   onRefresh: () => Promise<unknown>;
 }) {
-  const [form, setForm] = useState(emptyRuleForm);
+  const [form, setForm] = useState({ ...emptyRuleForm, partnershipId: selectedPartnership.id });
   const [isSaving, setIsSaving] = useState(false);
 
   const financialRules = useMemo(
@@ -1408,11 +946,14 @@ function FinancialTermsSection({
     [selectedPartnership.id, setup.financialRules]
   );
 
+  const financialWarnings = setup.warnings.filter(
+    (warning) =>
+      warning.warningType === 'missing_financial_rule' &&
+      warning.partnershipId === selectedPartnership.id
+  );
+
   useEffect(() => {
-    setForm({
-      ...emptyRuleForm,
-      partnershipId: selectedPartnership.id,
-    });
+    setForm({ ...emptyRuleForm, partnershipId: selectedPartnership.id });
   }, [selectedPartnership.id]);
 
   const editRule = (rule: ReportingPartnershipFinancialRule) => {
@@ -1434,13 +975,12 @@ function FinancialTermsSection({
       effectiveEndDate: rule.effective_end_date ?? '',
       status: rule.status,
       notes: rule.notes ?? '',
-      reason: 'Financial rule update',
     });
   };
 
   const saveRule = async () => {
-    if (!form.effectiveStartDate || !form.reason.trim()) {
-      toast.error('Effective start date and reason are required.');
+    if (!form.effectiveStartDate) {
+      toast.error('Effective start date is required.');
       return;
     }
 
@@ -1454,15 +994,13 @@ function FinancialTermsSection({
         feverShareBasisPoints: basisPointsFromPercent(form.primarySharePercent),
         partnerShareBasisPoints: basisPointsFromPercent(form.partnerSharePercent),
         bloomjoyShareBasisPoints: basisPointsFromPercent(form.bloomjoySharePercent),
+        reason: form.ruleId ? 'Financial terms updated' : 'Financial terms created',
       });
-      toast.success(form.ruleId ? 'Financial rule updated.' : 'Financial rule created.');
-      setForm({
-        ...emptyRuleForm,
-        partnershipId: selectedPartnership.id,
-      });
+      toast.success(form.ruleId ? 'Financial terms updated.' : 'Financial terms created.');
+      setForm({ ...emptyRuleForm, partnershipId: selectedPartnership.id });
       await onRefresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save financial rule.');
+      toast.error(error instanceof Error ? error.message : 'Unable to save financial terms.');
     } finally {
       setIsSaving(false);
     }
@@ -1470,128 +1008,186 @@ function FinancialTermsSection({
 
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="font-semibold text-foreground">Financial Split Terms</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Configure how {selectedPartnership.name} converts sales into payout/share reporting.
-        </p>
-      </div>
+      {financialWarnings.length > 0 && <WarningList warnings={financialWarnings} />}
 
-      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-        <div className="rounded-lg border border-border bg-background p-4">
-          <h3 className="font-medium text-foreground">
-            {form.ruleId ? 'Edit Financial Terms' : 'Create Financial Terms'}
-          </h3>
-        <div className="mt-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="calculation-model">Calculation model</Label>
-              <FieldSelect id="calculation-model" value={form.calculationModel} onChange={(value) => setForm({ ...form, calculationModel: value })} options={calculationModels} />
-            </div>
-            <div>
-              <Label htmlFor="split-base">Split base</Label>
-              <FieldSelect id="split-base" value={form.splitBase} onChange={(value) => setForm({ ...form, splitBase: value })} options={splitBases} />
-            </div>
+      <div className="rounded-lg border border-border bg-card p-5">
+        <h2 className="font-semibold text-foreground">
+          {form.ruleId ? 'Edit Financial Terms' : 'Create Financial Terms'}
+        </h2>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div>
+            <Label htmlFor="calculation-model">Calculation model</Label>
+            <FieldSelect
+              id="calculation-model"
+              value={form.calculationModel}
+              onChange={(calculationModel) => setForm({ ...form, calculationModel })}
+              options={calculationModels}
+            />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="fee-amount">Fee amount</Label>
-              <Input id="fee-amount" type="number" step="0.01" value={form.feeAmountDollars} onChange={(event) => setForm({ ...form, feeAmountDollars: event.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="fee-basis">Fee basis</Label>
-              <FieldSelect id="fee-basis" value={form.feeBasis} onChange={(value) => setForm({ ...form, feeBasis: value })} options={feeBases} />
-            </div>
+          <div>
+            <Label htmlFor="split-base">Split base</Label>
+            <FieldSelect
+              id="split-base"
+              value={form.splitBase}
+              onChange={(splitBase) => setForm({ ...form, splitBase })}
+              options={splitBases}
+            />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="cost-amount">Cost amount</Label>
-              <Input id="cost-amount" type="number" step="0.01" value={form.costAmountDollars} onChange={(event) => setForm({ ...form, costAmountDollars: event.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="cost-basis">Cost basis</Label>
-              <FieldSelect id="cost-basis" value={form.costBasis} onChange={(value) => setForm({ ...form, costBasis: value })} options={costBases} />
-            </div>
+          <div>
+            <Label htmlFor="fee-amount">Fee amount</Label>
+            <Input
+              id="fee-amount"
+              type="number"
+              step="0.01"
+              value={form.feeAmountDollars}
+              onChange={(event) => setForm({ ...form, feeAmountDollars: event.target.value })}
+            />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="fee-basis">Fee basis</Label>
+            <FieldSelect
+              id="fee-basis"
+              value={form.feeBasis}
+              onChange={(feeBasis) => setForm({ ...form, feeBasis })}
+              options={feeBases}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div>
+            <Label htmlFor="primary-share">Primary share %</Label>
+            <Input
+              id="primary-share"
+              type="number"
+              step="0.01"
+              value={form.primarySharePercent}
+              onChange={(event) => setForm({ ...form, primarySharePercent: event.target.value })}
+            />
+          </div>
+          <div>
+            <Label htmlFor="partner-share">Partner share %</Label>
+            <Input
+              id="partner-share"
+              type="number"
+              step="0.01"
+              value={form.partnerSharePercent}
+              onChange={(event) => setForm({ ...form, partnerSharePercent: event.target.value })}
+            />
+          </div>
+          <div>
+            <Label htmlFor="bloomjoy-share">Bloomjoy share %</Label>
+            <Input
+              id="bloomjoy-share"
+              type="number"
+              step="0.01"
+              value={form.bloomjoySharePercent}
+              onChange={(event) => setForm({ ...form, bloomjoySharePercent: event.target.value })}
+            />
+          </div>
+        </div>
+
+        <details className="mt-4 rounded-md border border-border p-4">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">
+            Advanced reporting assumptions
+          </summary>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <div>
               <Label htmlFor="gross-to-net-method">Gross-to-net method</Label>
-              <FieldSelect id="gross-to-net-method" value={form.grossToNetMethod} onChange={(value) => setForm({ ...form, grossToNetMethod: value })} options={grossToNetMethods} />
+              <FieldSelect
+                id="gross-to-net-method"
+                value={form.grossToNetMethod}
+                onChange={(grossToNetMethod) => setForm({ ...form, grossToNetMethod })}
+                options={grossToNetMethods}
+              />
             </div>
             <div>
               <Label htmlFor="deduction-timing">Cost deduction timing</Label>
-              <FieldSelect id="deduction-timing" value={form.deductionTiming} onChange={(value) => setForm({ ...form, deductionTiming: value })} options={deductionTimings} />
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <Label htmlFor="primary-share">Primary share %</Label>
-              <Input id="primary-share" type="number" step="0.01" value={form.primarySharePercent} onChange={(event) => setForm({ ...form, primarySharePercent: event.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="partner-share">Partner %</Label>
-              <Input id="partner-share" type="number" step="0.01" value={form.partnerSharePercent} onChange={(event) => setForm({ ...form, partnerSharePercent: event.target.value })} />
+              <FieldSelect
+                id="deduction-timing"
+                value={form.deductionTiming}
+                onChange={(deductionTiming) => setForm({ ...form, deductionTiming })}
+                options={deductionTimings}
+              />
             </div>
             <div>
-              <Label htmlFor="bloomjoy-share">Bloomjoy %</Label>
-              <Input id="bloomjoy-share" type="number" step="0.01" value={form.bloomjoySharePercent} onChange={(event) => setForm({ ...form, bloomjoySharePercent: event.target.value })} />
+              <Label htmlFor="cost-amount">Cost amount</Label>
+              <Input
+                id="cost-amount"
+                type="number"
+                step="0.01"
+                value={form.costAmountDollars}
+                onChange={(event) => setForm({ ...form, costAmountDollars: event.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="cost-basis">Cost basis</Label>
+              <FieldSelect
+                id="cost-basis"
+                value={form.costBasis}
+                onChange={(costBasis) => setForm({ ...form, costBasis })}
+                options={costBases}
+              />
+            </div>
+            <DateWindowFields
+              startId="rule-start"
+              endId="rule-end"
+              startValue={form.effectiveStartDate}
+              endValue={form.effectiveEndDate}
+              onStartChange={(value) => setForm({ ...form, effectiveStartDate: value })}
+              onEndChange={(value) => setForm({ ...form, effectiveEndDate: value })}
+            />
+            <div>
+              <Label htmlFor="rule-status">Status</Label>
+              <FieldSelect
+                id="rule-status"
+                value={form.status}
+                onChange={(status) => setForm({ ...form, status })}
+                options={partnershipStatuses}
+              />
+            </div>
+            <div>
+              <Label htmlFor="rule-notes">Notes</Label>
+              <Input
+                id="rule-notes"
+                value={form.notes}
+                onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                placeholder="Optional"
+              />
             </div>
           </div>
-          <DateWindowFields
-            startId="rule-start"
-            endId="rule-end"
-            startValue={form.effectiveStartDate}
-            endValue={form.effectiveEndDate}
-            onStartChange={(value) => setForm({ ...form, effectiveStartDate: value })}
-            onEndChange={(value) => setForm({ ...form, effectiveEndDate: value })}
-          />
-          <div>
-            <Label htmlFor="rule-status">Status</Label>
-            <FieldSelect id="rule-status" value={form.status} onChange={(value) => setForm({ ...form, status: value })} options={partnershipStatuses} />
-          </div>
-          <div>
-            <Label htmlFor="rule-notes">Notes</Label>
-            <Textarea id="rule-notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="rule-reason">Reason</Label>
-            <Input id="rule-reason" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={saveRule} disabled={isSaving}>
-              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Save Financial Rule
+        </details>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button onClick={saveRule} disabled={isSaving}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+            Save Financial Terms
+          </Button>
+          {form.ruleId && (
+            <Button
+              variant="outline"
+              onClick={() => setForm({ ...emptyRuleForm, partnershipId: selectedPartnership.id })}
+            >
+              New Terms
             </Button>
-            {form.ruleId && (
-              <Button
-                variant="outline"
-                onClick={() =>
-                  setForm({
-                    ...emptyRuleForm,
-                    partnershipId: selectedPartnership.id,
-                  })
-                }
-              >
-                New Rule
-              </Button>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-background">
-        <ListHeader title="Financial Terms for this Partnership" count={financialRules.length} />
+      <div className="rounded-lg border border-border bg-card">
+        <ListHeader title="Financial Terms" count={financialRules.length} />
         {financialRules.length === 0 ? (
           <EmptyRow text="No financial terms configured." />
         ) : (
           financialRules.map((rule) => (
             <Row key={rule.id}>
               <div>
-                <div className="font-medium text-foreground">
-                  {formatLabel(rule.calculation_model)}
-                </div>
+                <div className="font-medium text-foreground">{formatLabel(rule.calculation_model)}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Fee {formatMoney(rule.fee_amount_cents)} {formatLabel(rule.fee_basis)} / shares primary {percentFromBasisPoints(rule.fever_share_basis_points)}%, partner {percentFromBasisPoints(rule.partner_share_basis_points)}%, Bloomjoy {percentFromBasisPoints(rule.bloomjoy_share_basis_points)}%
+                  Fee {formatMoney(rule.fee_amount_cents)} {formatLabel(rule.fee_basis)} / primary{' '}
+                  {percentFromBasisPoints(rule.fever_share_basis_points)}%, partner{' '}
+                  {percentFromBasisPoints(rule.partner_share_basis_points)}%, Bloomjoy{' '}
+                  {percentFromBasisPoints(rule.bloomjoy_share_basis_points)}%
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1604,17 +1200,14 @@ function FinancialTermsSection({
           ))
         )}
       </div>
-      </div>
     </section>
   );
 }
 
-function WeeklyPreviewSection({
-  selectedPartnership,
-}: {
-  selectedPartnership: ReportingPartnership;
-}) {
-  const [weekEndingDate, setWeekEndingDate] = useState(() => getLastCompletedWeekEndingDate(0));
+function WeeklyPreviewSection({ selectedPartnership }: { selectedPartnership: ReportingPartnership }) {
+  const [weekEndingDate, setWeekEndingDate] = useState(() =>
+    getLastCompletedWeekEndingDate(selectedPartnership.reporting_week_end_day)
+  );
   const [preview, setPreview] = useState<PartnerWeeklyReportPreview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -1629,22 +1222,14 @@ function WeeklyPreviewSection({
       return;
     }
 
-    if (
-      new Date(`${weekEndingDate}T00:00:00`).getDay() !==
-      selectedPartnership.reporting_week_end_day
-    ) {
-      toast.error(
-        `Week ending date must be a ${dayNames[selectedPartnership.reporting_week_end_day]}.`
-      );
+    if (new Date(`${weekEndingDate}T00:00:00`).getDay() !== selectedPartnership.reporting_week_end_day) {
+      toast.error(`Week ending date must be a ${dayNames[selectedPartnership.reporting_week_end_day]}.`);
       return;
     }
 
     setIsLoading(true);
     try {
-      const nextPreview = await previewPartnerWeeklyReportAdmin(
-        selectedPartnership.id,
-        weekEndingDate
-      );
+      const nextPreview = await previewPartnerWeeklyReportAdmin(selectedPartnership.id, weekEndingDate);
       setPreview(nextPreview);
       toast.success('Weekly report preview loaded.');
     } catch (error) {
@@ -1656,18 +1241,16 @@ function WeeklyPreviewSection({
 
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="font-semibold text-foreground">Weekly Preview</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Preview the partnership report before scheduled delivery.
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-border bg-background p-4">
+      <div className="rounded-lg border border-border bg-card p-5">
         <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
           <div>
             <Label htmlFor="week-ending">Week ending</Label>
-            <Input id="week-ending" type="date" value={weekEndingDate} onChange={(event) => setWeekEndingDate(event.target.value)} />
+            <Input
+              id="week-ending"
+              type="date"
+              value={weekEndingDate}
+              onChange={(event) => setWeekEndingDate(event.target.value)}
+            />
             <div className="mt-1 text-xs text-muted-foreground">
               Week ends {dayNames[selectedPartnership.reporting_week_end_day]}
             </div>
@@ -1680,13 +1263,11 @@ function WeeklyPreviewSection({
       </div>
 
       {preview && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           <div className="rounded-lg border border-border bg-card p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="font-semibold text-foreground">
-                  {selectedPartnership?.name ?? 'Partnership'} weekly preview
-                </h2>
+                <h2 className="font-semibold text-foreground">{selectedPartnership.name} weekly preview</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {preview.weekStartDate} through {preview.weekEndingDate}
                 </p>
@@ -1711,11 +1292,7 @@ function WeeklyPreviewSection({
           </div>
 
           {preview.warnings.length > 0 && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-              {preview.warnings.map((warning, index) => (
-                <div key={`${warning.warningType}-${index}`}>{warning.message}</div>
-              ))}
-            </div>
+            <PreviewWarningList warnings={preview.warnings} partnershipId={selectedPartnership.id} />
           )}
 
           <div className="rounded-lg border border-border bg-card">
@@ -1745,31 +1322,174 @@ function WeeklyPreviewSection({
   );
 }
 
-function DateWindowFields({
-  startId,
-  endId,
-  startValue,
-  endValue,
-  onStartChange,
-  onEndChange,
+function PartnerRecordDialog({
+  open,
+  onOpenChange,
+  onCreated,
+  onRefresh,
 }: {
-  startId: string;
-  endId: string;
-  startValue: string;
-  endValue: string;
-  onStartChange: (value: string) => void;
-  onEndChange: (value: string) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (partner: ReportingPartner) => void;
+  onRefresh: () => Promise<unknown>;
+}) {
+  const [form, setForm] = useState(emptyPartnerForm);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const savePartner = async () => {
+    if (!form.name.trim()) {
+      toast.error('Partner record name is required.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const savedPartner = await upsertReportingPartnerAdmin({
+        ...form,
+        reason: 'Partner record created from partnership setup',
+      });
+      toast.success('Partner record created.');
+      setForm(emptyPartnerForm);
+      onCreated(savedPartner);
+      onOpenChange(false);
+      await onRefresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to create partner record.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add Partner Record</DialogTitle>
+          <DialogDescription>
+            Create the minimum reusable record, then continue adding it as a participant.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div>
+            <Label htmlFor="modal-partner-name">Name</Label>
+            <Input
+              id="modal-partner-name"
+              value={form.name}
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
+            />
+          </div>
+          <div>
+            <Label htmlFor="modal-partner-type">Type</Label>
+            <FieldSelect
+              id="modal-partner-type"
+              value={form.partnerType}
+              onChange={(partnerType) => setForm({ ...form, partnerType })}
+              options={partnerTypes}
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="modal-contact-name">Primary contact</Label>
+              <Input
+                id="modal-contact-name"
+                value={form.primaryContactName}
+                onChange={(event) => setForm({ ...form, primaryContactName: event.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="modal-contact-email">Contact email</Label>
+              <Input
+                id="modal-contact-email"
+                type="email"
+                value={form.primaryContactEmail}
+                onChange={(event) => setForm({ ...form, primaryContactEmail: event.target.value })}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="modal-partner-notes">Notes</Label>
+            <Textarea
+              id="modal-partner-notes"
+              value={form.notes}
+              onChange={(event) => setForm({ ...form, notes: event.target.value })}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={savePartner} disabled={isSaving}>
+            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Create and Use
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FieldSelect({
+  id,
+  value,
+  onChange,
+  options,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <div>
-        <Label htmlFor={startId}>Effective start</Label>
-        <Input id={startId} type="date" value={startValue} onChange={(event) => onStartChange(event.target.value)} />
-      </div>
-      <div>
-        <Label htmlFor={endId}>Effective end</Label>
-        <Input id={endId} type="date" value={endValue} onChange={(event) => onEndChange(event.target.value)} />
-      </div>
+    <select
+      id={id}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+    >
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {formatLabel(option)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function PartnerSelectWithAdd({
+  setup,
+  value,
+  onChange,
+  onAddNew,
+}: {
+  setup: PartnershipReportingSetup;
+  value: string;
+  onChange: (partnerId: string) => void;
+  onAddNew: () => void;
+}) {
+  return (
+    <div>
+      <Label htmlFor="participant-partner">Partner record</Label>
+      <select
+        id="participant-partner"
+        value={value}
+        onChange={(event) => {
+          if (event.target.value === '__add_new__') {
+            onAddNew();
+            return;
+          }
+          onChange(event.target.value);
+        }}
+        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+      >
+        <option value="">Select partner record</option>
+        <option value="__add_new__">+ Add new partner record</option>
+        {setup.partners.map((partner) => (
+          <option key={partner.id} value={partner.id}>
+            {partner.name}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -1805,33 +1525,105 @@ function MachineSelect({
   );
 }
 
-function PartnerSelect({
-  setup,
-  value,
-  onChange,
-  id,
+function DateWindowFields({
+  startId,
+  endId,
+  startValue,
+  endValue,
+  onStartChange,
+  onEndChange,
 }: {
-  setup: PartnershipReportingSetup;
-  value: string;
-  onChange: (partnerId: string) => void;
-  id: string;
+  startId: string;
+  endId: string;
+  startValue: string;
+  endValue: string;
+  onStartChange: (value: string) => void;
+  onEndChange: (value: string) => void;
 }) {
   return (
-    <div>
-      <Label htmlFor={id}>Partner</Label>
-      <select
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-      >
-        <option value="">Select partner</option>
-        {setup.partners.map((partner) => (
-          <option key={partner.id} value={partner.id}>
-            {partner.name}
-          </option>
-        ))}
-      </select>
+    <>
+      <div>
+        <Label htmlFor={startId}>Effective start</Label>
+        <Input
+          id={startId}
+          type="date"
+          value={startValue}
+          onChange={(event) => onStartChange(event.target.value)}
+        />
+      </div>
+      <div>
+        <Label htmlFor={endId}>Effective end</Label>
+        <Input
+          id={endId}
+          type="date"
+          value={endValue}
+          onChange={(event) => onEndChange(event.target.value)}
+        />
+      </div>
+    </>
+  );
+}
+
+function WarningList({ warnings }: { warnings: PartnershipReportingSetup['warnings'] }) {
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5" />
+        <div>
+          <h2 className="font-semibold">Needs attention</h2>
+          <div className="mt-2 grid gap-1 text-sm">
+            {warnings.map((warning, index) => (
+              <div key={`${warning.warningType}-${index}`}>{warning.message}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewWarningList({
+  warnings,
+  partnershipId,
+}: {
+  warnings: PartnershipReportingSetup['warnings'];
+  partnershipId: string;
+}) {
+  const getFixLink = (warning: PartnershipReportingSetup['warnings'][number]) => {
+    if (warning.warningType === 'missing_machine_tax_rate') {
+      const machineQuery = warning.machineId ? `&machineId=${encodeURIComponent(warning.machineId)}` : '';
+      return `/admin/machines?tax=missing${machineQuery}`;
+    }
+    if (warning.warningType === 'missing_financial_rule') {
+      return `/admin/partnerships?partnershipId=${encodeURIComponent(partnershipId)}&step=terms`;
+    }
+    if (
+      warning.warningType === 'missing_partnership_assignment' ||
+      warning.warningType === 'overlapping_partnership_assignments'
+    ) {
+      return `/admin/partnerships?partnershipId=${encodeURIComponent(partnershipId)}&step=machines`;
+    }
+    return '';
+  };
+
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+      <div className="font-semibold">Preview warnings</div>
+      <div className="mt-2 grid gap-2">
+        {warnings.map((warning, index) => {
+          const link = getFixLink(warning);
+          return (
+            <div key={`${warning.warningType}-${index}`} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <span>{warning.message}</span>
+              {link && (
+                <Button asChild variant="outline" size="sm">
+                  <Link to={link}>Fix</Link>
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1843,6 +1635,10 @@ function ListHeader({ title, count }: { title: string; count: number }) {
       <Badge variant="outline">{count}</Badge>
     </div>
   );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">{text}</div>;
 }
 
 function EmptyRow({ text }: { text: string }) {

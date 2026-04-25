@@ -27,22 +27,25 @@ Bloomjoy sales reporting will use account/location/machine entitlements that are
 - Keeping sales facts and refund adjustments separate preserves source auditability while allowing gross/net calculations.
 - This keeps browser automation separate from database authority while still allowing daily imports, idempotent writes, and clear failure auditing.
 
-## 2026-04-25 - Admin access and partnership reporting split
+## 2026-04-25 - Admin access and reporting setup split
 Admin permission work and partnership financial setup are separate concerns.
 
 **Canonical admin surfaces**
 - `/admin/access` is the single admin place for users, Plus grants, super-admin roles, audit history, and explicit machine-level reporting visibility.
 - `/admin/reporting` is for reporting operations: schedules, import/sync status, stale-data warnings, and export archive visibility.
-- `/admin/partnerships` is for partner setup, partnership agreements, machine assignments, machine tax rates, and financial rules.
+- `/admin/partner-records` is for reusable external organizations and contacts that can become participants in one or more partnerships.
+- `/admin/machines` is for machine identity, aliases, Sunze mapping, assignment readiness, and current machine tax rates.
+- `/admin/partnerships` is for guided agreement setup: partnership details, participants, assigned machines, financial terms, and weekly preview.
 
 **Canonical partnership model**
 - Reporting visibility remains machine-level only for V1. Partnerships do not grant inherited user access yet.
 - Partnerships group machines for financial reporting, partner report setup, and payout calculations.
 - Tax rates are configured on machines through effective-dated machine tax-rate records, not on partnerships.
 - Partner report calculations resolve the active machine tax rate by machine and sale date before applying partnership financial rules.
-- Admin setup should be partnership-level: partnership details, participants, assigned machines, current machine tax rates, financial split terms, and weekly preview should be managed together.
-- Partnership participants are optional V1 metadata for multi-stakeholder agreements; they should not be exposed as a separate primary admin workflow.
-- Machine tax-rate history stays effective-dated in the backend, but normal admin editing should focus on current machine rates and make explicit no-tax machines distinguishable from missing tax configuration.
+- Admin setup should be task-based rather than forcing every reporting setup concern into Partnerships.
+- Partnership participants are optional V1 metadata for multi-stakeholder agreements. The relationship is managed in the partnership flow, but reusable partner records have their own admin page.
+- Machine tax-rate history stays effective-dated in the backend, but normal admin editing happens from the Machines page and focuses on current machine rates, with explicit no-tax machines distinguishable from missing tax configuration.
+- Setup warnings should appear where an admin can act: machine tax and assignment readiness on Machines, assignment overlap in the partnership Machines step, financial-rule gaps in Financial Terms, and preview-specific issues in Weekly Preview.
 - Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured paid-order fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and defaults to a 60% primary-share / 40% partner-style split when configured that way.
 - Admin UI should use neutral split labels such as primary share, partner share, and Bloomjoy share. Example-specific partner names are not canonical reporting terminology.
 - Weekly partner previews must use the partnership's configured week-ending day. Bubble Planet-style weekly reporting is Monday-Sunday with a Sunday week-ending date.
@@ -51,6 +54,7 @@ Admin permission work and partnership financial setup are separate concerns.
 - Admins think about permissions person-first, while partnership setup is about financial reporting and contractual grouping.
 - Keeping user access machine-level avoids hidden permission inheritance while the reporting feature is still new.
 - Machine-level tax rates reflect real operating differences and keep tax changes auditable over time.
+- Separating Partner Records and Machines reduces partnership setup friction while keeping the common create-new-record path available from the participant dropdown.
 
 ## 2026-04-14 - Training-only operator access grants
 Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.

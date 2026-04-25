@@ -40,6 +40,8 @@ const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const AdminOrders = lazy(() => import("./pages/admin/Orders"));
 const AdminSupport = lazy(() => import("./pages/admin/Support"));
 const AdminAccess = lazy(() => import("./pages/admin/Access"));
+const AdminPartnerRecords = lazy(() => import("./pages/admin/PartnerRecords"));
+const AdminMachines = lazy(() => import("./pages/admin/Machines"));
 const AdminPartnerships = lazy(() => import("./pages/admin/Partnerships"));
 const AdminReporting = lazy(() => import("./pages/admin/Reporting"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -104,6 +106,8 @@ const App = () => (
                     <Route path="/admin/orders" element={<AdminOrders />} />
                     <Route path="/admin/support" element={<AdminSupport />} />
                     <Route path="/admin/access" element={<AdminAccess />} />
+                    <Route path="/admin/partner-records" element={<AdminPartnerRecords />} />
+                    <Route path="/admin/machines" element={<AdminMachines />} />
                     <Route
                       path="/admin/accounts"
                       element={<Navigate to="/admin/access?tab=users" replace />}
