@@ -19,6 +19,8 @@ const supabase =
 
 type SunzeIngestRow = {
   sourceOrderNumber?: unknown;
+  tradeName?: unknown;
+  itemQuantity?: unknown;
   machineCode?: unknown;
   machineName?: unknown;
   orderAmountCents?: unknown;
@@ -43,6 +45,12 @@ type SalesFact = {
   payment_method: string;
   net_sales_cents: number;
   transaction_count: number;
+  source_order_hash: string;
+  source_trade_name: string | null;
+  item_quantity: number;
+  tax_cents: number;
+  source_payment_status: string;
+  payment_time: string;
   source: "sunze_browser";
   source_row_hash: string;
   import_run_id: string;
@@ -180,6 +188,7 @@ const normalizePayloadRows = async (
   for (const [index, row] of rows.entries()) {
     const rowNumber = index + 1;
     const sourceOrderNumber = requiredText(row.sourceOrderNumber, `rows[${rowNumber}].sourceOrderNumber`);
+    const tradeName = sanitizeText(row.tradeName, 500);
     const machineCode = requiredText(row.machineCode, `rows[${rowNumber}].machineCode`);
     const machine = machineBySunzeId.get(machineCode.toLowerCase());
     const saleDate = requiredText(row.saleDate, `rows[${rowNumber}].saleDate`);
@@ -192,6 +201,7 @@ const normalizePayloadRows = async (
       `rows[${rowNumber}].orderAmountCents`
     );
     const taxCents = nonNegativeInteger(row.taxCents ?? 0, `rows[${rowNumber}].taxCents`);
+    const itemQuantity = nonNegativeInteger(row.itemQuantity ?? 1, `rows[${rowNumber}].itemQuantity`);
 
     if (!machine) {
       throw new Error(`Unknown Sunze machine code at row ${rowNumber}. Configure the machine first.`);
@@ -234,11 +244,19 @@ const normalizePayloadRows = async (
       payment_method: paymentMethod,
       net_sales_cents: orderAmountCents,
       transaction_count: 1,
+      source_order_hash: sourceOrderHash,
+      source_trade_name: tradeName || null,
+      item_quantity: itemQuantity,
+      tax_cents: taxCents,
+      source_payment_status: sourceStatus,
+      payment_time: paymentTimeIso,
       source: "sunze_browser",
       source_row_hash: sourceRowHash,
       import_run_id: importRunId,
       raw_payload: {
         source_order_hash: sourceOrderHash,
+        trade_name: tradeName || null,
+        item_quantity: itemQuantity,
         machine_code: machineCode,
         machine_name: sanitizeText(row.machineName, 200),
         payment_method_source: sourcePaymentMethod,

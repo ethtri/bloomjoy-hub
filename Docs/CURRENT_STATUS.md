@@ -11,7 +11,12 @@
 - Sales reporting is being added as a Supabase-backed extension to the existing operator app on branch `agent/sales-reporting-foundation`.
 - This slice adds account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
 - The portal now has `/portal/reports` for entitled users, with date/grain/location/machine/payment filters and on-demand PDF export.
-- Admins now have `/admin/reporting` for reporting machine setup, machine-level access grants, import status visibility, and scheduled partner PDF configuration.
+- Admin access and reporting operations are being split into clearer surfaces:
+  - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
+  - `/admin/partnerships` is the setup area for partners, partnerships, machine assignments, machine-level tax rates, and financial rules.
+  - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
+- Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
+- Tax rates are configured directly on machines with effective dates, not on partnerships.
 - Manual CSV import helpers and sample files are available before production sync is enabled.
 - Sunze browser automation is now implemented as a scheduled GitHub Actions Playwright worker that exports the Orders workbook with the safe `Last 3 Days` preset, deletes the raw workbook after parsing, and sends normalized rows to the locked `sunze-sales-ingest` Edge Function.
 - `Docs/SUNZE_SALES_DISCOVERY.md` records the validated Sunze routes, export headers, payment/status mappings, and remaining open questions without storing credentials or raw order data.

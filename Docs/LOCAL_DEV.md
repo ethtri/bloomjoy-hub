@@ -39,6 +39,7 @@
    - Training experience upgrade migration: `supabase/migrations/202603190001_training_experience_upgrade.sql`
    - Sales reporting foundation migration: `supabase/migrations/202604240001_sales_reporting_foundation.sql`
    - Sales reporting daily automation helpers: `supabase/migrations/202604250001_sales_reporting_daily_automation.sql`
+   - Partner reporting foundation: `supabase/migrations/202604260002_partner_reporting_foundation.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`

@@ -106,6 +106,18 @@ export type AdminReportSchedule = {
   }>;
 };
 
+export type AdminReportViewSnapshot = {
+  id: string;
+  title: string;
+  filters: Record<string, unknown>;
+  summary: Record<string, unknown>;
+  export_storage_path: string | null;
+  export_status: 'pending' | 'ready' | 'failed';
+  error_message: string | null;
+  created_at: string;
+  created_by: string | null;
+};
+
 export type AdminReportingEntitlement = {
   id: string;
   user_id: string;
@@ -127,6 +139,7 @@ export type AdminReportingOverview = {
   machines: AdminReportingMachine[];
   importRuns: AdminReportingImportRun[];
   schedules: AdminReportSchedule[];
+  snapshots: AdminReportViewSnapshot[];
   entitlements: AdminReportingEntitlement[];
 };
 
@@ -422,7 +435,8 @@ export const exportSalesReportPdf = async (
   );
 
 export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverview> => {
-  const [machinesResult, runsResult, schedulesResult, entitlementsResult] = await Promise.all([
+  const [machinesResult, runsResult, schedulesResult, snapshotsResult, entitlementsResult] =
+    await Promise.all([
     supabaseClient
       .from('reporting_machines')
       .select('*, reporting_locations(name, timezone), customer_accounts(name)')
@@ -438,6 +452,11 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       .order('created_at', { ascending: false })
       .limit(10),
     supabaseClient
+      .from('report_view_snapshots')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10),
+    supabaseClient
       .from('reporting_machine_entitlements')
       .select('*, reporting_machines(machine_label), reporting_locations(name), customer_accounts(name)')
       .order('created_at', { ascending: false })
@@ -445,7 +464,11 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
   ]);
 
   const firstError =
-    machinesResult.error || runsResult.error || schedulesResult.error || entitlementsResult.error;
+    machinesResult.error ||
+    runsResult.error ||
+    schedulesResult.error ||
+    snapshotsResult.error ||
+    entitlementsResult.error;
 
   if (firstError) {
     throw new Error(firstError.message || 'Unable to load reporting admin overview.');
@@ -455,6 +478,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     machines: (machinesResult.data ?? []) as AdminReportingMachine[],
     importRuns: (runsResult.data ?? []) as AdminReportingImportRun[],
     schedules: (schedulesResult.data ?? []) as AdminReportSchedule[],
+    snapshots: (snapshotsResult.data ?? []) as AdminReportViewSnapshot[],
     entitlements: (entitlementsResult.data ?? []) as AdminReportingEntitlement[],
   };
 };

@@ -27,6 +27,25 @@ Bloomjoy sales reporting will use account/location/machine entitlements that are
 - Keeping sales facts and refund adjustments separate preserves source auditability while allowing gross/net calculations.
 - This keeps browser automation separate from database authority while still allowing daily imports, idempotent writes, and clear failure auditing.
 
+## 2026-04-25 - Admin access and partnership reporting split
+Admin permission work and partnership financial setup are separate concerns.
+
+**Canonical admin surfaces**
+- `/admin/access` is the single admin place for users, Plus grants, super-admin roles, audit history, and explicit machine-level reporting visibility.
+- `/admin/reporting` is for reporting operations: schedules, import/sync status, stale-data warnings, and export archive visibility.
+- `/admin/partnerships` is for partner setup, partnership agreements, machine assignments, machine tax rates, and financial rules.
+
+**Canonical partnership model**
+- Reporting visibility remains machine-level only for V1. Partnerships do not grant inherited user access yet.
+- Partnerships group machines for financial reporting, partner report setup, and payout calculations.
+- Tax rates are configured on machines through effective-dated machine tax-rate records, not on partnerships.
+- Partner report calculations resolve the active machine tax rate by machine and sale date before applying partnership financial rules.
+
+**Why this choice**
+- Admins think about permissions person-first, while partnership setup is about financial reporting and contractual grouping.
+- Keeping user access machine-level avoids hidden permission inheritance while the reporting feature is still new.
+- Machine-level tax rates reflect real operating differences and keep tax changes auditable over time.
+
 ## 2026-04-14 - Training-only operator access grants
 Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.
 
