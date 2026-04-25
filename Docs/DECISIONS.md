@@ -16,14 +16,16 @@ Bloomjoy sales reporting will use account/location/machine entitlements that are
 - Imports must be idempotent by source and row hash.
 
 **Automation and delivery**
-- V1 uses Supabase Edge Functions for on-demand exports, scheduled partner report delivery, and sync entrypoints.
+- V1 uses Supabase Edge Functions for on-demand exports, scheduled partner report delivery, and locked ingest entrypoints.
+- Daily Sunze extraction runs as a GitHub Actions Playwright worker because the task needs a full browser runtime. The worker receives Sunze credentials plus an ingest token, but never receives the Supabase service-role key.
+- The Sunze worker uses the Orders page `Last 3 Days` preset for daily catch-up, validates the `.xlsx` workbook headers, deletes raw downloads after parsing, and sends normalized rows to `sunze-sales-ingest`.
 - Scheduled partner reports default to the previous Monday-Sunday week and email a private signed PDF link through the existing Resend pattern.
-- Sunze browser automation is intentionally stubbed until a Bloomjoy-owned service account exists and the Sunze login/export flow is validated. The automation must not bypass CAPTCHA, MFA, or Sunze access controls.
+- The automation must not bypass CAPTCHA, MFA, or Sunze access controls, and must not open machine-level settings or `More` menus.
 
 **Why this choice**
 - Reporting needs machine-level partner visibility without granting broader customer portal or commerce permissions.
 - Keeping sales facts and refund adjustments separate preserves source auditability while allowing gross/net calculations.
-- This keeps the first milestone useful before Sunze automation credentials are ready.
+- This keeps browser automation separate from database authority while still allowing daily imports, idempotent writes, and clear failure auditing.
 
 ## 2026-04-14 - Training-only operator access grants
 Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.

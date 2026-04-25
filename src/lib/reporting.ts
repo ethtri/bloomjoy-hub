@@ -381,7 +381,7 @@ export const upsertReportingMachineAdmin = async (
 export const grantMachineReportAccessAdmin = async (
   input: GrantMachineReportAccessInput
 ): Promise<AdminReportingEntitlement> => {
-  const { data, error } = await supabaseClient.rpc('admin_grant_machine_report_access', {
+  const { data, error } = await supabaseClient.rpc('admin_grant_reporting_access', {
     p_user_email: input.userEmail,
     p_account_id: input.accountId ?? null,
     p_location_id: input.locationId ?? null,

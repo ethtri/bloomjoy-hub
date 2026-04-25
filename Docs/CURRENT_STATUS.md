@@ -11,7 +11,9 @@
 - This slice adds account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
 - The portal now has `/portal/reports` for entitled users, with date/grain/location/machine/payment filters and on-demand PDF export.
 - Admins now have `/admin/reporting` for reporting machine setup, machine-level access grants, import status visibility, and scheduled partner PDF configuration.
-- Manual CSV import helpers and sample files are available before Sunze credentials exist; Sunze browser sync remains stubbed until the Bloomjoy-owned Sunze service account and report-screen/export shape are validated.
+- Manual CSV import helpers and sample files are available before production sync is enabled.
+- Sunze browser automation is now implemented as a scheduled GitHub Actions Playwright worker that exports the Orders workbook with the safe `Last 3 Days` preset, deletes the raw workbook after parsing, and sends normalized rows to the locked `sunze-sales-ingest` Edge Function.
+- `Docs/SUNZE_SALES_DISCOVERY.md` records the validated Sunze routes, export headers, payment/status mappings, and remaining open questions without storing credentials or raw order data.
 - Google Sheets complaints/refunds ingestion is represented as a server-side adjustment sync stub plus a CSV import helper. Production Sheets API ingestion still depends on confirming the sheet columns and service-account setup.
 - Open overlap to watch: issue `#150` and PR `#151` cover the broader account/entitlement roadmap, while open PR `#143` contains older partner/operator account schema work that may overlap the new `customer_accounts` foundation.
 

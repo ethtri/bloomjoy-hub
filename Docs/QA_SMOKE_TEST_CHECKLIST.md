@@ -165,6 +165,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, location, machine, and cash/credit payment filters
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
+- [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
+- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, parses counts only, deletes the raw workbook, and does not call Supabase ingest
 
 ## Payments (test mode)
 - [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
@@ -233,6 +235,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin can grant machine reporting access to an existing user by email and sees the entitlement in the recent access list
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows recent sales/refund import runs and stale/failed sync status clearly
+- [ ] Failed or stale Sunze ingest runs appear in `/admin/reporting` without changing existing sales facts
 - [ ] Non-admin user cannot access `/admin/audit`
 - [ ] Super-admin user can access `/admin/audit`
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata

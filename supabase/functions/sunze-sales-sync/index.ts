@@ -5,9 +5,6 @@ import { corsHeaders } from "../_shared/cors.ts";
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const schedulerSecret = Deno.env.get("REPORT_SCHEDULER_SECRET");
-const sunzeLoginUrl = Deno.env.get("SUNZE_LOGIN_URL");
-const sunzeEmail = Deno.env.get("SUNZE_REPORTING_EMAIL");
-const sunzePassword = Deno.env.get("SUNZE_REPORTING_PASSWORD");
 
 const supabase =
   supabaseUrl && supabaseServiceRoleKey
@@ -38,14 +35,14 @@ const recordRun = async ({
     .insert({
       source: "sunze_browser",
       status,
-      source_reference: sunzeLoginUrl ?? null,
+      source_reference: "deprecated:sunze-sales-sync",
       rows_seen: 0,
       rows_imported: 0,
       rows_skipped: 0,
       error_message: errorMessage ?? null,
       meta: {
-        automation: "playwright",
-        service_account_configured: Boolean(sunzeLoginUrl && sunzeEmail && sunzePassword),
+        automation: "github-actions-playwright",
+        replacement_function: "sunze-sales-ingest",
       },
       completed_at: new Date().toISOString(),
     })
@@ -82,30 +79,16 @@ serve(async (req) => {
       return jsonResponse({ error: "Sunze sync is not configured." }, 500);
     }
 
-    if (!sunzeLoginUrl || !sunzeEmail || !sunzePassword) {
-      const runId = await recordRun({
-        status: "failed",
-        errorMessage: "Sunze service account credentials are not configured.",
-      });
-      return jsonResponse({
-        status: "not_configured",
-        runId,
-        message: "Sunze service account credentials are required before browser sync can run.",
-      });
-    }
-
     const runId = await recordRun({
       status: "failed",
-      errorMessage:
-        "Sunze browser extraction is intentionally stubbed until the service account flow is validated.",
+      errorMessage: "Sunze browser extraction now runs from GitHub Actions and ingests through sunze-sales-ingest.",
     });
 
     return jsonResponse({
-      status: "stubbed",
+      status: "deprecated",
       runId,
-      message:
-        "Service account settings are present. Implement the Playwright extractor after Sunze screen/export discovery is complete.",
-    });
+      message: "Use the scheduled Sunze Sales Sync GitHub Action instead.",
+    }, 410);
   } catch (error) {
     console.error("sunze-sales-sync error", error);
     return jsonResponse(

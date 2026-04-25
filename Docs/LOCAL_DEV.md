@@ -38,6 +38,7 @@
    - WeChat onboarding support migration: `supabase/migrations/202603100001_wechat_onboarding_support.sql`
    - Training experience upgrade migration: `supabase/migrations/202603190001_training_experience_upgrade.sql`
    - Sales reporting foundation migration: `supabase/migrations/202604240001_sales_reporting_foundation.sql`
+   - Sales reporting daily automation helpers: `supabase/migrations/202604250001_sales_reporting_daily_automation.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
@@ -45,7 +46,7 @@
    - `meta.thumbnail_url` (first-party key in `training-thumbnails` bucket, for example `vimeo/<video_id>.jpg`)
 
 ## Sales reporting import helpers
-Use these before the Sunze service account exists, after the sales reporting migration has been applied.
+Use these after the sales reporting migration has been applied.
 
 1) Ensure your local env includes:
    - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
@@ -56,11 +57,23 @@ Use these before the Sunze service account exists, after the sales reporting mig
 3) Import or dry-run refund/complaint adjustments exported from Google Sheets:
    - `npm run reporting:import-refunds -- --file scripts/sample-refund-adjustments.csv --dry-run`
    - `npm run reporting:import-refunds -- --file path/to/refunds.csv --source-reference <sheet-or-export-id>`
+4) Validate the sanitized Sunze `.xlsx` parser fixture:
+   - `npm run reporting:validate-sunze-parser`
+5) Dry-run the Sunze browser export locally without sending rows to Supabase:
+   - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
+6) In production, run the scheduled GitHub Action with encrypted repository secrets:
+   - `SUNZE_LOGIN_URL`
+   - `SUNZE_REPORTING_EMAIL`
+   - `SUNZE_REPORTING_PASSWORD`
+   - `REPORTING_INGEST_URL`
+   - `REPORTING_INGEST_TOKEN`
 
 Notes:
 - CSV rows must map to configured reporting machines by `machine_id`/`reporting_machine_id` or `sunze_machine_id`.
 - `machine_sales_facts` stores Sunze/manual sales as net sales. `sales_adjustment_facts` stores refunds separately so gross sales can be calculated as net plus refunds.
-- Server-only function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
+- `sunze-sales-ingest` requires `REPORTING_INGEST_TOKEN` and `REPORTING_ROW_HASH_SALT` as Supabase function secrets. The GitHub worker receives only `REPORTING_INGEST_TOKEN`, never the Supabase service-role key.
+- GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
+- Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
 ## Training document upload helper
@@ -211,9 +224,8 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set WECOM_AGENT_SECRET=...`
    - `supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager`
    - `supabase secrets set REPORT_SCHEDULER_SECRET=...`
-   - `supabase secrets set SUNZE_LOGIN_URL=...`
-   - `supabase secrets set SUNZE_REPORTING_EMAIL=...`
-   - `supabase secrets set SUNZE_REPORTING_PASSWORD=...`
+   - `supabase secrets set REPORTING_INGEST_TOKEN=...`
+   - `supabase secrets set REPORTING_ROW_HASH_SALT=...`
    - `supabase secrets set GOOGLE_REFUNDS_SHEET_ID=...`
    - `supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON=...`
    - Ensure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
@@ -231,6 +243,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve sales-report-export --no-verify-jwt`
    - `supabase functions serve sales-report-scheduler --no-verify-jwt`
    - `supabase functions serve sunze-sales-sync --no-verify-jwt`
+   - `supabase functions serve sunze-sales-ingest --no-verify-jwt`
    - `supabase functions serve refund-adjustment-sync --no-verify-jwt`
 5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 

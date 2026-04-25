@@ -31,5 +31,8 @@ verify_jwt = false
 [functions.sunze-sales-sync]
 verify_jwt = false
 
+[functions.sunze-sales-ingest]
+verify_jwt = false
+
 [functions.refund-adjustment-sync]
 verify_jwt = false
