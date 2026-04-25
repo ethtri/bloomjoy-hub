@@ -97,8 +97,8 @@ Help an operator or account owner understand assigned machine performance withou
 - **Empty no machines**: explain that the user has reporting access but no active machines assigned.
 - **Empty no sales**: show selected filters, suggest widening period or clearing filters.
 - **Error**: show a concise retry state and preserve the selected filters.
-- **Stale data**: keep the dashboard visible, but place a warning banner above metrics: `Sales data may be stale. Last successful import was ...`.
-- **Partial data**: show warning chips on affected machines and a detail panel describing missing mappings, missing adjustments, or source sync gaps.
+- **Stale data**: keep the dashboard visible, but show neutral freshness copy such as `Sales data last updated ...`; only admins see remediation details for sync issues.
+- **Partial data**: non-admin users see neutral freshness or availability copy; admins see data-quality warning chips and a detail panel describing missing mappings, missing adjustments, or source sync gaps.
 
 ### Mobile Behavior
 - Header and freshness badges first.
@@ -322,7 +322,7 @@ The PDF should feel like a polished partner settlement and performance report. T
 - Shows assigned-machine performance only for machines the user can access.
 - Includes period controls, date range, grain, location, machine, and payment filters.
 - Shows sales, units/items, trends, machine comparisons, freshness, and export action.
-- Handles no access, no machines, no sales, loading, error, stale, and partial-data states.
+- Handles no access, no machines, no sales, loading, error, stale, and partial-data states without exposing admin warning/remediation controls to non-admin users.
 - Mobile layout keeps the summary, controls, chart, machine rows, and detail rows readable without horizontal page overflow.
 
 ### Partner Dashboard
