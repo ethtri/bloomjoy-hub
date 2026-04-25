@@ -48,6 +48,19 @@ Admin permission work and partnership financial setup are separate concerns.
 - Keeping user access machine-level avoids hidden permission inheritance while the reporting feature is still new.
 - Machine-level tax rates reflect real operating differences and keep tax changes auditable over time.
 
+## 2026-04-25 - Reporting migration repair and schema-cache checks
+Production reporting/admin RPC fixes must move forward through new migrations, not edits to migrations Supabase already marked applied.
+
+**Canonical migration rule**
+- Do not rely on editing an already-applied migration to repair production. Supabase will not replay it.
+- If production is missing tables, RPCs, grants, or function definitions from an already-applied migration, add a later forward-only, idempotent repair migration.
+- Frontend-facing RPC migrations should end with `select pg_notify('pgrst', 'reload schema');` so PostgREST refreshes function metadata.
+- Production validation for admin/reporting RPC changes must include direct REST probes that confirm key RPCs do not return `404` or `PGRST202`.
+
+**Why this choice**
+- The reporting admin outage came from schema drift: production had an older migration version marked applied before the final admin/partnership RPCs existed.
+- Forward repair migrations keep repo history and production history aligned without manual rollback or destructive database operations.
+
 ## 2026-04-14 - Training-only operator access grants
 Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.
 
