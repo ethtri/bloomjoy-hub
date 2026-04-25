@@ -82,7 +82,7 @@ Notes:
 - GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
 - Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
 - Sunze sync controls use optional `SUNZE_EXPECTED_MACHINE_COUNT`, `SUNZE_SYNC_STALE_HOURS=30`, and `SUNZE_REPORTING_TIMEZONE=America/Los_Angeles` by default. The daily sync workflow performs a post-import freshness check, and the separate Sunze health workflow checks again later for missed/stale imports. Set the expected count only after confirming how many machines the workflow Sunze account exposes in the top-level Machine Center; new visible machines are placed in the `/admin/reporting` mapping queue instead of blocking already mapped sales.
-- Admins map newly discovered Sunze IDs from `/admin/reporting`. Pending rows for unmapped machines are quarantined in normalized form and replayed into `machine_sales_facts` after the Sunze ID is mapped to a canonical reporting machine.
+- Admins map newly discovered Sunze IDs from `/admin/reporting`; the current PR flow pre-fills the broader `/admin/partnerships` machine form. Pending rows for unmapped machines are quarantined in normalized form and replayed into `machine_sales_facts` after the Sunze ID is mapped to a canonical reporting machine. Follow-up `#174` tracks a simpler machine-first mapping flow so new Sunze machines do not become recurring engineering blockers.
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
 ## Training document upload helper

@@ -93,9 +93,13 @@ Guidelines:
    - Tighten public page spacing on `/machines`, `/resources`, `/plus`, and `/contact` without changing the global visual system.
    - Improve contact form labels/input semantics, mobile icon-button labels, and product-gallery thumbnail state.
    - Validate the remediated public routes on desktop and common mobile viewport sizes.
+28. **Simplify Sunze machine mapping admin flow** (`#174`)
+   - Add a focused mapping action from `/admin/reporting` for newly discovered Sunze machines.
+   - Keep location/site grouping optional and support multiple machines at the same location.
+   - Let admins assign reporting users during mapping, while keeping partner/tax setup as a separate advanced step.
 
 ## P2 - Ops hardening follow-ups
-28. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
+29. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.
