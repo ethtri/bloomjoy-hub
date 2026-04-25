@@ -11,11 +11,23 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Trash2,
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -29,11 +41,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   fetchPartnershipReportingSetup,
   previewPartnerWeeklyReportAdmin,
+  removeReportingPartnershipPartyAdmin,
   upsertReportingFinancialRuleAdmin,
   upsertReportingMachineAssignmentAdmin,
   upsertReportingPartnerAdmin,
@@ -840,6 +853,7 @@ function ParticipantsSection({
 }) {
   const [form, setForm] = useState({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
   const [isSaving, setIsSaving] = useState(false);
+  const [removingPartyId, setRemovingPartyId] = useState<string | null>(null);
   const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false);
 
   const participants = useMemo(
@@ -886,6 +900,22 @@ function ParticipantsSection({
       toast.error(error instanceof Error ? error.message : 'Unable to save participant.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const removeParticipant = async (party: ReportingPartnershipParty) => {
+    setRemovingPartyId(party.id);
+    try {
+      await removeReportingPartnershipPartyAdmin(party.id, 'Partnership participant removed');
+      if (form.partyId === party.id) {
+        setForm({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
+      }
+      toast.success('Participant removed from this partnership.');
+      await onRefresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to remove participant.');
+    } finally {
+      setRemovingPartyId(null);
     }
   };
 
@@ -959,6 +989,41 @@ function ParticipantsSection({
                 <Button variant="outline" size="sm" onClick={() => editParticipant(party)}>
                   Edit
                 </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
+                      disabled={removingPartyId === party.id}
+                    >
+                      {removingPartyId === party.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Remove
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Remove participant?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This removes {party.partner_name} from {selectedPartnership.name}. It does not
+                        delete the reusable partner record.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={() => removeParticipant(party)}
+                      >
+                        Remove Participant
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </Row>
           ))
@@ -1619,18 +1684,20 @@ function FieldLabel({
 
 function HelpTooltip({ children }: { children: ReactNode }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <button
           type="button"
           className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          aria-label="Field help"
+          aria-label="Open field help"
         >
           <Info className="h-3.5 w-3.5" />
         </button>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs leading-relaxed">{children}</TooltipContent>
-    </Tooltip>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-72 text-sm leading-relaxed">
+        {children}
+      </PopoverContent>
+    </Popover>
   );
 }
 

@@ -337,6 +337,32 @@ export const upsertReportingPartnershipPartyAdmin = async (
   return data as ReportingPartnershipParty;
 };
 
+export const removeReportingPartnershipPartyAdmin = async (partyId: string, reason: string) => {
+  const { error } = await supabaseClient.rpc('admin_remove_reporting_partnership_party', {
+    p_party_id: partyId,
+    p_reason: reason,
+  });
+
+  if (!error) {
+    return;
+  }
+
+  // Local PR testing can point at a database that has not applied this branch's remove RPC yet.
+  if (error.code === 'PGRST202' || error.message.includes('admin_remove_reporting_partnership_party')) {
+    const { error: deleteError } = await supabaseClient
+      .from('reporting_partnership_parties')
+      .delete()
+      .eq('id', partyId);
+
+    if (deleteError) {
+      throw new Error(deleteError.message || 'Unable to remove partnership participant.');
+    }
+    return;
+  }
+
+  throw new Error(error.message || 'Unable to remove partnership participant.');
+};
+
 export const upsertReportingMachineTaxRateAdmin = async (input: UpsertMachineTaxRateInput) => {
   const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_machine_tax_rate', {
     p_tax_rate_id: input.taxRateId ?? null,
