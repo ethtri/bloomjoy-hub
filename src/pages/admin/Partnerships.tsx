@@ -1,7 +1,17 @@
 import { useMemo, useState } from 'react';
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, Plus, RefreshCw } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  Info,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -20,6 +30,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   fetchPartnershipReportingSetup,
   previewPartnerWeeklyReportAdmin,
@@ -30,14 +41,12 @@ import {
   upsertReportingPartnershipPartyAdmin,
   type PartnerWeeklyReportPreview,
   type PartnershipReportingSetup,
-  type ReportingMachinePartnershipAssignment,
   type ReportingPartner,
   type ReportingPartnership,
   type ReportingPartnershipFinancialRule,
   type ReportingPartnershipParty,
 } from '@/lib/partnershipReporting';
 import {
-  assignmentRoles,
   basisPointsFromPercent,
   calculationModels,
   centsFromDollars,
@@ -57,7 +66,6 @@ import {
   partnershipTypes,
   percentFromBasisPoints,
   splitBases,
-  statuses,
   today,
 } from '@/pages/admin/reportingSetupUi';
 
@@ -80,11 +88,25 @@ const steps: Array<{ key: PartnershipStep; label: string; description: string }>
   { key: 'details', label: 'Details', description: 'Name, status, cadence' },
   { key: 'participants', label: 'Participants', description: 'Organizations in the agreement' },
   { key: 'machines', label: 'Machines', description: 'Assign reporting machines' },
-  { key: 'terms', label: 'Financial Terms', description: 'Fees, split model, shares' },
+  { key: 'terms', label: 'Payout Rules', description: 'Fees, model, payout split' },
   { key: 'preview', label: 'Weekly Preview', description: 'Check report output' },
 ];
 
 const validSteps = new Set<PartnershipStep>(steps.map((step) => step.key));
+const stepIndexByKey = new Map<PartnershipStep, number>(
+  steps.map((step, index) => [step.key, index])
+);
+
+const getStepIndex = (step: PartnershipStep) => stepIndexByKey.get(step) ?? 0;
+const getAdjacentStep = (step: PartnershipStep, direction: -1 | 1) => {
+  const nextIndex = Math.min(Math.max(getStepIndex(step) + direction, 0), steps.length - 1);
+  return steps[nextIndex].key;
+};
+
+const getSafeArchiveEndDate = (effectiveStartDate: string) => {
+  const currentDate = today();
+  return effectiveStartDate > currentDate ? effectiveStartDate : currentDate;
+};
 
 const emptyPartnerForm = {
   partnerId: null as string | null,
@@ -117,17 +139,6 @@ const emptyParticipantForm = {
   isReportRecipient: false,
 };
 
-const emptyAssignmentForm = {
-  assignmentId: null as string | null,
-  machineId: '',
-  partnershipId: '',
-  assignmentRole: 'primary_reporting',
-  effectiveStartDate: today(),
-  effectiveEndDate: '',
-  status: 'active',
-  notes: '',
-};
-
 const emptyRuleForm = {
   ruleId: null as string | null,
   partnershipId: '',
@@ -146,6 +157,109 @@ const emptyRuleForm = {
   effectiveEndDate: '',
   status: 'draft',
   notes: '',
+};
+
+const payoutModelPresets = [
+  {
+    value: 'net_after_tax_fee',
+    label: 'Net sales split',
+    description: 'Taxes and the paid-order fee are deducted before splitting payout.',
+  },
+  {
+    value: 'gross_sales_split',
+    label: 'Gross sales split',
+    description: 'Payout share is calculated from gross sales before deductions.',
+  },
+  {
+    value: 'fixed_fee_plus_split',
+    label: 'Fixed fee plus split',
+    description: 'A paid-order fee is applied, then the remaining amount is split.',
+  },
+  {
+    value: 'internal_only',
+    label: 'Bloomjoy internal',
+    description: 'Use when there is no external payout for this partnership.',
+  },
+  {
+    value: 'custom',
+    label: 'Custom',
+    description: 'Advanced fields differ from the standard presets.',
+  },
+] as const;
+
+type PayoutModelPreset = (typeof payoutModelPresets)[number]['value'];
+
+const getPayoutModelPreset = (form: typeof emptyRuleForm): PayoutModelPreset => {
+  if (form.calculationModel === 'internal_only') return 'internal_only';
+  if (form.calculationModel === 'gross_split' && form.splitBase === 'gross_sales') {
+    return 'gross_sales_split';
+  }
+  if (form.calculationModel === 'fixed_fee_plus_split') return 'fixed_fee_plus_split';
+  if (
+    form.calculationModel === 'net_split' &&
+    form.splitBase === 'net_sales' &&
+    form.grossToNetMethod === 'machine_tax_plus_configured_fees'
+  ) {
+    return 'net_after_tax_fee';
+  }
+  return 'custom';
+};
+
+const applyPayoutModelPreset = (
+  form: typeof emptyRuleForm,
+  preset: PayoutModelPreset
+): typeof emptyRuleForm => {
+  if (preset === 'gross_sales_split') {
+    return {
+      ...form,
+      calculationModel: 'gross_split',
+      splitBase: 'gross_sales',
+      feeAmountDollars: '0.00',
+      feeBasis: 'none',
+      costBasis: 'none',
+      costAmountDollars: '0.00',
+      deductionTiming: 'reporting_only',
+    };
+  }
+
+  if (preset === 'fixed_fee_plus_split') {
+    return {
+      ...form,
+      calculationModel: 'fixed_fee_plus_split',
+      splitBase: 'net_sales',
+      feeBasis: 'per_order',
+      grossToNetMethod: 'machine_tax_plus_configured_fees',
+      deductionTiming: 'before_split',
+    };
+  }
+
+  if (preset === 'internal_only') {
+    return {
+      ...form,
+      calculationModel: 'internal_only',
+      splitBase: 'net_sales',
+      feeAmountDollars: '0.00',
+      feeBasis: 'none',
+      costBasis: 'none',
+      costAmountDollars: '0.00',
+      primarySharePercent: '0',
+      partnerSharePercent: '0',
+      bloomjoySharePercent: '100',
+    };
+  }
+
+  if (preset === 'custom') {
+    return form;
+  }
+
+  return {
+    ...form,
+    calculationModel: 'net_split',
+    splitBase: 'net_sales',
+    feeBasis: 'per_order',
+    grossToNetMethod: 'machine_tax_plus_configured_fees',
+    deductionTiming: 'before_split',
+  };
 };
 
 export default function AdminPartnershipsPage() {
@@ -232,7 +346,7 @@ export default function AdminPartnershipsPage() {
             </div>
           ) : (
             <div className="mt-6 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-              <aside className="space-y-4">
+              <aside className="hidden space-y-4 xl:block">
                 <PartnershipPicker
                   setup={setup}
                   selectedPartnershipId={selectedPartnershipId}
@@ -257,7 +371,17 @@ export default function AdminPartnershipsPage() {
                 </div>
               </aside>
 
-              <main>
+              <MobileSetupControls
+                setup={setup}
+                activeStep={activeStep}
+                selectedPartnership={selectedPartnership}
+                selectedPartnershipId={selectedPartnershipId}
+                stepCounts={stepCounts}
+                onSelectPartnership={(partnershipId) => updateRouteState(partnershipId, 'details')}
+                onStepChange={(step) => updateRouteState(selectedPartnershipId, step)}
+              />
+
+              <main className="min-w-0">
                 <StepHeader
                   activeStep={activeStep}
                   selectedPartnership={selectedPartnership}
@@ -299,6 +423,11 @@ export default function AdminPartnershipsPage() {
                     <EmptyState text="Create or select a partnership before continuing the setup flow." />
                   )}
                 </div>
+                <MobileStepFooter
+                  activeStep={activeStep}
+                  selectedPartnership={selectedPartnership}
+                  onStepChange={(step) => updateRouteState(selectedPartnershipId, step)}
+                />
               </main>
             </div>
           )}
@@ -360,6 +489,83 @@ function PartnershipPicker({
   );
 }
 
+function MobileSetupControls({
+  setup,
+  activeStep,
+  selectedPartnership,
+  selectedPartnershipId,
+  stepCounts,
+  onSelectPartnership,
+  onStepChange,
+}: {
+  setup: PartnershipReportingSetup;
+  activeStep: PartnershipStep;
+  selectedPartnership: ReportingPartnership | null;
+  selectedPartnershipId: string;
+  stepCounts: { participants: number; machines: number; terms: number };
+  onSelectPartnership: (partnershipId: string) => void;
+  onStepChange: (step: PartnershipStep) => void;
+}) {
+  const countByStep: Partial<Record<PartnershipStep, number>> = {
+    participants: stepCounts.participants,
+    machines: stepCounts.machines,
+    terms: stepCounts.terms,
+  };
+
+  return (
+    <div className="space-y-3 xl:hidden">
+      <div className="rounded-lg border border-border bg-card p-4">
+        <Label htmlFor="mobile-partnership-picker">Partnership</Label>
+        <select
+          id="mobile-partnership-picker"
+          value={selectedPartnershipId}
+          onChange={(event) => onSelectPartnership(event.target.value)}
+          className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value="">New partnership</option>
+          {setup.partnerships.map((partnership) => (
+            <option key={partnership.id} value={partnership.id}>
+              {partnership.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          Step {getStepIndex(activeStep) + 1} of {steps.length}: {steps[getStepIndex(activeStep)].label}
+        </div>
+        <div className="mt-2 overflow-x-auto pb-1">
+          <div className="flex min-w-max gap-2">
+            {steps.map((step) => {
+              const isActive = step.key === activeStep;
+              const isDisabled = !selectedPartnership && step.key !== 'details';
+              const count = countByStep[step.key];
+
+              return (
+                <button
+                  key={step.key}
+                  type="button"
+                  disabled={isDisabled}
+                  onClick={() => onStepChange(step.key)}
+                  className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border bg-background text-foreground'
+                  } ${isDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
+                >
+                  {step.label}
+                  {typeof count === 'number' && <span className="ml-2 opacity-80">{count}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StepRail({
   activeStep,
   selectedPartnership,
@@ -416,6 +622,48 @@ function StepRail({
   );
 }
 
+function MobileStepFooter({
+  activeStep,
+  selectedPartnership,
+  onStepChange,
+}: {
+  activeStep: PartnershipStep;
+  selectedPartnership: ReportingPartnership | null;
+  onStepChange: (step: PartnershipStep) => void;
+}) {
+  const currentIndex = getStepIndex(activeStep);
+  const previousStep = getAdjacentStep(activeStep, -1);
+  const nextStep = getAdjacentStep(activeStep, 1);
+  const canMoveBack = currentIndex > 0;
+  const canMoveNext = currentIndex < steps.length - 1 && Boolean(selectedPartnership);
+
+  return (
+    <div className="sticky bottom-0 z-20 mt-6 border-t border-border bg-background/95 px-1 py-3 backdrop-blur xl:hidden">
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 flex-1"
+          disabled={!canMoveBack}
+          onClick={() => onStepChange(previousStep)}
+        >
+          <ChevronLeft className="mr-2 h-4 w-4" />
+          Back
+        </Button>
+        <Button
+          type="button"
+          className="h-11 flex-1"
+          disabled={!canMoveNext}
+          onClick={() => onStepChange(nextStep)}
+        >
+          Next
+          <ChevronRight className="ml-2 h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function StepHeader({
   activeStep,
   selectedPartnership,
@@ -426,13 +674,14 @@ function StepHeader({
   onNew: () => void;
 }) {
   const step = steps.find((candidate) => candidate.key === activeStep) ?? steps[0];
+  const stepNumber = getStepIndex(activeStep) + 1;
 
   return (
     <div className="rounded-lg border border-border bg-card p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            {selectedPartnership ? selectedPartnership.name : 'New partnership'}
+            Step {stepNumber} of {steps.length} / {selectedPartnership ? selectedPartnership.name : 'New partnership'}
           </div>
           <h2 className="mt-2 font-display text-2xl font-bold text-foreground">{step.label}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
@@ -650,8 +899,8 @@ function ParticipantsSection({
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               Participants are the organizations connected to this partnership. Partner record
-              management lives separately, but you can create a missing record here without leaving
-              the flow.
+              management lives separately, and payout percentages are configured later in Payout
+              Rules.
             </p>
           </div>
           <Button asChild variant="outline" size="sm">
@@ -659,7 +908,7 @@ function ParticipantsSection({
           </Button>
         </div>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr_0.6fr]">
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <PartnerSelectWithAdd
             setup={setup}
             value={form.partnerId}
@@ -675,29 +924,9 @@ function ParticipantsSection({
               options={participantRoles}
             />
           </div>
-          <div>
-            <Label htmlFor="participant-share">Share %</Label>
-            <Input
-              id="participant-share"
-              type="number"
-              step="0.01"
-              min={0}
-              max={100}
-              value={form.sharePercent}
-              onChange={(event) => setForm({ ...form, sharePercent: event.target.value })}
-              placeholder="Optional"
-            />
-          </div>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-            <Checkbox
-              checked={form.isReportRecipient}
-              onCheckedChange={(checked) => setForm({ ...form, isReportRecipient: Boolean(checked) })}
-            />
-            Report recipient
-          </label>
           <Button onClick={saveParticipant} disabled={isSaving}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Participant
@@ -723,12 +952,10 @@ function ParticipantsSection({
               <div>
                 <div className="font-medium text-foreground">{party.partner_name}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {formatLabel(party.party_role)} / share{' '}
-                  {party.share_basis_points ? percentFromBasisPoints(party.share_basis_points) : 'n/a'}%
+                  {formatLabel(party.party_role)}
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {party.is_report_recipient && <Badge variant="secondary">Recipient</Badge>}
                 <Button variant="outline" size="sm" onClick={() => editParticipant(party)}>
                   Edit
                 </Button>
@@ -757,62 +984,127 @@ function MachineAssignmentsSection({
   selectedPartnership: ReportingPartnership;
   onRefresh: () => Promise<unknown>;
 }) {
-  const [form, setForm] = useState({ ...emptyAssignmentForm, partnershipId: selectedPartnership.id });
+  const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(new Set());
+  const [machineSearch, setMachineSearch] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const partnershipAssignments = useMemo(
+  const activeAssignments = useMemo(
     () =>
-      setup.assignments.filter((assignment) => assignment.partnership_id === selectedPartnership.id),
+      setup.assignments.filter(
+        (assignment) =>
+          assignment.partnership_id === selectedPartnership.id &&
+          assignment.status === 'active'
+      ),
     [selectedPartnership.id, setup.assignments]
   );
 
-  const assignedMachineIds = useMemo(
-    () => new Set(partnershipAssignments.map((assignment) => assignment.machine_id)),
-    [partnershipAssignments]
+  const originalMachineIds = useMemo(
+    () => new Set(activeAssignments.map((assignment) => assignment.machine_id)),
+    [activeAssignments]
   );
 
   const assignmentWarnings = setup.warnings.filter(
     (warning) =>
       warning.machineId &&
-      assignedMachineIds.has(warning.machineId) &&
+      originalMachineIds.has(warning.machineId) &&
       warning.warningType === 'overlapping_partnership_assignments'
   );
 
   useEffect(() => {
-    setForm({ ...emptyAssignmentForm, partnershipId: selectedPartnership.id });
-  }, [selectedPartnership.id]);
+    setSelectedMachineIds(new Set(originalMachineIds));
+  }, [originalMachineIds, selectedPartnership.id]);
 
-  const editAssignment = (assignment: ReportingMachinePartnershipAssignment) => {
-    setForm({
-      assignmentId: assignment.id,
-      machineId: assignment.machine_id,
-      partnershipId: selectedPartnership.id,
-      assignmentRole: assignment.assignment_role,
-      effectiveStartDate: assignment.effective_start_date,
-      effectiveEndDate: assignment.effective_end_date ?? '',
-      status: assignment.status,
-      notes: assignment.notes ?? '',
+  const filteredMachines = useMemo(() => {
+    const normalizedSearch = machineSearch.trim().toLowerCase();
+    if (!normalizedSearch) return setup.machines;
+
+    return setup.machines.filter((machine) =>
+      [
+        machine.machine_label,
+        machine.account_name,
+        machine.location_name,
+        machine.sunze_machine_id ?? '',
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedSearch)
+    );
+  }, [machineSearch, setup.machines]);
+
+  const addedMachineIds = [...selectedMachineIds].filter((machineId) => !originalMachineIds.has(machineId));
+  const removedMachineIds = [...originalMachineIds].filter((machineId) => !selectedMachineIds.has(machineId));
+  const hasChanges = addedMachineIds.length > 0 || removedMachineIds.length > 0;
+
+  const toggleMachine = (machineId: string, checked: boolean) => {
+    setSelectedMachineIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(machineId);
+      } else {
+        next.delete(machineId);
+      }
+      return next;
     });
   };
 
-  const saveAssignment = async () => {
-    if (!form.machineId || !form.effectiveStartDate) {
-      toast.error('Machine and effective start date are required.');
+  const toggleVisibleMachines = (checked: boolean) => {
+    setSelectedMachineIds((current) => {
+      const next = new Set(current);
+      filteredMachines.forEach((machine) => {
+        if (checked) {
+          next.add(machine.id);
+        } else {
+          next.delete(machine.id);
+        }
+      });
+      return next;
+    });
+  };
+
+  const saveMachineAlignment = async () => {
+    if (!hasChanges) {
+      toast.info('No machine assignment changes to save.');
       return;
     }
 
     setIsSaving(true);
     try {
-      await upsertReportingMachineAssignmentAdmin({
-        ...form,
-        partnershipId: selectedPartnership.id,
-        reason: form.assignmentId ? 'Machine assignment updated' : 'Machine assigned to partnership',
-      });
-      toast.success(form.assignmentId ? 'Assignment updated.' : 'Machine assigned.');
-      setForm({ ...emptyAssignmentForm, partnershipId: selectedPartnership.id });
+      for (const machineId of addedMachineIds) {
+        await upsertReportingMachineAssignmentAdmin({
+          assignmentId: null,
+          machineId,
+          partnershipId: selectedPartnership.id,
+          assignmentRole: 'primary_reporting',
+          effectiveStartDate: selectedPartnership.effective_start_date || today(),
+          effectiveEndDate: '',
+          status: 'active',
+          notes: null,
+          reason: 'Partnership machine alignment updated',
+        });
+      }
+
+      const assignmentsToArchive = activeAssignments.filter((assignment) =>
+        removedMachineIds.includes(assignment.machine_id)
+      );
+
+      for (const assignment of assignmentsToArchive) {
+        await upsertReportingMachineAssignmentAdmin({
+          assignmentId: assignment.id,
+          machineId: assignment.machine_id,
+          partnershipId: selectedPartnership.id,
+          assignmentRole: assignment.assignment_role,
+          effectiveStartDate: assignment.effective_start_date,
+          effectiveEndDate: getSafeArchiveEndDate(assignment.effective_start_date),
+          status: 'archived',
+          notes: assignment.notes ?? null,
+          reason: 'Partnership machine alignment updated',
+        });
+      }
+
+      toast.success('Machine alignment saved.');
       await onRefresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save assignment.');
+      toast.error(error instanceof Error ? error.message : 'Unable to save machine alignment.');
     } finally {
       setIsSaving(false);
     }
@@ -825,12 +1117,10 @@ function MachineAssignmentsSection({
       <div className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="font-semibold text-foreground">
-              {form.assignmentId ? 'Edit Machine Assignment' : 'Assign Machine'}
-            </h2>
+            <h2 className="font-semibold text-foreground">Assign Machines</h2>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Assign existing reporting machines to this partnership. Machine aliases and tax
-              readiness are managed on the Machines page.
+              Select every machine that belongs to this partnership, then save once. Dates, status,
+              and assignment role use the normal V1 defaults in the background.
             </p>
           </div>
           <Button asChild variant="outline" size="sm">
@@ -838,92 +1128,81 @@ function MachineAssignmentsSection({
           </Button>
         </div>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-          <MachineSelect
-            setup={setup}
-            value={form.machineId}
-            onChange={(machineId) => setForm({ ...form, machineId })}
-            id="assignment-machine"
-          />
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
           <div>
-            <Label htmlFor="assignment-role">Assignment role</Label>
-            <FieldSelect
-              id="assignment-role"
-              value={form.assignmentRole}
-              onChange={(assignmentRole) => setForm({ ...form, assignmentRole })}
-              options={assignmentRoles}
-            />
+            <Label htmlFor="machine-assignment-search">Find machines</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                id="machine-assignment-search"
+                value={machineSearch}
+                onChange={(event) => setMachineSearch(event.target.value)}
+                className="pl-9"
+                placeholder="Machine, account, location, Sunze ID"
+              />
+            </div>
           </div>
-        </div>
-
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_1fr]">
-          <DateWindowFields
-            startId="assignment-start"
-            endId="assignment-end"
-            startValue={form.effectiveStartDate}
-            endValue={form.effectiveEndDate}
-            onStartChange={(value) => setForm({ ...form, effectiveStartDate: value })}
-            onEndChange={(value) => setForm({ ...form, effectiveEndDate: value })}
-          />
-          <div>
-            <Label htmlFor="assignment-status">Status</Label>
-            <FieldSelect
-              id="assignment-status"
-              value={form.status}
-              onChange={(status) => setForm({ ...form, status })}
-              options={statuses}
-            />
-          </div>
-          <div>
-            <Label htmlFor="assignment-notes">Notes</Label>
-            <Input
-              id="assignment-notes"
-              value={form.notes}
-              onChange={(event) => setForm({ ...form, notes: event.target.value })}
-              placeholder="Optional"
-            />
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button onClick={saveAssignment} disabled={isSaving}>
-            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Save Assignment
+          <Button type="button" variant="outline" onClick={() => toggleVisibleMachines(true)}>
+            Select visible
           </Button>
-          {form.assignmentId && (
-            <Button
-              variant="outline"
-              onClick={() => setForm({ ...emptyAssignmentForm, partnershipId: selectedPartnership.id })}
-            >
-              New Assignment
-            </Button>
-          )}
+          <Button type="button" variant="outline" onClick={() => toggleVisibleMachines(false)}>
+            Clear visible
+          </Button>
         </div>
-      </div>
 
-      <div className="rounded-lg border border-border bg-card">
-        <ListHeader title="Machines in this Partnership" count={partnershipAssignments.length} />
-        {partnershipAssignments.length === 0 ? (
-          <EmptyRow text="No machines assigned to this partnership yet." />
-        ) : (
-          partnershipAssignments.map((assignment) => (
-            <Row key={assignment.id}>
-              <div>
-                <div className="font-medium text-foreground">{assignment.machine_label}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {formatLabel(assignment.assignment_role)} / {formatDate(assignment.effective_start_date)} to{' '}
-                  {formatDate(assignment.effective_end_date)}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={assignment.status === 'active' ? 'default' : 'outline'}>{assignment.status}</Badge>
-                <Button variant="outline" size="sm" onClick={() => editAssignment(assignment)}>
-                  Edit
-                </Button>
-              </div>
-            </Row>
-          ))
-        )}
+        <div className="mt-4 rounded-lg border border-border">
+          <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3 text-sm">
+            <div>
+              <span className="font-medium text-foreground">{selectedMachineIds.size}</span>{' '}
+              <span className="text-muted-foreground">selected</span>
+            </div>
+            {hasChanges && (
+              <Badge variant="secondary">
+                +{addedMachineIds.length} / -{removedMachineIds.length}
+              </Badge>
+            )}
+          </div>
+          <div className="max-h-[520px] divide-y divide-border overflow-y-auto">
+            {filteredMachines.length === 0 ? (
+              <EmptyRow text="No machines match this search." />
+            ) : (
+              filteredMachines.map((machine) => {
+                const checked = selectedMachineIds.has(machine.id);
+
+                return (
+                  <label
+                    key={machine.id}
+                    className="flex cursor-pointer items-start gap-3 px-4 py-4 transition-colors hover:bg-muted/30"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(value) => toggleMachine(machine.id, Boolean(value))}
+                      className="mt-1"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium text-foreground">{machine.machine_label}</span>
+                      <span className="mt-1 block text-sm text-muted-foreground">
+                        {machine.account_name} / {machine.location_name} / Sunze:{' '}
+                        {machine.sunze_machine_id ?? 'n/a'}
+                      </span>
+                    </span>
+                    {checked && <Badge variant="secondary">Assigned</Badge>}
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button onClick={saveMachineAlignment} disabled={isSaving || !hasChanges}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+            Save Machine Alignment
+          </Button>
+          <div className="text-sm text-muted-foreground">
+            New assignments start {formatDate(selectedPartnership.effective_start_date || today())}.
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -940,6 +1219,7 @@ function FinancialTermsSection({
 }) {
   const [form, setForm] = useState({ ...emptyRuleForm, partnershipId: selectedPartnership.id });
   const [isSaving, setIsSaving] = useState(false);
+  const payoutPreset = getPayoutModelPreset(form);
 
   const financialRules = useMemo(
     () => setup.financialRules.filter((rule) => rule.partnership_id === selectedPartnership.id),
@@ -978,6 +1258,18 @@ function FinancialTermsSection({
     });
   };
 
+  const updatePayoutPreset = (preset: PayoutModelPreset) => {
+    setForm((current) => applyPayoutModelPreset(current, preset));
+  };
+
+  const updatePaidOrderFee = (feeAmountDollars: string) => {
+    setForm((current) => ({
+      ...current,
+      feeAmountDollars,
+      feeBasis: Number(feeAmountDollars) > 0 ? 'per_order' : 'none',
+    }));
+  };
+
   const saveRule = async () => {
     if (!form.effectiveStartDate) {
       toast.error('Effective start date is required.');
@@ -994,13 +1286,13 @@ function FinancialTermsSection({
         feverShareBasisPoints: basisPointsFromPercent(form.primarySharePercent),
         partnerShareBasisPoints: basisPointsFromPercent(form.partnerSharePercent),
         bloomjoyShareBasisPoints: basisPointsFromPercent(form.bloomjoySharePercent),
-        reason: form.ruleId ? 'Financial terms updated' : 'Financial terms created',
+        reason: form.ruleId ? 'Payout rules updated' : 'Payout rules created',
       });
-      toast.success(form.ruleId ? 'Financial terms updated.' : 'Financial terms created.');
+      toast.success(form.ruleId ? 'Payout rules updated.' : 'Payout rules created.');
       setForm({ ...emptyRuleForm, partnershipId: selectedPartnership.id });
       await onRefresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save financial terms.');
+      toast.error(error instanceof Error ? error.message : 'Unable to save payout rules.');
     } finally {
       setIsSaving(false);
     }
@@ -1011,52 +1303,64 @@ function FinancialTermsSection({
       {financialWarnings.length > 0 && <WarningList warnings={financialWarnings} />}
 
       <div className="rounded-lg border border-border bg-card p-5">
-        <h2 className="font-semibold text-foreground">
-          {form.ruleId ? 'Edit Financial Terms' : 'Create Financial Terms'}
-        </h2>
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div>
+          <h2 className="font-semibold text-foreground">
+            {form.ruleId ? 'Edit Payout Rules' : 'Create Payout Rules'}
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            Define how weekly sales become payout amounts. Participant records only define who is
+            involved; payout percentages live here.
+          </p>
+        </div>
+
+        <PayoutFlowSummary form={form} />
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
           <div>
-            <Label htmlFor="calculation-model">Calculation model</Label>
-            <FieldSelect
-              id="calculation-model"
-              value={form.calculationModel}
-              onChange={(calculationModel) => setForm({ ...form, calculationModel })}
-              options={calculationModels}
+            <FieldLabel
+              htmlFor="payout-model-preset"
+              label="Payout model"
+              help="Choose the plain-language setup that best matches this agreement. Advanced keeps the underlying reporting fields available when needed."
             />
+            <select
+              id="payout-model-preset"
+              value={payoutPreset}
+              onChange={(event) => updatePayoutPreset(event.target.value as PayoutModelPreset)}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              {payoutModelPresets.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {payoutModelPresets.find((preset) => preset.value === payoutPreset)?.description}
+            </p>
           </div>
           <div>
-            <Label htmlFor="split-base">Split base</Label>
-            <FieldSelect
-              id="split-base"
-              value={form.splitBase}
-              onChange={(splitBase) => setForm({ ...form, splitBase })}
-              options={splitBases}
+            <FieldLabel
+              htmlFor="fee-amount"
+              label="Paid-order fee"
+              help="A per paid-order fee deducted before the split in the standard net-sales payout model. Set to 0 when the agreement has no per-order fee."
             />
-          </div>
-          <div>
-            <Label htmlFor="fee-amount">Fee amount</Label>
             <Input
               id="fee-amount"
               type="number"
               step="0.01"
               value={form.feeAmountDollars}
-              onChange={(event) => setForm({ ...form, feeAmountDollars: event.target.value })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="fee-basis">Fee basis</Label>
-            <FieldSelect
-              id="fee-basis"
-              value={form.feeBasis}
-              onChange={(feeBasis) => setForm({ ...form, feeBasis })}
-              options={feeBases}
+              onChange={(event) => updatePaidOrderFee(event.target.value)}
             />
           </div>
         </div>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <div>
-            <Label htmlFor="primary-share">Primary share %</Label>
+            <FieldLabel
+              htmlFor="primary-share"
+              label="Primary payout share %"
+              help="The main external payout share for the partnership. Use this when one external participant receives the primary payout."
+            />
             <Input
               id="primary-share"
               type="number"
@@ -1066,7 +1370,11 @@ function FinancialTermsSection({
             />
           </div>
           <div>
-            <Label htmlFor="partner-share">Partner share %</Label>
+            <FieldLabel
+              htmlFor="partner-share"
+              label="Partner payout share %"
+              help="Use this for an additional external participant share when the agreement has more than one recipient."
+            />
             <Input
               id="partner-share"
               type="number"
@@ -1076,7 +1384,11 @@ function FinancialTermsSection({
             />
           </div>
           <div>
-            <Label htmlFor="bloomjoy-share">Bloomjoy share %</Label>
+            <FieldLabel
+              htmlFor="bloomjoy-share"
+              label="Bloomjoy retained share %"
+              help="The share retained by Bloomjoy after external payout shares are applied."
+            />
             <Input
               id="bloomjoy-share"
               type="number"
@@ -1093,7 +1405,37 @@ function FinancialTermsSection({
           </summary>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <div>
-              <Label htmlFor="gross-to-net-method">Gross-to-net method</Label>
+              <FieldLabel
+                htmlFor="calculation-model"
+                label="Calculation model"
+                help="The backend calculation mode used by reporting. Most admins should choose the payout model preset instead."
+              />
+              <FieldSelect
+                id="calculation-model"
+                value={form.calculationModel}
+                onChange={(calculationModel) => setForm({ ...form, calculationModel })}
+                options={calculationModels}
+              />
+            </div>
+            <div>
+              <FieldLabel
+                htmlFor="split-base"
+                label="Split base"
+                help="The amount the payout percentages apply to, such as gross sales, net sales, or contribution after costs."
+              />
+              <FieldSelect
+                id="split-base"
+                value={form.splitBase}
+                onChange={(splitBase) => setForm({ ...form, splitBase })}
+                options={splitBases}
+              />
+            </div>
+            <div>
+              <FieldLabel
+                htmlFor="gross-to-net-method"
+                label="Gross-to-net method"
+                help="Controls which tax and fee inputs are removed from gross sales before calculating net sales."
+              />
               <FieldSelect
                 id="gross-to-net-method"
                 value={form.grossToNetMethod}
@@ -1102,7 +1444,24 @@ function FinancialTermsSection({
               />
             </div>
             <div>
-              <Label htmlFor="deduction-timing">Cost deduction timing</Label>
+              <FieldLabel
+                htmlFor="fee-basis"
+                label="Fee basis"
+                help="Controls whether the configured fee is applied per order, per stick, per transaction, or not at all."
+              />
+              <FieldSelect
+                id="fee-basis"
+                value={form.feeBasis}
+                onChange={(feeBasis) => setForm({ ...form, feeBasis })}
+                options={feeBases}
+              />
+            </div>
+            <div>
+              <FieldLabel
+                htmlFor="deduction-timing"
+                label="Cost deduction timing"
+                help="Controls whether additional costs are removed before the split, after the split, or only shown in reporting."
+              />
               <FieldSelect
                 id="deduction-timing"
                 value={form.deductionTiming}
@@ -1111,7 +1470,11 @@ function FinancialTermsSection({
               />
             </div>
             <div>
-              <Label htmlFor="cost-amount">Cost amount</Label>
+              <FieldLabel
+                htmlFor="cost-amount"
+                label="Cost amount"
+                help="Optional cost value used when the agreement has a separate cost basis in addition to fees."
+              />
               <Input
                 id="cost-amount"
                 type="number"
@@ -1121,7 +1484,11 @@ function FinancialTermsSection({
               />
             </div>
             <div>
-              <Label htmlFor="cost-basis">Cost basis</Label>
+              <FieldLabel
+                htmlFor="cost-basis"
+                label="Cost basis"
+                help="Controls how the cost amount is applied. Leave as none when there is no additional cost model."
+              />
               <FieldSelect
                 id="cost-basis"
                 value={form.costBasis}
@@ -1161,23 +1528,23 @@ function FinancialTermsSection({
         <div className="mt-4 flex flex-wrap gap-2">
           <Button onClick={saveRule} disabled={isSaving}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Save Financial Terms
+            Save Payout Rules
           </Button>
           {form.ruleId && (
             <Button
               variant="outline"
               onClick={() => setForm({ ...emptyRuleForm, partnershipId: selectedPartnership.id })}
             >
-              New Terms
+              New Payout Rules
             </Button>
           )}
         </div>
       </div>
 
       <div className="rounded-lg border border-border bg-card">
-        <ListHeader title="Financial Terms" count={financialRules.length} />
+        <ListHeader title="Payout Rules" count={financialRules.length} />
         {financialRules.length === 0 ? (
-          <EmptyRow text="No financial terms configured." />
+          <EmptyRow text="No payout rules configured." />
         ) : (
           financialRules.map((rule) => (
             <Row key={rule.id}>
@@ -1201,6 +1568,69 @@ function FinancialTermsSection({
         )}
       </div>
     </section>
+  );
+}
+
+function PayoutFlowSummary({ form }: { form: typeof emptyRuleForm }) {
+  const paidOrderFee =
+    Number(form.feeAmountDollars) > 0 ? `${formatMoney(centsFromDollars(form.feeAmountDollars))} paid-order fee` : 'no paid-order fee';
+  const splitSummary = `${Number(form.primarySharePercent || 0)}% primary / ${Number(
+    form.partnerSharePercent || 0
+  )}% partner / ${Number(form.bloomjoySharePercent || 0)}% Bloomjoy`;
+
+  return (
+    <div className="mt-5 grid gap-2 text-sm sm:grid-cols-4">
+      <div className="rounded-md border border-border bg-muted/20 p-3">
+        <div className="font-medium text-foreground">Gross sales</div>
+        <div className="mt-1 text-xs text-muted-foreground">Weekly paid orders</div>
+      </div>
+      <div className="rounded-md border border-border bg-muted/20 p-3">
+        <div className="font-medium text-foreground">Taxes and fees</div>
+        <div className="mt-1 text-xs text-muted-foreground">{paidOrderFee}</div>
+      </div>
+      <div className="rounded-md border border-border bg-muted/20 p-3">
+        <div className="font-medium text-foreground">Payout base</div>
+        <div className="mt-1 text-xs text-muted-foreground">{formatLabel(form.splitBase)}</div>
+      </div>
+      <div className="rounded-md border border-border bg-muted/20 p-3">
+        <div className="font-medium text-foreground">Split</div>
+        <div className="mt-1 text-xs text-muted-foreground">{splitSummary}</div>
+      </div>
+    </div>
+  );
+}
+
+function FieldLabel({
+  htmlFor,
+  label,
+  help,
+}: {
+  htmlFor: string;
+  label: string;
+  help: ReactNode;
+}) {
+  return (
+    <div className="mb-2 flex items-center gap-1.5">
+      <Label htmlFor={htmlFor}>{label}</Label>
+      <HelpTooltip>{help}</HelpTooltip>
+    </div>
+  );
+}
+
+function HelpTooltip({ children }: { children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          aria-label="Field help"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs leading-relaxed">{children}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -1487,37 +1917,6 @@ function PartnerSelectWithAdd({
         {setup.partners.map((partner) => (
           <option key={partner.id} value={partner.id}>
             {partner.name}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function MachineSelect({
-  setup,
-  value,
-  onChange,
-  id,
-}: {
-  setup: PartnershipReportingSetup;
-  value: string;
-  onChange: (machineId: string) => void;
-  id: string;
-}) {
-  return (
-    <div>
-      <Label htmlFor={id}>Machine</Label>
-      <select
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-      >
-        <option value="">Select machine</option>
-        {setup.machines.map((machine) => (
-          <option key={machine.id} value={machine.id}>
-            {machine.machine_label} / {machine.account_name} / {machine.location_name}
           </option>
         ))}
       </select>
