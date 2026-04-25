@@ -231,8 +231,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
 - [ ] Non-admin user cannot access `/admin/reporting`
 - [ ] Super-admin user can access `/admin/reporting`
-- [ ] Admin can register or update a reporting machine with account, location, machine label, machine type, Sunze ID, and required reason
-- [ ] Admin can grant machine reporting access to an existing user by email and sees the entitlement in the recent access list
+- [ ] Admin reporting defaults to the Access tab with a people-first machine access matrix
+- [ ] Admin can look up an existing user by email, select multiple machines, save with a reason, and see that person’s machine count update
+- [ ] Admin can revoke one user’s machine access without removing other viewers from the same machine
+- [ ] Super-admin users show all-machine reporting access as read-only with a link to Governance & Audit
+- [ ] Machine Mapping tab flags imported holding-location machines as `Needs mapping`
+- [ ] Admin can update reporting machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows recent sales/refund import runs and stale/failed sync status clearly
 - [ ] Failed or stale Sunze ingest runs appear in `/admin/reporting` without changing existing sales facts

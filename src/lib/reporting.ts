@@ -130,6 +130,102 @@ export type AdminReportingOverview = {
   entitlements: AdminReportingEntitlement[];
 };
 
+export type AdminReportingAccessPerson = {
+  userId: string;
+  userEmail: string | null;
+  isSuperAdmin: boolean;
+  explicitMachineCount: number;
+  inheritedGrantCount: number;
+};
+
+export type AdminReportingAccessMachine = {
+  id: string;
+  accountId: string;
+  accountName: string;
+  locationId: string;
+  locationName: string;
+  machineLabel: string;
+  machineType: ReportingMachineType;
+  sunzeMachineId: string | null;
+  status: string;
+  latestSaleDate: string | null;
+  viewerCount: number;
+  viewers: Array<{
+    userId: string;
+    userEmail: string | null;
+  }>;
+};
+
+export type AdminReportingAccessGrant = {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  accountId: string | null;
+  locationId: string | null;
+  machineId: string | null;
+  accessLevel: ReportingAccessLevel;
+  grantReason: string;
+  startsAt: string;
+  expiresAt: string | null;
+  createdAt: string;
+  scopeType: 'account' | 'location' | 'machine' | 'unknown';
+};
+
+export type AdminReportingAccessMatrix = {
+  people: AdminReportingAccessPerson[];
+  machines: AdminReportingAccessMachine[];
+  grants: AdminReportingAccessGrant[];
+};
+
+type AdminReportingAccessMatrixRpc = {
+  people?: Array<{
+    userId?: string;
+    userEmail?: string | null;
+    isSuperAdmin?: boolean;
+    explicitMachineCount?: number;
+    inheritedGrantCount?: number;
+  }>;
+  machines?: Array<{
+    id?: string;
+    accountId?: string;
+    accountName?: string;
+    locationId?: string;
+    locationName?: string;
+    machineLabel?: string;
+    machineType?: ReportingMachineType;
+    sunzeMachineId?: string | null;
+    status?: string;
+    latestSaleDate?: string | null;
+    viewerCount?: number;
+    viewers?: Array<{
+      userId?: string;
+      userEmail?: string | null;
+    }>;
+  }>;
+  grants?: Array<{
+    id?: string;
+    userId?: string;
+    userEmail?: string | null;
+    accountId?: string | null;
+    locationId?: string | null;
+    machineId?: string | null;
+    accessLevel?: ReportingAccessLevel;
+    grantReason?: string;
+    startsAt?: string;
+    expiresAt?: string | null;
+    createdAt?: string;
+    scopeType?: AdminReportingAccessGrant['scopeType'];
+  }>;
+};
+
+type AdminReportingUserLookupRpc = {
+  user_id: string;
+  user_email: string | null;
+  is_super_admin: boolean | null;
+  explicit_machine_count: number | null;
+  inherited_grant_count: number | null;
+};
+
 type ReportingAccessContextRpc = {
   has_reporting_access: boolean | null;
   accessible_machine_count: number | null;
@@ -199,6 +295,11 @@ type CreateReportScheduleInput = {
   dayOfWeek: number;
   sendHourLocal: number;
   timezone: string;
+};
+
+type RevokeReportingAccessInput = {
+  entitlementId: string;
+  reason: string;
 };
 
 export const emptyReportingAccessContext: ReportingAccessContext = {
@@ -358,6 +459,95 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
   };
 };
 
+const mapAccessMatrix = (
+  record: AdminReportingAccessMatrixRpc | null
+): AdminReportingAccessMatrix => ({
+  people: (record?.people ?? [])
+    .filter((person) => person.userId)
+    .map((person) => ({
+      userId: person.userId as string,
+      userEmail: person.userEmail ?? null,
+      isSuperAdmin: Boolean(person.isSuperAdmin),
+      explicitMachineCount: Number(person.explicitMachineCount ?? 0),
+      inheritedGrantCount: Number(person.inheritedGrantCount ?? 0),
+    })),
+  machines: (record?.machines ?? [])
+    .filter((machine) => machine.id)
+    .map((machine) => ({
+      id: machine.id as string,
+      accountId: machine.accountId ?? '',
+      accountName: machine.accountName ?? 'Unassigned account',
+      locationId: machine.locationId ?? '',
+      locationName: machine.locationName ?? 'Unassigned location',
+      machineLabel: machine.machineLabel ?? 'Unnamed machine',
+      machineType: machine.machineType ?? 'unknown',
+      sunzeMachineId: machine.sunzeMachineId ?? null,
+      status: machine.status ?? 'active',
+      latestSaleDate: machine.latestSaleDate ?? null,
+      viewerCount: Number(machine.viewerCount ?? 0),
+      viewers: (machine.viewers ?? [])
+        .filter((viewer) => viewer.userId)
+        .map((viewer) => ({
+          userId: viewer.userId as string,
+          userEmail: viewer.userEmail ?? null,
+        })),
+    })),
+  grants: (record?.grants ?? [])
+    .filter((grant) => grant.id && grant.userId)
+    .map((grant) => ({
+      id: grant.id as string,
+      userId: grant.userId as string,
+      userEmail: grant.userEmail ?? null,
+      accountId: grant.accountId ?? null,
+      locationId: grant.locationId ?? null,
+      machineId: grant.machineId ?? null,
+      accessLevel: grant.accessLevel ?? 'viewer',
+      grantReason: grant.grantReason ?? 'Sales reporting access',
+      startsAt: grant.startsAt ?? '',
+      expiresAt: grant.expiresAt ?? null,
+      createdAt: grant.createdAt ?? '',
+      scopeType: grant.scopeType ?? 'unknown',
+    })),
+});
+
+export const fetchAdminReportingAccessMatrix = async (): Promise<AdminReportingAccessMatrix> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_reporting_access_matrix');
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load reporting access matrix.');
+  }
+
+  return mapAccessMatrix((data as AdminReportingAccessMatrixRpc | null) ?? null);
+};
+
+export const lookupReportingUserByEmailAdmin = async (
+  userEmail: string
+): Promise<AdminReportingAccessPerson> => {
+  const { data, error } = await supabaseClient.rpc('admin_lookup_reporting_user_by_email', {
+    p_user_email: userEmail.trim(),
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to find reporting user.');
+  }
+
+  const record = Array.isArray(data)
+    ? ((data as AdminReportingUserLookupRpc[])[0] ?? null)
+    : ((data as AdminReportingUserLookupRpc | null) ?? null);
+
+  if (!record?.user_id) {
+    throw new Error(`No user found for ${userEmail.trim()}.`);
+  }
+
+  return {
+    userId: record.user_id,
+    userEmail: record.user_email,
+    isSuperAdmin: Boolean(record.is_super_admin),
+    explicitMachineCount: Number(record.explicit_machine_count ?? 0),
+    inheritedGrantCount: Number(record.inherited_grant_count ?? 0),
+  };
+};
+
 export const upsertReportingMachineAdmin = async (
   input: UpsertReportingMachineInput
 ): Promise<AdminReportingMachine> => {
@@ -392,6 +582,21 @@ export const grantMachineReportAccessAdmin = async (
 
   if (error || !data) {
     throw new Error(error?.message || 'Unable to grant report access.');
+  }
+
+  return data as AdminReportingEntitlement;
+};
+
+export const revokeReportingAccessAdmin = async (
+  input: RevokeReportingAccessInput
+): Promise<AdminReportingEntitlement> => {
+  const { data, error } = await supabaseClient.rpc('admin_revoke_reporting_access', {
+    p_entitlement_id: input.entitlementId,
+    p_reason: input.reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to revoke report access.');
   }
 
   return data as AdminReportingEntitlement;
