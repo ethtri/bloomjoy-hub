@@ -13,6 +13,12 @@
   - Home and `/machines` now present Mini as available now instead of coming soon
   - historical `mini_waitlist_submissions` data remains for ops reference only
 
+## Sunze sales reporting discovery (2026-04-25)
+- Test service-account access was validated from local-only environment variables; credentials remain outside git.
+- Safe Sunze discovery found a reporting extraction path through the Orders `.xlsx` export, plus a Machine Center list that exposes machine IDs for reconciliation.
+- Findings and the recommended read-only automation flow are documented in `Docs/SUNZE_SALES_DISCOVERY.md`.
+- Follow-up validation is still needed for custom-range limits, timezone semantics, refund/refund-status behavior, dashboard volume derivation, and the production Playwright runtime target.
+
 ## Supplies ordering UX simplification (2026-04-14)
 - `/supplies` now guides visitors into one ordering path at a time instead of showing sugar, branded sticks, and custom sticks workflows all at once.
 - The page supports direct links for `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom`.
