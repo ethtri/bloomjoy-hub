@@ -40,7 +40,11 @@ Admin permission work and partnership financial setup are separate concerns.
 - Partnerships group machines for financial reporting, partner report setup, and payout calculations.
 - Tax rates are configured on machines through effective-dated machine tax-rate records, not on partnerships.
 - Partner report calculations resolve the active machine tax rate by machine and sale date before applying partnership financial rules.
-- Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured paid-order fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and defaults to a 60% Fever / 40% partner-style split when configured that way.
+- Admin setup should be partnership-level: partnership details, participants, assigned machines, current machine tax rates, financial split terms, and weekly preview should be managed together.
+- Partnership participants are optional V1 metadata for multi-stakeholder agreements; they should not be exposed as a separate primary admin workflow.
+- Machine tax-rate history stays effective-dated in the backend, but normal admin editing should focus on current machine rates and make explicit no-tax machines distinguishable from missing tax configuration.
+- Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured paid-order fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and defaults to a 60% primary-share / 40% partner-style split when configured that way.
+- Admin UI should use neutral split labels such as primary share, partner share, and Bloomjoy share. Example-specific partner names are not canonical reporting terminology.
 - Weekly partner previews must use the partnership's configured week-ending day. Bubble Planet-style weekly reporting is Monday-Sunday with a Sunday week-ending date.
 
 **Why this choice**

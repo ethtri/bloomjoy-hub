@@ -239,12 +239,15 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Access > Audit supports filtering and shows role + operational actions
 - [ ] Non-admin user cannot access `/admin/partnerships`
 - [ ] Super-admin user can access `/admin/partnerships`
-- [ ] Admin Partnerships can create/edit partner and partnership records
-- [ ] Admin Partnerships > Parties can attach partners to partnerships with role, optional share percentage, report-recipient flag, and required reason
-- [ ] Admin Partnerships > Machine Assignments can update Sunze machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
-- [ ] Admin Partnerships > Machine Assignments can assign machines to partnerships with effective dates and rejects overlapping active assignments
-- [ ] Admin Partnerships > Machine Tax Rates configures tax rates at the machine level with effective dates and rejects overlapping active tax rates
-- [ ] Admin Partnerships > Financial Rules can configure net split, gross split, per-order fee, and per-stick cost rules with effective dates
+- [ ] Admin Partnerships opens as a selected-partnership setup workflow instead of separate Partners/Parties/Machine Tax/Financial Rules tabs
+- [ ] Admin Partnerships can create/edit partnership details and partner records
+- [ ] Admin Partnerships > Participants can attach multiple partners to the selected partnership with role, optional share percentage, report-recipient flag, and required reason
+- [ ] Admin Partnerships > Assigned Machines can update Sunze machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
+- [ ] Admin Partnerships > Assigned Machines can assign machines to the selected partnership with effective dates and rejects overlapping active assignments
+- [ ] Admin Partnerships > Current Machine Tax Rates shows assigned machines in a sortable/filterable inline table with configured, missing, and explicit no-tax states
+- [ ] Admin Partnerships > Current Machine Tax Rates can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow
+- [ ] Admin Partnerships > Financial Split Terms can configure net split, gross split, per-order fee, and per-stick cost rules with effective dates and neutral share labels
+- [ ] Admin Partnerships does not show example-specific `Fever` terminology in the admin UI
 - [ ] Admin Partnerships shows warnings for missing machine tax rate, missing partnership assignment, missing financial rule, and overlapping active assignments
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
 - [ ] Admin Partnerships > Weekly Preview matches the Bubble Planet workbook math: Sunze order amount as gross, machine tax plus configured paid-order fee before split, no-pay orders counted as `$0`, and 60/40 split when configured

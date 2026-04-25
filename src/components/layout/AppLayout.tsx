@@ -58,7 +58,7 @@ const adminDestinations = [
   {
     href: '/admin/partnerships',
     label: 'Admin partnerships',
-    description: 'Partners, partnership setup, machine assignments, tax rates, and rules.',
+    description: 'Partnership setup, participants, assigned machines, tax rates, and split terms.',
   },
   {
     href: '/admin/reporting',

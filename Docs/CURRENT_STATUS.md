@@ -13,10 +13,12 @@
 - The portal now has `/portal/reports` for entitled users, with date/grain/location/machine/payment filters and on-demand PDF export.
 - Admin access and reporting operations are being split into clearer surfaces:
   - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
-  - `/admin/partnerships` is the setup area for partners, partnerships, machine assignments, machine-level tax rates, and financial rules.
+  - `/admin/partnerships` is the setup area for partnership details, participants, assigned machines, current machine tax rates, financial split terms, and weekly preview.
   - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
 - Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
-- Tax rates are configured directly on machines with effective dates, not on partnerships.
+- Tax rates are configured directly on machines, not on partnerships. The admin UI edits current rates inline while the backend keeps effective-dated history for reporting/audit.
+- Partnership participants remain available for multi-stakeholder agreements, but the critical admin workflow is now partnership-level instead of a separate party-management surface.
+- Financial split labels in admin UI use neutral terms such as primary share, partner share, and Bloomjoy share instead of example-specific partner names.
 - The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` paid-order fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.
 - Manual CSV import helpers and sample files are available before production sync is enabled.
 - Sunze browser automation is now implemented as a scheduled GitHub Actions Playwright worker that exports the Orders workbook with the safe `Last 3 Days` preset, deletes the raw workbook after parsing, and sends normalized rows to the locked `sunze-sales-ingest` Edge Function.

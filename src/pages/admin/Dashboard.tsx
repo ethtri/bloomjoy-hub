@@ -24,7 +24,7 @@ const adminModules = [
   },
   {
     title: 'Partnerships',
-    description: 'Configure partners, machine assignments, machine tax rates, and financial rules.',
+    description: 'Configure partnership setup, participants, assigned machines, tax rates, and split terms.',
     icon: Handshake,
     href: '/admin/partnerships',
   },
