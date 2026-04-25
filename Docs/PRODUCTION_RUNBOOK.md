@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-04-06
+Last updated: 2026-04-25
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -35,6 +35,15 @@ Set the following values before launch.
 | `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions | Supabase project URL | Technical owner |
 | `SUPABASE_ANON_KEY` | Server-only | `stripe-sugar-checkout`, `stripe-plus-checkout`, `stripe-customer-portal` | Supabase project anon key | Technical owner |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake` | Supabase service role key | Technical owner |
+| `REPORT_SCHEDULER_SECRET` | Server-only | `sales-report-scheduler` | Generated secret stored in function secrets | Technical owner |
+| `REPORTING_INGEST_TOKEN` | Server-only + GitHub Actions secret | `sunze-sales-ingest`, Sunze sync workflow | Generated ingest token | Technical owner |
+| `REPORTING_ROW_HASH_SALT` | Server-only | `sunze-sales-ingest` | Generated secret stored in function secrets | Technical owner |
+| `GOOGLE_REFUNDS_SHEET_ID` | Server-only | `refund-adjustment-sync` | Google Sheet ID for refunds/complaints | Operations owner |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Server-only | `refund-adjustment-sync` | Google service account JSON | Technical owner |
+| `SUNZE_LOGIN_URL` | GitHub Actions secret | Sunze sync workflow | Sunze service-account login URL | Technical owner |
+| `SUNZE_REPORTING_EMAIL` | GitHub Actions secret | Sunze sync workflow | Sunze service-account email | Technical owner |
+| `SUNZE_REPORTING_PASSWORD` | GitHub Actions secret | Sunze sync workflow | Sunze service-account password | Technical owner |
+| `REPORTING_INGEST_URL` | GitHub Actions secret | Sunze sync workflow | Supabase `sunze-sales-ingest` function URL | Technical owner |
 
 Security rule:
 - Never place secrets in `VITE_` variables.
@@ -66,6 +75,13 @@ Recommended:
    - `supabase link --project-ref <project-ref>`
 2) Push migrations:
    - `supabase db push`
+3) If a migration adds or replaces frontend-facing RPCs, confirm PostgREST schema visibility:
+   - Changed RPCs do not return `404` or `PGRST202`.
+   - Admin/reporting examples: `admin_get_account_summaries`, `admin_set_user_machine_reporting_access`, and `admin_get_partnership_reporting_setup`.
+
+Migration repair rule:
+- Do not edit an already-applied migration and expect production to replay it.
+- If production is missing schema from an already-applied migration, add a later forward-only, idempotent repair migration and include `select pg_notify('pgrst', 'reload schema');`.
 
 ### Step B: Set/refresh Edge Function secrets
 Run once per environment or when values rotate:
@@ -89,6 +105,11 @@ supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager
 supabase secrets set SUPABASE_URL=...
 supabase secrets set SUPABASE_ANON_KEY=...
 supabase secrets set SUPABASE_SERVICE_ROLE_KEY=...
+supabase secrets set REPORT_SCHEDULER_SECRET=...
+supabase secrets set REPORTING_INGEST_TOKEN=...
+supabase secrets set REPORTING_ROW_HASH_SALT=...
+supabase secrets set GOOGLE_REFUNDS_SHEET_ID=...
+supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON=...
 ```
 
 Before continuing, run:
@@ -100,8 +121,8 @@ npm run commerce:preflight -- --project-ref <project-ref>
 WeCom note:
 - If token auth succeeds but live sends fail with `60020: not allow to access from your ip`, the remaining issue is WeCom-side network/IP policy, not the secret values. Fix the app/network restriction in WeCom admin, then re-run a live smoke order.
 
-### Step C: Deploy Stripe Edge Functions
-Deploy all current checkout/submission functions:
+### Step C: Deploy Supabase Edge Functions
+Deploy all current checkout, submission, and reporting functions:
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt
@@ -111,6 +132,11 @@ supabase functions deploy stripe-customer-portal --no-verify-jwt
 supabase functions deploy stripe-webhook --no-verify-jwt
 supabase functions deploy lead-submission-intake --no-verify-jwt
 supabase functions deploy support-request-intake --no-verify-jwt
+supabase functions deploy sales-report-export --no-verify-jwt
+supabase functions deploy sales-report-scheduler --no-verify-jwt
+supabase functions deploy sunze-sales-ingest --no-verify-jwt
+supabase functions deploy sunze-sales-sync --no-verify-jwt
+supabase functions deploy refund-adjustment-sync --no-verify-jwt
 ```
 
 ### Step D: Configure Stripe webhook endpoint
@@ -155,6 +181,11 @@ Run immediately after deploy:
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
 - [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
 - [ ] `/admin/orders` shows address, pricing tier, receipt URL, order breakdown, and notification status for the test orders.
+- [ ] `/admin/access?tab=users` loads account summaries without a red error state.
+- [ ] `/admin/access?tab=reporting-access` can save machine reporting grants with a required reason.
+- [ ] `/admin/partnerships` loads setup tabs without missing-RPC errors.
+- [ ] Admin/reporting network console does not show `404` or `PGRST202` for `admin_get_account_summaries`, `admin_set_user_machine_reporting_access`, or `admin_get_partnership_reporting_setup`.
+- [ ] `/portal/reports` for an entitled test user shows only the machines granted to that user.
 - [ ] WeChat onboarding concierge submit on `/portal/support` creates `support_requests.request_type=wechat_onboarding` with populated `intake_meta`.
 - [ ] Stripe customer portal opens from `/portal/account`.
 - [ ] No critical frontend console errors on key pages.

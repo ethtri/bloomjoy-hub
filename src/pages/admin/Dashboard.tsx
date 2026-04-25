@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ShoppingBag, LifeBuoy, Users, ClipboardList } from 'lucide-react';
+import { BarChart3, Handshake, ShieldCheck, ShoppingBag, LifeBuoy, Users } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 
@@ -17,16 +17,22 @@ const adminModules = [
     href: '/admin/support',
   },
   {
-    title: 'Accounts',
-    description: 'Review memberships, machine counts, and account activity.',
+    title: 'Access',
+    description: 'Manage users, Plus grants, global roles, machine reporting access, and audit.',
     icon: Users,
-    href: '/admin/accounts',
+    href: '/admin/access',
   },
   {
-    title: 'Audit Log',
-    description: 'Track sensitive admin actions and role changes.',
-    icon: ClipboardList,
-    href: '/admin/audit',
+    title: 'Partnerships',
+    description: 'Configure partners, machine assignments, machine tax rates, and financial rules.',
+    icon: Handshake,
+    href: '/admin/partnerships',
+  },
+  {
+    title: 'Reporting',
+    description: 'Monitor schedules, report exports, and sales sync status.',
+    icon: BarChart3,
+    href: '/admin/reporting',
   },
 ];
 
@@ -52,8 +58,8 @@ export default function AdminDashboardPage() {
       <section className="section-padding">
         <div className="container-page">
           <div className="rounded-xl border border-sage/30 bg-sage-light px-4 py-3 text-sm text-sage">
-            Admin workspace is active. Use the modules below for orders, support, accounts, and
-            governance operations.
+            Admin workspace is active. Use the modules below for orders, support, access,
+            partnerships, and reporting operations.
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">

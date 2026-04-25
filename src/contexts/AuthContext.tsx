@@ -12,6 +12,11 @@ import {
   type PortalAccessTier,
 } from '@/lib/membership';
 import { fetchMyPlusAccess } from '@/lib/plusAccess';
+import {
+  emptyReportingAccessContext,
+  fetchReportingAccessContext,
+  type ReportingAccessContext,
+} from '@/lib/reporting';
 
 interface User {
   id: string;
@@ -22,6 +27,7 @@ interface User {
   isTrainingOperator: boolean;
   canManageOperatorTraining: boolean;
   plusAccess: PlusAccessSummary;
+  reportingAccess: ReportingAccessContext;
   isAdmin: boolean;
 }
 
@@ -43,6 +49,10 @@ interface AuthContextType {
   canAccessTraining: boolean;
   isTrainingOperator: boolean;
   canManageOperatorTraining: boolean;
+  hasReportingAccess: boolean;
+  reportingMachineCount: number;
+  reportingLocationCount: number;
+  canManageReporting: boolean;
   isAdmin: boolean;
 }
 
@@ -108,6 +118,14 @@ const getPlusAccess = async (): Promise<PlusAccessSummary> => {
   }
 };
 
+const getReportingAccess = async (): Promise<ReportingAccessContext> => {
+  try {
+    return await fetchReportingAccessContext();
+  } catch {
+    return emptyReportingAccessContext;
+  }
+};
+
 const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | null> => {
   const { data, error } = await supabaseClient.rpc('get_my_portal_access_context');
 
@@ -122,13 +140,21 @@ const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | nul
 
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
-  const [plusAccess, dbIsAdmin, portalAccessContext] = await Promise.all([
+  const [plusAccess, dbIsAdmin, portalAccessContext, reportingAccess] = await Promise.all([
     getPlusAccess(),
     getIsAdmin(supabaseUser.id),
     getPortalAccessContext(),
+    getReportingAccess(),
   ]);
   const isAdmin = dbIsAdmin || hasDevAdminEmailOverride(email);
   const hasFullPlusAccess = isAdmin || plusAccess.hasPlusAccess;
+  const effectiveReportingAccess: ReportingAccessContext = isAdmin
+    ? {
+        ...reportingAccess,
+        hasReportingAccess: true,
+        canManageReporting: true,
+      }
+    : reportingAccess;
   const portalAccessTier = hasFullPlusAccess
     ? 'plus'
     : normalizePortalAccessTier(portalAccessContext?.access_tier ?? undefined, 'baseline');
@@ -144,6 +170,7 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
     canManageOperatorTraining:
       hasFullPlusAccess || Boolean(portalAccessContext?.can_manage_operator_training),
     plusAccess,
+    reportingAccess: effectiveReportingAccess,
     isAdmin,
   };
 };
@@ -326,6 +353,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         canAccessTraining: hasTrainingAccess(user?.portalAccessTier),
         isTrainingOperator: user?.isTrainingOperator ?? false,
         canManageOperatorTraining: user?.canManageOperatorTraining ?? false,
+        hasReportingAccess: user?.reportingAccess.hasReportingAccess ?? false,
+        reportingMachineCount: user?.reportingAccess.accessibleMachineCount ?? 0,
+        reportingLocationCount: user?.reportingAccess.accessibleLocationCount ?? 0,
+        canManageReporting: user?.reportingAccess.canManageReporting ?? false,
         isAdmin: user?.isAdmin ?? false,
       }}
     >

@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
+  BarChart3,
   BookOpen,
   HeadphonesIcon,
   LayoutDashboard,
@@ -9,7 +10,7 @@ import {
 } from 'lucide-react';
 import type { PortalAccessTier } from '@/lib/membership';
 
-export type PortalAccessLevel = 'all' | 'baseline' | 'training' | 'plus';
+export type PortalAccessLevel = 'all' | 'baseline' | 'training' | 'plus' | 'reporting';
 
 export interface PortalDestination {
   href: string;
@@ -49,12 +50,21 @@ export const portalDestinations: PortalDestination[] = [
     mobileOrder: 3,
   },
   {
+    href: '/portal/reports',
+    label: 'Reports',
+    description: 'Machine sales, location rollups, and partner-ready exports.',
+    icon: BarChart3,
+    access: 'reporting',
+    mobileOrder: 4,
+    upsellCopy: 'Sales reporting is available only for machines Bloomjoy has granted to this account.',
+  },
+  {
     href: '/portal/training',
     label: 'Training',
     description: 'Task-first videos, quick aids, and operator guides.',
     icon: BookOpen,
     access: 'training',
-    mobileOrder: 4,
+    mobileOrder: 5,
     upsellCopy: 'Unlock the operator hub, quick aids, and certificate path.',
   },
   {
@@ -63,7 +73,7 @@ export const portalDestinations: PortalDestination[] = [
     description: 'Guided setup milestones for your first successful runs.',
     icon: ListChecks,
     access: 'plus',
-    mobileOrder: 5,
+    mobileOrder: 6,
     upsellCopy: 'Unlock guided setup steps and first-spin milestones.',
   },
   {
@@ -72,7 +82,7 @@ export const portalDestinations: PortalDestination[] = [
     description: 'Concierge help, WeChat onboarding, and parts assistance.',
     icon: HeadphonesIcon,
     access: 'plus',
-    mobileOrder: 6,
+    mobileOrder: 7,
     upsellCopy: 'Unlock guided support requests and concierge escalation.',
   },
 ];
@@ -86,7 +96,8 @@ export const getPortalDestinationByPath = (pathname: string) =>
 
 export const canAccessPortalLevel = (
   accessTier: PortalAccessTier,
-  accessLevel: PortalAccessLevel
+  accessLevel: PortalAccessLevel,
+  hasReportingAccess = false
 ): boolean => {
   switch (accessLevel) {
     case 'all':
@@ -97,6 +108,8 @@ export const canAccessPortalLevel = (
       return accessTier === 'training' || accessTier === 'plus';
     case 'plus':
       return accessTier === 'plus';
+    case 'reporting':
+      return hasReportingAccess;
     default:
       return false;
   }
@@ -110,6 +123,8 @@ export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
       return 'Training';
     case 'plus':
       return 'Plus';
+    case 'reporting':
+      return 'Reporting';
     case 'all':
     default:
       return 'Open';

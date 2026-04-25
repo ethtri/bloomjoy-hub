@@ -46,9 +46,8 @@ export default defineConfig(({ mode }) => ({
             return "icons";
           }
 
-          if (id.includes("node_modules/recharts/")) {
-            return "charts";
-          }
+          // Let Rollup place Recharts with its shared helpers. Forcing it into
+          // a standalone chunk creates a startup cycle with the React chunk.
         },
       },
     },

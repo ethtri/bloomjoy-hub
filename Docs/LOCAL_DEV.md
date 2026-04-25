@@ -37,11 +37,51 @@
    - Orders sync migration: `supabase/migrations/20260202_orders.sql`
    - WeChat onboarding support migration: `supabase/migrations/202603100001_wechat_onboarding_support.sql`
    - Training experience upgrade migration: `supabase/migrations/202603190001_training_experience_upgrade.sql`
+   - Sales reporting foundation migration: `supabase/migrations/202604240001_sales_reporting_foundation.sql`
+   - Sales reporting daily automation helpers: `supabase/migrations/202604250001_sales_reporting_daily_automation.sql`
+   - Partner reporting foundation: `supabase/migrations/202604260002_partner_reporting_foundation.sql`
+   - Sunze unmapped-machine queue: `supabase/migrations/202604260003_sunze_unmapped_machine_queue.sql`
+   - Reporting admin RPC repair: `supabase/migrations/202604260004_reporting_admin_rpc_repair.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
    - `provider_hash`
    - `meta.thumbnail_url` (first-party key in `training-thumbnails` bucket, for example `vimeo/<video_id>.jpg`)
+
+Migration notes:
+- Supabase will not replay an edited migration after production has marked that version applied. Add a later forward-only repair migration when production schema drift needs to be fixed.
+- After migrations that add or replace frontend-facing RPCs, verify `supabase db push --dry-run` is clean and confirm the live REST endpoint does not return `404` or `PGRST202` for the changed RPCs.
+
+## Sales reporting import helpers
+Use these after the sales reporting migration has been applied.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Import or dry-run normalized Sunze/manual sales CSV rows:
+   - `npm run reporting:import-sales -- --file scripts/sample-sales-reporting.csv --dry-run`
+   - `npm run reporting:import-sales -- --file path/to/sunze-export.csv --source manual_csv`
+3) Import or dry-run refund/complaint adjustments exported from Google Sheets:
+   - `npm run reporting:import-refunds -- --file scripts/sample-refund-adjustments.csv --dry-run`
+   - `npm run reporting:import-refunds -- --file path/to/refunds.csv --source-reference <sheet-or-export-id>`
+4) Validate the sanitized Sunze `.xlsx` parser fixture:
+   - `npm run reporting:validate-sunze-parser`
+5) Dry-run the Sunze browser export locally without sending rows to Supabase:
+   - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
+6) In production, run the scheduled GitHub Action with encrypted repository secrets:
+   - `SUNZE_LOGIN_URL`
+   - `SUNZE_REPORTING_EMAIL`
+   - `SUNZE_REPORTING_PASSWORD`
+   - `REPORTING_INGEST_URL`
+   - `REPORTING_INGEST_TOKEN`
+
+Notes:
+- CSV rows must map to configured reporting machines by `machine_id`/`reporting_machine_id` or `sunze_machine_id`.
+- `machine_sales_facts` stores Sunze/manual sales as net sales. `sales_adjustment_facts` stores refunds separately so gross sales can be calculated as net plus refunds.
+- `sunze-sales-ingest` requires `REPORTING_INGEST_TOKEN` and `REPORTING_ROW_HASH_SALT` as Supabase function secrets. The GitHub worker receives only `REPORTING_INGEST_TOKEN`, never the Supabase service-role key.
+- GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
+- Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
+- Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
 ## Training document upload helper
 Use this after the training experience migration is applied and `training-documents` exists.
@@ -190,6 +230,11 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set WECOM_AGENT_ID=...`
    - `supabase secrets set WECOM_AGENT_SECRET=...`
    - `supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager`
+   - `supabase secrets set REPORT_SCHEDULER_SECRET=...`
+   - `supabase secrets set REPORTING_INGEST_TOKEN=...`
+   - `supabase secrets set REPORTING_ROW_HASH_SALT=...`
+   - `supabase secrets set GOOGLE_REFUNDS_SHEET_ID=...`
+   - `supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON=...`
    - Ensure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
 3) Run the commerce release preflight before deploy:
    - Local env check: `npm run commerce:preflight`
@@ -202,6 +247,11 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve stripe-webhook --no-verify-jwt`
    - `supabase functions serve lead-submission-intake --no-verify-jwt`
    - `supabase functions serve support-request-intake --no-verify-jwt`
+   - `supabase functions serve sales-report-export --no-verify-jwt`
+   - `supabase functions serve sales-report-scheduler --no-verify-jwt`
+   - `supabase functions serve sunze-sales-sync --no-verify-jwt`
+   - `supabase functions serve sunze-sales-ingest --no-verify-jwt`
+   - `supabase functions serve refund-adjustment-sync --no-verify-jwt`
 5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 
 ## Stripe order backfill helper

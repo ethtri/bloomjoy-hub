@@ -51,14 +51,19 @@ const adminDestinations = [
     description: 'Support triage, concierge intake, and request routing.',
   },
   {
-    href: '/admin/accounts',
-    label: 'Admin accounts',
-    description: 'Memberships, machine counts, and account-level review.',
+    href: '/admin/access',
+    label: 'Admin access',
+    description: 'Users, Plus grants, global roles, reporting access, and audit history.',
   },
   {
-    href: '/admin/audit',
-    label: 'Admin audit log',
-    description: 'Sensitive action history and role change visibility.',
+    href: '/admin/partnerships',
+    label: 'Admin partnerships',
+    description: 'Partners, partnership setup, machine assignments, tax rates, and rules.',
+  },
+  {
+    href: '/admin/reporting',
+    label: 'Admin reporting',
+    description: 'Report schedules, exports, and sync status.',
   },
 ];
 

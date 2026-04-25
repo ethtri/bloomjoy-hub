@@ -1,5 +1,97 @@
 # Decisions
 
+## 2026-04-24 - Sales reporting foundation
+Bloomjoy sales reporting will use account/location/machine entitlements that are separate from Plus and training access.
+
+**Canonical reporting model**
+- Reporting visibility is scoped by `customer_accounts`, `reporting_locations`, and specific `reporting_machines`.
+- Users can gain report access through account membership or explicit reporting entitlements.
+- Reporting access does not imply Plus membership, training access, support access, billing access, or member sugar pricing.
+- Super-admins manage reporting machines, entitlements, imports, schedules, and export history from `/admin/reporting`.
+
+**Canonical reporting data**
+- Sunze sales rows are normalized into machine/date/payment facts.
+- Refunds and complaints are stored separately as adjustment facts, sourced first from Google Sheets or CSV import.
+- Until Sunze definitions are validated, Sunze totals are treated as net sales and gross sales is calculated as `net_sales + refund_amount`.
+- Imports must be idempotent by source and row hash.
+
+**Automation and delivery**
+- V1 uses Supabase Edge Functions for on-demand exports, scheduled partner report delivery, and locked ingest entrypoints.
+- Daily Sunze extraction runs as a GitHub Actions Playwright worker because the task needs a full browser runtime. The worker receives Sunze credentials plus an ingest token, but never receives the Supabase service-role key.
+- The Sunze worker uses the Orders page `Last 3 Days` preset for daily catch-up, validates the `.xlsx` workbook headers, deletes raw downloads after parsing, and sends normalized rows to `sunze-sales-ingest`.
+- Scheduled partner reports default to the previous Monday-Sunday week and email a private signed PDF link through the existing Resend pattern.
+- The automation must not bypass CAPTCHA, MFA, or Sunze access controls, and must not open machine-level settings or `More` menus.
+
+**Why this choice**
+- Reporting needs machine-level partner visibility without granting broader customer portal or commerce permissions.
+- Keeping sales facts and refund adjustments separate preserves source auditability while allowing gross/net calculations.
+- This keeps browser automation separate from database authority while still allowing daily imports, idempotent writes, and clear failure auditing.
+
+## 2026-04-25 - Admin access and partnership reporting split
+Admin permission work and partnership financial setup are separate concerns.
+
+**Canonical admin surfaces**
+- `/admin/access` is the single admin place for users, Plus grants, super-admin roles, audit history, and explicit machine-level reporting visibility.
+- `/admin/reporting` is for reporting operations: schedules, import/sync status, stale-data warnings, and export archive visibility.
+- `/admin/partnerships` is for partner setup, partnership agreements, machine assignments, machine tax rates, and financial rules.
+
+**Canonical partnership model**
+- Reporting visibility remains machine-level only for V1. Partnerships do not grant inherited user access yet.
+- Partnerships group machines for financial reporting, partner report setup, and payout calculations.
+- Tax rates are configured on machines through effective-dated machine tax-rate records, not on partnerships.
+- Partner report calculations resolve the active machine tax rate by machine and sale date before applying partnership financial rules.
+- Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured paid-order fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and defaults to a 60% Fever / 40% partner-style split when configured that way.
+- Weekly partner previews must use the partnership's configured week-ending day. Bubble Planet-style weekly reporting is Monday-Sunday with a Sunday week-ending date.
+
+**Why this choice**
+- Admins think about permissions person-first, while partnership setup is about financial reporting and contractual grouping.
+- Keeping user access machine-level avoids hidden permission inheritance while the reporting feature is still new.
+- Machine-level tax rates reflect real operating differences and keep tax changes auditable over time.
+
+## 2026-04-25 - Reporting migration repair and schema-cache checks
+Production reporting/admin RPC fixes must move forward through new migrations, not edits to migrations Supabase already marked applied.
+
+**Canonical migration rule**
+- Do not rely on editing an already-applied migration to repair production. Supabase will not replay it.
+- If production is missing tables, RPCs, grants, or function definitions from an already-applied migration, add a later forward-only, idempotent repair migration.
+- Frontend-facing RPC migrations should end with `select pg_notify('pgrst', 'reload schema');` so PostgREST refreshes function metadata.
+- Production validation for admin/reporting RPC changes must include direct REST probes that confirm key RPCs do not return `404` or `PGRST202`.
+
+**Why this choice**
+- The reporting admin outage came from schema drift: production had an older migration version marked applied before the final admin/partnership RPCs existed.
+- Forward repair migrations keep repo history and production history aligned without manual rollback or destructive database operations.
+
+## 2026-04-25 - Corporate partner reporting first deliverable
+The next P0 reporting milestone is a trusted corporate partner report that Bloomjoy can review before sending.
+
+**Canonical V1 delivery**
+- Super-admins generate corporate partner reports from `/admin/partnerships` after partnership setup, machine assignments, tax assumptions, and financial terms are configured.
+- Manual super-admin review comes before scheduled auto-email. Scheduled delivery remains future automation after the report content and math are trusted.
+- Corporate partners do not get inherited portal access from partnership setup in V1. Partner-facing value is delivered through reviewed PDFs first.
+- Operator performance dashboards are deferred until the corporate partner review/download workflow is accepted.
+- Partner dashboard UX/CX can be designed in parallel, but it is not required for the first reviewed-PDF milestone.
+
+**Canonical partner report**
+- The PDF should be a polished settlement artifact, not the current simple text-style sales export.
+- Required report shape: executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, warning states, generated timestamp, and snapshot ID.
+- Generated partner reports must have auditable snapshot/run records with period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and any warnings.
+
+**Canonical dashboard direction**
+- The reporting tab should default to an operator-style view for the user's assigned machines.
+- A partner dashboard view should appear only when the access context grants partner-dashboard visibility.
+- V1 partner dashboard visibility defaults to super-admins only until explicit partner-viewer permissions are implemented.
+- The browser dashboard should emphasize smooth period controls, summary KPIs, machine-level rollups, warning states, and calculation transparency; the PDF remains the formal settlement artifact.
+
+**Canonical rule approach**
+- Revenue-share rules should be typed and configurable: week-ending day, machine tax method, fee basis, cost basis, split base, and share percentages.
+- Bubble Planet-style reporting is the first validation fixture, but the implementation must not hardcode Bubble Planet-specific names or terms into the calculation model.
+- Do not introduce a new reporting platform, CMS, or headless reporting service for this milestone.
+
+**Why this choice**
+- The business risk is partner trust, so reviewed and explainable numbers matter more than early automation.
+- A typed rule model supports multiple partnership patterns without building an unsafe open-ended formula engine.
+- Keeping partner delivery PDF-first avoids expanding the permission model before the internal reporting process is stable.
+
 ## 2026-04-14 - Training-only operator access grants
 Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.
 

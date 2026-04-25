@@ -344,6 +344,7 @@ export const privateRoutes: PrivateRouteSeo[] = [
     "/portal",
     "/portal/orders",
     "/portal/account",
+    "/portal/reports",
     "/portal/training",
     "/portal/support",
     "/portal/onboarding",
@@ -351,6 +352,9 @@ export const privateRoutes: PrivateRouteSeo[] = [
     "/admin/orders",
     "/admin/support",
     "/admin/accounts",
+    "/admin/access",
+    "/admin/partnerships",
+    "/admin/reporting",
     "/admin/audit",
   ].map(
     (path): PrivateRouteSeo => ({

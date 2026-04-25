@@ -26,6 +26,42 @@
   - `npm run lint --if-present` (passes with existing fast-refresh warnings only)
 - Production follow-up after deployment: recheck `curl -I https://bloomjoyusa.com/` and confirm the apex host now returns a permanent redirect to `https://www.bloomjoyusa.com/`; previous live verification saw a `307` outside the local build.
 
+## Sales reporting/admin reporting snapshot (2026-04-25)
+- Production runtime hotfix branch `agent/fix-reporting-chart-runtime` removes the forced Recharts manual chunk split that caused the app shell to crash with `Cannot access 'P' before initialization` after the reporting deployment.
+- Sales reporting is now a Supabase-backed extension to the existing operator app on `main`.
+- The reporting foundation includes account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
+- The portal now has `/portal/reports` for entitled users, with date/grain/location/machine/payment filters and on-demand PDF export.
+- Admin access and reporting operations are split into clearer surfaces:
+  - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
+  - `/admin/partnerships` is the setup area for partners, partnerships, machine assignments, machine-level tax rates, and financial rules.
+  - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
+- Production RPC repair is complete: migration `202604260004_reporting_admin_rpc_repair.sql` reapplied missing admin reporting/partnership RPCs, restored PostgREST schema visibility, and aligned production migration history with repo migrations through `202604260004`.
+- Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
+- Tax rates are configured directly on machines with effective dates, not on partnerships.
+- The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` paid-order fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.
+- Manual CSV import helpers and sample files are available before production sync is enabled.
+- Sunze browser automation is now implemented as a scheduled GitHub Actions Playwright worker that exports the Orders workbook with the safe `Last 3 Days` preset, deletes the raw workbook after parsing, and sends normalized rows to the locked `sunze-sales-ingest` Edge Function.
+- `Docs/SUNZE_SALES_DISCOVERY.md` records the validated Sunze routes, export headers, payment/status mappings, and remaining open questions without storing credentials or raw order data.
+- Google Sheets complaints/refunds ingestion is represented as a server-side adjustment sync stub plus a CSV import helper. Production Sheets API ingestion still depends on confirming the sheet columns and service-account setup.
+- Open overlap to watch: issue `#150` and PR `#151` cover the broader account/entitlement roadmap, while open PR `#143` contains older partner/operator account schema work that may overlap the new `customer_accounts` foundation.
+
+## Partner reporting PM roadmap (2026-04-25)
+- Corporate partner revenue-share reporting is the current P0 business milestone. Operator dashboards remain important, but they should wait until corporate partner reporting has a trusted review/download flow.
+- First deliverable: a super-admin can create a corporate partner, assign machines, configure tax and revenue-share assumptions, preview a completed weekly report, generate a polished PDF, review it, and manually download/send it.
+- Locked V1 delivery choices:
+  - manual super-admin review before scheduled auto-email delivery
+  - polished executive summary plus calculation appendix, not a summary-only report
+  - typed configurable revenue-share rules, not hardcoded partner-specific math or a broad formula engine
+  - conservative access: only super-admins configure, generate, review, and send partner reports in V1
+- Next code slice should add auditable partner-report snapshot/run support with reporting period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and warning state.
+- The partner PDF should replace the current simple text-style sales export for this use case with a branded settlement artifact: cover/summary, machine-level rollups, formula assumptions, warning states, generated timestamp, and snapshot ID.
+- Parallel UX/CX track: issue `#172` should design the reporting tab experience where users see operator-style reporting for assigned machines by default, while partner dashboard views appear only when the user has explicit partner-dashboard permissions. V1 should default partner dashboard visibility to super-admins only.
+- Current PR sequencing recommendation:
+  1. Merge PR `#161` first because it hardens Sunze ingestion/source controls and production-aligned migrations/functions.
+  2. Sync and merge PR `#167` next because it improves `/admin/partnerships` setup UX and overlaps the partnership admin surface.
+  3. Refresh/merge PR `#166` after `#161` and `#167` so closeout docs reflect the final merged state.
+  4. Treat PRs `#157` and `#151` as older docs that should be reconciled or superseded rather than merged unchanged.
+
 ## Mini launch update (2026-04-09)
 - Mini is now live on the public site as a sales-led machine offer at `$4,000`.
 - Public Mini demand no longer goes to a waitlist form:
@@ -80,6 +116,11 @@
   - a live `$0` Stripe checkout smoke order after the webhook email redesign deployment
 
 ## Next P0 milestones
+- Complete the corporate partner reporting review/download milestone before building operator performance dashboards:
+  - merge the Sunze controls and partnership UX PRs in the recommended order
+  - add partner-report snapshots/runs for auditability
+  - generate a polished weekly partner PDF from configured partnership rules
+  - validate the flow with the Bubble Planet-style Monday-Sunday revenue-share fixture
 - Clear the remaining WeCom production blocker:
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
   - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully
