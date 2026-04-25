@@ -166,7 +166,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
-- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, parses counts only, deletes the raw workbook, and does not call Supabase ingest
+- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, reconciles parsed row count/revenue against the Sunze UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
+- [ ] `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30` reports the latest completed Sunze import or sends a stale-data ops alert
 
 ## Payments (test mode)
 - [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
@@ -261,5 +262,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/reporting`
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows report export archive, recent sales/refund import runs, and stale/failed sync status clearly
-- [ ] Failed or stale Sunze ingest runs appear in `/admin/reporting` without changing existing sales facts
+- [ ] Admin can open discovered Sunze machine IDs from `/admin/reporting`, map them in `/admin/partnerships`, ignore them, and reopen them
+- [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
+- [ ] Non-admin user cannot access `/admin/audit`
+- [ ] Super-admin user can access `/admin/audit`
+- [ ] Super-admin can grant and revoke super-admin role with reason metadata
+- [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 - [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually

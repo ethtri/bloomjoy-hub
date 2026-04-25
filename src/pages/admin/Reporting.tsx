@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   CalendarDays,
@@ -19,11 +20,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   createReportScheduleAdmin,
   fetchAdminReportingOverview,
+  setSunzeMachineDiscoveryStatusAdmin,
   type AdminReportSchedule,
   type AdminReportViewSnapshot,
   type AdminReportingImportRun,
+  type AdminSunzeMachineQueueItem,
 } from '@/lib/reporting';
 import { trackEvent } from '@/lib/analytics';
+
+const sunzeStaleHours = 30;
 
 const splitEmails = (value: string) =>
   value
@@ -31,7 +36,7 @@ const splitEmails = (value: string) =>
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean);
 
-const formatDate = (value: string | null) =>
+const formatDate = (value: string | null | undefined) =>
   value
     ? new Date(value).toLocaleString(undefined, {
         year: 'numeric',
@@ -42,8 +47,29 @@ const formatDate = (value: string | null) =>
       })
     : 'n/a';
 
-const formatStatusVariant = (status: string) => {
-  if (status === 'completed' || status === 'ready') return 'default';
+const formatCents = (value: unknown) => {
+  if (value === null || value === undefined) return 'n/a';
+  const cents = Number(value);
+  if (!Number.isFinite(cents)) return 'n/a';
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+};
+
+const metaText = (meta: Record<string, unknown> | undefined, key: string) => {
+  const value = meta?.[key];
+  return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const metaNumber = (meta: Record<string, unknown> | undefined, key: string) => {
+  const value = Number(meta?.[key]);
+  return Number.isFinite(value) ? value : null;
+};
+
+const formatStatusVariant = (status: string): 'default' | 'destructive' | 'outline' => {
+  if (status === 'completed' || status === 'ready' || status === 'fresh') return 'default';
   if (status === 'failed') return 'destructive';
   return 'outline';
 };
@@ -59,6 +85,7 @@ export default function AdminReportingPage() {
     timezone: 'America/Los_Angeles',
   });
   const [isCreatingSchedule, setIsCreatingSchedule] = useState(false);
+  const [updatingSunzeMachineId, setUpdatingSunzeMachineId] = useState<string | null>(null);
 
   const {
     data: overview,
@@ -75,12 +102,70 @@ export default function AdminReportingPage() {
   const importRuns = useMemo(() => overview?.importRuns ?? [], [overview?.importRuns]);
   const schedules = useMemo(() => overview?.schedules ?? [], [overview?.schedules]);
   const snapshots = useMemo(() => overview?.snapshots ?? [], [overview?.snapshots]);
-  const latestRun = importRuns[0] ?? null;
-  const latestCompletedRun =
-    importRuns.find((run) => run.status === 'completed' && run.completed_at) ?? null;
+  const sunzeMachineQueue = useMemo(
+    () => overview?.sunzeMachineQueue ?? [],
+    [overview?.sunzeMachineQueue]
+  );
+  const pendingSunzeMachineQueue = useMemo(
+    () => sunzeMachineQueue.filter((machine) => machine.status === 'pending'),
+    [sunzeMachineQueue]
+  );
+  const sunzeRuns = useMemo(
+    () => importRuns.filter((run) => run.source === 'sunze_browser'),
+    [importRuns]
+  );
+  const latestSunzeRun = sunzeRuns[0] ?? null;
+  const latestCompletedSunzeRun = sunzeRuns.find((run) => run.status === 'completed') ?? null;
+  const latestSunzeMeta = latestSunzeRun?.meta ?? {};
+  const latestCompletedSunzeMeta = latestCompletedSunzeRun?.meta ?? {};
+  const latestCompletedAt = latestCompletedSunzeRun?.completed_at ?? null;
+  const latestCompletedMs = latestCompletedAt ? new Date(latestCompletedAt).getTime() : Number.NaN;
+  const latestCompletedAgeMs = Number.isFinite(latestCompletedMs)
+    ? Date.now() - latestCompletedMs
+    : Number.POSITIVE_INFINITY;
+  const sunzeIsStale = latestCompletedAgeMs > sunzeStaleHours * 60 * 60 * 1000;
+  const sunzeHasFailure = latestSunzeRun?.status === 'failed';
+  const sunzeNeedsMapping = pendingSunzeMachineQueue.length > 0;
+  const sunzeHealthLabel = sunzeHasFailure
+    ? 'Failed'
+    : sunzeNeedsMapping
+      ? 'Needs Mapping'
+      : sunzeIsStale
+        ? 'Stale'
+        : 'Fresh';
+  const sunzeHealthStatus = sunzeHasFailure ? 'failed' : sunzeHealthLabel.toLowerCase();
+  const sunzeLatestSaleDate =
+    metaText(latestSunzeMeta, 'window_end') ?? metaText(latestCompletedSunzeMeta, 'window_end');
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['admin-reporting-overview'] });
+
+  const setSunzeQueueStatus = async (
+    machine: AdminSunzeMachineQueueItem,
+    status: 'pending' | 'ignored'
+  ) => {
+    setUpdatingSunzeMachineId(machine.sunzeMachineId);
+    try {
+      await setSunzeMachineDiscoveryStatusAdmin({
+        sunzeMachineId: machine.sunzeMachineId,
+        status,
+        reason:
+          status === 'ignored'
+            ? 'Marked non-production or not reportable from admin reporting'
+            : 'Reopened for reporting machine mapping',
+      });
+      trackEvent('admin_sunze_machine_discovery_status_updated', {
+        sunze_machine_id: machine.sunzeMachineId,
+        status,
+      });
+      toast.success(status === 'ignored' ? 'Sunze machine ignored.' : 'Sunze machine reopened.');
+      await refresh();
+    } catch (statusError) {
+      toast.error(statusError instanceof Error ? statusError.message : 'Unable to update queue.');
+    } finally {
+      setUpdatingSunzeMachineId(null);
+    }
+  };
 
   const createSchedule = async () => {
     if (!scheduleForm.title.trim()) {
@@ -150,7 +235,11 @@ export default function AdminReportingPage() {
               </p>
             </div>
             <Button variant="outline" onClick={refresh} disabled={isFetching}>
-              {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              {isFetching ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
               Refresh
             </Button>
           </div>
@@ -164,17 +253,29 @@ export default function AdminReportingPage() {
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <StatusCard
               icon={<Database className="h-5 w-5" />}
-              label="Latest Sunze Run"
-              value={latestRun ? latestRun.status : 'none'}
-              detail={latestRun ? formatDate(latestRun.completed_at ?? latestRun.created_at) : 'No imports yet'}
-              status={latestRun?.status}
+              label="Sunze Sync Health"
+              value={sunzeHealthLabel}
+              detail={
+                latestSunzeRun
+                  ? `${latestSunzeRun.status} / ${formatDate(
+                      latestSunzeRun.completed_at ?? latestSunzeRun.created_at
+                    )}`
+                  : 'No Sunze imports yet'
+              }
+              status={sunzeHealthStatus}
             />
             <StatusCard
               icon={<CheckCircle2 className="h-5 w-5" />}
               label="Last Completed Import"
-              value={latestCompletedRun ? `${latestCompletedRun.rows_imported} rows` : 'none'}
-              detail={latestCompletedRun ? formatDate(latestCompletedRun.completed_at) : 'No successful imports yet'}
-              status={latestCompletedRun ? 'completed' : 'pending'}
+              value={latestCompletedSunzeRun ? `${latestCompletedSunzeRun.rows_imported} rows` : 'none'}
+              detail={
+                latestCompletedSunzeRun
+                  ? `${formatDate(latestCompletedSunzeRun.completed_at)} / latest sale ${
+                      sunzeLatestSaleDate ?? 'n/a'
+                    }`
+                  : 'No successful imports yet'
+              }
+              status={latestCompletedSunzeRun ? 'completed' : 'pending'}
             />
             <StatusCard
               icon={<CalendarDays className="h-5 w-5" />}
@@ -206,7 +307,17 @@ export default function AdminReportingPage() {
               )}
             </TabsContent>
             <TabsContent value="sync" className="mt-6">
-              {isLoading ? <LoadingCard /> : <SyncTab importRuns={importRuns} />}
+              {isLoading ? (
+                <LoadingCard />
+              ) : (
+                <SyncTab
+                  importRuns={importRuns}
+                  sunzeMachineQueue={sunzeMachineQueue}
+                  pendingSunzeMachineCount={pendingSunzeMachineQueue.length}
+                  updatingSunzeMachineId={updatingSunzeMachineId}
+                  setSunzeQueueStatus={setSunzeQueueStatus}
+                />
+              )}
             </TabsContent>
             <TabsContent value="exports" className="mt-6">
               {isLoading ? <LoadingCard /> : <ExportsTab snapshots={snapshots} />}
@@ -289,7 +400,7 @@ function SchedulesTab({
         <h2 className="font-semibold text-foreground">Create Scheduled Delivery</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Scheduled PDFs use report filters and email recipients. Partner-specific financial
-          reports will be driven by the Partnerships setup once approved.
+          reports are driven by the Partnerships setup.
         </p>
         <div className="mt-4 space-y-3">
           <div>
@@ -305,7 +416,9 @@ function SchedulesTab({
             <select
               id="schedule-machine"
               value={scheduleForm.machineId}
-              onChange={(event) => setScheduleForm({ ...scheduleForm, machineId: event.target.value })}
+              onChange={(event) =>
+                setScheduleForm({ ...scheduleForm, machineId: event.target.value })
+              }
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
               <option value="">All accessible machines in filter</option>
@@ -370,7 +483,11 @@ function SchedulesTab({
             </div>
           </div>
           <Button onClick={createSchedule} disabled={isCreatingSchedule}>
-            {isCreatingSchedule ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarDays className="mr-2 h-4 w-4" />}
+            {isCreatingSchedule ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CalendarDays className="mr-2 h-4 w-4" />
+            )}
             Create Schedule
           </Button>
         </div>
@@ -386,7 +503,8 @@ function SchedulesTab({
               <div>
                 <div className="font-medium text-foreground">{schedule.title}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Day {schedule.send_day_of_week} at {schedule.send_hour_local}:00 / {schedule.timezone}
+                  Day {schedule.send_day_of_week} at {schedule.send_hour_local}:00 /{' '}
+                  {schedule.timezone}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   Recipients:{' '}
@@ -407,37 +525,164 @@ function SchedulesTab({
   );
 }
 
-function SyncTab({ importRuns }: { importRuns: AdminReportingImportRun[] }) {
+function SyncTab({
+  importRuns,
+  sunzeMachineQueue,
+  pendingSunzeMachineCount,
+  updatingSunzeMachineId,
+  setSunzeQueueStatus,
+}: {
+  importRuns: AdminReportingImportRun[];
+  sunzeMachineQueue: AdminSunzeMachineQueueItem[];
+  pendingSunzeMachineCount: number;
+  updatingSunzeMachineId: string | null;
+  setSunzeQueueStatus: (
+    machine: AdminSunzeMachineQueueItem,
+    status: 'pending' | 'ignored'
+  ) => void;
+}) {
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <ListHeader title="Recent Import Runs" count={importRuns.length} />
-      {importRuns.length === 0 ? (
-        <EmptyRow text="No sales import runs found." />
-      ) : (
-        importRuns.map((run) => (
-          <Row key={run.id}>
-            <div>
-              <div className="font-medium text-foreground">{run.source}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {run.source_reference ?? 'no source reference'} / started {formatDate(run.started_at)}
-              </div>
-              {run.error_message && (
-                <div className="mt-2 flex items-start gap-2 text-xs text-destructive">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5" />
-                  {run.error_message}
+    <div className="space-y-6">
+      <div className="rounded-lg border border-border bg-card">
+        <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-semibold text-foreground">Sunze Mapping Queue</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {pendingSunzeMachineCount} pending machine
+              {pendingSunzeMachineCount === 1 ? '' : 's'} with queued sales.
+            </p>
+          </div>
+          {pendingSunzeMachineCount > 0 && (
+            <Badge variant="outline" className="w-fit text-amber-700">
+              Needs mapping
+            </Badge>
+          )}
+        </div>
+        {sunzeMachineQueue.length === 0 ? (
+          <EmptyRow text="No discovered Sunze machines need action." />
+        ) : (
+          sunzeMachineQueue.map((machine) => {
+            const mappingUrl = `/admin/partnerships?tab=machines&sunzeMachineId=${encodeURIComponent(
+              machine.sunzeMachineId
+            )}&sunzeMachineName=${encodeURIComponent(
+              machine.sunzeMachineName ?? machine.sunzeMachineId
+            )}`;
+            return (
+              <Row key={machine.sunzeMachineId}>
+                <div>
+                  <div className="font-medium text-foreground">
+                    {machine.sunzeMachineName ?? machine.sunzeMachineId}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Sunze {machine.sunzeMachineId} / status {machine.status}
+                  </div>
+                  {machine.ignoreReason && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Ignored: {machine.ignoreReason}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="text-right text-sm">
-              <Badge variant={formatStatusVariant(run.status)}>{run.status}</Badge>
-              <div className="mt-2 text-xs text-muted-foreground">
-                seen {run.rows_seen} / imported {run.rows_imported} / skipped {run.rows_skipped}
-              </div>
-            </div>
-          </Row>
-        ))
-      )}
+                <div className="flex flex-col gap-3 text-sm sm:items-end">
+                  <div className="text-left sm:text-right">
+                    <div className="font-medium text-foreground">
+                      {machine.pendingRowCount} rows / {formatCents(machine.pendingRevenueCents)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Latest sale {machine.latestSaleDate ?? 'n/a'} / seen{' '}
+                      {formatDate(machine.lastSeenAt)}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    <Button asChild size="sm">
+                      <Link to={mappingUrl}>Map</Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={updatingSunzeMachineId === machine.sunzeMachineId}
+                      onClick={() =>
+                        setSunzeQueueStatus(
+                          machine,
+                          machine.status === 'ignored' ? 'pending' : 'ignored'
+                        )
+                      }
+                    >
+                      {updatingSunzeMachineId === machine.sunzeMachineId ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : machine.status === 'ignored' ? (
+                        'Reopen'
+                      ) : (
+                        'Ignore'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </Row>
+            );
+          })
+        )}
+      </div>
+
+      <div className="rounded-lg border border-border bg-card">
+        <ListHeader title="Recent Import Runs" count={importRuns.length} />
+        {importRuns.length === 0 ? (
+          <EmptyRow text="No sales import runs found." />
+        ) : (
+          importRuns.map((run) => <ImportRunRow key={run.id} run={run} />)
+        )}
+      </div>
     </div>
+  );
+}
+
+function ImportRunRow({ run }: { run: AdminReportingImportRun }) {
+  const meta = run.meta ?? {};
+  const windowStart = metaText(meta, 'selected_window_start') ?? metaText(meta, 'window_start');
+  const windowEnd = metaText(meta, 'selected_window_end') ?? metaText(meta, 'window_end');
+  const parsedRows = metaNumber(meta, 'parsed_row_count');
+  const uiRows = metaNumber(meta, 'ui_record_count');
+  const parsedRevenue = metaNumber(meta, 'parsed_order_amount_cents');
+  const uiRevenue = metaNumber(meta, 'ui_revenue_cents');
+  const machineCount =
+    metaNumber(meta, 'parsed_machine_count') ?? metaNumber(meta, 'visible_sunze_machine_count');
+
+  return (
+    <Row>
+      <div>
+        <div className="font-medium text-foreground">{run.source}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {run.source_reference ?? 'no source reference'} / started {formatDate(run.started_at)}
+        </div>
+        {windowStart && windowEnd && (
+          <div className="mt-1 text-xs text-muted-foreground">
+            Window {windowStart} to {windowEnd}
+          </div>
+        )}
+        {run.error_message && (
+          <div className="mt-2 flex items-start gap-2 text-xs text-destructive">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5" />
+            {run.error_message}
+          </div>
+        )}
+      </div>
+      <div className="text-left text-sm sm:text-right">
+        <Badge variant={formatStatusVariant(run.status)}>{run.status}</Badge>
+        <div className="mt-2 text-xs text-muted-foreground">
+          seen {run.rows_seen} / imported {run.rows_imported} / skipped {run.rows_skipped}
+        </div>
+        {run.source === 'sunze_browser' && (
+          <div className="mt-1 text-xs text-muted-foreground">
+            parsed {parsedRows ?? 'n/a'} vs UI {uiRows ?? 'n/a'} / {machineCount ?? 'n/a'} machines
+          </div>
+        )}
+        {run.source === 'sunze_browser' && (
+          <div className="mt-1 text-xs text-muted-foreground">
+            revenue {formatCents(parsedRevenue)} vs UI {formatCents(uiRevenue)}
+          </div>
+        )}
+      </div>
+    </Row>
   );
 }
 
@@ -453,13 +698,16 @@ function ExportsTab({ snapshots }: { snapshots: AdminReportViewSnapshot[] }) {
             <div>
               <div className="font-medium text-foreground">{snapshot.title}</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Created {formatDate(snapshot.created_at)} / {snapshot.export_storage_path ?? 'no file yet'}
+                Created {formatDate(snapshot.created_at)} /{' '}
+                {snapshot.export_storage_path ?? 'no file yet'}
               </div>
               {snapshot.error_message && (
                 <div className="mt-2 text-xs text-destructive">{snapshot.error_message}</div>
               )}
             </div>
-            <Badge variant={formatStatusVariant(snapshot.export_status)}>{snapshot.export_status}</Badge>
+            <Badge variant={formatStatusVariant(snapshot.export_status)}>
+              {snapshot.export_status}
+            </Badge>
           </Row>
         ))
       )}

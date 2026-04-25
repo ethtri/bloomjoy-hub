@@ -113,7 +113,7 @@ if (!supabaseUrl || !serviceRoleKey) {
   process.exit(1);
 }
 
-if (!['manual_csv', 'sunze_browser', 'sample_seed'].includes(source)) {
+if (!['manual_csv', 'sample_seed'].includes(source)) {
   console.error(`Invalid source: ${source}`);
   process.exit(1);
 }

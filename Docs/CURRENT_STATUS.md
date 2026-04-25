@@ -15,12 +15,15 @@
   - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
   - `/admin/partnerships` is the setup area for partners, partnerships, machine assignments, machine-level tax rates, and financial rules.
   - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
-- Production RPC repair is complete: migration `202604260004_reporting_admin_rpc_repair.sql` reapplied missing admin reporting/partnership RPCs, restored PostgREST schema visibility, and aligned production migration history with repo migrations through `202604260004`.
+- Production RPC repair is complete: migration `202604260004_reporting_admin_rpc_repair.sql` reapplied missing admin reporting/partnership RPCs, restored PostgREST schema visibility, and production migration history is aligned through `202604260006`.
 - Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
 - Tax rates are configured directly on machines with effective dates, not on partnerships.
 - The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` paid-order fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.
 - Manual CSV import helpers and sample files are available before production sync is enabled.
 - Sunze browser automation is now implemented as a scheduled GitHub Actions Playwright worker that exports the Orders workbook with the safe `Last 3 Days` preset, deletes the raw workbook after parsing, and sends normalized rows to the locked `sunze-sales-ingest` Edge Function.
+- Sunze reliability controls require parser checks in CI, workbook exports to reconcile against Sunze UI count/revenue before ingest, raw downloads to be cleaned on every path, order-level idempotency, top-level machine discovery, admin-managed machine mapping, and stale/failure alerts through the ingest health check plus scheduled health workflow.
+- Sunze hardening PR `#161` now uses an admin mapping queue: mapped machine rows keep importing, unmapped Sunze rows are quarantined without raw order numbers, and `/admin/reporting` lets admins map, ignore, or reopen discovered Sunze machine IDs. Fresh dry-run and live runs passed on `2026-04-25`; migration `202604260006_sunze_order_hash_index_repair.sql` protects environments affected by the brief `202604260002` migration timestamp collision. The next launch proof is the first scheduled daily run after merge.
+- Follow-up `#174` should simplify machine mapping into a focused admin flow from `/admin/reporting`: admins should only need to confirm the canonical machine name, Sunze ID, machine type, and user access, with site/location grouping optional and able to contain multiple machines.
 - `Docs/SUNZE_SALES_DISCOVERY.md` records the validated Sunze routes, export headers, payment/status mappings, and remaining open questions without storing credentials or raw order data.
 - Google Sheets complaints/refunds ingestion is represented as a server-side adjustment sync stub plus a CSV import helper. Production Sheets API ingestion still depends on confirming the sheet columns and service-account setup.
 - Open overlap to watch: issue `#150` and PR `#151` cover the broader account/entitlement roadmap, while open PR `#143` contains older partner/operator account schema work that may overlap the new `customer_accounts` foundation.
@@ -39,8 +42,7 @@
 - Current PR sequencing recommendation:
   1. Merge PR `#161` first because it hardens Sunze ingestion/source controls and production-aligned migrations/functions.
   2. Sync and merge PR `#167` next because it improves `/admin/partnerships` setup UX and overlaps the partnership admin surface.
-  3. Refresh/merge PR `#166` after `#161` and `#167` so closeout docs reflect the final merged state.
-  4. Treat PRs `#157` and `#151` as older docs that should be reconciled or superseded rather than merged unchanged.
+  3. Treat PRs `#157` and `#151` as older docs that should be reconciled or superseded rather than merged unchanged.
 
 ## Mini launch update (2026-04-09)
 - Mini is now live on the public site as a sales-led machine offer at `$4,000`.

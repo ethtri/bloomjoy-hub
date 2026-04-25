@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -111,6 +112,12 @@ const grossToNetMethods = [
   'imported_tax_plus_configured_fees',
   'configured_fees_only',
 ];
+const tabs = ['partners', 'partnerships', 'parties', 'machines', 'tax', 'rules', 'preview'];
+
+type InitialSunzeMachineMapping = {
+  sunzeMachineId: string;
+  sunzeMachineName: string;
+};
 
 const emptyPartnerForm = {
   partnerId: null as string | null,
@@ -202,6 +209,22 @@ const emptyRuleForm = {
 
 export default function AdminPartnershipsPage() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab') ?? '';
+  const activeTab = tabs.includes(requestedTab)
+    ? requestedTab
+    : searchParams.get('sunzeMachineId')
+      ? 'machines'
+      : 'partners';
+  const initialSunzeMachineMapping = useMemo<InitialSunzeMachineMapping | null>(() => {
+    const sunzeMachineId = searchParams.get('sunzeMachineId')?.trim() ?? '';
+    if (!sunzeMachineId) return null;
+
+    return {
+      sunzeMachineId,
+      sunzeMachineName: searchParams.get('sunzeMachineName')?.trim() || sunzeMachineId,
+    };
+  }, [searchParams]);
   const {
     data: setup = {
       partners: [],
@@ -224,6 +247,26 @@ export default function AdminPartnershipsPage() {
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['admin-partnership-reporting-setup'] });
+
+  const setActiveTab = (tab: string) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('tab', tab);
+
+    if (tab !== 'machines') {
+      nextParams.delete('sunzeMachineId');
+      nextParams.delete('sunzeMachineName');
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const clearInitialSunzeMachineMapping = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('tab', 'machines');
+    nextParams.delete('sunzeMachineId');
+    nextParams.delete('sunzeMachineName');
+    setSearchParams(nextParams, { replace: true });
+  };
 
   return (
     <AppLayout>
@@ -273,7 +316,7 @@ export default function AdminPartnershipsPage() {
             </div>
           )}
 
-          <Tabs defaultValue="partners" className="mt-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
             <TabsList className="h-auto flex-wrap justify-start">
               <TabsTrigger value="partners">Partners</TabsTrigger>
               <TabsTrigger value="partnerships">Partnerships</TabsTrigger>
@@ -299,7 +342,12 @@ export default function AdminPartnershipsPage() {
                   <PartiesTab setup={setup} onRefresh={refresh} />
                 </TabsContent>
                 <TabsContent value="machines" className="mt-6">
-                  <MachineAssignmentsTab setup={setup} onRefresh={refresh} />
+                  <MachineAssignmentsTab
+                    setup={setup}
+                    onRefresh={refresh}
+                    initialSunzeMachineMapping={initialSunzeMachineMapping}
+                    onClearInitialSunzeMachineMapping={clearInitialSunzeMachineMapping}
+                  />
                 </TabsContent>
                 <TabsContent value="tax" className="mt-6">
                   <MachineTaxTab setup={setup} onRefresh={refresh} />
@@ -769,14 +817,48 @@ function PartiesTab({
 function MachineAssignmentsTab({
   setup,
   onRefresh,
+  initialSunzeMachineMapping,
+  onClearInitialSunzeMachineMapping,
 }: {
   setup: PartnershipReportingSetup;
   onRefresh: () => Promise<unknown>;
+  initialSunzeMachineMapping: InitialSunzeMachineMapping | null;
+  onClearInitialSunzeMachineMapping: () => void;
 }) {
   const [machineForm, setMachineForm] = useState(emptyMachineForm);
   const [assignmentForm, setAssignmentForm] = useState(emptyAssignmentForm);
   const [isSavingMachine, setIsSavingMachine] = useState(false);
   const [isSavingAssignment, setIsSavingAssignment] = useState(false);
+
+  useEffect(() => {
+    if (!initialSunzeMachineMapping?.sunzeMachineId) return;
+
+    const existingMachine = setup.machines.find(
+      (machine) =>
+        machine.sunze_machine_id?.toLowerCase() ===
+        initialSunzeMachineMapping.sunzeMachineId.toLowerCase()
+    );
+
+    if (existingMachine) {
+      setMachineForm({
+        machineId: existingMachine.id,
+        accountName: existingMachine.account_name,
+        locationName: existingMachine.location_name,
+        machineLabel: existingMachine.machine_label,
+        machineType: existingMachine.machine_type,
+        sunzeMachineId: existingMachine.sunze_machine_id ?? '',
+        reason: 'Map discovered Sunze machine',
+      });
+      return;
+    }
+
+    setMachineForm({
+      ...emptyMachineForm,
+      machineLabel: initialSunzeMachineMapping.sunzeMachineName,
+      sunzeMachineId: initialSunzeMachineMapping.sunzeMachineId,
+      reason: 'Map discovered Sunze machine',
+    });
+  }, [initialSunzeMachineMapping, setup.machines]);
 
   const editMachine = (machine: PartnershipReportingSetup['machines'][number]) => {
     setMachineForm({
@@ -815,6 +897,9 @@ function MachineAssignmentsTab({
       await upsertReportingMachineAdmin(machineForm);
       toast.success(machineForm.machineId ? 'Machine mapping updated.' : 'Machine mapping created.');
       setMachineForm(emptyMachineForm);
+      if (initialSunzeMachineMapping) {
+        onClearInitialSunzeMachineMapping();
+      }
       await onRefresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save machine mapping.');
@@ -851,6 +936,11 @@ function MachineAssignmentsTab({
             Assign imported Sunze machines to real reporting account/location names before
             partnership reporting uses them.
           </p>
+          {initialSunzeMachineMapping && (
+            <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              Mapping discovered Sunze machine {initialSunzeMachineMapping.sunzeMachineId}.
+            </div>
+          )}
           <div className="mt-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>

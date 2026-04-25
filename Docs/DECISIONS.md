@@ -13,12 +13,19 @@ Bloomjoy sales reporting will use account/location/machine entitlements that are
 - Sunze sales rows are normalized into machine/date/payment facts.
 - Refunds and complaints are stored separately as adjustment facts, sourced first from Google Sheets or CSV import.
 - Until Sunze definitions are validated, Sunze totals are treated as net sales and gross sales is calculated as `net_sales + refund_amount`.
-- Imports must be idempotent by source and row hash.
+- Imports must be idempotent by source and stable source identifier: Sunze uses a salted source order hash, while row hashes remain available for change detection and for import types without a durable source order id.
 
 **Automation and delivery**
 - V1 uses Supabase Edge Functions for on-demand exports, scheduled partner report delivery, and locked ingest entrypoints.
 - Daily Sunze extraction runs as a GitHub Actions Playwright worker because the task needs a full browser runtime. The worker receives Sunze credentials plus an ingest token, but never receives the Supabase service-role key.
 - The Sunze worker uses the Orders page `Last 3 Days` preset for daily catch-up, validates the `.xlsx` workbook headers, deletes raw downloads after parsing, and sends normalized rows to `sunze-sales-ingest`.
+- Sunze imports must reconcile the visible Orders UI record count and revenue against the downloaded workbook before ingesting, and must fail closed if the selected date window, payment/status mappings, or export integrity cannot be verified.
+- Sunze machine discovery uses the top-level Machine Center list visible to the workflow account. `SUNZE_EXPECTED_MACHINE_COUNT` is optional and treated as an operations signal because new machines can appear before admins finish mapping them.
+- GitHub dry-runs call `sunze-sales-ingest` in validation mode so Supabase row normalization and current machine mapping state are checked without writing `machine_sales_facts`.
+- Unmapped Sunze machines are handled through an admin mapping queue. Mapped rows continue into `machine_sales_facts`; unmapped rows are quarantined in normalized form using salted order hashes and no raw order numbers until an admin maps the Sunze ID to a canonical reporting machine or marks it ignored.
+- The Sunze UI exposes date presets but not always concrete date endpoints; for approved presets such as `Last 3 Days`, the worker records the selected preset and derives the expected date window in `SUNZE_REPORTING_TIMEZONE`, then verifies all exported sale dates fall inside that window.
+- Sunze order idempotency is based on a salted source order hash. The row hash remains available for change detection when a corrected export updates an already-seen order.
+- Raw Sunze workbooks are not retained. Operational evidence is limited to normalized facts, salted order hashes, import-run metadata, GitHub run IDs, and admin-visible freshness/error status.
 - Scheduled partner reports default to the previous Monday-Sunday week and email a private signed PDF link through the existing Resend pattern.
 - The automation must not bypass CAPTCHA, MFA, or Sunze access controls, and must not open machine-level settings or `More` menus.
 
@@ -53,6 +60,7 @@ Production reporting/admin RPC fixes must move forward through new migrations, n
 
 **Canonical migration rule**
 - Do not rely on editing an already-applied migration to repair production. Supabase will not replay it.
+- Do not reuse migration timestamps across feature branches; if a collision reaches `main`, add a later forward-only repair migration that makes the intended schema explicit.
 - If production is missing tables, RPCs, grants, or function definitions from an already-applied migration, add a later forward-only, idempotent repair migration.
 - Frontend-facing RPC migrations should end with `select pg_notify('pgrst', 'reload schema');` so PostgREST refreshes function metadata.
 - Production validation for admin/reporting RPC changes must include direct REST probes that confirm key RPCs do not return `404` or `PGRST202`.

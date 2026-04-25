@@ -14,6 +14,7 @@
     "reporting:import-sales": "node scripts/import-sales-reporting-csv.mjs",
     "reporting:import-refunds": "node scripts/import-refund-adjustments-csv.mjs",
     "reporting:sunze-sync": "node scripts/sunze/sync-orders.mjs",
+    "reporting:sunze-health": "node scripts/sunze/notify-health.mjs",
     "reporting:validate-sunze-parser": "node scripts/sunze/validate-sunze-orders-parser.mjs",
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",
     "training:sync-guides": "node scripts/sync-training-guides.mjs",

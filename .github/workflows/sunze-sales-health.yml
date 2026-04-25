@@ -1,0 +1,39 @@
+name: Sunze Sales Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 20 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sunze-sales-health
+  cancel-in-progress: false
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REPORTING_INGEST_URL: ${{ secrets.REPORTING_INGEST_URL }}
+      REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
+      SUNZE_SYNC_STALE_HOURS: '30'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Sunze import freshness
+        run: npm run reporting:sunze-health -- --event freshness_check --stale-hours "$SUNZE_SYNC_STALE_HOURS"
