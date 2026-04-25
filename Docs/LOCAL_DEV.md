@@ -39,6 +39,8 @@
    - Training experience upgrade migration: `supabase/migrations/202603190001_training_experience_upgrade.sql`
    - Sales reporting foundation migration: `supabase/migrations/202604240001_sales_reporting_foundation.sql`
    - Sales reporting daily automation helpers: `supabase/migrations/202604250001_sales_reporting_daily_automation.sql`
+   - Sunze sales reliability controls: `supabase/migrations/202604260002_sunze_sales_controls.sql`
+   - Sunze unmapped machine queue: `supabase/migrations/202604260003_sunze_unmapped_machine_queue.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
@@ -59,9 +61,12 @@ Use these after the sales reporting migration has been applied.
    - `npm run reporting:import-refunds -- --file path/to/refunds.csv --source-reference <sheet-or-export-id>`
 4) Validate the sanitized Sunze `.xlsx` parser fixture:
    - `npm run reporting:validate-sunze-parser`
-5) Dry-run the Sunze browser export locally without sending rows to Supabase:
+5) Dry-run the Sunze browser export locally:
    - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
-6) In production, run the scheduled GitHub Action with encrypted repository secrets:
+   - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.
+6) Run the Sunze import freshness check without touching Sunze:
+   - `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30`
+7) In production, run the scheduled GitHub Action with encrypted repository secrets:
    - `SUNZE_LOGIN_URL`
    - `SUNZE_REPORTING_EMAIL`
    - `SUNZE_REPORTING_PASSWORD`
@@ -74,6 +79,8 @@ Notes:
 - `sunze-sales-ingest` requires `REPORTING_INGEST_TOKEN` and `REPORTING_ROW_HASH_SALT` as Supabase function secrets. The GitHub worker receives only `REPORTING_INGEST_TOKEN`, never the Supabase service-role key.
 - GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
 - Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
+- Sunze sync controls use optional `SUNZE_EXPECTED_MACHINE_COUNT`, `SUNZE_SYNC_STALE_HOURS=30`, and `SUNZE_REPORTING_TIMEZONE=America/Los_Angeles` by default. The daily sync workflow performs a post-import freshness check, and the separate Sunze health workflow checks again later for missed/stale imports. Set the expected count only after confirming how many machines the workflow Sunze account exposes in the top-level Machine Center; new visible machines are placed in the `/admin/reporting` mapping queue instead of blocking already mapped sales.
+- Admins map newly discovered Sunze IDs from `/admin/reporting`. Pending rows for unmapped machines are quarantined in normalized form and replayed into `machine_sales_facts` after the Sunze ID is mapped to a canonical reporting machine.
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
 ## Training document upload helper
@@ -226,6 +233,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set REPORT_SCHEDULER_SECRET=...`
    - `supabase secrets set REPORTING_INGEST_TOKEN=...`
    - `supabase secrets set REPORTING_ROW_HASH_SALT=...`
+   - `supabase secrets set SUNZE_SYNC_STALE_HOURS=30`
    - `supabase secrets set GOOGLE_REFUNDS_SHEET_ID=...`
    - `supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON=...`
    - Ensure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are available to functions

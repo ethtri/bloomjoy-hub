@@ -166,7 +166,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
-- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, parses counts only, deletes the raw workbook, and does not call Supabase ingest
+- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, reconciles parsed row count/revenue against the Sunze UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
+- [ ] `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30` reports the latest completed Sunze import or sends a stale-data ops alert
 
 ## Payments (test mode)
 - [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
@@ -237,9 +238,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin users show all-machine reporting access as read-only with a link to Governance & Audit
 - [ ] Machine Mapping tab flags imported holding-location machines as `Needs mapping`
 - [ ] Admin can update reporting machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
+- [ ] Admin can map, ignore, and reopen discovered Sunze machine IDs from the `/admin/reporting` Sunze mapping queue
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows recent sales/refund import runs and stale/failed sync status clearly
-- [ ] Failed or stale Sunze ingest runs appear in `/admin/reporting` without changing existing sales facts
+- [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
 - [ ] Non-admin user cannot access `/admin/audit`
 - [ ] Super-admin user can access `/admin/audit`
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata

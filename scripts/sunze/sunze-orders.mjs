@@ -29,6 +29,14 @@ const normalizeHeader = (value) => toText(value).replace(/\s+/g, ' ');
 
 const normalizeSourceLabel = (value) => toText(value).replace(/\s+/g, ' ');
 
+const pad2 = (value) => String(value).padStart(2, '0');
+
+const buildDateString = (year, month, day) =>
+  `${String(year).padStart(4, '0')}-${pad2(month)}-${pad2(day)}`;
+
+const buildUtcIso = ({ year, month, day, hour = 0, minute = 0, second = 0 }) =>
+  `${buildDateString(year, month, day)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}.000Z`;
+
 const parseCents = (value, columnName, rowNumber) => {
   if (value === null || value === undefined || value === '') {
     return 0;
@@ -84,12 +92,55 @@ const normalizeStatus = (value, rowNumber) => {
 
 const parsePaymentTime = (value, rowNumber) => {
   if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString();
+    const year = value.getUTCFullYear();
+    const month = value.getUTCMonth() + 1;
+    const day = value.getUTCDate();
+    const hour = value.getUTCHours();
+    const minute = value.getUTCMinutes();
+    const second = value.getUTCSeconds();
+
+    return {
+      paymentTimeIso: buildUtcIso({ year, month, day, hour, minute, second }),
+      saleDate: buildDateString(year, month, day),
+    };
   }
 
   const source = toText(value);
-  const normalized = source.includes('/') ? source.replace(/\//g, '-') : source;
-  const parsed = new Date(normalized);
+  const localDateMatch = source.match(
+    /(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+  );
+
+  if (localDateMatch) {
+    const [, yearRaw, monthRaw, dayRaw, hourRaw = '0', minuteRaw = '0', secondRaw = '0'] =
+      localDateMatch;
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    const second = Number(secondRaw);
+
+    if (
+      [year, month, day, hour, minute, second].every(Number.isFinite) &&
+      month >= 1 &&
+      month <= 12 &&
+      day >= 1 &&
+      day <= 31 &&
+      hour >= 0 &&
+      hour <= 23 &&
+      minute >= 0 &&
+      minute <= 59 &&
+      second >= 0 &&
+      second <= 59
+    ) {
+      return {
+        paymentTimeIso: buildUtcIso({ year, month, day, hour, minute, second }),
+        saleDate: buildDateString(year, month, day),
+      };
+    }
+  }
+
+  const parsed = new Date(source);
 
   if (!source || !Number.isFinite(parsed.getTime())) {
     throw new SunzeOrderParseError(`Invalid payment time at row ${rowNumber}.`, {
@@ -97,7 +148,10 @@ const parsePaymentTime = (value, rowNumber) => {
     });
   }
 
-  return parsed.toISOString();
+  return {
+    paymentTimeIso: parsed.toISOString(),
+    saleDate: parsed.toISOString().slice(0, 10),
+  };
 };
 
 const validateHeaders = (headers) => {
@@ -133,7 +187,7 @@ export const parseSunzeOrderRows = (rows) => {
       const sourceOrderNumber = toText(cell('Order number'));
       const machineCode = toText(cell('Machine code'));
       const machineName = toText(cell('Machine name'));
-      const paymentTimeIso = parsePaymentTime(cell('Payment time'), rowNumber);
+      const { paymentTimeIso, saleDate } = parsePaymentTime(cell('Payment time'), rowNumber);
       const sourceStatus = normalizeStatus(cell('Status'), rowNumber);
       const { paymentMethod, sourcePaymentMethod } = normalizePaymentMethod(
         cell('Payment method'),
@@ -157,7 +211,7 @@ export const parseSunzeOrderRows = (rows) => {
         paymentMethod,
         sourcePaymentMethod,
         paymentTimeIso,
-        saleDate: paymentTimeIso.slice(0, 10),
+        saleDate,
         sourceStatus,
       };
     });
@@ -166,4 +220,16 @@ export const parseSunzeOrderRows = (rows) => {
 export const parseSunzeOrderWorkbook = async (filePath) => {
   const rows = await readSheet(filePath, SUNZE_ORDER_SHEET);
   return parseSunzeOrderRows(rows);
+};
+
+export const summarizeSunzeOrderRows = (rows) => {
+  const saleDates = rows.map((row) => row.saleDate).filter(Boolean).sort();
+
+  return {
+    rowCount: rows.length,
+    machineCount: new Set(rows.map((row) => row.machineCode).filter(Boolean)).size,
+    orderAmountCents: rows.reduce((sum, row) => sum + Number(row.orderAmountCents ?? 0), 0),
+    windowStart: saleDates[0] ?? null,
+    windowEnd: saleDates[saleDates.length - 1] ?? null,
+  };
 };

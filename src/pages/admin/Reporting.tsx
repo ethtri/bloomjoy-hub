@@ -38,9 +38,11 @@ import {
   grantMachineReportAccessAdmin,
   lookupReportingUserByEmailAdmin,
   revokeReportingAccessAdmin,
+  setSunzeMachineDiscoveryStatusAdmin,
   type AdminReportingAccessGrant,
   type AdminReportingAccessMachine,
   type AdminReportingAccessPerson,
+  type AdminSunzeMachineQueueItem,
   type ReportingAccessLevel,
   type ReportingMachineType,
   upsertReportingMachineAdmin,
@@ -50,6 +52,7 @@ import { cn } from '@/lib/utils';
 
 const machineTypes: ReportingMachineType[] = ['commercial', 'mini', 'micro', 'unknown'];
 const accessLevels: ReportingAccessLevel[] = ['viewer', 'report_manager'];
+const sunzeStaleHours = 30;
 
 const emptyMatrix = {
   people: [] as AdminReportingAccessPerson[],
@@ -82,6 +85,27 @@ const splitEmails = (value: string) =>
     .split(',')
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean);
+
+const formatCents = (value: unknown) => {
+  if (value === null || value === undefined) return 'n/a';
+  const cents = Number(value ?? 0);
+  if (!Number.isFinite(cents)) return 'n/a';
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+};
+
+const metaText = (meta: Record<string, unknown> | undefined, key: string) => {
+  const value = meta?.[key];
+  return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const metaNumber = (meta: Record<string, unknown> | undefined, key: string) => {
+  const value = Number(meta?.[key]);
+  return Number.isFinite(value) ? value : null;
+};
 
 const normalizeSearch = (value: string) => value.trim().toLowerCase();
 
@@ -166,6 +190,7 @@ export default function AdminReportingPage() {
   });
   const [isSavingMachine, setIsSavingMachine] = useState(false);
   const [isCreatingSchedule, setIsCreatingSchedule] = useState(false);
+  const [updatingSunzeMachineId, setUpdatingSunzeMachineId] = useState<string | null>(null);
 
   const {
     data: matrix = emptyMatrix,
@@ -197,6 +222,47 @@ export default function AdminReportingPage() {
   const grants = useMemo(() => matrix.grants, [matrix.grants]);
   const importRuns = useMemo(() => overview?.importRuns ?? [], [overview?.importRuns]);
   const schedules = useMemo(() => overview?.schedules ?? [], [overview?.schedules]);
+  const sunzeMachineQueue = useMemo(
+    () => overview?.sunzeMachineQueue ?? [],
+    [overview?.sunzeMachineQueue]
+  );
+  const pendingSunzeMachineQueue = useMemo(
+    () => sunzeMachineQueue.filter((machine) => machine.status === 'pending'),
+    [sunzeMachineQueue]
+  );
+  const sunzeRuns = useMemo(
+    () => importRuns.filter((run) => run.source === 'sunze_browser'),
+    [importRuns]
+  );
+  const latestSunzeRun = sunzeRuns[0] ?? null;
+  const latestCompletedSunzeRun = sunzeRuns.find((run) => run.status === 'completed') ?? null;
+  const latestSunzeMeta = latestSunzeRun?.meta ?? {};
+  const latestCompletedSunzeMeta = latestCompletedSunzeRun?.meta ?? {};
+  const latestCompletedAt = latestCompletedSunzeRun?.completed_at ?? null;
+  const latestCompletedMs = latestCompletedAt ? new Date(latestCompletedAt).getTime() : Number.NaN;
+  const latestCompletedAgeMs = Number.isFinite(latestCompletedMs)
+    ? Date.now() - latestCompletedMs
+    : Number.POSITIVE_INFINITY;
+  const sunzeIsStale = latestCompletedAgeMs > sunzeStaleHours * 60 * 60 * 1000;
+  const sunzeHasFailure = latestSunzeRun?.status === 'failed';
+  const sunzeNeedsMapping = pendingSunzeMachineQueue.length > 0;
+  const sunzeHealthLabel = sunzeHasFailure
+    ? 'Failed'
+    : sunzeNeedsMapping
+      ? 'Needs Mapping'
+      : sunzeIsStale
+        ? 'Stale'
+        : 'Fresh';
+  const sunzeLatestSaleDate =
+    metaText(latestSunzeMeta, 'window_end') ?? metaText(latestCompletedSunzeMeta, 'window_end');
+  const sunzeParsedMachineCount =
+    metaNumber(latestSunzeMeta, 'parsed_machine_count') ??
+    metaNumber(latestSunzeMeta, 'visible_sunze_machine_count') ??
+    metaNumber(latestCompletedSunzeMeta, 'parsed_machine_count') ??
+    metaNumber(latestCompletedSunzeMeta, 'visible_sunze_machine_count');
+  const sunzeParsedOrderAmountCents =
+    metaNumber(latestSunzeMeta, 'parsed_order_amount_cents') ??
+    metaNumber(latestCompletedSunzeMeta, 'parsed_order_amount_cents');
 
   const selectedPerson = people.find((person) => person.userId === selectedUserId) ?? null;
 
@@ -286,8 +352,8 @@ export default function AdminReportingPage() {
   );
 
   const unmappedMachineCount = useMemo(
-    () => machines.filter(machineNeedsMapping).length,
-    [machines]
+    () => machines.filter(machineNeedsMapping).length + pendingSunzeMachineQueue.length,
+    [machines, pendingSunzeMachineQueue.length]
   );
 
   const addedMachineIds = useMemo(
@@ -439,9 +505,45 @@ export default function AdminReportingPage() {
     setActiveTab('machines');
   };
 
+  const startSunzeQueueMapping = (machine: AdminSunzeMachineQueueItem) => {
+    setMachineForm({
+      machineId: null,
+      accountName: '',
+      locationName: '',
+      machineLabel: machine.sunzeMachineName ?? machine.sunzeMachineId,
+      machineType: 'unknown',
+      sunzeMachineId: machine.sunzeMachineId,
+      reason: 'Map discovered Sunze machine',
+    });
+    setActiveTab('machines');
+  };
+
   const focusMachineAccess = (machine: AdminReportingAccessMachine) => {
     setAccessMachineSearch(machine.machineLabel);
     setActiveTab('access');
+  };
+
+  const setSunzeQueueStatus = async (
+    machine: AdminSunzeMachineQueueItem,
+    status: 'pending' | 'ignored'
+  ) => {
+    setUpdatingSunzeMachineId(machine.sunzeMachineId);
+    try {
+      await setSunzeMachineDiscoveryStatusAdmin({
+        sunzeMachineId: machine.sunzeMachineId,
+        status,
+        reason:
+          status === 'ignored'
+            ? 'Marked non-production or not reportable from admin reporting'
+            : 'Reopened for reporting machine mapping',
+      });
+      toast.success(status === 'ignored' ? 'Sunze machine ignored.' : 'Sunze machine reopened.');
+      await refreshReporting();
+    } catch (statusError) {
+      toast.error(statusError instanceof Error ? statusError.message : 'Unable to update queue.');
+    } finally {
+      setUpdatingSunzeMachineId(null);
+    }
   };
 
   const saveMachine = async () => {
@@ -1257,32 +1359,173 @@ export default function AdminReportingPage() {
                   <h2 className="font-semibold text-foreground">Sunze Sync</h2>
                   <div className="mt-5 space-y-4">
                     <div className="flex items-start gap-3">
-                      {importRuns[0]?.status === 'completed' ? (
+                      {sunzeHealthLabel === 'Fresh' ? (
                         <CheckCircle2 className="mt-0.5 h-5 w-5 text-sage" />
                       ) : (
                         <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />
                       )}
                       <div>
                         <p className="text-sm font-medium text-foreground">
-                          {importRuns[0]?.status ?? 'No imports yet'}
+                          {sunzeHealthLabel}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          {formatDate(importRuns[0]?.completed_at ?? importRuns[0]?.created_at ?? null)}
+                          {latestSunzeRun?.status ?? 'No Sunze imports yet'} -{' '}
+                          {formatDate(latestSunzeRun?.completed_at ?? latestSunzeRun?.created_at ?? null)}
                         </p>
                       </div>
+                    </div>
+                    {latestSunzeRun?.error_message && (
+                      <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                        {latestSunzeRun.error_message}
+                      </div>
+                    )}
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Latest sale date
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-foreground">
+                        {sunzeLatestSaleDate ?? 'n/a'}
+                      </p>
                     </div>
                     <div className="rounded-md border border-border bg-background p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Latest rows
                       </p>
                       <p className="mt-1 text-2xl font-semibold text-foreground">
-                        {importRuns[0] ? `${importRuns[0].rows_imported}/${importRuns[0].rows_seen}` : '0/0'}
+                        {latestSunzeRun
+                          ? `${latestSunzeRun.rows_imported}/${latestSunzeRun.rows_seen}`
+                          : '0/0'}
                       </p>
+                      {latestSunzeRun && latestSunzeRun.rows_skipped > 0 && (
+                        <p className="mt-1 text-xs text-amber-700">
+                          {latestSunzeRun.rows_skipped} pending mapping
+                        </p>
+                      )}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                      <div className="rounded-md border border-border bg-background p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Machines
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-foreground">
+                          {sunzeParsedMachineCount ?? 'n/a'}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-border bg-background p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Parsed revenue
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-foreground">
+                          {formatCents(sunzeParsedOrderAmountCents)}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-border bg-card">
+                <div className="space-y-6">
+                  <div className="rounded-lg border border-border bg-card">
+                    <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h2 className="font-semibold text-foreground">Sunze Mapping Queue</h2>
+                        <p className="text-sm text-muted-foreground">
+                          {pendingSunzeMachineQueue.length} pending machine
+                          {pendingSunzeMachineQueue.length === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                      {pendingSunzeMachineQueue.length > 0 && (
+                        <Badge variant="outline" className="w-fit text-amber-700">
+                          Needs mapping
+                        </Badge>
+                      )}
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Sunze Machine</TableHead>
+                          <TableHead>Pending Sales</TableHead>
+                          <TableHead>Last Seen</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {sunzeMachineQueue.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                              No Sunze machines need mapping.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          sunzeMachineQueue.map((machine) => (
+                            <TableRow key={machine.sunzeMachineId}>
+                              <TableCell>
+                                <div className="font-medium text-foreground">
+                                  {machine.sunzeMachineName ?? machine.sunzeMachineId}
+                                </div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  Sunze: {machine.sunzeMachineId}
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <Badge
+                                    variant={machine.status === 'pending' ? 'outline' : 'secondary'}
+                                    className={machine.status === 'pending' ? 'text-amber-700' : ''}
+                                  >
+                                    {machine.status}
+                                  </Badge>
+                                  {machine.ignoreReason && (
+                                    <Badge variant="outline">{machine.ignoreReason}</Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div>{machine.pendingRowCount}</div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {formatCents(machine.pendingRevenueCents)}
+                                  {machine.latestSaleDate
+                                    ? ` - latest ${formatShortDate(machine.latestSaleDate)}`
+                                    : ''}
+                                </div>
+                              </TableCell>
+                              <TableCell>{formatDate(machine.lastSeenAt)}</TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => startSunzeQueueMapping(machine)}
+                                  >
+                                    Map
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={updatingSunzeMachineId === machine.sunzeMachineId}
+                                    onClick={() =>
+                                      setSunzeQueueStatus(
+                                        machine,
+                                        machine.status === 'ignored' ? 'pending' : 'ignored'
+                                      )
+                                    }
+                                  >
+                                    {updatingSunzeMachineId === machine.sunzeMachineId ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : machine.status === 'ignored' ? (
+                                      'Reopen'
+                                    ) : (
+                                      'Ignore'
+                                    )}
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-card">
                   <div className="border-b border-border px-4 py-3">
                     <h2 className="font-semibold text-foreground">Recent Import Runs</h2>
                   </div>
@@ -1310,6 +1553,15 @@ export default function AdminReportingPage() {
                               <div className="text-xs text-muted-foreground">
                                 {run.source_reference ?? run.id}
                               </div>
+                              {run.source === 'sunze_browser' && (
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  Window {metaText(run.meta, 'window_start') ?? 'n/a'} to{' '}
+                                  {metaText(run.meta, 'window_end') ?? 'n/a'}
+                                  {metaText(run.meta, 'github_run_id')
+                                    ? ` - GitHub ${metaText(run.meta, 'github_run_id')}`
+                                    : ''}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Badge variant={run.status === 'completed' ? 'default' : 'outline'}>
@@ -1320,7 +1572,20 @@ export default function AdminReportingPage() {
                               )}
                             </TableCell>
                             <TableCell>
-                              {run.rows_imported}/{run.rows_seen}
+                              <div>
+                                {run.rows_imported}/{run.rows_seen}
+                              </div>
+                              {run.rows_skipped > 0 && (
+                                <div className="mt-1 text-xs text-amber-700">
+                                  {run.rows_skipped} pending mapping
+                                </div>
+                              )}
+                              {run.source === 'sunze_browser' && (
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {metaNumber(run.meta, 'parsed_machine_count') ?? 'n/a'} machines -{' '}
+                                  {formatCents(metaNumber(run.meta, 'parsed_order_amount_cents'))}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>{formatDate(run.completed_at ?? run.created_at)}</TableCell>
                           </TableRow>
@@ -1329,6 +1594,7 @@ export default function AdminReportingPage() {
                     </TableBody>
                   </Table>
                 </div>
+              </div>
               </div>
             </TabsContent>
           </Tabs>
