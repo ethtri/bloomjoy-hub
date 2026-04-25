@@ -56,11 +56,18 @@ The next P0 reporting milestone is a trusted corporate partner report that Bloom
 - Manual super-admin review comes before scheduled auto-email. Scheduled delivery remains future automation after the report content and math are trusted.
 - Corporate partners do not get inherited portal access from partnership setup in V1. Partner-facing value is delivered through reviewed PDFs first.
 - Operator performance dashboards are deferred until the corporate partner review/download workflow is accepted.
+- Partner dashboard UX/CX can be designed in parallel, but it is not required for the first reviewed-PDF milestone.
 
 **Canonical partner report**
 - The PDF should be a polished settlement artifact, not the current simple text-style sales export.
 - Required report shape: executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, warning states, generated timestamp, and snapshot ID.
 - Generated partner reports must have auditable snapshot/run records with period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and any warnings.
+
+**Canonical dashboard direction**
+- The reporting tab should default to an operator-style view for the user's assigned machines.
+- A partner dashboard view should appear only when the access context grants partner-dashboard visibility.
+- V1 partner dashboard visibility defaults to super-admins only until explicit partner-viewer permissions are implemented.
+- The browser dashboard should emphasize smooth period controls, summary KPIs, machine-level rollups, warning states, and calculation transparency; the PDF remains the formal settlement artifact.
 
 **Canonical rule approach**
 - Revenue-share rules should be typed and configurable: week-ending day, machine tax method, fee basis, cost basis, split base, and share percentages.

@@ -34,6 +34,7 @@
   - conservative access: only super-admins configure, generate, review, and send partner reports in V1
 - Next code slice should add auditable partner-report snapshot/run support with reporting period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and warning state.
 - The partner PDF should replace the current simple text-style sales export for this use case with a branded settlement artifact: cover/summary, machine-level rollups, formula assumptions, warning states, generated timestamp, and snapshot ID.
+- Parallel UX/CX track: issue `#172` should design the reporting tab experience where users see operator-style reporting for assigned machines by default, while partner dashboard views appear only when the user has explicit partner-dashboard permissions. V1 should default partner dashboard visibility to super-admins only.
 - Current PR sequencing recommendation:
   1. Merge PR `#161` first because it hardens Sunze ingestion/source controls and production-aligned migrations/functions.
   2. Sync and merge PR `#167` next because it improves `/admin/partnerships` setup UX and overlaps the partnership admin surface.
