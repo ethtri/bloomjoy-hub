@@ -43,11 +43,16 @@
    - Sunze unmapped machine queue: `supabase/migrations/202604260003_sunze_unmapped_machine_queue.sql`
    - Reporting admin/partner foundation repair: `supabase/migrations/202604260004_reporting_admin_rpc_repair.sql`
    - Sunze enriched sales upsert repair: `supabase/migrations/202604260005_sunze_enriched_fact_upsert.sql`
+   - Sunze order-hash idempotency repair: `supabase/migrations/202604260006_sunze_order_hash_index_repair.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
    - `provider_hash`
    - `meta.thumbnail_url` (first-party key in `training-thumbnails` bucket, for example `vimeo/<video_id>.jpg`)
+
+Migration notes:
+- Supabase will not replay an edited migration after production has marked that version applied. Add a later forward-only repair migration when production schema drift needs to be fixed.
+- After migrations that add or replace frontend-facing RPCs, verify `supabase db push --dry-run` is clean and confirm the live REST endpoint does not return `404` or `PGRST202` for the changed RPCs.
 
 ## Sales reporting import helpers
 Use these after the sales reporting migration has been applied.
