@@ -253,7 +253,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Machines shows a sortable/filterable table with assignment readiness, latest sale, and current tax states: Missing, No tax, Configured
 - [ ] Admin Machines can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow
 - [ ] Machine tax warnings appear on Admin Machines, not Admin Partnerships
-- [ ] Admin Partnerships > Payout Rules shows a plain-language sales-to-payout summary, primary payout controls, click/tap help popovers, and collapsed advanced reporting assumptions
+- [ ] Admin Partnerships > Payout Rules shows a plain-language sales-to-payout summary, participant-named Payout Allocation rows, whole-percent inputs, quick presets, a 100% allocation check, click/tap help popovers, and collapsed advanced reporting assumptions
 - [ ] Admin Partnerships does not show example-specific `Fever` terminology in the admin UI
 - [ ] Admin Partnerships shows financial-rule warnings in Payout Rules and assignment warnings in the Machines step, not in a disconnected top-of-page warning box
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting

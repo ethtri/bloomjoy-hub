@@ -201,6 +201,107 @@ const payoutModelPresets = [
 ] as const;
 
 type PayoutModelPreset = (typeof payoutModelPresets)[number]['value'];
+type PayoutShareField = 'primarySharePercent' | 'partnerSharePercent' | 'bloomjoySharePercent';
+
+type AllocationPreset = {
+  label: string;
+  primarySharePercent: string;
+  partnerSharePercent: string;
+  bloomjoySharePercent: string;
+};
+
+const nonPayoutParticipantRoles = new Set(['internal', 'operator']);
+const shareFieldsByParticipantIndex: PayoutShareField[] = ['primarySharePercent', 'partnerSharePercent'];
+
+const parseWholePercent = (value: string) => Math.round(Number(value) || 0);
+
+const sanitizeWholePercentInput = (value: string) => {
+  if (value.trim() === '') return '';
+  const numericValue = Math.round(Number(value));
+  if (Number.isNaN(numericValue)) return '';
+  return String(Math.min(Math.max(numericValue, 0), 100));
+};
+
+const isPayoutEligibleParticipant = (party: ReportingPartnershipParty) =>
+  !nonPayoutParticipantRoles.has(party.party_role);
+
+const getNormalizedPayoutShares = (form: typeof emptyRuleForm, participantCount: number) => ({
+  primarySharePercent: participantCount >= 1 ? String(parseWholePercent(form.primarySharePercent)) : '0',
+  partnerSharePercent: participantCount >= 2 ? String(parseWholePercent(form.partnerSharePercent)) : '0',
+  bloomjoySharePercent: String(parseWholePercent(form.bloomjoySharePercent)),
+});
+
+const getPayoutAllocationTotal = (form: typeof emptyRuleForm, participantCount: number) => {
+  const normalizedShares = getNormalizedPayoutShares(form, participantCount);
+  return (
+    parseWholePercent(normalizedShares.primarySharePercent) +
+    parseWholePercent(normalizedShares.partnerSharePercent) +
+    parseWholePercent(normalizedShares.bloomjoySharePercent)
+  );
+};
+
+const getAllocationPresets = (participantCount: number): AllocationPreset[] => {
+  if (participantCount >= 2) {
+    return [
+      {
+        label: '60 / 40 / 0',
+        primarySharePercent: '60',
+        partnerSharePercent: '40',
+        bloomjoySharePercent: '0',
+      },
+      {
+        label: '50 / 50 / 0',
+        primarySharePercent: '50',
+        partnerSharePercent: '50',
+        bloomjoySharePercent: '0',
+      },
+      {
+        label: '45 / 45 / 10',
+        primarySharePercent: '45',
+        partnerSharePercent: '45',
+        bloomjoySharePercent: '10',
+      },
+      {
+        label: '33 / 33 / 34',
+        primarySharePercent: '33',
+        partnerSharePercent: '33',
+        bloomjoySharePercent: '34',
+      },
+    ];
+  }
+
+  if (participantCount === 1) {
+    return [
+      {
+        label: '100 / 0',
+        primarySharePercent: '100',
+        partnerSharePercent: '0',
+        bloomjoySharePercent: '0',
+      },
+      {
+        label: '90 / 10',
+        primarySharePercent: '90',
+        partnerSharePercent: '0',
+        bloomjoySharePercent: '10',
+      },
+      {
+        label: '60 / 40',
+        primarySharePercent: '60',
+        partnerSharePercent: '0',
+        bloomjoySharePercent: '40',
+      },
+    ];
+  }
+
+  return [
+    {
+      label: '100% Bloomjoy',
+      primarySharePercent: '0',
+      partnerSharePercent: '0',
+      bloomjoySharePercent: '100',
+    },
+  ];
+};
 
 const getPayoutModelPreset = (form: typeof emptyRuleForm): PayoutModelPreset => {
   if (form.calculationModel === 'internal_only') return 'internal_only';
@@ -1286,6 +1387,19 @@ function FinancialTermsSection({
   const [isSaving, setIsSaving] = useState(false);
   const payoutPreset = getPayoutModelPreset(form);
 
+  const participants = useMemo(
+    () => setup.parties.filter((party) => party.partnership_id === selectedPartnership.id),
+    [selectedPartnership.id, setup.parties]
+  );
+
+  const payoutEligibleParticipants = useMemo(
+    () => participants.filter(isPayoutEligibleParticipant),
+    [participants]
+  );
+  const payoutParticipants = payoutEligibleParticipants.slice(0, 2);
+  const additionalPayoutParticipants = payoutEligibleParticipants.slice(2);
+  const allocationTotal = getPayoutAllocationTotal(form, payoutParticipants.length);
+
   const financialRules = useMemo(
     () => setup.financialRules.filter((rule) => rule.partnership_id === selectedPartnership.id),
     [selectedPartnership.id, setup.financialRules]
@@ -1335,11 +1449,39 @@ function FinancialTermsSection({
     }));
   };
 
+  const updateSharePercent = (field: PayoutShareField, value: string) => {
+    setForm((current) => ({
+      ...current,
+      [field]: sanitizeWholePercentInput(value),
+    }));
+  };
+
+  const applyAllocationPreset = (preset: AllocationPreset) => {
+    setForm((current) => ({
+      ...current,
+      primarySharePercent: preset.primarySharePercent,
+      partnerSharePercent: preset.partnerSharePercent,
+      bloomjoySharePercent: preset.bloomjoySharePercent,
+    }));
+  };
+
   const saveRule = async () => {
     if (!form.effectiveStartDate) {
       toast.error('Effective start date is required.');
       return;
     }
+
+    if (additionalPayoutParticipants.length > 0) {
+      toast.error('Payout allocation currently supports two payout participants plus Bloomjoy.');
+      return;
+    }
+
+    if (allocationTotal !== 100) {
+      toast.error('Payout allocation must total 100%.');
+      return;
+    }
+
+    const normalizedShares = getNormalizedPayoutShares(form, payoutParticipants.length);
 
     setIsSaving(true);
     try {
@@ -1348,9 +1490,9 @@ function FinancialTermsSection({
         partnershipId: selectedPartnership.id,
         feeAmountCents: centsFromDollars(form.feeAmountDollars),
         costAmountCents: centsFromDollars(form.costAmountDollars),
-        feverShareBasisPoints: basisPointsFromPercent(form.primarySharePercent),
-        partnerShareBasisPoints: basisPointsFromPercent(form.partnerSharePercent),
-        bloomjoyShareBasisPoints: basisPointsFromPercent(form.bloomjoySharePercent),
+        feverShareBasisPoints: basisPointsFromPercent(normalizedShares.primarySharePercent),
+        partnerShareBasisPoints: basisPointsFromPercent(normalizedShares.partnerSharePercent),
+        bloomjoyShareBasisPoints: basisPointsFromPercent(normalizedShares.bloomjoySharePercent),
         reason: form.ruleId ? 'Payout rules updated' : 'Payout rules created',
       });
       toast.success(form.ruleId ? 'Payout rules updated.' : 'Payout rules created.');
@@ -1378,7 +1520,7 @@ function FinancialTermsSection({
           </p>
         </div>
 
-        <PayoutFlowSummary form={form} />
+        <PayoutFlowSummary form={form} payoutParticipants={payoutParticipants} />
 
         <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
           <div>
@@ -1419,50 +1561,14 @@ function FinancialTermsSection({
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <div>
-            <FieldLabel
-              htmlFor="primary-share"
-              label="Primary payout share %"
-              help="The main external payout share for the partnership. Use this when one external participant receives the primary payout."
-            />
-            <Input
-              id="primary-share"
-              type="number"
-              step="0.01"
-              value={form.primarySharePercent}
-              onChange={(event) => setForm({ ...form, primarySharePercent: event.target.value })}
-            />
-          </div>
-          <div>
-            <FieldLabel
-              htmlFor="partner-share"
-              label="Partner payout share %"
-              help="Use this for an additional external participant share when the agreement has more than one recipient."
-            />
-            <Input
-              id="partner-share"
-              type="number"
-              step="0.01"
-              value={form.partnerSharePercent}
-              onChange={(event) => setForm({ ...form, partnerSharePercent: event.target.value })}
-            />
-          </div>
-          <div>
-            <FieldLabel
-              htmlFor="bloomjoy-share"
-              label="Bloomjoy retained share %"
-              help="The share retained by Bloomjoy after external payout shares are applied."
-            />
-            <Input
-              id="bloomjoy-share"
-              type="number"
-              step="0.01"
-              value={form.bloomjoySharePercent}
-              onChange={(event) => setForm({ ...form, bloomjoySharePercent: event.target.value })}
-            />
-          </div>
-        </div>
+        <PayoutAllocationSection
+          form={form}
+          payoutParticipants={payoutParticipants}
+          additionalPayoutParticipants={additionalPayoutParticipants}
+          allocationTotal={allocationTotal}
+          onShareChange={updateSharePercent}
+          onApplyPreset={applyAllocationPreset}
+        />
 
         <details className="mt-4 rounded-md border border-border p-4">
           <summary className="cursor-pointer text-sm font-medium text-foreground">
@@ -1616,10 +1722,8 @@ function FinancialTermsSection({
               <div>
                 <div className="font-medium text-foreground">{formatLabel(rule.calculation_model)}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Fee {formatMoney(rule.fee_amount_cents)} {formatLabel(rule.fee_basis)} / primary{' '}
-                  {percentFromBasisPoints(rule.fever_share_basis_points)}%, partner{' '}
-                  {percentFromBasisPoints(rule.partner_share_basis_points)}%, Bloomjoy{' '}
-                  {percentFromBasisPoints(rule.bloomjoy_share_basis_points)}%
+                  Fee {formatMoney(rule.fee_amount_cents)} {formatLabel(rule.fee_basis)} /{' '}
+                  {formatRuleAllocationSummary(rule, payoutParticipants)}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1636,12 +1740,154 @@ function FinancialTermsSection({
   );
 }
 
-function PayoutFlowSummary({ form }: { form: typeof emptyRuleForm }) {
+function PayoutAllocationSection({
+  form,
+  payoutParticipants,
+  additionalPayoutParticipants,
+  allocationTotal,
+  onShareChange,
+  onApplyPreset,
+}: {
+  form: typeof emptyRuleForm;
+  payoutParticipants: ReportingPartnershipParty[];
+  additionalPayoutParticipants: ReportingPartnershipParty[];
+  allocationTotal: number;
+  onShareChange: (field: PayoutShareField, value: string) => void;
+  onApplyPreset: (preset: AllocationPreset) => void;
+}) {
+  const allocationRows = [
+    ...payoutParticipants.map((participant, index) => ({
+      id: participant.id,
+      name: participant.partner_name,
+      description: formatLabel(participant.party_role),
+      field: shareFieldsByParticipantIndex[index],
+    })),
+    {
+      id: 'bloomjoy',
+      name: 'Bloomjoy',
+      description: 'Retained share',
+      field: 'bloomjoySharePercent' as PayoutShareField,
+    },
+  ];
+  const presets = getAllocationPresets(payoutParticipants.length);
+  const isBalanced = allocationTotal === 100;
+
+  return (
+    <div className="mt-5 rounded-lg border border-border bg-muted/10 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-foreground">Payout Allocation</h3>
+            <HelpTooltip>
+              Split the payout base across this partnership's payout participants and Bloomjoy.
+              Shares must total 100% before the rule can be saved.
+            </HelpTooltip>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Assign whole-number percentages to the actual partnership participants.
+          </p>
+        </div>
+        <Badge variant={isBalanced ? 'default' : 'destructive'}>
+          {allocationTotal}% allocated
+        </Badge>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {presets.map((preset) => (
+          <Button
+            key={preset.label}
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onApplyPreset(preset)}
+          >
+            {preset.label}
+          </Button>
+        ))}
+      </div>
+
+      {additionalPayoutParticipants.length > 0 && (
+        <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          This version supports two payout participants plus Bloomjoy. Additional participants are
+          still stored on the partnership, but cannot receive a payout share here yet:{' '}
+          {additionalPayoutParticipants.map((participant) => participant.partner_name).join(', ')}.
+        </div>
+      )}
+
+      <div className="mt-4 divide-y divide-border rounded-md border border-border bg-background">
+        {allocationRows.map((row) => (
+          <div
+            key={row.id}
+            className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_150px] sm:items-center"
+          >
+            <div className="min-w-0">
+              <div className="font-medium text-foreground">{row.name}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{row.description}</div>
+            </div>
+            <div className="relative">
+              <Input
+                aria-label={`${row.name} payout share percentage`}
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                inputMode="numeric"
+                value={form[row.field]}
+                onChange={(event) => onShareChange(row.field, event.target.value)}
+                className="h-11 pr-8 text-right"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                %
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {!isBalanced && (
+        <div className="mt-3 text-sm text-destructive">
+          Adjust the allocation to exactly 100% before saving.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatRuleAllocationSummary(
+  rule: ReportingPartnershipFinancialRule,
+  payoutParticipants: ReportingPartnershipParty[]
+) {
+  const parts = [];
+  if (payoutParticipants[0]) {
+    parts.push(
+      `${payoutParticipants[0].partner_name} ${percentFromBasisPoints(rule.fever_share_basis_points)}%`
+    );
+  }
+  if (payoutParticipants[1]) {
+    parts.push(
+      `${payoutParticipants[1].partner_name} ${percentFromBasisPoints(rule.partner_share_basis_points)}%`
+    );
+  }
+  parts.push(`Bloomjoy ${percentFromBasisPoints(rule.bloomjoy_share_basis_points)}%`);
+  return parts.join(' / ');
+}
+
+function PayoutFlowSummary({
+  form,
+  payoutParticipants,
+}: {
+  form: typeof emptyRuleForm;
+  payoutParticipants: ReportingPartnershipParty[];
+}) {
   const paidOrderFee =
     Number(form.feeAmountDollars) > 0 ? `${formatMoney(centsFromDollars(form.feeAmountDollars))} paid-order fee` : 'no paid-order fee';
-  const splitSummary = `${Number(form.primarySharePercent || 0)}% primary / ${Number(
-    form.partnerSharePercent || 0
-  )}% partner / ${Number(form.bloomjoySharePercent || 0)}% Bloomjoy`;
+  const splitSummary = [
+    payoutParticipants[0] && `${payoutParticipants[0].partner_name} ${parseWholePercent(form.primarySharePercent)}%`,
+    payoutParticipants[1] && `${payoutParticipants[1].partner_name} ${parseWholePercent(form.partnerSharePercent)}%`,
+    `Bloomjoy ${parseWholePercent(form.bloomjoySharePercent)}%`,
+  ]
+    .filter(Boolean)
+    .join(' / ');
 
   return (
     <div className="mt-5 grid gap-2 text-sm sm:grid-cols-4">

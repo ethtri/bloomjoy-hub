@@ -45,11 +45,12 @@ Admin permission work and partnership financial setup are separate concerns.
 - Admin setup should be task-based rather than forcing every reporting setup concern into Partnerships.
 - Partnership participants are optional V1 metadata for multi-stakeholder agreements. The relationship is managed in the partnership flow, but reusable partner records have their own admin page.
 - Partnership participant setup captures who is involved and their relationship role only. Report delivery recipients belong in Reporting Operations, and payout/share percentages are configured only in Payout Rules.
+- Payout Rules should present allocation by actual participant name plus Bloomjoy, use whole-number percentages, show a live 100% allocation check, and map those values to the existing primary/partner/Bloomjoy backend fields for compatibility. V1 supports two payout participants plus Bloomjoy until the backend model expands.
 - Partnership machine assignment is a current-state bulk alignment workflow. Assignment role, status, notes, and effective date windows remain backend compatibility fields but are defaulted/archived by the UI rather than exposed in normal setup.
 - Machine tax-rate history stays effective-dated in the backend, but normal admin editing happens from the Machines page and focuses on current machine rates, with explicit no-tax machines distinguishable from missing tax configuration.
 - Setup warnings should appear where an admin can act: machine tax and assignment readiness on Machines, assignment overlap in the partnership Machines step, financial-rule gaps in Payout Rules, and preview-specific issues in Weekly Preview.
-- Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured paid-order fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and defaults to a 60% primary-share / 40% partner-style split when configured that way.
-- Admin UI should use neutral split labels such as primary share, partner share, and Bloomjoy share. Example-specific partner names are not canonical reporting terminology.
+- Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured paid-order fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and supports a participant-named 60/40 split when configured that way.
+- Admin UI should avoid example-specific partner names and avoid exposing abstract backend split labels when participant names can be shown directly.
 - Weekly partner previews must use the partnership's configured week-ending day. Bubble Planet-style weekly reporting is Monday-Sunday with a Sunday week-ending date.
 
 **Why this choice**
