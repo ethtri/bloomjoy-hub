@@ -116,7 +116,7 @@ export default function AdminReportingPage() {
   );
   const latestSunzeRun = sunzeRuns[0] ?? null;
   const latestCompletedSunzeRun = sunzeRuns.find((run) => run.status === 'completed') ?? null;
-  const latestSunzeMeta = latestSunzeRun?.meta ?? {};
+  const latestFailedSunzeRun = sunzeRuns.find((run) => run.status === 'failed') ?? null;
   const latestCompletedSunzeMeta = latestCompletedSunzeRun?.meta ?? {};
   const latestCompletedAt = latestCompletedSunzeRun?.completed_at ?? null;
   const latestCompletedMs = latestCompletedAt ? new Date(latestCompletedAt).getTime() : Number.NaN;
@@ -124,18 +124,24 @@ export default function AdminReportingPage() {
     ? Date.now() - latestCompletedMs
     : Number.POSITIVE_INFINITY;
   const sunzeIsStale = latestCompletedAgeMs > sunzeStaleHours * 60 * 60 * 1000;
-  const sunzeHasFailure = latestSunzeRun?.status === 'failed';
+  const sunzeHasRecentFailure = Boolean(latestFailedSunzeRun);
   const sunzeNeedsMapping = pendingSunzeMachineQueue.length > 0;
-  const sunzeHealthLabel = sunzeHasFailure
-    ? 'Failed'
-    : sunzeNeedsMapping
-      ? 'Needs Mapping'
-      : sunzeIsStale
-        ? 'Stale'
+  const sunzeHealthLabel = sunzeNeedsMapping
+    ? 'Needs Mapping'
+    : sunzeIsStale
+      ? 'Stale'
+      : sunzeHasRecentFailure
+        ? 'Fresh with issue'
         : 'Fresh';
-  const sunzeHealthStatus = sunzeHasFailure ? 'failed' : sunzeHealthLabel.toLowerCase();
-  const sunzeLatestSaleDate =
-    metaText(latestSunzeMeta, 'window_end') ?? metaText(latestCompletedSunzeMeta, 'window_end');
+  const sunzeHealthStatus = sunzeIsStale ? 'failed' : sunzeNeedsMapping ? 'pending' : 'fresh';
+  const sunzeLatestSaleDate = metaText(latestCompletedSunzeMeta, 'window_end');
+  const sunzeHealthDetail = latestCompletedSunzeRun
+    ? `Fresh through ${sunzeLatestSaleDate ?? 'latest import'} / last completed ${formatDate(
+        latestCompletedSunzeRun.completed_at
+      )}${latestFailedSunzeRun ? ` / latest issue ${formatDate(latestFailedSunzeRun.created_at)}` : ''}`
+    : latestSunzeRun
+      ? `${latestSunzeRun.status} / ${formatDate(latestSunzeRun.completed_at ?? latestSunzeRun.created_at)}`
+      : 'No Sunze imports yet';
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['admin-reporting-overview'] });
@@ -255,13 +261,7 @@ export default function AdminReportingPage() {
               icon={<Database className="h-5 w-5" />}
               label="Sunze Sync Health"
               value={sunzeHealthLabel}
-              detail={
-                latestSunzeRun
-                  ? `${latestSunzeRun.status} / ${formatDate(
-                      latestSunzeRun.completed_at ?? latestSunzeRun.created_at
-                    )}`
-                  : 'No Sunze imports yet'
-              }
+              detail={sunzeHealthDetail}
               status={sunzeHealthStatus}
             />
             <StatusCard
@@ -696,7 +696,12 @@ function ExportsTab({ snapshots }: { snapshots: AdminReportViewSnapshot[] }) {
         snapshots.map((snapshot) => (
           <Row key={snapshot.id}>
             <div>
-              <div className="font-medium text-foreground">{snapshot.title}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="font-medium text-foreground">{snapshot.title}</div>
+                <Badge variant="outline">
+                  {snapshot.snapshot_type === 'partner_report' ? 'Partner report' : 'Sales report'}
+                </Badge>
+              </div>
               <div className="mt-1 text-xs text-muted-foreground">
                 Created {formatDate(snapshot.created_at)} /{' '}
                 {snapshot.export_storage_path ?? 'no file yet'}

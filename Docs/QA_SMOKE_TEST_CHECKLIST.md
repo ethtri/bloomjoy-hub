@@ -259,7 +259,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Machines shows when selected machines are already assigned to another active partnership and requires confirmation before saving an overlap
 - [ ] Admin Machines can edit machine label/alias, account, location, machine type, and Sunze ID
 - [ ] Admin Machines shows a sortable/filterable table with assignment readiness, assignment state filters, latest sale, and current tax states: Missing, No tax, Configured
-- [ ] Admin Machines can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow
+- [ ] Admin Machines can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow, and newly documented rates apply from `2026-01-01`
+- [ ] Admin Machines can record a reporting tax rate change with only `New reporting tax %` and `Applies from`, and the previous active rate closes without overlap
+- [ ] Admin Machines exposes read-only reporting tax history for a machine without making normal admins manage tax status, end date, or notes
 - [ ] Machine tax warnings appear on Admin Machines, not Admin Partnerships
 - [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus a simple active/inactive control, not a backend status dropdown
 - [ ] Admin Partnerships > Payout Rules shows a plain-language sales-to-payout summary, one current payout rule, stable participant-named Payout Allocation rows based on Participants marked `Receives payout`, whole-percent inputs, a 100% allocation check, click/tap help popovers, and no editable payout-rule date/status fields
@@ -270,17 +272,20 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
 - [ ] Admin Partnerships > Weekly Preview shows actionable in-page readiness messages when the selected week has no active machine assignment coverage, no active payout rule coverage, partial-week coverage, or no imported assigned-machine sales
 - [ ] Admin Partnerships > Weekly Preview labels payout metrics with the same participant names used in Payout Rules plus Bloomjoy
-- [ ] Admin Partnerships > Weekly Preview matches the Bubble Planet workbook math: Sunze order amount as gross, machine tax plus configured `$0.40` per-stick/item fee before split, no-pay orders counted as `$0`, and 60/40 split when configured
+- [ ] Admin Partnerships > Weekly Preview matches the corrected Bubble Planet product math: Sunze order amount as gross, machine tax plus configured `$0.40` stick-level cost deduction before split, no-pay orders counted as `$0`, and 60/40 split when configured
+- [ ] Admin Partnerships > Weekly Preview can generate a branded partner PDF and a CSV reconciliation export from the loaded preview
 - [ ] Corporate partner P0: super-admin can create a corporate partner, create a partnership/agreement, assign machines, configure machine tax assumptions, and configure typed revenue-share terms without developer support
 - [ ] Corporate partner P0: super-admin can preview a completed weekly report before generating a PDF and sees any missing tax, missing assignment, missing financial-rule, or stale-data warnings
 - [ ] Corporate partner P0: generated partner PDF includes executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, generated timestamp, and snapshot ID
 - [ ] Corporate partner P0: generated partner PDF is backed by an auditable snapshot/run record with period, rule version, assumptions, generated-by user, status, storage path, and warning state
 - [ ] Corporate partner P0: super-admin can download the reviewed partner PDF for manual sending; scheduled auto-email is not required for V1 acceptance
+- [ ] Corporate partner P0: generated partner CSV export matches the weekly preview totals and machine rollup
 - [ ] Non-admin user cannot generate or download corporate partner report PDFs from admin routes
 - [ ] Non-admin user cannot access `/admin/reporting`
 - [ ] Super-admin user can access `/admin/reporting`
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
-- [ ] Admin reporting shows report export archive, recent sales/refund import runs, and stale/failed sync status clearly
+- [ ] Admin reporting shows report export archive, partner report exports, recent sales/refund import runs, and stale/failed sync status clearly
+- [ ] Admin reporting does not mark Sunze freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
 - [ ] Admin can open discovered Sunze machine IDs from `/admin/reporting`, map them in `/admin/machines`, ignore them, and reopen them
 - [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
 - [ ] Non-admin user cannot access `/admin/audit`

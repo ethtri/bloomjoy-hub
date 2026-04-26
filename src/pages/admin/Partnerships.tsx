@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
+  Download,
   Info,
   Loader2,
   Plus,
@@ -13,7 +14,7 @@ import {
   Search,
   Trash2,
 } from 'lucide-react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -46,6 +47,8 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
   fetchPartnershipReportingSetup,
+  exportPartnerWeeklyReportAdmin,
+  type ExportPartnerWeeklyReportFormat,
   previewPartnerWeeklyReportAdmin,
   removeReportingPartnershipPartyAdmin,
   upsertReportingFinancialRuleAdmin,
@@ -97,7 +100,7 @@ const steps: Array<{ key: PartnershipStep; label: string; description: string }>
   { key: 'details', label: 'Details', description: 'Name and reporting cadence' },
   { key: 'participants', label: 'Participants', description: 'Organizations in the agreement' },
   { key: 'machines', label: 'Machines', description: 'Assign reporting machines' },
-  { key: 'terms', label: 'Payout Rules', description: 'Fees, model, payout split' },
+  { key: 'terms', label: 'Payout Rules', description: 'Costs, model, payout split' },
   { key: 'preview', label: 'Weekly Preview', description: 'Check report output' },
 ];
 
@@ -172,7 +175,7 @@ const payoutModelPresets = [
   {
     value: 'net_after_tax_fee',
     label: 'Net sales split',
-    description: 'Machine tax and the per-stick fee are deducted before splitting payout.',
+    description: 'Machine tax and the stick-level cost deduction are deducted before splitting payout.',
   },
   {
     value: 'gross_sales_split',
@@ -262,6 +265,8 @@ const sanitizeWholePercentInput = (value: string) => {
 const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
 const getParticipantRoleLabel = (role: string) => participantRoleLabels[role] ?? formatLabel(role);
+const formatFeeBasisLabel = (feeBasis: string) =>
+  feeBasis === 'per_stick' ? 'per paid stick/item' : formatLabel(feeBasis);
 
 const sortParticipantsByAddedDate = (participants: ReportingPartnershipParty[]) =>
   [...participants].sort(
@@ -1731,7 +1736,7 @@ function FinancialTermsSection({
     setForm((current) => applyPayoutModelPreset(current, preset));
   };
 
-  const updatePerStickFee = (feeAmountDollars: string) => {
+  const updateStickLevelCostDeduction = (feeAmountDollars: string) => {
     setForm((current) => ({
       ...current,
       feeAmountDollars,
@@ -1824,15 +1829,15 @@ function FinancialTermsSection({
           <div>
             <FieldLabel
               htmlFor="fee-amount"
-              label="Per-stick fee"
-              help="The standard Bubble Planet-style fee is $0.40 per stick/item, deducted before the split. Set to 0 when the agreement has no stick-level fee."
+              label="Stick-level cost deduction"
+              help="The standard Bubble Planet-style deduction is $0.40 per paid stick/item before the split. A paid order with two sticks deducts $0.80. No-pay rows count in volume but deduct $0."
             />
             <Input
               id="fee-amount"
               type="number"
               step="0.01"
               value={form.feeAmountDollars}
-              onChange={(event) => updatePerStickFee(event.target.value)}
+              onChange={(event) => updateStickLevelCostDeduction(event.target.value)}
             />
           </div>
         </div>
@@ -1871,7 +1876,7 @@ function FinancialTermsSection({
             <div className="lg:col-span-2 rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Reporting calculation:</span>{' '}
               {formatLabel(form.calculationModel)} / {formatLabel(form.splitBase)} /{' '}
-              {formatLabel(form.feeBasis)} / {formatLabel(form.grossToNetMethod)}
+              {formatFeeBasisLabel(form.feeBasis)} / {formatLabel(form.grossToNetMethod)}
             </div>
           </div>
         </details>
@@ -1898,8 +1903,8 @@ function FinancialTermsSection({
                 {formatLabel(currentFinancialRule.calculation_model)}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Fee {formatMoney(currentFinancialRule.fee_amount_cents)}{' '}
-                {formatLabel(currentFinancialRule.fee_basis)} /{' '}
+                Stick-level deduction {formatMoney(currentFinancialRule.fee_amount_cents)}{' '}
+                {formatFeeBasisLabel(currentFinancialRule.fee_basis)} /{' '}
                 {formatRuleAllocationSummary(currentFinancialRule, payoutParticipants)}
               </div>
               {financialRules.length > 1 && (
@@ -2071,11 +2076,11 @@ function PayoutFlowSummary({
   form: typeof emptyRuleForm;
   payoutParticipants: ReportingPartnershipParty[];
 }) {
-  const feeLabel = form.feeBasis === 'per_stick' ? 'per stick' : formatLabel(form.feeBasis);
-  const feeSummary =
+  const deductionLabel = formatFeeBasisLabel(form.feeBasis);
+  const deductionSummary =
     Number(form.feeAmountDollars) > 0
-      ? `${formatMoney(centsFromDollars(form.feeAmountDollars))} ${feeLabel}`
-      : 'no fee';
+      ? `${formatMoney(centsFromDollars(form.feeAmountDollars))} ${deductionLabel}`
+      : 'no stick-level deduction';
   const splitSummary = [
     payoutParticipants[0] && `${payoutParticipants[0].partner_name} ${parseWholePercent(form.primarySharePercent)}%`,
     payoutParticipants[1] && `${payoutParticipants[1].partner_name} ${parseWholePercent(form.partnerSharePercent)}%`,
@@ -2091,8 +2096,8 @@ function PayoutFlowSummary({
         <div className="mt-1 text-xs text-muted-foreground">Weekly paid orders</div>
       </div>
       <div className="rounded-md border border-border bg-muted/20 p-3">
-        <div className="font-medium text-foreground">Taxes and fees</div>
-        <div className="mt-1 text-xs text-muted-foreground">{feeSummary}</div>
+        <div className="font-medium text-foreground">Taxes and stick costs</div>
+        <div className="mt-1 text-xs text-muted-foreground">{deductionSummary}</div>
       </div>
       <div className="rounded-md border border-border bg-muted/20 p-3">
         <div className="font-medium text-foreground">Payout base</div>
@@ -2155,6 +2160,7 @@ function WeeklyPreviewSection({
   const [preview, setPreview] = useState<PartnerWeeklyReportPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ExportPartnerWeeklyReportFormat | null>(null);
   const weekStartDate = useMemo(() => getWeekStartDate(weekEndingDate), [weekEndingDate]);
   const partnershipAssignments = useMemo(
     () =>
@@ -2331,6 +2337,28 @@ function WeeklyPreviewSection({
     }
   };
 
+  const exportReport = async (format: ExportPartnerWeeklyReportFormat) => {
+    if (!preview) {
+      toast.error('Load the weekly preview before exporting a report.');
+      return;
+    }
+
+    setExportingFormat(format);
+    try {
+      const exportResult = await exportPartnerWeeklyReportAdmin(
+        selectedPartnership.id,
+        preview.weekEndingDate,
+        format
+      );
+      window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
+      toast.success(format === 'pdf' ? 'Partner PDF report generated.' : 'Partner CSV data generated.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to export partner report.');
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
   return (
     <section className="space-y-4">
       <div className="rounded-lg border border-border bg-card p-5">
@@ -2414,28 +2442,55 @@ function WeeklyPreviewSection({
                   {preview.weekStartDate} through {preview.weekEndingDate}
                 </p>
               </div>
-              <Badge
-                variant={
-                  preview.warnings.length
-                    ? 'destructive'
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={() => exportReport('pdf')}
+                  disabled={Boolean(exportingFormat)}
+                >
+                  {exportingFormat === 'pdf' ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Download PDF
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => exportReport('csv')}
+                  disabled={Boolean(exportingFormat)}
+                >
+                  {exportingFormat === 'csv' ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Download data CSV
+                </Button>
+                <Badge
+                  variant={
+                    preview.warnings.length
+                      ? 'destructive'
+                      : Number(preview.summary.order_count ?? 0) > 0
+                        ? 'default'
+                        : 'outline'
+                  }
+                >
+                  {preview.warnings.length
+                    ? `${preview.warnings.length} warnings`
                     : Number(preview.summary.order_count ?? 0) > 0
-                      ? 'default'
-                      : 'outline'
-                }
-              >
-                {preview.warnings.length
-                  ? `${preview.warnings.length} warnings`
-                  : Number(preview.summary.order_count ?? 0) > 0
-                    ? 'Ready'
-                    : 'No sales'}
-              </Badge>
+                      ? 'Ready'
+                      : 'No sales'}
+                </Badge>
+              </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Metric label="Orders" value={String(preview.summary.order_count ?? 0)} />
               <Metric label="Sticks/items" value={String(preview.summary.item_quantity ?? 0)} />
               <Metric label="Gross sales" value={formatMoney(preview.summary.gross_sales_cents)} />
               <Metric label="Machine taxes" value={formatMoney(preview.summary.tax_cents)} />
-              <Metric label="Fees" value={formatMoney(preview.summary.fee_cents)} />
+              <Metric label="Stick cost deduction" value={formatMoney(preview.summary.fee_cents)} />
               <Metric label="Costs" value={formatMoney(preview.summary.cost_cents)} />
               <Metric label="Net sales" value={formatMoney(preview.summary.net_sales_cents)} />
               <Metric label="Split base" value={formatMoney(preview.summary.split_base_cents)} />

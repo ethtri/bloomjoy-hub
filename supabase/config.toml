@@ -25,6 +25,9 @@ verify_jwt = false
 [functions.sales-report-export]
 verify_jwt = false
 
+[functions.partner-report-export]
+verify_jwt = false
+
 [functions.sales-report-scheduler]
 verify_jwt = false
 

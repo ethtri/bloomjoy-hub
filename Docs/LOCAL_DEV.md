@@ -49,6 +49,7 @@
    - Technician entitlement data model: `supabase/migrations/202604260008_technician_entitlements_data_model.sql`
    - Technician grant/revoke RPCs: `supabase/migrations/202604260009_technician_entitlements_rpcs.sql`
    - Database migration hygiene repairs: `supabase/migrations/202604260010_database_migration_hygiene.sql`
+   - Reporting setup corrections: `supabase/migrations/202604260011_reporting_setup_corrections.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
