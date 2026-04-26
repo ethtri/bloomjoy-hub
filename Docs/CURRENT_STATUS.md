@@ -52,7 +52,7 @@
 - Follow-up `#174` should simplify machine mapping into a focused admin flow from `/admin/reporting`: admins should only need to confirm the canonical machine name, Sunze ID, machine type, and user access, with site/location grouping optional and able to contain multiple machines.
 - `Docs/SUNZE_SALES_DISCOVERY.md` records the validated Sunze routes, export headers, payment/status mappings, and remaining open questions without storing credentials or raw order data.
 - Google Sheets complaints/refunds ingestion is represented as a server-side adjustment sync stub plus a CSV import helper. Production Sheets API ingestion still depends on confirming the sheet columns and service-account setup.
-- Open overlap to watch: issue `#150` covers the broader account/entitlement roadmap, while open PR `#143` contains older partner/operator account schema work that may overlap the new `customer_accounts` foundation.
+- Account/entitlement follow-up is tracked in issue `#150`; stale PR `#143` was closed instead of carrying forward older partner/operator schema work.
 
 ## Partner reporting PM roadmap (2026-04-25)
 - Corporate partner revenue-share reporting is the current P0 business milestone. Operator dashboards remain important, but they should wait until corporate partner reporting has a trusted review/download flow.
@@ -65,7 +65,7 @@
 - Next code slice should add auditable partner-report snapshot/run support with reporting period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and warning state.
 - The partner PDF should replace the current simple text-style sales export for this use case with a branded settlement artifact: cover/summary, machine-level rollups, formula assumptions, warning states, generated timestamp, and snapshot ID.
 - Parallel UX/CX track: issue `#172` should design the reporting tab experience where users see operator-style reporting for assigned machines by default, while partner dashboard views appear only when the user has explicit partner-dashboard permissions. V1 should default partner dashboard visibility to super-admins only.
-- Sequencing cleanup on `2026-04-26`: PRs `#161` and `#167` are merged, and stale docs PRs `#157` and `#151` were closed as superseded. The next reporting slice should focus on the reviewed partner PDF milestone.
+- Sequencing cleanup on `2026-04-26`: PRs `#161` and `#167` are merged, stale docs PRs `#157` and `#151` were closed as superseded, and stale go-live PR `#143` was closed as discarded. The next reporting slice should focus on the reviewed partner PDF milestone.
 
 ## Mini launch update (2026-04-09)
 - Mini is now live on the public site as a sales-led machine offer at `$4,000`.
