@@ -17,6 +17,7 @@ import {
   fetchReportingAccessContext,
   type ReportingAccessContext,
 } from '@/lib/reporting';
+import { resolveMyTechnicianEntitlements } from '@/lib/technicianEntitlements';
 
 interface User {
   id: string;
@@ -138,8 +139,22 @@ const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | nul
     : ((data as PortalAccessContextRecord | null) ?? null);
 };
 
+const resolveTechnicianEntitlements = async (): Promise<void> => {
+  try {
+    await resolveMyTechnicianEntitlements();
+  } catch {
+    // Missing or failed resolution should not block login; access checks below
+    // still reflect the database state already available to the session.
+  }
+};
+
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
+
+  if (email) {
+    await resolveTechnicianEntitlements();
+  }
+
   const [plusAccess, dbIsAdmin, portalAccessContext, reportingAccess] = await Promise.all([
     getPlusAccess(),
     getIsAdmin(supabaseUser.id),

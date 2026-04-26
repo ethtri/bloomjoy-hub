@@ -74,6 +74,14 @@ export type TechnicianMutationResult = {
   operatorTrainingGrantId: string | null;
 };
 
+export type TechnicianResolutionResult = {
+  technicianEmail: string | null;
+  resolvedGrantCount: number;
+  resolvedOperatorTrainingGrantCount: number;
+  upsertedReportingEntitlementCount: number;
+  skippedGrantCount: number;
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 const isRecord = (value: unknown): value is UnknownRecord =>
@@ -116,6 +124,7 @@ const getTechnicianErrorMessage = (
     rawMessage.includes('schema cache') &&
     (rawMessage.includes('get_my_technician_management_context') ||
       rawMessage.includes('get_my_technician_grants') ||
+      rawMessage.includes('resolve_my_technician_entitlements') ||
       rawMessage.includes('grant_technician_access') ||
       rawMessage.includes('update_technician_machines') ||
       rawMessage.includes('revoke_technician_access'));
@@ -230,6 +239,33 @@ const mapMutationResult = (value: unknown): TechnicianMutationResult => {
     operatorTrainingGrantId: asNullableString(record.operatorTrainingGrantId),
   };
 };
+
+const mapResolutionResult = (value: unknown): TechnicianResolutionResult => {
+  const record = isRecord(value) ? value : {};
+
+  return {
+    technicianEmail: asNullableString(record.technicianEmail),
+    resolvedGrantCount: asNumber(record.resolvedGrantCount),
+    resolvedOperatorTrainingGrantCount: asNumber(record.resolvedOperatorTrainingGrantCount),
+    upsertedReportingEntitlementCount: asNumber(record.upsertedReportingEntitlementCount),
+    skippedGrantCount: asNumber(record.skippedGrantCount),
+  };
+};
+
+export const resolveMyTechnicianEntitlements =
+  async (): Promise<TechnicianResolutionResult> => {
+    const { data, error } = await supabaseClient.rpc('resolve_my_technician_entitlements', {
+      p_reason: 'Technician invite accepted',
+    });
+
+    if (error) {
+      throw new Error(
+        getTechnicianErrorMessage(error.message, 'Unable to resolve Technician access.')
+      );
+    }
+
+    return mapResolutionResult(data);
+  };
 
 export const fetchTechnicianManagementContext =
   async (): Promise<TechnicianManagementContext> => {
