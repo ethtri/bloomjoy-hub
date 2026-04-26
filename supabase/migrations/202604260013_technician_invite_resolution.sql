@@ -112,6 +112,8 @@ begin
       from public.operator_training_grants operator_grant
       where operator_grant.id = grant_after.operator_training_grant_id
         and operator_grant.revoked_at is null
+        and operator_grant.sponsor_user_id = grant_after.sponsor_user_id
+        and public.normalize_technician_email(operator_grant.operator_email) = normalized_email
       limit 1
       for update;
 
