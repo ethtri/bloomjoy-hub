@@ -110,6 +110,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
 - [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
 - [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
+- [ ] Plus Account Owner sees Technician Access on `/portal/account` with seat usage, owned machines, and current Technician grants
+- [ ] Plus Account Owner can add a Technician with one or more owned machines, then edit that Technician's machine assignments
+- [ ] Plus Account Owner cannot assign Technician access when the account has no active controlled reporting machines
+- [ ] Plus Account Owner sees a clear no-paid-seats message when the default 10 Technician grant cap is reached
+- [ ] Plus Account Owner can revoke Technician access only after entering a revoke reason
+- [ ] Baseline, training-only, Technician, Partner Viewer, and non-owner reporting users do not see Technician management controls
+- [ ] Technician login can open `/portal/training*` and `/portal/reports`, and reporting filters/results include only assigned machines
+- [ ] Technician login cannot access Plus discounts, billing, account-owner tools, partner settlement, or `/admin`
 - [ ] Onboarding checklist progress updates when steps are toggled
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
