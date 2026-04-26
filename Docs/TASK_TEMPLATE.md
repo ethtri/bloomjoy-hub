@@ -1,5 +1,8 @@
 # Task Template (copy/paste into an agent)
 
+For GitHub issues, use `.github/ISSUE_TEMPLATE/ai_task.md` as the canonical task template.
+This older copy remains only for quick local prompting.
+
 ## Goal
 (What user-visible outcome should exist?)
 

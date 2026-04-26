@@ -1,3 +1,6 @@
+GitHub PRs should use `.github/pull_request_template.md` as the canonical template.
+This older copy remains only for quick local reference.
+
 ## Summary
 - 
 
