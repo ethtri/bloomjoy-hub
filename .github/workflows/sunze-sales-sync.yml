@@ -19,6 +19,9 @@ on:
       summary_machine_codes:
         description: 'Optional comma-separated Sunze machine codes to summarize in logs'
         required: false
+      ingest_chunk_size:
+        description: 'Rows per Supabase ingest request'
+        required: false
 
 permissions:
   contents: read
@@ -41,6 +44,7 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
       GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
       SUMMARY_MACHINE_CODES: ${{ inputs.summary_machine_codes || '' }}
+      SUNZE_INGEST_CHUNK_SIZE: ${{ inputs.ingest_chunk_size || vars.SUNZE_INGEST_CHUNK_SIZE || '1000' }}
       SUNZE_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
       SUNZE_SYNC_STALE_HOURS: '30'
       SUNZE_REPORTING_TIMEZONE: America/Los_Angeles

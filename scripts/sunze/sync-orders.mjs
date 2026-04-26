@@ -48,9 +48,15 @@ const datePreset = getArg('--date-preset', 'Last 7 Days');
 const downloadDirArg = getArg('--download-dir');
 const summaryMachineCodesArg =
   getArg('--summary-machine-codes') || process.env.SUNZE_SUMMARY_MACHINE_CODES || '';
+const DEFAULT_INGEST_CHUNK_SIZE = 1000;
+const MAX_INGEST_CHUNK_SIZE = 10000;
+const parsePositiveInteger = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
 const ingestChunkSize = Math.min(
-  10000,
-  Math.max(1, Number(process.env.SUNZE_INGEST_CHUNK_SIZE || 10000))
+  MAX_INGEST_CHUNK_SIZE,
+  parsePositiveInteger(process.env.SUNZE_INGEST_CHUNK_SIZE, DEFAULT_INGEST_CHUNK_SIZE)
 );
 const supportedDatePresets = new Set([
   'Today',
