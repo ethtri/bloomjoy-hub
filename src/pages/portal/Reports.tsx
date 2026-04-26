@@ -1,18 +1,59 @@
-import { useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
-import { Download, Loader2, RefreshCw } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarDays,
+  Download,
+  Info,
+  Loader2,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { useAuth } from '@/contexts/AuthContext';
 import {
+  emptyReportingAccessContext,
   exportSalesReportPdf,
   fetchReportingAccessContext,
   fetchReportingDimensions,
@@ -20,16 +61,64 @@ import {
   summarizeSalesReport,
   type PaymentMethod,
   type ReportGrain,
+  type ReportingAccessContext,
   type SalesReportFilters,
   type SalesReportRow,
 } from '@/lib/reporting';
+import {
+  fetchPartnerDashboardPartnerships,
+  fetchPartnerDashboardPeriodPreview,
+  type PartnerDashboardMachinePeriod,
+  type PartnerDashboardPartnershipOption,
+  type PartnerDashboardPeriod,
+  type PartnerDashboardPeriodGrain,
+  type PartnerDashboardPeriodPreview,
+  type PartnerDashboardTotals,
+} from '@/lib/partnerDashboardReporting';
+import { cn } from '@/lib/utils';
+
+type ReportingView = 'operator' | 'partner';
+type OperatorPeriodPreset = 'this_week' | 'last_week' | 'last_30_days' | 'month_to_date' | 'custom';
+type PartnerPeriodMode = 'weekly' | 'monthly';
 
 const paymentMethods: PaymentMethod[] = ['cash', 'credit', 'other', 'unknown'];
+const paymentMethodLabels: Record<PaymentMethod, string> = {
+  cash: 'Cash',
+  credit: 'Credit',
+  other: 'Other',
+  unknown: 'Unknown',
+};
 
-const chartConfig = {
+const operatorChartConfig = {
   netSales: { label: 'Net sales', color: 'hsl(var(--primary))' },
   grossSales: { label: 'Gross sales', color: 'hsl(var(--sage))' },
 } satisfies ChartConfig;
+
+const dollarsChartConfig = {
+  dollars: { label: 'Sales dollars', color: 'hsl(var(--sage))' },
+} satisfies ChartConfig;
+
+const volumeChartConfig = {
+  volume: { label: 'Volume', color: 'hsl(var(--primary))' },
+} satisfies ChartConfig;
+
+const moneyFormatter = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+const exactMoneyFormatter = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const numberFormatter = new Intl.NumberFormat();
+
+const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const toDateInput = (date: Date) => {
   const year = date.getFullYear();
@@ -38,27 +127,117 @@ const toDateInput = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-const getDefaultDateFrom = () => {
-  const date = new Date();
-  date.setDate(date.getDate() - 30);
-  return toDateInput(date);
+const parseDateInput = (value: string) => new Date(`${value}T00:00:00`);
+
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
 };
 
-const formatCurrency = (cents: number) =>
-  new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
+const addMonths = (date: Date, months: number) => {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+};
 
-const formatDate = (value: string | null) =>
+const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+const endOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0);
+
+const startOfOperatorWeek = (date: Date) => {
+  const next = new Date(date);
+  const day = next.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  next.setDate(next.getDate() + diff);
+  return next;
+};
+
+const getOperatorPresetRange = (preset: OperatorPeriodPreset) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (preset === 'this_week') {
+    return { dateFrom: toDateInput(startOfOperatorWeek(today)), dateTo: toDateInput(today), grain: 'day' as ReportGrain };
+  }
+
+  if (preset === 'last_week') {
+    const thisWeekStart = startOfOperatorWeek(today);
+    const lastWeekStart = addDays(thisWeekStart, -7);
+    return {
+      dateFrom: toDateInput(lastWeekStart),
+      dateTo: toDateInput(addDays(lastWeekStart, 6)),
+      grain: 'day' as ReportGrain,
+    };
+  }
+
+  if (preset === 'month_to_date') {
+    return { dateFrom: toDateInput(startOfMonth(today)), dateTo: toDateInput(today), grain: 'day' as ReportGrain };
+  }
+
+  return {
+    dateFrom: toDateInput(addDays(today, -30)),
+    dateTo: toDateInput(today),
+    grain: 'week' as ReportGrain,
+  };
+};
+
+const getLastCompletedWeekEnd = (weekEndDay: number) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let daysSinceWeekEnd = (today.getDay() - weekEndDay + 7) % 7;
+  if (daysSinceWeekEnd === 0) daysSinceWeekEnd = 7;
+  return addDays(today, -daysSinceWeekEnd);
+};
+
+const getPartnerDateRange = (
+  partnership: PartnerDashboardPartnershipOption | undefined,
+  mode: PartnerPeriodMode
+) => {
+  if (!partnership) return null;
+
+  if (mode === 'weekly') {
+    const lastWeekEnd = getLastCompletedWeekEnd(partnership.reportingWeekEndDay);
+    const firstWeekStart = addDays(lastWeekEnd, -(7 * 7 + 6));
+    return {
+      dateFrom: toDateInput(firstWeekStart),
+      dateTo: toDateInput(lastWeekEnd),
+      periodGrain: 'reporting_week' as PartnerDashboardPeriodGrain,
+      label: `Last 8 completed weeks ending ${dayNames[partnership.reportingWeekEndDay]}`,
+    };
+  }
+
+  const currentMonthStart = startOfMonth(new Date());
+  const lastCompletedMonthEnd = addDays(currentMonthStart, -1);
+  const firstMonthStart = startOfMonth(addMonths(lastCompletedMonthEnd, -5));
+
+  return {
+    dateFrom: toDateInput(firstMonthStart),
+    dateTo: toDateInput(endOfMonth(lastCompletedMonthEnd)),
+    periodGrain: 'calendar_month' as PartnerDashboardPeriodGrain,
+    label: 'Last 6 completed months',
+  };
+};
+
+const formatCurrency = (cents: number, exact = false) =>
+  (exact ? exactMoneyFormatter : moneyFormatter).format(cents / 100);
+
+const formatDate = (value: string | null | undefined) =>
   value
-    ? new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    ? parseDateInput(value).toLocaleDateString(undefined, {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
       })
     : 'n/a';
+
+const formatShortDate = (value: string) =>
+  parseDateInput(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+const formatMonth = (value: string) =>
+  parseDateInput(value).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+
+const formatDateRange = (start: string | undefined, end: string | undefined) =>
+  start && end ? `${formatShortDate(start)} - ${formatShortDate(end)}` : 'No period selected';
 
 const formatDateTime = (value: string | null | undefined) =>
   value
@@ -71,6 +250,25 @@ const formatDateTime = (value: string | null | undefined) =>
       })
     : 'not available';
 
+const formatPercentChange = (current: number, previous: number) => {
+  if (previous === 0) return current > 0 ? 'New activity' : 'No change';
+  const value = ((current - previous) / previous) * 100;
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
+};
+
+const periodVolume = (period: PartnerDashboardTotals | undefined) =>
+  period ? period.itemQuantity || period.orderCount : 0;
+
+const getChangeTone = (current: number, previous: number) => {
+  if (current === previous) return 'text-muted-foreground';
+  return current > previous ? 'text-sage' : 'text-amber';
+};
+
+const getTrendIcon = (current: number, previous: number) => {
+  if (current === previous) return Info;
+  return current > previous ? TrendingUp : TrendingDown;
+};
+
 const groupRows = <TKey extends string>(
   rows: SalesReportRow[],
   getKey: (row: SalesReportRow) => TKey,
@@ -81,6 +279,7 @@ const groupRows = <TKey extends string>(
     {
       key: TKey;
       label: string;
+      locationName: string;
       netSalesCents: number;
       grossSalesCents: number;
       refundAmountCents: number;
@@ -95,6 +294,7 @@ const groupRows = <TKey extends string>(
       {
         key,
         label: getLabel(row),
+        locationName: row.locationName,
         netSalesCents: 0,
         grossSalesCents: 0,
         refundAmountCents: 0,
@@ -112,10 +312,85 @@ const groupRows = <TKey extends string>(
 };
 
 export default function ReportsPage() {
+  const { isAdmin } = useAuth();
+  const [activeView, setActiveView] = useState<ReportingView>('operator');
+
+  const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
+    useQuery({
+      queryKey: ['reporting-access-context'],
+      queryFn: fetchReportingAccessContext,
+      staleTime: 1000 * 60,
+    });
+
+  useEffect(() => {
+    if (!isAdmin && activeView === 'partner') {
+      setActiveView('operator');
+    }
+  }, [activeView, isAdmin]);
+
+  return (
+    <PortalLayout>
+      <section className="portal-section">
+        <div className="container-page">
+          <PortalPageIntro
+            title="Reporting"
+            description="Track assigned machine performance, review sales trends, and use the internal partner dashboard when settlement math needs a closer look."
+            badges={[
+              {
+                label: `${accessContext.accessibleMachineCount} machines available`,
+                tone: 'muted',
+              },
+              { label: `Latest sale ${formatDate(accessContext.latestSaleDate)}`, tone: 'muted' },
+              {
+                label: `Last import ${formatDateTime(accessContext.latestImportCompletedAt)}`,
+                tone: 'muted',
+              },
+              {
+                label: accessFetching ? 'Refreshing' : isAdmin ? 'Super-admin reporting' : 'Operator reporting',
+                tone: isAdmin ? 'accent' : 'default',
+              },
+            ]}
+            actions={
+              isAdmin ? (
+                <ToggleGroup
+                  type="single"
+                  value={activeView}
+                  onValueChange={(value) => {
+                    if (value === 'operator' || value === 'partner') setActiveView(value);
+                  }}
+                  className="grid w-full grid-cols-2 rounded-lg border border-border bg-background p-1 sm:w-[340px]"
+                >
+                  <ToggleGroupItem value="operator" className="h-9 rounded-md text-sm">
+                    Operator view
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="partner" className="h-9 rounded-md text-sm">
+                    Partner dashboard
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              ) : undefined
+            }
+          />
+
+          <div className="mt-6">
+            {activeView === 'partner' && isAdmin ? (
+              <PartnerDashboardView />
+            ) : (
+              <OperatorReportingView accessContext={accessContext} />
+            )}
+          </div>
+        </div>
+      </section>
+    </PortalLayout>
+  );
+}
+
+function OperatorReportingView({ accessContext }: { accessContext: ReportingAccessContext }) {
   const queryClient = useQueryClient();
-  const [dateFrom, setDateFrom] = useState(getDefaultDateFrom);
-  const [dateTo, setDateTo] = useState(() => toDateInput(new Date()));
-  const [grain, setGrain] = useState<ReportGrain>('week');
+  const defaultRange = useMemo(() => getOperatorPresetRange('last_30_days'), []);
+  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>('last_30_days');
+  const [dateFrom, setDateFrom] = useState(defaultRange.dateFrom);
+  const [dateTo, setDateTo] = useState(defaultRange.dateTo);
+  const [grain, setGrain] = useState<ReportGrain>(defaultRange.grain);
   const [machineId, setMachineId] = useState('all');
   const [locationId, setLocationId] = useState('all');
   const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>([]);
@@ -130,11 +405,26 @@ export default function ReportsPage() {
     queryFn: fetchReportingDimensions,
     staleTime: 1000 * 60,
   });
-  const { data: accessContext } = useQuery({
-    queryKey: ['reporting-access-context'],
-    queryFn: fetchReportingAccessContext,
-    staleTime: 1000 * 60,
-  });
+
+  const locations = useMemo(() => {
+    const byId = new Map<string, string>();
+    dimensions.forEach((dimension) => byId.set(dimension.locationId, dimension.locationName));
+    return [...byId.entries()].map(([id, name]) => ({ id, name }));
+  }, [dimensions]);
+
+  const machineOptions = useMemo(
+    () =>
+      locationId === 'all'
+        ? dimensions
+        : dimensions.filter((dimension) => dimension.locationId === locationId),
+    [dimensions, locationId]
+  );
+
+  useEffect(() => {
+    if (machineId !== 'all' && !machineOptions.some((machine) => machine.machineId === machineId)) {
+      setMachineId('all');
+    }
+  }, [machineId, machineOptions]);
 
   const filters: SalesReportFilters = useMemo(
     () => ({
@@ -160,16 +450,13 @@ export default function ReportsPage() {
     staleTime: 1000 * 30,
   });
 
-  const locations = useMemo(() => {
-    const byId = new Map<string, string>();
-    dimensions.forEach((dimension) => byId.set(dimension.locationId, dimension.locationName));
-    return [...byId.entries()].map(([id, name]) => ({ id, name }));
-  }, [dimensions]);
-
   const summary = useMemo(() => summarizeSalesReport(reportRows), [reportRows]);
+  const averageOrderCents =
+    summary.transactionCount > 0 ? Math.round(summary.netSalesCents / summary.transactionCount) : 0;
+
   const chartRows = useMemo(
     () =>
-      groupRows(reportRows, (row) => row.periodStart, (row) => formatDate(row.periodStart))
+      groupRows(reportRows, (row) => row.periodStart, (row) => formatShortDate(row.periodStart))
         .sort((left, right) => left.key.localeCompare(right.key))
         .map((row) => ({
           period: row.label,
@@ -178,24 +465,27 @@ export default function ReportsPage() {
         })),
     [reportRows]
   );
+
   const machineRows = useMemo(
     () => groupRows(reportRows, (row) => row.machineId, (row) => row.machineLabel),
     [reportRows]
   );
 
+  const applyPeriodPreset = (preset: OperatorPeriodPreset) => {
+    setPeriodPreset(preset);
+    if (preset === 'custom') return;
+    const nextRange = getOperatorPresetRange(preset);
+    setDateFrom(nextRange.dateFrom);
+    setDateTo(nextRange.dateTo);
+    setGrain(nextRange.grain);
+  };
+
   const refreshReport = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['sales-report'] }),
       queryClient.invalidateQueries({ queryKey: ['reporting-dimensions'] }),
+      queryClient.invalidateQueries({ queryKey: ['reporting-access-context'] }),
     ]);
-  };
-
-  const togglePaymentMethod = (paymentMethod: PaymentMethod) => {
-    setSelectedPayments((current) =>
-      current.includes(paymentMethod)
-        ? current.filter((value) => value !== paymentMethod)
-        : [...current, paymentMethod]
-    );
   };
 
   const exportPdf = async () => {
@@ -203,7 +493,7 @@ export default function ReportsPage() {
     try {
       const exportResult = await exportSalesReportPdf({
         ...filters,
-        title: `Bloomjoy sales report ${dateFrom} to ${dateTo}`,
+        title: `Bloomjoy operator sales report ${dateFrom} to ${dateTo}`,
       });
       toast.success('Sales report PDF is ready.');
       window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
@@ -214,320 +504,1120 @@ export default function ReportsPage() {
     }
   };
 
+  const hasLoadError = Boolean(error || dimensionsError);
+
   return (
-    <PortalLayout>
-      <section className="portal-section">
-        <div className="container-page">
-          <PortalPageIntro
-            title="Sales Reports"
-            description="Review entitled machine sales by period, location, machine, and payment method. Gross sales adds refund adjustments back to Sunze net sales until the source definition is validated."
-            badges={[
-              { label: `${dimensions.length} machines available`, tone: 'muted' },
-              {
-                label: `Latest sale ${formatDate(accessContext?.latestSaleDate ?? null)}`,
-                tone: 'muted',
-              },
-              {
-                label: `Last import ${formatDateTime(accessContext?.latestImportCompletedAt)}`,
-                tone: 'muted',
-              },
-              { label: isFetching ? 'Refreshing' : 'Ready for export', tone: 'default' },
-            ]}
-            actions={
-              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
-                <Button variant="outline" onClick={refreshReport} disabled={isFetching}>
-                  {isFetching ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  Refresh
-                </Button>
-                <Button onClick={exportPdf} disabled={isExporting || reportRows.length === 0}>
-                  {isExporting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="mr-2 h-4 w-4" />
-                  )}
-                  Export PDF
-                </Button>
-              </div>
-            }
-          />
+    <div className="flex flex-col gap-6">
+      {hasLoadError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Unable to load reporting data</AlertTitle>
+          <AlertDescription>
+            Check the selected filters and try refreshing. Your filter choices will stay in place.
+          </AlertDescription>
+        </Alert>
+      )}
 
-          {(error || dimensionsError) && (
-            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              Unable to load sales reporting data. Please try again.
+      <Card>
+        <CardHeader className="gap-2">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <CardTitle className="text-xl">Operator performance</CardTitle>
+              <CardDescription>
+                Sales and transaction trends for the machines assigned to this account.
+              </CardDescription>
             </div>
-          )}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button variant="outline" onClick={refreshReport} disabled={isFetching}>
+                {isFetching ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh
+              </Button>
+              <Button onClick={exportPdf} disabled={isExporting || reportRows.length === 0}>
+                {isExporting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Export PDF
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="flex flex-col gap-2">
+              <Label>Period</Label>
+              <ToggleGroup
+                type="single"
+                value={periodPreset}
+                onValueChange={(value) => {
+                  if (value) applyPeriodPreset(value as OperatorPeriodPreset);
+                }}
+                className="grid grid-cols-2 items-stretch rounded-lg border border-border bg-background p-1 sm:grid-cols-5"
+              >
+                <ToggleGroupItem value="this_week" className="h-9 rounded-md text-xs sm:text-sm">
+                  This week
+                </ToggleGroupItem>
+                <ToggleGroupItem value="last_week" className="h-9 rounded-md text-xs sm:text-sm">
+                  Last week
+                </ToggleGroupItem>
+                <ToggleGroupItem value="last_30_days" className="h-9 rounded-md text-xs sm:text-sm">
+                  Last 30 days
+                </ToggleGroupItem>
+                <ToggleGroupItem value="month_to_date" className="h-9 rounded-md text-xs sm:text-sm">
+                  Month to date
+                </ToggleGroupItem>
+                <ToggleGroupItem value="custom" className="h-9 rounded-md text-xs sm:text-sm">
+                  Custom
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
 
-          <div className="mt-6 rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-sm)]">
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-              <label className="text-sm font-medium text-foreground">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  From
-                </span>
-                <input
+            <div className="grid gap-3 sm:grid-cols-3">
+              <LabeledControl label="From">
+                <Input
                   type="date"
                   value={dateFrom}
-                  onChange={(event) => setDateFrom(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(event) => {
+                    setDateFrom(event.target.value);
+                    setPeriodPreset('custom');
+                  }}
                 />
-              </label>
-              <label className="text-sm font-medium text-foreground">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  To
-                </span>
-                <input
+              </LabeledControl>
+              <LabeledControl label="To">
+                <Input
                   type="date"
                   value={dateTo}
-                  onChange={(event) => setDateTo(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(event) => {
+                    setDateTo(event.target.value);
+                    setPeriodPreset('custom');
+                  }}
                 />
-              </label>
-              <label className="text-sm font-medium text-foreground">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  View
-                </span>
-                <select
-                  value={grain}
-                  onChange={(event) => setGrain(event.target.value as ReportGrain)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="day">Daily</option>
-                  <option value="week">Weekly</option>
-                  <option value="month">Monthly</option>
-                </select>
-              </label>
-              <label className="text-sm font-medium text-foreground">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Location
-                </span>
-                <select
-                  value={locationId}
-                  onChange={(event) => setLocationId(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="all">All locations</option>
-                  {locations.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-sm font-medium text-foreground">
-                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Machine
-                </span>
-                <select
-                  value={machineId}
-                  onChange={(event) => setMachineId(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="all">All machines</option>
-                  {dimensions.map((dimension) => (
-                    <option key={dimension.machineId} value={dimension.machineId}>
-                      {dimension.machineLabel}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              </LabeledControl>
+              <LabeledControl label="View">
+                <Select value={grain} onValueChange={(value) => setGrain(value as ReportGrain)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="day">Daily</SelectItem>
+                      <SelectItem value="week">Weekly</SelectItem>
+                      <SelectItem value="month">Monthly</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </LabeledControl>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {paymentMethods.map((paymentMethod) => {
-                const active = selectedPayments.includes(paymentMethod);
-                return (
-                  <button
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1.2fr]">
+            <LabeledControl label="Location">
+              <Select value={locationId} onValueChange={setLocationId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">All locations</SelectItem>
+                    {locations.map((location) => (
+                      <SelectItem key={location.id} value={location.id}>
+                        {location.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </LabeledControl>
+
+            <LabeledControl label="Machine">
+              <Select value={machineId} onValueChange={setMachineId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">All machines</SelectItem>
+                    {machineOptions.map((dimension) => (
+                      <SelectItem key={dimension.machineId} value={dimension.machineId}>
+                        {dimension.machineLabel}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </LabeledControl>
+
+            <div className="flex flex-col gap-2">
+              <Label>Payment</Label>
+              <ToggleGroup
+                type="multiple"
+                value={selectedPayments}
+                onValueChange={(value) => setSelectedPayments(value as PaymentMethod[])}
+                className="grid grid-cols-2 rounded-lg border border-border bg-background p-1 sm:grid-cols-4"
+              >
+                {paymentMethods.map((paymentMethod) => (
+                  <ToggleGroupItem
                     key={paymentMethod}
-                    type="button"
-                    onClick={() => togglePaymentMethod(paymentMethod)}
-                    className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
-                      active
-                        ? 'border-primary/20 bg-primary/10 text-primary'
-                        : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                    }`}
+                    value={paymentMethod}
+                    className="h-9 rounded-md text-sm"
                   >
-                    {paymentMethod}
-                  </button>
-                );
-              })}
+                    {paymentMethodLabels[paymentMethod]}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {isLoading ? (
+          <>
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+          </>
+        ) : (
+          <>
+            <MetricCard
+              label="Net sales"
+              value={formatCurrency(summary.netSalesCents)}
+              context={`${formatCurrency(averageOrderCents)} average order`}
+            />
+            <MetricCard
+              label="Gross sales"
+              value={formatCurrency(summary.grossSalesCents)}
+              context="Net plus refund adjustments"
+            />
+            <MetricCard
+              label="Refund impact"
+              value={formatCurrency(summary.refundAmountCents)}
+              context="Added back for gross view"
+            />
+            <MetricCard
+              label="Transactions"
+              value={numberFormatter.format(summary.transactionCount)}
+              context={`${dimensions.length} assigned machines`}
+            />
+          </>
+        )}
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-xl">Sales trend</CardTitle>
+            <CardDescription>
+              Net and gross sales for the selected date grain.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <ChartSkeleton />
+            ) : chartRows.length === 0 ? (
+              <EmptyPanel title="No sales found" description="Widen the period or clear filters to check for activity." />
+            ) : (
+              <ChartContainer config={operatorChartConfig} className="h-[320px] w-full">
+                <BarChart data={chartRows}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="period" tickLine={false} axisLine={false} />
+                  <YAxis tickLine={false} axisLine={false} width={56} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="netSales" fill="var(--color-netSales)" radius={[5, 5, 0, 0]} />
+                  <Bar dataKey="grossSales" fill="var(--color-grossSales)" radius={[5, 5, 0, 0]} />
+                </BarChart>
+              </ChartContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-xl">Machine comparison</CardTitle>
+            <CardDescription>
+              Ranked by net sales for the selected period.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {machineRows.length === 0 ? (
+              <EmptyPanel title="No machine rows yet" description="Sales will appear here once the selected filters match imported rows." />
+            ) : (
+              <div className="flex flex-col gap-3">
+                {machineRows.slice(0, 6).map((row) => (
+                  <MachineSummaryRow
+                    key={row.key}
+                    label={row.label}
+                    context={`${row.transactionCount.toLocaleString()} transactions`}
+                    primary={formatCurrency(row.netSalesCents)}
+                    secondary={`Gross ${formatCurrency(row.grossSalesCents)}`}
+                  />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">Report rows</CardTitle>
+          <CardDescription>
+            Source rows grouped by period, machine, location, and payment method.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Period</TableHead>
+                <TableHead>Machine</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Payment</TableHead>
+                <TableHead className="text-right">Net</TableHead>
+                <TableHead className="text-right">Gross</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {reportRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    No rows found for the selected filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                reportRows.map((row) => (
+                  <TableRow key={`${row.periodStart}-${row.machineId}-${row.paymentMethod}`}>
+                    <TableCell>{formatDate(row.periodStart)}</TableCell>
+                    <TableCell className="font-medium">{row.machineLabel}</TableCell>
+                    <TableCell className="text-muted-foreground">{row.locationName}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {paymentMethodLabels[row.paymentMethod]}
+                    </TableCell>
+                    <TableCell className="text-right">{formatCurrency(row.netSalesCents)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(row.grossSalesCents)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <div className="rounded-lg border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
+        Sales data last updated {formatDateTime(accessContext.latestImportCompletedAt)}. Admin-only data quality
+        details stay out of the operator view.
+      </div>
+    </div>
+  );
+}
+
+function PartnerDashboardView() {
+  const queryClient = useQueryClient();
+  const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
+  const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
+
+  const {
+    data: partnerships = [],
+    isLoading: partnershipsLoading,
+    error: partnershipsError,
+  } = useQuery({
+    queryKey: ['partner-dashboard-partnerships'],
+    queryFn: fetchPartnerDashboardPartnerships,
+    staleTime: 1000 * 60,
+  });
+
+  useEffect(() => {
+    if (!selectedPartnershipId && partnerships.length > 0) {
+      setSelectedPartnershipId(partnerships[0].id);
+    }
+  }, [partnerships, selectedPartnershipId]);
+
+  const selectedPartnership = partnerships.find(
+    (partnership) => partnership.id === selectedPartnershipId
+  );
+
+  const partnerRange = useMemo(
+    () => getPartnerDateRange(selectedPartnership, periodMode),
+    [periodMode, selectedPartnership]
+  );
+
+  const {
+    data: preview,
+    isLoading: previewLoading,
+    isFetching: previewFetching,
+    error: previewError,
+  } = useQuery({
+    queryKey: [
+      'partner-dashboard-period-preview',
+      selectedPartnershipId,
+      partnerRange?.periodGrain,
+      partnerRange?.dateFrom,
+      partnerRange?.dateTo,
+    ],
+    queryFn: () =>
+      fetchPartnerDashboardPeriodPreview({
+        partnershipId: selectedPartnershipId,
+        dateFrom: partnerRange?.dateFrom ?? '',
+        dateTo: partnerRange?.dateTo ?? '',
+        periodGrain: partnerRange?.periodGrain ?? 'reporting_week',
+      }),
+    enabled: Boolean(selectedPartnershipId && partnerRange),
+    staleTime: 1000 * 30,
+  });
+
+  const sortedPeriods = useMemo(
+    () => [...(preview?.periods ?? [])].sort((left, right) => left.periodStart.localeCompare(right.periodStart)),
+    [preview?.periods]
+  );
+  const currentPeriod = sortedPeriods[sortedPeriods.length - 1];
+  const previousPeriod = sortedPeriods[sortedPeriods.length - 2];
+
+  const machineRows = useMemo(
+    () => buildPartnerMachineRows(preview, currentPeriod, previousPeriod),
+    [currentPeriod, preview, previousPeriod]
+  );
+
+  const blockingWarnings = preview?.warnings.filter((warning) => warning.severity === 'blocking') ?? [];
+  const trendLabel = periodMode === 'weekly' ? 'Weekly' : 'Monthly';
+
+  const refreshPartnerDashboard = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['partner-dashboard-partnerships'] }),
+      queryClient.invalidateQueries({ queryKey: ['partner-dashboard-period-preview'] }),
+    ]);
+  };
+
+  if (partnershipsLoading) {
+    return <PartnerDashboardSkeleton />;
+  }
+
+  if (partnershipsError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertTitle>Unable to load partner dashboard setup</AlertTitle>
+        <AlertDescription>
+          The partner dashboard uses admin-only reporting setup data. Refresh or check the setup RPC.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (partnerships.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>No active partnerships yet</CardTitle>
+          <CardDescription>
+            Add an active partnership, assign machines, and configure financial rules before the
+            dashboard can preview settlement math.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild>
+            <Link to="/admin/partnerships">Open partnership setup</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(220px,0.6fr)_1fr]">
+            <LabeledControl label="Partnership">
+              <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select partnership" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {partnerships.map((partnership) => (
+                      <SelectItem key={partnership.id} value={partnership.id}>
+                        {partnership.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </LabeledControl>
+
+            <div className="flex flex-col gap-2">
+              <Label>View</Label>
+              <ToggleGroup
+                type="single"
+                value={periodMode}
+                onValueChange={(value) => {
+                  if (value === 'weekly' || value === 'monthly') setPeriodMode(value);
+                }}
+                className="grid grid-cols-2 rounded-lg border border-border bg-background p-1"
+              >
+                <ToggleGroupItem value="weekly" className="h-9 rounded-md text-sm">
+                  Weekly
+                </ToggleGroupItem>
+                <ToggleGroupItem value="monthly" className="h-9 rounded-md text-sm">
+                  Monthly
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+
+            <div className="flex items-end">
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{partnerRange?.label}</span>
+                <span className="block">
+                  {partnerRange ? `${formatDate(partnerRange.dateFrom)} through ${formatDate(partnerRange.dateTo)}` : 'Select a partnership'}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-4">
-            <div className="card-elevated p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Net Sales
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">
-                {formatCurrency(summary.netSalesCents)}
-              </p>
-            </div>
-            <div className="card-elevated p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Refund Adjustments
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">
-                {formatCurrency(summary.refundAmountCents)}
-              </p>
-            </div>
-            <div className="card-elevated p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Gross Sales
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">
-                {formatCurrency(summary.grossSalesCents)}
-              </p>
-            </div>
-            <div className="card-elevated p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Transactions
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">
-                {summary.transactionCount.toLocaleString()}
-              </p>
-            </div>
-          </div>
+          <Button variant="outline" onClick={refreshPartnerDashboard} disabled={previewFetching}>
+            {previewFetching ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Refresh
+          </Button>
+        </CardContent>
+      </Card>
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-sm)]">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold text-foreground">Sales by Period</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Net and gross sales for the selected date grain.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-5">
-                {isLoading ? (
-                  <div className="flex h-72 items-center justify-center text-sm text-muted-foreground">
-                    Loading report...
-                  </div>
-                ) : chartRows.length === 0 ? (
-                  <div className="flex h-72 items-center justify-center text-center text-sm text-muted-foreground">
-                    No sales rows match the selected filters.
-                  </div>
-                ) : (
-                  <ChartContainer config={chartConfig} className="h-72 w-full">
-                    <BarChart data={chartRows}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis dataKey="period" tickLine={false} axisLine={false} />
-                      <YAxis tickLine={false} axisLine={false} width={48} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="netSales" fill="var(--color-netSales)" radius={[4, 4, 0, 0]} />
-                      <Bar
-                        dataKey="grossSales"
-                        fill="var(--color-grossSales)"
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ChartContainer>
-                )}
-              </div>
-            </div>
+      {previewError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Unable to load partner preview</AlertTitle>
+          <AlertDescription>
+            {previewError instanceof Error
+              ? previewError.message
+              : 'Check the partnership setup and try again.'}
+          </AlertDescription>
+        </Alert>
+      )}
 
-            <div className="rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-sm)]">
-              <h2 className="font-semibold text-foreground">Sales by Machine</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Useful for partner weekly rollups such as Bubble Planet.
-              </p>
-              <div className="mt-5 space-y-3">
-                {machineRows.length === 0 ? (
-                  <div className="rounded-lg border border-border bg-background px-4 py-8 text-center text-sm text-muted-foreground">
-                    No machine rows yet.
-                  </div>
-                ) : (
-                  machineRows.map((row) => (
-                    <div
-                      key={row.key}
-                      className="rounded-lg border border-border bg-background p-4 text-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-foreground">{row.label}</p>
-                          <p className="mt-1 text-muted-foreground">
-                            {row.transactionCount.toLocaleString()} transactions
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-semibold text-foreground">
-                            {formatCurrency(row.netSalesCents)}
-                          </p>
-                          <p className="mt-1 text-muted-foreground">
-                            Gross {formatCurrency(row.grossSalesCents)}
-                          </p>
-                        </div>
-                      </div>
+      {previewLoading ? (
+        <PartnerDashboardSkeleton />
+      ) : preview ? (
+        <>
+          <PartnerAnswerBand
+            preview={preview}
+            currentPeriod={currentPeriod}
+            previousPeriod={previousPeriod}
+            blockingWarningCount={blockingWarnings.length}
+            trendLabel={trendLabel}
+          />
+
+          {preview.warnings.length > 0 && (
+            <Alert className="border-amber/20 bg-amber/10 text-foreground">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Admin-only data quality review</AlertTitle>
+              <AlertDescription>
+                <div className="mt-2 flex flex-col gap-2">
+                  {preview.warnings.slice(0, 4).map((warning, index) => (
+                    <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
+                      <Badge variant={warning.severity === 'blocking' ? 'destructive' : 'outline'}>
+                        {warning.severity === 'blocking' ? 'Blocking' : 'Review'}
+                      </Badge>{' '}
+                      {warning.message}
                     </div>
-                  ))
-                )}
-              </div>
-            </div>
+                  ))}
+                  {preview.warnings.length > 4 && (
+                    <div>{preview.warnings.length - 4} more admin-only warnings hidden.</div>
+                  )}
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="grid min-w-0 gap-6 xl:grid-cols-2">
+            <PartnerTrendCard
+              title="Sales dollars"
+              description={`${trendLabel} gross sales across the selected partnership.`}
+              data={sortedPeriods.map((period) => ({
+                period: periodMode === 'weekly' ? formatDateRange(period.periodStart, period.periodEnd) : formatMonth(period.periodStart),
+                dollars: period.grossSalesCents / 100,
+              }))}
+              config={dollarsChartConfig}
+              dataKey="dollars"
+              value={formatCurrency(currentPeriod?.grossSalesCents ?? 0)}
+              change={formatPercentChange(
+                currentPeriod?.grossSalesCents ?? 0,
+                previousPeriod?.grossSalesCents ?? 0
+              )}
+              current={currentPeriod?.grossSalesCents ?? 0}
+              previous={previousPeriod?.grossSalesCents ?? 0}
+            />
+            <PartnerTrendCard
+              title="Volume"
+              description={`${trendLabel} sticks/items sold across assigned machines.`}
+              data={sortedPeriods.map((period) => ({
+                period: periodMode === 'weekly' ? formatDateRange(period.periodStart, period.periodEnd) : formatMonth(period.periodStart),
+                volume: periodVolume(period),
+              }))}
+              config={volumeChartConfig}
+              dataKey="volume"
+              value={numberFormatter.format(periodVolume(currentPeriod))}
+              change={formatPercentChange(
+                periodVolume(currentPeriod),
+                periodVolume(previousPeriod)
+              )}
+              current={periodVolume(currentPeriod)}
+              previous={periodVolume(previousPeriod)}
+            />
           </div>
 
-          <div className="mt-6 overflow-x-auto rounded-xl border border-border bg-card">
-            <table className="min-w-[760px] w-full">
-              <thead className="border-b border-border bg-muted/40">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Period
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Machine
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Location
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Payment
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Net
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Gross
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {reportRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                      No rows found.
-                    </td>
-                  </tr>
+          <div className="grid min-w-0 gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+            <Card className="min-w-0">
+              <CardHeader>
+                <CardTitle className="text-xl">Machine rollups</CardTitle>
+                <CardDescription>
+                  Current {periodMode === 'weekly' ? 'week' : 'month'} compared with the previous period.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {machineRows.length === 0 ? (
+                  <EmptyPanel title="No machine rollups" description="Assign machines and import sales before this table can show partner performance." />
                 ) : (
-                  reportRows.map((row) => (
-                    <tr
-                      key={`${row.periodStart}-${row.machineId}-${row.paymentMethod}`}
-                      className="border-b border-border/70"
-                    >
-                      <td className="px-4 py-3 text-sm text-foreground">
-                        {formatDate(row.periodStart)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-foreground">{row.machineLabel}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {row.locationName}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {row.paymentMethod}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-foreground">
-                        {formatCurrency(row.netSalesCents)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-foreground">
-                        {formatCurrency(row.grossSalesCents)}
-                      </td>
-                    </tr>
-                  ))
+                  <>
+                    <div className="flex flex-col gap-3 md:hidden">
+                      {machineRows.map((row) => (
+                        <PartnerMachineMobileCard key={row.current.reportingMachineId} row={row} />
+                      ))}
+                    </div>
+                    <div className="hidden md:block">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Machine</TableHead>
+                            <TableHead className="text-right">Sales dollars</TableHead>
+                            <TableHead className="text-right">Volume</TableHead>
+                            <TableHead className="text-right">Tax + fees</TableHead>
+                            <TableHead className="text-right">Net sales</TableHead>
+                            <TableHead className="text-right">Split base</TableHead>
+                            <TableHead className="text-right">Amount owed</TableHead>
+                            <TableHead className="text-right">Change</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {machineRows.map((row) => {
+                            const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
+                            return (
+                              <TableRow key={row.current.reportingMachineId}>
+                                <TableCell>
+                                  <div className="font-medium">{row.current.machineLabel}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {row.current.locationName ?? 'No location'}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {formatCurrency(row.current.grossSalesCents)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div>{numberFormatter.format(periodVolume(row.current))} items</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {numberFormatter.format(row.current.orderCount)} orders
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div>{formatCurrency(row.current.taxCents + row.current.feeCents, true)}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    Costs {formatCurrency(row.current.costCents, true)}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {formatCurrency(row.current.netSalesCents, true)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {formatCurrency(row.current.splitBaseCents, true)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {formatCurrency(row.current.amountOwedCents, true)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div
+                                    className={cn(
+                                      'inline-flex items-center justify-end gap-1 font-medium',
+                                      getChangeTone(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0)
+                                    )}
+                                  >
+                                    <TrendIcon className="h-4 w-4" />
+                                    {formatPercentChange(
+                                      row.current.grossSalesCents,
+                                      row.previous?.grossSalesCents ?? 0
+                                    )}
+                                  </div>
+                                  <div
+                                    className={cn(
+                                      'text-xs',
+                                      getChangeTone(periodVolume(row.current), periodVolume(row.previous))
+                                    )}
+                                  >
+                                    Volume {formatPercentChange(periodVolume(row.current), periodVolume(row.previous))}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
                 )}
-              </tbody>
-            </table>
+              </CardContent>
+            </Card>
+
+            <PartnerCalculationCard summary={preview.summary} />
+          </div>
+        </>
+      ) : (
+        <EmptyPanel title="Select a partnership" description="Choose an active partnership to load the partner dashboard preview." />
+      )}
+    </div>
+  );
+}
+
+function PartnerAnswerBand({
+  preview,
+  currentPeriod,
+  previousPeriod,
+  blockingWarningCount,
+  trendLabel,
+}: {
+  preview: PartnerDashboardPeriodPreview;
+  currentPeriod: PartnerDashboardPeriod | undefined;
+  previousPeriod: PartnerDashboardPeriod | undefined;
+  blockingWarningCount: number;
+  trendLabel: string;
+}) {
+  const hasBlockingWarnings = blockingWarningCount > 0;
+  const TrendIcon = getTrendIcon(currentPeriod?.amountOwedCents ?? 0, previousPeriod?.amountOwedCents ?? 0);
+
+  return (
+    <Card>
+      <CardContent className="grid gap-5 p-5 md:grid-cols-2 xl:grid-cols-4">
+        <AnswerItem
+          label="Amount owed"
+          value={formatCurrency(currentPeriod?.amountOwedCents ?? preview.summary.amountOwedCents, true)}
+          detail="Due to partner for the current period"
+          emphasis
+        />
+        <AnswerItem
+          label="Period"
+          value={formatDateRange(currentPeriod?.periodStart, currentPeriod?.periodEnd)}
+          detail={`${trendLabel} view: ${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`}
+          icon={<CalendarDays className="h-5 w-5 text-muted-foreground" />}
+        />
+        <AnswerItem
+          label="Status"
+          value={hasBlockingWarnings ? 'Blocked' : 'Ready for review'}
+          detail={hasBlockingWarnings ? `${blockingWarningCount} blocking admin items` : 'No blocking admin warnings'}
+          badgeTone={hasBlockingWarnings ? 'destructive' : 'default'}
+        />
+        <AnswerItem
+          label="Movement"
+          value={formatPercentChange(
+            currentPeriod?.amountOwedCents ?? 0,
+            previousPeriod?.amountOwedCents ?? 0
+          )}
+          detail="Amount owed vs previous period"
+          icon={
+            <TrendIcon
+              className={cn(
+                'h-5 w-5',
+                getChangeTone(currentPeriod?.amountOwedCents ?? 0, previousPeriod?.amountOwedCents ?? 0)
+              )}
+            />
+          }
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function PartnerTrendCard({
+  title,
+  description,
+  data,
+  config,
+  dataKey,
+  value,
+  change,
+  current,
+  previous,
+}: {
+  title: string;
+  description: string;
+  data: Array<Record<string, string | number>>;
+  config: ChartConfig;
+  dataKey: string;
+  value: string;
+  change: string;
+  current: number;
+  previous: number;
+}) {
+  const TrendIcon = getTrendIcon(current, previous);
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle className="text-xl">{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+          <div className="text-left sm:text-right">
+            <div className="text-2xl font-semibold text-foreground">{value}</div>
+            <div className={cn('mt-1 inline-flex items-center gap-1 text-sm', getChangeTone(current, previous))}>
+              <TrendIcon className="h-4 w-4" />
+              {change}
+            </div>
           </div>
         </div>
-      </section>
-    </PortalLayout>
+      </CardHeader>
+      <CardContent>
+        {data.length === 0 ? (
+          <EmptyPanel title="No trend data" description="This period has no imported partner sales yet." />
+        ) : (
+          <ChartContainer config={config} className="h-[280px] w-full">
+            <BarChart data={data}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="period" tickLine={false} axisLine={false} />
+              <YAxis tickLine={false} axisLine={false} width={56} />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Bar dataKey={dataKey} fill={`var(--color-${dataKey})`} radius={[5, 5, 0, 0]} />
+            </BarChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PartnerMachineMobileCard({
+  row,
+}: {
+  row: {
+    current: PartnerDashboardMachinePeriod;
+    previous?: PartnerDashboardMachinePeriod;
+  };
+}) {
+  const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
+
+  return (
+    <div className="rounded-lg border border-border bg-background p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium text-foreground">{row.current.machineLabel}</div>
+          <div className="text-sm text-muted-foreground">
+            {row.current.locationName ?? 'No location'}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="font-semibold text-foreground">
+            {formatCurrency(row.current.grossSalesCents)}
+          </div>
+          <div
+            className={cn(
+              'mt-1 inline-flex items-center gap-1 text-xs font-medium',
+              getChangeTone(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0)
+            )}
+          >
+            <TrendIcon className="h-3.5 w-3.5" />
+            {formatPercentChange(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0)}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <MobileProofItem
+          label="Volume"
+          value={`${numberFormatter.format(periodVolume(row.current))} items`}
+          detail={`${numberFormatter.format(row.current.orderCount)} orders`}
+        />
+        <MobileProofItem
+          label="Amount owed"
+          value={formatCurrency(row.current.amountOwedCents, true)}
+          detail={`Volume ${formatPercentChange(periodVolume(row.current), periodVolume(row.previous))}`}
+        />
+        <MobileProofItem
+          label="Net sales"
+          value={formatCurrency(row.current.netSalesCents, true)}
+          detail={`Split ${formatCurrency(row.current.splitBaseCents, true)}`}
+        />
+        <MobileProofItem
+          label="Tax, fees, costs"
+          value={formatCurrency(row.current.taxCents + row.current.feeCents, true)}
+          detail={`Costs ${formatCurrency(row.current.costCents, true)}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MobileProofItem({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-md bg-muted/30 p-3">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 font-medium text-foreground">{value}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
+    </div>
+  );
+}
+
+function PartnerCalculationCard({ summary }: { summary: PartnerDashboardTotals }) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="flex flex-row items-start justify-between gap-3">
+        <div>
+          <CardTitle className="text-xl">Calculation</CardTitle>
+          <CardDescription>Current selected range across the partnership.</CardDescription>
+        </div>
+        <Badge variant="outline">Preview</Badge>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <CalculationLine label="Gross sales" value={formatCurrency(summary.grossSalesCents, true)} />
+        <CalculationLine label="Tax impact" value={`-${formatCurrency(summary.taxCents, true)}`} />
+        <CalculationLine label="Fees" value={`-${formatCurrency(summary.feeCents, true)}`} />
+        <CalculationLine label="Costs" value={`-${formatCurrency(summary.costCents, true)}`} />
+        <CalculationLine label="Net sales" value={formatCurrency(summary.netSalesCents, true)} />
+        <CalculationLine label="Split base" value={formatCurrency(summary.splitBaseCents, true)} />
+        <CalculationLine
+          label="Amount owed"
+          value={formatCurrency(summary.amountOwedCents, true)}
+          emphasis
+        />
+        <CalculationLine
+          label="Bloomjoy retained"
+          value={formatCurrency(summary.bloomjoyRetainedCents, true)}
+        />
+        <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+          <div className="font-medium text-foreground">How this is calculated</div>
+          <p className="mt-2">
+            Gross sales minus configured tax and fees creates net sales. The active financial rule
+            determines the split base, then applies the partner share to calculate amount owed.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function buildPartnerMachineRows(
+  preview: PartnerDashboardPeriodPreview | undefined,
+  currentPeriod: PartnerDashboardPeriod | undefined,
+  previousPeriod: PartnerDashboardPeriod | undefined
+) {
+  if (!preview || !currentPeriod) return [];
+
+  const previousByMachine = new Map<string, PartnerDashboardMachinePeriod>();
+  if (previousPeriod) {
+    preview.machinePeriods
+      .filter((machine) => machine.periodStart === previousPeriod.periodStart)
+      .forEach((machine) => previousByMachine.set(machine.reportingMachineId, machine));
+  }
+
+  return preview.machinePeriods
+    .filter((machine) => machine.periodStart === currentPeriod.periodStart)
+    .map((current) => ({
+      current,
+      previous: previousByMachine.get(current.reportingMachineId),
+    }))
+    .sort((left, right) => right.current.grossSalesCents - left.current.grossSalesCents);
+}
+
+function LabeledControl({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  context,
+}: {
+  label: string;
+  value: string;
+  context: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+        <div className="mt-2 text-2xl font-semibold text-foreground">{value}</div>
+        <div className="mt-2 text-sm text-muted-foreground">{context}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MetricSkeleton() {
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3 p-5">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-4 w-40" />
+      </CardContent>
+    </Card>
+  );
+}
+
+function PartnerDashboardSkeleton() {
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardContent className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+          <MetricSkeletonContent />
+          <MetricSkeletonContent />
+          <MetricSkeletonContent />
+          <MetricSkeletonContent />
+        </CardContent>
+      </Card>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <CardContent className="p-6">
+            <ChartSkeleton />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <ChartSkeleton />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function MetricSkeletonContent() {
+  return (
+    <div className="flex flex-col gap-3">
+      <Skeleton className="h-4 w-24" />
+      <Skeleton className="h-8 w-36" />
+      <Skeleton className="h-4 w-44" />
+    </div>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <div className="flex h-[280px] flex-col justify-end gap-3">
+      <Skeleton className="h-full w-full" />
+    </div>
+  );
+}
+
+function EmptyPanel({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="flex min-h-[180px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
+      <div className="font-medium text-foreground">{title}</div>
+      <div className="mt-2 max-w-md text-sm text-muted-foreground">{description}</div>
+    </div>
+  );
+}
+
+function MachineSummaryRow({
+  label,
+  context,
+  primary,
+  secondary,
+}: {
+  label: string;
+  context: string;
+  primary: string;
+  secondary: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-medium text-foreground">{label}</div>
+          <div className="mt-1 text-sm text-muted-foreground">{context}</div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="font-semibold text-foreground">{primary}</div>
+          <div className="mt-1 text-sm text-muted-foreground">{secondary}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnswerItem({
+  label,
+  value,
+  detail,
+  icon,
+  emphasis = false,
+  badgeTone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon?: ReactNode;
+  emphasis?: boolean;
+  badgeTone?: 'default' | 'destructive';
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2 border-border md:border-r md:pr-5 md:last:border-r-0">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span>{label}</span>
+        {icon}
+      </div>
+      {badgeTone ? (
+        <div>
+          <Badge variant={badgeTone}>{value}</Badge>
+        </div>
+      ) : (
+        <div className={cn('text-2xl font-semibold text-foreground', emphasis && 'text-sage')}>
+          {value}
+        </div>
+      )}
+      <div className="text-sm text-muted-foreground">{detail}</div>
+    </div>
+  );
+}
+
+function CalculationLine({
+  label,
+  value,
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 text-sm">
+      <div className={cn('text-muted-foreground', emphasis && 'font-medium text-foreground')}>
+        {label}
+      </div>
+      <div className={cn('font-medium text-foreground', emphasis && 'text-lg text-sage')}>
+        {value}
+      </div>
+    </div>
   );
 }
