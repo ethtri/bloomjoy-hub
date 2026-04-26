@@ -56,9 +56,19 @@ const adminDestinations = [
     description: 'Users, Plus grants, global roles, reporting access, and audit history.',
   },
   {
+    href: '/admin/partner-records',
+    label: 'Partner records',
+    description: 'Reusable external organizations and reporting contacts.',
+  },
+  {
+    href: '/admin/machines',
+    label: 'Machines',
+    description: 'Machine aliases, Sunze mapping, assignment readiness, and tax rates.',
+  },
+  {
     href: '/admin/partnerships',
     label: 'Admin partnerships',
-    description: 'Partners, partnership setup, machine assignments, tax rates, and rules.',
+    description: 'Guided agreement setup, participants, assigned machines, split terms, and preview.',
   },
   {
     href: '/admin/reporting',
@@ -69,9 +79,11 @@ const adminDestinations = [
 
 const getAdminContext = (pathname: string): AppContext => {
   const matched =
-    adminDestinations.find((destination) =>
-      pathname === destination.href || pathname.startsWith(`${destination.href}/`)
-    ) ?? adminDestinations[0];
+    adminDestinations.find((destination) => pathname === destination.href) ??
+    adminDestinations
+      .filter((destination) => destination.href !== '/admin')
+      .find((destination) => pathname.startsWith(`${destination.href}/`)) ??
+    adminDestinations[0];
 
   return {
     title: matched.label,
@@ -119,6 +131,14 @@ const workspaceLinks = [
   },
 ];
 
+const mobileAdminDestinations = [
+  { href: '/admin/access', label: 'Access' },
+  { href: '/admin/partner-records', label: 'Partner Records' },
+  { href: '/admin/machines', label: 'Machines' },
+  { href: '/admin/partnerships', label: 'Partnerships' },
+  { href: '/admin/reporting', label: 'Reporting' },
+];
+
 export function AppLayout({ children }: AppLayoutProps) {
   const { isAdmin, isAuthenticated, portalAccessTier, signOut, user } = useAuth();
   const location = useLocation();
@@ -129,6 +149,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const accountUrl = '/portal/account';
   const showAccountLink = portalAccessTier !== 'training';
   const homeUrl = isAuthenticated ? '/portal' : '/login';
+  const isAdminPath = location.pathname.startsWith('/admin');
 
   const handleSignOut = async () => {
     await signOut();
@@ -177,6 +198,37 @@ export function AppLayout({ children }: AppLayoutProps) {
           </NavLink>
         );
       });
+
+  const renderMobileAdminLinks = () => (
+    <div className="rounded-2xl border border-border bg-muted/20 p-3">
+      <div className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        Admin tools
+      </div>
+      <div className="grid gap-2">
+        {mobileAdminDestinations.map((item) => {
+          const isActive =
+            location.pathname === item.href || location.pathname.startsWith(`${item.href}/`);
+
+          return (
+            <SheetClose asChild key={item.href}>
+              <Link
+                to={item.href}
+                className={cn(
+                  'flex min-h-11 items-center justify-between rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'border-primary/20 bg-primary/10 text-primary'
+                    : 'border-border bg-background text-foreground hover:bg-muted/40'
+                )}
+              >
+                <span>{item.label}</span>
+                {isActive && <span className="text-xs text-primary">Current</span>}
+              </Link>
+            </SheetClose>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-muted/20">
@@ -261,6 +313,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   </SheetHeader>
                   <div className="mt-6 space-y-3">
                     {isAuthenticated && renderWorkspaceLinks(true)}
+                    {isAuthenticated && isAdmin && isAdminPath && renderMobileAdminLinks()}
                     {isAuthenticated && showAccountLink && (
                       <SheetClose asChild>
                         <Link

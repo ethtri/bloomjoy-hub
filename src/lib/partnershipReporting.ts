@@ -94,6 +94,8 @@ export type ReportingPartnershipFinancialRule = {
   effective_end_date: string | null;
   status: 'draft' | 'active' | 'archived';
   notes: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type PartnershipSetupWarning = {
@@ -148,6 +150,41 @@ export type PartnerWeeklyReportPreview = {
     split_base_cents: number;
   }>;
   warnings: PartnershipSetupWarning[];
+};
+
+const dateInputFromDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getPreviewWeekStartDate = (weekEndingDate: string) => {
+  const date = new Date(`${weekEndingDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  date.setDate(date.getDate() - 6);
+  return dateInputFromDate(date);
+};
+
+const normalizePartnerWeeklyReportPreview = (
+  data: unknown,
+  partnershipId: string,
+  weekEndingDate: string
+): PartnerWeeklyReportPreview => {
+  const raw = (Array.isArray(data) ? data[0] : data) as Partial<PartnerWeeklyReportPreview> | null;
+
+  return {
+    partnershipId: String(raw?.partnershipId ?? partnershipId),
+    partnershipName: raw?.partnershipName,
+    reportingWeekEndDay: raw?.reportingWeekEndDay,
+    weekEndingDate: String(raw?.weekEndingDate ?? weekEndingDate),
+    weekStartDate: String(raw?.weekStartDate ?? getPreviewWeekStartDate(weekEndingDate)),
+    summary: raw?.summary ?? {},
+    machines: Array.isArray(raw?.machines) ? raw.machines : [],
+    warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
+  };
 };
 
 export type UpsertPartnerInput = {
@@ -337,6 +374,32 @@ export const upsertReportingPartnershipPartyAdmin = async (
   return data as ReportingPartnershipParty;
 };
 
+export const removeReportingPartnershipPartyAdmin = async (partyId: string, reason: string) => {
+  const { error } = await supabaseClient.rpc('admin_remove_reporting_partnership_party', {
+    p_party_id: partyId,
+    p_reason: reason,
+  });
+
+  if (!error) {
+    return;
+  }
+
+  // Local PR testing can point at a database that has not applied this branch's remove RPC yet.
+  if (error.code === 'PGRST202' || error.message.includes('admin_remove_reporting_partnership_party')) {
+    const { error: deleteError } = await supabaseClient
+      .from('reporting_partnership_parties')
+      .delete()
+      .eq('id', partyId);
+
+    if (deleteError) {
+      throw new Error(deleteError.message || 'Unable to remove partnership participant.');
+    }
+    return;
+  }
+
+  throw new Error(error.message || 'Unable to remove partnership participant.');
+};
+
 export const upsertReportingMachineTaxRateAdmin = async (input: UpsertMachineTaxRateInput) => {
   const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_machine_tax_rate', {
     p_tax_rate_id: input.taxRateId ?? null,
@@ -398,5 +461,5 @@ export const previewPartnerWeeklyReportAdmin = async (
     throw new Error(error.message || 'Unable to preview partner report.');
   }
 
-  return data as PartnerWeeklyReportPreview;
+  return normalizePartnerWeeklyReportPreview(data, partnershipId, weekEndingDate);
 };

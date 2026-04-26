@@ -33,12 +33,18 @@
 - The portal now has `/portal/reports` for entitled users, with date/grain/location/machine/payment filters and on-demand PDF export.
 - Admin access and reporting operations are split into clearer surfaces:
   - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
-  - `/admin/partnerships` is the setup area for partners, partnerships, machine assignments, machine-level tax rates, and financial rules.
+  - `/admin/partner-records` is the reusable organization/contact directory for partnership participants.
+  - `/admin/machines` is the machine setup area for aliases, Sunze mapping, assignment readiness, and current machine tax rates.
+  - `/admin/partnerships` is the guided agreement setup flow for partnership details, role-only participants, bulk machine alignment, payout rules, and weekly preview.
   - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
 - Production RPC repair is complete: migration `202604260004_reporting_admin_rpc_repair.sql` reapplied missing admin reporting/partnership RPCs, restored PostgREST schema visibility, and production migration history is aligned through `202604260006`.
 - Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
-- Tax rates are configured directly on machines with effective dates, not on partnerships.
-- The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` paid-order fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.
+- Tax rates are configured directly on machines, not on partnerships. The Machines admin page edits current rates inline while the backend keeps effective-dated history for reporting/audit.
+- Partnership participants remain available for multi-stakeholder agreements. Reusable partner records are managed separately, participant roles make payout recipients explicit, and partnership-specific participant relationships stay inside the guided partnership flow without report-recipient or share-percentage friction.
+- Partnership setup exposes one agreement-level timeline plus a simple active/inactive control; payout-rule date/status fields remain backend compatibility fields and are not normal admin inputs.
+- Payout percentages live in one current Payout Rule as stable participant-named allocation rows plus Bloomjoy, with whole-percent inputs, a 100% allocation check, and weekly-preview labels that match the configured payout recipients while still mapping to the existing backend split fields for compatibility.
+- Weekly Preview now surfaces actionable readiness issues for the selected week, including missing active machine assignment coverage, missing active payout rules, and no imported sales for the selected week, and keeps RPC errors visible in-page instead of relying only on toast feedback.
+- The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` per-stick/item fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.
 - Manual CSV import helpers and sample files are available before production sync is enabled.
 - Sunze browser automation is now implemented as a scheduled GitHub Actions Playwright worker that exports the Orders workbook with the safe `Last 3 Days` preset, deletes the raw workbook after parsing, and sends normalized rows to the locked `sunze-sales-ingest` Edge Function.
 - Sunze reliability controls require parser checks in CI, workbook exports to reconcile against Sunze UI count/revenue before ingest, raw downloads to be cleaned on every path, order-level idempotency, top-level machine discovery, admin-managed machine mapping, and stale/failure alerts through the ingest health check plus scheduled health workflow.
