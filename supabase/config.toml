@@ -1,0 +1,38 @@
+[functions.stripe-sugar-checkout]
+verify_jwt = false
+
+[functions.stripe-sticks-checkout]
+verify_jwt = false
+
+[functions.stripe-plus-checkout]
+verify_jwt = false
+
+[functions.stripe-customer-portal]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.lead-submission-intake]
+verify_jwt = false
+
+[functions.support-request-intake]
+verify_jwt = false
+
+[functions.operator-training-invite]
+verify_jwt = false
+
+[functions.sales-report-export]
+verify_jwt = false
+
+[functions.sales-report-scheduler]
+verify_jwt = false
+
+[functions.sunze-sales-sync]
+verify_jwt = false
+
+[functions.sunze-sales-ingest]
+verify_jwt = false
+
+[functions.refund-adjustment-sync]
+verify_jwt = false

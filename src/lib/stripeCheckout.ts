@@ -1,29 +1,30 @@
 import type { CartItem } from '@/lib/cart';
-import { supabaseClient } from '@/lib/supabaseClient';
+import type { BlankSticksAddressType, StickSize } from '@/lib/sticks';
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 
 interface CheckoutResponse {
   url?: string;
   error?: string;
 }
 
-export async function startPlusCheckout(
-  origin: string,
-  machineCount: number
-) {
-  const { data, error } = await supabaseClient.functions.invoke<CheckoutResponse>(
+interface BlankSticksCheckoutInput {
+  boxCount: number;
+  stickSize: StickSize;
+  addressType: BlankSticksAddressType;
+}
+
+export async function startPlusCheckout(origin: string) {
+  const data = await invokeEdgeFunction<CheckoutResponse>(
     'stripe-plus-checkout',
     {
-      body: {
-        machineCount,
-        successUrl: `${origin}/plus?checkout=success`,
-        cancelUrl: `${origin}/plus?checkout=cancel`,
-      },
+      successUrl: `${origin}/plus?checkout=success`,
+      cancelUrl: `${origin}/plus?checkout=cancel`,
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Please log in before starting Bloomjoy Plus checkout.',
     }
   );
-
-  if (error) {
-    throw new Error(error.message);
-  }
 
   if (!data?.url) {
     throw new Error(data?.error || 'Checkout URL missing.');
@@ -32,20 +33,17 @@ export async function startPlusCheckout(
   return data.url;
 }
 
-export async function openCustomerPortal(email: string, origin: string) {
-  const { data, error } = await supabaseClient.functions.invoke<CheckoutResponse>(
+export async function openCustomerPortal(origin: string) {
+  const data = await invokeEdgeFunction<CheckoutResponse>(
     'stripe-customer-portal',
     {
-      body: {
-        email,
-        returnUrl: `${origin}/portal/account`,
-      },
+      returnUrl: `${origin}/portal/account?billing=return`,
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to manage billing.',
     }
   );
-
-  if (error) {
-    throw new Error(error.message);
-  }
 
   if (!data?.url) {
     throw new Error(data?.error || 'Customer portal URL missing.');
@@ -55,24 +53,40 @@ export async function openCustomerPortal(email: string, origin: string) {
 }
 
 export async function startSugarCheckout(items: CartItem[], origin: string) {
-  const { data, error } = await supabaseClient.functions.invoke<CheckoutResponse>(
+  const data = await invokeEdgeFunction<CheckoutResponse>(
     'stripe-sugar-checkout',
     {
-      body: {
-        items: items.map((item) => ({
-          sku: item.sku,
-          quantity: item.quantity,
-          type: item.type,
-        })),
-        successUrl: `${origin}/cart?checkout=success`,
-        cancelUrl: `${origin}/cart?checkout=cancel`,
-      },
+      items: items.map((item) => ({
+        sku: item.sku,
+        quantity: item.quantity,
+        type: item.type,
+      })),
+      successUrl: `${origin}/cart?checkout=success`,
+      cancelUrl: `${origin}/cart?checkout=cancel`,
+    },
+    {
+      includeUserAuth: true,
     }
   );
 
-  if (error) {
-    throw new Error(error.message);
+  if (!data?.url) {
+    throw new Error(data?.error || 'Checkout URL missing.');
   }
+
+  return data.url;
+}
+
+export async function startBlankSticksCheckout(
+  { boxCount, stickSize, addressType }: BlankSticksCheckoutInput,
+  origin: string
+) {
+  const data = await invokeEdgeFunction<CheckoutResponse>('stripe-sticks-checkout', {
+    boxCount,
+    stickSize,
+    addressType,
+    successUrl: `${origin}/supplies?sticksCheckout=success`,
+    cancelUrl: `${origin}/supplies?sticksCheckout=cancel`,
+  });
 
   if (!data?.url) {
     throw new Error(data?.error || 'Checkout URL missing.');

@@ -35,11 +35,90 @@
 ## Supabase setup (training library + memberships)
 1) Apply migration: `supabase/migrations/20260122_training_and_membership.sql`
    - Orders sync migration: `supabase/migrations/20260202_orders.sql`
+   - WeChat onboarding support migration: `supabase/migrations/202603100001_wechat_onboarding_support.sql`
+   - Training experience upgrade migration: `supabase/migrations/202603190001_training_experience_upgrade.sql`
+   - Sales reporting foundation migration: `supabase/migrations/202604240001_sales_reporting_foundation.sql`
+   - Sales reporting daily automation helpers: `supabase/migrations/202604250001_sales_reporting_daily_automation.sql`
+   - Sunze sales reliability controls: `supabase/migrations/202604260002_sunze_sales_controls.sql`
+   - Sunze unmapped machine queue: `supabase/migrations/202604260003_sunze_unmapped_machine_queue.sql`
+   - Reporting admin/partner foundation repair: `supabase/migrations/202604260004_reporting_admin_rpc_repair.sql`
+   - Sunze enriched sales upsert repair: `supabase/migrations/202604260005_sunze_enriched_fact_upsert.sql`
+   - Sunze order-hash idempotency repair: `supabase/migrations/202604260006_sunze_order_hash_index_repair.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
    - `provider_hash`
    - `meta.thumbnail_url` (first-party key in `training-thumbnails` bucket, for example `vimeo/<video_id>.jpg`)
+
+Migration notes:
+- Supabase will not replay an edited migration after production has marked that version applied. Add a later forward-only repair migration when production schema drift needs to be fixed.
+- After migrations that add or replace frontend-facing RPCs, verify `supabase db push --dry-run` is clean and confirm the live REST endpoint does not return `404` or `PGRST202` for the changed RPCs.
+
+## Sales reporting import helpers
+Use these after the sales reporting migration has been applied.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Import or dry-run normalized Sunze/manual sales CSV rows:
+   - `npm run reporting:import-sales -- --file scripts/sample-sales-reporting.csv --dry-run`
+   - `npm run reporting:import-sales -- --file path/to/sunze-export.csv --source manual_csv`
+3) Import or dry-run refund/complaint adjustments exported from Google Sheets:
+   - `npm run reporting:import-refunds -- --file scripts/sample-refund-adjustments.csv --dry-run`
+   - `npm run reporting:import-refunds -- --file path/to/refunds.csv --source-reference <sheet-or-export-id>`
+4) Validate the sanitized Sunze `.xlsx` parser fixture:
+   - `npm run reporting:validate-sunze-parser`
+5) Dry-run the Sunze browser export locally:
+   - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
+   - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.
+6) Run the Sunze import freshness check without touching Sunze:
+   - `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30`
+7) In production, run the scheduled GitHub Action with encrypted repository secrets:
+   - `SUNZE_LOGIN_URL`
+   - `SUNZE_REPORTING_EMAIL`
+   - `SUNZE_REPORTING_PASSWORD`
+   - `REPORTING_INGEST_URL`
+   - `REPORTING_INGEST_TOKEN`
+
+Notes:
+- CSV rows must map to configured reporting machines by `machine_id`/`reporting_machine_id` or `sunze_machine_id`.
+- `machine_sales_facts` stores Sunze/manual sales as net sales. `sales_adjustment_facts` stores refunds separately so gross sales can be calculated as net plus refunds.
+- `sunze-sales-ingest` requires `REPORTING_INGEST_TOKEN` and `REPORTING_ROW_HASH_SALT` as Supabase function secrets. The GitHub worker receives only `REPORTING_INGEST_TOKEN`, never the Supabase service-role key.
+- GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
+- Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
+- Sunze sync controls use optional `SUNZE_EXPECTED_MACHINE_COUNT`, `SUNZE_SYNC_STALE_HOURS=30`, and `SUNZE_REPORTING_TIMEZONE=America/Los_Angeles` by default. The daily sync workflow performs a post-import freshness check, and the separate Sunze health workflow checks again later for missed/stale imports. Set the expected count only after confirming how many machines the workflow Sunze account exposes in the top-level Machine Center; new visible machines are placed in the `/admin/reporting` mapping queue instead of blocking already mapped sales.
+- Admins map newly discovered Sunze IDs from `/admin/reporting`; the current PR flow pre-fills the broader `/admin/partnerships` machine form. Pending rows for unmapped machines are quarantined in normalized form and replayed into `machine_sales_facts` after the Sunze ID is mapped to a canonical reporting machine. Follow-up `#174` tracks a simpler machine-first mapping flow so new Sunze machines do not become recurring engineering blockers.
+- Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
+
+## Training document upload helper
+Use this after the training experience migration is applied and `training-documents` exists.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Run the upload helper:
+   - `npm run training:upload-docs`
+3) Optional alternate source root:
+   - `node scripts/upload-training-documents.mjs --source-root "I:/Shared drives/Bloomjoy Training/CottonCandy"`
+
+Notes:
+- The helper uploads `Software setup.pdf` and `Cotton Candy Maintenance Guide.pdf`.
+- Uploaded files are private; the portal should access them through signed URLs only.
+
+## Training guide catalog sync (operations helper)
+Use this after uploading the source PDFs when guide/checklist rows need to be created or refreshed in Supabase.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Audit without writing:
+   - `npm run training:sync-guides -- --dry-run`
+3) Upsert the guide/checklist rows and attach the source PDFs:
+   - `npm run training:sync-guides`
+
+Notes:
+- This keeps the document-first training rows aligned with the local portal content for software setup, shutdown/cooldown, cleaning hotspots, diagnostics, and consumables.
+- Run `npm run training:upload-docs` first so the signed PDF downloads resolve correctly from the portal.
 
 ## Vimeo module tag sync (operations helper)
 Use this when Vimeo uploads are missing module taxonomy tags (for example `Module 1`).
@@ -53,6 +132,38 @@ Use this when Vimeo uploads are missing module taxonomy tags (for example `Modul
 Notes:
 - Script is idempotent and skips videos that already have the target tag.
 - Current helper targets all videos visible to the authenticated Vimeo account (`/me/videos`).
+
+## Vimeo catalog sync (operations helper)
+Use this when Vimeo uploads already exist but are not discoverable in the portal because Supabase catalog rows are missing or stale.
+
+1) Ensure your local env includes:
+   - `VIMEO_ACCESS_TOKEN`
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Audit without writing:
+   - `node scripts/sync-vimeo-training-catalog.mjs --dry-run`
+3) Upsert missing rows and refresh existing Vimeo-backed entries:
+   - `node scripts/sync-vimeo-training-catalog.mjs`
+
+Notes:
+- The script flags unmapped uploads, duplicate catalog rows, stale Vimeo references, and uploads missing module labels.
+- Vimeo remains the media host, but Supabase `trainings` + `training_assets` stay the portal source of truth.
+
+## Training catalog duplicate cleanup (operations helper)
+Use this after the Vimeo catalog sync if duplicate uploads exist in Vimeo and you want the Supabase-backed operator library to show only the canonical rows.
+
+1) Ensure your local env includes:
+   - `SUPABASE_URL` (or `VITE_SUPABASE_URL`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Audit duplicate rows without writing:
+   - `npm run training:dedupe-catalog -- --dry-run`
+3) Mark non-canonical duplicate training rows as `draft`:
+   - `npm run training:dedupe-catalog`
+
+Notes:
+- The helper only updates duplicate Vimeo-backed `trainings` rows in Supabase; it does not delete Vimeo uploads.
+- Canonical MG320 Vimeo IDs from the shared catalog manifest are preserved automatically.
+- Existing `draft` rows stay draft on later syncs because the Vimeo sync helper does not overwrite visibility.
 
 ## Supabase auth setup (password + Google + magic link)
 To use all login methods in local dev:
@@ -88,7 +199,8 @@ To use all login methods in local dev:
 3) Run `git fetch origin` to update your view of recent merges
 4) Run `git status -sb` and make sure it looks clean
 5) Run `npm run auth:preflight` when working on auth/OAuth launch tasks
-6) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
+6) Run `npm run commerce:preflight` when working on Stripe/order/notification changes
+7) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
 
 ## Session closeout hygiene (2 minutes)
 1) Run `git status -sb` and leave the worktree clean, or write down exactly what is intentionally left for the next session.
@@ -119,21 +231,62 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 1) Install Supabase CLI (once): https://supabase.com/docs/guides/cli
 2) Set function secrets (server-only):
    - `supabase secrets set STRIPE_SECRET_KEY=...`
-   - `supabase secrets set STRIPE_SUGAR_PRICE_ID=...`
+   - `supabase secrets set STRIPE_SUGAR_MEMBER_PRICE_ID=...`
+   - `supabase secrets set STRIPE_SUGAR_NON_MEMBER_PRICE_ID=...`
+   - Optional migration bridge only: `supabase secrets set STRIPE_SUGAR_PRICE_ID=...`
+   - `supabase secrets set STRIPE_STICKS_PRICE_ID=...`
    - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`
    - `supabase secrets set RESEND_API_KEY=...`
    - `supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...`
    - `supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com`
-   - Ensure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
-3) Run functions locally:
+   - `supabase secrets set WECOM_CORP_ID=...`
+   - `supabase secrets set WECOM_AGENT_ID=...`
+   - `supabase secrets set WECOM_AGENT_SECRET=...`
+   - `supabase secrets set WECOM_ALERT_TO_USERIDS=ethan.trifari,ops.manager`
+   - `supabase secrets set REPORT_SCHEDULER_SECRET=...`
+   - `supabase secrets set REPORTING_INGEST_TOKEN=...`
+   - `supabase secrets set REPORTING_ROW_HASH_SALT=...`
+   - `supabase secrets set SUNZE_SYNC_STALE_HOURS=30`
+   - `supabase secrets set GOOGLE_REFUNDS_SHEET_ID=...`
+   - `supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON=...`
+   - Ensure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
+3) Run the commerce release preflight before deploy:
+   - Local env check: `npm run commerce:preflight`
+   - Remote secret presence check: `npm run commerce:preflight -- --project-ref <project-ref>`
+4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
+   - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
    - `supabase functions serve stripe-plus-checkout --no-verify-jwt`
    - `supabase functions serve stripe-customer-portal --no-verify-jwt`
    - `supabase functions serve stripe-webhook --no-verify-jwt`
    - `supabase functions serve lead-submission-intake --no-verify-jwt`
-4) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
+   - `supabase functions serve support-request-intake --no-verify-jwt`
+   - `supabase functions serve sales-report-export --no-verify-jwt`
+   - `supabase functions serve sales-report-scheduler --no-verify-jwt`
+   - `supabase functions serve sunze-sales-sync --no-verify-jwt`
+   - `supabase functions serve sunze-sales-ingest --no-verify-jwt`
+   - `supabase functions serve refund-adjustment-sync --no-verify-jwt`
+5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
+
+## Stripe order backfill helper
+Use this when a paid Stripe checkout must be imported into `public.orders` because webhook replay is unavailable or the webhook failed before persistence.
+
+1) Ensure your local env includes:
+   - `STRIPE_SECRET_KEY`
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2) Find the Stripe Checkout Session ID(s) in Stripe Dashboard.
+3) Dry run one or more sessions:
+   - `npm run orders:backfill -- --session-id <cs_...> --dry-run`
+4) Import the order snapshot into Supabase:
+   - `npm run orders:backfill -- --session-id <cs_...>`
+
+Notes:
+- The helper writes the order snapshot only. It does not resend internal/customer/WeCom notifications.
+- Use Stripe event replay first when possible; use the backfill helper when replay is unavailable or insufficient.
 
 ## Common issues
 - Missing env vars can break pages. Check console + `.env` (or `.env.local`).
 - If Stripe webhook forwarding isn't configured, subscription/order sync may not update locally.
+- If training documents do not open from Supabase-backed rows, confirm the `training-documents` bucket exists and that the upload helper was run with a valid service-role key.

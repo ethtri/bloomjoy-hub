@@ -1,5 +1,165 @@
 # Decisions
 
+## 2026-04-24 - Sales reporting foundation
+Bloomjoy sales reporting will use account/location/machine entitlements that are separate from Plus and training access.
+
+**Canonical reporting model**
+- Reporting visibility is scoped by `customer_accounts`, `reporting_locations`, and specific `reporting_machines`.
+- Users can gain report access through account membership or explicit reporting entitlements.
+- Reporting access does not imply Plus membership, training access, support access, billing access, or member sugar pricing.
+- Super-admins manage reporting machines, entitlements, imports, schedules, and export history from `/admin/reporting`.
+
+**Canonical reporting data**
+- Sunze sales rows are normalized into machine/date/payment facts.
+- Refunds and complaints are stored separately as adjustment facts, sourced first from Google Sheets or CSV import.
+- Until Sunze definitions are validated, Sunze totals are treated as net sales and gross sales is calculated as `net_sales + refund_amount`.
+- Imports must be idempotent by source and stable source identifier: Sunze uses a salted source order hash, while row hashes remain available for change detection and for import types without a durable source order id.
+
+**Automation and delivery**
+- V1 uses Supabase Edge Functions for on-demand exports, scheduled partner report delivery, and locked ingest entrypoints.
+- Daily Sunze extraction runs as a GitHub Actions Playwright worker because the task needs a full browser runtime. The worker receives Sunze credentials plus an ingest token, but never receives the Supabase service-role key.
+- The Sunze worker uses the Orders page `Last 3 Days` preset for daily catch-up, validates the `.xlsx` workbook headers, deletes raw downloads after parsing, and sends normalized rows to `sunze-sales-ingest`.
+- Sunze imports must reconcile the visible Orders UI record count and revenue against the downloaded workbook before ingesting, and must fail closed if the selected date window, payment/status mappings, or export integrity cannot be verified.
+- Sunze machine discovery uses the top-level Machine Center list visible to the workflow account. `SUNZE_EXPECTED_MACHINE_COUNT` is optional and treated as an operations signal because new machines can appear before admins finish mapping them.
+- GitHub dry-runs call `sunze-sales-ingest` in validation mode so Supabase row normalization and current machine mapping state are checked without writing `machine_sales_facts`.
+- Unmapped Sunze machines are handled through an admin mapping queue. Mapped rows continue into `machine_sales_facts`; unmapped rows are quarantined in normalized form using salted order hashes and no raw order numbers until an admin maps the Sunze ID to a canonical reporting machine or marks it ignored.
+- The Sunze UI exposes date presets but not always concrete date endpoints; for approved presets such as `Last 3 Days`, the worker records the selected preset and derives the expected date window in `SUNZE_REPORTING_TIMEZONE`, then verifies all exported sale dates fall inside that window.
+- Sunze order idempotency is based on a salted source order hash. The row hash remains available for change detection when a corrected export updates an already-seen order.
+- Raw Sunze workbooks are not retained. Operational evidence is limited to normalized facts, salted order hashes, import-run metadata, GitHub run IDs, and admin-visible freshness/error status.
+- Scheduled partner reports default to the previous Monday-Sunday week and email a private signed PDF link through the existing Resend pattern.
+- The automation must not bypass CAPTCHA, MFA, or Sunze access controls, and must not open machine-level settings or `More` menus.
+
+**Why this choice**
+- Reporting needs machine-level partner visibility without granting broader customer portal or commerce permissions.
+- Keeping sales facts and refund adjustments separate preserves source auditability while allowing gross/net calculations.
+- This keeps browser automation separate from database authority while still allowing daily imports, idempotent writes, and clear failure auditing.
+
+## 2026-04-25 - Admin access and partnership reporting split
+Admin permission work and partnership financial setup are separate concerns.
+
+**Canonical admin surfaces**
+- `/admin/access` is the single admin place for users, Plus grants, super-admin roles, audit history, and explicit machine-level reporting visibility.
+- `/admin/reporting` is for reporting operations: schedules, import/sync status, stale-data warnings, and export archive visibility.
+- `/admin/partnerships` is for partner setup, partnership agreements, machine assignments, machine tax rates, and financial rules.
+
+**Canonical partnership model**
+- Reporting visibility remains machine-level only for V1. Partnerships do not grant inherited user access yet.
+- Partnerships group machines for financial reporting, partner report setup, and payout calculations.
+- Tax rates are configured on machines through effective-dated machine tax-rate records, not on partnerships.
+- Partner report calculations resolve the active machine tax rate by machine and sale date before applying partnership financial rules.
+- Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured paid-order fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and defaults to a 60% Fever / 40% partner-style split when configured that way.
+- Weekly partner previews must use the partnership's configured week-ending day. Bubble Planet-style weekly reporting is Monday-Sunday with a Sunday week-ending date.
+
+**Why this choice**
+- Admins think about permissions person-first, while partnership setup is about financial reporting and contractual grouping.
+- Keeping user access machine-level avoids hidden permission inheritance while the reporting feature is still new.
+- Machine-level tax rates reflect real operating differences and keep tax changes auditable over time.
+
+## 2026-04-25 - Reporting migration repair and schema-cache checks
+Production reporting/admin RPC fixes must move forward through new migrations, not edits to migrations Supabase already marked applied.
+
+**Canonical migration rule**
+- Do not rely on editing an already-applied migration to repair production. Supabase will not replay it.
+- Do not reuse migration timestamps across feature branches; if a collision reaches `main`, add a later forward-only repair migration that makes the intended schema explicit.
+- If production is missing tables, RPCs, grants, or function definitions from an already-applied migration, add a later forward-only, idempotent repair migration.
+- Frontend-facing RPC migrations should end with `select pg_notify('pgrst', 'reload schema');` so PostgREST refreshes function metadata.
+- Production validation for admin/reporting RPC changes must include direct REST probes that confirm key RPCs do not return `404` or `PGRST202`.
+
+**Why this choice**
+- The reporting admin outage came from schema drift: production had an older migration version marked applied before the final admin/partnership RPCs existed.
+- Forward repair migrations keep repo history and production history aligned without manual rollback or destructive database operations.
+
+## 2026-04-25 - Corporate partner reporting first deliverable
+The next P0 reporting milestone is a trusted corporate partner report that Bloomjoy can review before sending.
+
+**Canonical V1 delivery**
+- Super-admins generate corporate partner reports from `/admin/partnerships` after partnership setup, machine assignments, tax assumptions, and financial terms are configured.
+- Manual super-admin review comes before scheduled auto-email. Scheduled delivery remains future automation after the report content and math are trusted.
+- Corporate partners do not get inherited portal access from partnership setup in V1. Partner-facing value is delivered through reviewed PDFs first.
+- Operator performance dashboards are deferred until the corporate partner review/download workflow is accepted.
+- Partner dashboard UX/CX can be designed in parallel, but it is not required for the first reviewed-PDF milestone.
+
+**Canonical partner report**
+- The PDF should be a polished settlement artifact, not the current simple text-style sales export.
+- Required report shape: executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, warning states, generated timestamp, and snapshot ID.
+- Generated partner reports must have auditable snapshot/run records with period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and any warnings.
+
+**Canonical dashboard direction**
+- The reporting tab should default to an operator-style view for the user's assigned machines.
+- A partner dashboard view should appear only when the access context grants partner-dashboard visibility.
+- V1 partner dashboard visibility defaults to super-admins only until explicit partner-viewer permissions are implemented.
+- The browser dashboard should emphasize smooth period controls, summary KPIs, machine-level rollups, warning states, and calculation transparency; the PDF remains the formal settlement artifact.
+
+**Canonical rule approach**
+- Revenue-share rules should be typed and configurable: week-ending day, machine tax method, fee basis, cost basis, split base, and share percentages.
+- Bubble Planet-style reporting is the first validation fixture, but the implementation must not hardcode Bubble Planet-specific names or terms into the calculation model.
+- Do not introduce a new reporting platform, CMS, or headless reporting service for this milestone.
+
+**Why this choice**
+- The business risk is partner trust, so reviewed and explainable numbers matter more than early automation.
+- A typed rule model supports multiple partnership patterns without building an unsafe open-ended formula engine.
+- Keeping partner delivery PDF-first avoids expanding the permission model before the internal reporting process is stable.
+
+## 2026-04-14 - Training-only operator access grants
+Bloomjoy now supports a narrow operator access tier for staff who need training without becoming paid Bloomjoy Plus members.
+
+**Canonical access model**
+- `baseline`: authenticated customer basics only (`/portal`, orders, account).
+- `training`: operator training access only (`/portal`, `/portal/training*`, training progress, and certificate flow).
+- `plus`: full Bloomjoy Plus portal access (`training`, onboarding, support, customer account tools, and Plus commerce benefits).
+- `super_admin`: internal operations access; treated as `plus` for portal gating.
+
+**Grant model**
+- Active Bloomjoy Plus members and super-admins can grant training-only operator access by email.
+- Operator grants are stored separately from Stripe-backed `subscriptions` so they do not create Plus billing, sugar pricing, support, or onboarding entitlements.
+- If a Plus sponsor loses active/trialing subscription status, their sponsored operator grants stop conferring training access until Plus is active again.
+
+**Why this choice**
+- Operators often need training materials but should not inherit account-owner commerce, billing, support, or onboarding workflows.
+- Keeping operator training separate from free Plus grants avoids confusing unpaid training seats with customer membership benefits.
+- Email-based grants let the operator sign in later with the same address without requiring a full invitation system in this slice.
+
+## 2026-04-06 - Emergency commerce remediation: Plus-only sugar pricing, durable order capture, and customer confirmations
+For sugar ordering, Bloomjoy Plus members receive the discounted rate and all other buyers pay the public rate.
+
+**Canonical pricing**
+- Bloomjoy Plus members (`subscriptions.status in ('active', 'trialing')`) pay **`$8/kg`**
+- All other customers, including anonymous buyers, pay **`$10/kg`**
+- Free shipping remains in effect for sugar orders for now
+
+**Canonical order-processing choices**
+- Sugar pricing is enforced **server-side** in `stripe-sugar-checkout`; the client may display pricing but does not decide the Stripe price ID.
+- `orders` must persist the operational order snapshot before any email or WeCom notification is attempted.
+- Order records must retain customer contact details, billing/shipping address snapshots, pricing tier, unit price, shipping total, receipt URL, and line-item order breakdown.
+- Customer order confirmations are sent by the app via Resend in addition to the Stripe receipt.
+- Notification channel failures must be recorded on the `orders` row and must not block order persistence.
+- Production release verification for commerce must fail if required Stripe/Resend/WeCom secrets are missing.
+
+**Why this choice**
+- The April 6 incident showed that public sugar checkout was incorrectly charging the member rate to everyone.
+- The webhook runtime bug prevented paid orders from being captured in Supabase at all.
+- Internal visibility cannot depend on a single notification channel succeeding.
+- Ops needs order data inside Bloomjoy Hub, not only inside Stripe.
+
+## 2026-03-22 - Split the operator app from the public marketing site
+Bloomjoy now uses three host roles:
+
+- `www.bloomjoyusa.com` for public marketing, storefront, and legal pages
+- `app.bloomjoyusa.com` for operator login, password reset, portal, and admin workflows
+- `auth.bloomjoyusa.com` for Supabase/Auth callback infrastructure
+
+**Why this choice**
+- Logged-in operators should not stay inside the public sales navbar/footer shell.
+- The operator experience should feel like an application, not a marketing site with gated tabs.
+- This keeps the change incremental in the existing Vite SPA and Vercel deployment instead of introducing a second frontend codebase.
+
+**Implementation notes**
+- Public routes stay indexable only on `www`.
+- App routes stay `noindex` and are excluded from the public sitemap.
+- `www` requests for `/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `app`.
+- `app` requests for public marketing/storefront routes redirect back to `www`.
+- `/login/operator` remains a temporary alias that canonicalizes to `/login`.
+
 Record decisions here so agents don’t “thrash” the stack.
 
 ## 2026-01-11 — Starting point and baseline stack (Loveable POC)
@@ -75,18 +235,18 @@ We will use a **dedicated `subscriptions` table** synced from Stripe webhooks as
 - Use RLS policies that allow training data when the subscription status is `active` or `trialing`.
 - Optional: keep a denormalized `profiles.is_member` flag as a cache, but derive it from `subscriptions` only.
 
-## 2026-02-21 — Plus pricing model by machine count (MVP)
-We will price Bloomjoy Plus at **$100 per machine per month** using Stripe subscription quantity.
+## 2026-04-14 — Plus flat account pricing (supersedes 2026-02-21)
+We will price Bloomjoy Plus at **$100 per month per customer account**.
 
 **Pricing model**
-- Single recurring Stripe price (`STRIPE_PLUS_PRICE_ID`) set to $100/month per unit
-- Checkout quantity = selected machine count
-- Monthly charge = `machine_count * $100`
+- Single recurring Stripe price (`STRIPE_PLUS_PRICE_ID`) set to $100/month
+- Checkout quantity is always `1`
+- Monthly charge is a flat `$100`
 
 **MVP scope choice**
-- Machine count is self-declared at checkout (user selects count in UI)
 - Keep webhook and `subscriptions` schema unchanged for membership gating compatibility
-- Use quantity-based subscriptions now; revisit account-linked inventory pricing after MVP
+- Machine inventory stays in the admin portal for operational context only
+- Existing live subscriptions with quantity greater than `1` will be adjusted manually in Stripe by the billing owner
 
 ## 2026-02-23 - Super-admin MVP role model and operations choices (`#37`)
 For MVP admin operations, we will use a single internal role and keep workflow complexity minimal.
@@ -182,3 +342,60 @@ To keep sales copy and quote intake consistent with current sales materials, we 
 **Implementation notes**
 - Keep custom wrap handling as a manual design handoff (no self-serve design builder in MVP).
 - Ensure public product copy, quote CTA language, and smoke checklist coverage stay aligned to these rules.
+
+## 2026-03-10 - WeCom as the internal ops-alert POC channel
+For current operations-event alerting, we will use **WeCom app messaging** from Supabase Edge Functions (quote, order, and support events).
+
+**Scope**
+- Quote submission alerts (`lead-submission-intake`)
+- Sugar order alerts (`stripe-webhook`)
+- Support request alerts (`support-request-intake`)
+
+**Why this choice**
+- Keeps WeCom credentials server-side only (`WECOM_*` function secrets).
+- Aligns to actual ops communication channel without changing customer-facing auth flows.
+- Adds non-blocking behavior so core quote/order/support flows continue if WeCom is unavailable.
+
+**Implementation notes**
+- Token lifecycle handled server-side with cached `access_token` fetch/refresh.
+- Recipient fanout controlled by `WECOM_ALERT_TO_USERIDS` (comma-separated user IDs).
+- WeCom dispatch failures are logged as warnings and do not fail core business transactions.
+
+## 2026-03-10 - WeChat onboarding concierge intake model
+To reduce WeChat onboarding friction, we will treat onboarding blockers as a first-class support request type.
+
+**Canonical model**
+- `support_requests.request_type` includes `wechat_onboarding`.
+- Structured onboarding context is stored in `support_requests.intake_meta` (JSON), including:
+  - `phone_region`
+  - `phone_number`
+  - `device_type`
+  - `blocked_step`
+  - `referral_needed`
+  - optional `wechat_id`
+
+**Why this choice**
+- Keeps portal intake simple while giving ops consistent triage data.
+- Avoids one-off DM triage by standardizing onboarding requests in existing support queue tooling.
+- Preserves backward compatibility with existing support request status/priority/admin-audit flows.
+
+## 2026-03-19 - Training tracks, progress, and lightweight completion certificate
+To improve training findability without introducing a full LMS, we will expand the member training experience with curated tracks, server-backed progress, and one lightweight completion certificate.
+
+**Canonical choices**
+- Organize discovery around operator tasks first (`Start Here`, `Software & Payments`, `Daily Operation`, `Cleaning & Maintenance`, `Troubleshooting`) while keeping module tags available.
+- Keep using the existing `trainings` and `training_assets` tables as the content foundation.
+- Add `training_tracks`, `training_track_items`, `training_progress`, and `training_certifications` for curated paths, persisted completion, and certificate issuance.
+- Keep full training documents member-only in a private Supabase Storage bucket (`training-documents`) when original PDFs are uploaded.
+- Support exactly one v1 certificate: **Bloomjoy Operator Essentials**.
+
+**Why this choice**
+- Makes training easier to find by intent instead of forcing users to remember module numbers.
+- Preserves the existing Vimeo + Supabase architecture and avoids an LMS rewrite.
+- Gives Bloomjoy a completion signal and certificate path without adding quiz or manual-review complexity.
+- Keeps protected training documents behind the same membership model as the rest of the portal.
+
+**Implementation notes**
+- Document-first guides can ship immediately from curated in-app content while original PDFs are uploaded separately through the operations helper script.
+- Certificate issuance is validated server-side via Supabase RPC after all required track items are marked complete and the final acknowledgement is confirmed.
+- This is intentionally a lightweight completion credential, not a quiz-based certification system.

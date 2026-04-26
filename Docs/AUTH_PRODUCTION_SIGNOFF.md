@@ -2,7 +2,7 @@
 
 Purpose: convert deferred auth launch hardening into an execution checklist with clear ownership and evidence capture.
 
-Last updated: 2026-03-01
+Last updated: 2026-03-19
 
 ## 1) Owners and launch window
 - Launch date/time:
@@ -34,8 +34,8 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 | Google OAuth callback host resolves to `auth.bloomjoyusa.com` in live flow |  |  |  |
 | Google OAuth client secret rotated after setup-sharing activity |  |  |  |
 | Supabase Google provider updated with current client credentials |  |  |  |
-| Supabase Site URL set to production URL |  |  |  |
-| Supabase redirect URL allowlist includes `/login`, `/portal`, `/reset-password`, callback paths |  |  |  |
+| Supabase Site URL set to `https://www.bloomjoyusa.com` |  |  |  |
+| Supabase redirect URL allowlist includes `https://www.bloomjoyusa.com` routes plus apex `https://bloomjoyusa.com` cutover aliases |  |  |  |
 
 ## 4) Security and reliability checks
 ### Email OTP and rate limits
@@ -100,6 +100,12 @@ Manual evidence still required before go/no-go:
 ### `unauthorized_domain`
 - Add/verify domain ownership in Google OAuth branding configuration.
 - Confirm production origin is in authorized JavaScript origins.
+
+### Redirect lands on `http://localhost:3000/#access_token=...`
+- Treat this as a stale Supabase URL Configuration issue first.
+- Confirm Supabase Site URL is `https://www.bloomjoyusa.com`.
+- Confirm redirect allowlist includes `https://www.bloomjoyusa.com`, `/login`, `/portal`, and `/reset-password`.
+- Keep apex `https://bloomjoyusa.com` entries allowlisted during cutover if traffic can still start there.
 
 ## 7) Go/No-Go sign-off
 - [ ] All checklist items in sections 3-5 are complete.

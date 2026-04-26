@@ -4,6 +4,7 @@ import { Menu, X, ShoppingCart, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/lib/cart';
 import { useAuth } from '@/contexts/AuthContext';
+import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { cn } from '@/lib/utils';
 import logo from '@/assets/logo.png';
 
@@ -20,15 +21,28 @@ export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { getItemCount } = useCart();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAdmin } = useAuth();
   const itemCount = getItemCount();
+  const currentLocation = typeof window === 'undefined' ? undefined : window.location;
+  const operatorAppUrl = getCanonicalUrlForSurface('app', '/portal', '', '', currentLocation);
+  const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', currentLocation);
+  const adminAppUrl = getCanonicalUrlForSurface('app', '/admin', '', '', currentLocation);
+  const cartLabel =
+    itemCount > 0 ? `View cart with ${itemCount} item${itemCount === 1 ? '' : 's'}` : 'View cart';
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <nav className="container-page flex h-16 items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2.5">
-          <img src={logo} alt="Bloomjoy Sweets" className="h-11 w-11" />
+          <img
+            src={logo}
+            alt="Bloomjoy Sweets"
+            width={44}
+            height={44}
+            decoding="async"
+            className="h-11 w-11"
+          />
           <span className="font-display text-xl font-bold text-foreground">
             Bloomjoy Sweets
           </span>
@@ -54,7 +68,11 @@ export function Navbar() {
 
         {/* Desktop Actions */}
         <div className="hidden items-center gap-3 md:flex">
-          <Link to="/cart" className="relative p-2 text-muted-foreground hover:text-foreground">
+          <Link
+            to="/cart"
+            className="relative p-2 text-muted-foreground hover:text-foreground"
+            aria-label={cartLabel}
+          >
             <ShoppingCart className="h-5 w-5" />
             {itemCount > 0 && (
               <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
@@ -63,24 +81,37 @@ export function Navbar() {
             )}
           </Link>
           {isAuthenticated ? (
-            <Link to="/portal">
-              <Button variant="outline" size="sm">
-                <User className="mr-1 h-4 w-4" />
-                Member Portal
-              </Button>
-            </Link>
+            <>
+              {isAdmin && (
+                <a href={adminAppUrl}>
+                  <Button variant="outline" size="sm">
+                    Admin App
+                  </Button>
+                </a>
+              )}
+              <a href={operatorAppUrl}>
+                <Button variant="outline" size="sm">
+                  <User className="mr-1 h-4 w-4" />
+                  Open App
+                </Button>
+              </a>
+            </>
           ) : (
-            <Link to="/login">
+            <a href={operatorLoginUrl}>
               <Button variant="outline" size="sm">
-                Login
+                Operator Login
               </Button>
-            </Link>
+            </a>
           )}
         </div>
 
         {/* Mobile Menu Button */}
         <div className="flex items-center gap-3 md:hidden">
-          <Link to="/cart" className="relative p-2 text-muted-foreground hover:text-foreground">
+          <Link
+            to="/cart"
+            className="relative p-2 text-muted-foreground hover:text-foreground"
+            aria-label={cartLabel}
+          >
             <ShoppingCart className="h-5 w-5" />
             {itemCount > 0 && (
               <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
@@ -89,8 +120,12 @@ export function Navbar() {
             )}
           </Link>
           <button
+            type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="p-2 text-muted-foreground hover:text-foreground"
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-controls="mobile-navigation-menu"
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
@@ -99,7 +134,7 @@ export function Navbar() {
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="border-t border-border bg-background md:hidden">
+        <div id="mobile-navigation-menu" className="border-t border-border bg-background md:hidden">
           <div className="container-page py-4">
             <div className="flex flex-col gap-2">
               {navLinks.map((link) => (
@@ -119,18 +154,27 @@ export function Navbar() {
               ))}
               <div className="mt-2 border-t border-border pt-4">
                 {isAuthenticated ? (
-                  <Link to="/portal" onClick={() => setMobileMenuOpen(false)}>
-                    <Button variant="outline" className="w-full">
-                      <User className="mr-2 h-4 w-4" />
-                      Member Portal
-                    </Button>
-                  </Link>
+                  <div className="flex flex-col gap-2">
+                    {isAdmin && (
+                      <a href={adminAppUrl} onClick={() => setMobileMenuOpen(false)}>
+                        <Button variant="outline" className="w-full">
+                          Admin App
+                        </Button>
+                      </a>
+                    )}
+                    <a href={operatorAppUrl} onClick={() => setMobileMenuOpen(false)}>
+                      <Button variant="outline" className="w-full">
+                        <User className="mr-2 h-4 w-4" />
+                        Open App
+                      </Button>
+                    </a>
+                  </div>
                 ) : (
-                  <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
+                  <a href={operatorLoginUrl} onClick={() => setMobileMenuOpen(false)}>
                     <Button variant="outline" className="w-full">
-                      Login
+                      Operator Login
                     </Button>
-                  </Link>
+                  </a>
                 )}
               </div>
             </div>

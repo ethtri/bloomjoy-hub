@@ -2,13 +2,32 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
-import { hasPlusAccess, type MembershipStatus } from '@/lib/membership';
+import { getCanonicalUrlForSurface } from '@/lib/appSurface';
+import {
+  emptyPlusAccessSummary,
+  hasTrainingAccess,
+  normalizePortalAccessTier,
+  type MembershipStatus,
+  type PlusAccessSummary,
+  type PortalAccessTier,
+} from '@/lib/membership';
+import { fetchMyPlusAccess } from '@/lib/plusAccess';
+import {
+  emptyReportingAccessContext,
+  fetchReportingAccessContext,
+  type ReportingAccessContext,
+} from '@/lib/reporting';
 
 interface User {
   id: string;
   email: string;
   membershipStatus?: MembershipStatus;
   membershipPlan?: string;
+  portalAccessTier: PortalAccessTier;
+  isTrainingOperator: boolean;
+  canManageOperatorTraining: boolean;
+  plusAccess: PlusAccessSummary;
+  reportingAccess: ReportingAccessContext;
   isAdmin: boolean;
 }
 
@@ -26,17 +45,27 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   isAuthenticated: boolean;
   isMember: boolean;
+  portalAccessTier: PortalAccessTier;
+  canAccessTraining: boolean;
+  isTrainingOperator: boolean;
+  canManageOperatorTraining: boolean;
+  hasReportingAccess: boolean;
+  reportingMachineCount: number;
+  reportingLocationCount: number;
+  canManageReporting: boolean;
   isAdmin: boolean;
 }
 
-type SubscriptionRecord = {
-  status: string;
-  current_period_end: string | null;
-  updated_at: string;
-};
-
 type AdminRoleRecord = {
   role: string;
+};
+
+type PortalAccessContextRecord = {
+  access_tier: string | null;
+  is_plus_member: boolean | null;
+  is_training_operator: boolean | null;
+  is_admin: boolean | null;
+  can_manage_operator_training: boolean | null;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -64,54 +93,6 @@ const devAdminEmailAllowlist = getDevAdminEmailAllowlist();
 const hasDevAdminEmailOverride = (email: string): boolean =>
   import.meta.env.DEV && devAdminEmailAllowlist.has(email.toLowerCase());
 
-const normalizeMembershipStatus = (status: string | undefined): MembershipStatus => {
-  if (!status) return 'none';
-
-  switch (status) {
-    case 'active':
-    case 'trialing':
-    case 'past_due':
-    case 'canceled':
-    case 'inactive':
-    case 'none':
-      return status;
-    default:
-      return 'none';
-  }
-};
-
-const getMembershipStatus = async (userId: string): Promise<MembershipStatus> => {
-  const { data, error } = await supabaseClient
-    .from('subscriptions')
-    .select('status,current_period_end,updated_at')
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false });
-
-  if (error || !data || data.length === 0) {
-    return 'none';
-  }
-
-  const records = data as SubscriptionRecord[];
-  const now = Date.now();
-
-  const activeMembership = records.find((subscription) => {
-    const normalizedStatus = normalizeMembershipStatus(subscription.status);
-    const isPlus = normalizedStatus === 'active' || normalizedStatus === 'trialing';
-    const periodEnd =
-      subscription.current_period_end !== null
-        ? new Date(subscription.current_period_end).getTime()
-        : null;
-
-    return isPlus && (periodEnd === null || periodEnd > now);
-  });
-
-  if (activeMembership) {
-    return normalizeMembershipStatus(activeMembership.status);
-  }
-
-  return normalizeMembershipStatus(records[0]?.status);
-};
-
 const getIsAdmin = async (userId: string): Promise<boolean> => {
   const { data, error } = await supabaseClient
     .from('admin_roles')
@@ -129,19 +110,67 @@ const getIsAdmin = async (userId: string): Promise<boolean> => {
   return Boolean((data as AdminRoleRecord | null)?.role);
 };
 
+const getPlusAccess = async (): Promise<PlusAccessSummary> => {
+  try {
+    return await fetchMyPlusAccess();
+  } catch {
+    return emptyPlusAccessSummary;
+  }
+};
+
+const getReportingAccess = async (): Promise<ReportingAccessContext> => {
+  try {
+    return await fetchReportingAccessContext();
+  } catch {
+    return emptyReportingAccessContext;
+  }
+};
+
+const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | null> => {
+  const { data, error } = await supabaseClient.rpc('get_my_portal_access_context');
+
+  if (error || !data) {
+    return null;
+  }
+
+  return Array.isArray(data)
+    ? ((data as PortalAccessContextRecord[])[0] ?? null)
+    : ((data as PortalAccessContextRecord | null) ?? null);
+};
+
 const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
   const email = supabaseUser.email ?? '';
-  const [membershipStatus, dbIsAdmin] = await Promise.all([
-    getMembershipStatus(supabaseUser.id),
+  const [plusAccess, dbIsAdmin, portalAccessContext, reportingAccess] = await Promise.all([
+    getPlusAccess(),
     getIsAdmin(supabaseUser.id),
+    getPortalAccessContext(),
+    getReportingAccess(),
   ]);
   const isAdmin = dbIsAdmin || hasDevAdminEmailOverride(email);
+  const hasFullPlusAccess = isAdmin || plusAccess.hasPlusAccess;
+  const effectiveReportingAccess: ReportingAccessContext = isAdmin
+    ? {
+        ...reportingAccess,
+        hasReportingAccess: true,
+        canManageReporting: true,
+      }
+    : reportingAccess;
+  const portalAccessTier = hasFullPlusAccess
+    ? 'plus'
+    : normalizePortalAccessTier(portalAccessContext?.access_tier ?? undefined, 'baseline');
 
   return {
     id: supabaseUser.id,
     email,
-    membershipStatus,
-    membershipPlan: hasPlusAccess(membershipStatus) ? 'Plus Basic' : undefined,
+    membershipStatus: plusAccess.membershipStatus,
+    membershipPlan: hasFullPlusAccess ? 'Plus Basic' : undefined,
+    portalAccessTier,
+    isTrainingOperator:
+      portalAccessTier === 'training' || Boolean(portalAccessContext?.is_training_operator),
+    canManageOperatorTraining:
+      hasFullPlusAccess || Boolean(portalAccessContext?.can_manage_operator_training),
+    plusAccess,
+    reportingAccess: effectiveReportingAccess,
     isAdmin,
   };
 };
@@ -166,7 +195,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!mounted) return;
       setUser(authUser);
-      identifyUser(authUser.id, { email: authUser.email, is_admin: authUser.isAdmin });
+      identifyUser(authUser.id, {
+        email: authUser.email,
+        is_admin: authUser.isAdmin,
+        portal_access_tier: authUser.portalAccessTier,
+      });
       setLoading(false);
     };
 
@@ -194,9 +227,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const getAuthRedirectUrl = () =>
-    typeof window !== 'undefined' ? `${window.location.origin}/portal` : undefined;
+    typeof window !== 'undefined'
+      ? getCanonicalUrlForSurface('app', '/portal', '', '', window.location)
+      : undefined;
   const getRecoveryRedirectUrl = () =>
-    typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined;
+    typeof window !== 'undefined'
+      ? getCanonicalUrlForSurface('app', '/reset-password', '', '', window.location)
+      : undefined;
 
   const signInWithMagicLink = async (email: string): Promise<{ error: AuthError | null }> => {
     const redirectTo = getAuthRedirectUrl();
@@ -311,7 +348,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         isAuthenticated: !!user,
-        isMember: hasPlusAccess(user?.membershipStatus) || (user?.isAdmin ?? false),
+        isMember: user?.portalAccessTier === 'plus',
+        portalAccessTier: user?.portalAccessTier ?? 'baseline',
+        canAccessTraining: hasTrainingAccess(user?.portalAccessTier),
+        isTrainingOperator: user?.isTrainingOperator ?? false,
+        canManageOperatorTraining: user?.canManageOperatorTraining ?? false,
+        hasReportingAccess: user?.reportingAccess.hasReportingAccess ?? false,
+        reportingMachineCount: user?.reportingAccess.accessibleMachineCount ?? 0,
+        reportingLocationCount: user?.reportingAccess.accessibleLocationCount ?? 0,
+        canManageReporting: user?.reportingAccess.canManageReporting ?? false,
         isAdmin: user?.isAdmin ?? false,
       }}
     >

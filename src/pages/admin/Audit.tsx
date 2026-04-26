@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Layout } from '@/components/layout/Layout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -140,7 +140,7 @@ export default function AdminAuditPage() {
   };
 
   return (
-    <Layout>
+    <AppLayout>
       <section className="section-padding">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -412,7 +412,7 @@ export default function AdminAuditPage() {
           </div>
         </div>
       </section>
-    </Layout>
+    </AppLayout>
   );
 }
 

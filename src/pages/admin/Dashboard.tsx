@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ShoppingBag, LifeBuoy, Users, ClipboardList } from 'lucide-react';
-import { Layout } from '@/components/layout/Layout';
-import { useAuth } from '@/contexts/AuthContext';
+import { BarChart3, Handshake, ShieldCheck, ShoppingBag, LifeBuoy, Users } from 'lucide-react';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 
 const adminModules = [
@@ -18,41 +17,40 @@ const adminModules = [
     href: '/admin/support',
   },
   {
-    title: 'Accounts',
-    description: 'Review memberships, machine counts, and account activity.',
+    title: 'Access',
+    description: 'Manage users, Plus grants, global roles, machine reporting access, and audit.',
     icon: Users,
-    href: '/admin/accounts',
+    href: '/admin/access',
   },
   {
-    title: 'Audit Log',
-    description: 'Track sensitive admin actions and role changes.',
-    icon: ClipboardList,
-    href: '/admin/audit',
+    title: 'Partnerships',
+    description: 'Configure partners, machine assignments, machine tax rates, and financial rules.',
+    icon: Handshake,
+    href: '/admin/partnerships',
+  },
+  {
+    title: 'Reporting',
+    description: 'Monitor schedules, report exports, and sales sync status.',
+    icon: BarChart3,
+    href: '/admin/reporting',
   },
 ];
 
 export default function AdminDashboardPage() {
-  const { user, signOut } = useAuth();
-
   return (
-    <Layout>
+    <AppLayout>
       <section className="border-b border-border bg-muted/20">
         <div className="container-page py-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Bloomjoy Operations
-              </p>
-              <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Admin Dashboard
-              </h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Signed in as {user?.email || 'admin user'}
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => signOut()}>
-              Sign Out
-            </Button>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              Bloomjoy Operations
+            </p>
+            <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
+              Admin Dashboard
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Use the app shell for quick switches between portal and operations tools.
+            </p>
           </div>
         </div>
       </section>
@@ -60,8 +58,8 @@ export default function AdminDashboardPage() {
       <section className="section-padding">
         <div className="container-page">
           <div className="rounded-xl border border-sage/30 bg-sage-light px-4 py-3 text-sm text-sage">
-            Admin workspace is active. Use the modules below for orders, support, accounts, and
-            governance operations.
+            Admin workspace is active. Use the modules below for orders, support, access,
+            partnerships, and reporting operations.
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -87,6 +85,6 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       </section>
-    </Layout>
+    </AppLayout>
   );
 }

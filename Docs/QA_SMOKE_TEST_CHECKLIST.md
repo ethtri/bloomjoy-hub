@@ -11,9 +11,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Private/auth routes (`/login`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
 - [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
 - [ ] View page source on a direct-loaded public route (for example `/machines`) and confirm title/description/canonical are route-specific before client-side JS executes
+- [ ] View page source on `/machines/commercial-robotic-machine` and confirm the `#root` contains rendered body HTML, the H1 text is present, and there are no `/src/assets/` image URLs
+- [ ] View page source on `/machines/commercial-robotic-machine` and confirm JSON-LD includes `Product`, `BreadcrumbList`, and `FAQPage` nodes that match visible page content
+- [ ] View page source on `/supplies` and confirm JSON-LD includes Product/Offer data only for direct-price supplies (`$10/kg` sugar and `$130/box` sticks)
 - [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
+- [ ] `https://www.bloomjoyusa.com/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `https://app.bloomjoyusa.com/...`
+- [ ] `https://app.bloomjoyusa.com/` plus public marketing/storefront paths redirect back to `https://www.bloomjoyusa.com/...`
 - [ ] `robots.txt` is reachable and includes a sitemap reference
-- [ ] `sitemap.xml` is reachable and lists core public routes
+- [ ] `sitemap.xml` is reachable, lists core public routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about URLs
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
 - [ ] No console errors on home page load
@@ -24,45 +29,82 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Home machine cards show correct model images (Commercial, Mini, Micro) without awkward clipping
 - [ ] Machine naming is consistent as `Commercial Machine`, `Mini Machine`, and `Micro Machine` on Home, Machines, Contact, and footer links
 - [ ] Product pages load (Full, Micro, Mini)
-  - [ ] Mini shows "Coming soon / Waitlist" when enabled
+- [ ] Home and `/machines` no longer present Mini as `Coming Soon`; Mini shows `Available Now` or equivalent live-availability treatment
 - [ ] Machine detail pages support image gallery selection (thumbnail click changes main image)
 - [ ] Commercial page shows native specs content (not image-only text for core specs)
 - [ ] Commercial page "Open full size" actions open in-page modal and can be closed to return to the same screen
 - [ ] Commercial machine sales copy/quote CTA clearly shows wrap options and marks custom wrap as Commercial-only with offline design-team handoff
 - [ ] Mini and Micro machine pages do not advertise custom wrap as an available option
+- [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
+- [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=/machines/mini`
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
-- [ ] Sugar page supports one-click equal split across white/blue/orange/red and allows custom per-color override
-- [ ] Sugar page handles high-volume setup (e.g., 500KG+) without repetitive click controls
-- [ ] Sticks ordering on `/supplies` allows direct typed quantity input (not only +/- controls)
-- [ ] Sticks ordering clearly supports both blank sticks (`$12/pack`) and custom sticks (`$14/pack`)
-- [ ] Custom sticks flow accepts logo/image upload and submits a procurement lead with artwork URL + requested pack count
-- [ ] Cart checkout blocks non-sugar items
+- [ ] Micro page primary CTA opens `/contact?type=quote&interest=micro&source=/machines/micro` and preselects `Micro Machine`
+- [ ] Micro page does not add machines to the shared cart; machine review stays quote-led
+- [ ] `/supplies` product images render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
+- [ ] `/supplies` defaults to Sugar ordering; `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom` direct-load with the matching selected flow
+- [ ] Supplies order chooser switches between Sugar, Bloomjoy Branded Sticks, and Custom Sticks without showing every order flow at once
+- [ ] Sugar flow supports one-click equal split across white/blue/orange/red and allows custom per-color override behind the "Customize Color Mix" control
+- [ ] Sugar flow quick presets show `240 KG`, `400 KG`, and `800 KG`, with `400 KG` as the default target
+- [ ] Sugar flow shows public pricing at `$10/kg` for signed-out or non-Plus users
+- [ ] Sugar flow shows Bloomjoy Plus pricing at `$8/kg` only for users whose `subscriptions.status` is `active` or `trialing`
+- [ ] Sugar flow handles high-volume setup (e.g., 500KG+) without repetitive click controls
+- [ ] Sticks ordering on `/supplies?order=sticks` allows direct typed quantity input (not only +/- controls)
+- [ ] Sticks ordering clearly supports Bloomjoy branded paper sticks and custom paper sticks at `$130/box` with `2000 pieces/box`
+- [ ] Bloomjoy branded sticks flow requires machine size selection and delivery location type selection before request/checkout
+- [ ] Bloomjoy branded sticks orders under 5 boxes submit a procurement lead with box count, size, address type, and estimated shipping summary
+- [ ] Bloomjoy branded sticks orders of 5+ boxes launch direct Stripe checkout with free shipping and do not use the shared cart
+- [ ] Custom sticks flow on `/supplies?order=custom` accepts logo/image upload and submits a procurement lead with artwork URL, requested box count, selected size, and `$750` first-order plate-fee note
+- [ ] Shared cart remains sugar-only and legacy stick items do not block checkout
+- [ ] Cart remains sugar-only and has no horizontal overflow on mobile viewports (`360x800`, `390x844`, `414x896`)
+- [ ] Cart line-item title, quantity controls, price, and remove action stack cleanly on mobile
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads (procedure docs, daily checklists, frequent updates)
+- [ ] `/machines`, `/resources`, `/plus`, and `/contact` show primary content without excessive dead space on desktop and mobile
 - [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`
 - [ ] Footer support links navigate to valid Resources anchors (`/resources#faq` and `/resources#support-boundaries`)
 - [ ] Billing & cancellation page explains Stripe portal cancellation path and end-of-period effect
 - [ ] Contact/Quote form submits (and confirmation is shown)
+- [ ] Contact form labels are clickable, and all visible fields have associated labels
 - [ ] Quote flow preserves machine context (for example, Commercial CTA preselects "Machine of Interest" on `/contact`)
+- [ ] Mini quote CTA preselects `Mini Machine` on `/contact` and submits as a normal quote lead (not a waitlist)
+- [ ] Mobile icon-only cart/menu controls have accessible names
+- [ ] Product-gallery thumbnail buttons are keyboard operable and announce selected image state
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Quote submissions send internal notification email with full request summary (name/email/source/type/message)
-- [ ] Mini waitlist submit creates a `mini_waitlist_submissions` row (duplicate email shows friendly already-on-list message)
+- [ ] Quote submissions send a WeCom internal alert to configured `WECOM_ALERT_TO_USERIDS` recipients
+- [ ] `/machines/mini` SEO/meta copy no longer references waitlist or upcoming launch language
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
+- [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
+- [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
+- [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights and the top app header stays compact without an extra context row pushing content below the fold
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Password sign-in works for an existing email/password user
 - [ ] Forgot-password flow sends reset email and `/reset-password` successfully updates password
 - [ ] Google sign-in works when Supabase Google provider is enabled
+- [ ] Google sign-in returns to the app host `/portal` route (for production: `https://app.bloomjoyusa.com/portal`, not `http://localhost:3000`)
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
 - [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
 - [ ] Logged-out visit to `/portal` redirects to login
-- [ ] Dashboard loads and shows membership status placeholder
+- [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
+- [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
+- [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
+- [ ] On mobile app routes, page-intro actions stack cleanly full width instead of squeezing side-by-side on `/portal`, `/portal/orders`, `/portal/account`, `/portal/onboarding`, `/portal/support`, and `/portal/training`
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
-- [ ] Non-Plus login is blocked from premium pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear Plus messaging
+- [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
+- [ ] Non-Plus login still sees gated destinations in portal navigation and dashboard action cards with clear locked/access-tier treatment
+- [ ] Active Plus member or super-admin can add multiple operator emails from `/portal/account` under Operator Training Access
+- [ ] Adding operator training access sends the operator an invite email with a login link
+- [ ] Operator Training Access shows a simple list of people with training access and a clear setup message when the database rollout is missing
+- [ ] Training-only operator login can access `/portal` and `/portal/training*`
+- [ ] Training-only operator login cannot access `/portal/orders`, `/portal/account`, `/portal/onboarding`, or `/portal/support`
+- [ ] Training-only operator portal navigation stays focused on dashboard and training, without customer billing/order links
+- [ ] Training-only operator does not receive Plus commerce benefits such as `$8/kg` sugar pricing
+- [ ] Revoking operator training access removes `/portal/training*` access on the next session refresh/re-login
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
@@ -72,24 +114,86 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
 - [ ] Training catalog shows `Data source: Supabase` in local dev after auth/session settles
-- [ ] Training catalog supports module tag filtering/grouping (for example, Module 1/2/3) when tagged rows exist
+- [ ] Training hub hero makes the next action obvious (`Resume learning` or `Open start path`) without requiring deep scrolling
+- [ ] `Explore the full library` scrolls to the searchable library section and focuses the search field instead of appearing dead when `All` is already selected
+- [ ] Training hub shows an operator-first `Start Here` sequence plus task-based jump cards for `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`, `Build / Assembly`, and `Reference`
+- [ ] Selecting a task-path card scrolls into the searchable library with that path active instead of only changing above-the-fold state
+- [ ] Training hub surfaces compact quick job aids near the library entry as supporting references, with the main task library clearly separated below
+- [ ] Main task-library browse cards show canonical operator tasks only; duplicate sibling video/checklist rows are collapsed for shutdown, cleaning, troubleshooting, and consumables
+- [ ] When live Supabase training rows load, the hub hero shows non-zero quick-aid/manual counts and those same quick aids do not reappear as peer cards in the main task library
+- [ ] Training hub keeps advanced filters hidden behind `More filters` by default and does not expose an `Unassigned` section anywhere in the library
+- [ ] Training catalog supports supportive module filtering only when all visible catalog rows have module labels; otherwise module controls stay hidden and task navigation remains primary
+- [ ] Training catalog suppresses duplicate Vimeo uploads in the operator-facing library; only intentional module-specific variants remain if they are truly distinct lessons
+- [ ] Supabase-backed training guides stay in their intended task tracks (`Start Here`, `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`) instead of collapsing into `Reference`
+- [ ] Training search finds relevant items by PDF-derived terms such as `burner`, `Nayax`, `timer`, and `waste water`
+- [ ] Training search shows canonical tasks first and, when relevant, places matching quick aids/manuals in a separate secondary reference section below the task results
 - [ ] Training catalog cards render thumbnail images for Vimeo-backed rows from first-party URLs (`training_assets.meta.thumbnail_url`) with no `vumbnail.com` dependency
+- [ ] Visible training library cards do not fall back to the blank gradient/icon media state when an intentional guide/checklist/manual thumbnail exists
+- [ ] No visible training library card resolves to `/placeholder.svg`
+- [ ] Guide, checklist, quick-aid, and manual cards all render image covers cleanly while keeping their chips, progress badges, and durations legible
+- [ ] Training hub cards show live progress state (`In progress` / `Completed`) after training progress rows exist
 - [ ] Training detail page opens and loads an embed frame (Vimeo for seeded modules; placeholder for local-only fallback modules)
 - [ ] Training detail page loads Vimeo player iframe for Vimeo-backed rows (not `about:srcdoc` placeholder)
 - [ ] Training detail Vimeo player shows a clear loading state and begins playback without excessive startup delay
-- [ ] Training detail sections below video ("What you will learn", "Checklist", "Resources") have clear purpose and readable structure
+- [ ] Canonical task detail pages combine the walkthrough video and written essentials on one page when both exist, instead of splitting them into peer routes
+- [ ] Training detail supports document-first guides with readable in-page guide sections when the primary asset is not a Vimeo video
+- [ ] Training detail sections below video/guide ("What you will learn", "Checklist", "Resources") have clear purpose and readable structure
+- [ ] Training detail separates `Use during this task` companion aids from the `Recommended next task` CTA so quick references do not appear as downstream steps
+- [ ] Training resource cards expose real actions (`Open guide`, `Watch video`, `Go to support`, or `Download PDF`) instead of passive labels
+- [ ] Guide/checklist actions continue to open the correct detail page even if the route uses a fallback catalog slug (for example `alarm-and-power-timer-setup` or `daily-maintenance-routine`)
+- [ ] Absorbed legacy routes (`safe-power-off-and-cooldown`, `cleaning-and-hygiene-checklist`, `module-function-check-guide`, `sugar-loading-best-practices`) resolve to the canonical task page instead of rendering duplicate peer destinations
+- [ ] `Alarm and Power Timer Setup` shows the approved schedule values (`9:30` / `20:30`, `9:00-23:00`, `8:00-22:00`) plus the controller reference in the guide body
+- [ ] `Timer Control Reference` renders the annotated controller image and remains readable on both desktop and mobile widths
+- [ ] Maintenance-derived task pages surface the key operator tasks from the PDF (`60 C` cooldown, cleaning hotspots, debug-page checks, and consumable loading rules) instead of only generic summaries
+- [ ] Source-manual visuals from the PDFs appear inline where they clarify the task, including timer setup, shutdown/cooldown, cleaning hotspots, and consumables checks
+- [ ] `Software Setup Quickstart`, `Pricing, Passwords, and Payment Settings`, and `Module Function Check Guide` no longer render as text-only guides when source-manual figures are available
+- [ ] New job aids (`Safe Power Off and Cooldown`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`) appear in the library/search and open from linked resource cards
+- [ ] `Unlock Machine Door (Physical Service Access)` is titled to match the footage and is grouped under `Build / Assembly`, not `Software & Payments` or `Start Here`
+- [ ] On mobile widths (360x800, 390x844, 414x896), the training hub keeps Start Here, task cards, quick job aids, and library search readable without oversized gaps between sections
+- [ ] On mobile widths (360x800, 390x844, 414x896), training filters, onboarding checklist CTAs, support forms, and order-card actions stack cleanly without cramped button rows
+- [ ] `Mark complete` persists to `training_progress` and the item remains completed after refresh/re-login
+- [ ] Operator Essentials certificate appears as a secondary section below the main library and stays locked until all required items are complete and the final acknowledgement is checked
+- [ ] After unlocking, the Operator Essentials certificate remains available for download on later visits
+- [ ] In local QA, when Supabase returns no live training rows, the page surfaces the internal catalog warning and points to `node scripts/sync-vimeo-training-catalog.mjs --dry-run`
+- [ ] Private training documents are not publicly reachable by direct URL when using Supabase-backed document assets
+- [ ] Source-PDF download actions for document-first guides resolve through signed `training-documents` URLs rather than public bucket links
 - [ ] Support request forms submit and show success state
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
+- [ ] Submitted support request triggers a WeCom alert with request type, customer email, and subject
+- [ ] `/portal/support` -> `View Setup Guide` includes install steps, QR verification timing, contact/group setup, and quick-use actions for translation, photo/video sharing, and group calls
+- [ ] `/portal/support` includes a WeChat onboarding concierge form with phone region/number, blocked-step selection, and referral-needed selection
+- [ ] WeChat onboarding concierge submit writes `support_requests.request_type=wechat_onboarding` and structured `support_requests.intake_meta` values (`phone_region`, `phone_number`, `device_type`, `blocked_step`, `referral_needed`, optional `wechat_id`)
+- [ ] User with no reporting entitlement is blocked from `/portal/reports` with clear reporting-access copy
+- [ ] User with one reporting machine entitlement can open `/portal/reports` and sees only that machine in filters/results
+- [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, location, machine, and cash/credit payment filters
+- [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
+- [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
+- [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
+- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, reconciles parsed row count/revenue against the Sunze UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
+- [ ] `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30` reports the latest completed Sunze import or sends a stale-data ops alert
 
 ## Payments (test mode)
+- [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
+- [ ] Bloomjoy Plus sugar checkout uses `$8/kg` in the cart summary and Stripe Checkout
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
 - [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
-- [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, sugar mix, line items)
-- [ ] Plus subscription checkout computes expected monthly amount from selected machine count (e.g., 1x=$100, 3x=$300) and completes with test card
+- [ ] Sugar checkout writes an `orders` row with customer email/name/phone, billing address, shipping address, pricing tier, unit price, shipping total, receipt URL, and sugar color mix
+- [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, pricing tier, sugar mix, line items)
+- [ ] Sugar checkout sends customer confirmation email with branded HTML layout, clear totals, shipping address, color quantities, and receipt link
+- [ ] Sugar checkout completed webhook sends a WeCom internal alert with order ID, customer, and sugar breakdown
+- [ ] Bloomjoy branded sticks checkout completes with test card for 5+ boxes and shows free shipping in Stripe Checkout
+- [ ] Bloomjoy branded sticks checkout writes an `orders` row with billing/shipping address, shipping total, receipt URL, and order detail metadata
+- [ ] Bloomjoy branded sticks checkout completed webhook sends internal order summary email with box count, machine size, address type, and shipping total
+- [ ] Bloomjoy branded sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
+- [ ] Bloomjoy branded sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
+- [ ] Plus subscription checkout shows flat `$100/month` account pricing and completes with test card
 - [ ] Logged-out users on `/plus` are redirected to login before checkout can begin
-- [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.machine_count`
+- [ ] Stripe subscription from Plus checkout contains `metadata.user_id` and `metadata.billing_model=flat_monthly`
 - [ ] Customer Portal link opens (test mode)
 - [ ] Account page Manage Billing opens Stripe portal (test mode)
+- [ ] In Stripe test customer portal, cancel Plus subscription and return to `/portal/account?billing=return`
+- [ ] Return to account shows confirmation that billing status was refreshed after Stripe portal return
+- [ ] After canceling, account membership card shows end-of-period cancellation state/banner
 - [ ] Stripe webhook updates subscriptions/orders tables (via Stripe CLI or Dashboard test event)
 
 ## Auth launch hardening (production-only)
@@ -98,6 +202,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Production auth smoke evidence is captured in `Docs/AUTH_PRODUCTION_SIGNOFF.md`
 
 ## Regression sanity
+- [ ] Quote, order, and support primary flows still succeed when WeCom alert delivery fails (verify non-blocking warning logs in function output)
 - [ ] `npm run build` passes
 - [ ] `npm run lint` passes (if configured)
 - [ ] `npm run seo:check` passes
@@ -106,17 +211,64 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/support`
 - [ ] Super-admin user can access `/admin/support`
 - [ ] Admin can search/filter support queue and update status/priority/assignment/notes
+- [ ] Admin support queue can filter by request type and includes `wechat_onboarding`
+- [ ] Admin support queue summary cards show open total, open new, and open WeChat onboarding counts
 - [ ] Admin updates create `admin_audit_log` entries with `action=support_request.updated`
 - [ ] Non-admin user cannot access `/admin/orders`
 - [ ] Super-admin user can access `/admin/orders`
 - [ ] Admin orders supports search by customer email/order ID and date range filtering
+- [ ] Admin orders detail panel shows billing/shipping address snapshots, pricing tier, unit price, receipt link, and notification statuses
+- [ ] Admin orders detail panel shows sugar color quantities for sugar orders and box/size/address metadata for Bloomjoy branded stick orders
 - [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
-- [ ] Non-admin user cannot access `/admin/accounts`
-- [ ] Super-admin user can access `/admin/accounts`
-- [ ] Admin account search returns rows by email/user ID and shows membership/order/support summary data
-- [ ] Admin machine count edits require update reason and persist in `customer_machine_inventory`
+- [ ] Non-admin user cannot access `/admin/access`
+- [ ] Super-admin user can access `/admin/access`
+- [ ] `/admin/accounts` redirects to `/admin/access?tab=users`
+- [ ] `/admin/audit` redirects to `/admin/access?tab=audit`
+- [ ] Admin Access > Users search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Admin Access > Users does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
+- [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
+- [ ] Admin Access > Users shows paid subscription status separately from free Plus grant status
+- [ ] Super-admin cannot grant free Plus access without a future expiry date and grant reason
+- [ ] Super-admin cannot grant free Plus access while the account has an active paid Stripe subscription that is not scheduled to cancel
+- [ ] Super-admin can grant or extend free Plus access and the customer can reach Plus-only portal pages without a paid Stripe subscription
+- [ ] Super-admin can revoke free Plus access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
+- [ ] Free Plus grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
+- [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
+- [ ] Admin Access > Users machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
+- [ ] Admin Access > Reporting Access uses a people-first explicit machine access matrix
+- [ ] Admin Access > Reporting Access can look up an existing user by email, select multiple machines, save with a reason, and update that person's machine grants in one transactional save
+- [ ] Admin Access > Reporting Access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
+- [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
+- [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
+- [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
+- [ ] Admin Access > Audit supports filtering and shows role + operational actions
+- [ ] Non-admin user cannot access `/admin/partnerships`
+- [ ] Super-admin user can access `/admin/partnerships`
+- [ ] Admin Partnerships setup loads without missing-RPC errors for `admin_get_partnership_reporting_setup`
+- [ ] Admin Partnerships can create/edit partner and partnership records
+- [ ] Admin Partnerships > Parties can attach partners to partnerships with role, optional share percentage, report-recipient flag, and required reason
+- [ ] Admin Partnerships > Machine Assignments can update Sunze machine mapping with account, location, machine label, machine type, Sunze ID, and required reason
+- [ ] Admin Partnerships > Machine Assignments can assign machines to partnerships with effective dates and rejects overlapping active assignments
+- [ ] Admin Partnerships > Machine Tax Rates configures tax rates at the machine level with effective dates and rejects overlapping active tax rates
+- [ ] Admin Partnerships > Financial Rules can configure net split, gross split, per-order fee, and per-stick cost rules with effective dates
+- [ ] Admin Partnerships shows warnings for missing machine tax rate, missing partnership assignment, missing financial rule, and overlapping active assignments
+- [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
+- [ ] Admin Partnerships > Weekly Preview matches the Bubble Planet workbook math: Sunze order amount as gross, machine tax plus configured paid-order fee before split, no-pay orders counted as `$0`, and 60/40 split when configured
+- [ ] Corporate partner P0: super-admin can create a corporate partner, create a partnership/agreement, assign machines, configure machine tax assumptions, and configure typed revenue-share terms without developer support
+- [ ] Corporate partner P0: super-admin can preview a completed weekly report before generating a PDF and sees any missing tax, missing assignment, missing financial-rule, or stale-data warnings
+- [ ] Corporate partner P0: generated partner PDF includes executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, generated timestamp, and snapshot ID
+- [ ] Corporate partner P0: generated partner PDF is backed by an auditable snapshot/run record with period, rule version, assumptions, generated-by user, status, storage path, and warning state
+- [ ] Corporate partner P0: super-admin can download the reviewed partner PDF for manual sending; scheduled auto-email is not required for V1 acceptance
+- [ ] Non-admin user cannot generate or download corporate partner report PDFs from admin routes
+- [ ] Non-admin user cannot access `/admin/reporting`
+- [ ] Super-admin user can access `/admin/reporting`
+- [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
+- [ ] Admin reporting shows report export archive, recent sales/refund import runs, and stale/failed sync status clearly
+- [ ] Admin can open discovered Sunze machine IDs from `/admin/reporting`, map them in `/admin/partnerships`, ignore them, and reopen them
+- [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
 - [ ] Non-admin user cannot access `/admin/audit`
 - [ ] Super-admin user can access `/admin/audit`
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata
 - [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
+- [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually

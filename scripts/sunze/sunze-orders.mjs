@@ -1,0 +1,258 @@
+import { readSheet } from 'read-excel-file/node';
+
+export const SUNZE_ORDER_SHEET = 'Order';
+
+export const SUNZE_ORDER_HEADERS = [
+  'Order number',
+  'Trade name',
+  'Affiliated merchant',
+  'Machine code',
+  'Machine name',
+  'Order amount',
+  'Tax',
+  'Payment method',
+  'Payment time',
+  'Status',
+];
+
+export class SunzeOrderParseError extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.name = 'SunzeOrderParseError';
+    this.details = details;
+  }
+}
+
+const toText = (value) => String(value ?? '').trim();
+
+const normalizeHeader = (value) => toText(value).replace(/\s+/g, ' ');
+
+const normalizeSourceLabel = (value) => toText(value).replace(/\s+/g, ' ');
+
+const pad2 = (value) => String(value).padStart(2, '0');
+
+const buildDateString = (year, month, day) =>
+  `${String(year).padStart(4, '0')}-${pad2(month)}-${pad2(day)}`;
+
+const buildUtcIso = ({ year, month, day, hour = 0, minute = 0, second = 0 }) =>
+  `${buildDateString(year, month, day)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}.000Z`;
+
+export const parseTradeItemQuantity = (value) => {
+  const source = normalizeSourceLabel(value);
+
+  if (!source) {
+    return 0;
+  }
+
+  return source.split(',').reduce((total, segment) => {
+    const trimmed = segment.trim();
+    if (!trimmed) {
+      return total;
+    }
+
+    const quantityMatch = trimmed.match(/-(\d+)\s*$/);
+    const quantity = quantityMatch ? Number(quantityMatch[1]) : 1;
+
+    return total + (Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 1);
+  }, 0);
+};
+
+const parseCents = (value, columnName, rowNumber) => {
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  const numberValue =
+    typeof value === 'number' ? value : Number(String(value).replace(/[$,]/g, '').trim());
+
+  if (!Number.isFinite(numberValue) || numberValue < 0) {
+    throw new SunzeOrderParseError(`Invalid ${columnName} at row ${rowNumber}.`, {
+      rowNumber,
+      columnName,
+    });
+  }
+
+  return Math.round(numberValue * 100);
+};
+
+const normalizePaymentMethod = (value, rowNumber) => {
+  const source = normalizeSourceLabel(value);
+  const normalized = source.toLowerCase();
+
+  if (normalized === 'credit card' || normalized.includes('credit') || normalized.includes('card')) {
+    return { paymentMethod: 'credit', sourcePaymentMethod: source };
+  }
+
+  if (normalized === 'coin + notes' || normalized.includes('coin') || normalized.includes('cash') || normalized.includes('note')) {
+    return { paymentMethod: 'cash', sourcePaymentMethod: source };
+  }
+
+  if (normalized === 'no-pay' || normalized === 'no pay' || normalized === 'free') {
+    return { paymentMethod: 'other', sourcePaymentMethod: source };
+  }
+
+  throw new SunzeOrderParseError(`Unknown payment method "${source}" at row ${rowNumber}.`, {
+    rowNumber,
+    sourcePaymentMethod: source,
+  });
+};
+
+const normalizeStatus = (value, rowNumber) => {
+  const source = normalizeSourceLabel(value);
+
+  if (source.toLowerCase() !== 'payment success') {
+    throw new SunzeOrderParseError(`Unknown order status "${source}" at row ${rowNumber}.`, {
+      rowNumber,
+      sourceStatus: source,
+    });
+  }
+
+  return source;
+};
+
+const parsePaymentTime = (value, rowNumber) => {
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    const year = value.getUTCFullYear();
+    const month = value.getUTCMonth() + 1;
+    const day = value.getUTCDate();
+    const hour = value.getUTCHours();
+    const minute = value.getUTCMinutes();
+    const second = value.getUTCSeconds();
+
+    return {
+      paymentTimeIso: buildUtcIso({ year, month, day, hour, minute, second }),
+      saleDate: buildDateString(year, month, day),
+    };
+  }
+
+  const source = toText(value);
+  const localDateMatch = source.match(
+    /(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+  );
+
+  if (localDateMatch) {
+    const [, yearRaw, monthRaw, dayRaw, hourRaw = '0', minuteRaw = '0', secondRaw = '0'] =
+      localDateMatch;
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    const second = Number(secondRaw);
+
+    if (
+      [year, month, day, hour, minute, second].every(Number.isFinite) &&
+      month >= 1 &&
+      month <= 12 &&
+      day >= 1 &&
+      day <= 31 &&
+      hour >= 0 &&
+      hour <= 23 &&
+      minute >= 0 &&
+      minute <= 59 &&
+      second >= 0 &&
+      second <= 59
+    ) {
+      return {
+        paymentTimeIso: buildUtcIso({ year, month, day, hour, minute, second }),
+        saleDate: buildDateString(year, month, day),
+      };
+    }
+  }
+
+  const parsed = new Date(source);
+
+  if (!source || !Number.isFinite(parsed.getTime())) {
+    throw new SunzeOrderParseError(`Invalid payment time at row ${rowNumber}.`, {
+      rowNumber,
+    });
+  }
+
+  return {
+    paymentTimeIso: parsed.toISOString(),
+    saleDate: parsed.toISOString().slice(0, 10),
+  };
+};
+
+const validateHeaders = (headers) => {
+  const normalized = headers.map(normalizeHeader);
+  const missing = SUNZE_ORDER_HEADERS.filter((header) => !normalized.includes(header));
+  const unexpected = normalized.filter((header) => header && !SUNZE_ORDER_HEADERS.includes(header));
+
+  if (missing.length || unexpected.length) {
+    throw new SunzeOrderParseError('Sunze order export headers changed.', {
+      expectedHeaders: SUNZE_ORDER_HEADERS,
+      observedHeaders: normalized,
+      missingHeaders: missing,
+      unexpectedHeaders: unexpected,
+    });
+  }
+
+  return Object.fromEntries(SUNZE_ORDER_HEADERS.map((header) => [header, normalized.indexOf(header)]));
+};
+
+export const parseSunzeOrderRows = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new SunzeOrderParseError('Sunze order workbook is empty.');
+  }
+
+  const headerIndexes = validateHeaders(rows[0] ?? []);
+
+  return rows
+    .slice(1)
+    .filter((row) => Array.isArray(row) && row.some((cell) => toText(cell) !== ''))
+    .map((row, index) => {
+      const rowNumber = index + 2;
+      const cell = (header) => row[headerIndexes[header]];
+      const sourceOrderNumber = toText(cell('Order number'));
+      const tradeName = normalizeSourceLabel(cell('Trade name'));
+      const machineCode = toText(cell('Machine code'));
+      const machineName = toText(cell('Machine name'));
+      const { paymentTimeIso, saleDate } = parsePaymentTime(cell('Payment time'), rowNumber);
+      const sourceStatus = normalizeStatus(cell('Status'), rowNumber);
+      const { paymentMethod, sourcePaymentMethod } = normalizePaymentMethod(
+        cell('Payment method'),
+        rowNumber
+      );
+
+      if (!sourceOrderNumber) {
+        throw new SunzeOrderParseError(`Missing order number at row ${rowNumber}.`, { rowNumber });
+      }
+
+      if (!machineCode) {
+        throw new SunzeOrderParseError(`Missing machine code at row ${rowNumber}.`, { rowNumber });
+      }
+
+      return {
+        sourceOrderNumber,
+        tradeName,
+        itemQuantity: parseTradeItemQuantity(tradeName),
+        machineCode,
+        machineName,
+        orderAmountCents: parseCents(cell('Order amount'), 'Order amount', rowNumber),
+        taxCents: parseCents(cell('Tax'), 'Tax', rowNumber),
+        paymentMethod,
+        sourcePaymentMethod,
+        paymentTimeIso,
+        saleDate,
+        sourceStatus,
+      };
+    });
+};
+
+export const parseSunzeOrderWorkbook = async (filePath) => {
+  const rows = await readSheet(filePath, SUNZE_ORDER_SHEET);
+  return parseSunzeOrderRows(rows);
+};
+
+export const summarizeSunzeOrderRows = (rows) => {
+  const saleDates = rows.map((row) => row.saleDate).filter(Boolean).sort();
+
+  return {
+    rowCount: rows.length,
+    machineCount: new Set(rows.map((row) => row.machineCode).filter(Boolean)).size,
+    orderAmountCents: rows.reduce((sum, row) => sum + Number(row.orderAmountCents ?? 0), 0),
+    windowStart: saleDates[0] ?? null,
+    windowEnd: saleDates[saleDates.length - 1] ?? null,
+  };
+};

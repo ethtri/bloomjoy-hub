@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Layout } from '@/components/layout/Layout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   fetchAdminAccountSummaries,
   fetchMachineInventoryForAccount,
+  grantPlusAccessAdmin,
+  revokePlusAccessAdmin,
   type AdminAccountSummary,
   type MachineType,
   upsertMachineInventoryAdmin,
@@ -26,9 +28,41 @@ const emptyQuantities: Record<MachineType, number> = {
   micro: 0,
 };
 
+const freePlusExpiryPresets = [
+  { label: '30 days', days: 30 },
+  { label: '90 days', days: 90 },
+  { label: '180 days', days: 180 },
+  { label: '1 year', days: 365 },
+];
+
+const formatDateInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
+
+const getPresetExpiryDate = (days: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return formatDateInput(date);
+};
+
+const parseExpiryDateEndOfDay = (value: string): Date | null => {
+  const [year, month, day] = value.split('-').map((part) => Number(part));
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day, 23, 59, 59, 999);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const formatDate = (value: string | null) => {
   if (!value) {
-    return '—';
+    return 'n/a';
   }
 
   return new Date(value).toLocaleString(undefined, {
@@ -48,8 +82,33 @@ const formatMembership = (status: string | null) => {
   return status;
 };
 
+const formatAccessSource = (account: AdminAccountSummary) => {
+  switch (account.plus_access_source) {
+    case 'paid_subscription':
+      return 'Paid Plus';
+    case 'free_grant':
+      return 'Free Plus grant';
+    case 'admin':
+      return 'Super-admin override';
+    default:
+      return 'No Plus access';
+  }
+};
+
+const formatFreeGrant = (account: AdminAccountSummary) => {
+  if (!account.plus_grant_id) {
+    return 'none';
+  }
+
+  const expiry = formatDate(account.plus_grant_expires_at);
+  return account.plus_grant_active ? `active until ${expiry}` : `expired ${expiry}`;
+};
+
 const getPrimarySortDate = (account: AdminAccountSummary) =>
-  account.last_order_at ?? account.last_machine_update_at ?? account.current_period_end;
+  account.last_order_at ??
+  account.last_machine_update_at ??
+  account.plus_grant_expires_at ??
+  account.current_period_end;
 
 export default function AdminAccountsPage() {
   const queryClient = useQueryClient();
@@ -58,6 +117,11 @@ export default function AdminAccountsPage() {
   const [quantities, setQuantities] = useState<Record<MachineType, number>>(emptyQuantities);
   const [updateReason, setUpdateReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [grantExpiryDate, setGrantExpiryDate] = useState(() => getPresetExpiryDate(90));
+  const [grantReason, setGrantReason] = useState('');
+  const [revokeReason, setRevokeReason] = useState('');
+  const [isGrantSaving, setIsGrantSaving] = useState(false);
+  const [isRevokingGrant, setIsRevokingGrant] = useState(false);
 
   const {
     data: accounts = [],
@@ -82,6 +146,15 @@ export default function AdminAccountsPage() {
   }, [accounts, selectedUserId]);
 
   const selectedAccount = accounts.find((account) => account.user_id === selectedUserId) ?? null;
+  const paidSubscriptionBlocksGrant = Boolean(
+    selectedAccount?.paid_subscription_active && !selectedAccount.membership_cancel_at_period_end
+  );
+
+  useEffect(() => {
+    setGrantExpiryDate(getPresetExpiryDate(90));
+    setGrantReason('');
+    setRevokeReason('');
+  }, [selectedUserId]);
 
   const {
     data: machineInventory = [],
@@ -168,8 +241,90 @@ export default function AdminAccountsPage() {
     }
   };
 
+  const setGrantExpiryPreset = (days: number) => {
+    setGrantExpiryDate(getPresetExpiryDate(days));
+  };
+
+  const savePlusGrant = async () => {
+    if (!selectedAccount) {
+      return;
+    }
+
+    if (paidSubscriptionBlocksGrant) {
+      toast.error('Cancel or schedule cancellation for the paid Stripe subscription first.');
+      return;
+    }
+
+    if (!grantReason.trim()) {
+      toast.error('Grant reason is required.');
+      return;
+    }
+
+    const expiry = parseExpiryDateEndOfDay(grantExpiryDate);
+    if (!expiry || expiry <= new Date()) {
+      toast.error('Grant expiry must be a future date.');
+      return;
+    }
+
+    setIsGrantSaving(true);
+    try {
+      await grantPlusAccessAdmin({
+        customerUserId: selectedAccount.user_id,
+        expiresAt: expiry.toISOString(),
+        reason: grantReason.trim(),
+      });
+
+      trackEvent('admin_plus_access_granted', {
+        user_id: selectedAccount.user_id,
+        expires_at: expiry.toISOString(),
+      });
+      toast.success(selectedAccount.plus_grant_id ? 'Free Plus access updated.' : 'Free Plus access granted.');
+      setGrantReason('');
+      await refreshAccounts();
+    } catch (grantError) {
+      const message =
+        grantError instanceof Error ? grantError.message : 'Unable to grant free Plus access.';
+      toast.error(message);
+    } finally {
+      setIsGrantSaving(false);
+    }
+  };
+
+  const revokePlusGrant = async () => {
+    if (!selectedAccount?.plus_grant_id) {
+      return;
+    }
+
+    if (!revokeReason.trim()) {
+      toast.error('Revoke reason is required.');
+      return;
+    }
+
+    setIsRevokingGrant(true);
+    try {
+      await revokePlusAccessAdmin({
+        grantId: selectedAccount.plus_grant_id,
+        reason: revokeReason.trim(),
+      });
+
+      trackEvent('admin_plus_access_revoked', {
+        user_id: selectedAccount.user_id,
+        grant_id: selectedAccount.plus_grant_id,
+      });
+      toast.success('Free Plus access revoked.');
+      setRevokeReason('');
+      await refreshAccounts();
+    } catch (revokeError) {
+      const message =
+        revokeError instanceof Error ? revokeError.message : 'Unable to revoke free Plus access.';
+      toast.error(message);
+    } finally {
+      setIsRevokingGrant(false);
+    }
+  };
+
   return (
-    <Layout>
+    <AppLayout>
       <section className="section-padding">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -259,7 +414,13 @@ export default function AdminAccountsPage() {
                           <div className="mt-1 text-xs text-muted-foreground">{account.user_id}</div>
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">
-                          {formatMembership(account.membership_status)}
+                          <div>Paid: {formatMembership(account.membership_status)}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Free: {formatFreeGrant(account)}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Access: {formatAccessSource(account)}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">{account.total_orders}</td>
                         <td className="px-4 py-3 text-sm text-foreground">
@@ -289,26 +450,148 @@ export default function AdminAccountsPage() {
                   </div>
 
                   <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Membership</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Paid subscription</span>
                       <span className="font-medium text-foreground">
                         {formatMembership(selectedAccount.membership_status)}
                       </span>
                     </div>
-                    <div className="mt-1 flex items-center justify-between">
-                      <span className="text-muted-foreground">Next period end</span>
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Paid period end</span>
                       <span className="text-foreground">
                         {formatDate(selectedAccount.current_period_end)}
                       </span>
                     </div>
-                    <div className="mt-1 flex items-center justify-between">
-                      <span className="text-muted-foreground">Last order</span>
-                      <span className="text-foreground">{formatDate(selectedAccount.last_order_at)}</span>
+                    {selectedAccount.paid_subscription_active && (
+                      <div className="mt-1 flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Paid cancellation</span>
+                        <span className="text-foreground">
+                          {selectedAccount.membership_cancel_at_period_end
+                            ? 'Scheduled'
+                            : 'Not scheduled'}
+                        </span>
+                      </div>
+                    )}
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Free Plus grant</span>
+                      <span className="text-foreground">{formatFreeGrant(selectedAccount)}</span>
                     </div>
-                    <div className="mt-1 flex items-center justify-between">
-                      <span className="text-muted-foreground">Open support</span>
-                      <span className="text-foreground">{selectedAccount.open_support_requests}</span>
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Effective access</span>
+                      <span className="font-medium text-foreground">
+                        {formatAccessSource(selectedAccount)}
+                      </span>
                     </div>
+                    <div className="mt-3 border-t border-border/70 pt-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Last order</span>
+                        <span className="text-foreground">
+                          {formatDate(selectedAccount.last_order_at)}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Open support</span>
+                        <span className="text-foreground">
+                          {selectedAccount.open_support_requests}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <h3 className="text-sm font-semibold text-foreground">Free Plus access</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Grants unlock Plus-only portal access without creating or changing a Stripe
+                      subscription.
+                    </p>
+
+                    {paidSubscriptionBlocksGrant && (
+                      <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                        This account has an active paid Stripe subscription. Cancel it or schedule
+                        cancellation before granting free access.
+                      </div>
+                    )}
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {freePlusExpiryPresets.map((preset) => (
+                        <Button
+                          key={preset.days}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setGrantExpiryPreset(preset.days)}
+                        >
+                          {preset.label}
+                        </Button>
+                      ))}
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Grant expiry
+                      </label>
+                      <Input
+                        type="date"
+                        value={grantExpiryDate}
+                        onChange={(event) => setGrantExpiryDate(event.target.value)}
+                      />
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Grant reason
+                      </label>
+                      <Input
+                        value={grantReason}
+                        onChange={(event) => setGrantReason(event.target.value)}
+                        placeholder="Required reason for waiving the Plus fee"
+                      />
+                    </div>
+
+                    <Button
+                      className="mt-3"
+                      onClick={savePlusGrant}
+                      disabled={isGrantSaving || paidSubscriptionBlocksGrant}
+                    >
+                      {isGrantSaving ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : selectedAccount.plus_grant_id ? (
+                        'Extend Free Plus'
+                      ) : (
+                        'Grant Free Plus'
+                      )}
+                    </Button>
+
+                    {selectedAccount.plus_grant_id && (
+                      <div className="mt-4 border-t border-border/70 pt-3">
+                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Revoke reason
+                        </label>
+                        <Input
+                          value={revokeReason}
+                          onChange={(event) => setRevokeReason(event.target.value)}
+                          placeholder="Required reason for revoking the grant"
+                        />
+                        <Button
+                          className="mt-3"
+                          variant="outline"
+                          onClick={revokePlusGrant}
+                          disabled={isRevokingGrant}
+                        >
+                          {isRevokingGrant ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Revoking...
+                            </>
+                          ) : (
+                            'Revoke Free Plus'
+                          )}
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
                   {inventoryError && (
@@ -361,6 +644,6 @@ export default function AdminAccountsPage() {
           </div>
         </div>
       </section>
-    </Layout>
+    </AppLayout>
   );
 }

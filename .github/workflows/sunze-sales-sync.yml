@@ -1,0 +1,81 @@
+name: Sunze Sales Sync
+
+on:
+  schedule:
+    # Runs in early Pacific morning. The worker uses Sunze's Last 3 Days preset,
+    # so exact wall-clock timing is not data-critical.
+    - cron: '30 13 * * *'
+  workflow_dispatch:
+    inputs:
+      date_preset:
+        description: 'Sunze date preset to export'
+        required: false
+        default: 'Last 3 Days'
+      dry_run:
+        description: 'Parse the export without sending rows to Supabase'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sunze-sales-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUNZE_LOGIN_URL: ${{ secrets.SUNZE_LOGIN_URL }}
+      SUNZE_REPORTING_EMAIL: ${{ secrets.SUNZE_REPORTING_EMAIL }}
+      SUNZE_REPORTING_PASSWORD: ${{ secrets.SUNZE_REPORTING_PASSWORD }}
+      REPORTING_INGEST_URL: ${{ secrets.REPORTING_INGEST_URL }}
+      REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
+      DATE_PRESET: ${{ inputs.date_preset || 'Last 3 Days' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      SUNZE_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
+      SUNZE_SYNC_STALE_HOURS: '30'
+      SUNZE_REPORTING_TIMEZONE: America/Los_Angeles
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate parser fixture
+        run: npm run reporting:validate-sunze-parser
+
+      - name: Sync Sunze orders
+        shell: bash
+        run: |
+          args=(--date-preset "$DATE_PRESET")
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          npm run reporting:sunze-sync -- "${args[@]}"
+
+      - name: Check Sunze import freshness
+        if: ${{ success() && env.DRY_RUN != 'true' }}
+        run: npm run reporting:sunze-health -- --event freshness_check --stale-hours "$SUNZE_SYNC_STALE_HOURS"
+
+      - name: Notify Sunze sync failure
+        if: ${{ failure() }}
+        run: >
+          npm run reporting:sunze-health --
+          --event failure
+          --message "Sunze Sales Sync workflow failed before a completed import."
+          --stale-hours "$SUNZE_SYNC_STALE_HOURS"

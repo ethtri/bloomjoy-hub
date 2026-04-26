@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Check, ArrowRight, Minus, Plus } from 'lucide-react';
+import { Check, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
 import { startPlusCheckout } from '@/lib/stripeCheckout';
@@ -16,11 +15,11 @@ const benefits = [
   },
   {
     title: 'Training Library',
-    description: 'Video tutorials, operational playbooks, and best-practice guides hosted on our platform.',
+    description: 'Task-first videos, setup guides, maintenance checklists, and troubleshooting references hosted in the member portal.',
   },
   {
-    title: 'Member Community',
-    description: 'Connect with other Bloomjoy operators to share tips and experiences.',
+    title: 'Operator Certificate',
+    description: 'Complete the Operator Essentials path and unlock a lightweight Bloomjoy completion certificate.',
   },
   {
     title: 'Concierge Support',
@@ -28,19 +27,12 @@ const benefits = [
   },
 ];
 
-const PRICE_PER_MACHINE_MONTHLY = 100;
-const MIN_MACHINE_COUNT = 1;
-const MAX_MACHINE_COUNT = 25;
-
-const clampMachineCount = (value: number) =>
-  Math.min(MAX_MACHINE_COUNT, Math.max(MIN_MACHINE_COUNT, Math.floor(value)));
+const PLUS_MONTHLY_PRICE = 100;
 
 export default function PlusPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
-  const [machineCount, setMachineCount] = useState(MIN_MACHINE_COUNT);
-  const monthlyTotal = machineCount * PRICE_PER_MACHINE_MONTHLY;
 
   useEffect(() => {
     trackEvent('view_plus_pricing');
@@ -70,13 +62,13 @@ export default function PlusPage() {
     }
 
     trackEvent('start_plus_checkout', {
-      machine_count: machineCount,
-      monthly_total: monthlyTotal,
+      billing_model: 'flat_monthly',
+      monthly_total: PLUS_MONTHLY_PRICE,
       user_id: user.id,
     });
     try {
       setIsStartingCheckout(true);
-      const checkoutUrl = await startPlusCheckout(window.location.origin, machineCount);
+      const checkoutUrl = await startPlusCheckout(window.location.origin);
       window.location.assign(checkoutUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start checkout.';
@@ -85,17 +77,10 @@ export default function PlusPage() {
     }
   };
 
-  const updateMachineCount = (nextValue: number) => {
-    if (!Number.isFinite(nextValue)) {
-      return;
-    }
-    setMachineCount(clampMachineCount(nextValue));
-  };
-
   return (
     <Layout>
       {/* Hero */}
-      <section className="bg-gradient-to-b from-cream to-background section-padding">
+      <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-3xl text-center">
             <span className="rounded-full bg-primary/10 px-4 py-1.5 text-sm font-semibold text-primary">
@@ -105,14 +90,14 @@ export default function PlusPage() {
               Onboarding + Playbooks + Concierge
             </h1>
             <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
-              Get up and running faster with guided onboarding, training resources, and concierge support from the Bloomjoy team.
+              Get up and running faster with guided onboarding, task-based training, operator job aids, and concierge support from the Bloomjoy team.
             </p>
           </div>
         </div>
       </section>
 
       {/* Pricing Card */}
-      <section className="section-padding">
+      <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
             <div className="card-elevated overflow-hidden">
@@ -120,55 +105,20 @@ export default function PlusPage() {
                 <h2 className="font-display text-2xl font-bold">Plus Basic</h2>
                 <div className="mt-4 flex items-baseline justify-center gap-1">
                   <span className="font-display text-5xl font-bold">$100</span>
-                  <span className="text-muted">/machine/month</span>
+                  <span className="text-muted">/month</span>
                 </div>
                 <p className="mt-2 text-sm text-muted">
-                  Monthly total updates by machine count. Cancel anytime.
+                  Flat monthly membership for your Bloomjoy account. Cancel anytime.
                 </p>
               </div>
               <div className="p-8">
                 <div className="rounded-xl border border-border bg-muted/30 p-4">
                   <p className="text-sm font-semibold text-foreground">
-                    How many machines should Plus cover?
+                    One simple account price
                   </p>
-                  <div className="mt-3 flex items-center gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => updateMachineCount(machineCount - 1)}
-                      disabled={machineCount <= MIN_MACHINE_COUNT || isStartingCheckout}
-                      aria-label="Decrease machine count"
-                    >
-                      <Minus className="h-4 w-4" />
-                    </Button>
-                    <Input
-                      type="number"
-                      min={MIN_MACHINE_COUNT}
-                      max={MAX_MACHINE_COUNT}
-                      value={machineCount}
-                      onChange={(event) => updateMachineCount(Number(event.target.value))}
-                      className="h-10 w-24 text-center"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => updateMachineCount(machineCount + 1)}
-                      disabled={machineCount >= MAX_MACHINE_COUNT || isStartingCheckout}
-                      aria-label="Increase machine count"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                    <p className="text-sm text-muted-foreground">
-                      <span className="font-semibold text-foreground">
-                        ${monthlyTotal}/month
-                      </span>{' '}
-                      for {machineCount} machine{machineCount === 1 ? '' : 's'}
-                    </p>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Minimum {MIN_MACHINE_COUNT} machine, maximum {MAX_MACHINE_COUNT}.
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Plus is billed at <span className="font-semibold text-foreground">$100/month</span>{' '}
+                    for the customer account, separate from the number of machines tracked for operations.
                   </p>
                 </div>
                 <ul className="mt-8 space-y-4">
@@ -192,7 +142,7 @@ export default function PlusPage() {
                   disabled={isStartingCheckout}
                 >
                   {isStartingCheckout
-                    ? 'Redirecting...'
+                    ? 'Redirecting…'
                     : user
                       ? 'Start Membership'
                       : 'Log In to Start Membership'}
@@ -217,7 +167,7 @@ export default function PlusPage() {
       </section>
 
       {/* Support Boundaries */}
-      <section className="bg-muted/50 section-padding">
+      <section className="bg-muted/50 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-3xl">
             <h2 className="text-center font-display text-2xl font-bold text-foreground">
@@ -226,6 +176,10 @@ export default function PlusPage() {
             <p className="mt-4 text-center text-muted-foreground">
               Clear expectations for what's included.
             </p>
+            <div className="mt-6 rounded-xl border border-border bg-background p-5 text-sm text-muted-foreground">
+              Plus training now focuses on operator outcomes: quick-start setup, software and payment settings,
+              daily operation, cleaning and hygiene, troubleshooting, and a lightweight completion certificate path.
+            </div>
             <div className="mt-10 grid gap-6 md:grid-cols-2">
               <div className="rounded-xl border border-border bg-background p-6">
                 <h3 className="font-display text-lg font-semibold text-foreground">
@@ -285,7 +239,7 @@ export default function PlusPage() {
       </section>
 
       {/* CTA */}
-      <section className="section-padding">
+      <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page text-center">
           <h2 className="font-display text-2xl font-bold text-foreground">
             Questions about Plus?

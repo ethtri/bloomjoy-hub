@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     // Set an explicit JS chunk budget below Vite's default 500 kB.
     chunkSizeWarningLimit: 450,
+    manifest: true,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -45,9 +46,8 @@ export default defineConfig(({ mode }) => ({
             return "icons";
           }
 
-          if (id.includes("node_modules/recharts/")) {
-            return "charts";
-          }
+          // Let Rollup place Recharts with its shared helpers. Forcing it into
+          // a standalone chunk creates a startup cycle with the React chunk.
         },
       },
     },

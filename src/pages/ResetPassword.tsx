@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Loader2, LockKeyhole } from 'lucide-react';
-import { Layout } from '@/components/layout/Layout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
@@ -87,8 +87,8 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <Layout>
-      <section className="section-padding">
+    <AppLayout>
+      <section className="portal-section">
         <div className="container-page">
           <div className="mx-auto max-w-md">
             <div className="text-center">
@@ -159,8 +159,11 @@ export default function ResetPasswordPage() {
                 <div className="space-y-3 text-sm text-muted-foreground">
                   <p>No active password reset session was found.</p>
                   <p>
-                    Return to <a href="/login" className="font-medium text-primary hover:underline">login</a> and
-                    request a new password reset email.
+                    Return to{' '}
+                    <Link to="/login" className="font-medium text-primary hover:underline">
+                      login
+                    </Link>{' '}
+                    and request a new password reset email.
                   </p>
                 </div>
               )}
@@ -168,6 +171,6 @@ export default function ResetPasswordPage() {
           </div>
         </div>
       </section>
-    </Layout>
+    </AppLayout>
   );
 }

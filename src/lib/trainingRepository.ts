@@ -1,11 +1,31 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { isCanonicalTrainingVideoId, resolveTrainingCatalogMetadata } from '@/lib/trainingCatalog';
 import {
+  bindTracksToTrainingExperience,
+  buildTrainingExperience,
+  getTrainingProgressWriteIds,
+  getTrainingRouteId,
+  mapTrainingProgressToCanonical,
+  resolveTrainingExperienceItem,
+} from '@/lib/trainingExperience';
+import { applyTrainingCardThumbnailMetadata } from '@/lib/trainingThumbnailMetadata';
+import {
+  TrainingCertificate,
   TrainingContent,
+  TrainingProgressRecord,
+  TrainingResource,
+  TrainingTrack,
+} from '@/lib/trainingTypes';
+import {
   trainingContent as fallbackTrainingContent,
+  trainingTracks as fallbackTrainingTracks,
 } from '@/data/trainingContent';
 
 const TRAINING_QUERY_KEY = ['training-library'];
+const TRAINING_TRACKS_QUERY_KEY = ['training-tracks'];
+const TRAINING_SOURCE_QUERY_KEY = [...TRAINING_QUERY_KEY, 'source'];
+const TRAINING_DOCUMENTS_BUCKET = 'training-documents';
 
 type TrainingAssetRecord = {
   asset_type: 'video' | 'pdf' | 'link';
@@ -27,19 +47,82 @@ type TrainingRecord = {
   training_assets?: TrainingAssetRecord[];
 };
 
+type TrainingTrackItemRecord = {
+  training_id: string;
+  required: boolean;
+  sort_order: number;
+};
+
+type TrainingTrackRecord = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  audience: string | null;
+  certificate_title: string | null;
+  training_track_items?: TrainingTrackItemRecord[];
+};
+
+type TrainingProgressDbRecord = {
+  training_id: string;
+  started_at: string | null;
+  completed_at: string | null;
+  completion_source: string | null;
+};
+
+type TrainingCertificateDbRecord = {
+  id: string;
+  track_id: string;
+  issued_at: string;
+  certificate_title: string | null;
+};
+
 const DEFAULT_TRAINING_THUMBNAIL_URL = '/placeholder.svg';
+
+const applyCatalogMetadata = (
+  content: TrainingContent,
+  options?: { providerVideoId?: string }
+): TrainingContent => {
+  const catalogMetadata = resolveTrainingCatalogMetadata({
+    id: content.id,
+    title: content.title,
+    tags: content.tags,
+    format: content.format,
+    providerVideoId: options?.providerVideoId ?? content.providerVideoId,
+    hasDocument: Boolean(content.document),
+  });
+
+  return {
+    ...content,
+    fallbackContentId: catalogMetadata.fallbackId ?? content.fallbackContentId ?? content.id,
+    providerVideoId: options?.providerVideoId ?? content.providerVideoId,
+    taskCategory: catalogMetadata.trackLabel,
+    catalogTrackId: catalogMetadata.trackId,
+    moduleLabel: catalogMetadata.moduleLabel,
+    featuredOrder: catalogMetadata.featuredOrder,
+    isStartHere: catalogMetadata.isStartHere,
+    operatorPriority: catalogMetadata.operatorPriority,
+    catalogSource: catalogMetadata.source,
+  };
+};
+
+const FALLBACK_LIBRARY = fallbackTrainingContent.map((item) => applyCatalogMetadata(item));
+const FALLBACK_BY_TITLE = new Map(FALLBACK_LIBRARY.map((item) => [item.title.toLowerCase(), item]));
+const FALLBACK_BY_ID = new Map(FALLBACK_LIBRARY.map((item) => [item.id, item]));
 
 const buildVimeoUrl = (videoId?: string | null, hash?: string | null) => {
   if (!videoId) {
     return undefined;
   }
+
   if (!hash) {
     return `https://player.vimeo.com/video/${videoId}?dnt=1`;
   }
+
   return `https://player.vimeo.com/video/${videoId}?h=${hash}&dnt=1`;
 };
 
-const resolveThumbnailUrl = (rawValue?: string | null) => {
+const resolvePublicStorageUrl = (bucket: string, rawValue?: string | null) => {
   if (!rawValue) {
     return undefined;
   }
@@ -53,79 +136,299 @@ const resolveThumbnailUrl = (rawValue?: string | null) => {
     return value;
   }
 
-  return supabaseClient.storage.from('training-thumbnails').getPublicUrl(value).data.publicUrl;
+  return supabaseClient.storage.from(bucket).getPublicUrl(value).data.publicUrl;
+};
+
+const createSignedDocumentUrl = async (storagePath?: string | null) => {
+  if (!storagePath) {
+    return undefined;
+  }
+
+  const path = storagePath.trim();
+  if (!path) {
+    return undefined;
+  }
+
+  const { data, error } = await supabaseClient.storage
+    .from(TRAINING_DOCUMENTS_BUCKET)
+    .createSignedUrl(path, 60 * 15);
+
+  if (error) {
+    return undefined;
+  }
+
+  return data.signedUrl;
 };
 
 const formatDuration = (seconds?: number | null) => {
   if (!seconds || seconds <= 0) {
     return undefined;
   }
+
   const minutes = Math.max(1, Math.round(seconds / 60));
   return `${minutes} min`;
 };
 
-const toTrainingContent = (record: TrainingRecord): TrainingContent => {
-  const localMatch = fallbackTrainingContent.find(
-    (item) => item.title.toLowerCase() === record.title.toLowerCase()
+const normalizeTags = (tags: string[] | null | undefined, localTags: string[]) => {
+  const merged = [...(tags ?? []), ...localTags].filter((tag) => tag.trim().length > 0);
+  return [...new Set(merged)];
+};
+
+const extractStringMeta = (meta: Record<string, unknown> | null | undefined, key: string) => {
+  const value = meta?.[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+};
+
+const normalizeComparableText = (value?: string) =>
+  (value ?? '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+
+const resolveThumbnailUrl = (meta: Record<string, unknown> | null | undefined) => {
+  const rawThumbnailUrl = extractStringMeta(meta, 'thumbnail_url');
+  const vimeoThumbnailUrl = extractStringMeta(meta, 'vimeo_thumbnail_url');
+
+  if (vimeoThumbnailUrl) {
+    return vimeoThumbnailUrl;
+  }
+
+  return resolvePublicStorageUrl('training-thumbnails', rawThumbnailUrl);
+};
+
+const resolveTrainingResourceUrl = async (asset: TrainingAssetRecord) => {
+  if (asset.download_url?.trim()) {
+    return asset.download_url.trim();
+  }
+
+  const storagePath = extractStringMeta(asset.meta, 'storage_path');
+  return createSignedDocumentUrl(storagePath);
+};
+
+const toDbResource = async (asset: TrainingAssetRecord, index: number): Promise<TrainingResource> => {
+  const storagePath = extractStringMeta(asset.meta, 'storage_path');
+  const hasDirectLink = Boolean(asset.download_url?.trim() || storagePath);
+  const title =
+    extractStringMeta(asset.meta, 'title') ??
+    `${asset.asset_type === 'pdf' ? 'PDF' : 'Resource'} ${index + 1}`;
+  const description =
+    extractStringMeta(asset.meta, 'description') ?? 'Resource attached to this training module.';
+  const formatBadge = extractStringMeta(asset.meta, 'format_badge');
+  const actionLabel = extractStringMeta(asset.meta, 'action_label');
+  const href = await resolveTrainingResourceUrl(asset);
+  const kind =
+    asset.asset_type === 'pdf'
+      ? hasDirectLink
+        ? 'download'
+        : 'guide'
+      : asset.asset_type === 'link'
+        ? 'link'
+        : 'guide';
+
+  return {
+    title,
+    description,
+    status: hasDirectLink ? (href ? 'available' : 'coming_soon') : 'available',
+    kind,
+    actionLabel:
+      actionLabel ??
+      (kind === 'download'
+        ? 'Download PDF'
+        : kind === 'link'
+          ? 'Open link'
+          : 'Open guide'),
+    href,
+    external: Boolean(href && !href.startsWith('/')),
+    formatBadge,
+  };
+};
+
+const mergeResources = (localResources: TrainingResource[], dbResources: TrainingResource[]) => {
+  if (localResources.length === 0) {
+    return dbResources;
+  }
+
+  const merged = localResources.map((localResource) => {
+    const dbMatch = dbResources.find(
+      (dbResource) => dbResource.title.toLowerCase() === localResource.title.toLowerCase()
+    );
+
+    return {
+      ...dbMatch,
+      ...localResource,
+      href: localResource.href ?? dbMatch?.href,
+      external: localResource.external ?? dbMatch?.external,
+      status: localResource.status ?? dbMatch?.status ?? 'available',
+      formatBadge: localResource.formatBadge ?? dbMatch?.formatBadge,
+    };
+  });
+
+  const localTitles = new Set(localResources.map((resource) => resource.title.toLowerCase()));
+  const extras = dbResources.filter((resource) => !localTitles.has(resource.title.toLowerCase()));
+  return [...merged, ...extras];
+};
+
+const rehydrateLinkedTrainingIds = (content: TrainingContent[]) => {
+  const titleToId = new Map(content.map((item) => [item.title.toLowerCase(), item.id]));
+  const normalizedTitleToId = new Map(
+    content.map((item) => [normalizeComparableText(item.title), item.id])
   );
+  const fallbackIdToId = new Map(
+    content.map((item) => [item.fallbackContentId ?? item.id, item.id])
+  );
+
+  return content.map((item) => ({
+    ...item,
+    resources: item.resources.map((resource) => {
+      if (!resource.linkedTrainingId) {
+        return resource;
+      }
+
+      const fallbackLinkedItem = FALLBACK_BY_ID.get(resource.linkedTrainingId);
+      const resolvedId =
+        fallbackIdToId.get(resource.linkedTrainingId) ??
+        (fallbackLinkedItem ? titleToId.get(fallbackLinkedItem.title.toLowerCase()) : undefined) ??
+        (fallbackLinkedItem
+          ? normalizedTitleToId.get(normalizeComparableText(fallbackLinkedItem.title))
+          : undefined) ??
+        resource.linkedTrainingId;
+
+      return {
+        ...resource,
+        linkedTrainingId: resolvedId ?? resource.linkedTrainingId,
+      };
+    }),
+  }));
+};
+
+const normalizeLibraryTitle = (title?: string) => (title ?? '').trim().toLowerCase();
+
+const compareDuplicateCandidates = (left: TrainingContent, right: TrainingContent) => {
+  const leftManifestRank = left.catalogSource === 'manifest' ? 0 : 1;
+  const rightManifestRank = right.catalogSource === 'manifest' ? 0 : 1;
+  if (leftManifestRank !== rightManifestRank) {
+    return leftManifestRank - rightManifestRank;
+  }
+
+  const leftModuleRank = left.moduleLabel ? 0 : 1;
+  const rightModuleRank = right.moduleLabel ? 0 : 1;
+  if (leftModuleRank !== rightModuleRank) {
+    return leftModuleRank - rightModuleRank;
+  }
+
+  const leftPriority = left.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+  const rightPriority = right.operatorPriority ?? Number.MAX_SAFE_INTEGER;
+  if (leftPriority !== rightPriority) {
+    return leftPriority - rightPriority;
+  }
+
+  return left.id.localeCompare(right.id);
+};
+
+const filterDuplicatePortalVideos = (content: TrainingContent[]) => {
+  const videoGroups = new Map<string, TrainingContent[]>();
+
+  for (const item of content) {
+    if (!item.providerVideoId) {
+      continue;
+    }
+
+    const key = normalizeLibraryTitle(item.title);
+    const bucket = videoGroups.get(key) ?? [];
+    bucket.push(item);
+    videoGroups.set(key, bucket);
+  }
+
+  const keepIds = new Set<string>();
+  for (const items of videoGroups.values()) {
+    if (items.length === 1) {
+      keepIds.add(items[0].id);
+      continue;
+    }
+
+    const canonicalItems = items.filter((item) => isCanonicalTrainingVideoId(item.providerVideoId));
+    if (canonicalItems.length > 0) {
+      canonicalItems.forEach((item) => keepIds.add(item.id));
+      continue;
+    }
+
+    const [preferredItem] = [...items].sort(compareDuplicateCandidates);
+    if (preferredItem) {
+      keepIds.add(preferredItem.id);
+    }
+  }
+
+  return content.filter((item) => !item.providerVideoId || keepIds.has(item.id));
+};
+
+const toTrainingContent = async (record: TrainingRecord): Promise<TrainingContent> => {
   const videoAsset = record.training_assets?.find((asset) => asset.asset_type === 'video');
+  const resourceAssets = record.training_assets?.filter((asset) => asset.asset_type !== 'video') ?? [];
+  const dbResources = await Promise.all(resourceAssets.map(toDbResource));
   const embedUrl =
     videoAsset?.embed_url ??
     (videoAsset?.provider === 'vimeo'
       ? buildVimeoUrl(videoAsset.provider_video_id, videoAsset.provider_hash)
       : undefined);
-  const thumbnailFromMeta =
-    typeof videoAsset?.meta?.thumbnail_url === 'string'
-      ? resolveThumbnailUrl(String(videoAsset.meta?.thumbnail_url))
-      : undefined;
-  const thumbnailUrl = thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL;
-
-  const resources =
-    record.training_assets
-      ?.filter((asset) => asset.asset_type !== 'video')
-      .map((asset, index) => {
-        const meta = asset.meta ?? {};
-        const title =
-          (meta.title as string | undefined) ??
-          `${asset.asset_type === 'pdf' ? 'PDF' : 'Resource'} ${index + 1}`;
-        const description =
-          (meta.description as string | undefined) ??
-          'Resource attached to this training module.';
-        const hasLink = Boolean(asset.download_url || asset.embed_url);
-        return {
-          title,
-          description,
-          status: hasLink ? 'available' : 'coming_soon',
-        };
-      }) ?? [];
-
-  return {
+  const thumbnailFromMeta = resolveThumbnailUrl(videoAsset?.meta ?? null);
+  const preliminaryCatalogMetadata = resolveTrainingCatalogMetadata({
     id: record.id,
     title: record.title,
-    description: record.description ?? localMatch?.description ?? '',
-    thumbnailUrl,
-    duration:
-      formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '—',
-    tags: record.tags && record.tags.length > 0 ? record.tags : localMatch?.tags ?? [],
-    level: localMatch?.level ?? 'Beginner',
-    summary: localMatch?.summary ?? 'Training content for Bloomjoy operators.',
-    learningPoints:
-      localMatch?.learningPoints?.length
-        ? localMatch.learningPoints
-        : ['Key takeaways will appear here once this module is finalized.'],
-    checklist:
-      localMatch?.checklist?.length
-        ? localMatch.checklist
-        : ['Checklist items will be added after the next training update.'],
-    embed: {
-      title: videoAsset?.meta?.title
-        ? String(videoAsset.meta?.title)
-        : localMatch?.embed.title ?? 'Training module',
-      srcDoc: localMatch?.embed.srcDoc ?? '',
-      url: embedUrl,
-    },
-    resources: resources.length > 0 ? resources : localMatch?.resources ?? [],
-  };
+    tags: record.tags ?? [],
+    format: embedUrl ? 'video' : 'guide',
+    providerVideoId: videoAsset?.provider_video_id ?? undefined,
+    hasDocument: resourceAssets.length > 0 && !embedUrl,
+  });
+  const localMatch =
+    (preliminaryCatalogMetadata.fallbackId
+      ? FALLBACK_BY_ID.get(preliminaryCatalogMetadata.fallbackId)
+      : undefined) ?? FALLBACK_BY_TITLE.get(record.title.toLowerCase());
+
+  return applyTrainingCardThumbnailMetadata(
+    applyCatalogMetadata(
+      {
+        id: record.id,
+        fallbackContentId: localMatch?.id,
+        title: record.title,
+        description: record.description ?? localMatch?.description ?? '',
+        thumbnailUrl: thumbnailFromMeta ?? localMatch?.thumbnailUrl ?? DEFAULT_TRAINING_THUMBNAIL_URL,
+        thumbnailAlt: localMatch?.thumbnailAlt,
+        thumbnailSourceKind: thumbnailFromMeta ? 'vimeo' : localMatch?.thumbnailSourceKind,
+        providerVideoId: videoAsset?.provider_video_id ?? undefined,
+        duration: formatDuration(record.duration_seconds) ?? localMatch?.duration ?? '--',
+        tags: normalizeTags(record.tags, localMatch?.tags ?? []),
+        level: localMatch?.level ?? 'Beginner',
+        summary: localMatch?.summary ?? 'Training content for Bloomjoy operators.',
+        learningPoints:
+          localMatch?.learningPoints?.length
+            ? localMatch.learningPoints
+            : ['Key takeaways will appear here once this module is finalized.'],
+        checklist:
+          localMatch?.checklist?.length
+            ? localMatch.checklist
+            : ['Checklist items will be added after the next training update.'],
+        searchTerms: localMatch?.searchTerms ?? [],
+        taskCategory: localMatch?.taskCategory ?? 'Reference',
+        audience: localMatch?.audience ?? 'Operator',
+        format: localMatch?.format ?? (embedUrl ? 'video' : 'guide'),
+        embed: {
+          title:
+            extractStringMeta(videoAsset?.meta ?? null, 'title') ??
+            localMatch?.embed.title ??
+            'Training module',
+          srcDoc: localMatch?.embed.srcDoc ?? '',
+          url: embedUrl,
+        },
+        document: localMatch?.document,
+        resources: mergeResources(localMatch?.resources ?? [], dbResources),
+      },
+      {
+        providerVideoId: videoAsset?.provider_video_id ?? undefined,
+      }
+    )
+  );
 };
 
 export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
@@ -150,38 +453,179 @@ export const fetchTrainingLibrary = async (): Promise<TrainingContent[]> => {
         )
       `
     )
+    .neq('visibility', 'draft')
     .order('sort_order', { ascending: true });
 
-  if (error || !data) {
-    console.warn('[TrainingLibrary] Supabase query failed; using local fallback.', {
-      code: error?.code,
-      message: error?.message,
-      status: error?.status,
-    });
-    return fallbackTrainingContent;
+  if (error || !data || data.length === 0) {
+    return FALLBACK_LIBRARY;
   }
 
   const records = data as TrainingRecord[];
-  if (records.length === 0) {
-    console.warn('[TrainingLibrary] Supabase returned 0 training rows; using local fallback.');
-    return fallbackTrainingContent;
-  }
-
-  return records.map(toTrainingContent);
+  const content = await Promise.all(records.map(toTrainingContent));
+  return rehydrateLinkedTrainingIds(filterDuplicatePortalVideos(content));
 };
 
-export const useTrainingLibrary = () =>
+export const fetchTrainingTracks = async (): Promise<TrainingTrack[]> => {
+  const { data, error } = await supabaseClient
+    .from('training_tracks')
+    .select(
+      `
+        id,
+        slug,
+        title,
+        description,
+        audience,
+        certificate_title,
+        training_track_items (
+          training_id,
+          required,
+          sort_order
+        )
+      `
+    )
+    .order('sort_order', { ascending: true });
+
+  if (error || !data || data.length === 0) {
+    return fallbackTrainingTracks;
+  }
+
+  const records = data as TrainingTrackRecord[];
+  return records.map((record) => ({
+    id: record.id,
+    slug: record.slug,
+    title: record.title,
+    description: record.description ?? '',
+    audience: record.audience ?? 'Operator',
+    certificateTitle: record.certificate_title ?? undefined,
+    items: (record.training_track_items ?? [])
+      .sort((left, right) => left.sort_order - right.sort_order)
+      .map((item) => ({
+        trainingId: item.training_id,
+        required: item.required,
+        sortOrder: item.sort_order,
+      })),
+  }));
+};
+
+export const bindTracksToLibrary = (
+  tracks: TrainingTrack[],
+  library: TrainingContent[]
+): TrainingTrack[] => {
+  const trainingById = new Map(library.map((item) => [item.id, item]));
+  const fallbackItemById = new Map(
+    FALLBACK_LIBRARY.map((item) => [item.id, item])
+  );
+  const trainingByFallbackId = new Map(
+    library.map((item) => [item.fallbackContentId ?? item.id, item])
+  );
+
+  return tracks.map((track) => ({
+    ...track,
+    items: track.items
+      .map((item) => {
+        const directMatch = trainingById.get(item.trainingId);
+        const fallbackItem = fallbackItemById.get(item.trainingId);
+        const fallbackMatch =
+          trainingByFallbackId.get(item.trainingId) ??
+          (fallbackItem ? trainingByFallbackId.get(fallbackItem.id) : undefined);
+
+        return {
+          ...item,
+          trainingId: directMatch?.id ?? fallbackMatch?.id ?? item.trainingId,
+          training: directMatch ?? fallbackMatch,
+        };
+      })
+      .filter((item) => Boolean(item.training)),
+  }));
+};
+
+export {
+  bindTracksToTrainingExperience,
+  buildTrainingExperience,
+  getTrainingProgressWriteIds,
+  getTrainingRouteId,
+  mapTrainingProgressToCanonical,
+  resolveTrainingExperienceItem,
+};
+
+export const fetchTrainingProgress = async (): Promise<TrainingProgressRecord[]> => {
+  const { data, error } = await supabaseClient
+    .from('training_progress')
+    .select('training_id,started_at,completed_at,completion_source');
+
+  if (error || !data) {
+    return [];
+  }
+
+  const records = data as TrainingProgressDbRecord[];
+  return records.map((record) => ({
+    trainingId: record.training_id,
+    startedAt: record.started_at,
+    completedAt: record.completed_at,
+    completionSource: record.completion_source,
+  }));
+};
+
+export const fetchTrainingCertificates = async (): Promise<TrainingCertificate[]> => {
+  const { data, error } = await supabaseClient
+    .from('training_certifications')
+    .select('id,track_id,issued_at,certificate_title');
+
+  if (error || !data) {
+    return [];
+  }
+
+  const records = data as TrainingCertificateDbRecord[];
+  return records.map((record) => ({
+    id: record.id,
+    trackId: record.track_id,
+    issuedAt: record.issued_at,
+    certificateTitle: record.certificate_title ?? 'Bloomjoy Operator Essentials',
+  }));
+};
+
+export const useTrainingLibrary = (enabled = true) =>
   useQuery({
     queryKey: TRAINING_QUERY_KEY,
     queryFn: fetchTrainingLibrary,
-    placeholderData: fallbackTrainingContent,
+    enabled,
+    placeholderData: FALLBACK_LIBRARY,
     refetchOnMount: 'always',
     staleTime: 1000 * 60 * 5,
   });
 
+export const useTrainingTracks = (enabled = true) =>
+  useQuery({
+    queryKey: TRAINING_TRACKS_QUERY_KEY,
+    queryFn: fetchTrainingTracks,
+    enabled,
+    placeholderData: fallbackTrainingTracks,
+    staleTime: 1000 * 60 * 5,
+  });
+
+export const useTrainingProgress = (userId?: string, enabled = true) =>
+  useQuery({
+    queryKey: ['training-progress', userId ?? 'anonymous'],
+    queryFn: fetchTrainingProgress,
+    enabled: enabled && Boolean(userId),
+    placeholderData: [] as TrainingProgressRecord[],
+    refetchOnMount: 'always',
+    staleTime: 1000 * 30,
+  });
+
+export const useTrainingCertificates = (userId?: string, enabled = true) =>
+  useQuery({
+    queryKey: ['training-certifications', userId ?? 'anonymous'],
+    queryFn: fetchTrainingCertificates,
+    enabled: enabled && Boolean(userId),
+    placeholderData: [] as TrainingCertificate[],
+    refetchOnMount: 'always',
+    staleTime: 1000 * 30,
+  });
+
 export const useTrainingSourceStatus = () =>
   useQuery({
-    queryKey: [...TRAINING_QUERY_KEY, 'source'],
+    queryKey: TRAINING_SOURCE_QUERY_KEY,
     queryFn: async () => {
       const { count, error } = await supabaseClient
         .from('trainings')
@@ -190,7 +634,74 @@ export const useTrainingSourceStatus = () =>
       if (error) {
         return 'local';
       }
+
       return count && count > 0 ? 'supabase' : 'local';
     },
     staleTime: 1000 * 60 * 2,
   });
+
+export const useSaveTrainingProgress = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      trainingId,
+      trainingIds,
+      markComplete,
+      completionSource,
+    }: {
+      trainingId: string;
+      trainingIds?: string[];
+      markComplete: boolean;
+      completionSource: string;
+    }) => {
+      const idsToWrite = [...new Set(trainingIds?.length ? trainingIds : [trainingId])];
+
+      for (const id of idsToWrite) {
+        const { error } = await supabaseClient.rpc('save_training_progress', {
+          training_id_input: id,
+          mark_complete_input: markComplete,
+          completion_source_input: completionSource,
+        });
+
+        if (error) {
+          throw error;
+        }
+      }
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['training-progress'] }),
+        queryClient.invalidateQueries({ queryKey: TRAINING_QUERY_KEY }),
+      ]);
+    },
+  });
+};
+
+export const useIssueTrainingCertificate = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      trackSlug,
+      finalAcknowledgement,
+    }: {
+      trackSlug: string;
+      finalAcknowledgement: boolean;
+    }) => {
+      const { data, error } = await supabaseClient.rpc('issue_training_certificate', {
+        track_slug_input: trackSlug,
+        final_acknowledgement_input: finalAcknowledgement,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      return data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['training-certifications'] });
+    },
+  });
+};

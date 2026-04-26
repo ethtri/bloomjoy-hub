@@ -12,7 +12,8 @@ This MVP supports the new business model:
   - Full Machine product page
   - Micro product page
   - Mini page:
-    - If no pro photos: “Coming soon” + waitlist form
+    - Live quote-led sales page at `$4,000`
+    - Route order intent into the standard quote/contact flow
 - Supplies
   - Sugar product page (primary)
   - Sticks product page (optional, if offered)

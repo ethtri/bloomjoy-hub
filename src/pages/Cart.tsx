@@ -7,14 +7,30 @@ import { Layout } from '@/components/layout/Layout';
 import { useCart } from '@/lib/cart';
 import { trackEvent } from '@/lib/analytics';
 import { startSugarCheckout } from '@/lib/stripeCheckout';
-import { SUGAR_COLOR_OPTIONS, SUGAR_PRICE_PER_KG, getSugarColorBreakdown, isSugarSku } from '@/lib/sugar';
+import {
+  SUGAR_COLOR_OPTIONS,
+  getSugarColorBreakdown,
+  getSugarPricePerKg,
+  isSugarSku,
+} from '@/lib/sugar';
+import { useAuth } from '@/contexts/AuthContext';
+import { hasPlusAccess } from '@/lib/membership';
 import { toast } from 'sonner';
 
 export default function CartPage() {
-  const { items, updateQuantity, removeItem, getTotal, clearCart } = useCart();
+  const { user } = useAuth();
+  const { items, updateQuantity, removeItem, clearCart } = useCart();
+  const hasPlusMembership = hasPlusAccess(user?.membershipStatus);
+  const sugarPricePerKg = getSugarPricePerKg(hasPlusMembership);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const sugarBreakdown = getSugarColorBreakdown(items);
   const sugarTotalKg = Object.values(sugarBreakdown).reduce((sum, quantity) => sum + quantity, 0);
+  const getDisplayUnitPrice = (sku: string, fallbackPrice: number) =>
+    isSugarSku(sku) ? sugarPricePerKg : fallbackPrice;
+  const displayTotal = items.reduce(
+    (sum, item) => sum + getDisplayUnitPrice(item.sku, item.price) * item.quantity,
+    0
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -73,7 +89,8 @@ export default function CartPage() {
                 Your cart is empty
               </h1>
               <p className="mt-2 text-muted-foreground">
-                Add some supplies or machines to get started.
+                Checkout is available for sugar supplies. Machines are reviewed through the
+                quote process.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-4">
                 <Link to="/supplies">
@@ -101,22 +118,26 @@ export default function CartPage() {
             <div className="lg:col-span-2">
               <div className="divide-y divide-border rounded-xl border border-border bg-card">
                 {items.map((item) => (
-                  <div key={item.sku} className="flex items-center gap-4 p-4">
+                  <div
+                    key={item.sku}
+                    className="grid gap-4 p-4 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] sm:items-center"
+                  >
                     <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-muted">
                       <ShoppingBag className="h-8 w-8 text-muted-foreground/50" />
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-foreground">{item.name}</h3>
+                    <div className="min-w-0">
+                      <h3 className="break-words font-semibold text-foreground">{item.name}</h3>
                       <p className="text-sm text-muted-foreground">
-                        ${item.price.toFixed(2)} each
+                        ${getDisplayUnitPrice(item.sku, item.price).toFixed(2)} each
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 rounded-lg border border-border p-1">
+                    <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-border p-1 sm:w-auto sm:flex-nowrap">
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => updateQuantity(item.sku, item.quantity - 1)}
+                        aria-label={`Decrease quantity for ${item.name}`}
                       >
                         <Minus className="h-4 w-4" />
                       </Button>
@@ -126,11 +147,15 @@ export default function CartPage() {
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => updateQuantity(item.sku, item.quantity + 1)}
+                        aria-label={`Increase quantity for ${item.name}`}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
                       <Input
+                        aria-label={`Quantity for ${item.name}`}
+                        name={`quantity-${item.sku}`}
                         type="number"
+                        inputMode="numeric"
                         min={0}
                         value={item.quantity}
                         onChange={(event) => {
@@ -140,17 +165,20 @@ export default function CartPage() {
                             Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
                           );
                         }}
-                        className="h-8 w-20 text-right"
+                        className="h-8 min-w-0 flex-1 text-right sm:w-20 sm:flex-none"
                       />
                     </div>
-                    <p className="w-20 text-right font-semibold text-foreground">
-                      ${(item.price * item.quantity).toFixed(2)}
+                    <p className="text-right font-semibold text-foreground sm:w-20">
+                      ${(
+                        getDisplayUnitPrice(item.sku, item.price) * item.quantity
+                      ).toFixed(2)}
                     </p>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="text-muted-foreground hover:text-destructive"
                       onClick={() => removeItem(item.sku)}
+                      aria-label={`Remove ${item.name} from cart`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -196,16 +224,23 @@ export default function CartPage() {
                       <div className="mt-1 flex justify-between text-foreground">
                         <span>Sugar subtotal</span>
                         <span className="font-semibold">
-                          ${(sugarTotalKg * SUGAR_PRICE_PER_KG).toFixed(2)}
+                          ${(sugarTotalKg * sugarPricePerKg).toFixed(2)}
                         </span>
                       </div>
                     </div>
                   </div>
                 )}
+                {sugarTotalKg > 0 && (
+                  <p className="mt-4 text-xs text-muted-foreground">
+                    {hasPlusMembership
+                      ? 'Bloomjoy Plus pricing is applied at $8/KG.'
+                      : 'Standard sugar pricing is applied at $10/KG. Active Bloomjoy Plus members pay $8/KG.'}
+                  </p>
+                )}
                 <div className="mt-4 space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Subtotal</span>
-                    <span className="font-medium text-foreground">${getTotal().toFixed(2)}</span>
+                    <span className="font-medium text-foreground">${displayTotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Shipping</span>
@@ -216,7 +251,7 @@ export default function CartPage() {
                   <div className="flex justify-between">
                     <span className="font-semibold text-foreground">Total</span>
                     <span className="font-display text-xl font-bold text-primary">
-                      ${getTotal().toFixed(2)}
+                      ${displayTotal.toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -227,7 +262,7 @@ export default function CartPage() {
                   onClick={handleCheckout}
                   disabled={isCheckingOut}
                 >
-                  {isCheckingOut ? 'Redirecting...' : 'Checkout'}
+                  {isCheckingOut ? 'Redirecting…' : 'Checkout'}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
                 <p className="mt-3 text-center text-xs text-muted-foreground">

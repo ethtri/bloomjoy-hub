@@ -23,6 +23,10 @@ type EventName =
   | 'open_training_item'
   | 'view_training_detail'
   | 'training_video_iframe_loaded'
+  | 'training_mark_completed'
+  | 'training_resource_opened'
+  | 'training_certificate_unlocked'
+  | 'training_certificate_downloaded'
   | 'submit_support_request_concierge'
   | 'submit_support_request_parts'
   | 'submit_support_request_onboarding'
@@ -34,6 +38,8 @@ type EventName =
   | 'admin_support_request_updated'
   | 'admin_order_fulfillment_updated'
   | 'admin_machine_inventory_updated'
+  | 'admin_plus_access_granted'
+  | 'admin_plus_access_revoked'
   | 'admin_role_granted'
   | 'admin_role_revoked';
 

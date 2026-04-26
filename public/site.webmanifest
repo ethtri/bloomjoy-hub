@@ -1,0 +1,15 @@
+{
+  "name": "Bloomjoy Hub",
+  "short_name": "Bloomjoy",
+  "description": "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.",
+  "icons": [
+    {
+      "src": "/bloomjoy-icon.png",
+      "sizes": "768x768",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#f672a2",
+  "background_color": "#fff7fb",
+  "display": "standalone"
+}

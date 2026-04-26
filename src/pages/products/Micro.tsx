@@ -1,13 +1,11 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, AlertCircle, ShoppingCart } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
-import { useCart } from '@/lib/cart';
 import { MACHINE_NAMES } from '@/lib/machineNames';
-import { toast } from 'sonner';
 import microMain from '@/assets/real/micro-main.webp';
 import microGallery1 from '@/assets/real/micro-gallery-1.webp';
 import microGallery2 from '@/assets/real/micro-gallery-2.webp';
@@ -24,22 +22,25 @@ const microImages = [
   { src: microGallery5, alt: 'Micro machine diagram' },
 ];
 
-export default function MicroPage() {
-  const { addItem } = useCart();
+const microFitNotes = [
+  'Compact entry point for low-volume cotton candy applications.',
+  'Appropriate when basic shapes are enough and complex pattern capability is not required.',
+  'Useful for buyers who want to validate robotic cotton candy demand before moving upmarket.',
+];
 
+const microPlanningNotes = [
+  'Micro is listed at $2,200 before shipping and final configuration.',
+  'Orders remain quote-led so Bloomjoy can confirm fit, delivery, and operator expectations.',
+  'Operators should plan for sugar and paper-stick supplies through the Bloomjoy supplies flow.',
+];
+
+export default function MicroPage() {
   useEffect(() => {
     trackEvent('view_product_micro');
   }, []);
 
-  const handleBuyNow = () => {
-    trackEvent('click_buy_micro');
-    addItem({
-      sku: 'micro',
-      name: `Bloomjoy Sweets ${MACHINE_NAMES.micro}`,
-      price: 2200,
-      type: 'machine',
-    });
-    toast.success('Micro added to cart!');
+  const handleQuoteRequest = () => {
+    trackEvent('click_quote_micro');
   };
 
   return (
@@ -77,15 +78,20 @@ export default function MicroPage() {
               </p>
 
               <div className="mt-8 space-y-4">
-                <Button variant="hero" size="xl" className="w-full" onClick={handleBuyNow}>
-                  <ShoppingCart className="mr-2 h-5 w-5" />
-                  Add to Cart
+                <Button asChild variant="hero" size="xl" className="w-full">
+                  <Link
+                    to="/contact?type=quote&interest=micro&source=/machines/micro"
+                    onClick={handleQuoteRequest}
+                  >
+                    Request a Quote
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
                 </Button>
-                <Link to="/supplies">
-                  <Button variant="hero-outline" size="lg" className="w-full">
+                <Button asChild variant="hero-outline" size="lg" className="w-full">
+                  <Link to="/supplies">
                     Reorder Sugar
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
 
               {/* Features */}
@@ -117,6 +123,44 @@ export default function MicroPage() {
                   </span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-border bg-muted/25 py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-xl border border-border bg-background p-6">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Best Fit
+              </h2>
+              <ul className="mt-5 space-y-3">
+                {microFitNotes.map((note) => (
+                  <li key={note} className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sage-light">
+                      <Check className="h-3 w-3 text-sage" />
+                    </div>
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-border bg-background p-6">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Purchase Expectations
+              </h2>
+              <ul className="mt-5 space-y-3">
+                {microPlanningNotes.map((note) => (
+                  <li key={note} className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <Check className="h-3 w-3 text-primary" />
+                    </div>
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>

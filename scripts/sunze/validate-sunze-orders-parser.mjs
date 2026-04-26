@@ -1,0 +1,188 @@
+#!/usr/bin/env node
+import assert from 'node:assert/strict';
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { zipSync, strToU8 } from 'fflate';
+import {
+  parseSunzeOrderRows,
+  parseSunzeOrderWorkbook,
+  summarizeSunzeOrderRows,
+  SUNZE_ORDER_HEADERS,
+  SunzeOrderParseError,
+} from './sunze-orders.mjs';
+
+const escapeXml = (value) =>
+  String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+const columnName = (index) => {
+  let current = index + 1;
+  let name = '';
+
+  while (current > 0) {
+    const remainder = (current - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    current = Math.floor((current - 1) / 26);
+  }
+
+  return name;
+};
+
+const cellXml = (value, rowIndex, cellIndex) => {
+  const ref = `${columnName(cellIndex)}${rowIndex + 1}`;
+
+  if (typeof value === 'number') {
+    return `<c r="${ref}"><v>${value}</v></c>`;
+  }
+
+  return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+};
+
+const worksheetXml = (rows) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    ${rows
+      .map(
+        (row, rowIndex) =>
+          `<row r="${rowIndex + 1}">${row
+            .map((value, cellIndex) => cellXml(value, rowIndex, cellIndex))
+            .join('')}</row>`
+      )
+      .join('')}
+  </sheetData>
+</worksheet>`;
+
+const buildWorkbook = (rows) =>
+  zipSync({
+    '[Content_Types].xml': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`),
+    '_rels/.rels': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`),
+    'xl/workbook.xml': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Order" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>`),
+    'xl/_rels/workbook.xml.rels': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`),
+    'xl/worksheets/sheet1.xml': strToU8(worksheetXml(rows)),
+  });
+
+const fixturePath = new URL('./sample-sunze-orders.json', import.meta.url);
+const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
+const rows = [fixture.headers, ...fixture.rows];
+const tempPath = join(tmpdir(), `sunze-orders-parser-${Date.now()}.xlsx`);
+
+const assertParseError = (testRows, expectedMessage) => {
+  assert.throws(
+    () => parseSunzeOrderRows(testRows),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes(expectedMessage)
+  );
+};
+
+const withCell = (sourceRow, headerName, value) => {
+  const row = [...sourceRow];
+  row[SUNZE_ORDER_HEADERS.indexOf(headerName)] = value;
+  return row;
+};
+
+try {
+  await writeFile(tempPath, buildWorkbook(rows));
+  const parsed = await parseSunzeOrderWorkbook(tempPath);
+  const summary = summarizeSunzeOrderRows(parsed);
+
+  assert.deepEqual(fixture.headers, SUNZE_ORDER_HEADERS);
+  assert.equal(parsed.length, 3);
+  assert.equal(parsed[0].paymentMethod, 'credit');
+  assert.equal(parsed[1].paymentMethod, 'cash');
+  assert.equal(parsed[2].paymentMethod, 'other');
+  assert.equal(parsed[0].orderAmountCents, 1000);
+  assert.equal(parsed[2].orderAmountCents, 0);
+  assert.equal(parsed[0].tradeName, 'Flower dream-2');
+  assert.equal(parsed[0].itemQuantity, 2);
+  assert.equal(parsed[1].itemQuantity, 2);
+  assert.equal(parsed[2].itemQuantity, 1);
+  assert.equal(summary.rowCount, 3);
+  assert.equal(summary.machineCount, 2);
+  assert.equal(summary.orderAmountCents, 1800);
+  assert.equal(summary.windowStart, '2026-04-22');
+  assert.equal(summary.windowEnd, '2026-04-23');
+
+  const duplicateUpdateRows = [
+    SUNZE_ORDER_HEADERS,
+    fixture.rows[0],
+    withCell(fixture.rows[0], 'Order amount', 12),
+  ];
+  const duplicateParsed = parseSunzeOrderRows(duplicateUpdateRows);
+  assert.equal(duplicateParsed.length, 2);
+  assert.equal(duplicateParsed[0].sourceOrderNumber, duplicateParsed[1].sourceOrderNumber);
+  assert.equal(duplicateParsed[1].orderAmountCents, 1200);
+
+  const midnightParsed = parseSunzeOrderRows([
+    SUNZE_ORDER_HEADERS,
+    withCell(fixture.rows[0], 'Payment time', '2026/04/24 00:00:03'),
+  ]);
+  assert.equal(midnightParsed[0].saleDate, '2026-04-24');
+  assert.equal(midnightParsed[0].paymentTimeIso, '2026-04-24T00:00:03.000Z');
+
+  assertParseError(
+    [[...SUNZE_ORDER_HEADERS.filter((header) => header !== 'Status')], fixture.rows[0]],
+    'headers changed'
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment method', 'Voucher')],
+    'Unknown payment method'
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Status', 'Refunded')],
+    'Unknown order status'
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Order amount', -1)],
+    'Invalid Order amount'
+  );
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        rowsParsed: parsed.length,
+        rowCount: summary.rowCount,
+        machineCount: summary.machineCount,
+        orderAmountCents: summary.orderAmountCents,
+        paymentMethods: [...new Set(parsed.map((row) => row.paymentMethod))],
+        cases: [
+          'header change rejection',
+          'unknown payment rejection',
+          'unknown status rejection',
+          'negative amount rejection',
+          'zero no-pay normalization',
+          'trade item quantity parsing',
+          'duplicate order preservation',
+          'midnight date boundary',
+        ],
+      },
+      null,
+      2
+    )
+  );
+} finally {
+  await rm(tempPath, { force: true });
+}

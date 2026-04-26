@@ -80,6 +80,15 @@ PR description includes:
   - Branch: `agent/<short-task-slug>`
 - If you must run without worktrees, run only one agent at a time to avoid branch switching.
 
+### Sub-agents, plugins, and skills
+- Default to one agent for small or single-surface work. Use sub-agents only when the user asks for parallel agents or explicitly approves it in the plan.
+- Good sub-agent fits: read-only codebase exploration, PR review lanes, test/log triage, or independent implementation slices with clearly disjoint files.
+- Avoid sub-agents for tiny edits, urgent single-path fixes, shared-doc edits, secrets work, or flows that need one dev server/auth session.
+- For write-heavy sub-agent work, assign separate file ownership and separate worktrees/branches; the parent agent owns integration, conflict checks, final verification, and the PR.
+- Use a plugin when Codex needs an external tool or source of truth; use a skill when Codex needs to follow a repeatable process or specialized workflow.
+- Helpful repo plugins/skills: GitHub for issues/PRs/CI, Browser Use or Vercel browser verification for localhost UI checks, Build Web Apps/shadcn/React skills for UI work, Supabase Postgres guidance for migrations/RLS/reporting SQL, Stripe guidance for checkout/billing/webhooks, and Vercel guidance for redirects/domains/deploy config.
+- Use Gmail, Google Drive, or Sheets only when the task explicitly depends on connected business source material. Never move secrets or private operational data into repo files.
+
 ## Operational safeguards (must follow)
 - Work only in a worktree (never edit `C:\Repos\Bloomjoy_hub` directly).
 - Run the preflight check in `Docs/LOCAL_DEV.md` before making edits.

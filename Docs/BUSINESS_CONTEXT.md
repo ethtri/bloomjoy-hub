@@ -46,7 +46,7 @@ B) Authenticated member portal for subscription management, orders, training lib
    - Size: ~ 1/5 the full machine
    - Capability: can produce most complex patterns
    - Limitation: no automatic stick dispenser; operator manually feeds a stick each order
-   - Asset constraint: professional photos may not exist at MVP launch; site must support "coming soon / waitlist" mode
+   - Current public-site flow: live availability with quote-led sales intake (not a public waitlist)
 
 ### Consumables
 1) Premium Sugar
@@ -101,7 +101,7 @@ Support boundary:
 - Home (value prop + product entry points)
 - Products:
   - Full machine product page
-  - Mini product page (or waitlist page if photos missing)
+  - Mini product page with live quote CTA
   - Micro product page
 - Supplies:
   - Sugar product listing + details
@@ -219,7 +219,7 @@ Portal usage:
 - Plus Pro tier (priority concierge, quarterly tune-ups, faster response)
 - Auto-ship sugar subscriptions
 - Custom/branded sticks ordering
-- Waitlist + deposit system for Mini
+- Direct-buy or deposit workflow for Mini
 - Better training: certifications, quizzes, operator checklists
 - Venue toolkit: printable signage, pricing calculator, SOPs
 - CRM-lite: customer management + machine health check reminders (optional)

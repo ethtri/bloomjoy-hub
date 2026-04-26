@@ -7,18 +7,46 @@ export type OrderFulfillmentStatus =
   | 'delivered'
   | 'canceled';
 
+export type OrderType = 'sugar' | 'blank_sticks' | 'unknown';
+export type OrderPricingTier = 'plus_member' | 'standard' | null;
+
+export type OrderAddressSnapshot = {
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+};
+
 export type OrderRecord = {
   id: string;
   user_id: string | null;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
   stripe_customer_id: string | null;
+  order_type: OrderType;
   status: string;
   amount_total: number | null;
   currency: string | null;
   customer_email: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  billing_address: OrderAddressSnapshot | null;
+  shipping_name: string | null;
+  shipping_phone: string | null;
+  shipping_address: OrderAddressSnapshot | null;
+  pricing_tier: OrderPricingTier;
+  unit_price_cents: number | null;
+  shipping_total_cents: number | null;
   receipt_url: string | null;
   line_items: Array<Record<string, unknown>>;
+  internal_notification_sent_at: string | null;
+  internal_notification_error: string | null;
+  wecom_alert_sent_at: string | null;
+  wecom_alert_error: string | null;
+  customer_confirmation_sent_at: string | null;
+  customer_confirmation_error: string | null;
   fulfillment_status: OrderFulfillmentStatus;
   fulfillment_tracking_url: string | null;
   fulfillment_notes: string | null;

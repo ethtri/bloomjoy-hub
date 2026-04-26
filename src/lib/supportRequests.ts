@@ -1,6 +1,7 @@
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
 
-export type SupportRequestType = 'concierge' | 'parts';
+export type SupportRequestType = 'concierge' | 'parts' | 'wechat_onboarding';
 export type SupportRequestStatus =
   | 'new'
   | 'triaged'
@@ -8,6 +9,15 @@ export type SupportRequestStatus =
   | 'resolved'
   | 'closed';
 export type SupportRequestPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export type SupportRequestIntakeMeta = {
+  phone_region?: string;
+  phone_number?: string;
+  device_type?: string;
+  blocked_step?: string;
+  referral_needed?: boolean;
+  wechat_id?: string;
+};
 
 export type SupportRequestRecord = {
   id: string;
@@ -20,18 +30,22 @@ export type SupportRequestRecord = {
   message: string;
   assigned_to: string | null;
   internal_notes: string | null;
+  intake_meta: Record<string, unknown> | null;
   resolved_at: string | null;
   resolved_by: string | null;
   created_at: string;
   updated_at: string;
 };
 
+type SupportRequestIntakeResponse = {
+  supportRequest: SupportRequestRecord;
+};
+
 type CreateSupportRequestInput = {
   requestType: SupportRequestType;
-  customerUserId: string;
-  customerEmail: string;
   subject: string;
   message: string;
+  intakeMeta?: SupportRequestIntakeMeta;
 };
 
 type UpdateSupportRequestInput = {
@@ -44,28 +58,29 @@ type UpdateSupportRequestInput = {
 
 export const createSupportRequest = async ({
   requestType,
-  customerUserId,
-  customerEmail,
   subject,
   message,
+  intakeMeta,
 }: CreateSupportRequestInput): Promise<SupportRequestRecord> => {
-  const { data, error } = await supabaseClient
-    .from('support_requests')
-    .insert({
-      request_type: requestType,
-      customer_user_id: customerUserId,
-      customer_email: customerEmail,
+  const data = await invokeEdgeFunction<SupportRequestIntakeResponse & { error?: string }>(
+    'support-request-intake',
+    {
+      requestType,
       subject,
       message,
-    })
-    .select('*')
-    .single();
+      intakeMeta: intakeMeta ?? {},
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to submit a support request.',
+    }
+  );
 
-  if (error || !data) {
-    throw new Error(error?.message || 'Unable to submit support request.');
+  if (!data?.supportRequest) {
+    throw new Error(data?.error || 'Unable to submit support request.');
   }
 
-  return data as SupportRequestRecord;
+  return data.supportRequest;
 };
 
 export const fetchSupportRequests = async (): Promise<SupportRequestRecord[]> => {

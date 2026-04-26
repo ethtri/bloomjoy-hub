@@ -1,10 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight, Loader2, Mail, KeyRound } from 'lucide-react';
+import {
+  ArrowRight,
+  ClipboardCheck,
+  GraduationCap,
+  Headset,
+  KeyRound,
+  Loader2,
+  Mail,
+  Package,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Layout } from '@/components/layout/Layout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { toast } from 'sonner';
 
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -44,6 +55,35 @@ declare global {
     };
   }
 }
+
+type OperatorHighlight = {
+  title: string;
+  description: string;
+  icon: LucideIcon;
+};
+
+const operatorHighlights: OperatorHighlight[] = [
+  {
+    title: 'Training library',
+    description: 'Start operator essentials, task-based guides, and progress-aware recommendations.',
+    icon: GraduationCap,
+  },
+  {
+    title: 'Onboarding milestones',
+    description: 'Track setup, first-spin readiness, and the steps that still need attention.',
+    icon: ClipboardCheck,
+  },
+  {
+    title: 'Support workflows',
+    description: 'Reach concierge support and parts help without digging through public sales pages.',
+    icon: Headset,
+  },
+  {
+    title: 'Orders and account',
+    description: 'Jump into reorders, order history, shipping details, and membership settings.',
+    icon: Package,
+  },
+];
 
 const GoogleMark = () => (
   <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24">
@@ -208,6 +248,8 @@ export default function LoginPage() {
   const location = useLocation();
   const fromPath =
     (location.state as { from?: { pathname?: string } })?.from?.pathname || '/portal';
+  const mainSiteUrl = getCanonicalUrlForSurface('marketing', '/', '', '', window.location);
+  const plusUrl = getCanonicalUrlForSurface('marketing', '/plus', '', '', window.location);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -461,23 +503,74 @@ export default function LoginPage() {
   };
 
   return (
-    <Layout>
-      <section className="section-padding">
+    <AppLayout>
+      <section className="portal-section">
         <div className="container-page">
-          <div className="mx-auto max-w-md">
-            <div className="text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-primary">
-                <Mail className="h-7 w-7 text-primary-foreground" />
+          <div className="grid gap-5 xl:grid-cols-[0.95fr,1.05fr]">
+            <div className="order-2 rounded-[28px] border border-border bg-gradient-to-br from-background via-background to-muted/40 p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-1">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground sm:h-14 sm:w-14">
+                <Mail className="h-6 w-6 sm:h-7 sm:w-7" />
               </div>
-              <h1 className="mt-6 font-display text-3xl font-bold text-foreground">
-                Sign in to your account
-              </h1>
-              <p className="mt-2 text-muted-foreground">
-                Choose password, Google, or email link sign-in.
+              <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                Operator access
               </p>
+              <h1 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-4xl">
+                Sign in to the Bloomjoy operator app
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+                Use password, Google, or email-link sign-in to reach orders, account details,
+                training, onboarding, and support without bouncing through the sales shell.
+              </p>
+
+              <div className="mt-6 space-y-2.5 sm:space-y-3">
+                {operatorHighlights.map((highlight) => {
+                  const HighlightIcon = highlight.icon;
+
+                  return (
+                    <div
+                      key={highlight.title}
+                      className="rounded-[22px] border border-border bg-background/90 p-4 shadow-[var(--shadow-sm)]"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                          <HighlightIcon className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h2 className="font-semibold text-foreground">{highlight.title}</h2>
+                          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                            {highlight.description}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-6 rounded-[22px] border border-border bg-background/90 p-4 shadow-[var(--shadow-sm)]">
+                <p className="text-sm text-muted-foreground">
+                  Need product details or public resources first?{' '}
+                  <a href={mainSiteUrl} className="font-medium text-primary hover:underline">
+                    Visit bloomjoyusa.com
+                  </a>
+                </p>
+              </div>
             </div>
 
-            <div className="mt-8 space-y-4">
+            <div className="order-1 rounded-[28px] border border-border bg-background p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Sign in
+                </p>
+                <h2 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-3xl">
+                  Choose the fastest way back in
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Password, Google, and email-link sign-in all route into the operator app.
+                </p>
+              </div>
+
+              <div className="mt-6 space-y-4">
               <div className="space-y-2">
                 {useGisRenderedButton ? (
                   <>
@@ -706,14 +799,15 @@ export default function LoginPage() {
 
               <p className="text-center text-sm text-muted-foreground">
                 Need premium training, onboarding, and support?{' '}
-                <a href="/plus" className="font-medium text-primary hover:underline">
+                <a href={plusUrl} className="font-medium text-primary hover:underline">
                   Learn about Plus
                 </a>
               </p>
             </div>
+            </div>
           </div>
         </div>
       </section>
-    </Layout>
+    </AppLayout>
   );
 }

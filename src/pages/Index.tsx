@@ -24,7 +24,7 @@ const productCards = [
     price: '$4,000',
     description: 'Portable at 1/5 the size. Most complex patterns supported. Manual stick feeding.',
     href: '/machines/mini',
-    badge: 'Coming Soon',
+    badge: 'Available Now',
     image: miniMain,
   },
   {
@@ -81,6 +81,10 @@ export default function HomePage() {
                 <img
                   src={landingHero}
                   alt="Bloomjoy Sweets Robotic Cotton Candy Machine"
+                  width={800}
+                  height={600}
+                  fetchpriority="high"
+                  decoding="async"
                   className="h-full w-full object-cover"
                 />
               </div>
@@ -105,12 +109,16 @@ export default function HomePage() {
               <Link
                 key={product.title}
                 to={product.href}
-                className="group card-elevated overflow-hidden transition-all hover:-translate-y-1"
+                className="group card-elevated overflow-hidden transition-[box-shadow,transform] duration-200 hover:-translate-y-1"
               >
                 <div className="aspect-square overflow-hidden bg-muted">
                   <img
                     src={product.image}
                     alt={product.title}
+                    width={520}
+                    height={520}
+                    loading="lazy"
+                    decoding="async"
                     className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105"
                   />
                 </div>
@@ -153,7 +161,7 @@ export default function HomePage() {
                 Premium Sugar, Engineered for Consistent Spins
               </h2>
               <p className="mt-3 text-muted-foreground">
-                Optimized granularity. Dust-free formula. Quality controlled for our robotic machines. Starting at $8/kg.
+                Optimized granularity. Dust-free formula. Quality controlled for our robotic machines. Public pricing starts at $10/kg, and Bloomjoy Plus members pay $8/kg.
               </p>
             </div>
             <Link to="/supplies">
