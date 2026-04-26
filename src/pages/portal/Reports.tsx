@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
   AlertTriangle,
-  CalendarDays,
   Download,
+  FileText,
   Info,
   Loader2,
   RefreshCw,
@@ -80,6 +80,10 @@ import { cn } from '@/lib/utils';
 type ReportingView = 'operator' | 'partner';
 type OperatorPeriodPreset = 'this_week' | 'last_week' | 'last_30_days' | 'month_to_date' | 'custom';
 type PartnerPeriodMode = 'weekly' | 'monthly';
+type PartnerMachineComparisonRow = {
+  current: PartnerDashboardMachinePeriod;
+  previous?: PartnerDashboardMachinePeriod;
+};
 
 const paymentMethods: PaymentMethod[] = ['cash', 'credit', 'other', 'unknown'];
 const paymentMethodLabels: Record<PaymentMethod, string> = {
@@ -91,15 +95,10 @@ const paymentMethodLabels: Record<PaymentMethod, string> = {
 
 const operatorChartConfig = {
   netSales: { label: 'Net sales', color: 'hsl(var(--primary))' },
-  grossSales: { label: 'Gross sales', color: 'hsl(var(--sage))' },
 } satisfies ChartConfig;
 
-const dollarsChartConfig = {
-  dollars: { label: 'Sales dollars', color: 'hsl(var(--sage))' },
-} satisfies ChartConfig;
-
-const volumeChartConfig = {
-  volume: { label: 'Volume', color: 'hsl(var(--primary))' },
+const partnerNetSalesChartConfig = {
+  netSales: { label: 'Net sales', color: 'hsl(var(--sage))' },
 } satisfies ChartConfig;
 
 const moneyFormatter = new Intl.NumberFormat(undefined, {
@@ -238,6 +237,14 @@ const formatMonth = (value: string) =>
 
 const formatDateRange = (start: string | undefined, end: string | undefined) =>
   start && end ? `${formatShortDate(start)} - ${formatShortDate(end)}` : 'No period selected';
+
+const formatPartnerPeriod = (
+  period: Pick<PartnerDashboardPeriod, 'periodStart' | 'periodEnd'>,
+  periodMode: PartnerPeriodMode
+) =>
+  periodMode === 'weekly'
+    ? formatDateRange(period.periodStart, period.periodEnd)
+    : formatMonth(period.periodStart);
 
 const formatDateTime = (value: string | null | undefined) =>
   value
@@ -461,7 +468,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
         .map((row) => ({
           period: row.label,
           netSales: row.netSalesCents / 100,
-          grossSales: row.grossSalesCents / 100,
         })),
     [reportRows]
   );
@@ -714,7 +720,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           <CardHeader>
             <CardTitle className="text-xl">Sales trend</CardTitle>
             <CardDescription>
-              Net and gross sales for the selected date grain.
+              Net sales for the selected date grain.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -729,8 +735,12 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                   <XAxis dataKey="period" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} width={56} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="netSales" fill="var(--color-netSales)" radius={[5, 5, 0, 0]} />
-                  <Bar dataKey="grossSales" fill="var(--color-grossSales)" radius={[5, 5, 0, 0]} />
+                  <Bar
+                    dataKey="netSales"
+                    fill="var(--color-netSales)"
+                    radius={[5, 5, 0, 0]}
+                    isAnimationActive={false}
+                  />
                 </BarChart>
               </ChartContainer>
             )}
@@ -883,7 +893,15 @@ function PartnerDashboardView() {
     [currentPeriod, preview, previousPeriod]
   );
 
-  const blockingWarnings = preview?.warnings.filter((warning) => warning.severity === 'blocking') ?? [];
+  const netSalesTrendData = useMemo(
+    () =>
+      sortedPeriods.map((period) => ({
+        period: formatPartnerPeriod(period, periodMode),
+        netSales: period.netSalesCents / 100,
+      })),
+    [periodMode, sortedPeriods]
+  );
+
   const trendLabel = periodMode === 'weekly' ? 'Weekly' : 'Monthly';
 
   const refreshPartnerDashboard = async () => {
@@ -891,6 +909,13 @@ function PartnerDashboardView() {
       queryClient.invalidateQueries({ queryKey: ['partner-dashboard-partnerships'] }),
       queryClient.invalidateQueries({ queryKey: ['partner-dashboard-period-preview'] }),
     ]);
+  };
+
+  const exportPartnerPdf = () => {
+    if (!preview) return;
+
+    toast.success('Opening branded partner report for PDF export.');
+    window.setTimeout(() => window.print(), 50);
   };
 
   if (partnershipsLoading) {
@@ -929,7 +954,8 @@ function PartnerDashboardView() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <>
+      <div className="flex flex-col gap-6 print:hidden">
       <Card>
         <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(220px,0.6fr)_1fr]">
@@ -979,14 +1005,24 @@ function PartnerDashboardView() {
             </div>
           </div>
 
-          <Button variant="outline" onClick={refreshPartnerDashboard} disabled={previewFetching}>
-            {previewFetching ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Refresh
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={refreshPartnerDashboard}
+              disabled={previewFetching}
+            >
+              {previewFetching ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Refresh
+            </Button>
+            <Button onClick={exportPartnerPdf} disabled={!preview || previewLoading}>
+              <FileText className="mr-2 h-4 w-4" />
+              Export PDF
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -1010,8 +1046,8 @@ function PartnerDashboardView() {
             preview={preview}
             currentPeriod={currentPeriod}
             previousPeriod={previousPeriod}
-            blockingWarningCount={blockingWarnings.length}
             trendLabel={trendLabel}
+            periodMode={periodMode}
           />
 
           {preview.warnings.length > 0 && (
@@ -1036,44 +1072,25 @@ function PartnerDashboardView() {
             </Alert>
           )}
 
-          <div className="grid min-w-0 gap-6 xl:grid-cols-2">
+          <div className="grid min-w-0 gap-6">
             <PartnerTrendCard
-              title="Sales dollars"
-              description={`${trendLabel} gross sales across the selected partnership.`}
-              data={sortedPeriods.map((period) => ({
-                period: periodMode === 'weekly' ? formatDateRange(period.periodStart, period.periodEnd) : formatMonth(period.periodStart),
-                dollars: period.grossSalesCents / 100,
-              }))}
-              config={dollarsChartConfig}
-              dataKey="dollars"
-              value={formatCurrency(currentPeriod?.grossSalesCents ?? 0)}
+              title="Net sales trend"
+              description={`${trendLabel} net sales across the selected partnership.`}
+              data={netSalesTrendData}
+              config={partnerNetSalesChartConfig}
+              dataKey="netSales"
+              value={formatCurrency(currentPeriod?.netSalesCents ?? 0)}
               change={formatPercentChange(
-                currentPeriod?.grossSalesCents ?? 0,
-                previousPeriod?.grossSalesCents ?? 0
+                currentPeriod?.netSalesCents ?? 0,
+                previousPeriod?.netSalesCents ?? 0
               )}
-              current={currentPeriod?.grossSalesCents ?? 0}
-              previous={previousPeriod?.grossSalesCents ?? 0}
-            />
-            <PartnerTrendCard
-              title="Volume"
-              description={`${trendLabel} sticks/items sold across assigned machines.`}
-              data={sortedPeriods.map((period) => ({
-                period: periodMode === 'weekly' ? formatDateRange(period.periodStart, period.periodEnd) : formatMonth(period.periodStart),
-                volume: periodVolume(period),
-              }))}
-              config={volumeChartConfig}
-              dataKey="volume"
-              value={numberFormatter.format(periodVolume(currentPeriod))}
-              change={formatPercentChange(
-                periodVolume(currentPeriod),
-                periodVolume(previousPeriod)
-              )}
-              current={periodVolume(currentPeriod)}
-              previous={periodVolume(previousPeriod)}
+              current={currentPeriod?.netSalesCents ?? 0}
+              previous={previousPeriod?.netSalesCents ?? 0}
+              valueFormatter={(value) => formatCurrency(Math.round(value * 100))}
             />
           </div>
 
-          <div className="grid min-w-0 gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+          <div className="grid min-w-0 gap-6">
             <Card className="min-w-0">
               <CardHeader>
                 <CardTitle className="text-xl">Machine rollups</CardTitle>
@@ -1096,7 +1113,7 @@ function PartnerDashboardView() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Machine</TableHead>
-                            <TableHead className="text-right">Sales dollars</TableHead>
+                            <TableHead className="text-right">Gross sales</TableHead>
                             <TableHead className="text-right">Volume</TableHead>
                             <TableHead className="text-right">Tax + fees</TableHead>
                             <TableHead className="text-right">Net sales</TableHead>
@@ -1122,7 +1139,7 @@ function PartnerDashboardView() {
                                 <TableCell className="text-right">
                                   <div>{numberFormatter.format(periodVolume(row.current))} items</div>
                                   <div className="text-xs text-muted-foreground">
-                                    {numberFormatter.format(row.current.orderCount)} orders
+                                    {numberFormatter.format(row.current.orderCount)} transactions
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-right">
@@ -1173,13 +1190,31 @@ function PartnerDashboardView() {
               </CardContent>
             </Card>
 
-            <PartnerCalculationCard summary={preview.summary} />
+            <PartnerCalculationCard
+              summary={currentPeriod ?? preview.summary}
+              periodLabel={
+                currentPeriod
+                  ? formatPartnerPeriod(currentPeriod, periodMode)
+                  : `${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`
+              }
+            />
           </div>
         </>
       ) : (
         <EmptyPanel title="Select a partnership" description="Choose an active partnership to load the partner dashboard preview." />
       )}
-    </div>
+      </div>
+      {preview && (
+        <PartnerPrintableReport
+          preview={preview}
+          periods={sortedPeriods}
+          machineRows={machineRows}
+          currentPeriod={currentPeriod}
+          previousPeriod={previousPeriod}
+          periodMode={periodMode}
+        />
+      )}
+    </>
   );
 }
 
@@ -1187,54 +1222,51 @@ function PartnerAnswerBand({
   preview,
   currentPeriod,
   previousPeriod,
-  blockingWarningCount,
   trendLabel,
+  periodMode,
 }: {
   preview: PartnerDashboardPeriodPreview;
   currentPeriod: PartnerDashboardPeriod | undefined;
   previousPeriod: PartnerDashboardPeriod | undefined;
-  blockingWarningCount: number;
   trendLabel: string;
+  periodMode: PartnerPeriodMode;
 }) {
-  const hasBlockingWarnings = blockingWarningCount > 0;
-  const TrendIcon = getTrendIcon(currentPeriod?.amountOwedCents ?? 0, previousPeriod?.amountOwedCents ?? 0);
+  const current = currentPeriod ?? preview.summary;
+  const previous = previousPeriod;
+  const periodLabel = currentPeriod
+    ? formatPartnerPeriod(currentPeriod, periodMode)
+    : `${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`;
+  const lowerTrendLabel = trendLabel.toLowerCase();
 
   return (
     <Card>
-      <CardContent className="grid gap-5 p-5 md:grid-cols-2 xl:grid-cols-4">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xl">Partner performance summary</CardTitle>
+        <CardDescription>
+          {preview.partnershipName} - {periodLabel} - {trendLabel} view
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-5 p-5 pt-0 md:grid-cols-2 xl:grid-cols-4">
         <AnswerItem
           label="Amount owed"
-          value={formatCurrency(currentPeriod?.amountOwedCents ?? preview.summary.amountOwedCents, true)}
-          detail="Due to partner for the current period"
+          value={formatCurrency(current.amountOwedCents, true)}
+          detail={`${formatPercentChange(current.amountOwedCents, previous?.amountOwedCents ?? 0)} vs previous ${lowerTrendLabel}`}
           emphasis
         />
         <AnswerItem
-          label="Period"
-          value={formatDateRange(currentPeriod?.periodStart, currentPeriod?.periodEnd)}
-          detail={`${trendLabel} view: ${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`}
-          icon={<CalendarDays className="h-5 w-5 text-muted-foreground" />}
+          label="Gross sales"
+          value={formatCurrency(current.grossSalesCents, true)}
+          detail={`${formatPercentChange(current.grossSalesCents, previous?.grossSalesCents ?? 0)} vs previous ${lowerTrendLabel}`}
         />
         <AnswerItem
-          label="Status"
-          value={hasBlockingWarnings ? 'Blocked' : 'Ready for review'}
-          detail={hasBlockingWarnings ? `${blockingWarningCount} blocking admin items` : 'No blocking admin warnings'}
-          badgeTone={hasBlockingWarnings ? 'destructive' : 'default'}
+          label="Transactions"
+          value={numberFormatter.format(current.orderCount)}
+          detail={`${numberFormatter.format(current.itemQuantity)} items sold`}
         />
         <AnswerItem
-          label="Movement"
-          value={formatPercentChange(
-            currentPeriod?.amountOwedCents ?? 0,
-            previousPeriod?.amountOwedCents ?? 0
-          )}
-          detail="Amount owed vs previous period"
-          icon={
-            <TrendIcon
-              className={cn(
-                'h-5 w-5',
-                getChangeTone(currentPeriod?.amountOwedCents ?? 0, previousPeriod?.amountOwedCents ?? 0)
-              )}
-            />
-          }
+          label="Net sales"
+          value={formatCurrency(current.netSalesCents, true)}
+          detail="After tax and configured fees"
         />
       </CardContent>
     </Card>
@@ -1251,6 +1283,7 @@ function PartnerTrendCard({
   change,
   current,
   previous,
+  valueFormatter,
 }: {
   title: string;
   description: string;
@@ -1261,8 +1294,10 @@ function PartnerTrendCard({
   change: string;
   current: number;
   previous: number;
+  valueFormatter?: (value: number) => string;
 }) {
   const TrendIcon = getTrendIcon(current, previous);
+  const hasVisibleValues = data.some((point) => Number(point[dataKey] ?? 0) > 0);
 
   return (
     <Card className="min-w-0">
@@ -1282,16 +1317,38 @@ function PartnerTrendCard({
         </div>
       </CardHeader>
       <CardContent>
-        {data.length === 0 ? (
+        {data.length === 0 || !hasVisibleValues ? (
           <EmptyPanel title="No trend data" description="This period has no imported partner sales yet." />
         ) : (
-          <ChartContainer config={config} className="h-[280px] w-full">
-            <BarChart data={data}>
+          <ChartContainer config={config} className="h-[320px] w-full">
+            <BarChart data={data} margin={{ left: 8, right: 8 }}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="period" tickLine={false} axisLine={false} />
-              <YAxis tickLine={false} axisLine={false} width={56} />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey={dataKey} fill={`var(--color-${dataKey})`} radius={[5, 5, 0, 0]} />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={64}
+                tickFormatter={(tick) =>
+                  valueFormatter ? valueFormatter(Number(tick)) : numberFormatter.format(Number(tick))
+                }
+              />
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    formatter={(tooltipValue) =>
+                      valueFormatter
+                        ? valueFormatter(Number(tooltipValue))
+                        : numberFormatter.format(Number(tooltipValue))
+                    }
+                  />
+                }
+              />
+              <Bar
+                dataKey={dataKey}
+                fill={`var(--color-${dataKey})`}
+                radius={[5, 5, 0, 0]}
+                isAnimationActive={false}
+              />
             </BarChart>
           </ChartContainer>
         )}
@@ -1300,13 +1357,274 @@ function PartnerTrendCard({
   );
 }
 
+function PartnerPrintableReport({
+  preview,
+  periods,
+  machineRows,
+  currentPeriod,
+  previousPeriod,
+  periodMode,
+}: {
+  preview: PartnerDashboardPeriodPreview;
+  periods: PartnerDashboardPeriod[];
+  machineRows: PartnerMachineComparisonRow[];
+  currentPeriod: PartnerDashboardPeriod | undefined;
+  previousPeriod: PartnerDashboardPeriod | undefined;
+  periodMode: PartnerPeriodMode;
+}) {
+  const current = currentPeriod ?? preview.summary;
+  const periodLabel = currentPeriod
+    ? formatPartnerPeriod(currentPeriod, periodMode)
+    : `${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`;
+  const generatedAt = new Date().toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  const modeLabel = periodMode === 'weekly' ? 'Weekly' : 'Monthly';
+
+  return (
+    <section className="hidden print:block">
+      <style>
+        {`
+          @media print {
+            body * {
+              visibility: hidden;
+            }
+
+            .partner-print-report,
+            .partner-print-report * {
+              visibility: visible;
+            }
+
+            .partner-print-report {
+              display: block !important;
+              position: absolute;
+              top: 0;
+              right: 0;
+              left: 0;
+              width: 100%;
+              margin: 0 auto;
+            }
+          }
+        `}
+      </style>
+      <div className="partner-print-report mx-auto flex max-w-[7.5in] flex-col gap-6 p-8 text-foreground">
+        <header className="flex items-start justify-between gap-6 border-b border-border pb-5">
+          <div>
+            <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Bloomjoy
+            </div>
+            <h1 className="mt-2 text-3xl font-semibold text-foreground">
+              Partner performance report
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {preview.partnershipName} - {periodLabel}
+            </p>
+          </div>
+          <div className="text-right text-sm text-muted-foreground">
+            <div className="font-medium text-foreground">{modeLabel} report</div>
+            <div>Generated {generatedAt}</div>
+            <div>
+              Data range {formatDate(preview.dateFrom)} - {formatDate(preview.dateTo)}
+            </div>
+          </div>
+        </header>
+
+        <section className="grid grid-cols-4 gap-3">
+          <PrintableMetric
+            label="Amount owed"
+            value={formatCurrency(current.amountOwedCents, true)}
+            detail={`${formatPercentChange(current.amountOwedCents, previousPeriod?.amountOwedCents ?? 0)} vs prior`}
+            emphasis
+          />
+          <PrintableMetric
+            label="Gross sales"
+            value={formatCurrency(current.grossSalesCents, true)}
+            detail={`${formatPercentChange(current.grossSalesCents, previousPeriod?.grossSalesCents ?? 0)} vs prior`}
+          />
+          <PrintableMetric
+            label="Net sales"
+            value={formatCurrency(current.netSalesCents, true)}
+            detail="After tax and fees"
+          />
+          <PrintableMetric
+            label="Transactions"
+            value={numberFormatter.format(current.orderCount)}
+            detail={`${numberFormatter.format(current.itemQuantity)} items sold`}
+          />
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">{modeLabel} sales trend</h2>
+            <p className="text-sm text-muted-foreground">
+              Net sales, gross sales, volume, and partner owed across the selected period.
+            </p>
+          </div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-muted-foreground">
+                <th className="py-2 pr-3 font-medium">Period</th>
+                <th className="px-3 py-2 text-right font-medium">Gross sales</th>
+                <th className="px-3 py-2 text-right font-medium">Net sales</th>
+                <th className="px-3 py-2 text-right font-medium">Transactions</th>
+                <th className="px-3 py-2 text-right font-medium">Items</th>
+                <th className="py-2 pl-3 text-right font-medium">Amount owed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {periods.map((period) => (
+                <tr key={period.periodStart} className="border-b border-border/60">
+                  <td className="py-2 pr-3 font-medium text-foreground">
+                    {formatPartnerPeriod(period, periodMode)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(period.grossSalesCents, true)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {formatCurrency(period.netSalesCents, true)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {numberFormatter.format(period.orderCount)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {numberFormatter.format(period.itemQuantity)}
+                  </td>
+                  <td className="py-2 pl-3 text-right font-medium text-foreground">
+                    {formatCurrency(period.amountOwedCents, true)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Machine rollup</h2>
+            <p className="text-sm text-muted-foreground">
+              Current {periodMode === 'weekly' ? 'week' : 'month'} performance by assigned machine.
+            </p>
+          </div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-muted-foreground">
+                <th className="py-2 pr-3 font-medium">Machine</th>
+                <th className="px-3 py-2 text-right font-medium">Gross sales</th>
+                <th className="px-3 py-2 text-right font-medium">Volume</th>
+                <th className="px-3 py-2 text-right font-medium">Net sales</th>
+                <th className="px-3 py-2 text-right font-medium">Amount owed</th>
+                <th className="py-2 pl-3 text-right font-medium">Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {machineRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-muted-foreground">
+                    No machine sales found for this period.
+                  </td>
+                </tr>
+              ) : (
+                machineRows.map((row) => (
+                  <tr key={row.current.reportingMachineId} className="border-b border-border/60">
+                    <td className="py-2 pr-3">
+                      <div className="font-medium text-foreground">{row.current.machineLabel}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.current.locationName ?? 'No location'}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(row.current.grossSalesCents, true)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div>{numberFormatter.format(periodVolume(row.current))} items</div>
+                      <div className="text-xs text-muted-foreground">
+                        {numberFormatter.format(row.current.orderCount)} transactions
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(row.current.netSalesCents, true)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium text-foreground">
+                      {formatCurrency(row.current.amountOwedCents, true)}
+                    </td>
+                    <td className="py-2 pl-3 text-right">
+                      <div>
+                        {formatPercentChange(
+                          row.current.grossSalesCents,
+                          row.previous?.grossSalesCents ?? 0
+                        )}{' '}
+                        sales
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatPercentChange(periodVolume(row.current), periodVolume(row.previous))}{' '}
+                        volume
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </section>
+
+        <section className="grid grid-cols-[1fr_1fr] gap-5 border-t border-border pt-5">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Calculation summary</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Gross sales minus tax, configured fees, and costs creates net sales and the split
+              base. The active partnership rule calculates the partner owed amount from that base.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 text-sm">
+            <CalculationLine label="Gross sales" value={formatCurrency(current.grossSalesCents, true)} />
+            <CalculationLine label="Tax impact" value={`-${formatCurrency(current.taxCents, true)}`} />
+            <CalculationLine label="Fees" value={`-${formatCurrency(current.feeCents, true)}`} />
+            <CalculationLine label="Costs" value={`-${formatCurrency(current.costCents, true)}`} />
+            <CalculationLine label="Net sales" value={formatCurrency(current.netSalesCents, true)} />
+            <CalculationLine
+              label="Amount owed"
+              value={formatCurrency(current.amountOwedCents, true)}
+              emphasis
+            />
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function PrintableMetric({
+  label,
+  value,
+  detail,
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className={cn('mt-2 text-xl font-semibold text-foreground', emphasis && 'text-sage')}>
+        {value}
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
+    </div>
+  );
+}
+
 function PartnerMachineMobileCard({
   row,
 }: {
-  row: {
-    current: PartnerDashboardMachinePeriod;
-    previous?: PartnerDashboardMachinePeriod;
-  };
+  row: PartnerMachineComparisonRow;
 }) {
   const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
 
@@ -1339,7 +1657,7 @@ function PartnerMachineMobileCard({
         <MobileProofItem
           label="Volume"
           value={`${numberFormatter.format(periodVolume(row.current))} items`}
-          detail={`${numberFormatter.format(row.current.orderCount)} orders`}
+          detail={`${numberFormatter.format(row.current.orderCount)} transactions`}
         />
         <MobileProofItem
           label="Amount owed"
@@ -1381,15 +1699,18 @@ function MobileProofItem({
   );
 }
 
-function PartnerCalculationCard({ summary }: { summary: PartnerDashboardTotals }) {
+function PartnerCalculationCard({
+  summary,
+  periodLabel,
+}: {
+  summary: PartnerDashboardTotals;
+  periodLabel: string;
+}) {
   return (
     <Card className="min-w-0">
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
-        <div>
-          <CardTitle className="text-xl">Calculation</CardTitle>
-          <CardDescription>Current selected range across the partnership.</CardDescription>
-        </div>
-        <Badge variant="outline">Preview</Badge>
+      <CardHeader>
+        <CardTitle className="text-xl">Calculation</CardTitle>
+        <CardDescription>{periodLabel} settlement calculation.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <CalculationLine label="Gross sales" value={formatCurrency(summary.grossSalesCents, true)} />
@@ -1423,7 +1744,7 @@ function buildPartnerMachineRows(
   preview: PartnerDashboardPeriodPreview | undefined,
   currentPeriod: PartnerDashboardPeriod | undefined,
   previousPeriod: PartnerDashboardPeriod | undefined
-) {
+): PartnerMachineComparisonRow[] {
   if (!preview || !currentPeriod) return [];
 
   const previousByMachine = new Map<string, PartnerDashboardMachinePeriod>();
