@@ -57,7 +57,7 @@
 - Follow-up `#174` should simplify machine mapping into a focused admin flow from `/admin/reporting`: admins should only need to confirm the canonical machine name, Sunze ID, machine type, and user access, with site/location grouping optional and able to contain multiple machines.
 - `Docs/SUNZE_SALES_DISCOVERY.md` records the validated Sunze routes, export headers, payment/status mappings, and remaining open questions without storing credentials or raw order data.
 - Google Sheets complaints/refunds ingestion is represented as a server-side adjustment sync stub plus a CSV import helper. Production Sheets API ingestion still depends on confirming the sheet columns and service-account setup.
-- Open overlap to watch: issue `#150` and PR `#151` cover the broader account/entitlement roadmap, while open PR `#143` contains older partner/operator account schema work that may overlap the new `customer_accounts` foundation.
+- Account/entitlement follow-up is tracked in issue `#150`; stale PR `#143` was closed instead of carrying forward older partner/operator schema work.
 
 ## Partner reporting PM roadmap (2026-04-25)
 - Corporate partner revenue-share reporting is the current P0 business milestone. Operator dashboards remain important, but they should wait until corporate partner reporting has a trusted review/download flow.
@@ -70,10 +70,7 @@
 - Next code slice should add auditable partner-report snapshot/run support with reporting period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and warning state.
 - The partner PDF should replace the current simple text-style sales export for this use case with a branded settlement artifact: cover/summary, machine-level rollups, formula assumptions, warning states, generated timestamp, and snapshot ID.
 - Parallel UX/CX track: issue `#172` should design the reporting tab experience where users see operator-style reporting for assigned machines by default, while partner dashboard views appear only when the user has explicit partner-dashboard permissions. V1 should default partner dashboard visibility to super-admins only.
-- Current PR sequencing recommendation:
-  1. Merge PR `#161` first because it hardens Sunze ingestion/source controls and production-aligned migrations/functions.
-  2. Sync and merge PR `#167` next because it improves `/admin/partnerships` setup UX and overlaps the partnership admin surface.
-  3. Treat PRs `#157` and `#151` as older docs that should be reconciled or superseded rather than merged unchanged.
+- Sequencing cleanup on `2026-04-26`: PRs `#161` and `#167` are merged, stale docs PRs `#157` and `#151` were closed as superseded, and stale go-live PR `#143` was closed as discarded. The next reporting slice should focus on the reviewed partner PDF milestone.
 
 ## Mini launch update (2026-04-09)
 - Mini is now live on the public site as a sales-led machine offer at `$4,000`.
@@ -138,7 +135,7 @@
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
   - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully
   - re-run the live `$0` order smoke test and confirm `wecom_alert_sent_at` populates in `public.orders`
-- Unblock and complete issue `#99` (dedicated Resend account for `bloomjoysweets.com`) so production auth and transactional email ownership can move off the currently blocked setup.
+- Keep Resend sender and internal-recipient secrets current for production email delivery; stale issue `#99` was closed on `2026-03-11`.
 
 ## Operator app surface split (2026-03-22)
 - Authenticated operator routes now have a dedicated application shell and canonical host instead of inheriting the public sales navbar/footer.
@@ -376,7 +373,7 @@ Execution order is based on launch risk and dependency overlap.
 
 ## Environments
 - Local: `npm run dev` on a PR branch/worktree
-- Production: `main` deployed to `www.bloomjoyusa.com` / `app.bloomjoyusa.com`; remaining commerce follow-up is limited to WeCom alert delivery policy and dedicated Resend ownership
+- Production: `main` deployed to `www.bloomjoyusa.com` / `app.bloomjoyusa.com`; remaining commerce follow-up is limited to WeCom alert delivery policy and keeping Resend sender/recipient secrets current
 
 ## How to test on localhost (simple steps)
 1) In the project folder, run `npm ci`

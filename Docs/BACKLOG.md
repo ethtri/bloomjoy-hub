@@ -126,9 +126,20 @@ Guidelines:
    - Add a focused mapping action from `/admin/reporting` for newly discovered Sunze machines.
    - Keep location/site grouping optional and support multiple machines at the same location.
    - Let admins assign reporting users during mapping, while keeping partner/tax setup as a separate advanced step.
+34. **Parts taxonomy integration for training + parts assistance** (`#127`)
+   - Normalize the internal machine parts taxonomy into a structured reference with numbered part IDs, English labels/aliases, and machine-area groupings.
+   - Use the taxonomy in training so maintenance and troubleshooting guides can point operators to the right assembly or part.
+   - Use the same taxonomy in the portal parts-assistance flow so inquiries capture machine model, assembly, part ID/name, symptom, and photos.
+   - Dependency: confirm the canonical English naming/translation set and decide whether taxonomy data lives in Supabase tables/seed data or versioned app config.
+
+## P2 - Training operations follow-ups
+35. **Training library English transcript rollout** (`#115`)
+   - Add English Vimeo text tracks for canonical MG320 training videos while preserving existing Chinese tracks.
+   - Exclude older duplicate uploads and focus transcript work on the newest canonical copy of each title.
+   - Dependency: OpenAI API key, local `ffmpeg`, and a human review pass for generated English VTT drafts before upload.
 
 ## P2 - Ops hardening follow-ups
-34. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
+36. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.
