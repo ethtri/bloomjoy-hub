@@ -11,6 +11,12 @@ on:
         description: 'Sunze date preset to export'
         required: false
         default: 'Last 3 Days'
+      date_from:
+        description: 'Custom start date, YYYY-MM-DD. Requires date_to.'
+        required: false
+      date_to:
+        description: 'Custom end date, YYYY-MM-DD. Requires date_from.'
+        required: false
       dry_run:
         description: 'Parse the export without sending rows to Supabase'
         required: false
@@ -34,6 +40,8 @@ jobs:
       REPORTING_INGEST_URL: ${{ secrets.REPORTING_INGEST_URL }}
       REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
       DATE_PRESET: ${{ inputs.date_preset || 'Last 3 Days' }}
+      DATE_FROM: ${{ inputs.date_from || '' }}
+      DATE_TO: ${{ inputs.date_to || '' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
       SUNZE_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
       SUNZE_SYNC_STALE_HOURS: '30'
@@ -63,6 +71,9 @@ jobs:
         shell: bash
         run: |
           args=(--date-preset "$DATE_PRESET")
+          if [[ -n "$DATE_FROM" || -n "$DATE_TO" ]]; then
+            args+=(--date-from "$DATE_FROM" --date-to "$DATE_TO")
+          fi
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
           fi

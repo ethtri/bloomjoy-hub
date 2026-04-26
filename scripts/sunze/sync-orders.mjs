@@ -45,6 +45,8 @@ const dryRun = hasFlag('--dry-run');
 const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
 const datePreset = getArg('--date-preset', 'Last 3 Days');
+const dateFrom = getArg('--date-from');
+const dateTo = getArg('--date-to');
 const downloadDirArg = getArg('--download-dir');
 const expectedVisibleMachineCount = process.env.SUNZE_EXPECTED_MACHINE_COUNT
   ? Number(process.env.SUNZE_EXPECTED_MACHINE_COUNT)
@@ -105,6 +107,26 @@ const addDays = (dateKey, days) => {
   const date = new Date(Date.UTC(year, month - 1, day + days));
   return date.toISOString().slice(0, 10);
 };
+
+const isDateKey = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''));
+
+if ((dateFrom && !dateTo) || (!dateFrom && dateTo)) {
+  throw new Error('Both --date-from and --date-to are required for a custom Sunze range.');
+}
+
+if (dateFrom && (!isDateKey(dateFrom) || !isDateKey(dateTo) || dateFrom > dateTo)) {
+  throw new Error('Custom Sunze range must use YYYY-MM-DD dates with --date-from <= --date-to.');
+}
+
+const expectedCustomWindow =
+  dateFrom && dateTo
+    ? {
+        uiWindowStart: dateFrom,
+        uiWindowEnd: dateTo,
+        uiWindowSource: 'requested_custom_range',
+        selectedPreset: 'Custom Range',
+      }
+    : null;
 
 const deriveWindowFromPreset = (preset) => {
   const normalizedPreset = String(preset ?? '').trim().toLowerCase();
@@ -289,7 +311,8 @@ const readOrdersUiSummary = async (page) => {
     .filter(Boolean);
   const visibleTexts = await collectVisibleTexts(page);
   const combinedText = [...visibleTexts, bodyText].join('\n');
-  const selectedWindow = extractSelectedWindow(visibleTexts) ?? deriveWindowFromPreset(datePreset);
+  const selectedWindow =
+    extractSelectedWindow(visibleTexts) ?? expectedCustomWindow ?? deriveWindowFromPreset(datePreset);
   const uiRevenueCandidatesCents = extractRevenueCandidatesCents(lines);
   const uiRevenueCents = uiRevenueCandidatesCents.length > 0 ? Math.max(...uiRevenueCandidatesCents) : null;
   const uiRecordCount = extractRecordCount(combinedText);
@@ -559,6 +582,31 @@ const selectDatePreset = async (page, preset) => {
   await page.waitForTimeout(1500);
 };
 
+const selectCustomDateRange = async (page, fromDate, toDate) => {
+  await page.getByText('Today').first().click();
+  await page.waitForTimeout(500);
+  await page.getByText('Custom Range', { exact: true }).click();
+  await page.waitForTimeout(500);
+
+  const pickerInputs = page
+    .locator('.ant-picker-dropdown input, [class*="picker-dropdown"] input, [class*="date"] input')
+    .filter({ visible: true });
+  const inputCount = await pickerInputs.count();
+
+  if (inputCount >= 2) {
+    await pickerInputs.nth(0).fill(fromDate);
+    await pickerInputs.nth(1).fill(toDate);
+  } else {
+    await page.keyboard.type(fromDate);
+    await page.keyboard.press('Tab');
+    await page.keyboard.type(toDate);
+  }
+
+  await page.keyboard.press('Enter');
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+};
+
 const exportOrdersWorkbook = async () => {
   const downloadRoot = downloadDirArg
     ? resolve(downloadDirArg)
@@ -574,7 +622,11 @@ const exportOrdersWorkbook = async () => {
 
   try {
     const baseUrl = await openOrdersPage(page);
-    await selectDatePreset(page, datePreset);
+    if (expectedCustomWindow) {
+      await selectCustomDateRange(page, dateFrom, dateTo);
+    } else {
+      await selectDatePreset(page, datePreset);
+    }
     const preExportUiSummary = await readOrdersUiSummary(page);
 
     const downloadPromise = page.waitForEvent('download');
@@ -655,8 +707,8 @@ try {
 
   const payload = {
     source: 'sunze_browser',
-    sourceReference: `sunze-orders:${datePreset}:${new Date().toISOString()}`,
-    datePreset,
+    sourceReference: `sunze-orders:${expectedCustomWindow ? `${dateFrom}:${dateTo}` : datePreset}:${new Date().toISOString()}`,
+    datePreset: expectedCustomWindow ? 'Custom Range' : datePreset,
     windowStart: summary.windowStart,
     windowEnd: summary.windowEnd,
     generatedAt: new Date().toISOString(),
@@ -667,7 +719,9 @@ try {
       githubWorkflow: process.env.GITHUB_WORKFLOW ?? null,
       githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
       parseFileMode: Boolean(parseFilePath),
-      datePreset,
+      datePreset: expectedCustomWindow ? 'Custom Range' : datePreset,
+      requestedWindowStart: dateFrom ?? null,
+      requestedWindowEnd: dateTo ?? null,
       selectedWindowStart: matchedUiSummary?.uiWindowStart ?? null,
       selectedWindowEnd: matchedUiSummary?.uiWindowEnd ?? null,
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
@@ -713,7 +767,7 @@ try {
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
       ignoredUnmappedMachineCount: ingestValidation?.ignoredUnmappedMachineCount ?? null,
       newlyPendingUnmappedMachineCount: ingestValidation?.newlyPendingUnmappedMachineCount ?? null,
-      datePreset,
+      datePreset: expectedCustomWindow ? 'Custom Range' : datePreset,
     });
   } else {
     const result = await postIngestPayload(payload);
