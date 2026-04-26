@@ -43,7 +43,6 @@
    - Sunze unmapped machine queue: `supabase/migrations/202604260003_sunze_unmapped_machine_queue.sql`
    - Reporting admin/partner foundation repair: `supabase/migrations/202604260004_reporting_admin_rpc_repair.sql`
    - Sunze enriched sales upsert repair: `supabase/migrations/202604260005_sunze_enriched_fact_upsert.sql`
-   - Reporting partnership participant remove RPC: `supabase/migrations/2026042600051_reporting_partnership_party_remove_rpc.sql`
    - Sunze order-hash idempotency repair: `supabase/migrations/202604260006_sunze_order_hash_index_repair.sql`
    - Partner dashboard period preview: `supabase/migrations/202604260007_partner_period_preview.sql`
    - Technician entitlement data model: `supabase/migrations/202604260008_technician_entitlements_data_model.sql`
@@ -55,6 +54,7 @@
    - Partner report CSV export storage: `supabase/migrations/202604260015_partner_report_csv_exports.sql`
    - Technician invite resolution: `supabase/migrations/202604260016_technician_invite_resolution.sql`
    - Partner dashboard amount owed repair: `supabase/migrations/202604260017_partner_dashboard_amount_owed_repair.sql`
+   - Reporting partnership participant remove RPC: `supabase/migrations/202604260018_reporting_partnership_party_remove_rpc.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
