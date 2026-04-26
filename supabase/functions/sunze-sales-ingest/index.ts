@@ -829,15 +829,17 @@ serve(async (req) => {
       throw new Error("Sunze import run was not created.");
     }
 
-    const [factRows, queuedRows] = await Promise.all([
+    const [, queuedRows] = await Promise.all([
       normalized.facts.length > 0 ? upsertSunzeFacts(normalized.facts) : Promise.resolve([]),
       upsertSunzeUnmappedSales(normalized.unmappedSales),
     ]);
+    const rowsImported = normalized.facts.length;
+    const rowsSkipped = normalized.unmappedSales.length;
 
     await finishRun(importRunId, {
       status: "completed",
-      rowsImported: factRows?.length ?? normalized.facts.length,
-      rowsSkipped: normalized.unmappedSales.length,
+      rowsImported,
+      rowsSkipped,
       meta: finalRunMeta,
     });
 
@@ -854,8 +856,8 @@ serve(async (req) => {
     return jsonResponse({
       importRunId,
       rowsSeen: rows.length,
-      rowsImported: factRows?.length ?? normalized.facts.length,
-      rowsSkipped: normalized.unmappedSales.length,
+      rowsImported,
+      rowsSkipped,
       rowsQuarantined: pendingUnmappedRows.length,
       rowsIgnored: ignoredUnmappedRows.length,
       unmappedRowsQueued: queuedRows?.length ?? normalized.unmappedSales.length,

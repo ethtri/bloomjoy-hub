@@ -71,7 +71,8 @@ No credentials, raw workbook files, order numbers, row-level customer/order valu
   - `Last Month`
   - `Last 3 Months`
   - `Custom Range`
-- `Last 3 Days` was validated as a safe daily catch-up preset. In the live probe on April 25, 2026, it selected April 22, 2026 through April 24, 2026.
+- `Last 7 Days` is the daily catch-up preset so each run has rolling overlap for missed or late rows. `Last Month` is the monthly safety-sweep preset for historical gaps.
+- `Custom Range` is not approved for automated backfills because manual testing produced corrupted workbook downloads. Use validated presets such as `Last 7 Days`, `Last Month`, or `Last 3 Months`, and verify parsed dates before ingesting.
 - The page displays filtered totals:
   - `Revenue`
   - `Volume`
@@ -149,7 +150,7 @@ Important metric notes:
 2. The worker launches an isolated Chromium context with downloads enabled.
 3. It logs in with the Bloomjoy-owned service account.
 4. It navigates directly to `#/orderCenter`.
-5. It selects the safe `Last 3 Days` preset.
+5. It selects the safe `Last 7 Days` daily preset, or `Last Month` for the monthly catch-up schedule.
 6. It keeps the machine selector on `All Machines`.
 7. It downloads the Orders `.xlsx` export.
 8. It validates the workbook sheet and exact headers.

@@ -44,8 +44,22 @@ await loadEnvFile(resolve(process.cwd(), '.env'));
 const dryRun = hasFlag('--dry-run');
 const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
-const datePreset = getArg('--date-preset', 'Last 3 Days');
+const datePreset = getArg('--date-preset', 'Last 7 Days');
 const downloadDirArg = getArg('--download-dir');
+const summaryMachineCodesArg =
+  getArg('--summary-machine-codes') || process.env.SUNZE_SUMMARY_MACHINE_CODES || '';
+const ingestChunkSize = Math.min(
+  10000,
+  Math.max(1, Number(process.env.SUNZE_INGEST_CHUNK_SIZE || 10000))
+);
+const supportedDatePresets = new Set([
+  'Today',
+  'Yesterday',
+  'Last 3 Days',
+  'Last 7 Days',
+  'Last Month',
+  'Last 3 Months',
+]);
 const expectedVisibleMachineCount = process.env.SUNZE_EXPECTED_MACHINE_COUNT
   ? Number(process.env.SUNZE_EXPECTED_MACHINE_COUNT)
   : null;
@@ -106,6 +120,12 @@ const addDays = (dateKey, days) => {
   return date.toISOString().slice(0, 10);
 };
 
+if (!supportedDatePresets.has(datePreset)) {
+  throw new Error(
+    `Unsupported Sunze date preset: ${datePreset}. Supported presets: ${[...supportedDatePresets].join(', ')}. Sunze Custom Range exports are not used because they have produced corrupted workbooks.`
+  );
+}
+
 const deriveWindowFromPreset = (preset) => {
   const normalizedPreset = String(preset ?? '').trim().toLowerCase();
   const today = getLocalDateKey();
@@ -140,6 +160,24 @@ const deriveWindowFromPreset = (preset) => {
         selectedPreset: preset,
       };
     }
+  }
+
+  if (normalizedPreset === 'last month') {
+    return {
+      uiWindowStart: addDays(today, -62),
+      uiWindowEnd: today,
+      uiWindowSource: 'preset_guardrail',
+      selectedPreset: preset,
+    };
+  }
+
+  if (normalizedPreset === 'last 3 months') {
+    return {
+      uiWindowStart: addDays(today, -124),
+      uiWindowEnd: today,
+      uiWindowSource: 'preset_guardrail',
+      selectedPreset: preset,
+    };
   }
 
   return null;
@@ -374,6 +412,38 @@ const extractMachineCodesFromText = (text) => {
   }
 
   return [...codes].sort();
+};
+
+const summaryMachineCodes = [
+  ...new Set(
+    summaryMachineCodesArg
+      .split(',')
+      .map(sanitizeMachineCode)
+      .filter(Boolean)
+  ),
+].sort();
+
+const summarizeRowsByDate = (rows, machineCodes = []) => {
+  const summaryMachineCodeSet = new Set(machineCodes);
+  const byDate = new Map();
+
+  for (const row of rows) {
+    if (!byDate.has(row.saleDate)) {
+      byDate.set(row.saleDate, {
+        date: row.saleDate,
+        rowCount: 0,
+        machineCounts: Object.fromEntries(machineCodes.map((machineCode) => [machineCode, 0])),
+      });
+    }
+
+    const dateSummary = byDate.get(row.saleDate);
+    dateSummary.rowCount += 1;
+    if (summaryMachineCodeSet.has(row.machineCode)) {
+      dateSummary.machineCounts[row.machineCode] += 1;
+    }
+  }
+
+  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
 };
 
 const clickNextMachineListPage = async (page) =>
@@ -631,23 +701,143 @@ const postIngestPayload = async (payload) => {
   return responseBody;
 };
 
+const chunkArray = (values, chunkSize) => {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
+};
+
+const sumField = (responses, fieldName) =>
+  responses.reduce((total, response) => {
+    const value = response?.[fieldName];
+    return total + (Number.isFinite(value) ? value : 0);
+  }, 0);
+
+const maxField = (responses, fieldName) => {
+  const values = responses
+    .map((response) => response?.[fieldName])
+    .filter((value) => Number.isFinite(value));
+  return values.length > 0 ? Math.max(...values) : null;
+};
+
+const postIngestPayloadInChunks = async (payload) => {
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const chunks = rows.length > 0 ? chunkArray(rows, ingestChunkSize) : [[]];
+  const responses = [];
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunkRows = chunks[index];
+    const chunkNumber = index + 1;
+    const response = await postIngestPayload({
+      ...payload,
+      sourceReference:
+        chunks.length > 1
+          ? `${payload.sourceReference}:chunk-${chunkNumber}-of-${chunks.length}`
+          : payload.sourceReference,
+      rows: chunkRows,
+      meta: {
+        ...payload.meta,
+        chunkIndex: chunks.length > 1 ? chunkNumber : null,
+        chunkCount: chunks.length,
+        chunkRowCount: chunkRows.length,
+      },
+    });
+    responses.push(response);
+  }
+
+  if (responses.length === 1) {
+    return {
+      ...responses[0],
+      chunkCount: 1,
+      ingestChunkSize,
+      importRunIds: responses[0]?.importRunId ? [responses[0].importRunId] : [],
+    };
+  }
+
+  return {
+    ok: responses.every((response) => response?.ok !== false),
+    dryRun: payload.dryRun === true,
+    chunkCount: responses.length,
+    ingestChunkSize,
+    importRunIds: responses.map((response) => response?.importRunId).filter(Boolean),
+    rowsSeen: sumField(responses, 'rowsSeen'),
+    rowsValidated: sumField(responses, 'rowsValidated'),
+    rowsImported: sumField(responses, 'rowsImported'),
+    rowsSkipped: sumField(responses, 'rowsSkipped'),
+    rowsQuarantined: sumField(responses, 'rowsQuarantined'),
+    rowsIgnored: sumField(responses, 'rowsIgnored'),
+    unmappedRowsQueued: sumField(responses, 'unmappedRowsQueued'),
+    pendingUnmappedMachineCount: maxField(responses, 'pendingUnmappedMachineCount'),
+    ignoredUnmappedMachineCount: maxField(responses, 'ignoredUnmappedMachineCount'),
+    newlyPendingUnmappedMachineCount: maxField(responses, 'newlyPendingUnmappedMachineCount'),
+  };
+};
+
+const cleanupExportSource = async (source) => {
+  if (!source?.cleanupPath) return;
+
+  await rm(source.cleanupPath, {
+    recursive: source.cleanupMode === 'directory',
+    force: true,
+  });
+};
+
+const isRetryableWorkbookError = (error) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return (
+    /Sheet "Order" not found/i.test(message) ||
+    /end of central directory|invalid zip|corrupt|unexpected end/i.test(message)
+  );
+};
+
+const loadOrdersSource = async () => {
+  if (parseFilePath) {
+    const source = {
+      filePath: resolve(parseFilePath),
+      uiSummaries: [],
+      visibleSunzeMachineCodes: [],
+      cleanupPath: null,
+      cleanupMode: null,
+    };
+    return {
+      source,
+      rows: await parseSunzeOrderWorkbook(source.filePath),
+    };
+  }
+
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const source = await exportOrdersWorkbook();
+    try {
+      return {
+        source,
+        rows: await parseSunzeOrderWorkbook(source.filePath),
+      };
+    } catch (error) {
+      await cleanupExportSource(source);
+      if (attempt >= maxAttempts || !isRetryableWorkbookError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        `Sunze workbook parse failed after export attempt ${attempt}/${maxAttempts}; retrying export. ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  throw new Error('Unable to export and parse Sunze Orders workbook.');
+};
+
 let cleanupTarget = null;
 
 try {
-  const source = parseFilePath
-    ? {
-        filePath: resolve(parseFilePath),
-        uiSummaries: [],
-        visibleSunzeMachineCodes: [],
-        cleanupPath: null,
-        cleanupMode: null,
-      }
-    : await exportOrdersWorkbook();
+  const { source, rows } = await loadOrdersSource();
 
   cleanupTarget = source.cleanupPath
     ? { path: source.cleanupPath, mode: source.cleanupMode }
     : null;
-  const rows = await parseSunzeOrderWorkbook(source.filePath);
   const summary = summarizeSunzeOrderRows(rows);
 
   const matchedUiSummary =
@@ -688,7 +878,7 @@ try {
   if (dryRun) {
     const shouldValidateIngest = Boolean(ingestUrl || ingestToken || process.env.GITHUB_ACTIONS === 'true');
     const ingestValidation = shouldValidateIngest
-      ? await postIngestPayload({ ...payload, dryRun: true })
+      ? await postIngestPayloadInChunks({ ...payload, dryRun: true })
       : null;
 
     jsonLog({
@@ -698,6 +888,8 @@ try {
       rowsValidated: ingestValidation?.rowsValidated ?? null,
       rowsQuarantined: ingestValidation?.rowsQuarantined ?? null,
       rowsIgnored: ingestValidation?.rowsIgnored ?? null,
+      ingestChunkCount: ingestValidation?.chunkCount ?? null,
+      ingestChunkSize: ingestValidation?.ingestChunkSize ?? null,
       rowsParsed: summary.rowCount,
       machineCount: summary.machineCount,
       orderAmountCents: summary.orderAmountCents,
@@ -710,13 +902,14 @@ try {
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
       visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
+      rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
       ignoredUnmappedMachineCount: ingestValidation?.ignoredUnmappedMachineCount ?? null,
       newlyPendingUnmappedMachineCount: ingestValidation?.newlyPendingUnmappedMachineCount ?? null,
       datePreset,
     });
   } else {
-    const result = await postIngestPayload(payload);
+    const result = await postIngestPayloadInChunks(payload);
     jsonLog({
       ok: true,
       rowsParsed: summary.rowCount,
@@ -729,7 +922,11 @@ try {
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
-      importRunId: result.importRunId ?? null,
+      rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
+      importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
+      importRunIds: result.importRunIds ?? null,
+      ingestChunkCount: result.chunkCount ?? null,
+      ingestChunkSize: result.ingestChunkSize ?? null,
       rowsImported: result.rowsImported ?? null,
       rowsSkipped: result.rowsSkipped ?? null,
       rowsQuarantined: result.rowsQuarantined ?? null,
@@ -739,9 +936,9 @@ try {
   }
 } finally {
   if (cleanupTarget) {
-    await rm(cleanupTarget.path, {
-      recursive: cleanupTarget.mode === 'directory',
-      force: true,
+    await cleanupExportSource({
+      cleanupPath: cleanupTarget.path,
+      cleanupMode: cleanupTarget.mode,
     });
   }
 }

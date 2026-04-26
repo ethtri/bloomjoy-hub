@@ -2455,9 +2455,9 @@ function WeeklyPreviewSection({
               <div className="p-5 text-sm">
                 <div className="font-medium text-foreground">No sales found for this selected week.</div>
                 <div className="mt-1 text-muted-foreground">
-                  Preview checked {preview.weekStartDate} through {preview.weekEndingDate}. Sales only
-                  appear when imported Sunze sales, active machine assignments, and active payout rules
-                  overlap the selected dates.
+                  Preview checked {preview.weekStartDate} through {preview.weekEndingDate}. Sales appear
+                  when imported Sunze sales and active machine assignments overlap the selected dates;
+                  payout rules control whether payout amounts can be calculated.
                 </div>
                 <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
                   <div className="rounded-md border border-border bg-muted/20 p-3">

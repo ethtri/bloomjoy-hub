@@ -71,6 +71,11 @@ Use these after the sales reporting migration has been applied.
    - `npm run reporting:validate-sunze-parser`
 5) Dry-run the Sunze browser export locally:
    - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
+   - Historical backfill dry run with a supported Sunze preset:
+     `npm run reporting:sunze-sync -- --env-file path/to/local.env --date-preset "Last Month" --dry-run`
+   - Add `--summary-machine-codes <comma-separated-sunze-ids>` when you need date-level counts for specific machines without logging raw order rows.
+   - Do not use Sunze `Custom Range` for automated backfills; it has produced corrupted workbooks. Use `Last 7 Days`, `Last Month`, or `Last 3 Months`, then verify the parsed `windowStart`/`windowEnd` before running without `--dry-run`.
+   - Large exports are posted to ingest in chunks so historical presets stay below the locked endpoint row limit.
    - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.
 6) Run the Sunze import freshness check without touching Sunze:
    - `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30`
@@ -87,7 +92,7 @@ Notes:
 - `sunze-sales-ingest` requires `REPORTING_INGEST_TOKEN` and `REPORTING_ROW_HASH_SALT` as Supabase function secrets. The GitHub worker receives only `REPORTING_INGEST_TOKEN`, never the Supabase service-role key.
 - GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
 - Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
-- Sunze sync controls use optional `SUNZE_EXPECTED_MACHINE_COUNT`, `SUNZE_SYNC_STALE_HOURS=30`, and `SUNZE_REPORTING_TIMEZONE=America/Los_Angeles` by default. The daily sync workflow performs a post-import freshness check, and the separate Sunze health workflow checks again later for missed/stale imports. Set the expected count only after confirming how many machines the workflow Sunze account exposes in the top-level Machine Center; new visible machines are placed in the `/admin/reporting` mapping queue instead of blocking already mapped sales.
+- Sunze sync controls use optional `SUNZE_EXPECTED_MACHINE_COUNT`, `SUNZE_SYNC_STALE_HOURS=30`, and `SUNZE_REPORTING_TIMEZONE=America/Los_Angeles` by default. The scheduled sync workflow uses `Last 7 Days` daily for rolling overlap and `Last Month` monthly as a safety sweep, then performs a post-import freshness check. The separate Sunze health workflow checks again later for missed/stale imports. Set the expected count only after confirming how many machines the workflow Sunze account exposes in the top-level Machine Center; new visible machines are placed in the `/admin/reporting` mapping queue instead of blocking already mapped sales.
 - Admins map newly discovered Sunze IDs from `/admin/reporting`; the current PR flow pre-fills the broader `/admin/partnerships` machine form. Pending rows for unmapped machines are quarantined in normalized form and replayed into `machine_sales_facts` after the Sunze ID is mapped to a canonical reporting machine. Follow-up `#174` tracks a simpler machine-first mapping flow so new Sunze machines do not become recurring engineering blockers.
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
