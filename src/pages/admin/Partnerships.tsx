@@ -60,25 +60,19 @@ import {
 } from '@/lib/partnershipReporting';
 import {
   basisPointsFromPercent,
-  calculationModels,
   centsFromDollars,
-  costBases,
   dayNames,
-  deductionTimings,
   dollarsFromCents,
-  feeBases,
   formatDate,
   formatLabel,
   formatMoney,
   getActiveMachineAssignments,
   getLastCompletedWeekEndingDate,
-  grossToNetMethods,
   participantRoles,
   partnerTypes,
   partnershipStatuses,
   partnershipTypes,
   percentFromBasisPoints,
-  splitBases,
   today,
 } from '@/pages/admin/reportingSetupUi';
 
@@ -158,7 +152,7 @@ const emptyRuleForm = {
   calculationModel: 'net_split',
   splitBase: 'net_sales',
   feeAmountDollars: '0.40',
-  feeBasis: 'per_order',
+  feeBasis: 'per_stick',
   costAmountDollars: '0.00',
   costBasis: 'none',
   deductionTiming: 'before_split',
@@ -176,17 +170,12 @@ const payoutModelPresets = [
   {
     value: 'net_after_tax_fee',
     label: 'Net sales split',
-    description: 'Taxes and the paid-order fee are deducted before splitting payout.',
+    description: 'Machine tax and the per-stick fee are deducted before splitting payout.',
   },
   {
     value: 'gross_sales_split',
     label: 'Gross sales split',
     description: 'Payout share is calculated from gross sales before deductions.',
-  },
-  {
-    value: 'fixed_fee_plus_split',
-    label: 'Fixed fee plus split',
-    description: 'A paid-order fee is applied, then the remaining amount is split.',
   },
   {
     value: 'internal_only',
@@ -196,15 +185,14 @@ const payoutModelPresets = [
   {
     value: 'custom',
     label: 'Custom',
-    description: 'Advanced fields differ from the standard presets.',
+    description: 'Use only when this agreement needs a nonstandard reporting calculation.',
   },
 ] as const;
 
 type PayoutModelPreset = (typeof payoutModelPresets)[number]['value'];
 type PayoutShareField = 'primarySharePercent' | 'partnerSharePercent' | 'bloomjoySharePercent';
 
-type AllocationPreset = {
-  label: string;
+type AllocationShares = {
   primarySharePercent: string;
   partnerSharePercent: string;
   bloomjoySharePercent: string;
@@ -260,76 +248,32 @@ const getPayoutAllocationTotal = (form: typeof emptyRuleForm, participantCount: 
   );
 };
 
-const getAllocationPresets = (participantCount: number): AllocationPreset[] => {
+const getDefaultAllocationShares = (participantCount: number): AllocationShares => {
   if (participantCount >= 2) {
-    return [
-      {
-        label: '60 / 40 / 0',
-        primarySharePercent: '60',
-        partnerSharePercent: '40',
-        bloomjoySharePercent: '0',
-      },
-      {
-        label: '50 / 50 / 0',
-        primarySharePercent: '50',
-        partnerSharePercent: '50',
-        bloomjoySharePercent: '0',
-      },
-      {
-        label: '45 / 45 / 10',
-        primarySharePercent: '45',
-        partnerSharePercent: '45',
-        bloomjoySharePercent: '10',
-      },
-      {
-        label: '33 / 33 / 34',
-        primarySharePercent: '33',
-        partnerSharePercent: '33',
-        bloomjoySharePercent: '34',
-      },
-    ];
+    return {
+      primarySharePercent: '60',
+      partnerSharePercent: '40',
+      bloomjoySharePercent: '0',
+    };
   }
 
   if (participantCount === 1) {
-    return [
-      {
-        label: '100 / 0',
-        primarySharePercent: '100',
-        partnerSharePercent: '0',
-        bloomjoySharePercent: '0',
-      },
-      {
-        label: '90 / 10',
-        primarySharePercent: '90',
-        partnerSharePercent: '0',
-        bloomjoySharePercent: '10',
-      },
-      {
-        label: '60 / 40',
-        primarySharePercent: '60',
-        partnerSharePercent: '0',
-        bloomjoySharePercent: '40',
-      },
-    ];
+    return {
+      primarySharePercent: '100',
+      partnerSharePercent: '0',
+      bloomjoySharePercent: '0',
+    };
   }
 
-  return [
-    {
-      label: '100% Bloomjoy',
-      primarySharePercent: '0',
-      partnerSharePercent: '0',
-      bloomjoySharePercent: '100',
-    },
-  ];
+  return {
+    primarySharePercent: '0',
+    partnerSharePercent: '0',
+    bloomjoySharePercent: '100',
+  };
 };
 
 const createRuleForm = (partnershipId: string, payoutRecipientCount: number) => {
-  const defaultPreset = getAllocationPresets(payoutRecipientCount)[0];
-  const defaultShares = {
-    primarySharePercent: defaultPreset.primarySharePercent,
-    partnerSharePercent: defaultPreset.partnerSharePercent,
-    bloomjoySharePercent: defaultPreset.bloomjoySharePercent,
-  };
+  const defaultShares = getDefaultAllocationShares(payoutRecipientCount);
 
   return {
     ...emptyRuleForm,
@@ -352,7 +296,6 @@ const getPayoutModelPreset = (form: typeof emptyRuleForm): PayoutModelPreset => 
   if (form.calculationModel === 'gross_split' && form.splitBase === 'gross_sales') {
     return 'gross_sales_split';
   }
-  if (form.calculationModel === 'fixed_fee_plus_split') return 'fixed_fee_plus_split';
   if (
     form.calculationModel === 'net_split' &&
     form.splitBase === 'net_sales' &&
@@ -380,17 +323,6 @@ const applyPayoutModelPreset = (
     };
   }
 
-  if (preset === 'fixed_fee_plus_split') {
-    return {
-      ...form,
-      calculationModel: 'fixed_fee_plus_split',
-      splitBase: 'net_sales',
-      feeBasis: 'per_order',
-      grossToNetMethod: 'machine_tax_plus_configured_fees',
-      deductionTiming: 'before_split',
-    };
-  }
-
   if (preset === 'internal_only') {
     return {
       ...form,
@@ -414,7 +346,7 @@ const applyPayoutModelPreset = (
     ...form,
     calculationModel: 'net_split',
     splitBase: 'net_sales',
-    feeBasis: 'per_order',
+    feeBasis: 'per_stick',
     grossToNetMethod: 'machine_tax_plus_configured_fees',
     deductionTiming: 'before_split',
   };
@@ -1691,11 +1623,11 @@ function FinancialTermsSection({
     setForm((current) => applyPayoutModelPreset(current, preset));
   };
 
-  const updatePaidOrderFee = (feeAmountDollars: string) => {
+  const updatePerStickFee = (feeAmountDollars: string) => {
     setForm((current) => ({
       ...current,
       feeAmountDollars,
-      feeBasis: Number(feeAmountDollars) > 0 ? 'per_order' : 'none',
+      feeBasis: Number(feeAmountDollars) > 0 ? 'per_stick' : 'none',
     }));
   };
 
@@ -1703,15 +1635,6 @@ function FinancialTermsSection({
     setForm((current) => ({
       ...current,
       [field]: sanitizeWholePercentInput(value),
-    }));
-  };
-
-  const applyAllocationPreset = (preset: AllocationPreset) => {
-    setForm((current) => ({
-      ...current,
-      primarySharePercent: preset.primarySharePercent,
-      partnerSharePercent: preset.partnerSharePercent,
-      bloomjoySharePercent: preset.bloomjoySharePercent,
     }));
   };
 
@@ -1768,7 +1691,7 @@ function FinancialTermsSection({
             <FieldLabel
               htmlFor="payout-model-preset"
               label="Payout model"
-              help="Choose the plain-language setup that best matches this agreement. Advanced keeps the underlying reporting fields available when needed."
+              help="Choose how weekly sales are converted into the amount that gets split."
             />
             <select
               id="payout-model-preset"
@@ -1789,15 +1712,15 @@ function FinancialTermsSection({
           <div>
             <FieldLabel
               htmlFor="fee-amount"
-              label="Paid-order fee"
-              help="A per paid-order fee deducted before the split in the standard net-sales payout model. Set to 0 when the agreement has no per-order fee."
+              label="Per-stick fee"
+              help="The standard Bubble Planet-style fee is $0.40 per stick/item, deducted before the split. Set to 0 when the agreement has no stick-level fee."
             />
             <Input
               id="fee-amount"
               type="number"
               step="0.01"
               value={form.feeAmountDollars}
-              onChange={(event) => updatePaidOrderFee(event.target.value)}
+              onChange={(event) => updatePerStickFee(event.target.value)}
             />
           </div>
         </div>
@@ -1808,106 +1731,17 @@ function FinancialTermsSection({
           additionalPayoutParticipants={additionalPayoutParticipants}
           allocationTotal={allocationTotal}
           onShareChange={updateSharePercent}
-          onApplyPreset={applyAllocationPreset}
         />
 
         <details className="mt-4 rounded-md border border-border p-4">
           <summary className="cursor-pointer text-sm font-medium text-foreground">
-            Advanced reporting assumptions
+            Rule timing and notes
           </summary>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Most agreements do not need changes here. The payout model above controls the tax, fee,
+            and split calculation.
+          </p>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <div>
-              <FieldLabel
-                htmlFor="calculation-model"
-                label="Calculation model"
-                help="The backend calculation mode used by reporting. Most admins should choose the payout model preset instead."
-              />
-              <FieldSelect
-                id="calculation-model"
-                value={form.calculationModel}
-                onChange={(calculationModel) => setForm({ ...form, calculationModel })}
-                options={calculationModels}
-              />
-            </div>
-            <div>
-              <FieldLabel
-                htmlFor="split-base"
-                label="Split base"
-                help="The amount the payout percentages apply to, such as gross sales, net sales, or contribution after costs."
-              />
-              <FieldSelect
-                id="split-base"
-                value={form.splitBase}
-                onChange={(splitBase) => setForm({ ...form, splitBase })}
-                options={splitBases}
-              />
-            </div>
-            <div>
-              <FieldLabel
-                htmlFor="gross-to-net-method"
-                label="Gross-to-net method"
-                help="Controls which tax and fee inputs are removed from gross sales before calculating net sales."
-              />
-              <FieldSelect
-                id="gross-to-net-method"
-                value={form.grossToNetMethod}
-                onChange={(grossToNetMethod) => setForm({ ...form, grossToNetMethod })}
-                options={grossToNetMethods}
-              />
-            </div>
-            <div>
-              <FieldLabel
-                htmlFor="fee-basis"
-                label="Fee basis"
-                help="Controls whether the configured fee is applied per order, per stick, per transaction, or not at all."
-              />
-              <FieldSelect
-                id="fee-basis"
-                value={form.feeBasis}
-                onChange={(feeBasis) => setForm({ ...form, feeBasis })}
-                options={feeBases}
-              />
-            </div>
-            <div>
-              <FieldLabel
-                htmlFor="deduction-timing"
-                label="Cost deduction timing"
-                help="Controls whether additional costs are removed before the split, after the split, or only shown in reporting."
-              />
-              <FieldSelect
-                id="deduction-timing"
-                value={form.deductionTiming}
-                onChange={(deductionTiming) => setForm({ ...form, deductionTiming })}
-                options={deductionTimings}
-              />
-            </div>
-            <div>
-              <FieldLabel
-                htmlFor="cost-amount"
-                label="Cost amount"
-                help="Optional cost value used when the agreement has a separate cost basis in addition to fees."
-              />
-              <Input
-                id="cost-amount"
-                type="number"
-                step="0.01"
-                value={form.costAmountDollars}
-                onChange={(event) => setForm({ ...form, costAmountDollars: event.target.value })}
-              />
-            </div>
-            <div>
-              <FieldLabel
-                htmlFor="cost-basis"
-                label="Cost basis"
-                help="Controls how the cost amount is applied. Leave as none when there is no additional cost model."
-              />
-              <FieldSelect
-                id="cost-basis"
-                value={form.costBasis}
-                onChange={(costBasis) => setForm({ ...form, costBasis })}
-                options={costBases}
-              />
-            </div>
             <DateWindowFields
               startId="rule-start"
               endId="rule-end"
@@ -1933,6 +1767,11 @@ function FinancialTermsSection({
                 onChange={(event) => setForm({ ...form, notes: event.target.value })}
                 placeholder="Optional"
               />
+            </div>
+            <div className="lg:col-span-2 rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Reporting calculation:</span>{' '}
+              {formatLabel(form.calculationModel)} / {formatLabel(form.splitBase)} /{' '}
+              {formatLabel(form.feeBasis)} / {formatLabel(form.grossToNetMethod)}
             </div>
           </div>
         </details>
@@ -1990,14 +1829,12 @@ function PayoutAllocationSection({
   additionalPayoutParticipants,
   allocationTotal,
   onShareChange,
-  onApplyPreset,
 }: {
   form: typeof emptyRuleForm;
   payoutParticipants: ReportingPartnershipParty[];
   additionalPayoutParticipants: ReportingPartnershipParty[];
   allocationTotal: number;
   onShareChange: (field: PayoutShareField, value: string) => void;
-  onApplyPreset: (preset: AllocationPreset) => void;
 }) {
   const allocationRows = [
     ...payoutParticipants.map((participant, index) => ({
@@ -2013,7 +1850,6 @@ function PayoutAllocationSection({
       field: 'bloomjoySharePercent' as PayoutShareField,
     },
   ];
-  const presets = getAllocationPresets(payoutParticipants.length);
   const isBalanced = allocationTotal === 100;
 
   return (
@@ -2034,20 +1870,6 @@ function PayoutAllocationSection({
         <Badge variant={isBalanced ? 'default' : 'destructive'}>
           {allocationTotal}% allocated
         </Badge>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {presets.map((preset) => (
-          <Button
-            key={preset.label}
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onApplyPreset(preset)}
-          >
-            {preset.label}
-          </Button>
-        ))}
       </div>
 
       {additionalPayoutParticipants.length > 0 && (
@@ -2147,8 +1969,11 @@ function PayoutFlowSummary({
   form: typeof emptyRuleForm;
   payoutParticipants: ReportingPartnershipParty[];
 }) {
-  const paidOrderFee =
-    Number(form.feeAmountDollars) > 0 ? `${formatMoney(centsFromDollars(form.feeAmountDollars))} paid-order fee` : 'no paid-order fee';
+  const feeLabel = form.feeBasis === 'per_stick' ? 'per stick' : formatLabel(form.feeBasis);
+  const feeSummary =
+    Number(form.feeAmountDollars) > 0
+      ? `${formatMoney(centsFromDollars(form.feeAmountDollars))} ${feeLabel}`
+      : 'no fee';
   const splitSummary = [
     payoutParticipants[0] && `${payoutParticipants[0].partner_name} ${parseWholePercent(form.primarySharePercent)}%`,
     payoutParticipants[1] && `${payoutParticipants[1].partner_name} ${parseWholePercent(form.partnerSharePercent)}%`,
@@ -2165,7 +1990,7 @@ function PayoutFlowSummary({
       </div>
       <div className="rounded-md border border-border bg-muted/20 p-3">
         <div className="font-medium text-foreground">Taxes and fees</div>
-        <div className="mt-1 text-xs text-muted-foreground">{paidOrderFee}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{feeSummary}</div>
       </div>
       <div className="rounded-md border border-border bg-muted/20 p-3">
         <div className="font-medium text-foreground">Payout base</div>

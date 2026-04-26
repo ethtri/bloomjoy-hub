@@ -49,7 +49,7 @@ Admin permission work and partnership financial setup are separate concerns.
 - Partnership machine assignment is a current-state bulk alignment workflow. Assignment role, status, notes, and effective date windows remain backend compatibility fields but are defaulted/archived by the UI rather than exposed in normal setup.
 - Machine tax-rate history stays effective-dated in the backend, but normal admin editing happens from the Machines page and focuses on current machine rates, with explicit no-tax machines distinguishable from missing tax configuration.
 - Setup warnings should appear where an admin can act: machine tax and assignment readiness on Machines, assignment overlap in the partnership Machines step, financial-rule gaps in Payout Rules, and preview-specific issues in Weekly Preview.
-- Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured paid-order fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and supports a participant-named 60/40 split when configured that way.
+- Bubble Planet workbook parity uses Sunze `Order amount` as gross sales, subtracts machine-rate tax plus configured per-stick/item fees before the split, counts no-pay orders as orders with `$0` sales and `$0` fees, and supports a participant-named 60/40 split when configured that way.
 - Admin UI should avoid example-specific partner names and avoid exposing abstract backend split labels when participant names can be shown directly.
 - Weekly partner previews must use the partnership's configured week-ending day. Bubble Planet-style weekly reporting is Monday-Sunday with a Sunday week-ending date.
 
