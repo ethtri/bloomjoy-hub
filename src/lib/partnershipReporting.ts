@@ -94,6 +94,8 @@ export type ReportingPartnershipFinancialRule = {
   effective_end_date: string | null;
   status: 'draft' | 'active' | 'archived';
   notes: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type PartnershipSetupWarning = {

@@ -41,6 +41,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
   fetchPartnershipReportingSetup,
@@ -70,7 +71,6 @@ import {
   getLastCompletedWeekEndingDate,
   participantRoles,
   partnerTypes,
-  partnershipStatuses,
   partnershipTypes,
   percentFromBasisPoints,
   today,
@@ -93,7 +93,7 @@ const emptySetup: PartnershipReportingSetup = {
 };
 
 const steps: Array<{ key: PartnershipStep; label: string; description: string }> = [
-  { key: 'details', label: 'Details', description: 'Name, status, cadence' },
+  { key: 'details', label: 'Details', description: 'Name and reporting cadence' },
   { key: 'participants', label: 'Participants', description: 'Organizations in the agreement' },
   { key: 'machines', label: 'Machines', description: 'Assign reporting machines' },
   { key: 'terms', label: 'Payout Rules', description: 'Fees, model, payout split' },
@@ -134,7 +134,7 @@ const emptyPartnershipForm = {
   timezone: 'America/Los_Angeles',
   effectiveStartDate: today(),
   effectiveEndDate: '',
-  status: 'draft',
+  status: 'active',
   notes: '',
 };
 
@@ -163,7 +163,7 @@ const emptyRuleForm = {
   bloomjoySharePercent: '0',
   effectiveStartDate: today(),
   effectiveEndDate: '',
-  status: 'draft',
+  status: 'active',
   notes: '',
 };
 
@@ -228,6 +228,16 @@ const getWeekStartDate = (weekEndingDate: string) => {
     return '';
   }
   date.setDate(date.getDate() - 6);
+  return toDateInputValue(date);
+};
+
+const getWeekEndingDateForSaleDate = (saleDate: string, weekEndDay: number) => {
+  const date = new Date(`${saleDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const daysForward = (weekEndDay - date.getDay() + 7) % 7;
+  date.setDate(date.getDate() + daysForward);
   return toDateInputValue(date);
 };
 
@@ -299,12 +309,19 @@ const getDefaultAllocationShares = (participantCount: number): AllocationShares 
   };
 };
 
-const createRuleForm = (partnershipId: string, payoutRecipientCount: number) => {
+const createRuleForm = (
+  partnershipId: string,
+  payoutRecipientCount: number,
+  effectiveStartDate = today()
+) => {
   const defaultShares = getDefaultAllocationShares(payoutRecipientCount);
 
   return {
     ...emptyRuleForm,
     partnershipId,
+    effectiveStartDate,
+    effectiveEndDate: '',
+    status: 'active',
     ...(payoutRecipientCount === 0
       ? {
           calculationModel: 'internal_only',
@@ -317,6 +334,32 @@ const createRuleForm = (partnershipId: string, payoutRecipientCount: number) => 
       : defaultShares),
   };
 };
+
+const createRuleFormFromRule = (rule: ReportingPartnershipFinancialRule) => ({
+  ruleId: rule.id,
+  partnershipId: rule.partnership_id,
+  calculationModel: rule.calculation_model,
+  splitBase: rule.split_base,
+  feeAmountDollars: dollarsFromCents(rule.fee_amount_cents),
+  feeBasis: rule.fee_basis,
+  costAmountDollars: dollarsFromCents(rule.cost_amount_cents),
+  costBasis: rule.cost_basis,
+  deductionTiming: rule.deduction_timing,
+  grossToNetMethod: rule.gross_to_net_method,
+  primarySharePercent: percentFromBasisPoints(rule.fever_share_basis_points),
+  partnerSharePercent: percentFromBasisPoints(rule.partner_share_basis_points),
+  bloomjoySharePercent: percentFromBasisPoints(rule.bloomjoy_share_basis_points),
+  effectiveStartDate: rule.effective_start_date,
+  effectiveEndDate: rule.effective_end_date ?? '',
+  status: rule.status,
+  notes: rule.notes ?? '',
+});
+
+const getRuleSortValue = (rule: ReportingPartnershipFinancialRule) =>
+  `${rule.status === 'active' ? '2' : rule.status === 'draft' ? '1' : '0'}|${rule.effective_start_date}|${rule.updated_at ?? rule.created_at ?? ''}`;
+
+const sortFinancialRulesForSetup = (rules: ReportingPartnershipFinancialRule[]) =>
+  [...rules].sort((left, right) => getRuleSortValue(right).localeCompare(getRuleSortValue(left)));
 
 const getPayoutModelPreset = (form: typeof emptyRuleForm): PayoutModelPreset => {
   if (form.calculationModel === 'internal_only') return 'internal_only';
@@ -655,7 +698,7 @@ function PartnershipPicker({
               >
                 <div className="font-medium">{partnership.name}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {formatLabel(partnership.partnership_type)} / {partnership.status}
+                  {formatLabel(partnership.partnership_type)}
                 </div>
               </button>
             );
@@ -903,7 +946,7 @@ function PartnershipDetailsSection({
       timezone: selectedPartnership.timezone,
       effectiveStartDate: selectedPartnership.effective_start_date,
       effectiveEndDate: selectedPartnership.effective_end_date ?? '',
-      status: selectedPartnership.status,
+      status: selectedPartnership.status === 'archived' ? 'archived' : 'active',
       notes: selectedPartnership.notes ?? '',
     });
   }, [selectedPartnership]);
@@ -983,14 +1026,22 @@ function PartnershipDetailsSection({
           onStartChange={(value) => setForm({ ...form, effectiveStartDate: value })}
           onEndChange={(value) => setForm({ ...form, effectiveEndDate: value })}
         />
-        <div>
-          <Label htmlFor="partnership-status">Status</Label>
-          <FieldSelect
-            id="partnership-status"
-            value={form.status}
-            onChange={(value) => setForm({ ...form, status: value })}
-            options={partnershipStatuses}
-          />
+        <div className="rounded-md border border-border bg-muted/20 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label htmlFor="partnership-active">Partnership active</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Inactive partnerships stay saved but are removed from normal reporting setup.
+              </p>
+            </div>
+            <Switch
+              id="partnership-active"
+              checked={form.status !== 'archived'}
+              onCheckedChange={(checked) =>
+                setForm({ ...form, status: checked ? 'active' : 'archived' })
+              }
+            />
+          </div>
         </div>
         <div className="lg:col-span-2">
           <Label htmlFor="partnership-notes">Notes</Label>
@@ -1241,6 +1292,7 @@ function MachineAssignmentsSection({
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
 
   const currentDate = today();
+  const machineAlignmentStartDate = selectedPartnership.effective_start_date || today();
 
   const activeAssignmentsByMachineId = useMemo(() => {
     const assignmentMap = new Map<string, ReturnType<typeof getActiveMachineAssignments>>();
@@ -1295,7 +1347,13 @@ function MachineAssignmentsSection({
 
   const addedMachineIds = [...selectedMachineIds].filter((machineId) => !originalMachineIds.has(machineId));
   const removedMachineIds = [...originalMachineIds].filter((machineId) => !selectedMachineIds.has(machineId));
-  const hasChanges = addedMachineIds.length > 0 || removedMachineIds.length > 0;
+  const assignmentsToSync = activeAssignments.filter(
+    (assignment) =>
+      !removedMachineIds.includes(assignment.machine_id) &&
+      (assignment.effective_start_date !== machineAlignmentStartDate || assignment.effective_end_date)
+  );
+  const hasChanges =
+    addedMachineIds.length > 0 || removedMachineIds.length > 0 || assignmentsToSync.length > 0;
   const conflictingAddedMachines = addedMachineIds
     .map((machineId) => {
       const machine = setup.machines.find((candidate) => candidate.id === machineId);
@@ -1353,7 +1411,7 @@ function MachineAssignmentsSection({
           machineId,
           partnershipId: selectedPartnership.id,
           assignmentRole: 'primary_reporting',
-          effectiveStartDate: selectedPartnership.effective_start_date || today(),
+          effectiveStartDate: machineAlignmentStartDate,
           effectiveEndDate: '',
           status: 'active',
           notes: null,
@@ -1364,6 +1422,20 @@ function MachineAssignmentsSection({
       const assignmentsToArchive = activeAssignments.filter((assignment) =>
         removedMachineIds.includes(assignment.machine_id)
       );
+
+      for (const assignment of assignmentsToSync) {
+        await upsertReportingMachineAssignmentAdmin({
+          assignmentId: assignment.id,
+          machineId: assignment.machine_id,
+          partnershipId: selectedPartnership.id,
+          assignmentRole: assignment.assignment_role,
+          effectiveStartDate: machineAlignmentStartDate,
+          effectiveEndDate: '',
+          status: 'active',
+          notes: assignment.notes ?? null,
+          reason: 'Partnership machine alignment updated',
+        });
+      }
 
       for (const assignment of assignmentsToArchive) {
         await upsertReportingMachineAssignmentAdmin({
@@ -1461,6 +1533,7 @@ function MachineAssignmentsSection({
             {hasChanges && (
               <Badge variant="secondary">
                 +{addedMachineIds.length} / -{removedMachineIds.length}
+                {assignmentsToSync.length > 0 ? ` / ${assignmentsToSync.length} date sync` : ''}
               </Badge>
             )}
           </div>
@@ -1524,7 +1597,7 @@ function MachineAssignmentsSection({
             Save Machine Alignment
           </Button>
           <div className="text-sm text-muted-foreground">
-            New assignments start {formatDate(selectedPartnership.effective_start_date || today())}.
+            Assignments use the partnership start date: {formatDate(machineAlignmentStartDate)}.
           </div>
         </div>
       </div>
@@ -1588,27 +1661,32 @@ function FinancialTermsSection({
   const payoutParticipants = payoutRecipientParticipants.slice(0, 2);
   const additionalPayoutParticipants = payoutRecipientParticipants.slice(2);
 
+  const financialRules = useMemo(
+    () =>
+      sortFinancialRulesForSetup(
+        setup.financialRules.filter((rule) => rule.partnership_id === selectedPartnership.id)
+      ),
+    [selectedPartnership.id, setup.financialRules]
+  );
+  const currentFinancialRule = financialRules[0] ?? null;
+  const hiddenRuleStartDate = selectedPartnership.effective_start_date || today();
   const defaultRuleForm = useMemo(
-    () => createRuleForm(selectedPartnership.id, payoutParticipants.length),
-    [payoutParticipants.length, selectedPartnership.id]
+    () =>
+      currentFinancialRule
+        ? createRuleFormFromRule(currentFinancialRule)
+        : createRuleForm(selectedPartnership.id, payoutParticipants.length, hiddenRuleStartDate),
+    [currentFinancialRule, hiddenRuleStartDate, payoutParticipants.length, selectedPartnership.id]
   );
   const [form, setForm] = useState(() => defaultRuleForm);
   const [isSaving, setIsSaving] = useState(false);
   const payoutPreset = getPayoutModelPreset(form);
   const allocationTotal = getPayoutAllocationTotal(form, payoutParticipants.length);
   const isRuleFormDirty = JSON.stringify(form) !== JSON.stringify(defaultRuleForm);
-  const saveDisabledReason = !form.effectiveStartDate
-    ? 'Effective start date is required.'
-    : additionalPayoutParticipants.length > 0
+  const saveDisabledReason = additionalPayoutParticipants.length > 0
       ? 'V1 supports two payout recipients plus Bloomjoy. Change extra payout recipients to another participant role before saving.'
       : allocationTotal !== 100
         ? 'Payout allocation must total exactly 100%.'
         : '';
-
-  const financialRules = useMemo(
-    () => setup.financialRules.filter((rule) => rule.partnership_id === selectedPartnership.id),
-    [selectedPartnership.id, setup.financialRules]
-  );
 
   const financialWarnings = setup.warnings.filter(
     (warning) =>
@@ -1617,33 +1695,15 @@ function FinancialTermsSection({
   );
 
   useEffect(() => {
-    setForm(createRuleForm(selectedPartnership.id, payoutParticipants.length));
-  }, [payoutParticipants.length, selectedPartnership.id]);
+    setForm(defaultRuleForm);
+  }, [defaultRuleForm]);
 
   useEffect(() => {
     onDirtyChange?.(isRuleFormDirty);
   }, [isRuleFormDirty, onDirtyChange]);
 
   const editRule = (rule: ReportingPartnershipFinancialRule) => {
-    setForm({
-      ruleId: rule.id,
-      partnershipId: rule.partnership_id,
-      calculationModel: rule.calculation_model,
-      splitBase: rule.split_base,
-      feeAmountDollars: dollarsFromCents(rule.fee_amount_cents),
-      feeBasis: rule.fee_basis,
-      costAmountDollars: dollarsFromCents(rule.cost_amount_cents),
-      costBasis: rule.cost_basis,
-      deductionTiming: rule.deduction_timing,
-      grossToNetMethod: rule.gross_to_net_method,
-      primarySharePercent: percentFromBasisPoints(rule.fever_share_basis_points),
-      partnerSharePercent: percentFromBasisPoints(rule.partner_share_basis_points),
-      bloomjoySharePercent: percentFromBasisPoints(rule.bloomjoy_share_basis_points),
-      effectiveStartDate: rule.effective_start_date,
-      effectiveEndDate: rule.effective_end_date ?? '',
-      status: rule.status,
-      notes: rule.notes ?? '',
-    });
+    setForm(createRuleFormFromRule(rule));
   };
 
   const updatePayoutPreset = (preset: PayoutModelPreset) => {
@@ -1675,18 +1735,22 @@ function FinancialTermsSection({
 
     setIsSaving(true);
     try {
-      await upsertReportingFinancialRuleAdmin({
+      const savedRule = await upsertReportingFinancialRuleAdmin({
         ...form,
+        ruleId: form.ruleId ?? currentFinancialRule?.id ?? null,
         partnershipId: selectedPartnership.id,
         feeAmountCents: centsFromDollars(form.feeAmountDollars),
         costAmountCents: centsFromDollars(form.costAmountDollars),
         feverShareBasisPoints: basisPointsFromPercent(normalizedShares.primarySharePercent),
         partnerShareBasisPoints: basisPointsFromPercent(normalizedShares.partnerSharePercent),
         bloomjoyShareBasisPoints: basisPointsFromPercent(normalizedShares.bloomjoySharePercent),
-        reason: form.ruleId ? 'Payout rules updated' : 'Payout rules created',
+        effectiveStartDate: hiddenRuleStartDate,
+        effectiveEndDate: '',
+        status: 'active',
+        reason: form.ruleId || currentFinancialRule ? 'Payout rules updated' : 'Payout rules created',
       });
-      toast.success(form.ruleId ? 'Payout rules updated.' : 'Payout rules created.');
-      setForm(createRuleForm(selectedPartnership.id, payoutParticipants.length));
+      toast.success(form.ruleId || currentFinancialRule ? 'Payout rules updated.' : 'Payout rules created.');
+      setForm(createRuleFormFromRule(savedRule));
       onDirtyChange?.(false);
       await onRefresh();
     } catch (error) {
@@ -1762,29 +1826,17 @@ function FinancialTermsSection({
 
         <details className="mt-4 rounded-md border border-border p-4">
           <summary className="cursor-pointer text-sm font-medium text-foreground">
-            Rule timing and notes
+            Notes and reporting details
           </summary>
           <p className="mt-2 text-sm text-muted-foreground">
-            Most agreements do not need changes here. The payout model above controls the tax, fee,
-            and split calculation.
+            The current payout rule is active by default and follows the partnership effective
+            start date. Backend timing fields remain available for reporting history without adding
+            normal setup friction.
           </p>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <DateWindowFields
-              startId="rule-start"
-              endId="rule-end"
-              startValue={form.effectiveStartDate}
-              endValue={form.effectiveEndDate}
-              onStartChange={(value) => setForm({ ...form, effectiveStartDate: value })}
-              onEndChange={(value) => setForm({ ...form, effectiveEndDate: value })}
-            />
             <div>
-              <Label htmlFor="rule-status">Status</Label>
-              <FieldSelect
-                id="rule-status"
-                value={form.status}
-                onChange={(status) => setForm({ ...form, status })}
-                options={partnershipStatuses}
-              />
+              <div className="text-xs font-medium uppercase text-muted-foreground">Applies from</div>
+              <div className="mt-1 text-sm text-foreground">{formatDate(hiddenRuleStartDate)}</div>
             </div>
             <div>
               <Label htmlFor="rule-notes">Notes</Label>
@@ -1808,14 +1860,6 @@ function FinancialTermsSection({
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Payout Rules
           </Button>
-          {form.ruleId && (
-            <Button
-              variant="outline"
-              onClick={() => setForm(createRuleForm(selectedPartnership.id, payoutParticipants.length))}
-            >
-              New Payout Rules
-            </Button>
-          )}
           {saveDisabledReason && (
             <div className="basis-full text-sm text-destructive">{saveDisabledReason}</div>
           )}
@@ -1823,27 +1867,37 @@ function FinancialTermsSection({
       </div>
 
       <div className="rounded-lg border border-border bg-card">
-        <ListHeader title="Payout Rules" count={financialRules.length} />
-        {financialRules.length === 0 ? (
+        <ListHeader title="Current Payout Rule" count={currentFinancialRule ? 1 : 0} />
+        {!currentFinancialRule ? (
           <EmptyRow text="No payout rules configured." />
         ) : (
-          financialRules.map((rule) => (
-            <Row key={rule.id}>
-              <div>
-                <div className="font-medium text-foreground">{formatLabel(rule.calculation_model)}</div>
+          <Row>
+            <div>
+              <div className="font-medium text-foreground">
+                {formatLabel(currentFinancialRule.calculation_model)}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Fee {formatMoney(currentFinancialRule.fee_amount_cents)}{' '}
+                {formatLabel(currentFinancialRule.fee_basis)} /{' '}
+                {formatRuleAllocationSummary(currentFinancialRule, payoutParticipants)}
+              </div>
+              {financialRules.length > 1 && (
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Fee {formatMoney(rule.fee_amount_cents)} {formatLabel(rule.fee_basis)} /{' '}
-                  {formatRuleAllocationSummary(rule, payoutParticipants)}
+                  {financialRules.length - 1} older rule{financialRules.length === 2 ? '' : 's'} hidden from setup.
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={rule.status === 'active' ? 'default' : 'outline'}>{rule.status}</Badge>
-                <Button variant="outline" size="sm" onClick={() => editRule(rule)}>
-                  Edit
-                </Button>
-              </div>
-            </Row>
-          ))
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={currentFinancialRule.status === 'active' ? 'default' : 'outline'}>
+                {currentFinancialRule.status === 'active'
+                  ? 'Active'
+                  : formatLabel(currentFinancialRule.status)}
+              </Badge>
+              <Button variant="outline" size="sm" onClick={() => editRule(currentFinancialRule)}>
+                Edit
+              </Button>
+            </div>
+          </Row>
         )}
       </div>
     </section>
@@ -2081,6 +2135,35 @@ function WeeklyPreviewSection({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const weekStartDate = useMemo(() => getWeekStartDate(weekEndingDate), [weekEndingDate]);
+  const partnershipAssignments = useMemo(
+    () =>
+      setup.assignments.filter(
+        (assignment) =>
+          assignment.partnership_id === selectedPartnership.id &&
+          assignment.assignment_role === 'primary_reporting' &&
+          assignment.status === 'active'
+      ),
+    [selectedPartnership.id, setup.assignments]
+  );
+  const assignedMachineIds = useMemo(
+    () => new Set(partnershipAssignments.map((assignment) => assignment.machine_id)),
+    [partnershipAssignments]
+  );
+  const latestAssignedSaleDate = useMemo(
+    () =>
+      setup.machines
+        .filter((machine) => assignedMachineIds.has(machine.id) && machine.latest_sale_date)
+        .map((machine) => machine.latest_sale_date as string)
+        .sort((left, right) => right.localeCompare(left))[0] ?? '',
+    [assignedMachineIds, setup.machines]
+  );
+  const suggestedWeekEndingDate = useMemo(
+    () =>
+      latestAssignedSaleDate
+        ? getWeekEndingDateForSaleDate(latestAssignedSaleDate, selectedPartnership.reporting_week_end_day)
+        : '',
+    [latestAssignedSaleDate, selectedPartnership.reporting_week_end_day]
+  );
   const payoutParticipants = useMemo(
     () =>
       getPayoutRecipientParticipants(
@@ -2090,11 +2173,8 @@ function WeeklyPreviewSection({
   );
   const assignmentsCoveringWeek = useMemo(
     () =>
-      setup.assignments.filter(
+      partnershipAssignments.filter(
         (assignment) =>
-          assignment.partnership_id === selectedPartnership.id &&
-          assignment.assignment_role === 'primary_reporting' &&
-          assignment.status === 'active' &&
           dateWindowOverlaps(
             assignment.effective_start_date,
             assignment.effective_end_date,
@@ -2102,7 +2182,16 @@ function WeeklyPreviewSection({
             weekEndingDate
           )
       ),
-    [selectedPartnership.id, setup.assignments, weekEndingDate, weekStartDate]
+    [partnershipAssignments, weekEndingDate, weekStartDate]
+  );
+  const assignmentsCoveringFullWeek = useMemo(
+    () =>
+      assignmentsCoveringWeek.filter(
+        (assignment) =>
+          assignment.effective_start_date <= weekStartDate &&
+          (!assignment.effective_end_date || assignment.effective_end_date >= weekEndingDate)
+      ),
+    [assignmentsCoveringWeek, weekEndingDate, weekStartDate]
   );
   const activePayoutRulesCoveringWeek = useMemo(
     () =>
@@ -2119,6 +2208,15 @@ function WeeklyPreviewSection({
       ),
     [selectedPartnership.id, setup.financialRules, weekEndingDate, weekStartDate]
   );
+  const activePayoutRulesCoveringFullWeek = useMemo(
+    () =>
+      activePayoutRulesCoveringWeek.filter(
+        (rule) =>
+          rule.effective_start_date <= weekStartDate &&
+          (!rule.effective_end_date || rule.effective_end_date >= weekEndingDate)
+      ),
+    [activePayoutRulesCoveringWeek, weekEndingDate, weekStartDate]
+  );
   const previewReadinessIssues = useMemo(() => {
     const issues: PreviewReadinessIssue[] = [];
     const partnershipQuery = encodeURIComponent(selectedPartnership.id);
@@ -2127,6 +2225,14 @@ function WeeklyPreviewSection({
       issues.push({
         title: 'No machines are assigned for this week',
         message: `Weekly Preview only includes sales from machines assigned to this partnership during ${weekStartDate || 'the selected week'} through ${weekEndingDate}. If machines were just assigned, their start date may be after this preview week.`,
+        actionLabel: 'Review Machines step',
+        actionHref: `/admin/partnerships?partnershipId=${partnershipQuery}&step=machines`,
+      });
+    } else if (assignmentsCoveringFullWeek.length < assignmentsCoveringWeek.length) {
+      issues.push({
+        title: 'Some machines only cover part of this week',
+        message:
+          'Sales before a machine assignment start date or after an assignment end date are intentionally excluded from the preview.',
         actionLabel: 'Review Machines step',
         actionHref: `/admin/partnerships?partnershipId=${partnershipQuery}&step=machines`,
       });
@@ -2140,16 +2246,33 @@ function WeeklyPreviewSection({
         actionLabel: 'Review Payout Rules',
         actionHref: `/admin/partnerships?partnershipId=${partnershipQuery}&step=terms`,
       });
+    } else if (activePayoutRulesCoveringFullWeek.length === 0) {
+      issues.push({
+        title: 'Payout rule only covers part of this week',
+        message:
+          'Sales outside the active payout-rule date window will show sales totals but may not calculate payout amounts.',
+        actionLabel: 'Review Payout Rules',
+        actionHref: `/admin/partnerships?partnershipId=${partnershipQuery}&step=terms`,
+      });
     }
 
     return issues;
   }, [
     activePayoutRulesCoveringWeek.length,
+    activePayoutRulesCoveringFullWeek.length,
     assignmentsCoveringWeek.length,
+    assignmentsCoveringFullWeek.length,
     selectedPartnership.id,
     weekEndingDate,
     weekStartDate,
   ]);
+
+  const useSuggestedWeek = () => {
+    if (!suggestedWeekEndingDate) return;
+    setWeekEndingDate(suggestedWeekEndingDate);
+    setPreview(null);
+    setPreviewError(null);
+  };
 
   useEffect(() => {
     setWeekEndingDate(getLastCompletedWeekEndingDate(selectedPartnership.reporting_week_end_day));
@@ -2206,6 +2329,17 @@ function WeeklyPreviewSection({
             <div className="mt-1 text-xs text-muted-foreground">
               Week ends {dayNames[selectedPartnership.reporting_week_end_day]}
             </div>
+            {latestAssignedSaleDate && suggestedWeekEndingDate !== weekEndingDate && (
+              <Button
+                type="button"
+                variant="link"
+                className="mt-1 h-auto p-0 text-xs"
+                onClick={useSuggestedWeek}
+              >
+                Latest assigned-machine sales are {latestAssignedSaleDate}. Preview week ending{' '}
+                {suggestedWeekEndingDate}.
+              </Button>
+            )}
           </div>
           <Button onClick={loadPreview} disabled={isLoading}>
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -2259,8 +2393,20 @@ function WeeklyPreviewSection({
                   {preview.weekStartDate} through {preview.weekEndingDate}
                 </p>
               </div>
-              <Badge variant={preview.warnings.length ? 'destructive' : 'default'}>
-                {preview.warnings.length ? `${preview.warnings.length} warnings` : 'Ready'}
+              <Badge
+                variant={
+                  preview.warnings.length
+                    ? 'destructive'
+                    : Number(preview.summary.order_count ?? 0) > 0
+                      ? 'default'
+                      : 'outline'
+                }
+              >
+                {preview.warnings.length
+                  ? `${preview.warnings.length} warnings`
+                  : Number(preview.summary.order_count ?? 0) > 0
+                    ? 'Ready'
+                    : 'No sales'}
               </Badge>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -2285,7 +2431,50 @@ function WeeklyPreviewSection({
           <div className="rounded-lg border border-border bg-card">
             <ListHeader title="Sales by Machine" count={preview.machines.length} />
             {preview.machines.length === 0 ? (
-              <EmptyRow text="No sales found for this partnership and week." />
+              <div className="p-5 text-sm">
+                <div className="font-medium text-foreground">No sales found for this selected week.</div>
+                <div className="mt-1 text-muted-foreground">
+                  Preview checked {preview.weekStartDate} through {preview.weekEndingDate}. Sales only
+                  appear when imported Sunze sales, active machine assignments, and active payout rules
+                  overlap the selected dates.
+                </div>
+                <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                  <div className="rounded-md border border-border bg-muted/20 p-3">
+                    <div className="font-medium text-foreground">Machine coverage</div>
+                    <div className="mt-1">
+                      {assignmentsCoveringWeek.length
+                        ? `${assignmentsCoveringWeek.length} assignment${assignmentsCoveringWeek.length === 1 ? '' : 's'} overlap this week.`
+                        : 'No active machine assignments overlap this week.'}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border bg-muted/20 p-3">
+                    <div className="font-medium text-foreground">Payout rule</div>
+                    <div className="mt-1">
+                      {activePayoutRulesCoveringWeek.length
+                        ? 'An active payout rule overlaps this week.'
+                        : 'No active payout rule overlaps this week.'}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border bg-muted/20 p-3">
+                    <div className="font-medium text-foreground">Imported sales</div>
+                    <div className="mt-1">
+                      {latestAssignedSaleDate
+                        ? `Latest assigned-machine sale: ${latestAssignedSaleDate}.`
+                        : 'No imported sales found for assigned machines yet.'}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {latestAssignedSaleDate && suggestedWeekEndingDate !== weekEndingDate && (
+                    <Button type="button" variant="outline" size="sm" onClick={useSuggestedWeek}>
+                      Preview week ending {suggestedWeekEndingDate}
+                    </Button>
+                  )}
+                  <Button asChild variant="outline" size="sm">
+                    <Link to="/admin/reporting">Check import status</Link>
+                  </Button>
+                </div>
+              </div>
             ) : (
               preview.machines.map((machine) => (
                 <Row key={machine.reporting_machine_id}>
