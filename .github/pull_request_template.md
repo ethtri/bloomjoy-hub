@@ -1,5 +1,5 @@
 ## Summary
-- 
+- _TBD_
 
 ## User-facing change
 - What changes for a customer, operator, partner, or admin?
@@ -42,4 +42,4 @@
 - If not that simple, explain the rollback steps:
 
 ## Notes / open decisions
-- 
+- _TBD_

@@ -10,18 +10,18 @@ assignees: ""
 What user-visible or operational outcome should exist when this is done?
 
 ## Acceptance criteria
-- 
-- 
-- 
+- _TBD_
+- _TBD_
+- _TBD_
 
 ## In scope
-- 
+- _TBD_
 
 ## Out of scope
-- 
+- _TBD_
 
 ## Affected pages / features
-- 
+- _TBD_
 
 ## Risk areas
 - [ ] Database / migrations
@@ -44,4 +44,3 @@ What user-visible or operational outcome should exist when this is done?
 - Docs:
 - Related issues/PRs:
 - External dependencies or owner-controlled accounts:
-
