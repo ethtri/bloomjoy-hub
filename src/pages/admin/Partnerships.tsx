@@ -66,6 +66,7 @@ import {
 import {
   basisPointsFromPercent,
   centsFromDollars,
+  consumerPricingAuthorities,
   dayNames,
   dollarsFromCents,
   formatDate,
@@ -73,10 +74,12 @@ import {
   formatMoney,
   getActiveMachineAssignments,
   getLastCompletedWeekEndingDate,
+  machineOwnershipModels,
   participantRoles,
   partnerTypes,
   partnershipTypes,
   percentFromBasisPoints,
+  reportingFrequencies,
   today,
   toDateInputValue,
 } from '@/pages/admin/reportingSetupUi';
@@ -123,6 +126,7 @@ const getSafeArchiveEndDate = (effectiveStartDate: string) => {
 const emptyPartnerForm = {
   partnerId: null as string | null,
   name: '',
+  legalName: '',
   partnerType: 'revenue_share_partner',
   primaryContactName: '',
   primaryContactEmail: '',
@@ -136,6 +140,13 @@ const emptyPartnershipForm = {
   partnershipType: 'revenue_share',
   reportingWeekEndDay: '0',
   timezone: 'America/Los_Angeles',
+  reportingFrequency: 'weekly_and_monthly',
+  monthlyReportDueDays: '10',
+  invoicePaymentDueDays: '',
+  paymentMethod: '',
+  machineOwnershipModel: 'unknown',
+  consumerPricingAuthority: 'unknown',
+  contractReference: '',
   effectiveStartDate: today(),
   effectiveEndDate: '',
   status: 'active',
@@ -158,8 +169,11 @@ const emptyRuleForm = {
   splitBase: 'net_sales',
   feeAmountDollars: '0.40',
   feeBasis: 'per_stick',
+  feeLabel: 'Stick cost deduction',
   costAmountDollars: '0.00',
   costBasis: 'none',
+  costLabel: 'Costs',
+  additionalDeductionsNotes: '',
   deductionTiming: 'before_split',
   grossToNetMethod: 'machine_tax_plus_configured_fees',
   primarySharePercent: '60',
@@ -225,6 +239,11 @@ const participantRoleLabels: Record<string, string> = {
 };
 
 const parseWholePercent = (value: string) => Math.round(Number(value) || 0);
+const optionalIntegerFromInput = (value: string) => {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+};
 
 const getWeekStartDate = (weekEndingDate: string) => {
   const date = new Date(`${weekEndingDate}T00:00:00`);
@@ -267,6 +286,7 @@ const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, 
 const getParticipantRoleLabel = (role: string) => participantRoleLabels[role] ?? formatLabel(role);
 const formatFeeBasisLabel = (feeBasis: string) =>
   feeBasis === 'per_stick' ? 'per paid stick/item' : formatLabel(feeBasis);
+const getPartyReportName = (party: ReportingPartnershipParty) => party.partner_legal_name || party.partner_name;
 
 const sortParticipantsByAddedDate = (participants: ReportingPartnershipParty[]) =>
   [...participants].sort(
@@ -348,8 +368,11 @@ const createRuleFormFromRule = (rule: ReportingPartnershipFinancialRule) => ({
   splitBase: rule.split_base,
   feeAmountDollars: dollarsFromCents(rule.fee_amount_cents),
   feeBasis: rule.fee_basis,
+  feeLabel: rule.fee_label || 'Stick cost deduction',
   costAmountDollars: dollarsFromCents(rule.cost_amount_cents),
   costBasis: rule.cost_basis,
+  costLabel: rule.cost_label || 'Costs',
+  additionalDeductionsNotes: rule.additional_deductions_notes ?? '',
   deductionTiming: rule.deduction_timing,
   grossToNetMethod: rule.gross_to_net_method,
   primarySharePercent: percentFromBasisPoints(rule.fever_share_basis_points),
@@ -393,6 +416,7 @@ const applyPayoutModelPreset = (
       splitBase: 'gross_sales',
       feeAmountDollars: '0.00',
       feeBasis: 'none',
+      feeLabel: 'Deductions',
       costBasis: 'none',
       costAmountDollars: '0.00',
       deductionTiming: 'reporting_only',
@@ -406,6 +430,7 @@ const applyPayoutModelPreset = (
       splitBase: 'net_sales',
       feeAmountDollars: '0.00',
       feeBasis: 'none',
+      feeLabel: 'Deductions',
       costBasis: 'none',
       costAmountDollars: '0.00',
       primarySharePercent: '0',
@@ -970,6 +995,21 @@ function PartnershipDetailsSection({
       partnershipType: selectedPartnership.partnership_type,
       reportingWeekEndDay: String(selectedPartnership.reporting_week_end_day),
       timezone: selectedPartnership.timezone,
+      reportingFrequency: selectedPartnership.reporting_frequency ?? 'weekly',
+      monthlyReportDueDays:
+        selectedPartnership.monthly_report_due_days === null ||
+        selectedPartnership.monthly_report_due_days === undefined
+          ? ''
+          : String(selectedPartnership.monthly_report_due_days),
+      invoicePaymentDueDays:
+        selectedPartnership.invoice_payment_due_days === null ||
+        selectedPartnership.invoice_payment_due_days === undefined
+          ? ''
+          : String(selectedPartnership.invoice_payment_due_days),
+      paymentMethod: selectedPartnership.payment_method ?? '',
+      machineOwnershipModel: selectedPartnership.machine_ownership_model ?? 'unknown',
+      consumerPricingAuthority: selectedPartnership.consumer_pricing_authority ?? 'unknown',
+      contractReference: selectedPartnership.contract_reference ?? '',
       effectiveStartDate: selectedPartnership.effective_start_date,
       effectiveEndDate: selectedPartnership.effective_end_date ?? '',
       status: selectedPartnership.status === 'archived' ? 'archived' : 'active',
@@ -985,9 +1025,18 @@ function PartnershipDetailsSection({
 
     setIsSaving(true);
     try {
+      const monthlyReportDueDays = optionalIntegerFromInput(form.monthlyReportDueDays);
+      const invoicePaymentDueDays = optionalIntegerFromInput(form.invoicePaymentDueDays);
       const savedPartnership = await upsertReportingPartnershipAdmin({
         ...form,
         reportingWeekEndDay: Number(form.reportingWeekEndDay),
+        reportingFrequency: form.reportingFrequency,
+        monthlyReportDueDays,
+        invoicePaymentDueDays,
+        paymentMethod: form.paymentMethod.trim() || null,
+        machineOwnershipModel: form.machineOwnershipModel,
+        consumerPricingAuthority: form.consumerPricingAuthority,
+        contractReference: form.contractReference.trim() || null,
         reason: form.partnershipId ? 'Partnership details updated' : 'Partnership created',
       });
       toast.success(form.partnershipId ? 'Partnership updated.' : 'Partnership created.');
@@ -1042,6 +1091,75 @@ function PartnershipDetailsSection({
             id="partnership-timezone"
             value={form.timezone}
             onChange={(event) => setForm({ ...form, timezone: event.target.value })}
+          />
+        </div>
+        <div>
+          <Label htmlFor="partnership-frequency">Reporting cadence</Label>
+          <FieldSelect
+            id="partnership-frequency"
+            value={form.reportingFrequency}
+            onChange={(value) => setForm({ ...form, reportingFrequency: value })}
+            options={reportingFrequencies}
+          />
+        </div>
+        <div>
+          <Label htmlFor="partnership-monthly-due">Monthly report due days</Label>
+          <Input
+            id="partnership-monthly-due"
+            type="number"
+            min="0"
+            max="90"
+            value={form.monthlyReportDueDays}
+            onChange={(event) => setForm({ ...form, monthlyReportDueDays: event.target.value })}
+            placeholder="10"
+          />
+        </div>
+        <div>
+          <Label htmlFor="partnership-payment-due">Payment due after invoice</Label>
+          <Input
+            id="partnership-payment-due"
+            type="number"
+            min="0"
+            max="120"
+            value={form.invoicePaymentDueDays}
+            onChange={(event) => setForm({ ...form, invoicePaymentDueDays: event.target.value })}
+            placeholder="15"
+          />
+        </div>
+        <div>
+          <Label htmlFor="partnership-payment-method">Payment method</Label>
+          <Input
+            id="partnership-payment-method"
+            value={form.paymentMethod}
+            onChange={(event) => setForm({ ...form, paymentMethod: event.target.value })}
+            placeholder="Bank transfer"
+          />
+        </div>
+        <div>
+          <Label htmlFor="partnership-machine-ownership">Machine ownership</Label>
+          <FieldSelect
+            id="partnership-machine-ownership"
+            value={form.machineOwnershipModel}
+            onChange={(value) => setForm({ ...form, machineOwnershipModel: value })}
+            options={machineOwnershipModels}
+          />
+        </div>
+        <div>
+          <Label htmlFor="partnership-pricing-authority">Consumer pricing authority</Label>
+          <FieldSelect
+            id="partnership-pricing-authority"
+            value={form.consumerPricingAuthority}
+            onChange={(value) => setForm({ ...form, consumerPricingAuthority: value })}
+            options={consumerPricingAuthorities}
+          />
+        </div>
+        <div className="lg:col-span-2">
+          <Label htmlFor="partnership-contract-reference">Contract reference</Label>
+          <Input
+            id="partnership-contract-reference"
+            value={form.contractReference}
+            onChange={(event) => setForm({ ...form, contractReference: event.target.value })}
+            placeholder="Agreement name, date, or SOW reference"
           />
         </div>
         <DateWindowFields
@@ -1239,6 +1357,7 @@ function ParticipantsSection({
                   <div className="font-medium text-foreground">{party.partner_name}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {getParticipantRoleLabel(party.party_role)}
+                    {party.partner_legal_name ? ` / ${party.partner_legal_name}` : ''}
                   </div>
                 </div>
                 {party.party_role === payoutRecipientRole && (
@@ -1767,6 +1886,9 @@ function FinancialTermsSection({
         partnershipId: selectedPartnership.id,
         feeAmountCents: centsFromDollars(form.feeAmountDollars),
         costAmountCents: centsFromDollars(form.costAmountDollars),
+        feeLabel: form.feeLabel.trim() || 'Stick cost deduction',
+        costLabel: form.costLabel.trim() || 'Costs',
+        additionalDeductionsNotes: form.additionalDeductionsNotes.trim() || null,
         feverShareBasisPoints: basisPointsFromPercent(normalizedShares.primarySharePercent),
         partnerShareBasisPoints: basisPointsFromPercent(normalizedShares.partnerSharePercent),
         bloomjoyShareBasisPoints: basisPointsFromPercent(normalizedShares.bloomjoySharePercent),
@@ -1840,6 +1962,18 @@ function FinancialTermsSection({
               onChange={(event) => updateStickLevelCostDeduction(event.target.value)}
             />
           </div>
+          <div>
+            <FieldLabel
+              htmlFor="fee-label"
+              label="Deduction label"
+              help="This label appears on partner-facing exports. Use a contract-specific label when fees combine cashless processing, royalties, or other agreed deductions."
+            />
+            <Input
+              id="fee-label"
+              value={form.feeLabel}
+              onChange={(event) => setForm({ ...form, feeLabel: event.target.value })}
+            />
+          </div>
         </div>
 
         <PayoutAllocationSection
@@ -1873,6 +2007,24 @@ function FinancialTermsSection({
                 placeholder="Optional"
               />
             </div>
+            <div>
+              <Label htmlFor="cost-label">Cost label</Label>
+              <Input
+                id="cost-label"
+                value={form.costLabel}
+                onChange={(event) => setForm({ ...form, costLabel: event.target.value })}
+                placeholder="Costs"
+              />
+            </div>
+            <div className="lg:col-span-2">
+              <Label htmlFor="additional-deductions-notes">Additional deduction notes</Label>
+              <Textarea
+                id="additional-deductions-notes"
+                value={form.additionalDeductionsNotes}
+                onChange={(event) => setForm({ ...form, additionalDeductionsNotes: event.target.value })}
+                placeholder="Cashless processing charges, other consumer charges, third-party royalties, or other contract-specific deductions."
+              />
+            </div>
             <div className="lg:col-span-2 rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Reporting calculation:</span>{' '}
               {formatLabel(form.calculationModel)} / {formatLabel(form.splitBase)} /{' '}
@@ -1903,7 +2055,7 @@ function FinancialTermsSection({
                 {formatLabel(currentFinancialRule.calculation_model)}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Stick-level deduction {formatMoney(currentFinancialRule.fee_amount_cents)}{' '}
+                {currentFinancialRule.fee_label || 'Deduction'} {formatMoney(currentFinancialRule.fee_amount_cents)}{' '}
                 {formatFeeBasisLabel(currentFinancialRule.fee_basis)} /{' '}
                 {formatRuleAllocationSummary(currentFinancialRule, payoutParticipants)}
               </div>
@@ -1947,7 +2099,9 @@ function PayoutAllocationSection({
     ...payoutParticipants.map((participant, index) => ({
       id: participant.id,
       name: participant.partner_name,
-      description: getParticipantRoleLabel(participant.party_role),
+      description: participant.partner_legal_name
+        ? `${getParticipantRoleLabel(participant.party_role)} / ${participant.partner_legal_name}`
+        : getParticipantRoleLabel(participant.party_role),
       field: shareFieldsByParticipantIndex[index],
     })),
     {
@@ -2033,12 +2187,12 @@ function formatRuleAllocationSummary(
   const parts = [];
   if (payoutParticipants[0]) {
     parts.push(
-      `${payoutParticipants[0].partner_name} ${percentFromBasisPoints(rule.fever_share_basis_points)}%`
+      `${getPartyReportName(payoutParticipants[0])} ${percentFromBasisPoints(rule.fever_share_basis_points)}%`
     );
   }
   if (payoutParticipants[1]) {
     parts.push(
-      `${payoutParticipants[1].partner_name} ${percentFromBasisPoints(rule.partner_share_basis_points)}%`
+      `${getPartyReportName(payoutParticipants[1])} ${percentFromBasisPoints(rule.partner_share_basis_points)}%`
     );
   }
   parts.push(`Bloomjoy ${percentFromBasisPoints(rule.bloomjoy_share_basis_points)}%`);
@@ -2052,13 +2206,13 @@ function getPreviewPayoutMetrics(
   const metrics = [];
   if (payoutParticipants[0] || Number(summary.fever_profit_cents ?? 0) !== 0) {
     metrics.push({
-      label: payoutParticipants[0]?.partner_name ?? 'Payout recipient 1',
+      label: payoutParticipants[0] ? getPartyReportName(payoutParticipants[0]) : 'Payout recipient 1',
       value: formatMoney(summary.fever_profit_cents),
     });
   }
   if (payoutParticipants[1] || Number(summary.partner_profit_cents ?? 0) !== 0) {
     metrics.push({
-      label: payoutParticipants[1]?.partner_name ?? 'Payout recipient 2',
+      label: payoutParticipants[1] ? getPartyReportName(payoutParticipants[1]) : 'Payout recipient 2',
       value: formatMoney(summary.partner_profit_cents),
     });
   }
@@ -2079,11 +2233,11 @@ function PayoutFlowSummary({
   const deductionLabel = formatFeeBasisLabel(form.feeBasis);
   const deductionSummary =
     Number(form.feeAmountDollars) > 0
-      ? `${formatMoney(centsFromDollars(form.feeAmountDollars))} ${deductionLabel}`
+      ? `${form.feeLabel || 'Deduction'}: ${formatMoney(centsFromDollars(form.feeAmountDollars))} ${deductionLabel}`
       : 'no stick-level deduction';
   const splitSummary = [
-    payoutParticipants[0] && `${payoutParticipants[0].partner_name} ${parseWholePercent(form.primarySharePercent)}%`,
-    payoutParticipants[1] && `${payoutParticipants[1].partner_name} ${parseWholePercent(form.partnerSharePercent)}%`,
+    payoutParticipants[0] && `${getPartyReportName(payoutParticipants[0])} ${parseWholePercent(form.primarySharePercent)}%`,
+    payoutParticipants[1] && `${getPartyReportName(payoutParticipants[1])} ${parseWholePercent(form.partnerSharePercent)}%`,
     `Bloomjoy ${parseWholePercent(form.bloomjoySharePercent)}%`,
   ]
     .filter(Boolean)
@@ -2592,6 +2746,7 @@ function PartnerRecordDialog({
 
   const savePartner = async () => {
     const name = form.name.trim();
+    const legalName = form.legalName.trim();
     const primaryContactName = form.primaryContactName.trim();
     const primaryContactEmail = form.primaryContactEmail.trim();
     const notes = form.notes.trim();
@@ -2619,6 +2774,7 @@ function PartnerRecordDialog({
       const savedPartner = await upsertReportingPartnerAdmin({
         ...form,
         name,
+        legalName: legalName || null,
         primaryContactName: primaryContactName || null,
         primaryContactEmail: primaryContactEmail || null,
         notes: notes || null,
@@ -2652,6 +2808,15 @@ function PartnerRecordDialog({
               id="modal-partner-name"
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
+            />
+          </div>
+          <div>
+            <Label htmlFor="modal-partner-legal-name">Legal name</Label>
+            <Input
+              id="modal-partner-legal-name"
+              value={form.legalName}
+              onChange={(event) => setForm({ ...form, legalName: event.target.value })}
+              placeholder="Official contract counterparty"
             />
           </div>
           <div>
@@ -2764,7 +2929,7 @@ function PartnerSelectWithAdd({
         <option value="__add_new__">+ Add new partner record</option>
         {setup.partners.map((partner) => (
           <option key={partner.id} value={partner.id}>
-            {partner.name}
+            {partner.legal_name ? `${partner.name} / ${partner.legal_name}` : partner.name}
           </option>
         ))}
       </select>

@@ -257,7 +257,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin dashboard and app nav expose separate Partner Records, Machines, Partnerships, and Reporting modules
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
-- [ ] Admin Partner Records can search, create, and edit reusable partner records without exposing "party" terminology
+- [ ] Admin Partner Records can search, create, and edit reusable partner records with separate display name and legal name fields, without exposing "party" terminology
 - [ ] Admin Partnerships setup loads without missing-RPC errors for `admin_get_partnership_reporting_setup`
 - [ ] Admin Partnerships opens as a guided setup flow with Details, Participants, Machines, Payout Rules, and Weekly Preview steps
 - [ ] Admin Partnerships is navigable on mobile with a compact partnership picker, `Step X of 5` header, horizontal step controls, and sticky Back/Next controls
@@ -272,8 +272,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Machines can record a reporting tax rate change with only `New reporting tax %` and `Applies from`, and the previous active rate closes without overlap
 - [ ] Admin Machines exposes read-only reporting tax history for a machine without making normal admins manage tax status, end date, or notes
 - [ ] Machine tax warnings appear on Admin Machines, not Admin Partnerships
-- [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus a simple active/inactive control, not a backend status dropdown
+- [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus weekly/monthly cadence, report due days, invoice payment due days, payment method, ownership model, pricing authority, contract reference, and a simple active/inactive control
 - [ ] Admin Partnerships > Payout Rules shows a plain-language sales-to-payout summary, one current payout rule, stable participant-named Payout Allocation rows based on Participants marked `Receives payout`, whole-percent inputs, a 100% allocation check, click/tap help popovers, and no editable payout-rule date/status fields
+- [ ] Admin Partnerships > Payout Rules can save a contract-specific deduction label and additional deduction notes for cashless processing, royalties, or other agreement-specific deductions
 - [ ] Saving Admin Partnerships > Payout Rules repeatedly updates the current payout rule instead of creating duplicate visible rules
 - [ ] Admin Partnerships does not show example-specific `Fever` terminology in the admin UI
 - [ ] Admin Partnerships shows financial-rule warnings in Payout Rules and assignment warnings in the Machines step, not in a disconnected top-of-page warning box
@@ -283,9 +284,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Authenticated Weekly Preview smoke path is run from `Docs/WEEKLY_PREVIEW_SMOKE_TEST.md` with a super-admin on `/admin/partnerships?partnershipId=<qualified_fixture_partnership_id>&step=preview`
 - [ ] Authenticated Weekly Preview happy path for week ending `2026-04-19` shows `2026-04-13 through 2026-04-19`, `Ready`, `Orders` > 0, `Gross sales` > `$0`, and at least one `Sales by Machine` row after the Sunze backfill/setup dates are corrected
 - [ ] Authenticated Weekly Preview warning states are checked for `No machines are assigned for this week`, `No active payout rule covers this week`, and `No sales found for this selected week`
-- [ ] Admin Partnerships > Weekly Preview labels payout metrics with the same participant names used in Payout Rules plus Bloomjoy
+- [ ] Admin Partnerships > Weekly Preview labels payout metrics with legal partner names when recorded, otherwise the same participant names used in Payout Rules, plus Bloomjoy
 - [ ] Admin Partnerships > Weekly Preview matches the corrected Bubble Planet product math: Sunze order amount as gross, machine tax plus configured `$0.40` stick-level cost deduction before split, no-pay orders counted as `$0`, and 60/40 split when configured
-- [ ] Admin Partnerships > Weekly Preview can generate a branded partner PDF and a CSV reconciliation export from the loaded preview
+- [ ] Admin Partnerships > Weekly Preview can generate a branded partner PDF and a CSV reconciliation export from the loaded preview, and both exports include the snapshot ID
 - [ ] Corporate partner P0: super-admin can create a corporate partner, create a partnership/agreement, assign machines, configure machine tax assumptions, and configure typed revenue-share terms without developer support
 - [ ] Corporate partner P0: super-admin can preview a completed weekly report before generating a PDF and sees any missing tax, missing assignment, missing financial-rule, or stale-data warnings
 - [ ] Corporate partner P0: generated partner PDF includes executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, generated timestamp, and snapshot ID

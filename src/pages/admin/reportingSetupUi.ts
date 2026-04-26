@@ -17,6 +17,15 @@ export const partnerTypes = [
 export const partnershipTypes = ['venue', 'event', 'platform', 'revenue_share', 'internal', 'other'];
 export const statuses = ['active', 'archived'];
 export const partnershipStatuses = ['draft', 'active', 'archived'];
+export const reportingFrequencies = ['weekly', 'monthly', 'weekly_and_monthly'];
+export const machineOwnershipModels = ['supplier_owned', 'partner_owned', 'mixed', 'unknown'];
+export const consumerPricingAuthorities = [
+  'supplier_controls',
+  'partner_controls',
+  'sow_supplier_with_partner_approval',
+  'shared',
+  'unknown',
+];
 
 export const participantRoles = [
   'venue_partner',

@@ -66,18 +66,29 @@ const formatCalculationLabel = (rule: Record<string, unknown> | null) => {
 
   const feeAmount = Number(rule.fee_amount_cents ?? 0);
   const feeBasis = String(rule.fee_basis ?? "none");
+  const feeLabel = String(rule.fee_label ?? "Stick cost deduction");
   const feeText = feeAmount > 0 && feeBasis === "per_stick"
     ? `$${
       (feeAmount / 100).toFixed(2)
-    } stick-level cost deduction per paid stick/item`
+    } ${feeLabel.toLowerCase()} per paid stick/item`
     : feeAmount > 0
     ? `$${(feeAmount / 100).toFixed(2)} ${
-      feeBasis.replaceAll("_", " ")
-    } deduction`
-    : "no stick-level deduction";
+      feeLabel.toLowerCase()
+    } (${feeBasis.replaceAll("_", " ")})`
+    : "no configured deduction";
+  const additionalNotes = String(rule.additional_deductions_notes ?? "").trim();
 
-  return `Net sales split: gross sales less machine taxes and ${feeText}; no-pay rows count in volume but deduct $0.`;
+  return `Net sales split: gross sales less machine taxes and ${feeText}; no-pay rows count in volume but deduct $0.${
+    additionalNotes ? ` Additional notes: ${additionalNotes}` : ""
+  }`;
 };
+
+const getRuleExportLabels = (rule: Record<string, unknown> | null) => ({
+  feeLabel: String(rule?.fee_label ?? "Stick cost deduction"),
+  costLabel: String(rule?.cost_label ?? "Costs"),
+  additionalDeductionsNotes: String(rule?.additional_deductions_notes ?? "")
+    .trim() || null,
+});
 
 const getPayoutRecipientLabels = async (
   partnershipId: string,
@@ -98,7 +109,7 @@ const getPayoutRecipientLabels = async (
   const partnerIds = parties.map((party) => party.partner_id).filter(Boolean);
   const { data: partners, error: partnersError } = await serviceSupabase
     .from("reporting_partners")
-    .select("id, name")
+    .select("id, name, legal_name")
     .in("id", partnerIds);
 
   if (partnersError || !partners?.length) {
@@ -106,7 +117,7 @@ const getPayoutRecipientLabels = async (
   }
 
   const partnerNameById = new Map(
-    partners.map((partner) => [partner.id, partner.name]),
+    partners.map((partner) => [partner.id, partner.legal_name || partner.name]),
   );
   return parties
     .map((party) => partnerNameById.get(party.partner_id))
@@ -294,19 +305,7 @@ serve(async (req) => {
       getActiveFinancialRule(partnershipId, weekStartDate, weekEndingDate),
     ]);
     const calculationLabel = formatCalculationLabel(financialRule);
-    const context = {
-      preview,
-      payoutRecipientLabels,
-      calculationLabel,
-      generatedAt,
-    };
-    const fileBytes = format === "pdf"
-      ? buildPartnerReportPdf(context)
-      : encoder.encode(buildPartnerReportCsv(context));
-    const contentType = format === "pdf" ? "application/pdf" : "text/csv";
-    const fileName = `${
-      slugify(preview.partnershipName ?? "partner-report")
-    }-${weekEndingDate}.${format}`;
+    const ruleExportLabels = getRuleExportLabels(financialRule);
     const snapshot = await getOrCreateSnapshot({
       partnershipId,
       weekEndingDate,
@@ -315,8 +314,25 @@ serve(async (req) => {
         preview,
         calculationLabel,
         payoutRecipientLabels,
+        ...ruleExportLabels,
+        generatedAt,
       },
     });
+    const context = {
+      preview,
+      payoutRecipientLabels,
+      calculationLabel,
+      generatedAt,
+      snapshotId: snapshot.id,
+      ...ruleExportLabels,
+    };
+    const fileBytes = format === "pdf"
+      ? buildPartnerReportPdf(context)
+      : encoder.encode(buildPartnerReportCsv(context));
+    const contentType = format === "pdf" ? "application/pdf" : "text/csv";
+    const fileName = `${
+      slugify(preview.partnershipName ?? "partner-report")
+    }-${weekEndingDate}.${format}`;
     const storagePath =
       `partner-reports/${partnershipId}/${snapshot.id}/${fileName}`;
 
@@ -350,6 +366,8 @@ serve(async (req) => {
       preview,
       calculationLabel,
       payoutRecipientLabels,
+      snapshotId: snapshot.id,
+      ...ruleExportLabels,
       exports: {
         ...(((snapshot.summary_json as Record<string, unknown> | null)
           ?.exports as Record<string, unknown> | undefined) ?? {}),
