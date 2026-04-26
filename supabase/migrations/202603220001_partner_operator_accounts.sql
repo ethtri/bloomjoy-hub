@@ -1,4 +1,4 @@
-﻿-- Partner/operator account access and invite flow for training UAT.
+-- Partner/operator account access and invite flow for training UAT.
 
 create table if not exists public.customer_accounts (
   id uuid primary key default gen_random_uuid(),
