@@ -697,23 +697,69 @@ const postIngestPayload = async (payload) => {
   return responseBody;
 };
 
+const cleanupExportSource = async (source) => {
+  if (!source?.cleanupPath) return;
+
+  await rm(source.cleanupPath, {
+    recursive: source.cleanupMode === 'directory',
+    force: true,
+  });
+};
+
+const isRetryableWorkbookError = (error) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return (
+    /Sheet "Order" not found/i.test(message) ||
+    /end of central directory|invalid zip|corrupt|unexpected end/i.test(message)
+  );
+};
+
+const loadOrdersSource = async () => {
+  if (parseFilePath) {
+    const source = {
+      filePath: resolve(parseFilePath),
+      uiSummaries: [],
+      visibleSunzeMachineCodes: [],
+      cleanupPath: null,
+      cleanupMode: null,
+    };
+    return {
+      source,
+      rows: await parseSunzeOrderWorkbook(source.filePath),
+    };
+  }
+
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const source = await exportOrdersWorkbook();
+    try {
+      return {
+        source,
+        rows: await parseSunzeOrderWorkbook(source.filePath),
+      };
+    } catch (error) {
+      await cleanupExportSource(source);
+      if (attempt >= maxAttempts || !isRetryableWorkbookError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        `Sunze workbook parse failed after export attempt ${attempt}/${maxAttempts}; retrying export. ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  throw new Error('Unable to export and parse Sunze Orders workbook.');
+};
+
 let cleanupTarget = null;
 
 try {
-  const source = parseFilePath
-    ? {
-        filePath: resolve(parseFilePath),
-        uiSummaries: [],
-        visibleSunzeMachineCodes: [],
-        cleanupPath: null,
-        cleanupMode: null,
-      }
-    : await exportOrdersWorkbook();
+  const { source, rows } = await loadOrdersSource();
 
   cleanupTarget = source.cleanupPath
     ? { path: source.cleanupPath, mode: source.cleanupMode }
     : null;
-  const rows = await parseSunzeOrderWorkbook(source.filePath);
   const summary = summarizeSunzeOrderRows(rows);
 
   const matchedUiSummary =
@@ -807,9 +853,9 @@ try {
   }
 } finally {
   if (cleanupTarget) {
-    await rm(cleanupTarget.path, {
-      recursive: cleanupTarget.mode === 'directory',
-      force: true,
+    await cleanupExportSource({
+      cleanupPath: cleanupTarget.path,
+      cleanupMode: cleanupTarget.mode,
     });
   }
 }
