@@ -2,15 +2,16 @@ name: Sunze Sales Sync
 
 on:
   schedule:
-    # Runs in early Pacific morning. The worker uses Sunze's Last 3 Days preset,
-    # so exact wall-clock timing is not data-critical.
+    # Daily catch-up with a rolling overlap so missed/late Sunze rows are repaired idempotently.
     - cron: '30 13 * * *'
+    # Monthly safety sweep for historical gaps and missed daily workflow runs.
+    - cron: '45 14 1 * *'
   workflow_dispatch:
     inputs:
       date_preset:
         description: 'Sunze date preset to export'
         required: false
-        default: 'Last 3 Days'
+        default: 'Last 7 Days'
       dry_run:
         description: 'Parse the export without sending rows to Supabase'
         required: false
@@ -36,8 +37,9 @@ jobs:
       SUNZE_REPORTING_PASSWORD: ${{ secrets.SUNZE_REPORTING_PASSWORD }}
       REPORTING_INGEST_URL: ${{ secrets.REPORTING_INGEST_URL }}
       REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
-      DATE_PRESET: ${{ inputs.date_preset || 'Last 3 Days' }}
+      DATE_PRESET: ${{ inputs.date_preset || '' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
       SUMMARY_MACHINE_CODES: ${{ inputs.summary_machine_codes || '' }}
       SUNZE_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
       SUNZE_SYNC_STALE_HOURS: '30'
@@ -66,7 +68,15 @@ jobs:
       - name: Sync Sunze orders
         shell: bash
         run: |
-          args=(--date-preset "$DATE_PRESET")
+          date_preset="$DATE_PRESET"
+          if [[ -z "$date_preset" ]]; then
+            if [[ "$GITHUB_EVENT_SCHEDULE" == "45 14 1 * *" ]]; then
+              date_preset="Last Month"
+            else
+              date_preset="Last 7 Days"
+            fi
+          fi
+          args=(--date-preset "$date_preset")
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
           fi

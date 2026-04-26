@@ -44,7 +44,7 @@ await loadEnvFile(resolve(process.cwd(), '.env'));
 const dryRun = hasFlag('--dry-run');
 const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
-const datePreset = getArg('--date-preset', 'Last 3 Days');
+const datePreset = getArg('--date-preset', 'Last 7 Days');
 const downloadDirArg = getArg('--download-dir');
 const summaryMachineCodesArg =
   getArg('--summary-machine-codes') || process.env.SUNZE_SUMMARY_MACHINE_CODES || '';
