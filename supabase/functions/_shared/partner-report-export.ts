@@ -45,8 +45,8 @@ const encoder = new TextEncoder();
 const toAscii = (value: unknown): string =>
   String(value ?? "")
     .normalize("NFKD")
-    .replace(/[^\x20-\x7e]/g, "")
     .replace(/\s+/g, " ")
+    .replace(/[^\x20-\x7e]/g, "")
     .trim();
 
 const escapePdfText = (value: string): string =>
@@ -128,7 +128,7 @@ const formatGeneratedAt = (value: unknown): string => {
   const date = new Date(String(value ?? ""));
   if (Number.isNaN(date.getTime())) return toAscii(value);
 
-  return new Intl.DateTimeFormat("en-US", {
+  return toAscii(new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
     month: "short",
     day: "numeric",
@@ -136,7 +136,7 @@ const formatGeneratedAt = (value: unknown): string => {
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short",
-  }).format(date);
+  }).format(date));
 };
 
 const csvCell = (value: unknown): string => {
