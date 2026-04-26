@@ -20,6 +20,7 @@ This repo is operated primarily through AI coding agents. The owner is not expec
 - Run the repo verification expected by the PR template and report exact results.
 - For UI changes, provide preview/localhost links and desktop/mobile screenshots.
 - For user-facing changes, provide exact UAT steps and expected results.
+- Use `Docs/UAT_PERSONA_PLAYBOOK.md` when preparing owner UAT steps for public, portal, admin, reporting, Technician, or Partner Viewer changes.
 - For high-risk changes, include an explicit rollback plan and independent AI review evidence.
 
 Use an independent AI reviewer or delegated subagent for high-risk review when the current agent environment allows it. If not available, perform a separate review pass and record what was checked.
@@ -30,6 +31,8 @@ Use an independent AI reviewer or delegated subagent for high-risk review when t
 - High risk: owner UAT or go/no-go confirmation is required before merge or production rollout.
 
 The owner should not need to inspect code diffs to make routine decisions. PRs should present enough evidence for a product-level go/no-go.
+
+See `Docs/UAT_PERSONA_PLAYBOOK.md` for the persona-based checklist agents should use before asking the owner for UAT.
 
 ## Weekly hygiene
 Agents should periodically:
