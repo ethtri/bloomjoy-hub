@@ -5,11 +5,6 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const REQUIRED_INTERNAL_RECIPIENTS = [
-  'etrifari@bloomjoysweets.com',
-  'ian@bloomjoysweets.com',
-];
-
 const DEFAULTS = {
   envFiles: ['.env', '.env.local'],
   projectRef: '',
@@ -131,6 +126,10 @@ function parseRecipients(value) {
     .filter(Boolean);
 }
 
+function isLikelyEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function isValidUrl(value) {
   try {
     const url = new URL(value);
@@ -231,11 +230,13 @@ function run() {
 
   if (!isRemoteSource) {
     const recipients = parseRecipients(env.INTERNAL_NOTIFICATION_RECIPIENTS);
-    for (const requiredRecipient of REQUIRED_INTERNAL_RECIPIENTS) {
-      if (!recipients.includes(requiredRecipient)) {
-        errors.push(
-          `INTERNAL_NOTIFICATION_RECIPIENTS must include ${requiredRecipient}.`
-        );
+    if (env.INTERNAL_NOTIFICATION_RECIPIENTS && recipients.length === 0) {
+      errors.push('INTERNAL_NOTIFICATION_RECIPIENTS must include at least one recipient.');
+    }
+
+    for (const recipient of recipients) {
+      if (!isLikelyEmail(recipient)) {
+        errors.push(`INTERNAL_NOTIFICATION_RECIPIENTS contains an invalid email: ${recipient}.`);
       }
     }
   } else {
