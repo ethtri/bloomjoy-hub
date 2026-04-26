@@ -15,6 +15,9 @@ on:
         description: 'Parse the export without sending rows to Supabase'
         required: false
         default: 'false'
+      summary_machine_codes:
+        description: 'Optional comma-separated Sunze machine codes to summarize in logs'
+        required: false
 
 permissions:
   contents: read
@@ -35,6 +38,7 @@ jobs:
       REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
       DATE_PRESET: ${{ inputs.date_preset || 'Last 3 Days' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      SUMMARY_MACHINE_CODES: ${{ inputs.summary_machine_codes || '' }}
       SUNZE_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
       SUNZE_SYNC_STALE_HOURS: '30'
       SUNZE_REPORTING_TIMEZONE: America/Los_Angeles
@@ -65,6 +69,9 @@ jobs:
           args=(--date-preset "$DATE_PRESET")
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
+          fi
+          if [[ -n "$SUMMARY_MACHINE_CODES" ]]; then
+            args+=(--summary-machine-codes "$SUMMARY_MACHINE_CODES")
           fi
           npm run reporting:sunze-sync -- "${args[@]}"
 

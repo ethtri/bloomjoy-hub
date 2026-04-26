@@ -46,6 +46,8 @@ const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
 const datePreset = getArg('--date-preset', 'Last 3 Days');
 const downloadDirArg = getArg('--download-dir');
+const summaryMachineCodesArg =
+  getArg('--summary-machine-codes') || process.env.SUNZE_SUMMARY_MACHINE_CODES || '';
 const supportedDatePresets = new Set([
   'Today',
   'Yesterday',
@@ -408,6 +410,38 @@ const extractMachineCodesFromText = (text) => {
   return [...codes].sort();
 };
 
+const summaryMachineCodes = [
+  ...new Set(
+    summaryMachineCodesArg
+      .split(',')
+      .map(sanitizeMachineCode)
+      .filter(Boolean)
+  ),
+].sort();
+
+const summarizeRowsByDate = (rows, machineCodes = []) => {
+  const summaryMachineCodeSet = new Set(machineCodes);
+  const byDate = new Map();
+
+  for (const row of rows) {
+    if (!byDate.has(row.saleDate)) {
+      byDate.set(row.saleDate, {
+        date: row.saleDate,
+        rowCount: 0,
+        machineCounts: Object.fromEntries(machineCodes.map((machineCode) => [machineCode, 0])),
+      });
+    }
+
+    const dateSummary = byDate.get(row.saleDate);
+    dateSummary.rowCount += 1;
+    if (summaryMachineCodeSet.has(row.machineCode)) {
+      dateSummary.machineCounts[row.machineCode] += 1;
+    }
+  }
+
+  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
+};
+
 const clickNextMachineListPage = async (page) =>
   page.evaluate(() => {
     const next =
@@ -742,6 +776,7 @@ try {
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
       visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
+      rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
       ignoredUnmappedMachineCount: ingestValidation?.ignoredUnmappedMachineCount ?? null,
       newlyPendingUnmappedMachineCount: ingestValidation?.newlyPendingUnmappedMachineCount ?? null,
@@ -761,6 +796,7 @@ try {
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
+      rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       importRunId: result.importRunId ?? null,
       rowsImported: result.rowsImported ?? null,
       rowsSkipped: result.rowsSkipped ?? null,
