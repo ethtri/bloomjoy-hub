@@ -1,4 +1,5 @@
 import { supabaseClient } from '@/lib/supabaseClient';
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import type { ReportingMachineType } from '@/lib/reporting';
 
 export type ReportingPartner = {
@@ -244,6 +245,13 @@ export type UpsertMachineTaxRateInput = {
   reason: string;
 };
 
+export type SetMachineTaxRateInput = {
+  machineId: string;
+  taxRatePercent: number;
+  effectiveStartDate: string;
+  reason: string;
+};
+
 export type UpsertFinancialRuleInput = {
   ruleId?: string | null;
   partnershipId: string;
@@ -263,6 +271,17 @@ export type UpsertFinancialRuleInput = {
   status: string;
   notes?: string | null;
   reason: string;
+};
+
+export type ExportPartnerWeeklyReportFormat = 'pdf' | 'csv';
+
+export type ExportPartnerWeeklyReportResponse = {
+  error?: string;
+  snapshotId: string;
+  storagePath: string;
+  signedUrl: string;
+  format: ExportPartnerWeeklyReportFormat;
+  fileName: string;
 };
 
 const emptySetup: PartnershipReportingSetup = {
@@ -419,6 +438,21 @@ export const upsertReportingMachineTaxRateAdmin = async (input: UpsertMachineTax
   return data as ReportingMachineTaxRate;
 };
 
+export const setReportingMachineTaxRateAdmin = async (input: SetMachineTaxRateInput) => {
+  const { data, error } = await supabaseClient.rpc('admin_set_reporting_machine_tax_rate', {
+    p_machine_id: input.machineId,
+    p_tax_rate_percent: input.taxRatePercent,
+    p_effective_start_date: input.effectiveStartDate,
+    p_reason: input.reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save machine tax rate.');
+  }
+
+  return data as ReportingMachineTaxRate;
+};
+
 export const upsertReportingFinancialRuleAdmin = async (input: UpsertFinancialRuleInput) => {
   const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_financial_rule', {
     p_rule_id: input.ruleId ?? null,
@@ -462,4 +496,23 @@ export const previewPartnerWeeklyReportAdmin = async (
   }
 
   return normalizePartnerWeeklyReportPreview(data, partnershipId, weekEndingDate);
+};
+
+export const exportPartnerWeeklyReportAdmin = async (
+  partnershipId: string,
+  weekEndingDate: string,
+  format: ExportPartnerWeeklyReportFormat
+): Promise<ExportPartnerWeeklyReportResponse> => {
+  return invokeEdgeFunction<ExportPartnerWeeklyReportResponse>(
+    'partner-report-export',
+    {
+      partnershipId,
+      weekEndingDate,
+      format,
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to export partner reports.',
+    }
+  );
 };

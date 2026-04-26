@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, Pencil, Plus, RefreshCw, Search } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  History,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -17,8 +27,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import {
   fetchPartnershipReportingSetup,
-  upsertReportingMachineTaxRateAdmin,
+  setReportingMachineTaxRateAdmin,
   type PartnershipReportingSetup,
   type PartnershipSetupMachine,
   type ReportingMachineTaxRate,
@@ -26,6 +43,7 @@ import {
 import { type ReportingMachineType, upsertReportingMachineAdmin } from '@/lib/reporting';
 import {
   formatLabel,
+  formatDate,
   getActiveMachineAssignments,
   getCurrentTaxRate,
   getTaxStatus,
@@ -40,6 +58,7 @@ type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
 type MachineSort = 'status' | 'machine' | 'account' | 'latest_sale';
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
+const initialReportingTaxStartDate = '2026-01-01';
 
 const emptySetup: PartnershipReportingSetup = {
   partners: [],
@@ -59,6 +78,12 @@ const emptyMachineForm = {
   machineLabel: '',
   machineType: 'unknown' as ReportingMachineType,
   sunzeMachineId: '',
+};
+
+const emptyTaxChangeForm = {
+  machineId: '',
+  taxRatePercent: '',
+  effectiveStartDate: today(),
 };
 
 const parseTaxFilter = (value: string | null): MachineTaxFilter => {
@@ -84,6 +109,9 @@ export default function AdminMachinesPage() {
   const [sort, setSort] = useState<MachineSort>('status');
   const [taxDrafts, setTaxDrafts] = useState<Record<string, string>>({});
   const [savingTaxMachineId, setSavingTaxMachineId] = useState<string | null>(null);
+  const [taxChangeForm, setTaxChangeForm] = useState(emptyTaxChangeForm);
+  const [isTaxChangeDialogOpen, setIsTaxChangeDialogOpen] = useState(false);
+  const [historyMachine, setHistoryMachine] = useState<PartnershipSetupMachine | null>(null);
   const [editingMachine, setEditingMachine] = useState<PartnershipSetupMachine | null>(null);
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
 
@@ -224,6 +252,32 @@ export default function AdminMachinesPage() {
     }
   };
 
+  const openTaxChangeDialog = (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => {
+    setTaxChangeForm({
+      machineId: machine.id,
+      taxRatePercent: taxRate ? String(Number(taxRate.tax_rate_percent)) : '',
+      effectiveStartDate: today(),
+    });
+    setIsTaxChangeDialogOpen(true);
+  };
+
+  const closeTaxChangeDialog = (open: boolean) => {
+    setIsTaxChangeDialogOpen(open);
+    if (!open) {
+      setTaxChangeForm(emptyTaxChangeForm);
+    }
+  };
+
+  const taxHistoryRates = useMemo(
+    () =>
+      historyMachine
+        ? setup.taxRates
+            .filter((taxRate) => taxRate.machine_id === historyMachine.id)
+            .sort((left, right) => right.effective_start_date.localeCompare(left.effective_start_date))
+        : [],
+    [historyMachine, setup.taxRates]
+  );
+
   const saveTaxRate = async (
     machine: PartnershipSetupMachine,
     taxRate: ReportingMachineTaxRate | undefined,
@@ -238,15 +292,13 @@ export default function AdminMachinesPage() {
 
     setSavingTaxMachineId(machine.id);
     try {
-      await upsertReportingMachineTaxRateAdmin({
-        taxRateId: taxRate?.id ?? null,
+      await setReportingMachineTaxRateAdmin({
         machineId: machine.id,
         taxRatePercent: parsedRate,
-        effectiveStartDate: taxRate?.effective_start_date ?? today(),
-        effectiveEndDate: taxRate?.effective_end_date ?? '',
-        status: 'active',
-        notes: taxRate?.notes ?? '',
-        reason: 'Current machine tax rate updated',
+        effectiveStartDate: taxRate?.effective_start_date ?? initialReportingTaxStartDate,
+        reason: taxRate
+          ? 'Reporting tax rate updated from Machines admin'
+          : 'Initial reporting tax rate documented from Machines admin',
       });
       toast.success(`${machine.machine_label} tax rate updated.`);
       setTaxDrafts((current) => {
@@ -257,6 +309,48 @@ export default function AdminMachinesPage() {
       await refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save machine tax rate.');
+    } finally {
+      setSavingTaxMachineId(null);
+    }
+  };
+
+  const saveTaxChange = async () => {
+    const machine = setup.machines.find((candidate) => candidate.id === taxChangeForm.machineId);
+    const parsedRate = Number(taxChangeForm.taxRatePercent);
+
+    if (!machine) {
+      toast.error('Select a machine before recording a tax change.');
+      return;
+    }
+
+    if (
+      !taxChangeForm.taxRatePercent.trim() ||
+      Number.isNaN(parsedRate) ||
+      parsedRate < 0 ||
+      parsedRate > 100
+    ) {
+      toast.error('Enter a tax rate from 0 to 100. Use 0 for explicit no-tax machines.');
+      return;
+    }
+
+    if (!taxChangeForm.effectiveStartDate) {
+      toast.error('Choose when the new reporting tax rate applies from.');
+      return;
+    }
+
+    setSavingTaxMachineId(machine.id);
+    try {
+      await setReportingMachineTaxRateAdmin({
+        machineId: machine.id,
+        taxRatePercent: parsedRate,
+        effectiveStartDate: taxChangeForm.effectiveStartDate,
+        reason: 'Reporting tax rate change recorded from Machines admin',
+      });
+      toast.success(`${machine.machine_label} tax change recorded.`);
+      closeTaxChangeDialog(false);
+      await refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to record tax change.');
     } finally {
       setSavingTaxMachineId(null);
     }
@@ -274,7 +368,7 @@ export default function AdminMachinesPage() {
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Machines</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 Manage machine labels, Sunze mapping, partnership assignment readiness, and
-                current tax rates in one operational table.
+                reporting tax rates in one operational table.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -320,6 +414,10 @@ export default function AdminMachinesPage() {
           </div>
 
           <div className="mt-6 rounded-lg border border-border bg-card p-4">
+            <div className="mb-4 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+              Reporting tax rates are used only for partner report estimates. They do not set
+              machine prices or replace the accounting tax workflow.
+            </div>
             <div className="grid gap-3 xl:grid-cols-[1fr_auto_auto_auto] xl:items-end">
               <div>
                 <Label htmlFor="machine-search">Search machines</Label>
@@ -400,13 +498,14 @@ export default function AdminMachinesPage() {
                       <th className="px-4 py-3 text-left font-semibold">Sunze ID</th>
                       <th className="px-4 py-3 text-left font-semibold">Assignment</th>
                       <th className="px-4 py-3 text-left font-semibold">Tax status</th>
-                      <th className="px-4 py-3 text-left font-semibold">Current tax %</th>
+                      <th className="px-4 py-3 text-left font-semibold">Reporting tax %</th>
                       <th className="px-4 py-3 text-left font-semibold">Latest sale</th>
                       <th className="px-4 py-3 text-right font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border bg-background">
                     {machineRows.map(({ machine, taxRate, taxStatus, activeAssignments, machineWarnings, draftValue }) => {
+                      const machineTaxHistory = setup.taxRates.filter((rate) => rate.machine_id === machine.id);
                       const isHighlighted = highlightedMachineId === machine.id;
                       const hasActionableWarning = machineWarnings.some(
                         (warning) =>
@@ -458,9 +557,9 @@ export default function AdminMachinesPage() {
                           </td>
                           <td className="px-4 py-3">
                             <Input
-                              aria-label={`${machine.machine_label} current tax rate percent`}
+                              aria-label={`${machine.machine_label} reporting tax rate percent`}
                               type="number"
-                              step="0.0001"
+                              step="0.01"
                               min={0}
                               max={100}
                               value={draftValue}
@@ -476,7 +575,7 @@ export default function AdminMachinesPage() {
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">{machine.latest_sale_date ?? 'n/a'}</td>
                           <td className="px-4 py-3">
-                            <div className="flex justify-end gap-2">
+                            <div className="flex flex-wrap justify-end gap-2">
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -484,6 +583,23 @@ export default function AdminMachinesPage() {
                               >
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Edit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setHistoryMachine(machine)}
+                                disabled={machineTaxHistory.length === 0}
+                              >
+                                <History className="mr-2 h-4 w-4" />
+                                History
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openTaxChangeDialog(machine, taxRate)}
+                              >
+                                <CalendarClock className="mr-2 h-4 w-4" />
+                                Rate Change
                               </Button>
                               <Button
                                 size="sm"
@@ -515,6 +631,55 @@ export default function AdminMachinesPage() {
         machines={setup.machines}
         onSaved={refresh}
       />
+      <TaxChangeDialog
+        open={isTaxChangeDialogOpen}
+        onOpenChange={closeTaxChangeDialog}
+        form={taxChangeForm}
+        setForm={setTaxChangeForm}
+        machine={setup.machines.find((machine) => machine.id === taxChangeForm.machineId) ?? null}
+        isSaving={Boolean(taxChangeForm.machineId && savingTaxMachineId === taxChangeForm.machineId)}
+        onSave={saveTaxChange}
+      />
+      <Sheet open={Boolean(historyMachine)} onOpenChange={(open) => !open && setHistoryMachine(null)}>
+        <SheetContent className="w-full sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>Reporting tax history</SheetTitle>
+            <SheetDescription>
+              {historyMachine
+                ? `${historyMachine.machine_label} reporting tax rates used for historical partner reports.`
+                : 'Machine reporting tax rates used for historical partner reports.'}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 grid gap-3">
+            {taxHistoryRates.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+                No reporting tax rates have been saved for this machine.
+              </div>
+            ) : (
+              taxHistoryRates.map((taxRate) => (
+                <div key={taxRate.id} className="rounded-md border border-border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-foreground">
+                        {Number(taxRate.tax_rate_percent).toFixed(2)}%
+                      </div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        Applies {formatDate(taxRate.effective_start_date)}
+                        {taxRate.effective_end_date
+                          ? ` through ${formatDate(taxRate.effective_end_date)}`
+                          : ' onward'}
+                      </div>
+                    </div>
+                    <Badge variant={taxRate.status === 'active' ? 'default' : 'outline'}>
+                      {formatLabel(taxRate.status)}
+                    </Badge>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </AppLayout>
   );
 }
@@ -544,6 +709,77 @@ function ReadinessCard({
         <div className="mt-3 text-xs text-muted-foreground">{actionLabel}</div>
       )}
     </div>
+  );
+}
+
+function TaxChangeDialog({
+  open,
+  onOpenChange,
+  form,
+  setForm,
+  machine,
+  isSaving,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  form: typeof emptyTaxChangeForm;
+  setForm: (form: typeof emptyTaxChangeForm) => void;
+  machine: PartnershipSetupMachine | null;
+  isSaving: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record Rate Change</DialogTitle>
+          <DialogDescription>
+            Use this when a machine moves or a jurisdiction changes. The previous reporting tax
+            rate will close automatically the day before this rate applies.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
+            <div className="text-xs font-medium uppercase text-muted-foreground">Machine</div>
+            <div className="mt-1 font-medium text-foreground">{machine?.machine_label ?? 'Select a machine'}</div>
+          </div>
+          <div>
+            <Label htmlFor="tax-change-rate">New reporting tax %</Label>
+            <Input
+              id="tax-change-rate"
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={form.taxRatePercent}
+              onChange={(event) => setForm({ ...form, taxRatePercent: event.target.value })}
+            />
+          </div>
+          <div>
+            <Label htmlFor="tax-change-start">Applies from</Label>
+            <Input
+              id="tax-change-start"
+              type="date"
+              value={form.effectiveStartDate}
+              onChange={(event) => setForm({ ...form, effectiveStartDate: event.target.value })}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              For initial setup, use the inline table save. It applies documented rates from 01/01/2026.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={isSaving}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+            Record Change
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -117,6 +117,7 @@ export type AdminReportViewSnapshot = {
   error_message: string | null;
   created_at: string;
   created_by: string | null;
+  snapshot_type?: 'sales_report' | 'partner_report';
 };
 
 export type AdminReportingEntitlement = {
@@ -488,6 +489,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     runsResult,
     schedulesResult,
     snapshotsResult,
+    partnerSnapshotsResult,
     entitlementsResult,
     sunzeQueueResult,
   ] = await Promise.all([
@@ -511,6 +513,11 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       .order('created_at', { ascending: false })
       .limit(10),
     supabaseClient
+      .from('partner_report_snapshots')
+      .select('id, partnership_id, week_ending_date, status, generated_at, generated_by, summary_json, export_storage_path, reporting_partnerships(name)')
+      .order('generated_at', { ascending: false })
+      .limit(10),
+    supabaseClient
       .from('reporting_machine_entitlements')
       .select('*, reporting_machines(machine_label), reporting_locations(name), customer_accounts(name)')
       .order('created_at', { ascending: false })
@@ -523,6 +530,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     runsResult.error ||
     schedulesResult.error ||
     snapshotsResult.error ||
+    partnerSnapshotsResult.error ||
     entitlementsResult.error ||
     sunzeQueueResult.error;
 
@@ -530,11 +538,51 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     throw new Error(firstError.message || 'Unable to load reporting admin overview.');
   }
 
+  const salesSnapshots = ((snapshotsResult.data ?? []) as AdminReportViewSnapshot[]).map((snapshot) => ({
+    ...snapshot,
+    snapshot_type: 'sales_report' as const,
+  }));
+  const partnerSnapshots = ((partnerSnapshotsResult.data ?? []) as Array<{
+    id: string;
+    partnership_id: string;
+    week_ending_date: string;
+    status: string;
+    generated_at: string;
+    generated_by: string | null;
+    summary_json: Record<string, unknown> | null;
+    export_storage_path: string | null;
+    reporting_partnerships?: { name?: string | null } | Array<{ name?: string | null }> | null;
+  }>).map((snapshot) => {
+    const partnership = Array.isArray(snapshot.reporting_partnerships)
+      ? snapshot.reporting_partnerships[0]
+      : snapshot.reporting_partnerships;
+    const title = `${partnership?.name ?? 'Partner report'} week ending ${snapshot.week_ending_date}`;
+
+    return {
+      id: snapshot.id,
+      title,
+      filters: {
+        partnershipId: snapshot.partnership_id,
+        weekEndingDate: snapshot.week_ending_date,
+      },
+      summary: snapshot.summary_json ?? {},
+      export_storage_path: snapshot.export_storage_path,
+      export_status: snapshot.export_storage_path ? 'ready' : 'pending',
+      error_message: null,
+      created_at: snapshot.generated_at,
+      created_by: snapshot.generated_by,
+      snapshot_type: 'partner_report' as const,
+    } satisfies AdminReportViewSnapshot;
+  });
+  const snapshots = [...salesSnapshots, ...partnerSnapshots]
+    .sort((left, right) => right.created_at.localeCompare(left.created_at))
+    .slice(0, 10);
+
   return {
     machines: (machinesResult.data ?? []) as AdminReportingMachine[],
     importRuns: (runsResult.data ?? []) as AdminReportingImportRun[],
     schedules: (schedulesResult.data ?? []) as AdminReportSchedule[],
-    snapshots: (snapshotsResult.data ?? []) as AdminReportViewSnapshot[],
+    snapshots,
     entitlements: (entitlementsResult.data ?? []) as AdminReportingEntitlement[],
     sunzeMachineQueue: mapSunzeMachineQueue(sunzeQueueResult.data),
   };
