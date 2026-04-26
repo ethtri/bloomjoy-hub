@@ -303,9 +303,7 @@ serve(async (req) => {
     const fileBytes = format === "pdf"
       ? buildPartnerReportPdf(context)
       : encoder.encode(buildPartnerReportCsv(context));
-    const contentType = format === "pdf"
-      ? "application/pdf"
-      : "text/csv; charset=utf-8";
+    const contentType = format === "pdf" ? "application/pdf" : "text/csv";
     const fileName = `${
       slugify(preview.partnershipName ?? "partner-report")
     }-${weekEndingDate}.${format}`;
@@ -334,6 +332,14 @@ serve(async (req) => {
       );
 
     if (uploadError) {
+      if (
+        format === "csv" &&
+        uploadError.message?.toLowerCase().includes("mime")
+      ) {
+        throw new Error(
+          "CSV export storage is not configured for text/csv. Apply the latest reporting export migration and retry.",
+        );
+      }
       throw new Error(
         uploadError.message || "Unable to upload partner report.",
       );

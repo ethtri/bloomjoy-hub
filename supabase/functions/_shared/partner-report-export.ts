@@ -62,6 +62,52 @@ const truncate = (value: unknown, length: number): string => {
     : normalized;
 };
 
+const truncateWithDots = (value: unknown, length: number): string => {
+  const normalized = toAscii(value);
+  if (normalized.length <= length) return normalized;
+  if (length <= 3) return normalized.slice(0, length);
+  return `${normalized.slice(0, length - 3)}...`;
+};
+
+const wrapText = (
+  value: unknown,
+  maxLineLength: number,
+  maxLines: number,
+): string[] => {
+  const normalized = toAscii(value);
+  if (!normalized) return [""];
+
+  const lines: string[] = [];
+  let current = "";
+
+  normalized.split(/\s+/).forEach((word) => {
+    const chunks = word.length > maxLineLength
+      ? word.match(new RegExp(`.{1,${maxLineLength}}`, "g")) ?? [word]
+      : [word];
+
+    chunks.forEach((chunk) => {
+      const candidate = current ? `${current} ${chunk}` : chunk;
+      if (candidate.length <= maxLineLength) {
+        current = candidate;
+        return;
+      }
+
+      if (current) lines.push(current);
+      current = chunk;
+    });
+  });
+
+  if (current) lines.push(current);
+  if (lines.length <= maxLines) return lines;
+
+  const visibleLines = lines.slice(0, maxLines);
+  visibleLines[maxLines - 1] = truncateWithDots(
+    visibleLines[maxLines - 1],
+    maxLineLength,
+  );
+  return visibleLines;
+};
+
 const numberValue = (value: unknown): number => {
   const normalized = Number(value ?? 0);
   return Number.isFinite(normalized) ? normalized : 0;
@@ -77,6 +123,21 @@ const formatCurrency = (cents: unknown): string =>
 
 const formatInteger = (value: unknown): string =>
   Math.round(numberValue(value)).toLocaleString("en-US");
+
+const formatGeneratedAt = (value: unknown): string => {
+  const date = new Date(String(value ?? ""));
+  if (Number.isNaN(date.getTime())) return toAscii(value);
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+};
 
 const csvCell = (value: unknown): string => {
   const text = String(value ?? "");
@@ -95,6 +156,7 @@ export const buildPartnerReportCsv = ({
   generatedAt,
 }: PartnerReportExportContext): string => {
   const summary = preview.summary ?? {};
+  const generatedAtLabel = formatGeneratedAt(generatedAt);
   const rows = [
     csvRow(["Bloomjoy Partner Weekly Report"]),
     csvRow(["Partnership", preview.partnershipName ?? ""]),
@@ -102,7 +164,7 @@ export const buildPartnerReportCsv = ({
       "Week",
       `${preview.weekStartDate ?? ""} through ${preview.weekEndingDate ?? ""}`,
     ]),
-    csvRow(["Generated", generatedAt]),
+    csvRow(["Generated", generatedAtLabel]),
     csvRow(["Calculation", calculationLabel]),
     "",
     csvRow(["Summary"]),
@@ -207,6 +269,7 @@ export const buildPartnerReportPdf = ({
   const pages: string[] = [];
   const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
   const additionalPartnerLabel = payoutRecipientLabels[1];
+  const generatedAtLabel = formatGeneratedAt(generatedAt);
   const machineChunks: PartnerReportMachine[][] = [];
   const firstPageMachineCount = warnings.length > 0 ? 12 : 14;
 
@@ -258,8 +321,8 @@ export const buildPartnerReportPdf = ({
     );
     lines.push(
       pdfText({
-        text: `Generated ${generatedAt}`,
-        x: 410,
+        text: `Generated ${generatedAtLabel}`,
+        x: 384,
         y: 728,
         size: 8,
         color: "muted",
@@ -272,7 +335,7 @@ export const buildPartnerReportPdf = ({
         ["Sticks/items", formatInteger(summary.item_quantity)],
         ["Gross sales", formatCurrency(summary.gross_sales_cents)],
         ["Machine taxes", formatCurrency(summary.tax_cents)],
-        ["Stick cost", formatCurrency(summary.fee_cents)],
+        ["Stick cost deduction", formatCurrency(summary.fee_cents)],
         ["Net sales", formatCurrency(summary.net_sales_cents)],
         [partnerLabel, formatCurrency(summary.fever_profit_cents)],
         ["Bloomjoy retained", formatCurrency(summary.bloomjoy_profit_cents)],
@@ -287,16 +350,18 @@ export const buildPartnerReportPdf = ({
         const x = 44 + (index % 4) * 132;
         const y = 656 - Math.floor(index / 4) * 62;
         lines.push(pdfBox(x, y, 118, 46));
-        lines.push(
-          pdfText({
-            text: truncate(label, 20).toUpperCase(),
-            x: x + 9,
-            y: y + 30,
-            size: 7,
-            color: "muted",
-            bold: true,
-          }),
-        );
+        wrapText(label.toUpperCase(), 18, 2).forEach((labelLine, lineIndex) => {
+          lines.push(
+            pdfText({
+              text: labelLine,
+              x: x + 9,
+              y: y + 31 - lineIndex * 8,
+              size: 6.5,
+              color: "muted",
+              bold: true,
+            }),
+          );
+        });
         lines.push(
           pdfText({ text: value, x: x + 9, y: y + 13, size: 12, bold: true }),
         );
@@ -310,18 +375,20 @@ export const buildPartnerReportPdf = ({
           bold: true,
         }),
       );
-      lines.push(
-        pdfText({
-          text: truncate(calculationLabel, 92),
-          x: 44,
-          y: 504,
-          size: 8,
-          color: "muted",
-        }),
-      );
+      wrapText(calculationLabel, 104, 2).forEach((calculationLine, index) => {
+        lines.push(
+          pdfText({
+            text: calculationLine,
+            x: 44,
+            y: 504 - index * 12,
+            size: 8,
+            color: "muted",
+          }),
+        );
+      });
     }
 
-    const tableTop = pageIndex === 0 ? 468 : 676;
+    const tableTop = pageIndex === 0 ? 454 : 676;
     lines.push(
       pdfText({
         text: "Machine rollup",
