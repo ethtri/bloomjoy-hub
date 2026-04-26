@@ -902,6 +902,8 @@ function PartnerDashboardView() {
     [periodMode, sortedPeriods]
   );
 
+  const hasBlockingWarnings =
+    preview?.warnings.some((warning) => warning.severity === 'blocking') ?? false;
   const trendLabel = periodMode === 'weekly' ? 'Weekly' : 'Monthly';
 
   const refreshPartnerDashboard = async () => {
@@ -913,6 +915,14 @@ function PartnerDashboardView() {
 
   const exportPartnerPdf = () => {
     if (!preview) return;
+    if (previewFetching) {
+      toast.error('Wait for the latest partner dashboard numbers before exporting.');
+      return;
+    }
+    if (hasBlockingWarnings) {
+      toast.error('Resolve blocking admin review items before exporting the partner PDF.');
+      return;
+    }
 
     toast.success('Opening branded partner report for PDF export.');
     window.setTimeout(() => window.print(), 50);
@@ -1018,7 +1028,10 @@ function PartnerDashboardView() {
               )}
               Refresh
             </Button>
-            <Button onClick={exportPartnerPdf} disabled={!preview || previewLoading}>
+            <Button
+              onClick={exportPartnerPdf}
+              disabled={!preview || previewLoading || previewFetching || hasBlockingWarnings}
+            >
               <FileText className="mr-2 h-4 w-4" />
               Export PDF
             </Button>
@@ -1056,6 +1069,11 @@ function PartnerDashboardView() {
               <AlertTitle>Admin-only data quality review</AlertTitle>
               <AlertDescription>
                 <div className="mt-2 flex flex-col gap-2">
+                  {hasBlockingWarnings && (
+                    <div className="font-medium">
+                      Partner PDF export is locked until blocking items are resolved.
+                    </div>
+                  )}
                   {preview.warnings.slice(0, 4).map((warning, index) => (
                     <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
                       <Badge variant={warning.severity === 'blocking' ? 'destructive' : 'outline'}>
@@ -1204,7 +1222,7 @@ function PartnerDashboardView() {
         <EmptyPanel title="Select a partnership" description="Choose an active partnership to load the partner dashboard preview." />
       )}
       </div>
-      {preview && (
+      {preview && !hasBlockingWarnings && (
         <PartnerPrintableReport
           preview={preview}
           periods={sortedPeriods}
@@ -1320,37 +1338,55 @@ function PartnerTrendCard({
         {data.length === 0 || !hasVisibleValues ? (
           <EmptyPanel title="No trend data" description="This period has no imported partner sales yet." />
         ) : (
-          <ChartContainer config={config} className="h-[320px] w-full">
-            <BarChart data={data} margin={{ left: 8, right: 8 }}>
-              <CartesianGrid vertical={false} />
-              <XAxis dataKey="period" tickLine={false} axisLine={false} />
-              <YAxis
-                tickLine={false}
-                axisLine={false}
-                width={64}
-                tickFormatter={(tick) =>
-                  valueFormatter ? valueFormatter(Number(tick)) : numberFormatter.format(Number(tick))
-                }
-              />
-              <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    formatter={(tooltipValue) =>
-                      valueFormatter
-                        ? valueFormatter(Number(tooltipValue))
-                        : numberFormatter.format(Number(tooltipValue))
-                    }
-                  />
-                }
-              />
-              <Bar
-                dataKey={dataKey}
-                fill={`var(--color-${dataKey})`}
-                radius={[5, 5, 0, 0]}
-                isAnimationActive={false}
-              />
-            </BarChart>
-          </ChartContainer>
+          <>
+            <ChartContainer config={config} className="h-[320px] w-full">
+              <BarChart data={data} margin={{ left: 8, right: 8 }}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="period" tickLine={false} axisLine={false} />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  width={64}
+                  tickFormatter={(tick) =>
+                    valueFormatter ? valueFormatter(Number(tick)) : numberFormatter.format(Number(tick))
+                  }
+                />
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      formatter={(tooltipValue) =>
+                        valueFormatter
+                          ? valueFormatter(Number(tooltipValue))
+                          : numberFormatter.format(Number(tooltipValue))
+                      }
+                    />
+                  }
+                />
+                <Bar
+                  dataKey={dataKey}
+                  fill={`var(--color-${dataKey})`}
+                  radius={[5, 5, 0, 0]}
+                  isAnimationActive={false}
+                />
+              </BarChart>
+            </ChartContainer>
+            <div className="mt-4 grid gap-2 md:hidden">
+              {data.map((point) => {
+                const rawValue = Number(point[dataKey] ?? 0);
+                return (
+                  <div
+                    key={`${point.period}-${rawValue}`}
+                    className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 text-muted-foreground">{point.period}</span>
+                    <span className="shrink-0 font-medium text-foreground">
+                      {valueFormatter ? valueFormatter(rawValue) : numberFormatter.format(rawValue)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -1390,6 +1426,11 @@ function PartnerPrintableReport({
       <style>
         {`
           @media print {
+            @page {
+              size: letter;
+              margin: 0.45in;
+            }
+
             body * {
               visibility: hidden;
             }
@@ -1411,7 +1452,7 @@ function PartnerPrintableReport({
           }
         `}
       </style>
-      <div className="partner-print-report mx-auto flex max-w-[7.5in] flex-col gap-6 p-8 text-foreground">
+      <div className="partner-print-report mx-auto flex w-full max-w-none flex-col gap-6 p-8 text-foreground">
         <header className="flex items-start justify-between gap-6 border-b border-border pb-5">
           <div>
             <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1575,8 +1616,9 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">Calculation summary</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Gross sales minus tax, configured fees, and costs creates net sales and the split
-              base. The active partnership rule calculates the partner owed amount from that base.
+              Gross sales minus tax and configured fees creates net sales. Configured costs can
+              reduce the split base when the active partnership rule uses contribution after costs.
+              The partner owed amount is calculated from that split base.
             </p>
           </div>
           <div className="flex flex-col gap-2 text-sm">
@@ -1731,8 +1773,9 @@ function PartnerCalculationCard({
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="font-medium text-foreground">How this is calculated</div>
           <p className="mt-2">
-            Gross sales minus configured tax and fees creates net sales. The active financial rule
-            determines the split base, then applies the partner share to calculate amount owed.
+            Gross sales minus configured tax and fees creates net sales. Configured costs can reduce
+            the split base when the active rule uses contribution after costs. The partner share is
+            applied to that split base to calculate amount owed.
           </p>
         </div>
       </CardContent>
