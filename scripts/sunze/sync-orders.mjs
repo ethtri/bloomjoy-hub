@@ -582,29 +582,142 @@ const selectDatePreset = async (page, preset) => {
   await page.waitForTimeout(1500);
 };
 
+const clickVisibleButton = async (page, name) => {
+  const buttons = page.getByRole('button', { name });
+  const count = await buttons.count();
+
+  for (let index = 0; index < count; index += 1) {
+    const button = buttons.nth(index);
+    if ((await button.isVisible().catch(() => false)) && !(await button.isDisabled().catch(() => false))) {
+      await button.click();
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const applyOrdersSearch = async (page) => {
+  const clicked = await clickVisibleButton(page, /^(search|query|查询)$/i);
+  if (!clicked) return;
+
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+};
+
+const toSlashDate = (dateKey) => dateKey.replaceAll('-', '/');
+
+const toUsDate = (dateKey) => {
+  const [year, month, day] = dateKey.split('-');
+  return `${month}/${day}/${year}`;
+};
+
+const fillCustomDateInputs = async (page, fromDate, toDate) => {
+  const pickerInputs = page
+    .locator('.ant-picker-dropdown input, [class*="picker-dropdown"] input, [class*="date"] input')
+    .filter({ visible: true });
+  const inputCount = await pickerInputs.count();
+
+  if (inputCount < 2) {
+    await page.keyboard.type(fromDate);
+    await page.keyboard.press('Tab');
+    await page.keyboard.type(toDate);
+    return {
+      attemptedFormat: 'keyboard',
+      values: [],
+    };
+  }
+
+  const dateFormats = [
+    [fromDate, toDate],
+    [toSlashDate(fromDate), toSlashDate(toDate)],
+    [toUsDate(fromDate), toUsDate(toDate)],
+  ];
+
+  for (const [fromValue, toValue] of dateFormats) {
+    await pickerInputs.nth(0).fill(fromValue);
+    await pickerInputs.nth(1).fill(toValue);
+
+    const values = await pickerInputs.evaluateAll((inputs) =>
+      inputs.map((input) => (input instanceof HTMLInputElement ? input.value : ''))
+    );
+    const normalizedValues = values
+      .map((value) => normalizeDate(String(value ?? '').match(dateTokenPattern)?.[0] ?? value))
+      .filter(Boolean);
+    if (normalizedValues.includes(fromDate) && normalizedValues.includes(toDate)) {
+      return {
+        attemptedFormat: fromValue.includes('/') ? 'slash' : 'iso',
+        values,
+      };
+    }
+  }
+
+  const values = await pickerInputs.evaluateAll((inputs) =>
+    inputs.map((input) => (input instanceof HTMLInputElement ? input.value : ''))
+  );
+  return {
+    attemptedFormat: 'unverified',
+    values,
+  };
+};
+
+const applyCustomDatePicker = async (page) => {
+  const pickerDropdown = page.locator('.ant-picker-dropdown, [class*="picker-dropdown"]').filter({ visible: true });
+  const clickedOk =
+    (await pickerDropdown
+      .last()
+      .getByRole('button', { name: /^(ok|apply|confirm|确定|应用)$/i })
+      .click({ timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)) ||
+    (await clickVisibleButton(page, /^(ok|apply|confirm|确定|应用)$/i));
+
+  if (!clickedOk) {
+    await page.keyboard.press('Enter').catch(() => {});
+  }
+
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+};
+
 const selectCustomDateRange = async (page, fromDate, toDate) => {
   await page.getByText('Today').first().click();
   await page.waitForTimeout(500);
   await page.getByText('Custom Range', { exact: true }).click();
   await page.waitForTimeout(500);
 
-  const pickerInputs = page
-    .locator('.ant-picker-dropdown input, [class*="picker-dropdown"] input, [class*="date"] input')
-    .filter({ visible: true });
-  const inputCount = await pickerInputs.count();
+  const result = await fillCustomDateInputs(page, fromDate, toDate);
+  await applyCustomDatePicker(page);
+  await applyOrdersSearch(page);
 
-  if (inputCount >= 2) {
-    await pickerInputs.nth(0).fill(fromDate);
-    await pickerInputs.nth(1).fill(toDate);
-  } else {
-    await page.keyboard.type(fromDate);
-    await page.keyboard.press('Tab');
-    await page.keyboard.type(toDate);
+  console.warn(
+    `Sunze custom date range requested ${fromDate} to ${toDate}; input format ${result.attemptedFormat}; accepted values ${result.values.map(sanitizeDiagnosticText).join(' | ') || 'not visible'}.`
+  );
+};
+
+const clickExportAndWaitForDownload = async (page, uiSummary) => {
+  try {
+    const downloadPromise = page.waitForEvent('download', { timeout: 45000 });
+    const clicked =
+      (await clickVisibleButton(page, /^export$/i)) ||
+      (await page
+        .getByText('Export', { exact: true })
+        .click()
+        .then(() => true)
+        .catch(() => false));
+
+    if (!clicked) {
+      throw new Error('Unable to find a visible Sunze Orders Export control.');
+    }
+
+    return await downloadPromise;
+  } catch (error) {
+    const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+    throw new Error(
+      `Sunze Orders export did not start for ${uiSummary.uiWindowStart} to ${uiSummary.uiWindowEnd} (${uiSummary.uiRecordCount} visible records). Visible controls: ${diagnostic || 'none'}.`
+    );
   }
-
-  await page.keyboard.press('Enter');
-  await page.waitForLoadState('networkidle').catch(() => {});
-  await page.waitForTimeout(1500);
 };
 
 const exportOrdersWorkbook = async () => {
@@ -628,10 +741,11 @@ const exportOrdersWorkbook = async () => {
       await selectDatePreset(page, datePreset);
     }
     const preExportUiSummary = await readOrdersUiSummary(page);
+    console.warn(
+      `Sunze Orders export preflight: ${preExportUiSummary.uiRecordCount} records for ${preExportUiSummary.uiWindowStart} to ${preExportUiSummary.uiWindowEnd}.`
+    );
 
-    const downloadPromise = page.waitForEvent('download');
-    await page.getByText('Export', { exact: true }).click();
-    const download = await downloadPromise;
+    const download = await clickExportAndWaitForDownload(page, preExportUiSummary);
     const filename = basename(await download.suggestedFilename());
     const filePath = join(downloadRoot, filename);
     await download.saveAs(filePath);
