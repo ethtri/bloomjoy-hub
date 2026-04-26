@@ -46,6 +46,7 @@
    - Sunze order-hash idempotency repair: `supabase/migrations/202604260006_sunze_order_hash_index_repair.sql`
    - Partner dashboard period preview: `supabase/migrations/202604260007_partner_period_preview.sql`
    - Technician entitlement data model: `supabase/migrations/202604260008_technician_entitlements_data_model.sql`
+   - Technician grant/revoke RPCs: `supabase/migrations/202604260009_technician_entitlements_rpcs.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
