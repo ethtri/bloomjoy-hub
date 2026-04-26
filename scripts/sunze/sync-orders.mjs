@@ -48,6 +48,10 @@ const datePreset = getArg('--date-preset', 'Last 7 Days');
 const downloadDirArg = getArg('--download-dir');
 const summaryMachineCodesArg =
   getArg('--summary-machine-codes') || process.env.SUNZE_SUMMARY_MACHINE_CODES || '';
+const ingestChunkSize = Math.min(
+  10000,
+  Math.max(1, Number(process.env.SUNZE_INGEST_CHUNK_SIZE || 10000))
+);
 const supportedDatePresets = new Set([
   'Today',
   'Yesterday',
@@ -697,6 +701,80 @@ const postIngestPayload = async (payload) => {
   return responseBody;
 };
 
+const chunkArray = (values, chunkSize) => {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
+};
+
+const sumField = (responses, fieldName) =>
+  responses.reduce((total, response) => {
+    const value = response?.[fieldName];
+    return total + (Number.isFinite(value) ? value : 0);
+  }, 0);
+
+const maxField = (responses, fieldName) => {
+  const values = responses
+    .map((response) => response?.[fieldName])
+    .filter((value) => Number.isFinite(value));
+  return values.length > 0 ? Math.max(...values) : null;
+};
+
+const postIngestPayloadInChunks = async (payload) => {
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const chunks = rows.length > 0 ? chunkArray(rows, ingestChunkSize) : [[]];
+  const responses = [];
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunkRows = chunks[index];
+    const chunkNumber = index + 1;
+    const response = await postIngestPayload({
+      ...payload,
+      sourceReference:
+        chunks.length > 1
+          ? `${payload.sourceReference}:chunk-${chunkNumber}-of-${chunks.length}`
+          : payload.sourceReference,
+      rows: chunkRows,
+      meta: {
+        ...payload.meta,
+        chunkIndex: chunks.length > 1 ? chunkNumber : null,
+        chunkCount: chunks.length,
+        chunkRowCount: chunkRows.length,
+      },
+    });
+    responses.push(response);
+  }
+
+  if (responses.length === 1) {
+    return {
+      ...responses[0],
+      chunkCount: 1,
+      ingestChunkSize,
+      importRunIds: responses[0]?.importRunId ? [responses[0].importRunId] : [],
+    };
+  }
+
+  return {
+    ok: responses.every((response) => response?.ok !== false),
+    dryRun: payload.dryRun === true,
+    chunkCount: responses.length,
+    ingestChunkSize,
+    importRunIds: responses.map((response) => response?.importRunId).filter(Boolean),
+    rowsSeen: sumField(responses, 'rowsSeen'),
+    rowsValidated: sumField(responses, 'rowsValidated'),
+    rowsImported: sumField(responses, 'rowsImported'),
+    rowsSkipped: sumField(responses, 'rowsSkipped'),
+    rowsQuarantined: sumField(responses, 'rowsQuarantined'),
+    rowsIgnored: sumField(responses, 'rowsIgnored'),
+    unmappedRowsQueued: sumField(responses, 'unmappedRowsQueued'),
+    pendingUnmappedMachineCount: maxField(responses, 'pendingUnmappedMachineCount'),
+    ignoredUnmappedMachineCount: maxField(responses, 'ignoredUnmappedMachineCount'),
+    newlyPendingUnmappedMachineCount: maxField(responses, 'newlyPendingUnmappedMachineCount'),
+  };
+};
+
 const cleanupExportSource = async (source) => {
   if (!source?.cleanupPath) return;
 
@@ -800,7 +878,7 @@ try {
   if (dryRun) {
     const shouldValidateIngest = Boolean(ingestUrl || ingestToken || process.env.GITHUB_ACTIONS === 'true');
     const ingestValidation = shouldValidateIngest
-      ? await postIngestPayload({ ...payload, dryRun: true })
+      ? await postIngestPayloadInChunks({ ...payload, dryRun: true })
       : null;
 
     jsonLog({
@@ -810,6 +888,8 @@ try {
       rowsValidated: ingestValidation?.rowsValidated ?? null,
       rowsQuarantined: ingestValidation?.rowsQuarantined ?? null,
       rowsIgnored: ingestValidation?.rowsIgnored ?? null,
+      ingestChunkCount: ingestValidation?.chunkCount ?? null,
+      ingestChunkSize: ingestValidation?.ingestChunkSize ?? null,
       rowsParsed: summary.rowCount,
       machineCount: summary.machineCount,
       orderAmountCents: summary.orderAmountCents,
@@ -829,7 +909,7 @@ try {
       datePreset,
     });
   } else {
-    const result = await postIngestPayload(payload);
+    const result = await postIngestPayloadInChunks(payload);
     jsonLog({
       ok: true,
       rowsParsed: summary.rowCount,
@@ -843,7 +923,10 @@ try {
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
-      importRunId: result.importRunId ?? null,
+      importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
+      importRunIds: result.importRunIds ?? null,
+      ingestChunkCount: result.chunkCount ?? null,
+      ingestChunkSize: result.ingestChunkSize ?? null,
       rowsImported: result.rowsImported ?? null,
       rowsSkipped: result.rowsSkipped ?? null,
       rowsQuarantined: result.rowsQuarantined ?? null,

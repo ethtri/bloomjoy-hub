@@ -74,6 +74,7 @@ Use these after the sales reporting migration has been applied.
      `npm run reporting:sunze-sync -- --env-file path/to/local.env --date-preset "Last Month" --dry-run`
    - Add `--summary-machine-codes <comma-separated-sunze-ids>` when you need date-level counts for specific machines without logging raw order rows.
    - Do not use Sunze `Custom Range` for automated backfills; it has produced corrupted workbooks. Use `Last 7 Days`, `Last Month`, or `Last 3 Months`, then verify the parsed `windowStart`/`windowEnd` before running without `--dry-run`.
+   - Large exports are posted to ingest in chunks so historical presets stay below the locked endpoint row limit.
    - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.
 6) Run the Sunze import freshness check without touching Sunze:
    - `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30`
