@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { TechnicianManagementPanel } from '@/components/portal/TechnicianManagementPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import { openCustomerPortal } from '@/lib/stripeCheckout';
 import { hasPlusAccess } from '@/lib/membership';
@@ -616,6 +617,8 @@ export default function AccountPage() {
 
             </div>
           </div>
+
+          <TechnicianManagementPanel />
 
           {canManageOperatorTraining && (
             <div className="mt-8 card-elevated min-w-0 p-5 sm:p-6">
