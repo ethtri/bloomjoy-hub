@@ -582,19 +582,28 @@ const selectDatePreset = async (page, preset) => {
   await page.waitForTimeout(1500);
 };
 
-const clickVisibleButton = async (page, name) => {
+const findVisibleButton = async (page, name) => {
   const buttons = page.getByRole('button', { name });
   const count = await buttons.count();
 
   for (let index = 0; index < count; index += 1) {
     const button = buttons.nth(index);
     if ((await button.isVisible().catch(() => false)) && !(await button.isDisabled().catch(() => false))) {
-      await button.click();
-      return true;
+      return button;
     }
   }
 
-  return false;
+  return null;
+};
+
+const clickVisibleButton = async (page, name) => {
+  const button = await findVisibleButton(page, name);
+  if (!button) {
+    return false;
+  }
+
+  await button.click();
+  return true;
 };
 
 const applyOrdersSearch = async (page) => {
@@ -612,6 +621,50 @@ const toUsDate = (dateKey) => {
   return `${month}/${day}/${year}`;
 };
 
+const collectDatePickerDiagnostic = async (page) =>
+  page.evaluate(() =>
+    Array.from(
+      document.querySelectorAll(
+        '.ant-picker-dropdown [title], [class*="picker-dropdown"] [title], [class*="date"] [title]'
+      )
+    )
+      .map((element) => {
+        const title = element.getAttribute('title') || '';
+        const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+        return [title, text].filter(Boolean).join(' ');
+      })
+      .filter(Boolean)
+      .slice(0, 40)
+  );
+
+const clickDateCell = async (page, dateKey) => {
+  const candidates = [
+    `[title="${dateKey}"]`,
+    `[title="${toSlashDate(dateKey)}"]`,
+    `[aria-label="${dateKey}"]`,
+    `[aria-label="${toSlashDate(dateKey)}"]`,
+  ];
+
+  for (const selector of candidates) {
+    const cell = page.locator(selector).filter({ visible: true }).first();
+    if (await cell.isVisible().catch(() => false)) {
+      await cell.click({ timeout: 2000 });
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const selectCustomDateCells = async (page, fromDate, toDate) => {
+  const clickedFrom = await clickDateCell(page, fromDate);
+  if (!clickedFrom) return false;
+
+  await page.waitForTimeout(300);
+  const clickedTo = await clickDateCell(page, toDate);
+  return clickedTo;
+};
+
 const fillCustomDateInputs = async (page, fromDate, toDate) => {
   const pickerInputs = page
     .locator('.ant-picker-dropdown input, [class*="picker-dropdown"] input, [class*="date"] input')
@@ -619,13 +672,18 @@ const fillCustomDateInputs = async (page, fromDate, toDate) => {
   const inputCount = await pickerInputs.count();
 
   if (inputCount < 2) {
-    await page.keyboard.type(fromDate);
-    await page.keyboard.press('Tab');
-    await page.keyboard.type(toDate);
-    return {
-      attemptedFormat: 'keyboard',
-      values: [],
-    };
+    const selectedCalendarCells = await selectCustomDateCells(page, fromDate, toDate);
+    if (selectedCalendarCells) {
+      return {
+        attemptedFormat: 'calendar',
+        values: [fromDate, toDate],
+      };
+    }
+
+    const diagnostic = (await collectDatePickerDiagnostic(page)).map(sanitizeDiagnosticText).join(' | ');
+    throw new Error(
+      `Unable to find Sunze custom date range inputs or selectable date cells. Date picker controls: ${diagnostic || 'none'}.`
+    );
   }
 
   const dateFormats = [
@@ -698,20 +756,25 @@ const selectCustomDateRange = async (page, fromDate, toDate) => {
 
 const clickExportAndWaitForDownload = async (page, uiSummary) => {
   try {
-    const downloadPromise = page.waitForEvent('download', { timeout: 45000 });
-    const clicked =
-      (await clickVisibleButton(page, /^export$/i)) ||
-      (await page
-        .getByText('Export', { exact: true })
-        .click()
-        .then(() => true)
-        .catch(() => false));
-
-    if (!clicked) {
-      throw new Error('Unable to find a visible Sunze Orders Export control.');
+    const button = await findVisibleButton(page, /^export$/i);
+    if (button) {
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 45000 }),
+        button.click(),
+      ]);
+      return download;
     }
 
-    return await downloadPromise;
+    const exportText = page.getByText('Export', { exact: true });
+    if (await exportText.isVisible().catch(() => false)) {
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 45000 }),
+        exportText.click(),
+      ]);
+      return download;
+    }
+
+    throw new Error('Unable to find a visible Sunze Orders Export control.');
   } catch (error) {
     const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
     throw new Error(
