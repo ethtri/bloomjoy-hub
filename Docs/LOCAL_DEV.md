@@ -54,6 +54,7 @@
    - Partnership contract terms: `supabase/migrations/202604260014_partnership_contract_terms.sql`
    - Partner report CSV export storage: `supabase/migrations/202604260015_partner_report_csv_exports.sql`
    - Technician invite resolution: `supabase/migrations/202604260016_technician_invite_resolution.sql`
+   - Partner dashboard amount owed repair: `supabase/migrations/202604260017_partner_dashboard_amount_owed_repair.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
