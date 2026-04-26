@@ -280,6 +280,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships warns before leaving the Machines or Payout Rules step with unsaved changes, including on mobile Back/Next navigation
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
 - [ ] Admin Partnerships > Weekly Preview shows actionable in-page readiness messages when the selected week has no active machine assignment coverage, no active payout rule coverage, partial-week coverage, or no imported assigned-machine sales
+- [ ] Authenticated Weekly Preview smoke path is run from `Docs/WEEKLY_PREVIEW_SMOKE_TEST.md` with a super-admin on `/admin/partnerships?partnershipId=<qualified_fixture_partnership_id>&step=preview`
+- [ ] Authenticated Weekly Preview happy path for week ending `2026-04-19` shows `2026-04-13 through 2026-04-19`, `Ready`, `Orders` > 0, `Gross sales` > `$0`, and at least one `Sales by Machine` row after the Sunze backfill/setup dates are corrected
+- [ ] Authenticated Weekly Preview warning states are checked for `No machines are assigned for this week`, `No active payout rule covers this week`, and `No sales found for this selected week`
 - [ ] Admin Partnerships > Weekly Preview labels payout metrics with the same participant names used in Payout Rules plus Bloomjoy
 - [ ] Admin Partnerships > Weekly Preview matches the corrected Bubble Planet product math: Sunze order amount as gross, machine tax plus configured `$0.40` stick-level cost deduction before split, no-pay orders counted as `$0`, and 60/40 split when configured
 - [ ] Admin Partnerships > Weekly Preview can generate a branded partner PDF and a CSV reconciliation export from the loaded preview
