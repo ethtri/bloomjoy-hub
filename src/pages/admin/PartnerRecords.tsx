@@ -47,6 +47,9 @@ const emptyPartnerForm = {
   notes: '',
 };
 
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
 export default function AdminPartnerRecordsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -236,6 +239,7 @@ export default function AdminPartnerRecordsPage() {
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         partner={editingPartner}
+        existingPartners={setup.partners}
         onSaved={refresh}
       />
     </AppLayout>
@@ -246,11 +250,13 @@ function PartnerRecordDialog({
   open,
   onOpenChange,
   partner,
+  existingPartners,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   partner: ReportingPartner | null;
+  existingPartners: ReportingPartner[];
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyPartnerForm);
@@ -275,8 +281,28 @@ function PartnerRecordDialog({
   }, [open, partner]);
 
   const savePartner = async () => {
-    if (!form.name.trim()) {
+    const name = form.name.trim();
+    const primaryContactName = form.primaryContactName.trim();
+    const primaryContactEmail = form.primaryContactEmail.trim();
+    const notes = form.notes.trim();
+
+    if (!name) {
       toast.error('Partner record name is required.');
+      return;
+    }
+
+    if (primaryContactEmail && !emailPattern.test(primaryContactEmail)) {
+      toast.error('Enter a valid contact email address.');
+      return;
+    }
+
+    const duplicatePartner = existingPartners.find(
+      (candidate) =>
+        candidate.id !== form.partnerId &&
+        normalizeComparableText(candidate.name) === normalizeComparableText(name)
+    );
+    if (duplicatePartner) {
+      toast.error('A partner record with this name already exists.');
       return;
     }
 
@@ -284,6 +310,10 @@ function PartnerRecordDialog({
     try {
       await upsertReportingPartnerAdmin({
         ...form,
+        name,
+        primaryContactName: primaryContactName || null,
+        primaryContactEmail: primaryContactEmail || null,
+        notes: notes || null,
         reason: form.partnerId ? 'Partner record updated' : 'Partner record created',
       });
       toast.success(form.partnerId ? 'Partner record updated.' : 'Partner record created.');

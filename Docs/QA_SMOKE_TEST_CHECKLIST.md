@@ -249,14 +249,17 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Participants can attach and remove multiple partner records with role only, without visible report-recipient or share-percentage fields
 - [ ] Admin Partnerships > Participants includes an `Add new partner record` dropdown option that opens a modal, saves minimum viable partner fields, and selects the new record
 - [ ] Admin Partnerships > Machines supports bulk searchable check/uncheck machine alignment and archives unchecked active assignments without exposing dates, status, role, or notes
+- [ ] Admin Partnerships > Machines shows when selected machines are already assigned to another active partnership and requires confirmation before saving an overlap
 - [ ] Admin Machines can edit machine label/alias, account, location, machine type, and Sunze ID
-- [ ] Admin Machines shows a sortable/filterable table with assignment readiness, latest sale, and current tax states: Missing, No tax, Configured
+- [ ] Admin Machines shows a sortable/filterable table with assignment readiness, assignment state filters, latest sale, and current tax states: Missing, No tax, Configured
 - [ ] Admin Machines can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow
 - [ ] Machine tax warnings appear on Admin Machines, not Admin Partnerships
-- [ ] Admin Partnerships > Payout Rules shows a plain-language sales-to-payout summary, participant-named Payout Allocation rows, whole-percent inputs, quick presets, a 100% allocation check, click/tap help popovers, and collapsed advanced reporting assumptions
+- [ ] Admin Partnerships > Payout Rules shows a plain-language sales-to-payout summary, stable participant-named Payout Allocation rows based on Participants marked `Receives payout`, whole-percent inputs, quick presets, a 100% allocation check, click/tap help popovers, and collapsed advanced reporting assumptions
 - [ ] Admin Partnerships does not show example-specific `Fever` terminology in the admin UI
 - [ ] Admin Partnerships shows financial-rule warnings in Payout Rules and assignment warnings in the Machines step, not in a disconnected top-of-page warning box
+- [ ] Admin Partnerships warns before leaving the Machines or Payout Rules step with unsaved changes, including on mobile Back/Next navigation
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
+- [ ] Admin Partnerships > Weekly Preview labels payout metrics with the same participant names used in Payout Rules plus Bloomjoy
 - [ ] Admin Partnerships > Weekly Preview matches the Bubble Planet workbook math: Sunze order amount as gross, machine tax plus configured paid-order fee before split, no-pay orders counted as `$0`, and 60/40 split when configured
 - [ ] Non-admin user cannot access `/admin/reporting`
 - [ ] Super-admin user can access `/admin/reporting`

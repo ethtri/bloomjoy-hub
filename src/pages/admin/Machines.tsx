@@ -36,6 +36,7 @@ import {
 } from '@/pages/admin/reportingSetupUi';
 
 type MachineTaxFilter = 'all' | TaxStatus;
+type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
 type MachineSort = 'status' | 'machine' | 'account' | 'latest_sale';
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
@@ -65,11 +66,21 @@ const parseTaxFilter = (value: string | null): MachineTaxFilter => {
   return 'all';
 };
 
+const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter => {
+  if (value === 'unassigned' || value === 'overlap') return value;
+  return 'all';
+};
+
+const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
 export default function AdminMachinesPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [taxFilter, setTaxFilter] = useState<MachineTaxFilter>(() => parseTaxFilter(searchParams.get('tax')));
+  const [assignmentFilter, setAssignmentFilter] = useState<MachineAssignmentFilter>(() =>
+    parseAssignmentFilter(searchParams.get('assignment'))
+  );
   const [sort, setSort] = useState<MachineSort>('status');
   const [taxDrafts, setTaxDrafts] = useState<Record<string, string>>({});
   const [savingTaxMachineId, setSavingTaxMachineId] = useState<string | null>(null);
@@ -93,6 +104,7 @@ export default function AdminMachinesPage() {
 
   useEffect(() => {
     setTaxFilter(parseTaxFilter(searchParams.get('tax')));
+    setAssignmentFilter(parseAssignmentFilter(searchParams.get('assignment')));
   }, [searchParams]);
 
   const machineRows = useMemo(() => {
@@ -116,6 +128,16 @@ export default function AdminMachinesPage() {
         };
       })
       .filter((row) => taxFilter === 'all' || row.taxStatus === taxFilter)
+      .filter((row) => {
+        if (assignmentFilter === 'all') return true;
+        if (assignmentFilter === 'unassigned') return row.activeAssignments.length === 0;
+        return (
+          row.activeAssignments.length > 1 ||
+          row.machineWarnings.some(
+            (warning) => warning.warningType === 'overlapping_partnership_assignments'
+          )
+        );
+      })
       .filter((row) => {
         if (!normalizedSearch) return true;
         return [
@@ -141,7 +163,7 @@ export default function AdminMachinesPage() {
         }
         return left.taxStatus.localeCompare(right.taxStatus);
       });
-  }, [search, setup, taxDrafts, taxFilter, sort]);
+  }, [assignmentFilter, search, setup, taxDrafts, taxFilter, sort]);
 
   const readinessCounts = useMemo(() => {
     const currentDate = today();
@@ -165,6 +187,17 @@ export default function AdminMachinesPage() {
       nextParams.delete('tax');
     } else {
       nextParams.set('tax', nextFilter);
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const updateAssignmentFilter = (nextFilter: MachineAssignmentFilter) => {
+    setAssignmentFilter(nextFilter);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextFilter === 'all') {
+      nextParams.delete('assignment');
+    } else {
+      nextParams.set('assignment', nextFilter);
     }
     setSearchParams(nextParams, { replace: true });
   };
@@ -274,18 +307,20 @@ export default function AdminMachinesPage() {
               label="Unassigned machines"
               value={readinessCounts.unassigned}
               actionLabel="Review table"
+              onAction={() => updateAssignmentFilter('unassigned')}
               isWarning={readinessCounts.unassigned > 0}
             />
             <ReadinessCard
               label="Overlaps"
               value={readinessCounts.overlappingAssignments}
               actionLabel="Review rows"
+              onAction={() => updateAssignmentFilter('overlap')}
               isWarning={readinessCounts.overlappingAssignments > 0}
             />
           </div>
 
           <div className="mt-6 rounded-lg border border-border bg-card p-4">
-            <div className="grid gap-3 xl:grid-cols-[1fr_auto_auto] xl:items-end">
+            <div className="grid gap-3 xl:grid-cols-[1fr_auto_auto_auto] xl:items-end">
               <div>
                 <Label htmlFor="machine-search">Search machines</Label>
                 <div className="relative">
@@ -325,6 +360,19 @@ export default function AdminMachinesPage() {
                   <option value="machine">Machine</option>
                   <option value="account">Account/location</option>
                   <option value="latest_sale">Latest sale</option>
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="assignment-filter">Assignment</Label>
+                <select
+                  id="assignment-filter"
+                  value={assignmentFilter}
+                  onChange={(event) => updateAssignmentFilter(event.target.value as MachineAssignmentFilter)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="all">All assignments</option>
+                  <option value="unassigned">Unassigned</option>
+                  <option value="overlap">Overlaps</option>
                 </select>
               </div>
             </div>
@@ -464,6 +512,7 @@ export default function AdminMachinesPage() {
         open={isMachineDialogOpen}
         onOpenChange={closeMachineDialog}
         machine={editingMachine}
+        machines={setup.machines}
         onSaved={refresh}
       />
     </AppLayout>
@@ -502,11 +551,13 @@ function MachineDialog({
   open,
   onOpenChange,
   machine,
+  machines,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   machine: PartnershipSetupMachine | null;
+  machines: PartnershipSetupMachine[];
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
@@ -529,9 +580,46 @@ function MachineDialog({
     });
   }, [machine, open]);
 
+  const accountOptions = useMemo(
+    () => Array.from(new Set(machines.map((candidate) => candidate.account_name).filter(Boolean))).sort(),
+    [machines]
+  );
+  const locationOptions = useMemo(
+    () => Array.from(new Set(machines.map((candidate) => candidate.location_name).filter(Boolean))).sort(),
+    [machines]
+  );
+
   const saveMachine = async () => {
     if (!form.accountName.trim() || !form.locationName.trim() || !form.machineLabel.trim()) {
       toast.error('Account, location, and machine label are required.');
+      return;
+    }
+
+    const accountName = form.accountName.trim();
+    const locationName = form.locationName.trim();
+    const machineLabel = form.machineLabel.trim();
+    const sunzeMachineId = form.sunzeMachineId.trim();
+    const duplicateIdentity = machines.find(
+      (candidate) =>
+        candidate.id !== form.machineId &&
+        normalizeComparableText(candidate.account_name) === normalizeComparableText(accountName) &&
+        normalizeComparableText(candidate.location_name) === normalizeComparableText(locationName) &&
+        normalizeComparableText(candidate.machine_label) === normalizeComparableText(machineLabel)
+    );
+    if (duplicateIdentity) {
+      toast.error('A machine with this account, location, and label already exists.');
+      return;
+    }
+
+    const duplicateSunze = sunzeMachineId
+      ? machines.find(
+          (candidate) =>
+            candidate.id !== form.machineId &&
+            normalizeComparableText(candidate.sunze_machine_id ?? '') === normalizeComparableText(sunzeMachineId)
+        )
+      : null;
+    if (duplicateSunze) {
+      toast.error('This Sunze ID is already assigned to another machine.');
       return;
     }
 
@@ -539,7 +627,10 @@ function MachineDialog({
     try {
       await upsertReportingMachineAdmin({
         ...form,
-        sunzeMachineId: form.sunzeMachineId || null,
+        accountName,
+        locationName,
+        machineLabel,
+        sunzeMachineId: sunzeMachineId || null,
         reason: form.machineId ? 'Reporting machine identity updated' : 'Reporting machine created',
       });
       toast.success(form.machineId ? 'Machine updated.' : 'Machine created.');
@@ -566,17 +657,29 @@ function MachineDialog({
             <Label htmlFor="machine-account">Account</Label>
             <Input
               id="machine-account"
+              list="machine-account-options"
               value={form.accountName}
               onChange={(event) => setForm({ ...form, accountName: event.target.value })}
             />
+            <datalist id="machine-account-options">
+              {accountOptions.map((accountName) => (
+                <option key={accountName} value={accountName} />
+              ))}
+            </datalist>
           </div>
           <div>
             <Label htmlFor="machine-location">Location</Label>
             <Input
               id="machine-location"
+              list="machine-location-options"
               value={form.locationName}
               onChange={(event) => setForm({ ...form, locationName: event.target.value })}
             />
+            <datalist id="machine-location-options">
+              {locationOptions.map((locationName) => (
+                <option key={locationName} value={locationName} />
+              ))}
+            </datalist>
           </div>
           <div>
             <Label htmlFor="machine-label">Machine label / alias</Label>

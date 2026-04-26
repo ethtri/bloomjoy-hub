@@ -1,5 +1,4 @@
-import { useMemo, useState } from 'react';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   AlertTriangle,
@@ -71,6 +70,7 @@ import {
   formatDate,
   formatLabel,
   formatMoney,
+  getActiveMachineAssignments,
   getLastCompletedWeekEndingDate,
   grossToNetMethods,
   participantRoles,
@@ -210,8 +210,19 @@ type AllocationPreset = {
   bloomjoySharePercent: string;
 };
 
-const nonPayoutParticipantRoles = new Set(['internal', 'operator']);
 const shareFieldsByParticipantIndex: PayoutShareField[] = ['primarySharePercent', 'partnerSharePercent'];
+const payoutRecipientRole = 'revenue_share_recipient';
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const participantRoleLabels: Record<string, string> = {
+  venue_partner: 'Venue participant',
+  event_partner: 'Event participant',
+  platform_partner: 'Platform participant',
+  revenue_share_recipient: 'Receives payout',
+  operator: 'Operator',
+  internal: 'Bloomjoy internal',
+  other: 'Other participant',
+};
 
 const parseWholePercent = (value: string) => Math.round(Number(value) || 0);
 
@@ -222,8 +233,17 @@ const sanitizeWholePercentInput = (value: string) => {
   return String(Math.min(Math.max(numericValue, 0), 100));
 };
 
-const isPayoutEligibleParticipant = (party: ReportingPartnershipParty) =>
-  !nonPayoutParticipantRoles.has(party.party_role);
+const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+const getParticipantRoleLabel = (role: string) => participantRoleLabels[role] ?? formatLabel(role);
+
+const sortParticipantsByAddedDate = (participants: ReportingPartnershipParty[]) =>
+  [...participants].sort(
+    (left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id)
+  );
+
+const getPayoutRecipientParticipants = (participants: ReportingPartnershipParty[]) =>
+  sortParticipantsByAddedDate(participants).filter((party) => party.party_role === payoutRecipientRole);
 
 const getNormalizedPayoutShares = (form: typeof emptyRuleForm, participantCount: number) => ({
   primarySharePercent: participantCount >= 1 ? String(parseWholePercent(form.primarySharePercent)) : '0',
@@ -301,6 +321,30 @@ const getAllocationPresets = (participantCount: number): AllocationPreset[] => {
       bloomjoySharePercent: '100',
     },
   ];
+};
+
+const createRuleForm = (partnershipId: string, payoutRecipientCount: number) => {
+  const defaultPreset = getAllocationPresets(payoutRecipientCount)[0];
+  const defaultShares = {
+    primarySharePercent: defaultPreset.primarySharePercent,
+    partnerSharePercent: defaultPreset.partnerSharePercent,
+    bloomjoySharePercent: defaultPreset.bloomjoySharePercent,
+  };
+
+  return {
+    ...emptyRuleForm,
+    partnershipId,
+    ...(payoutRecipientCount === 0
+      ? {
+          calculationModel: 'internal_only',
+          feeAmountDollars: '0.00',
+          feeBasis: 'none',
+          primarySharePercent: '0',
+          partnerSharePercent: '0',
+          bloomjoySharePercent: '100',
+        }
+      : defaultShares),
+  };
 };
 
 const getPayoutModelPreset = (form: typeof emptyRuleForm): PayoutModelPreset => {
@@ -382,6 +426,11 @@ export default function AdminPartnershipsPage() {
   const selectedPartnershipId = searchParams.get('partnershipId') ?? '';
   const requestedStep = searchParams.get('step') as PartnershipStep | null;
   const activeStep = requestedStep && validSteps.has(requestedStep) ? requestedStep : 'details';
+  const [dirtySteps, setDirtySteps] = useState<Set<PartnershipStep>>(() => new Set());
+  const [pendingRouteState, setPendingRouteState] = useState<{
+    partnershipId: string;
+    step: PartnershipStep;
+  } | null>(null);
 
   const {
     data: setup = emptySetup,
@@ -402,7 +451,7 @@ export default function AdminPartnershipsPage() {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: setupQueryKey });
 
-  const updateRouteState = (partnershipId: string, step: PartnershipStep) => {
+  const updateRouteState = useCallback((partnershipId: string, step: PartnershipStep) => {
     const nextParams = new URLSearchParams(searchParams);
     if (partnershipId) {
       nextParams.set('partnershipId', partnershipId);
@@ -411,6 +460,37 @@ export default function AdminPartnershipsPage() {
     }
     nextParams.set('step', step);
     setSearchParams(nextParams);
+  }, [searchParams, setSearchParams]);
+
+  const markStepDirty = useCallback((step: PartnershipStep, isDirty: boolean) => {
+    setDirtySteps((current) => {
+      if (current.has(step) === isDirty) {
+        return current;
+      }
+      const next = new Set(current);
+      if (isDirty) {
+        next.add(step);
+      } else {
+        next.delete(step);
+      }
+      return next;
+    });
+  }, []);
+
+  const requestRouteState = (partnershipId: string, step: PartnershipStep) => {
+    const isDifferentRoute = partnershipId !== selectedPartnershipId || step !== activeStep;
+    if (isDifferentRoute && dirtySteps.has(activeStep)) {
+      setPendingRouteState({ partnershipId, step });
+      return;
+    }
+    updateRouteState(partnershipId, step);
+  };
+
+  const confirmPendingRouteState = () => {
+    if (!pendingRouteState) return;
+    markStepDirty(activeStep, false);
+    updateRouteState(pendingRouteState.partnershipId, pendingRouteState.step);
+    setPendingRouteState(null);
   };
 
   const stepCounts = useMemo(() => {
@@ -464,13 +544,13 @@ export default function AdminPartnershipsPage() {
                 <PartnershipPicker
                   setup={setup}
                   selectedPartnershipId={selectedPartnershipId}
-                  onSelect={(partnershipId) => updateRouteState(partnershipId, 'details')}
+                  onSelect={(partnershipId) => requestRouteState(partnershipId, 'details')}
                 />
                 <StepRail
                   activeStep={activeStep}
                   selectedPartnership={selectedPartnership}
                   stepCounts={stepCounts}
-                  onStepChange={(step) => updateRouteState(selectedPartnershipId, step)}
+                  onStepChange={(step) => requestRouteState(selectedPartnershipId, step)}
                 />
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
                   <div className="font-medium text-foreground">Related setup</div>
@@ -491,15 +571,15 @@ export default function AdminPartnershipsPage() {
                 selectedPartnership={selectedPartnership}
                 selectedPartnershipId={selectedPartnershipId}
                 stepCounts={stepCounts}
-                onSelectPartnership={(partnershipId) => updateRouteState(partnershipId, 'details')}
-                onStepChange={(step) => updateRouteState(selectedPartnershipId, step)}
+                onSelectPartnership={(partnershipId) => requestRouteState(partnershipId, 'details')}
+                onStepChange={(step) => requestRouteState(selectedPartnershipId, step)}
               />
 
               <main className="min-w-0">
                 <StepHeader
                   activeStep={activeStep}
                   selectedPartnership={selectedPartnership}
-                  onNew={() => updateRouteState('', 'details')}
+                  onNew={() => requestRouteState('', 'details')}
                 />
                 <div className="mt-4">
                   {activeStep === 'details' && (
@@ -521,6 +601,7 @@ export default function AdminPartnershipsPage() {
                       setup={setup}
                       selectedPartnership={selectedPartnership}
                       onRefresh={refresh}
+                      onDirtyChange={(isDirty) => markStepDirty('machines', isDirty)}
                     />
                   )}
                   {activeStep === 'terms' && selectedPartnership && (
@@ -528,10 +609,11 @@ export default function AdminPartnershipsPage() {
                       setup={setup}
                       selectedPartnership={selectedPartnership}
                       onRefresh={refresh}
+                      onDirtyChange={(isDirty) => markStepDirty('terms', isDirty)}
                     />
                   )}
                   {activeStep === 'preview' && selectedPartnership && (
-                    <WeeklyPreviewSection selectedPartnership={selectedPartnership} />
+                    <WeeklyPreviewSection setup={setup} selectedPartnership={selectedPartnership} />
                   )}
                   {activeStep !== 'details' && !selectedPartnership && (
                     <EmptyState text="Create or select a partnership before continuing the setup flow." />
@@ -540,13 +622,35 @@ export default function AdminPartnershipsPage() {
                 <MobileStepFooter
                   activeStep={activeStep}
                   selectedPartnership={selectedPartnership}
-                  onStepChange={(step) => updateRouteState(selectedPartnershipId, step)}
+                  onStepChange={(step) => requestRouteState(selectedPartnershipId, step)}
                 />
               </main>
             </div>
           )}
         </div>
       </section>
+      <AlertDialog
+        open={Boolean(pendingRouteState)}
+        onOpenChange={(open) => {
+          if (!open) setPendingRouteState(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The {steps[getStepIndex(activeStep)].label} step has unsaved changes. Save this step
+              before moving on, or leave and discard the current edits.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay here</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPendingRouteState}>
+              Leave without saving
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
@@ -645,7 +749,7 @@ function MobileSetupControls({
         </select>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-4">
+      <nav className="rounded-lg border border-border bg-card p-4" aria-label="Partnership setup steps">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Step {getStepIndex(activeStep) + 1} of {steps.length}: {steps[getStepIndex(activeStep)].label}
         </div>
@@ -662,7 +766,9 @@ function MobileSetupControls({
                   type="button"
                   disabled={isDisabled}
                   onClick={() => onStepChange(step.key)}
-                  className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                  aria-current={isActive ? 'step' : undefined}
+                  aria-label={`Step ${getStepIndex(step.key) + 1}: ${step.label}`}
+                  className={`min-h-11 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
                     isActive
                       ? 'border-primary bg-primary text-primary-foreground'
                       : 'border-border bg-background text-foreground'
@@ -675,7 +781,7 @@ function MobileSetupControls({
             })}
           </div>
         </div>
-      </div>
+      </nav>
     </div>
   );
 }
@@ -712,6 +818,7 @@ function StepRail({
               type="button"
               disabled={isDisabled}
               onClick={() => onStepChange(step.key)}
+              aria-current={isActive ? 'step' : undefined}
               className={`flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors ${
                 isActive
                   ? 'border-primary/40 bg-primary/10'
@@ -952,19 +1059,26 @@ function ParticipantsSection({
   selectedPartnership: ReportingPartnership;
   onRefresh: () => Promise<unknown>;
 }) {
-  const [form, setForm] = useState({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
+  const participants = useMemo(
+    () => sortParticipantsByAddedDate(setup.parties.filter((party) => party.partnership_id === selectedPartnership.id)),
+    [selectedPartnership.id, setup.parties]
+  );
+  const defaultParticipantForm = useMemo(
+    () => ({
+      ...emptyParticipantForm,
+      partnershipId: selectedPartnership.id,
+      partyRole: getPayoutRecipientParticipants(participants).length >= 2 ? 'other' : payoutRecipientRole,
+    }),
+    [participants, selectedPartnership.id]
+  );
+  const [form, setForm] = useState(defaultParticipantForm);
   const [isSaving, setIsSaving] = useState(false);
   const [removingPartyId, setRemovingPartyId] = useState<string | null>(null);
   const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false);
 
-  const participants = useMemo(
-    () => setup.parties.filter((party) => party.partnership_id === selectedPartnership.id),
-    [selectedPartnership.id, setup.parties]
-  );
-
   useEffect(() => {
-    setForm({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
-  }, [selectedPartnership.id]);
+    setForm(defaultParticipantForm);
+  }, [defaultParticipantForm]);
 
   const editParticipant = (party: ReportingPartnershipParty) => {
     setForm({
@@ -995,7 +1109,7 @@ function ParticipantsSection({
         reason: form.partyId ? 'Partnership participant updated' : 'Partnership participant added',
       });
       toast.success(form.partyId ? 'Participant updated.' : 'Participant added.');
-      setForm({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
+      setForm(defaultParticipantForm);
       await onRefresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save participant.');
@@ -1009,7 +1123,7 @@ function ParticipantsSection({
     try {
       await removeReportingPartnershipPartyAdmin(party.id, 'Partnership participant removed');
       if (form.partyId === party.id) {
-        setForm({ ...emptyParticipantForm, partnershipId: selectedPartnership.id });
+        setForm(defaultParticipantForm);
       }
       toast.success('Participant removed from this partnership.');
       await onRefresh();
@@ -1053,7 +1167,11 @@ function ParticipantsSection({
               value={form.partyRole}
               onChange={(partyRole) => setForm({ ...form, partyRole })}
               options={participantRoles}
+              getOptionLabel={getParticipantRoleLabel}
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Choose Receives payout only for organizations that should appear in Payout Rules.
+            </p>
           </div>
         </div>
 
@@ -1065,7 +1183,7 @@ function ParticipantsSection({
           {form.partyId && (
             <Button
               variant="outline"
-              onClick={() => setForm({ ...emptyParticipantForm, partnershipId: selectedPartnership.id })}
+              onClick={() => setForm(defaultParticipantForm)}
             >
               New Participant
             </Button>
@@ -1080,11 +1198,16 @@ function ParticipantsSection({
         ) : (
           participants.map((party) => (
             <Row key={party.id}>
-              <div>
-                <div className="font-medium text-foreground">{party.partner_name}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {formatLabel(party.party_role)}
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="min-w-0">
+                  <div className="font-medium text-foreground">{party.partner_name}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {getParticipantRoleLabel(party.party_role)}
+                  </div>
                 </div>
+                {party.party_role === payoutRecipientRole && (
+                  <Badge variant="secondary" className="w-fit">Payout recipient</Badge>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => editParticipant(party)}>
@@ -1134,6 +1257,7 @@ function ParticipantsSection({
       <PartnerRecordDialog
         open={isPartnerDialogOpen}
         onOpenChange={setIsPartnerDialogOpen}
+        existingPartners={setup.partners}
         onCreated={(partner) => setForm((current) => ({ ...current, partnerId: partner.id }))}
         onRefresh={onRefresh}
       />
@@ -1145,23 +1269,36 @@ function MachineAssignmentsSection({
   setup,
   selectedPartnership,
   onRefresh,
+  onDirtyChange,
 }: {
   setup: PartnershipReportingSetup;
   selectedPartnership: ReportingPartnership;
   onRefresh: () => Promise<unknown>;
+  onDirtyChange?: (isDirty: boolean) => void;
 }) {
   const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(new Set());
   const [machineSearch, setMachineSearch] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
+
+  const currentDate = today();
+
+  const activeAssignmentsByMachineId = useMemo(() => {
+    const assignmentMap = new Map<string, ReturnType<typeof getActiveMachineAssignments>>();
+    setup.machines.forEach((machine) => {
+      assignmentMap.set(machine.id, getActiveMachineAssignments(setup, machine.id, currentDate));
+    });
+    return assignmentMap;
+  }, [currentDate, setup]);
 
   const activeAssignments = useMemo(
     () =>
-      setup.assignments.filter(
-        (assignment) =>
-          assignment.partnership_id === selectedPartnership.id &&
-          assignment.status === 'active'
+      setup.machines.flatMap((machine) =>
+        (activeAssignmentsByMachineId.get(machine.id) ?? []).filter(
+          (assignment) => assignment.partnership_id === selectedPartnership.id
+        )
       ),
-    [selectedPartnership.id, setup.assignments]
+    [activeAssignmentsByMachineId, selectedPartnership.id, setup.machines]
   );
 
   const originalMachineIds = useMemo(
@@ -1200,6 +1337,22 @@ function MachineAssignmentsSection({
   const addedMachineIds = [...selectedMachineIds].filter((machineId) => !originalMachineIds.has(machineId));
   const removedMachineIds = [...originalMachineIds].filter((machineId) => !selectedMachineIds.has(machineId));
   const hasChanges = addedMachineIds.length > 0 || removedMachineIds.length > 0;
+  const conflictingAddedMachines = addedMachineIds
+    .map((machineId) => {
+      const machine = setup.machines.find((candidate) => candidate.id === machineId);
+      const otherAssignments = (activeAssignmentsByMachineId.get(machineId) ?? []).filter(
+        (assignment) => assignment.partnership_id !== selectedPartnership.id
+      );
+      return machine && otherAssignments.length > 0 ? { machine, otherAssignments } : null;
+    })
+    .filter(Boolean) as Array<{
+      machine: PartnershipReportingSetup['machines'][number];
+      otherAssignments: ReturnType<typeof getActiveMachineAssignments>;
+    }>;
+
+  useEffect(() => {
+    onDirtyChange?.(hasChanges);
+  }, [hasChanges, onDirtyChange]);
 
   const toggleMachine = (machineId: string, checked: boolean) => {
     setSelectedMachineIds((current) => {
@@ -1268,6 +1421,7 @@ function MachineAssignmentsSection({
       }
 
       toast.success('Machine alignment saved.');
+      onDirtyChange?.(false);
       await onRefresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save machine alignment.');
@@ -1276,9 +1430,32 @@ function MachineAssignmentsSection({
     }
   };
 
+  const handleSaveMachineAlignment = () => {
+    if (conflictingAddedMachines.length > 0) {
+      setIsConflictDialogOpen(true);
+      return;
+    }
+    void saveMachineAlignment();
+  };
+
   return (
     <section className="space-y-4">
       {assignmentWarnings.length > 0 && <WarningList warnings={assignmentWarnings} />}
+      {conflictingAddedMachines.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5" />
+            <div>
+              <div className="font-semibold">Review assignment conflicts before saving</div>
+              <div className="mt-1">
+                {conflictingAddedMachines.length} selected machine
+                {conflictingAddedMachines.length === 1 ? ' is' : 's are'} already assigned to another
+                active partnership.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1334,6 +1511,13 @@ function MachineAssignmentsSection({
             ) : (
               filteredMachines.map((machine) => {
                 const checked = selectedMachineIds.has(machine.id);
+                const machineAssignments = activeAssignmentsByMachineId.get(machine.id) ?? [];
+                const otherAssignments = machineAssignments.filter(
+                  (assignment) => assignment.partnership_id !== selectedPartnership.id
+                );
+                const currentAssignment = machineAssignments.find(
+                  (assignment) => assignment.partnership_id === selectedPartnership.id
+                );
 
                 return (
                   <label
@@ -1351,8 +1535,23 @@ function MachineAssignmentsSection({
                         {machine.account_name} / {machine.location_name} / Sunze:{' '}
                         {machine.sunze_machine_id ?? 'n/a'}
                       </span>
+                      {otherAssignments.length > 0 && (
+                        <span className="mt-2 flex flex-wrap gap-1">
+                          {otherAssignments.map((assignment) => (
+                            <Badge key={assignment.id} variant="outline">
+                              Already assigned: {assignment.partnership_name}
+                            </Badge>
+                          ))}
+                        </span>
+                      )}
                     </span>
-                    {checked && <Badge variant="secondary">Assigned</Badge>}
+                    {currentAssignment ? (
+                      <Badge variant="secondary">This partnership</Badge>
+                    ) : checked ? (
+                      <Badge variant={otherAssignments.length > 0 ? 'destructive' : 'secondary'}>
+                        Selected
+                      </Badge>
+                    ) : null}
                   </label>
                 );
               })
@@ -1361,7 +1560,7 @@ function MachineAssignmentsSection({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button onClick={saveMachineAlignment} disabled={isSaving || !hasChanges}>
+          <Button onClick={handleSaveMachineAlignment} disabled={isSaving || !hasChanges}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Machine Alignment
           </Button>
@@ -1370,6 +1569,39 @@ function MachineAssignmentsSection({
           </div>
         </div>
       </div>
+      <AlertDialog open={isConflictDialogOpen} onOpenChange={setIsConflictDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save machines with active assignment conflicts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              These machines are already assigned to another active partnership. Saving will add this
+              partnership too, which may create overlapping reporting until the other assignment is
+              removed or archived.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-muted/20 p-3 text-sm">
+            {conflictingAddedMachines.map(({ machine, otherAssignments }) => (
+              <div key={machine.id} className="py-1">
+                <span className="font-medium text-foreground">{machine.machine_label}</span>{' '}
+                <span className="text-muted-foreground">
+                  is assigned to {otherAssignments.map((assignment) => assignment.partnership_name).join(', ')}
+                </span>
+              </div>
+            ))}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Review selection</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setIsConflictDialogOpen(false);
+                void saveMachineAlignment();
+              }}
+            >
+              Save anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -1378,27 +1610,41 @@ function FinancialTermsSection({
   setup,
   selectedPartnership,
   onRefresh,
+  onDirtyChange,
 }: {
   setup: PartnershipReportingSetup;
   selectedPartnership: ReportingPartnership;
   onRefresh: () => Promise<unknown>;
+  onDirtyChange?: (isDirty: boolean) => void;
 }) {
-  const [form, setForm] = useState({ ...emptyRuleForm, partnershipId: selectedPartnership.id });
-  const [isSaving, setIsSaving] = useState(false);
-  const payoutPreset = getPayoutModelPreset(form);
-
   const participants = useMemo(
-    () => setup.parties.filter((party) => party.partnership_id === selectedPartnership.id),
+    () => sortParticipantsByAddedDate(setup.parties.filter((party) => party.partnership_id === selectedPartnership.id)),
     [selectedPartnership.id, setup.parties]
   );
 
-  const payoutEligibleParticipants = useMemo(
-    () => participants.filter(isPayoutEligibleParticipant),
+  const payoutRecipientParticipants = useMemo(
+    () => getPayoutRecipientParticipants(participants),
     [participants]
   );
-  const payoutParticipants = payoutEligibleParticipants.slice(0, 2);
-  const additionalPayoutParticipants = payoutEligibleParticipants.slice(2);
+  const payoutParticipants = payoutRecipientParticipants.slice(0, 2);
+  const additionalPayoutParticipants = payoutRecipientParticipants.slice(2);
+
+  const defaultRuleForm = useMemo(
+    () => createRuleForm(selectedPartnership.id, payoutParticipants.length),
+    [payoutParticipants.length, selectedPartnership.id]
+  );
+  const [form, setForm] = useState(() => defaultRuleForm);
+  const [isSaving, setIsSaving] = useState(false);
+  const payoutPreset = getPayoutModelPreset(form);
   const allocationTotal = getPayoutAllocationTotal(form, payoutParticipants.length);
+  const isRuleFormDirty = JSON.stringify(form) !== JSON.stringify(defaultRuleForm);
+  const saveDisabledReason = !form.effectiveStartDate
+    ? 'Effective start date is required.'
+    : additionalPayoutParticipants.length > 0
+      ? 'V1 supports two payout recipients plus Bloomjoy. Change extra payout recipients to another participant role before saving.'
+      : allocationTotal !== 100
+        ? 'Payout allocation must total exactly 100%.'
+        : '';
 
   const financialRules = useMemo(
     () => setup.financialRules.filter((rule) => rule.partnership_id === selectedPartnership.id),
@@ -1412,8 +1658,12 @@ function FinancialTermsSection({
   );
 
   useEffect(() => {
-    setForm({ ...emptyRuleForm, partnershipId: selectedPartnership.id });
-  }, [selectedPartnership.id]);
+    setForm(createRuleForm(selectedPartnership.id, payoutParticipants.length));
+  }, [payoutParticipants.length, selectedPartnership.id]);
+
+  useEffect(() => {
+    onDirtyChange?.(isRuleFormDirty);
+  }, [isRuleFormDirty, onDirtyChange]);
 
   const editRule = (rule: ReportingPartnershipFinancialRule) => {
     setForm({
@@ -1466,18 +1716,8 @@ function FinancialTermsSection({
   };
 
   const saveRule = async () => {
-    if (!form.effectiveStartDate) {
-      toast.error('Effective start date is required.');
-      return;
-    }
-
-    if (additionalPayoutParticipants.length > 0) {
-      toast.error('Payout allocation currently supports two payout participants plus Bloomjoy.');
-      return;
-    }
-
-    if (allocationTotal !== 100) {
-      toast.error('Payout allocation must total 100%.');
+    if (saveDisabledReason) {
+      toast.error(saveDisabledReason);
       return;
     }
 
@@ -1496,7 +1736,8 @@ function FinancialTermsSection({
         reason: form.ruleId ? 'Payout rules updated' : 'Payout rules created',
       });
       toast.success(form.ruleId ? 'Payout rules updated.' : 'Payout rules created.');
-      setForm({ ...emptyRuleForm, partnershipId: selectedPartnership.id });
+      setForm(createRuleForm(selectedPartnership.id, payoutParticipants.length));
+      onDirtyChange?.(false);
       await onRefresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to save payout rules.');
@@ -1516,7 +1757,7 @@ function FinancialTermsSection({
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
             Define how weekly sales become payout amounts. Participant records only define who is
-            involved; payout percentages live here.
+            involved. Only participants marked Receives payout appear in the allocation below.
           </p>
         </div>
 
@@ -1697,17 +1938,20 @@ function FinancialTermsSection({
         </details>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button onClick={saveRule} disabled={isSaving}>
+          <Button onClick={saveRule} disabled={isSaving || Boolean(saveDisabledReason)}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Payout Rules
           </Button>
           {form.ruleId && (
             <Button
               variant="outline"
-              onClick={() => setForm({ ...emptyRuleForm, partnershipId: selectedPartnership.id })}
+              onClick={() => setForm(createRuleForm(selectedPartnership.id, payoutParticipants.length))}
             >
               New Payout Rules
             </Button>
+          )}
+          {saveDisabledReason && (
+            <div className="basis-full text-sm text-destructive">{saveDisabledReason}</div>
           )}
         </div>
       </div>
@@ -1759,7 +2003,7 @@ function PayoutAllocationSection({
     ...payoutParticipants.map((participant, index) => ({
       id: participant.id,
       name: participant.partner_name,
-      description: formatLabel(participant.party_role),
+      description: getParticipantRoleLabel(participant.party_role),
       field: shareFieldsByParticipantIndex[index],
     })),
     {
@@ -1778,13 +2022,13 @@ function PayoutAllocationSection({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-foreground">Payout Allocation</h3>
-            <HelpTooltip>
+            <HelpTooltip label="Payout allocation">
               Split the payout base across this partnership's payout participants and Bloomjoy.
               Shares must total 100% before the rule can be saved.
             </HelpTooltip>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Assign whole-number percentages to the actual partnership participants.
+            Assign whole-number percentages to payout recipients from the Participants step.
           </p>
         </div>
         <Badge variant={isBalanced ? 'default' : 'destructive'}>
@@ -1808,8 +2052,8 @@ function PayoutAllocationSection({
 
       {additionalPayoutParticipants.length > 0 && (
         <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          This version supports two payout participants plus Bloomjoy. Additional participants are
-          still stored on the partnership, but cannot receive a payout share here yet:{' '}
+          This version supports two payout recipients plus Bloomjoy. Change extra payout recipients
+          to Venue, Event, Platform, Operator, Internal, or Other before saving:{' '}
           {additionalPayoutParticipants.map((participant) => participant.partner_name).join(', ')}.
         </div>
       )}
@@ -1872,6 +2116,30 @@ function formatRuleAllocationSummary(
   return parts.join(' / ');
 }
 
+function getPreviewPayoutMetrics(
+  summary: PartnerWeeklyReportPreview['summary'],
+  payoutParticipants: ReportingPartnershipParty[]
+) {
+  const metrics = [];
+  if (payoutParticipants[0] || Number(summary.fever_profit_cents ?? 0) !== 0) {
+    metrics.push({
+      label: payoutParticipants[0]?.partner_name ?? 'Payout recipient 1',
+      value: formatMoney(summary.fever_profit_cents),
+    });
+  }
+  if (payoutParticipants[1] || Number(summary.partner_profit_cents ?? 0) !== 0) {
+    metrics.push({
+      label: payoutParticipants[1]?.partner_name ?? 'Payout recipient 2',
+      value: formatMoney(summary.partner_profit_cents),
+    });
+  }
+  metrics.push({
+    label: 'Bloomjoy',
+    value: formatMoney(summary.bloomjoy_profit_cents),
+  });
+  return metrics;
+}
+
 function PayoutFlowSummary({
   form,
   payoutParticipants,
@@ -1923,19 +2191,19 @@ function FieldLabel({
   return (
     <div className="mb-2 flex items-center gap-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
-      <HelpTooltip>{help}</HelpTooltip>
+      <HelpTooltip label={label}>{help}</HelpTooltip>
     </div>
   );
 }
 
-function HelpTooltip({ children }: { children: ReactNode }) {
+function HelpTooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          aria-label="Open field help"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:h-7 sm:w-7"
+          aria-label={`Explain ${label}`}
         >
           <Info className="h-3.5 w-3.5" />
         </button>
@@ -1947,12 +2215,25 @@ function HelpTooltip({ children }: { children: ReactNode }) {
   );
 }
 
-function WeeklyPreviewSection({ selectedPartnership }: { selectedPartnership: ReportingPartnership }) {
+function WeeklyPreviewSection({
+  setup,
+  selectedPartnership,
+}: {
+  setup: PartnershipReportingSetup;
+  selectedPartnership: ReportingPartnership;
+}) {
   const [weekEndingDate, setWeekEndingDate] = useState(() =>
     getLastCompletedWeekEndingDate(selectedPartnership.reporting_week_end_day)
   );
   const [preview, setPreview] = useState<PartnerWeeklyReportPreview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const payoutParticipants = useMemo(
+    () =>
+      getPayoutRecipientParticipants(
+        setup.parties.filter((party) => party.partnership_id === selectedPartnership.id)
+      ).slice(0, 2),
+    [selectedPartnership.id, setup.parties]
+  );
 
   useEffect(() => {
     setWeekEndingDate(getLastCompletedWeekEndingDate(selectedPartnership.reporting_week_end_day));
@@ -2028,9 +2309,9 @@ function WeeklyPreviewSection({ selectedPartnership }: { selectedPartnership: Re
               <Metric label="Costs" value={formatMoney(preview.summary.cost_cents)} />
               <Metric label="Net sales" value={formatMoney(preview.summary.net_sales_cents)} />
               <Metric label="Split base" value={formatMoney(preview.summary.split_base_cents)} />
-              <Metric label="Primary share payout" value={formatMoney(preview.summary.fever_profit_cents)} />
-              <Metric label="Partner profit" value={formatMoney(preview.summary.partner_profit_cents)} />
-              <Metric label="Bloomjoy profit" value={formatMoney(preview.summary.bloomjoy_profit_cents)} />
+              {getPreviewPayoutMetrics(preview.summary, payoutParticipants).map((metric) => (
+                <Metric key={metric.label} label={metric.label} value={metric.value} />
+              ))}
             </div>
           </div>
 
@@ -2068,11 +2349,13 @@ function WeeklyPreviewSection({ selectedPartnership }: { selectedPartnership: Re
 function PartnerRecordDialog({
   open,
   onOpenChange,
+  existingPartners,
   onCreated,
   onRefresh,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  existingPartners: ReportingPartner[];
   onCreated: (partner: ReportingPartner) => void;
   onRefresh: () => Promise<unknown>;
 }) {
@@ -2080,8 +2363,26 @@ function PartnerRecordDialog({
   const [isSaving, setIsSaving] = useState(false);
 
   const savePartner = async () => {
-    if (!form.name.trim()) {
+    const name = form.name.trim();
+    const primaryContactName = form.primaryContactName.trim();
+    const primaryContactEmail = form.primaryContactEmail.trim();
+    const notes = form.notes.trim();
+
+    if (!name) {
       toast.error('Partner record name is required.');
+      return;
+    }
+
+    if (primaryContactEmail && !emailPattern.test(primaryContactEmail)) {
+      toast.error('Enter a valid contact email address.');
+      return;
+    }
+
+    const duplicatePartner = existingPartners.find(
+      (partner) => normalizeComparableText(partner.name) === normalizeComparableText(name)
+    );
+    if (duplicatePartner) {
+      toast.error('A partner record with this name already exists. Select it instead of creating a duplicate.');
       return;
     }
 
@@ -2089,6 +2390,10 @@ function PartnerRecordDialog({
     try {
       const savedPartner = await upsertReportingPartnerAdmin({
         ...form,
+        name,
+        primaryContactName: primaryContactName || null,
+        primaryContactEmail: primaryContactEmail || null,
+        notes: notes || null,
         reason: 'Partner record created from partnership setup',
       });
       toast.success('Partner record created.');
@@ -2177,11 +2482,13 @@ function FieldSelect({
   value,
   onChange,
   options,
+  getOptionLabel = formatLabel,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
   options: string[];
+  getOptionLabel?: (value: string) => string;
 }) {
   return (
     <select
@@ -2192,7 +2499,7 @@ function FieldSelect({
     >
       {options.map((option) => (
         <option key={option} value={option}>
-          {formatLabel(option)}
+          {getOptionLabel(option)}
         </option>
       ))}
     </select>
