@@ -4,7 +4,13 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zipSync, strToU8 } from 'fflate';
-import { parseSunzeOrderWorkbook, SUNZE_ORDER_HEADERS } from './sunze-orders.mjs';
+import {
+  parseSunzeOrderRows,
+  parseSunzeOrderWorkbook,
+  summarizeSunzeOrderRows,
+  SUNZE_ORDER_HEADERS,
+  SunzeOrderParseError,
+} from './sunze-orders.mjs';
 
 const escapeXml = (value) =>
   String(value)
@@ -81,9 +87,26 @@ const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
 const rows = [fixture.headers, ...fixture.rows];
 const tempPath = join(tmpdir(), `sunze-orders-parser-${Date.now()}.xlsx`);
 
+const assertParseError = (testRows, expectedMessage) => {
+  assert.throws(
+    () => parseSunzeOrderRows(testRows),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes(expectedMessage)
+  );
+};
+
+const withCell = (sourceRow, headerName, value) => {
+  const row = [...sourceRow];
+  row[SUNZE_ORDER_HEADERS.indexOf(headerName)] = value;
+  return row;
+};
+
 try {
   await writeFile(tempPath, buildWorkbook(rows));
   const parsed = await parseSunzeOrderWorkbook(tempPath);
+  const summary = summarizeSunzeOrderRows(parsed);
 
   assert.deepEqual(fixture.headers, SUNZE_ORDER_HEADERS);
   assert.equal(parsed.length, 3);
@@ -96,13 +119,65 @@ try {
   assert.equal(parsed[0].itemQuantity, 2);
   assert.equal(parsed[1].itemQuantity, 2);
   assert.equal(parsed[2].itemQuantity, 1);
+  assert.equal(summary.rowCount, 3);
+  assert.equal(summary.machineCount, 2);
+  assert.equal(summary.orderAmountCents, 1800);
+  assert.equal(summary.windowStart, '2026-04-22');
+  assert.equal(summary.windowEnd, '2026-04-23');
+
+  const duplicateUpdateRows = [
+    SUNZE_ORDER_HEADERS,
+    fixture.rows[0],
+    withCell(fixture.rows[0], 'Order amount', 12),
+  ];
+  const duplicateParsed = parseSunzeOrderRows(duplicateUpdateRows);
+  assert.equal(duplicateParsed.length, 2);
+  assert.equal(duplicateParsed[0].sourceOrderNumber, duplicateParsed[1].sourceOrderNumber);
+  assert.equal(duplicateParsed[1].orderAmountCents, 1200);
+
+  const midnightParsed = parseSunzeOrderRows([
+    SUNZE_ORDER_HEADERS,
+    withCell(fixture.rows[0], 'Payment time', '2026/04/24 00:00:03'),
+  ]);
+  assert.equal(midnightParsed[0].saleDate, '2026-04-24');
+  assert.equal(midnightParsed[0].paymentTimeIso, '2026-04-24T00:00:03.000Z');
+
+  assertParseError(
+    [[...SUNZE_ORDER_HEADERS.filter((header) => header !== 'Status')], fixture.rows[0]],
+    'headers changed'
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment method', 'Voucher')],
+    'Unknown payment method'
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Status', 'Refunded')],
+    'Unknown order status'
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Order amount', -1)],
+    'Invalid Order amount'
+  );
 
   console.log(
     JSON.stringify(
       {
         ok: true,
         rowsParsed: parsed.length,
+        rowCount: summary.rowCount,
+        machineCount: summary.machineCount,
+        orderAmountCents: summary.orderAmountCents,
         paymentMethods: [...new Set(parsed.map((row) => row.paymentMethod))],
+        cases: [
+          'header change rejection',
+          'unknown payment rejection',
+          'unknown status rejection',
+          'negative amount rejection',
+          'zero no-pay normalization',
+          'trade item quantity parsing',
+          'duplicate order preservation',
+          'midnight date boundary',
+        ],
       },
       null,
       2

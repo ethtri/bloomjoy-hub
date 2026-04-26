@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -506,6 +507,26 @@ export default function AdminPartnershipsPage() {
       terms: setup.financialRules.filter((rule) => rule.partnership_id === selectedPartnership.id).length,
     };
   }, [selectedPartnership, setup.assignments, setup.financialRules, setup.parties]);
+
+  const setActiveTab = (tab: string) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('tab', tab);
+
+    if (tab !== 'machines') {
+      nextParams.delete('sunzeMachineId');
+      nextParams.delete('sunzeMachineName');
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const clearInitialSunzeMachineMapping = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('tab', 'machines');
+    nextParams.delete('sunzeMachineId');
+    nextParams.delete('sunzeMachineName');
+    setSearchParams(nextParams, { replace: true });
+  };
 
   return (
     <AppLayout>

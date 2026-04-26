@@ -23,9 +23,10 @@ export function Navbar() {
   const { getItemCount } = useCart();
   const { isAuthenticated, isAdmin } = useAuth();
   const itemCount = getItemCount();
-  const operatorAppUrl = getCanonicalUrlForSurface('app', '/portal', '', '', window.location);
-  const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', window.location);
-  const adminAppUrl = getCanonicalUrlForSurface('app', '/admin', '', '', window.location);
+  const currentLocation = typeof window === 'undefined' ? undefined : window.location;
+  const operatorAppUrl = getCanonicalUrlForSurface('app', '/portal', '', '', currentLocation);
+  const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', currentLocation);
+  const adminAppUrl = getCanonicalUrlForSurface('app', '/admin', '', '', currentLocation);
   const cartLabel =
     itemCount > 0 ? `View cart with ${itemCount} item${itemCount === 1 ? '' : 's'}` : 'View cart';
 
@@ -34,7 +35,14 @@ export function Navbar() {
       <nav className="container-page flex h-16 items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2.5">
-          <img src={logo} alt="Bloomjoy Sweets" className="h-11 w-11" />
+          <img
+            src={logo}
+            alt="Bloomjoy Sweets"
+            width={44}
+            height={44}
+            decoding="async"
+            className="h-11 w-11"
+          />
           <span className="font-display text-xl font-bold text-foreground">
             Bloomjoy Sweets
           </span>

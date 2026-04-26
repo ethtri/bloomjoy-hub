@@ -1,148 +1,24 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createServer } from "vite";
+
+process.env.VITE_SUPABASE_URL ||= "https://example.supabase.co";
+process.env.VITE_SUPABASE_ANON_KEY ||= "prerender-anon-key";
 
 const DIST_DIR = path.resolve(process.cwd(), "dist");
 const TEMPLATE_PATH = path.join(DIST_DIR, "index.html");
-
-const MARKETING_ORIGIN = "https://www.bloomjoyusa.com";
-const APP_ORIGIN = "https://app.bloomjoyusa.com";
-const PUBLIC_ROBOTS =
-  "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
-const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
-const ORGANIZATION_LOGO = `${MARKETING_ORIGIN}/bloomjoy-icon.png`;
-const DEFAULT_DESCRIPTION =
-  "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.";
-const WEBSITE_NAME = "Bloomjoy Hub";
-const ORGANIZATION_NAME = "Bloomjoy";
-const STRUCTURED_DATA_SCRIPT_ID = "seo-structured-data";
-const THEME_COLOR = "#f672a2";
-const DEFAULT_IMAGE_ALT = "Bloomjoy flower logo";
-
-const publicRoutes = [
-  {
-    path: "/",
-    title: "Bloomjoy Hub | Robotic Cotton Candy Machines and Supplies",
-    description:
-      "Explore Bloomjoy robotic cotton candy machines, sugar supplies, and optional Plus support for operators.",
-    ogType: "website",
-  },
-  {
-    path: "/machines",
-    title: "Machines | Bloomjoy Hub",
-    description:
-      "Compare Bloomjoy machine options and find the right cotton candy setup for your venue.",
-    ogType: "website",
-  },
-  {
-    path: "/machines/commercial-robotic-machine",
-    title: "Commercial Robotic Machine | Bloomjoy Hub",
-    description:
-      "Review the Bloomjoy commercial robotic cotton candy machine, specs, operating footprint, and quote flow.",
-    ogType: "website",
-  },
-  {
-    path: "/machines/mini",
-    title: "Mini Machine | Bloomjoy Hub",
-    description:
-      "Explore the Bloomjoy Mini machine, live availability, key limitations, and the quote flow for current orders.",
-    ogType: "website",
-  },
-  {
-    path: "/machines/micro",
-    title: "Micro Machine | Bloomjoy Hub",
-    description:
-      "Explore Bloomjoy Micro machine details, features, and setup fit for compact locations.",
-    ogType: "website",
-  },
-  {
-    path: "/supplies",
-    title: "Supplies | Bloomjoy Hub",
-    description:
-      "Order Bloomjoy cotton candy sugar and supplies with high-volume-friendly quantity controls.",
-    ogType: "website",
-  },
-  {
-    path: "/plus",
-    title: "Bloomjoy Plus | Membership",
-    description:
-      "View Bloomjoy Plus membership benefits, support boundaries, and flat monthly pricing.",
-    ogType: "website",
-  },
-  {
-    path: "/resources",
-    title: "Resources and FAQs | Bloomjoy Hub",
-    description:
-      "Get quick answers on training, support boundaries, and how Bloomjoy operations work.",
-    ogType: "website",
-  },
-  {
-    path: "/contact",
-    title: "Contact and Quote Requests | Bloomjoy Hub",
-    description:
-      "Contact Bloomjoy for machine quotes, demo requests, procurement questions, and general support.",
-    ogType: "website",
-  },
-  {
-    path: "/about",
-    title: "About Bloomjoy | Operator-Focused Support",
-    description:
-      "Meet Bloomjoy and our operator-focused approach to machines, training, and field support.",
-    ogType: "website",
-  },
-  {
-    path: "/privacy",
-    title: "Privacy Policy | Bloomjoy Hub",
-    description:
-      "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.",
-    ogType: "article",
-  },
-  {
-    path: "/terms",
-    title: "Terms of Service | Bloomjoy Hub",
-    description:
-      "Bloomjoy Hub for robotic cotton candy machines, supplies, training, and support.",
-    ogType: "article",
-  },
-  {
-    path: "/billing-cancellation",
-    title: "Billing and Cancellation | Bloomjoy Hub",
-    description:
-      "Understand billing cadence, cancellations, and account management for Bloomjoy services.",
-    ogType: "article",
-  },
-];
-
-const privateRoutes = [
-  { path: "/cart", canonicalOrigin: MARKETING_ORIGIN, title: "Bloomjoy Hub" },
-  { path: "/login", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  {
-    path: "/login/operator",
-    canonicalOrigin: APP_ORIGIN,
-    canonicalPath: "/login",
-    title: "Bloomjoy Operator App",
-  },
-  { path: "/reset-password", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/portal", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/portal/orders", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/portal/account", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/portal/reports", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/portal/training", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/portal/support", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/portal/onboarding", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/admin", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/admin/orders", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/admin/support", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/admin/accounts", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/admin/access", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/admin/partnerships", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/admin/reporting", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-  { path: "/admin/audit", canonicalOrigin: APP_ORIGIN, title: "Bloomjoy Operator App" },
-];
+const MANIFEST_PATH = path.join(DIST_DIR, ".vite", "manifest.json");
 
 const escapeAttribute = (value) =>
-  value
+  String(value)
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+const escapeText = (value) =>
+  String(value)
+    .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
 
@@ -175,12 +51,12 @@ const upsertCanonical = (html, href) => {
   return html.replace("</head>", `  ${tag}\n  </head>`);
 };
 
-const upsertStructuredDataScript = (html, data) => {
-  const script = `<script id="${STRUCTURED_DATA_SCRIPT_ID}" type="application/ld+json">${escapeScriptContent(
+const upsertStructuredDataScript = (html, data, structuredDataScriptId) => {
+  const script = `<script id="${structuredDataScriptId}" type="application/ld+json">${escapeScriptContent(
     JSON.stringify(data)
   )}</script>`;
   const pattern = new RegExp(
-    `<script[^>]*id=["']${escapeRegex(STRUCTURED_DATA_SCRIPT_ID)}["'][^>]*>[\\s\\S]*?<\\/script>`,
+    `<script[^>]*id=["']${escapeRegex(structuredDataScriptId)}["'][^>]*>[\\s\\S]*?<\\/script>`,
     "i"
   );
 
@@ -191,150 +67,223 @@ const upsertStructuredDataScript = (html, data) => {
   return html.replace("</head>", `  ${script}\n  </head>`);
 };
 
-const removeStructuredDataScript = (html) =>
+const removeStructuredDataScript = (html, structuredDataScriptId) =>
   html.replace(
     new RegExp(
-      `<script[^>]*id=["']${escapeRegex(STRUCTURED_DATA_SCRIPT_ID)}["'][^>]*>[\\s\\S]*?<\\/script>\\s*`,
+      `<script[^>]*id=["']${escapeRegex(structuredDataScriptId)}["'][^>]*>[\\s\\S]*?<\\/script>\\s*`,
       "i"
     ),
     ""
   );
 
 const upsertTitle = (html, title) =>
-  html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeAttribute(title)}</title>`);
+  html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeText(title)}</title>`);
 
-const canonicalForPath = (origin, pathname) =>
-  pathname === "/" ? `${origin}/` : `${origin}${pathname}`;
+const injectRootHtml = (html, appHtml) =>
+  html.replace(
+    /<div id="root"><\/div>/,
+    `<div id="root" data-prerendered="true">${appHtml}</div>`
+  );
 
-const shareImageForOrigin = (origin) => `${origin}/bloomjoy-share.jpg`;
+const normalizeTemplateRoot = (html) =>
+  html.replace(
+    /<div id="root"[^>]*>[\s\S]*<\/div>\s*(?=<script type="module")/,
+    '<div id="root"></div>\n    '
+  );
 
-const buildStructuredData = ({ canonicalUrl, title, description }) => ({
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "Organization",
-      "@id": `${MARKETING_ORIGIN}/#organization`,
-      name: ORGANIZATION_NAME,
-      url: `${MARKETING_ORIGIN}/`,
-      logo: ORGANIZATION_LOGO,
-    },
-    {
-      "@type": "WebSite",
-      "@id": `${MARKETING_ORIGIN}/#website`,
-      name: WEBSITE_NAME,
-      url: `${MARKETING_ORIGIN}/`,
-      publisher: {
-        "@id": `${MARKETING_ORIGIN}/#organization`,
-      },
-    },
-    {
-      "@type": "WebPage",
-      "@id": `${canonicalUrl}#webpage`,
-      url: canonicalUrl,
-      name: title,
-      description,
-      isPartOf: {
-        "@id": `${MARKETING_ORIGIN}/#website`,
-      },
-      about: {
-        "@id": `${MARKETING_ORIGIN}/#organization`,
-      },
-    },
-  ],
-});
+const loadAssetManifest = async () => {
+  const raw = await readFile(MANIFEST_PATH, "utf8");
+  return JSON.parse(raw);
+};
 
-const withSeoTags = (template, route) => {
-  const canonicalUrl = canonicalForPath(MARKETING_ORIGIN, route.path);
-  const shareImage = shareImageForOrigin(MARKETING_ORIGIN);
+const replaceDevAssetUrls = (html, manifest) =>
+  html.replace(/(["'(])\/src\/assets\/([^"')\s]+)/g, (match, prefix, assetPath) => {
+    const entry = manifest[`src/assets/${assetPath}`];
+    return entry?.file ? `${prefix}/${entry.file}` : match;
+  });
+
+const outputFilesForRoute = (pathname) => {
+  if (pathname === "/") {
+    return [path.join(DIST_DIR, "index.html")];
+  }
+
+  const routePath = pathname.replace(/^\//, "");
+  return [
+    path.join(DIST_DIR, routePath, "index.html"),
+    path.join(DIST_DIR, `${routePath}.html`),
+  ];
+};
+
+const writeRouteHtml = async (pathname, html) => {
+  const outputPaths = outputFilesForRoute(pathname);
+  await Promise.all(
+    outputPaths.map(async (outputPath) => {
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, html, "utf8");
+    })
+  );
+};
+
+const withSeoTags = ({
+  template,
+  route,
+  canonicalUrl,
+  origin,
+  shareImage,
+  structuredData,
+  constants,
+}) => {
+  const imageAlt = route.ogImageAlt ?? constants.DEFAULT_IMAGE_ALT;
   let html = template;
 
   html = upsertTitle(html, route.title);
   html = upsertMetaTag(html, "name", "description", route.description);
-  html = upsertMetaTag(html, "name", "robots", PUBLIC_ROBOTS);
-  html = upsertMetaTag(html, "name", "theme-color", THEME_COLOR);
+  html = upsertMetaTag(html, "name", "robots", route.robots);
+  html = upsertMetaTag(html, "name", "theme-color", constants.THEME_COLOR);
   html = upsertMetaTag(html, "property", "og:title", route.title);
-  html = upsertMetaTag(html, "property", "og:site_name", WEBSITE_NAME);
+  html = upsertMetaTag(html, "property", "og:site_name", constants.WEBSITE_NAME);
   html = upsertMetaTag(html, "property", "og:description", route.description);
-  html = upsertMetaTag(html, "property", "og:type", route.ogType);
+  html = upsertMetaTag(html, "property", "og:type", route.ogType ?? "website");
   html = upsertMetaTag(html, "property", "og:url", canonicalUrl);
   html = upsertMetaTag(html, "property", "og:image", shareImage);
-  html = upsertMetaTag(html, "property", "og:image:alt", DEFAULT_IMAGE_ALT);
+  html = upsertMetaTag(html, "property", "og:image:alt", imageAlt);
   html = upsertMetaTag(html, "name", "twitter:card", "summary_large_image");
   html = upsertMetaTag(html, "name", "twitter:title", route.title);
   html = upsertMetaTag(html, "name", "twitter:description", route.description);
   html = upsertMetaTag(html, "name", "twitter:image", shareImage);
-  html = upsertMetaTag(html, "name", "twitter:image:alt", DEFAULT_IMAGE_ALT);
+  html = upsertMetaTag(html, "name", "twitter:image:alt", imageAlt);
   html = upsertCanonical(html, canonicalUrl);
-  html = upsertStructuredDataScript(
-    html,
-    buildStructuredData({
-      canonicalUrl,
-      title: route.title,
-      description: route.description,
-    })
-  );
 
-  return html;
-};
-
-const withPrivateSeoTags = (template, route) => {
-  const canonicalUrl = canonicalForPath(
-    route.canonicalOrigin,
-    route.canonicalPath ?? route.path
-  );
-  const shareImage = shareImageForOrigin(route.canonicalOrigin);
-  let html = template;
-
-  html = upsertTitle(html, route.title);
-  html = upsertMetaTag(html, "name", "description", DEFAULT_DESCRIPTION);
-  html = upsertMetaTag(html, "name", "robots", PRIVATE_ROBOTS);
-  html = upsertMetaTag(html, "name", "theme-color", THEME_COLOR);
-  html = upsertMetaTag(html, "property", "og:title", route.title);
-  html = upsertMetaTag(html, "property", "og:site_name", WEBSITE_NAME);
-  html = upsertMetaTag(html, "property", "og:description", DEFAULT_DESCRIPTION);
-  html = upsertMetaTag(html, "property", "og:type", "website");
-  html = upsertMetaTag(html, "property", "og:url", canonicalUrl);
-  html = upsertMetaTag(html, "property", "og:image", shareImage);
-  html = upsertMetaTag(html, "property", "og:image:alt", DEFAULT_IMAGE_ALT);
-  html = upsertMetaTag(html, "name", "twitter:card", "summary_large_image");
-  html = upsertMetaTag(html, "name", "twitter:title", route.title);
-  html = upsertMetaTag(html, "name", "twitter:description", DEFAULT_DESCRIPTION);
-  html = upsertMetaTag(html, "name", "twitter:image", shareImage);
-  html = upsertMetaTag(html, "name", "twitter:image:alt", DEFAULT_IMAGE_ALT);
-  html = upsertCanonical(html, canonicalUrl);
-  html = removeStructuredDataScript(html);
-
-  return html;
-};
-
-const outputFileForRoute = (pathname) => {
-  if (pathname === "/") {
-    return path.join(DIST_DIR, "index.html");
+  if (structuredData) {
+    html = upsertStructuredDataScript(
+      html,
+      structuredData,
+      constants.STRUCTURED_DATA_SCRIPT_ID
+    );
+  } else {
+    html = removeStructuredDataScript(html, constants.STRUCTURED_DATA_SCRIPT_ID);
   }
 
-  return path.join(DIST_DIR, pathname.replace(/^\//, ""), "index.html");
+  return html;
+};
+
+const buildSitemap = ({ publicRoutes, canonicalForPath, marketingOrigin }) => {
+  const routeEntries = publicRoutes
+    .map((route) => {
+      const loc = canonicalForPath(marketingOrigin, route.path);
+      const imageEntries = (route.sitemapImages ?? [])
+        .map(
+          (image) => `    <image:image>
+      <image:loc>${escapeText(image.loc)}</image:loc>
+      <image:title>${escapeText(image.title)}</image:title>
+    </image:image>`
+        )
+        .join("\n");
+
+      return `  <url>
+    <loc>${escapeText(loc)}</loc>
+    <lastmod>${escapeText(route.lastmod)}</lastmod>${imageEntries ? `\n${imageEntries}` : ""}
+  </url>`;
+    })
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+${routeEntries}
+</urlset>
+`;
+};
+
+const loadPrerenderModules = async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "error",
+    optimizeDeps: { noDiscovery: true },
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const seoRoutes = await vite.ssrLoadModule("/src/lib/seoRoutes.ts");
+    const prerender = await vite.ssrLoadModule("/src/entry-prerender.tsx");
+    return { vite, seoRoutes, prerender };
+  } catch (error) {
+    await vite.close();
+    throw error;
+  }
 };
 
 const main = async () => {
-  const template = await readFile(TEMPLATE_PATH, "utf8");
+  const template = normalizeTemplateRoot(await readFile(TEMPLATE_PATH, "utf8"));
+  const assetManifest = await loadAssetManifest();
+  const { vite, seoRoutes, prerender } = await loadPrerenderModules();
 
-  for (const route of publicRoutes) {
-    const rendered = withSeoTags(template, route);
-    const outputPath = outputFileForRoute(route.path);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, rendered, "utf8");
+  try {
+    const {
+      APP_ORIGIN,
+      MARKETING_ORIGIN,
+      buildStructuredData,
+      canonicalForPath,
+      getShareImageUrl,
+      privateRoutes,
+      publicRoutes,
+    } = seoRoutes;
+
+    for (const route of publicRoutes) {
+      const canonicalUrl = canonicalForPath(MARKETING_ORIGIN, route.path);
+      const appHtml = replaceDevAssetUrls(
+        await prerender.renderRoute(route.path),
+        assetManifest
+      );
+      const rendered = injectRootHtml(
+        withSeoTags({
+          template,
+          route,
+          canonicalUrl,
+          origin: MARKETING_ORIGIN,
+          shareImage: getShareImageUrl(MARKETING_ORIGIN, route),
+          structuredData: buildStructuredData({
+            route,
+            origin: MARKETING_ORIGIN,
+            canonicalUrl,
+          }),
+          constants: seoRoutes,
+        }),
+        appHtml
+      );
+      await writeRouteHtml(route.path, rendered);
+    }
+
+    for (const route of privateRoutes) {
+      const canonicalOrigin = route.canonicalOrigin ?? APP_ORIGIN;
+      const canonicalUrl = canonicalForPath(canonicalOrigin, route.canonicalPath ?? route.path);
+      const rendered = withSeoTags({
+        template,
+        route,
+        canonicalUrl,
+        origin: canonicalOrigin,
+        shareImage: getShareImageUrl(canonicalOrigin, route),
+        structuredData: null,
+        constants: seoRoutes,
+      });
+      await writeRouteHtml(route.path, rendered);
+    }
+
+    await writeFile(
+      path.join(DIST_DIR, "sitemap.xml"),
+      buildSitemap({
+        publicRoutes,
+        canonicalForPath,
+        marketingOrigin: MARKETING_ORIGIN,
+      }),
+      "utf8"
+    );
+
+    console.log(
+      `Prerendered static HTML for ${publicRoutes.length} public routes and SEO head tags for ${privateRoutes.length} private routes.`
+    );
+  } finally {
+    await vite.close();
   }
-
-  for (const route of privateRoutes) {
-    const rendered = withPrivateSeoTags(template, route);
-    const outputPath = outputFileForRoute(route.path);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, rendered, "utf8");
-  }
-
-  console.log(
-    `Prerendered SEO HTML for ${publicRoutes.length} public routes and ${privateRoutes.length} private routes.`
-  );
 };
 
 await main();

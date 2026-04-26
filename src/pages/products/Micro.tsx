@@ -22,6 +22,18 @@ const microImages = [
   { src: microGallery5, alt: 'Micro machine diagram' },
 ];
 
+const microFitNotes = [
+  'Compact entry point for low-volume cotton candy applications.',
+  'Appropriate when basic shapes are enough and complex pattern capability is not required.',
+  'Useful for buyers who want to validate robotic cotton candy demand before moving upmarket.',
+];
+
+const microPlanningNotes = [
+  'Micro is listed at $2,200 before shipping and final configuration.',
+  'Orders remain quote-led so Bloomjoy can confirm fit, delivery, and operator expectations.',
+  'Operators should plan for sugar and paper-stick supplies through the Bloomjoy supplies flow.',
+];
+
 export default function MicroPage() {
   useEffect(() => {
     trackEvent('view_product_micro');
@@ -111,6 +123,44 @@ export default function MicroPage() {
                   </span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-border bg-muted/25 py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-xl border border-border bg-background p-6">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Best Fit
+              </h2>
+              <ul className="mt-5 space-y-3">
+                {microFitNotes.map((note) => (
+                  <li key={note} className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sage-light">
+                      <Check className="h-3 w-3 text-sage" />
+                    </div>
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-border bg-background p-6">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Purchase Expectations
+              </h2>
+              <ul className="mt-5 space-y-3">
+                {microPlanningNotes.map((note) => (
+                  <li key={note} className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <Check className="h-3 w-3 text-primary" />
+                    </div>
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>

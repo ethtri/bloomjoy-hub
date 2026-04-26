@@ -59,43 +59,76 @@ Guidelines:
 16. Plus Basic subscription checkout + customer portal link
 17. Webhook sync (membership/order status -> DB)
 
+## P0 - Corporate partner reporting (current critical path)
+18. **Harden Sunze sales source controls before partner report launch** (`#161`)
+   - Merge the hardened Sunze sync controls before relying on weekly partner reporting.
+   - Confirm mapped-machine imports, unmapped-machine quarantine, dry-run/live sync, and freshness reporting are green.
+   - Dependency: merged sales reporting foundation.
+
+19. **Streamline admin partnership setup** (`#167`)
+   - Merge the selected-partnership setup workflow after syncing with `main`.
+   - Keep participants, assigned machines, current machine tax rates, financial split terms, and weekly preview together in `/admin/partnerships`.
+   - Dependency: Sunze controls and merged partnership reporting foundation.
+
+20. **Corporate partner reviewed PDF milestone**
+   - Add partner-report snapshot/run records for reporting period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and warning state.
+   - Generate a polished weekly PDF with executive summary, machine-level appendix, calculation assumptions, amount owed, generated timestamp, and snapshot ID.
+   - Keep delivery manual for V1: super-admin reviews, downloads, then sends outside automation until the report is trusted.
+   - Dependency: partnership setup UX and reliable Sunze sales facts.
+
+## P1 - Reporting UX/CX follow-ups
+21. **Partner dashboard UX/CX and reporting tab design** (`#172`)
+   - Design the reporting tab so users see operator-style reporting for assigned machines by default.
+   - Add a partner dashboard concept for users with partner-dashboard permissions.
+   - Default V1 partner dashboard access to super-admins only until explicit partner-viewer permissions are implemented.
+   - Define dashboard KPIs, period controls, machine rollups, warning states, PDF export/review entry points, and mobile/desktop behavior.
+   - Dependency: corporate partner reporting model and admin partnership setup direction.
+
+22. **Operator performance dashboards** (`#171`)
+   - Add operator dashboards only after corporate partner reporting reaches acceptance.
+   - Show assigned-machine sales, units sold, trends, and machine comparisons.
+   - Dependency: accepted corporate partner reporting flow.
 
 ## P0 - Training UX/performance hardening (new)
-18. **Training performance: Vimeo load speed + startup UX** (`#89`)
+23. **Training performance: Vimeo load speed + startup UX** (`#89`)
    - Improve perceived startup speed for training detail video playback.
    - Add clear loading-state UX while Vimeo player initializes.
    - Dependency: existing training detail embeds.
 
-19. **Training detail clarity: learning/checklist/resources sections** (`#91`)
+24. **Training detail clarity: learning/checklist/resources sections** (`#91`)
    - Clarify purpose/copy for "What you will learn", "Checklist", and "Resources".
    - Add consistent structure + fallback states for empty content.
    - Dependency: existing training detail content model.
 
-20. **Module tag support in training library (Module 1/2/3)** (`#90`)
+25. **Module tag support in training library (Module 1/2/3)** (`#90`)
    - Use module tags for library grouping/filtering and discovery.
    - Document operations workflow for Vimeo tag mapping/update.
    - Dependency: Vimeo tagging + training metadata sync.
 
 ## P1 - Nice-to-have
-21. Sticks product page (if offered)
-22. Training progress tracking
-23. Basic admin view for support requests
-24. Remove temporary static admin email allowlist and rely on `admin_roles` + RLS only
-25. Replace third-party Vimeo thumbnail fallback (`vumbnail`) with first-party stored thumbnail URLs
-26. **Training hub UX polish after content expansion** (`#125`)
+26. Sticks product page (if offered)
+27. Training progress tracking
+28. Basic admin view for support requests
+29. Remove temporary static admin email allowlist and rely on `admin_roles` + RLS only
+30. Replace third-party Vimeo thumbnail fallback (`vumbnail`) with first-party stored thumbnail URLs
+31. **Training hub UX polish after content expansion** (`#125`)
    - Simplify the above-the-fold hierarchy so one primary next action is obvious.
    - Rebalance `Start Here`, task paths, featured items, and full-library stacking.
    - Make the new document-first job aids feel curated without adding clutter.
    - Validate final desktop/mobile hierarchy with authenticated QA on `/portal/training`.
-27. **Public CX polish audit remediation**
+32. **Public CX polish audit remediation**
    - Keep Micro Machine quote-led and remove direct machine cart behavior until direct machine commerce is intentionally implemented.
    - Make the shared cart resilient on mobile and keep checkout clearly sugar-only.
    - Tighten public page spacing on `/machines`, `/resources`, `/plus`, and `/contact` without changing the global visual system.
    - Improve contact form labels/input semantics, mobile icon-button labels, and product-gallery thumbnail state.
    - Validate the remediated public routes on desktop and common mobile viewport sizes.
+33. **Simplify Sunze machine mapping admin flow** (`#174`)
+   - Add a focused mapping action from `/admin/reporting` for newly discovered Sunze machines.
+   - Keep location/site grouping optional and support multiple machines at the same location.
+   - Let admins assign reporting users during mapping, while keeping partner/tax setup as a separate advanced step.
 
 ## P2 - Ops hardening follow-ups
-28. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
+34. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
    - Define referral-buddy onboarding runbook and response-time SLA.
    - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.

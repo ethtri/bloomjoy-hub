@@ -24,6 +24,9 @@ export function ProductImageGallery({ images, className }: ProductImageGalleryPr
         <img
           src={images[activeIndex].src}
           alt={images[activeIndex].alt}
+          width={900}
+          height={900}
+          loading="eager"
           decoding="async"
           className="h-full w-full object-contain p-3"
         />
@@ -45,6 +48,8 @@ export function ProductImageGallery({ images, className }: ProductImageGalleryPr
               <img
                 src={image.src}
                 alt={image.alt}
+                width={180}
+                height={180}
                 loading="lazy"
                 decoding="async"
                 className="h-full w-full object-contain p-1"

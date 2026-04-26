@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ArrowRight, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
+import { commercialMachineFaqs } from '@/lib/seoRoutes';
 import commercialMain from '@/assets/real/commercial-main.jpg';
 import commercialGallery1 from '@/assets/real/commercial-gallery-1.webp';
 import commercialGallery2 from '@/assets/real/commercial-gallery-2.webp';
@@ -67,6 +69,21 @@ const technicalSpecs = [
   { item: 'Total Candies Per Full Material Load', value: '200-250 units' },
   { item: 'Water Refill Frequency', value: 'After approximately every 200 candies produced' },
   { item: 'Screen Size', value: '21.5 inches' },
+];
+
+const buyerUseCases = [
+  'Entertainment venues and attractions that need a repeatable food-service spectacle.',
+  'Retail, mall, and tourism locations where the machine must be visible and easy to operate.',
+  'Event operators who want automatic stick dispensing and a deeper pattern menu.',
+  'Operators planning branded placements where the Commercial-only custom wrap option matters.',
+];
+
+const quoteChecklist = [
+  'Target venue type and expected daily or event volume',
+  'Delivery location and timing requirements',
+  'Preferred payment-reader or local payment needs',
+  'Standard Bloomjoy wrap or Commercial-only custom wrap interest',
+  'Opening sugar and paper-stick supply needs',
 ];
 
 export default function CommercialRoboticPage() {
@@ -229,7 +246,15 @@ export default function CommercialRoboticPage() {
                   </button>
                 </div>
                 <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
-                  <img src={commercialMenu64} alt="Commercial machine 64-pattern menu chart" className="h-full w-full object-contain p-2" />
+                  <img
+                    src={commercialMenu64}
+                    alt="Commercial machine 64-pattern menu chart"
+                    width={900}
+                    height={675}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-contain p-2"
+                  />
                 </div>
               </div>
 
@@ -251,7 +276,15 @@ export default function CommercialRoboticPage() {
                   </button>
                 </div>
                 <div className="mt-3 aspect-[4/3] overflow-hidden rounded-lg bg-muted">
-                  <img src={commercialCerts} alt="Commercial machine certification documents snapshot" className="h-full w-full object-contain p-2" />
+                  <img
+                    src={commercialCerts}
+                    alt="Commercial machine certification documents snapshot"
+                    width={900}
+                    height={675}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-contain p-2"
+                  />
                 </div>
               </div>
             </div>
@@ -268,12 +301,57 @@ export default function CommercialRoboticPage() {
                   <img
                     src={activeDoc.src}
                     alt={activeDoc.alt}
+                    width={1200}
+                    height={900}
+                    decoding="async"
                     className="mx-auto max-h-[85vh] w-auto max-w-full object-contain"
                   />
                 )}
               </div>
             </DialogContent>
           </Dialog>
+
+          <div className="mt-16 grid gap-6 lg:grid-cols-2">
+            <section className="rounded-xl border border-border bg-background p-6 lg:p-8">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Use Cases
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                The Commercial Machine is the first machine to compare when volume, visual
+                presentation, and automatic stick handling matter.
+              </p>
+              <ul className="mt-5 space-y-3">
+                {buyerUseCases.map((useCase) => (
+                  <li key={useCase} className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sage-light">
+                      <Check className="h-3 w-3 text-sage" />
+                    </div>
+                    <span>{useCase}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="rounded-xl border border-border bg-background p-6 lg:p-8">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Quote Prep
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Bring these details into the quote request so Bloomjoy can confirm fit and next
+                steps without guessing.
+              </p>
+              <ul className="mt-5 space-y-3">
+                {quoteChecklist.map((item) => (
+                  <li key={item} className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <Check className="h-3 w-3 text-primary" />
+                    </div>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
 
           {/* Operational details */}
           <div className="mt-16 rounded-xl border border-border bg-muted/30 p-6 lg:p-8">
@@ -319,6 +397,26 @@ export default function CommercialRoboticPage() {
               </div>
             </div>
           </div>
+
+          <section id="faq" className="mt-16 scroll-mt-24">
+            <div className="mx-auto max-w-3xl">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Commercial robotic cotton candy machine FAQs
+              </h2>
+              <Accordion
+                type="multiple"
+                defaultValue={commercialMachineFaqs.map((_, index) => `commercial-faq-${index}`)}
+                className="mt-6"
+              >
+                {commercialMachineFaqs.map((faq, index) => (
+                  <AccordionItem key={faq.q} value={`commercial-faq-${index}`}>
+                    <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
+                    <AccordionContent className="text-muted-foreground">{faq.a}</AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </div>
+          </section>
         </div>
       </section>
     </Layout>

@@ -18,6 +18,18 @@ const miniImages = [
   { src: miniGallery3, alt: 'Mini machine technical specifications' },
 ];
 
+const miniFitNotes = [
+  'Portable footprint for operators who do not need the full commercial cabinet.',
+  'Most complex patterns are supported, but stick handling remains manual.',
+  'Best for mobile setups, smaller venues, and buyer trials where space is a constraint.',
+];
+
+const miniPlanningNotes = [
+  'Mini is available now at a $4,000 baseline machine price.',
+  'Shipping and final configuration are confirmed during quote review.',
+  'Use the quote form to confirm venue fit, operator handoff, and opening supplies.',
+];
+
 export default function MiniPage() {
   useEffect(() => {
     trackEvent('view_product_mini');
@@ -111,6 +123,44 @@ export default function MiniPage() {
                   </span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-border bg-muted/25 py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-xl border border-border bg-background p-6">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Best Fit
+              </h2>
+              <ul className="mt-5 space-y-3">
+                {miniFitNotes.map((note) => (
+                  <li key={note} className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sage-light">
+                      <Check className="h-3 w-3 text-sage" />
+                    </div>
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-border bg-background p-6">
+              <h2 className="font-display text-2xl font-bold text-foreground">
+                Purchase Expectations
+              </h2>
+              <ul className="mt-5 space-y-3">
+                {miniPlanningNotes.map((note) => (
+                  <li key={note} className="flex items-start gap-3 text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <Check className="h-3 w-3 text-primary" />
+                    </div>
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>

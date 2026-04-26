@@ -81,6 +81,7 @@ export type AdminReportingImportRun = {
   rows_imported: number;
   rows_skipped: number;
   error_message: string | null;
+  meta: Record<string, unknown>;
   started_at: string;
   completed_at: string | null;
   created_at: string;
@@ -141,6 +142,20 @@ export type AdminReportingOverview = {
   schedules: AdminReportSchedule[];
   snapshots: AdminReportViewSnapshot[];
   entitlements: AdminReportingEntitlement[];
+  sunzeMachineQueue: AdminSunzeMachineQueueItem[];
+};
+
+export type AdminSunzeMachineQueueItem = {
+  sunzeMachineId: string;
+  sunzeMachineName: string | null;
+  status: 'pending' | 'ignored';
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  ignoredAt: string | null;
+  ignoreReason: string | null;
+  pendingRowCount: number;
+  pendingRevenueCents: number;
+  latestSaleDate: string | null;
 };
 
 export type AdminReportingAccessPerson = {
@@ -315,6 +330,12 @@ type RevokeReportingAccessInput = {
   reason: string;
 };
 
+type SetSunzeMachineDiscoveryStatusInput = {
+  sunzeMachineId: string;
+  status: 'pending' | 'ignored';
+  reason: string;
+};
+
 type SetUserMachineReportingAccessInput = {
   userEmail: string;
   machineIds: string[];
@@ -371,6 +392,26 @@ const mapSalesReportRow = (record: SalesReportRpcRow): SalesReportRow => ({
   grossSalesCents: Number(record.gross_sales_cents ?? 0),
   transactionCount: Number(record.transaction_count ?? 0),
 });
+
+const mapSunzeMachineQueue = (records: unknown): AdminSunzeMachineQueueItem[] =>
+  (Array.isArray(records) ? records : [])
+    .filter((record): record is Record<string, unknown> => typeof record === 'object' && record !== null)
+    .map((record) => ({
+      sunzeMachineId: String(record.sunzeMachineId ?? ''),
+      sunzeMachineName:
+        typeof record.sunzeMachineName === 'string' && record.sunzeMachineName.trim()
+          ? record.sunzeMachineName
+          : null,
+      status: record.status === 'ignored' ? 'ignored' : 'pending',
+      firstSeenAt: typeof record.firstSeenAt === 'string' ? record.firstSeenAt : null,
+      lastSeenAt: typeof record.lastSeenAt === 'string' ? record.lastSeenAt : null,
+      ignoredAt: typeof record.ignoredAt === 'string' ? record.ignoredAt : null,
+      ignoreReason: typeof record.ignoreReason === 'string' ? record.ignoreReason : null,
+      pendingRowCount: Number(record.pendingRowCount ?? 0),
+      pendingRevenueCents: Number(record.pendingRevenueCents ?? 0),
+      latestSaleDate: typeof record.latestSaleDate === 'string' ? record.latestSaleDate : null,
+    }))
+    .filter((record) => record.sunzeMachineId);
 
 export const summarizeSalesReport = (rows: SalesReportRow[]): SalesReportSummary =>
   rows.reduce<SalesReportSummary>(
@@ -442,8 +483,14 @@ export const exportSalesReportPdf = async (
   );
 
 export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverview> => {
-  const [machinesResult, runsResult, schedulesResult, snapshotsResult, entitlementsResult] =
-    await Promise.all([
+  const [
+    machinesResult,
+    runsResult,
+    schedulesResult,
+    snapshotsResult,
+    entitlementsResult,
+    sunzeQueueResult,
+  ] = await Promise.all([
     supabaseClient
       .from('reporting_machines')
       .select('*, reporting_locations(name, timezone), customer_accounts(name)')
@@ -452,7 +499,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       .from('sales_import_runs')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(10),
+      .limit(20),
     supabaseClient
       .from('report_schedules')
       .select('*, report_schedule_recipients(id, email, recipient_name, partner_name, active)')
@@ -468,6 +515,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       .select('*, reporting_machines(machine_label), reporting_locations(name), customer_accounts(name)')
       .order('created_at', { ascending: false })
       .limit(20),
+    supabaseClient.rpc('admin_get_sunze_machine_mapping_queue'),
   ]);
 
   const firstError =
@@ -475,7 +523,8 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     runsResult.error ||
     schedulesResult.error ||
     snapshotsResult.error ||
-    entitlementsResult.error;
+    entitlementsResult.error ||
+    sunzeQueueResult.error;
 
   if (firstError) {
     throw new Error(firstError.message || 'Unable to load reporting admin overview.');
@@ -487,6 +536,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     schedules: (schedulesResult.data ?? []) as AdminReportSchedule[],
     snapshots: (snapshotsResult.data ?? []) as AdminReportViewSnapshot[],
     entitlements: (entitlementsResult.data ?? []) as AdminReportingEntitlement[],
+    sunzeMachineQueue: mapSunzeMachineQueue(sunzeQueueResult.data),
   };
 };
 
@@ -597,6 +647,20 @@ export const upsertReportingMachineAdmin = async (
   }
 
   return data as AdminReportingMachine;
+};
+
+export const setSunzeMachineDiscoveryStatusAdmin = async (
+  input: SetSunzeMachineDiscoveryStatusInput
+): Promise<void> => {
+  const { error } = await supabaseClient.rpc('admin_set_sunze_machine_discovery_status', {
+    p_sunze_machine_id: input.sunzeMachineId,
+    p_status: input.status,
+    p_reason: input.reason,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to update Sunze machine queue.');
+  }
 };
 
 export const grantMachineReportAccessAdmin = async (

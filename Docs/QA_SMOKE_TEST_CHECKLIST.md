@@ -11,11 +11,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Private/auth routes (`/login`, `/cart`, `/portal/*`, `/admin/*`) set `meta[name="robots"]` to `noindex`
 - [ ] Direct-load public routes in browser address bar (for example `/machines`, `/supplies`, `/plus`) and confirm they do not return hosting-level 404 pages
 - [ ] View page source on a direct-loaded public route (for example `/machines`) and confirm title/description/canonical are route-specific before client-side JS executes
+- [ ] View page source on `/machines/commercial-robotic-machine` and confirm the `#root` contains rendered body HTML, the H1 text is present, and there are no `/src/assets/` image URLs
+- [ ] View page source on `/machines/commercial-robotic-machine` and confirm JSON-LD includes `Product`, `BreadcrumbList`, and `FAQPage` nodes that match visible page content
+- [ ] View page source on `/supplies` and confirm JSON-LD includes Product/Offer data only for direct-price supplies (`$10/kg` sugar and `$130/box` sticks)
 - [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
 - [ ] `https://www.bloomjoyusa.com/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `https://app.bloomjoyusa.com/...`
 - [ ] `https://app.bloomjoyusa.com/` plus public marketing/storefront paths redirect back to `https://www.bloomjoyusa.com/...`
 - [ ] `robots.txt` is reachable and includes a sitemap reference
-- [ ] `sitemap.xml` is reachable and lists core public routes
+- [ ] `sitemap.xml` is reachable, lists core public routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about URLs
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
 - [ ] No console errors on home page load
@@ -166,7 +169,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
-- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, parses counts only, deletes the raw workbook, and does not call Supabase ingest
+- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, reconciles parsed row count/revenue against the Sunze UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
+- [ ] `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30` reports the latest completed Sunze import or sends a stale-data ops alert
 
 ## Payments (test mode)
 - [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
@@ -221,6 +225,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/admin/accounts` redirects to `/admin/access?tab=users`
 - [ ] `/admin/audit` redirects to `/admin/access?tab=audit`
 - [ ] Admin Access > Users search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Admin Access > Users does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
 - [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
 - [ ] Admin Access > Users shows paid subscription status separately from free Plus grant status
 - [ ] Super-admin cannot grant free Plus access without a future expiry date and grant reason
@@ -233,6 +238,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
 - [ ] Admin Access > Reporting Access uses a people-first explicit machine access matrix
 - [ ] Admin Access > Reporting Access can look up an existing user by email, select multiple machines, save with a reason, and update that person's machine grants in one transactional save
+- [ ] Admin Access > Reporting Access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
 - [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
 - [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
@@ -243,6 +249,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
 - [ ] Admin Partner Records can search, create, and edit reusable partner records without exposing "party" terminology
+- [ ] Admin Partnerships setup loads without missing-RPC errors for `admin_get_partnership_reporting_setup`
 - [ ] Admin Partnerships opens as a guided setup flow with Details, Participants, Machines, Payout Rules, and Weekly Preview steps
 - [ ] Admin Partnerships is navigable on mobile with a compact partnership picker, `Step X of 5` header, horizontal step controls, and sticky Back/Next controls
 - [ ] Admin Partnerships does not show a global Setup Warnings box or machine tax-rate editor
@@ -264,9 +271,20 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Weekly Preview shows actionable in-page readiness messages when the selected week has no active machine assignment coverage, no active payout rule coverage, partial-week coverage, or no imported assigned-machine sales
 - [ ] Admin Partnerships > Weekly Preview labels payout metrics with the same participant names used in Payout Rules plus Bloomjoy
 - [ ] Admin Partnerships > Weekly Preview matches the Bubble Planet workbook math: Sunze order amount as gross, machine tax plus configured `$0.40` per-stick/item fee before split, no-pay orders counted as `$0`, and 60/40 split when configured
+- [ ] Corporate partner P0: super-admin can create a corporate partner, create a partnership/agreement, assign machines, configure machine tax assumptions, and configure typed revenue-share terms without developer support
+- [ ] Corporate partner P0: super-admin can preview a completed weekly report before generating a PDF and sees any missing tax, missing assignment, missing financial-rule, or stale-data warnings
+- [ ] Corporate partner P0: generated partner PDF includes executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, generated timestamp, and snapshot ID
+- [ ] Corporate partner P0: generated partner PDF is backed by an auditable snapshot/run record with period, rule version, assumptions, generated-by user, status, storage path, and warning state
+- [ ] Corporate partner P0: super-admin can download the reviewed partner PDF for manual sending; scheduled auto-email is not required for V1 acceptance
+- [ ] Non-admin user cannot generate or download corporate partner report PDFs from admin routes
 - [ ] Non-admin user cannot access `/admin/reporting`
 - [ ] Super-admin user can access `/admin/reporting`
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows report export archive, recent sales/refund import runs, and stale/failed sync status clearly
-- [ ] Failed or stale Sunze ingest runs appear in `/admin/reporting` without changing existing sales facts
+- [ ] Admin can open discovered Sunze machine IDs from `/admin/reporting`, map them in `/admin/machines`, ignore them, and reopen them
+- [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
+- [ ] Non-admin user cannot access `/admin/audit`
+- [ ] Super-admin user can access `/admin/audit`
+- [ ] Super-admin can grant and revoke super-admin role with reason metadata
+- [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 - [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually

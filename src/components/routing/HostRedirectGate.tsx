@@ -9,12 +9,15 @@ interface HostRedirectGateProps {
 
 export function HostRedirectGate({ children }: HostRedirectGateProps) {
   const location = useLocation();
-  const redirectTarget = getHostRedirectTarget(
-    window.location,
-    location.pathname,
-    location.search,
-    location.hash
-  );
+  const redirectTarget =
+    typeof window === 'undefined'
+      ? null
+      : getHostRedirectTarget(
+          window.location,
+          location.pathname,
+          location.search,
+          location.hash
+        );
 
   useEffect(() => {
     if (!redirectTarget) {

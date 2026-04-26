@@ -4,16 +4,7 @@ import { Layout } from '@/components/layout/Layout';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
-import { MACHINE_NAMES } from '@/lib/machineNames';
-
-const faqs = [
-  { q: 'What support is included with machine purchase?', a: 'The manufacturer support team provides 24/7 technical support via WeChat. Bloomjoy offers concierge guidance during US business hours for Plus members.' },
-  { q: 'How do I get replacement parts?', a: 'Plus members can request parts assistance through the member portal. We help source parts from the manufacturer.' },
-  {
-    q: 'What\'s the difference between the machines?',
-    a: `${MACHINE_NAMES.commercial} is full-size with auto stick dispensing. ${MACHINE_NAMES.mini} is portable at 1/5 size with manual stick feeding. ${MACHINE_NAMES.micro} is entry-level for basic shapes only.`,
-  },
-];
+import { resourcesFaqs } from '@/lib/seoRoutes';
 
 const plusTeasers = [
   {
@@ -33,23 +24,78 @@ const plusTeasers = [
   },
 ];
 
+const resourceGroups = [
+  {
+    title: 'Machine Buyers',
+    description:
+      'Compare the Commercial, Mini, and Micro machines by venue fit, footprint, pattern capability, and quote expectations.',
+    href: '/machines',
+  },
+  {
+    title: 'Supplies Planning',
+    description:
+      'Review sugar, Bloomjoy branded paper sticks, custom sticks, pricing, and order paths before launch.',
+    href: '/supplies',
+  },
+  {
+    title: 'Support Boundaries',
+    description:
+      'Understand manufacturer first-line support, Bloomjoy concierge guidance, and Plus training resources.',
+    href: '#support-boundaries',
+  },
+];
+
 export default function ResourcesPage() {
-  const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', window.location);
+  const currentLocation = typeof window === 'undefined' ? undefined : window.location;
+  const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', currentLocation);
 
   return (
     <Layout>
       <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
         <div className="container-page text-center">
           <h1 className="font-display text-4xl font-bold text-foreground">Resources</h1>
-          <p className="mt-4 text-lg text-muted-foreground">FAQs, guides, and what to expect.</p>
+          <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground">
+            Practical FAQs for robotic cotton candy machine buyers, venue operators, supplies,
+            maintenance, support, and Bloomjoy Plus.
+          </p>
+        </div>
+      </section>
+      <section className="border-b border-border bg-background py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="grid gap-4 md:grid-cols-3">
+            {resourceGroups.map((group) => (
+              <Link
+                key={group.title}
+                to={group.href}
+                className="rounded-lg border border-border bg-muted/10 p-5 transition-colors hover:border-primary/60"
+              >
+                <h2 className="font-display text-xl font-semibold text-foreground">
+                  {group.title}
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  {group.description}
+                </p>
+                <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary">
+                  Open resource
+                  <ArrowRight className="h-4 w-4" />
+                </span>
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
       <section id="faq" className="scroll-mt-24 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
-            <h2 className="font-display text-2xl font-bold text-foreground">Frequently Asked Questions</h2>
-            <Accordion type="single" collapsible className="mt-6">
-              {faqs.map((faq, i) => (
+            <h2 className="font-display text-2xl font-bold text-foreground">
+              Robotic cotton candy machine FAQs
+            </h2>
+            <Accordion
+              type="multiple"
+              defaultValue={resourcesFaqs.map((_, index) => `faq-${index}`)}
+              className="mt-6"
+            >
+              {resourcesFaqs.map((faq, i) => (
                 <AccordionItem key={i} value={`faq-${i}`}>
                   <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
                   <AccordionContent className="text-muted-foreground">{faq.a}</AccordionContent>

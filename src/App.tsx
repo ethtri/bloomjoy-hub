@@ -1,8 +1,12 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  type QueryClient as QueryClientInstance,
+} from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -46,88 +50,104 @@ const AdminPartnerships = lazy(() => import("./pages/admin/Partnerships"));
 const AdminReporting = lazy(() => import("./pages/admin/Reporting"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const browserQueryClient = new QueryClient();
 
 const RouteFallback = () => (
   <div className="container-page py-10 text-sm text-muted-foreground">Loading page...</div>
 );
 
-const App = () => (
+export const AppProviders = ({
+  children,
+  queryClient = browserQueryClient,
+}: {
+  children: ReactNode;
+  queryClient?: QueryClientInstance;
+}) => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
-          <HostRedirectGate>
-            <RouteSeoManager />
-            <Suspense fallback={<RouteFallback />}>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/machines" element={<Products />} />
-                <Route
-                  path="/machines/commercial-robotic-machine"
-                  element={<CommercialRobotic />}
-                />
-                <Route path="/machines/mini" element={<Mini />} />
-                <Route path="/machines/micro" element={<Micro />} />
-                <Route path="/products" element={<Navigate to="/machines" replace />} />
-                <Route
-                  path="/products/commercial-robotic-machine"
-                  element={<Navigate to="/machines/commercial-robotic-machine" replace />}
-                />
-                <Route path="/products/mini" element={<Navigate to="/machines/mini" replace />} />
-                <Route path="/products/micro" element={<Navigate to="/machines/micro" replace />} />
-                <Route path="/supplies" element={<Supplies />} />
-                <Route path="/plus" element={<Plus />} />
-                <Route path="/contact" element={<Contact />} />
-                <Route path="/about" element={<About />} />
-                <Route path="/resources" element={<Resources />} />
-                <Route path="/privacy" element={<Privacy />} />
-                <Route path="/terms" element={<Terms />} />
-                <Route path="/billing-cancellation" element={<BillingCancellation />} />
-                <Route path="/cart" element={<Cart />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/login/operator" element={<Navigate to="/login" replace />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route element={<ProtectedRoute />}>
-                  <Route path="/portal" element={<PortalDashboard />} />
-                  <Route element={<MemberRoute />}>
-                    <Route path="/portal/orders" element={<PortalOrders />} />
-                    <Route path="/portal/account" element={<PortalAccount />} />
-                    <Route path="/portal/reports" element={<PortalReports />} />
-                    <Route path="/portal/training" element={<PortalTraining />} />
-                    <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
-                    <Route path="/portal/support" element={<PortalSupport />} />
-                    <Route path="/portal/onboarding" element={<PortalOnboarding />} />
-                  </Route>
-                  <Route element={<AdminRoute />}>
-                    <Route path="/admin" element={<AdminDashboard />} />
-                    <Route path="/admin/orders" element={<AdminOrders />} />
-                    <Route path="/admin/support" element={<AdminSupport />} />
-                    <Route path="/admin/access" element={<AdminAccess />} />
-                    <Route path="/admin/partner-records" element={<AdminPartnerRecords />} />
-                    <Route path="/admin/machines" element={<AdminMachines />} />
-                    <Route
-                      path="/admin/accounts"
-                      element={<Navigate to="/admin/access?tab=users" replace />}
-                    />
-                    <Route path="/admin/partnerships" element={<AdminPartnerships />} />
-                    <Route path="/admin/reporting" element={<AdminReporting />} />
-                    <Route
-                      path="/admin/audit"
-                      element={<Navigate to="/admin/access?tab=audit" replace />}
-                    />
-                  </Route>
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Suspense>
-          </HostRedirectGate>
-        </BrowserRouter>
+        {children}
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
+);
+
+export const AppShell = () => (
+  <HostRedirectGate>
+    <RouteSeoManager />
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="/machines" element={<Products />} />
+        <Route
+          path="/machines/commercial-robotic-machine"
+          element={<CommercialRobotic />}
+        />
+        <Route path="/machines/mini" element={<Mini />} />
+        <Route path="/machines/micro" element={<Micro />} />
+        <Route path="/products" element={<Navigate to="/machines" replace />} />
+        <Route
+          path="/products/commercial-robotic-machine"
+          element={<Navigate to="/machines/commercial-robotic-machine" replace />}
+        />
+        <Route path="/products/mini" element={<Navigate to="/machines/mini" replace />} />
+        <Route path="/products/micro" element={<Navigate to="/machines/micro" replace />} />
+        <Route path="/supplies" element={<Supplies />} />
+        <Route path="/plus" element={<Plus />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/resources" element={<Resources />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/billing-cancellation" element={<BillingCancellation />} />
+        <Route path="/cart" element={<Cart />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/login/operator" element={<Navigate to="/login" replace />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/portal" element={<PortalDashboard />} />
+          <Route element={<MemberRoute />}>
+            <Route path="/portal/orders" element={<PortalOrders />} />
+            <Route path="/portal/account" element={<PortalAccount />} />
+            <Route path="/portal/reports" element={<PortalReports />} />
+            <Route path="/portal/training" element={<PortalTraining />} />
+            <Route path="/portal/training/:id" element={<PortalTrainingDetail />} />
+            <Route path="/portal/support" element={<PortalSupport />} />
+            <Route path="/portal/onboarding" element={<PortalOnboarding />} />
+          </Route>
+          <Route element={<AdminRoute />}>
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/orders" element={<AdminOrders />} />
+            <Route path="/admin/support" element={<AdminSupport />} />
+            <Route path="/admin/access" element={<AdminAccess />} />
+            <Route path="/admin/partner-records" element={<AdminPartnerRecords />} />
+            <Route path="/admin/machines" element={<AdminMachines />} />
+            <Route
+              path="/admin/accounts"
+              element={<Navigate to="/admin/access?tab=users" replace />}
+            />
+            <Route path="/admin/partnerships" element={<AdminPartnerships />} />
+            <Route path="/admin/reporting" element={<AdminReporting />} />
+            <Route
+              path="/admin/audit"
+              element={<Navigate to="/admin/access?tab=audit" replace />}
+            />
+          </Route>
+        </Route>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
+  </HostRedirectGate>
+);
+
+const App = () => (
+  <AppProviders>
+    <BrowserRouter>
+      <AppShell />
+    </BrowserRouter>
+  </AppProviders>
 );
 
 export default App;
