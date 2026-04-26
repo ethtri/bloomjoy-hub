@@ -150,6 +150,41 @@ export type PartnerWeeklyReportPreview = {
   warnings: PartnershipSetupWarning[];
 };
 
+const dateInputFromDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getPreviewWeekStartDate = (weekEndingDate: string) => {
+  const date = new Date(`${weekEndingDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  date.setDate(date.getDate() - 6);
+  return dateInputFromDate(date);
+};
+
+const normalizePartnerWeeklyReportPreview = (
+  data: unknown,
+  partnershipId: string,
+  weekEndingDate: string
+): PartnerWeeklyReportPreview => {
+  const raw = (Array.isArray(data) ? data[0] : data) as Partial<PartnerWeeklyReportPreview> | null;
+
+  return {
+    partnershipId: String(raw?.partnershipId ?? partnershipId),
+    partnershipName: raw?.partnershipName,
+    reportingWeekEndDay: raw?.reportingWeekEndDay,
+    weekEndingDate: String(raw?.weekEndingDate ?? weekEndingDate),
+    weekStartDate: String(raw?.weekStartDate ?? getPreviewWeekStartDate(weekEndingDate)),
+    summary: raw?.summary ?? {},
+    machines: Array.isArray(raw?.machines) ? raw.machines : [],
+    warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
+  };
+};
+
 export type UpsertPartnerInput = {
   partnerId?: string | null;
   name: string;
@@ -424,5 +459,5 @@ export const previewPartnerWeeklyReportAdmin = async (
     throw new Error(error.message || 'Unable to preview partner report.');
   }
 
-  return data as PartnerWeeklyReportPreview;
+  return normalizePartnerWeeklyReportPreview(data, partnershipId, weekEndingDate);
 };

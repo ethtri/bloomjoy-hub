@@ -74,6 +74,7 @@ import {
   partnershipTypes,
   percentFromBasisPoints,
   today,
+  toDateInputValue,
 } from '@/pages/admin/reportingSetupUi';
 
 type PartnershipStep = 'details' | 'participants' | 'machines' | 'terms' | 'preview';
@@ -198,6 +199,13 @@ type AllocationShares = {
   bloomjoySharePercent: string;
 };
 
+type PreviewReadinessIssue = {
+  title: string;
+  message: string;
+  actionLabel: string;
+  actionHref: string;
+};
+
 const shareFieldsByParticipantIndex: PayoutShareField[] = ['primarySharePercent', 'partnerSharePercent'];
 const payoutRecipientRole = 'revenue_share_recipient';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -213,6 +221,25 @@ const participantRoleLabels: Record<string, string> = {
 };
 
 const parseWholePercent = (value: string) => Math.round(Number(value) || 0);
+
+const getWeekStartDate = (weekEndingDate: string) => {
+  const date = new Date(`${weekEndingDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  date.setDate(date.getDate() - 6);
+  return toDateInputValue(date);
+};
+
+const dateWindowOverlaps = (
+  effectiveStartDate: string,
+  effectiveEndDate: string | null | undefined,
+  windowStartDate: string,
+  windowEndDate: string
+) =>
+  Boolean(windowStartDate && windowEndDate) &&
+  effectiveStartDate <= windowEndDate &&
+  (!effectiveEndDate || effectiveEndDate >= windowStartDate);
 
 const sanitizeWholePercentInput = (value: string) => {
   if (value.trim() === '') return '';
@@ -2051,7 +2078,9 @@ function WeeklyPreviewSection({
     getLastCompletedWeekEndingDate(selectedPartnership.reporting_week_end_day)
   );
   const [preview, setPreview] = useState<PartnerWeeklyReportPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const weekStartDate = useMemo(() => getWeekStartDate(weekEndingDate), [weekEndingDate]);
   const payoutParticipants = useMemo(
     () =>
       getPayoutRecipientParticipants(
@@ -2059,20 +2088,88 @@ function WeeklyPreviewSection({
       ).slice(0, 2),
     [selectedPartnership.id, setup.parties]
   );
+  const assignmentsCoveringWeek = useMemo(
+    () =>
+      setup.assignments.filter(
+        (assignment) =>
+          assignment.partnership_id === selectedPartnership.id &&
+          assignment.assignment_role === 'primary_reporting' &&
+          assignment.status === 'active' &&
+          dateWindowOverlaps(
+            assignment.effective_start_date,
+            assignment.effective_end_date,
+            weekStartDate,
+            weekEndingDate
+          )
+      ),
+    [selectedPartnership.id, setup.assignments, weekEndingDate, weekStartDate]
+  );
+  const activePayoutRulesCoveringWeek = useMemo(
+    () =>
+      setup.financialRules.filter(
+        (rule) =>
+          rule.partnership_id === selectedPartnership.id &&
+          rule.status === 'active' &&
+          dateWindowOverlaps(
+            rule.effective_start_date,
+            rule.effective_end_date,
+            weekStartDate,
+            weekEndingDate
+          )
+      ),
+    [selectedPartnership.id, setup.financialRules, weekEndingDate, weekStartDate]
+  );
+  const previewReadinessIssues = useMemo(() => {
+    const issues: PreviewReadinessIssue[] = [];
+    const partnershipQuery = encodeURIComponent(selectedPartnership.id);
+
+    if (weekEndingDate && assignmentsCoveringWeek.length === 0) {
+      issues.push({
+        title: 'No machines are assigned for this week',
+        message: `Weekly Preview only includes sales from machines assigned to this partnership during ${weekStartDate || 'the selected week'} through ${weekEndingDate}. If machines were just assigned, their start date may be after this preview week.`,
+        actionLabel: 'Review Machines step',
+        actionHref: `/admin/partnerships?partnershipId=${partnershipQuery}&step=machines`,
+      });
+    }
+
+    if (weekEndingDate && activePayoutRulesCoveringWeek.length === 0) {
+      issues.push({
+        title: 'No active payout rule covers this week',
+        message:
+          'The preview can still check sales, but payout amounts will be incomplete until an active Payout Rule covers the selected week.',
+        actionLabel: 'Review Payout Rules',
+        actionHref: `/admin/partnerships?partnershipId=${partnershipQuery}&step=terms`,
+      });
+    }
+
+    return issues;
+  }, [
+    activePayoutRulesCoveringWeek.length,
+    assignmentsCoveringWeek.length,
+    selectedPartnership.id,
+    weekEndingDate,
+    weekStartDate,
+  ]);
 
   useEffect(() => {
     setWeekEndingDate(getLastCompletedWeekEndingDate(selectedPartnership.reporting_week_end_day));
     setPreview(null);
+    setPreviewError(null);
   }, [selectedPartnership.id, selectedPartnership.reporting_week_end_day]);
 
   const loadPreview = async () => {
+    setPreviewError(null);
+
     if (!weekEndingDate) {
+      setPreviewError('Week ending date is required.');
       toast.error('Week ending date is required.');
       return;
     }
 
     if (new Date(`${weekEndingDate}T00:00:00`).getDay() !== selectedPartnership.reporting_week_end_day) {
-      toast.error(`Week ending date must be a ${dayNames[selectedPartnership.reporting_week_end_day]}.`);
+      const message = `Week ending date must be a ${dayNames[selectedPartnership.reporting_week_end_day]}.`;
+      setPreviewError(message);
+      toast.error(message);
       return;
     }
 
@@ -2082,7 +2179,9 @@ function WeeklyPreviewSection({
       setPreview(nextPreview);
       toast.success('Weekly report preview loaded.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to preview report.');
+      const message = error instanceof Error ? error.message : 'Unable to preview report.';
+      setPreviewError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -2098,7 +2197,11 @@ function WeeklyPreviewSection({
               id="week-ending"
               type="date"
               value={weekEndingDate}
-              onChange={(event) => setWeekEndingDate(event.target.value)}
+              onChange={(event) => {
+                setWeekEndingDate(event.target.value);
+                setPreview(null);
+                setPreviewError(null);
+              }}
             />
             <div className="mt-1 text-xs text-muted-foreground">
               Week ends {dayNames[selectedPartnership.reporting_week_end_day]}
@@ -2110,6 +2213,41 @@ function WeeklyPreviewSection({
           </Button>
         </div>
       </div>
+
+      {previewReadinessIssues.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="space-y-3">
+              <div>
+                <div className="font-semibold">Preview setup needs attention</div>
+                <div className="mt-1">
+                  These checks explain why a preview may return no sales or incomplete payout
+                  numbers for the selected week.
+                </div>
+              </div>
+              <div className="space-y-2">
+                {previewReadinessIssues.map((issue) => (
+                  <div key={issue.title} className="rounded-md border border-amber-200 bg-white/70 p-3">
+                    <div className="font-medium">{issue.title}</div>
+                    <div className="mt-1">{issue.message}</div>
+                    <Button asChild variant="outline" size="sm" className="mt-2 bg-white">
+                      <Link to={issue.actionHref}>{issue.actionLabel}</Link>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewError && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+          <div className="font-semibold">Preview could not load</div>
+          <div className="mt-1">{previewError}</div>
+        </div>
+      )}
 
       {preview && (
         <div className="space-y-4">

@@ -259,6 +259,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships shows financial-rule warnings in Payout Rules and assignment warnings in the Machines step, not in a disconnected top-of-page warning box
 - [ ] Admin Partnerships warns before leaving the Machines or Payout Rules step with unsaved changes, including on mobile Back/Next navigation
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
+- [ ] Admin Partnerships > Weekly Preview shows actionable in-page readiness messages when the selected week has no active machine assignment coverage or no active payout rule coverage
 - [ ] Admin Partnerships > Weekly Preview labels payout metrics with the same participant names used in Payout Rules plus Bloomjoy
 - [ ] Admin Partnerships > Weekly Preview matches the Bubble Planet workbook math: Sunze order amount as gross, machine tax plus configured `$0.40` per-stick/item fee before split, no-pay orders counted as `$0`, and 60/40 split when configured
 - [ ] Non-admin user cannot access `/admin/reporting`
