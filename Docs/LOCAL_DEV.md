@@ -70,8 +70,6 @@ Use these after the sales reporting migration has been applied.
    - `npm run reporting:validate-sunze-parser`
 5) Dry-run the Sunze browser export locally:
    - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
-   - Historical backfill dry run for an exact Orders window:
-     `npm run reporting:sunze-sync -- --env-file path/to/local.env --date-from 2026-04-13 --date-to 2026-04-19 --dry-run`
    - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.
 6) Run the Sunze import freshness check without touching Sunze:
    - `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30`
