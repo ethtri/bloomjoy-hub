@@ -43,6 +43,7 @@
 - Reporting tax setup is intentionally simple in the UI: missing initial rates save with a hidden `2026-01-01` effective start, rare tax changes use a compact rate-change action, and tax history is read-only for audit context.
 - Partnership participants remain available for multi-stakeholder agreements. Reusable partner records are managed separately, participant roles make payout recipients explicit, and partnership-specific participant relationships stay inside the guided partnership flow without report-recipient or share-percentage friction.
 - Partnership setup exposes one agreement-level timeline plus a simple active/inactive control; payout-rule date/status fields remain backend compatibility fields and are not normal admin inputs.
+- Official agreement setup now needs legal/display partner naming, weekly-plus-monthly cadence tracking, invoice/payment terms, ownership model, and consumer-pricing authority so partner reports can match signed partnership agreements without turning the app into a full contract-management system.
 - Payout percentages live in one current Payout Rule as stable participant-named allocation rows plus Bloomjoy, with whole-percent inputs, a 100% allocation check, and weekly-preview labels that match the configured payout recipients while still mapping to the existing backend split fields for compatibility.
 - Weekly Preview now surfaces actionable readiness issues for the selected week, including missing active machine assignment coverage, missing active payout rules, and no imported sales for the selected week, and keeps RPC errors visible in-page instead of relying only on toast feedback.
 - The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` per-stick/item fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.
@@ -67,8 +68,8 @@
   - polished executive summary plus calculation appendix, not a summary-only report
   - typed configurable revenue-share rules, not hardcoded partner-specific math or a broad formula engine
   - conservative access: only super-admins configure, generate, review, and send partner reports in V1
-- Next code slice should add auditable partner-report snapshot/run support with reporting period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and warning state.
-- The partner PDF should replace the current simple text-style sales export for this use case with a branded settlement artifact: cover/summary, machine-level rollups, formula assumptions, warning states, generated timestamp, and snapshot ID.
+- Contract-alignment slice on branch `agent/partnership-contract-compliance` adds legal partner names, weekly/monthly cadence terms, invoice/payment due terms, ownership/pricing authority fields, contract references, labeled deduction notes, and visible snapshot IDs in partner exports.
+- Remaining partner-report snapshot/run hardening should still add structured rule version, recipient/download metadata, and warning-state columns instead of relying only on `summary_json`.
 - Parallel UX/CX track: issue `#172` should design the reporting tab experience where users see operator-style reporting for assigned machines by default, while partner dashboard views appear only when the user has explicit partner-dashboard permissions. V1 should default partner dashboard visibility to super-admins only.
 - Sequencing cleanup on `2026-04-26`: PRs `#161` and `#167` are merged, stale docs PRs `#157` and `#151` were closed as superseded, and stale go-live PR `#143` was closed as discarded. The next reporting slice should focus on the reviewed partner PDF milestone.
 

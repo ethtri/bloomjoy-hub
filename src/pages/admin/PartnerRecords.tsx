@@ -40,6 +40,7 @@ const emptySetup: PartnershipReportingSetup = {
 const emptyPartnerForm = {
   partnerId: null as string | null,
   name: '',
+  legalName: '',
   partnerType: 'revenue_share_partner',
   primaryContactName: '',
   primaryContactEmail: '',
@@ -79,6 +80,7 @@ export default function AdminPartnerRecordsPage() {
         if (!normalizedSearch) return true;
         return [
           partner.name,
+          partner.legal_name ?? '',
           partner.partner_type,
           partner.primary_contact_name ?? '',
           partner.primary_contact_email ?? '',
@@ -153,7 +155,7 @@ export default function AdminPartnerRecordsPage() {
                     className="pl-9"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Name, contact, email, type"
+                    placeholder="Name, legal name, contact, email, type"
                   />
                 </div>
               </div>
@@ -203,7 +205,12 @@ export default function AdminPartnerRecordsPage() {
                   <tbody className="divide-y divide-border bg-background">
                     {filteredPartners.map((partner) => (
                       <tr key={partner.id}>
-                        <td className="px-4 py-3 font-medium text-foreground">{partner.name}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-foreground">{partner.name}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {partner.legal_name ?? 'No legal name recorded'}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-muted-foreground">{formatLabel(partner.partner_type)}</td>
                         <td className="px-4 py-3 text-muted-foreground">
                           {partner.primary_contact_name ?? 'n/a'}
@@ -272,6 +279,7 @@ function PartnerRecordDialog({
     setForm({
       partnerId: partner.id,
       name: partner.name,
+      legalName: partner.legal_name ?? '',
       partnerType: partner.partner_type,
       primaryContactName: partner.primary_contact_name ?? '',
       primaryContactEmail: partner.primary_contact_email ?? '',
@@ -282,6 +290,7 @@ function PartnerRecordDialog({
 
   const savePartner = async () => {
     const name = form.name.trim();
+    const legalName = form.legalName.trim();
     const primaryContactName = form.primaryContactName.trim();
     const primaryContactEmail = form.primaryContactEmail.trim();
     const notes = form.notes.trim();
@@ -311,6 +320,7 @@ function PartnerRecordDialog({
       await upsertReportingPartnerAdmin({
         ...form,
         name,
+        legalName: legalName || null,
         primaryContactName: primaryContactName || null,
         primaryContactEmail: primaryContactEmail || null,
         notes: notes || null,
@@ -342,6 +352,15 @@ function PartnerRecordDialog({
               id="partner-record-name"
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
+            />
+          </div>
+          <div>
+            <Label htmlFor="partner-record-legal-name">Legal name</Label>
+            <Input
+              id="partner-record-legal-name"
+              value={form.legalName}
+              onChange={(event) => setForm({ ...form, legalName: event.target.value })}
+              placeholder="Official contract counterparty"
             />
           </div>
           <div>

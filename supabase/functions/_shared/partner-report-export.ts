@@ -38,6 +38,10 @@ export type PartnerReportExportContext = {
   payoutRecipientLabels: string[];
   calculationLabel: string;
   generatedAt: string;
+  snapshotId: string;
+  feeLabel?: string;
+  costLabel?: string;
+  additionalDeductionsNotes?: string | null;
 };
 
 const encoder = new TextEncoder();
@@ -154,6 +158,10 @@ export const buildPartnerReportCsv = ({
   payoutRecipientLabels,
   calculationLabel,
   generatedAt,
+  snapshotId,
+  feeLabel = "Stick cost deduction",
+  costLabel = "Costs",
+  additionalDeductionsNotes,
 }: PartnerReportExportContext): string => {
   const summary = preview.summary ?? {};
   const generatedAtLabel = formatGeneratedAt(generatedAt);
@@ -165,7 +173,11 @@ export const buildPartnerReportCsv = ({
       `${preview.weekStartDate ?? ""} through ${preview.weekEndingDate ?? ""}`,
     ]),
     csvRow(["Generated", generatedAtLabel]),
+    csvRow(["Snapshot ID", snapshotId]),
     csvRow(["Calculation", calculationLabel]),
+    ...(additionalDeductionsNotes
+      ? [csvRow(["Deduction notes", additionalDeductionsNotes])]
+      : []),
     "",
     csvRow(["Summary"]),
     csvRow(["Metric", "Value"]),
@@ -173,8 +185,8 @@ export const buildPartnerReportCsv = ({
     csvRow(["Sticks/items", formatInteger(summary.item_quantity)]),
     csvRow(["Gross sales", formatCurrency(summary.gross_sales_cents)]),
     csvRow(["Machine taxes", formatCurrency(summary.tax_cents)]),
-    csvRow(["Stick cost deduction", formatCurrency(summary.fee_cents)]),
-    csvRow(["Costs", formatCurrency(summary.cost_cents)]),
+    csvRow([feeLabel, formatCurrency(summary.fee_cents)]),
+    csvRow([costLabel, formatCurrency(summary.cost_cents)]),
     csvRow(["Net sales", formatCurrency(summary.net_sales_cents)]),
     csvRow([
       getPartnerPayoutLabel(payoutRecipientLabels),
@@ -200,8 +212,8 @@ export const buildPartnerReportCsv = ({
       "Sticks/items",
       "Gross sales",
       "Machine taxes",
-      "Stick cost deduction",
-      "Costs",
+      feeLabel,
+      costLabel,
       "Net sales",
     ]),
     ...((preview.machines ?? []).map((machine) =>
@@ -262,6 +274,10 @@ export const buildPartnerReportPdf = ({
   payoutRecipientLabels,
   calculationLabel,
   generatedAt,
+  snapshotId,
+  feeLabel = "Stick cost deduction",
+  costLabel = "Costs",
+  additionalDeductionsNotes,
 }: PartnerReportExportContext): Uint8Array => {
   const summary = preview.summary ?? {};
   const machines = preview.machines ?? [];
@@ -328,6 +344,15 @@ export const buildPartnerReportPdf = ({
         color: "muted",
       }),
     );
+    lines.push(
+      pdfText({
+        text: `Snapshot ${snapshotId}`,
+        x: 384,
+        y: 716,
+        size: 8,
+        color: "muted",
+      }),
+    );
 
     if (pageIndex === 0) {
       const cards = [
@@ -335,7 +360,7 @@ export const buildPartnerReportPdf = ({
         ["Sticks/items", formatInteger(summary.item_quantity)],
         ["Gross sales", formatCurrency(summary.gross_sales_cents)],
         ["Machine taxes", formatCurrency(summary.tax_cents)],
-        ["Stick cost deduction", formatCurrency(summary.fee_cents)],
+        [feeLabel, formatCurrency(summary.fee_cents)],
         ["Net sales", formatCurrency(summary.net_sales_cents)],
         [partnerLabel, formatCurrency(summary.fever_profit_cents)],
         ["Bloomjoy retained", formatCurrency(summary.bloomjoy_profit_cents)],
@@ -386,6 +411,20 @@ export const buildPartnerReportPdf = ({
           }),
         );
       });
+      if (additionalDeductionsNotes) {
+        wrapText(`Deduction notes: ${additionalDeductionsNotes}`, 104, 2)
+          .forEach((notesLine, index) => {
+            lines.push(
+              pdfText({
+                text: notesLine,
+                x: 44,
+                y: 480 - index * 12,
+                size: 8,
+                color: "muted",
+              }),
+            );
+          });
+      }
     }
 
     const tableTop = pageIndex === 0 ? 454 : 676;
@@ -451,7 +490,7 @@ export const buildPartnerReportPdf = ({
     );
     lines.push(
       pdfText({
-        text: "Stick cost",
+        text: truncateWithDots(feeLabel, 12),
         x: 468,
         y: tableTop - 24,
         size: 7,

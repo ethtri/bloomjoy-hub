@@ -5,6 +5,7 @@ import type { ReportingMachineType } from '@/lib/reporting';
 export type ReportingPartner = {
   id: string;
   name: string;
+  legal_name: string | null;
   partner_type: string;
   primary_contact_name: string | null;
   primary_contact_email: string | null;
@@ -20,6 +21,13 @@ export type ReportingPartnership = {
   partnership_type: string;
   reporting_week_end_day: number;
   timezone: string;
+  reporting_frequency: 'weekly' | 'monthly' | 'weekly_and_monthly';
+  monthly_report_due_days: number | null;
+  invoice_payment_due_days: number | null;
+  payment_method: string | null;
+  machine_ownership_model: string;
+  consumer_pricing_authority: string;
+  contract_reference: string | null;
   effective_start_date: string;
   effective_end_date: string | null;
   status: 'draft' | 'active' | 'archived';
@@ -58,6 +66,7 @@ export type ReportingPartnershipParty = {
   partnership_name: string;
   partner_id: string;
   partner_name: string;
+  partner_legal_name: string | null;
   party_role: string;
   share_basis_points: number | null;
   is_report_recipient: boolean;
@@ -84,8 +93,11 @@ export type ReportingPartnershipFinancialRule = {
   split_base: string;
   fee_amount_cents: number;
   fee_basis: string;
+  fee_label: string;
   cost_amount_cents: number;
   cost_basis: string;
+  cost_label: string;
+  additional_deductions_notes: string | null;
   deduction_timing: string;
   gross_to_net_method: string;
   fever_share_basis_points: number;
@@ -191,6 +203,7 @@ const normalizePartnerWeeklyReportPreview = (
 export type UpsertPartnerInput = {
   partnerId?: string | null;
   name: string;
+  legalName?: string | null;
   partnerType: string;
   primaryContactName?: string | null;
   primaryContactEmail?: string | null;
@@ -205,6 +218,13 @@ export type UpsertPartnershipInput = {
   partnershipType: string;
   reportingWeekEndDay: number;
   timezone: string;
+  reportingFrequency: string;
+  monthlyReportDueDays?: number | null;
+  invoicePaymentDueDays?: number | null;
+  paymentMethod?: string | null;
+  machineOwnershipModel: string;
+  consumerPricingAuthority: string;
+  contractReference?: string | null;
   effectiveStartDate: string;
   effectiveEndDate?: string | null;
   status: string;
@@ -259,8 +279,11 @@ export type UpsertFinancialRuleInput = {
   splitBase: string;
   feeAmountCents: number;
   feeBasis: string;
+  feeLabel: string;
   costAmountCents: number;
   costBasis: string;
+  costLabel: string;
+  additionalDeductionsNotes?: string | null;
   deductionTiming: string;
   grossToNetMethod: string;
   feverShareBasisPoints: number;
@@ -312,6 +335,7 @@ export const upsertReportingPartnerAdmin = async (input: UpsertPartnerInput) => 
   const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_partner', {
     p_partner_id: input.partnerId ?? null,
     p_name: input.name,
+    p_legal_name: input.legalName ?? null,
     p_partner_type: input.partnerType,
     p_primary_contact_name: input.primaryContactName ?? null,
     p_primary_contact_email: input.primaryContactEmail ?? null,
@@ -334,6 +358,13 @@ export const upsertReportingPartnershipAdmin = async (input: UpsertPartnershipIn
     p_partnership_type: input.partnershipType,
     p_reporting_week_end_day: input.reportingWeekEndDay,
     p_timezone: input.timezone,
+    p_reporting_frequency: input.reportingFrequency,
+    p_monthly_report_due_days: input.monthlyReportDueDays ?? null,
+    p_invoice_payment_due_days: input.invoicePaymentDueDays ?? null,
+    p_payment_method: input.paymentMethod ?? null,
+    p_machine_ownership_model: input.machineOwnershipModel,
+    p_consumer_pricing_authority: input.consumerPricingAuthority,
+    p_contract_reference: input.contractReference ?? null,
     p_effective_start_date: input.effectiveStartDate,
     p_effective_end_date: input.effectiveEndDate || null,
     p_status: input.status,
@@ -461,10 +492,13 @@ export const upsertReportingFinancialRuleAdmin = async (input: UpsertFinancialRu
     p_split_base: input.splitBase,
     p_fee_amount_cents: input.feeAmountCents,
     p_fee_basis: input.feeBasis,
+    p_fee_label: input.feeLabel,
     p_cost_amount_cents: input.costAmountCents,
     p_cost_basis: input.costBasis,
+    p_cost_label: input.costLabel,
     p_deduction_timing: input.deductionTiming,
     p_gross_to_net_method: input.grossToNetMethod,
+    p_additional_deductions_notes: input.additionalDeductionsNotes ?? null,
     p_fever_share_basis_points: input.feverShareBasisPoints,
     p_partner_share_basis_points: input.partnerShareBasisPoints,
     p_bloomjoy_share_basis_points: input.bloomjoyShareBasisPoints,
