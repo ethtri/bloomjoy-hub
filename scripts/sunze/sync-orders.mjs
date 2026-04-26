@@ -637,46 +637,6 @@ const collectDatePickerDiagnostic = async (page) =>
       .slice(0, 40)
   );
 
-const collectVisibleControlDiagnostic = async (page) =>
-  page.evaluate(() => {
-    const isVisible = (element) => {
-      const style = window.getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
-    };
-
-    return Array.from(
-      document.querySelectorAll(
-        'input,button,[role="button"],.ant-picker,[class*="picker"],[class*="dropdown"],[class*="date"]'
-      )
-    )
-      .filter((element) => element instanceof HTMLElement && isVisible(element))
-      .map((element) => {
-        const input = element instanceof HTMLInputElement ? element : null;
-        const parts = [
-          element.tagName.toLowerCase(),
-          input?.type ? `type=${input.type}` : '',
-          input?.placeholder ? `placeholder=${input.placeholder}` : '',
-          input?.value ? `value=${input.value}` : '',
-          element.getAttribute('aria-label') ? `aria=${element.getAttribute('aria-label')}` : '',
-          element.getAttribute('title') ? `title=${element.getAttribute('title')}` : '',
-          element.textContent ? `text=${element.textContent.replace(/\s+/g, ' ').trim()}` : '',
-        ].filter(Boolean);
-        return parts.join(' ');
-      })
-      .filter(Boolean)
-      .slice(0, 50);
-  });
-
-const buildControlDiagnostic = async (page) => {
-  const pickerDiagnostic = (await collectDatePickerDiagnostic(page)).map(sanitizeDiagnosticText);
-  const controlDiagnostic = (await collectVisibleControlDiagnostic(page)).map(sanitizeDiagnosticText);
-  const textDiagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
-  return [...new Set([...pickerDiagnostic, ...controlDiagnostic, textDiagnostic].filter(Boolean))]
-    .slice(0, 30)
-    .join(' | ');
-};
-
 const clickDateCell = async (page, dateKey) => {
   const candidates = [
     `[title="${dateKey}"]`,
@@ -720,7 +680,7 @@ const fillCustomDateInputs = async (page, fromDate, toDate) => {
       };
     }
 
-    const diagnostic = await buildControlDiagnostic(page);
+    const diagnostic = (await collectDatePickerDiagnostic(page)).map(sanitizeDiagnosticText).join(' | ');
     throw new Error(
       `Unable to find Sunze custom date range inputs or selectable date cells. Date picker controls: ${diagnostic || 'none'}.`
     );
@@ -785,22 +745,7 @@ const selectCustomDateRange = async (page, fromDate, toDate) => {
   await page.getByText('Custom Range', { exact: true }).click();
   await page.waitForTimeout(500);
 
-  let result;
-  try {
-    result = await fillCustomDateInputs(page, fromDate, toDate);
-  } catch (firstError) {
-    const firstDiagnostic = await buildControlDiagnostic(page);
-    console.warn(
-      `Sunze custom date range controls after first click: ${firstDiagnostic || 'none'}. Retrying selected custom range control.`
-    );
-    await page.getByText('Custom Range', { exact: true }).first().click().catch(() => {});
-    await page.waitForTimeout(500);
-    result = await fillCustomDateInputs(page, fromDate, toDate).catch(async (secondError) => {
-      const secondDiagnostic = await buildControlDiagnostic(page);
-      throw new Error(`${secondError.message} Visible controls after retry: ${secondDiagnostic || 'none'}.`);
-    });
-  }
-
+  const result = await fillCustomDateInputs(page, fromDate, toDate);
   await applyCustomDatePicker(page);
   await applyOrdersSearch(page);
 
