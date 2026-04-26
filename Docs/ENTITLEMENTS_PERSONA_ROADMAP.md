@@ -58,7 +58,7 @@ The near-term goal is to make the current role and entitlement direction clear e
 - `#150` remains the P2 umbrella for scalable roles, entitlements, and a future super-admin role-management UI.
 - `#123` should carry the Plus Account Owner technician-management scope, including the 10 technician grant cap, grant-only-owned-machines rule, and paid additional seats as P2.
 - `#128` should define Partner Viewer as explicit partner/reporting-only access with no inherited Plus benefits or admin powers.
-- Create or maintain one P1 issue for machine-scoped technician reporting entitlements, connecting current training-only grants with machine-specific reporting visibility.
+- `#183` is the P1 issue for machine-scoped technician reporting entitlements, connecting current training-only grants with machine-specific reporting visibility. See `Docs/TECHNICIAN_ENTITLEMENTS_SPEC.md` for the detailed implementation spec.
 
 ## Acceptance Criteria
 - The roadmap clearly answers who can see what, who can grant what, and what is deferred.
