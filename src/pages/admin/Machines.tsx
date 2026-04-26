@@ -59,6 +59,7 @@ type MachineSort = 'status' | 'machine' | 'account' | 'latest_sale';
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
 const initialReportingTaxStartDate = '2026-01-01';
+const hiddenFallbackLocationName = 'Unmapped Sunze Machines';
 
 const emptySetup: PartnershipReportingSetup = {
   partners: [],
@@ -116,6 +117,8 @@ export default function AdminMachinesPage() {
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
 
   const highlightedMachineId = searchParams.get('machineId');
+  const pendingSunzeMachineId = searchParams.get('sunzeMachineId');
+  const pendingSunzeMachineName = searchParams.get('sunzeMachineName');
 
   const {
     data: setup = emptySetup,
@@ -171,7 +174,6 @@ export default function AdminMachinesPage() {
         return [
           row.machine.machine_label,
           row.machine.account_name,
-          row.machine.location_name,
           row.machine.sunze_machine_id ?? '',
           row.activeAssignments.map((assignment) => assignment.partnership_name).join(' '),
         ]
@@ -182,9 +184,7 @@ export default function AdminMachinesPage() {
       .sort((left, right) => {
         if (sort === 'machine') return left.machine.machine_label.localeCompare(right.machine.machine_label);
         if (sort === 'account') {
-          return `${left.machine.account_name} ${left.machine.location_name}`.localeCompare(
-            `${right.machine.account_name} ${right.machine.location_name}`
-          );
+          return left.machine.account_name.localeCompare(right.machine.account_name);
         }
         if (sort === 'latest_sale') {
           return (right.machine.latest_sale_date ?? '').localeCompare(left.machine.latest_sale_date ?? '');
@@ -232,6 +232,11 @@ export default function AdminMachinesPage() {
 
   const openCreateMachine = () => {
     setEditingMachine(null);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('machineId');
+    nextParams.delete('sunzeMachineId');
+    nextParams.delete('sunzeMachineName');
+    setSearchParams(nextParams, { replace: true });
     setIsMachineDialogOpen(true);
   };
 
@@ -239,6 +244,8 @@ export default function AdminMachinesPage() {
     setEditingMachine(machine);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('machineId', machine.id);
+    nextParams.delete('sunzeMachineId');
+    nextParams.delete('sunzeMachineName');
     setSearchParams(nextParams, { replace: true });
     setIsMachineDialogOpen(true);
   };
@@ -248,9 +255,17 @@ export default function AdminMachinesPage() {
     if (!open) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete('machineId');
+      nextParams.delete('sunzeMachineId');
+      nextParams.delete('sunzeMachineName');
       setSearchParams(nextParams, { replace: true });
     }
   };
+
+  useEffect(() => {
+    if (!pendingSunzeMachineId || isMachineDialogOpen) return;
+    setEditingMachine(null);
+    setIsMachineDialogOpen(true);
+  }, [isMachineDialogOpen, pendingSunzeMachineId]);
 
   const openTaxChangeDialog = (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => {
     setTaxChangeForm({
@@ -428,7 +443,7 @@ export default function AdminMachinesPage() {
                     className="pl-9"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Machine, account, location, Sunze ID, partnership"
+                    placeholder="Machine, account, Sunze ID, partnership"
                   />
                 </div>
               </div>
@@ -456,7 +471,7 @@ export default function AdminMachinesPage() {
                 >
                   <option value="status">Tax status</option>
                   <option value="machine">Machine</option>
-                  <option value="account">Account/location</option>
+                  <option value="account">Account</option>
                   <option value="latest_sale">Latest sale</option>
                 </select>
               </div>
@@ -488,12 +503,11 @@ export default function AdminMachinesPage() {
               <div className="p-6 text-sm text-muted-foreground">No machines match this filter.</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-[1120px] w-full divide-y divide-border text-sm">
+                <table className="min-w-[1040px] w-full divide-y divide-border text-sm">
                   <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold">Machine label / alias</th>
                       <th className="px-4 py-3 text-left font-semibold">Account</th>
-                      <th className="px-4 py-3 text-left font-semibold">Location</th>
                       <th className="px-4 py-3 text-left font-semibold">Type</th>
                       <th className="px-4 py-3 text-left font-semibold">Sunze ID</th>
                       <th className="px-4 py-3 text-left font-semibold">Assignment</th>
@@ -526,7 +540,6 @@ export default function AdminMachinesPage() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">{machine.account_name}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{machine.location_name}</td>
                           <td className="px-4 py-3 text-muted-foreground">{formatLabel(machine.machine_type)}</td>
                           <td className="px-4 py-3 text-muted-foreground">{machine.sunze_machine_id ?? 'n/a'}</td>
                           <td className="px-4 py-3">
@@ -629,6 +642,8 @@ export default function AdminMachinesPage() {
         onOpenChange={closeMachineDialog}
         machine={editingMachine}
         machines={setup.machines}
+        initialSunzeMachineId={pendingSunzeMachineId}
+        initialSunzeMachineName={pendingSunzeMachineName}
         onSaved={refresh}
       />
       <TaxChangeDialog
@@ -788,12 +803,16 @@ function MachineDialog({
   onOpenChange,
   machine,
   machines,
+  initialSunzeMachineId,
+  initialSunzeMachineName,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   machine: PartnershipSetupMachine | null;
   machines: PartnershipSetupMachine[];
+  initialSunzeMachineId: string | null;
+  initialSunzeMachineName: string | null;
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
@@ -802,7 +821,15 @@ function MachineDialog({
   useEffect(() => {
     if (!open) return;
     if (!machine) {
-      setForm(emptyMachineForm);
+      setForm({
+        ...emptyMachineForm,
+        locationName: hiddenFallbackLocationName,
+        machineLabel:
+          initialSunzeMachineName && initialSunzeMachineName !== initialSunzeMachineId
+            ? initialSunzeMachineName
+            : '',
+        sunzeMachineId: initialSunzeMachineId ?? '',
+      });
       return;
     }
 
@@ -814,36 +841,31 @@ function MachineDialog({
       machineType: machine.machine_type,
       sunzeMachineId: machine.sunze_machine_id ?? '',
     });
-  }, [machine, open]);
+  }, [initialSunzeMachineId, initialSunzeMachineName, machine, open]);
 
   const accountOptions = useMemo(
     () => Array.from(new Set(machines.map((candidate) => candidate.account_name).filter(Boolean))).sort(),
     [machines]
   );
-  const locationOptions = useMemo(
-    () => Array.from(new Set(machines.map((candidate) => candidate.location_name).filter(Boolean))).sort(),
-    [machines]
-  );
 
   const saveMachine = async () => {
-    if (!form.accountName.trim() || !form.locationName.trim() || !form.machineLabel.trim()) {
-      toast.error('Account, location, and machine label are required.');
+    if (!form.accountName.trim() || !form.machineLabel.trim()) {
+      toast.error('Account and machine label are required.');
       return;
     }
 
     const accountName = form.accountName.trim();
-    const locationName = form.locationName.trim();
+    const locationName = form.locationName.trim() || hiddenFallbackLocationName;
     const machineLabel = form.machineLabel.trim();
     const sunzeMachineId = form.sunzeMachineId.trim();
     const duplicateIdentity = machines.find(
       (candidate) =>
         candidate.id !== form.machineId &&
         normalizeComparableText(candidate.account_name) === normalizeComparableText(accountName) &&
-        normalizeComparableText(candidate.location_name) === normalizeComparableText(locationName) &&
         normalizeComparableText(candidate.machine_label) === normalizeComparableText(machineLabel)
     );
     if (duplicateIdentity) {
-      toast.error('A machine with this account, location, and label already exists.');
+      toast.error('A machine with this account and label already exists.');
       return;
     }
 
@@ -885,7 +907,7 @@ function MachineDialog({
         <DialogHeader>
           <DialogTitle>{form.machineId ? 'Edit Machine' : 'New Machine'}</DialogTitle>
           <DialogDescription>
-            Update the reporting label, account/location display, machine type, and Sunze mapping.
+            Update the reporting label, account display, machine type, and Sunze mapping.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -900,20 +922,6 @@ function MachineDialog({
             <datalist id="machine-account-options">
               {accountOptions.map((accountName) => (
                 <option key={accountName} value={accountName} />
-              ))}
-            </datalist>
-          </div>
-          <div>
-            <Label htmlFor="machine-location">Location</Label>
-            <Input
-              id="machine-location"
-              list="machine-location-options"
-              value={form.locationName}
-              onChange={(event) => setForm({ ...form, locationName: event.target.value })}
-            />
-            <datalist id="machine-location-options">
-              {locationOptions.map((locationName) => (
-                <option key={locationName} value={locationName} />
               ))}
             </datalist>
           </div>
@@ -944,8 +952,9 @@ function MachineDialog({
             <Label htmlFor="sunze-id">Sunze ID</Label>
             <Input
               id="sunze-id"
-              value={form.sunzeMachineId}
-              onChange={(event) => setForm({ ...form, sunzeMachineId: event.target.value })}
+              value={form.sunzeMachineId || 'Not mapped from Sunze yet'}
+              readOnly
+              aria-readonly="true"
             />
           </div>
         </div>

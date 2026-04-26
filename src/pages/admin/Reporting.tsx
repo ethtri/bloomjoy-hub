@@ -562,7 +562,7 @@ function SyncTab({
           <EmptyRow text="No discovered Sunze machines need action." />
         ) : (
           sunzeMachineQueue.map((machine) => {
-            const mappingUrl = `/admin/partnerships?tab=machines&sunzeMachineId=${encodeURIComponent(
+            const mappingUrl = `/admin/machines?sunzeMachineId=${encodeURIComponent(
               machine.sunzeMachineId
             )}&sunzeMachineName=${encodeURIComponent(
               machine.sunzeMachineName ?? machine.sunzeMachineId

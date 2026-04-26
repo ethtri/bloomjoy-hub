@@ -286,7 +286,6 @@ const groupRows = <TKey extends string>(
     {
       key: TKey;
       label: string;
-      locationName: string;
       netSalesCents: number;
       grossSalesCents: number;
       refundAmountCents: number;
@@ -301,7 +300,6 @@ const groupRows = <TKey extends string>(
       {
         key,
         label: getLabel(row),
-        locationName: row.locationName,
         netSalesCents: 0,
         grossSalesCents: 0,
         refundAmountCents: 0,
@@ -399,7 +397,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
   const [dateTo, setDateTo] = useState(defaultRange.dateTo);
   const [grain, setGrain] = useState<ReportGrain>(defaultRange.grain);
   const [machineId, setMachineId] = useState('all');
-  const [locationId, setLocationId] = useState('all');
   const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -413,19 +410,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
     staleTime: 1000 * 60,
   });
 
-  const locations = useMemo(() => {
-    const byId = new Map<string, string>();
-    dimensions.forEach((dimension) => byId.set(dimension.locationId, dimension.locationName));
-    return [...byId.entries()].map(([id, name]) => ({ id, name }));
-  }, [dimensions]);
-
-  const machineOptions = useMemo(
-    () =>
-      locationId === 'all'
-        ? dimensions
-        : dimensions.filter((dimension) => dimension.locationId === locationId),
-    [dimensions, locationId]
-  );
+  const machineOptions = useMemo(() => dimensions, [dimensions]);
 
   useEffect(() => {
     if (machineId !== 'all' && !machineOptions.some((machine) => machine.machineId === machineId)) {
@@ -439,10 +424,9 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
       dateTo,
       grain,
       machineIds: machineId === 'all' ? [] : [machineId],
-      locationIds: locationId === 'all' ? [] : [locationId],
       paymentMethods: selectedPayments,
     }),
-    [dateFrom, dateTo, grain, locationId, machineId, selectedPayments]
+    [dateFrom, dateTo, grain, machineId, selectedPayments]
   );
 
   const {
@@ -621,25 +605,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
             </div>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1.2fr]">
-            <LabeledControl label="Location">
-              <Select value={locationId} onValueChange={setLocationId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="all">All locations</SelectItem>
-                    {locations.map((location) => (
-                      <SelectItem key={location.id} value={location.id}>
-                        {location.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </LabeledControl>
-
+          <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
             <LabeledControl label="Machine">
               <Select value={machineId} onValueChange={setMachineId}>
                 <SelectTrigger>
@@ -778,7 +744,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
         <CardHeader>
           <CardTitle className="text-xl">Report rows</CardTitle>
           <CardDescription>
-            Source rows grouped by period, machine, location, and payment method.
+            Source rows grouped by period, machine, and payment method.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -787,7 +753,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               <TableRow>
                 <TableHead>Period</TableHead>
                 <TableHead>Machine</TableHead>
-                <TableHead>Location</TableHead>
                 <TableHead>Payment</TableHead>
                 <TableHead className="text-right">Net</TableHead>
                 <TableHead className="text-right">Gross</TableHead>
@@ -796,7 +761,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
             <TableBody>
               {reportRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                     No rows found for the selected filters.
                   </TableCell>
                 </TableRow>
@@ -805,7 +770,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                   <TableRow key={`${row.periodStart}-${row.machineId}-${row.paymentMethod}`}>
                     <TableCell>{formatDate(row.periodStart)}</TableCell>
                     <TableCell className="font-medium">{row.machineLabel}</TableCell>
-                    <TableCell className="text-muted-foreground">{row.locationName}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {paymentMethodLabels[row.paymentMethod]}
                     </TableCell>
@@ -1147,9 +1111,6 @@ function PartnerDashboardView() {
                               <TableRow key={row.current.reportingMachineId}>
                                 <TableCell>
                                   <div className="font-medium">{row.current.machineLabel}</div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {row.current.locationName ?? 'No location'}
-                                  </div>
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {formatCurrency(row.current.grossSalesCents)}
@@ -1573,9 +1534,6 @@ function PartnerPrintableReport({
                   <tr key={row.current.reportingMachineId} className="border-b border-border/60">
                     <td className="py-2 pr-3">
                       <div className="font-medium text-foreground">{row.current.machineLabel}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {row.current.locationName ?? 'No location'}
-                      </div>
                     </td>
                     <td className="px-3 py-2 text-right">
                       {formatCurrency(row.current.grossSalesCents, true)}
@@ -1675,9 +1633,6 @@ function PartnerMachineMobileCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="font-medium text-foreground">{row.current.machineLabel}</div>
-          <div className="text-sm text-muted-foreground">
-            {row.current.locationName ?? 'No location'}
-          </div>
         </div>
         <div className="shrink-0 text-right">
           <div className="font-semibold text-foreground">
