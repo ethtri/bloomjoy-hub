@@ -72,6 +72,7 @@ No credentials, raw workbook files, order numbers, row-level customer/order valu
   - `Last 3 Months`
   - `Custom Range`
 - `Last 3 Days` was validated as a safe daily catch-up preset. In the live probe on April 25, 2026, it selected April 22, 2026 through April 24, 2026.
+- `Custom Range` is not approved for automated backfills because manual testing produced corrupted workbook downloads. Use validated presets such as `Last 7 Days`, `Last Month`, or `Last 3 Months`, and verify parsed dates before ingesting.
 - The page displays filtered totals:
   - `Revenue`
   - `Volume`

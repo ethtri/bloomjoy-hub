@@ -46,6 +46,14 @@ const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
 const datePreset = getArg('--date-preset', 'Last 3 Days');
 const downloadDirArg = getArg('--download-dir');
+const supportedDatePresets = new Set([
+  'Today',
+  'Yesterday',
+  'Last 3 Days',
+  'Last 7 Days',
+  'Last Month',
+  'Last 3 Months',
+]);
 const expectedVisibleMachineCount = process.env.SUNZE_EXPECTED_MACHINE_COUNT
   ? Number(process.env.SUNZE_EXPECTED_MACHINE_COUNT)
   : null;
@@ -106,6 +114,12 @@ const addDays = (dateKey, days) => {
   return date.toISOString().slice(0, 10);
 };
 
+if (!supportedDatePresets.has(datePreset)) {
+  throw new Error(
+    `Unsupported Sunze date preset: ${datePreset}. Supported presets: ${[...supportedDatePresets].join(', ')}. Sunze Custom Range exports are not used because they have produced corrupted workbooks.`
+  );
+}
+
 const deriveWindowFromPreset = (preset) => {
   const normalizedPreset = String(preset ?? '').trim().toLowerCase();
   const today = getLocalDateKey();
@@ -140,6 +154,24 @@ const deriveWindowFromPreset = (preset) => {
         selectedPreset: preset,
       };
     }
+  }
+
+  if (normalizedPreset === 'last month') {
+    return {
+      uiWindowStart: addDays(today, -62),
+      uiWindowEnd: today,
+      uiWindowSource: 'preset_guardrail',
+      selectedPreset: preset,
+    };
+  }
+
+  if (normalizedPreset === 'last 3 months') {
+    return {
+      uiWindowStart: addDays(today, -124),
+      uiWindowEnd: today,
+      uiWindowSource: 'preset_guardrail',
+      selectedPreset: preset,
+    };
   }
 
   return null;
