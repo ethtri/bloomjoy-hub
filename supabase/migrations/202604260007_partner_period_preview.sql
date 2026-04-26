@@ -102,6 +102,9 @@ begin
     left join public.reporting_locations location on location.id = machine.location_id
   ),
   scoped_facts as (
+    -- Partner settlement follows the canonical Bubble Planet baseline:
+    -- Sunze Order amount is the gross sales basis, then machine tax and configured
+    -- paid-order fees are deducted before applying the active split rule.
     select
       period.period_start,
       period.period_end,
@@ -111,7 +114,7 @@ begin
       location.name as location_name,
       fact.sale_date,
       fact.payment_method,
-      fact.net_sales_cents as gross_sales_cents,
+      fact.net_sales_cents as source_order_amount_cents,
       fact.transaction_count,
       fact.item_quantity,
       fact.tax_cents as imported_tax_cents,
@@ -164,22 +167,22 @@ begin
     select
       fact.*,
       case
-        when fact.gross_sales_cents <= 0 then 0
+        when fact.source_order_amount_cents <= 0 then 0
         when fact.gross_to_net_method = 'imported_tax_plus_configured_fees' then fact.imported_tax_cents
         when fact.gross_to_net_method = 'configured_fees_only' then 0
-        else round(fact.gross_sales_cents * coalesce(fact.tax_rate_percent, 0) / 100.0)::integer
+        else round(fact.source_order_amount_cents * coalesce(fact.tax_rate_percent, 0) / 100.0)::integer
       end as calculated_tax_cents,
       case
-        when fact.gross_sales_cents <= 0 then 0
+        when fact.source_order_amount_cents <= 0 then 0
         when fact.fee_basis in ('per_order', 'per_transaction') then coalesce(fact.fee_amount_cents, 0) * coalesce(fact.transaction_count, 1)
         when fact.fee_basis = 'per_stick' then coalesce(fact.fee_amount_cents, 0) * coalesce(fact.item_quantity, 1)
         else 0
       end as fee_cents,
       case
-        when fact.gross_sales_cents <= 0 then 0
+        when fact.source_order_amount_cents <= 0 then 0
         when fact.cost_basis = 'per_order' then coalesce(fact.cost_amount_cents, 0) * coalesce(fact.transaction_count, 1)
         when fact.cost_basis = 'per_stick' then coalesce(fact.cost_amount_cents, 0) * coalesce(fact.item_quantity, 1)
-        when fact.cost_basis = 'percentage_of_sales' then round(fact.gross_sales_cents * coalesce(fact.cost_amount_cents, 0) / 10000.0)::integer
+        when fact.cost_basis = 'percentage_of_sales' then round(fact.source_order_amount_cents * coalesce(fact.cost_amount_cents, 0) / 10000.0)::integer
         else 0
       end as cost_cents
     from scoped_facts fact
@@ -187,7 +190,8 @@ begin
   row_amounts as (
     select
       calculated.*,
-      greatest(calculated.gross_sales_cents - calculated.calculated_tax_cents - calculated.fee_cents, 0) as net_sales_cents,
+      calculated.source_order_amount_cents as gross_sales_cents,
+      greatest(calculated.source_order_amount_cents - calculated.calculated_tax_cents - calculated.fee_cents, 0) as net_sales_cents,
       case
         when calculated.deduction_timing = 'before_split' then calculated.cost_cents
         else 0

@@ -1502,7 +1502,7 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">{modeLabel} sales trend</h2>
             <p className="text-sm text-muted-foreground">
-              Net sales, gross sales, volume, and partner owed across the selected period.
+              Net sales, gross sales, volume, and amount owed across the selected period.
             </p>
           </div>
           <table className="w-full border-collapse text-sm">
@@ -1616,9 +1616,9 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">Calculation summary</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Gross sales minus tax and configured fees creates net sales. Configured costs can
-              reduce the split base when the active partnership rule uses contribution after costs.
-              The partner owed amount is calculated from that split base.
+              Gross sales uses the Sunze order amount for partner settlement. Machine tax and
+              configured fees are deducted once to create net sales. Configured costs can reduce
+              the split base when the active partnership rule uses contribution after costs.
             </p>
           </div>
           <div className="flex flex-col gap-2 text-sm">
@@ -1773,9 +1773,9 @@ function PartnerCalculationCard({
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="font-medium text-foreground">How this is calculated</div>
           <p className="mt-2">
-            Gross sales minus configured tax and fees creates net sales. Configured costs can reduce
-            the split base when the active rule uses contribution after costs. The partner share is
-            applied to that split base to calculate amount owed.
+            Gross sales uses the Sunze order amount for partner settlement. Machine tax and
+            configured fees are deducted once to create net sales, then the partner share is
+            applied to the active split base to calculate amount owed.
           </p>
         </div>
       </CardContent>
