@@ -202,12 +202,24 @@ To use all login methods in local dev:
 6) Run `npm run commerce:preflight` when working on Stripe/order/notification changes
 7) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
 
-## Session closeout hygiene (2 minutes)
-1) Run `git status -sb` and leave the worktree clean, or write down exactly what is intentionally left for the next session.
-2) Remove temp artifacts that are not meant to ship, such as scratch files, downloaded exports, ad hoc screenshots, and one-off debug scripts.
-3) Stop extra local dev servers you started, or document the active URL/port if the next agent needs the server left running.
-4) Update the PR, issue, or handoff note with the next step, blockers, and any env/setup details the next person will need.
-5) Investigate stale worktrees safely before deleting anything; only prune/delete a worktree after confirming its branch or PR is merged, closed, or intentionally abandoned.
+## Post-merge hygiene (2 minutes)
+Use this after a PR is merged or intentionally closed. Do not remove a worktree that still has uncommitted work.
+
+1) Confirm the PR state and branch:
+   - `gh pr view <number> --json state,mergedAt,headRefName`
+2) In the task worktree, confirm there is nothing local to keep:
+   - `git status -sb`
+3) Refresh local remote-tracking refs:
+   - `git fetch --prune origin`
+4) Remove the task worktree:
+   - `git worktree remove C:\Repos\wt-<task>`
+5) Delete the local task branch with the safe form:
+   - `git branch -d agent/<task>`
+6) Prune stale worktree metadata:
+   - `git worktree prune`
+7) Verify cleanup:
+   - `git worktree list`
+   - `git branch --all --list "*<task>*"`
 
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.

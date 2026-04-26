@@ -28,7 +28,6 @@ Notes:
 - Update `Docs/CURRENT_STATUS.md` when you complete a P0 item (and when you discover new blockers).
 - Add/adjust smoke tests in `Docs/QA_SMOKE_TEST_CHECKLIST.md` when a new user-facing flow is added.
 - Use environment variables for all secrets. Never commit secrets.
-- Finish each session with cleanup/hygiene: remove temp artifacts, document the handoff state, and leave the worktree clean or explicitly note why it is not.
 - If this touches the same files as another open PR, say so.
 
 ## Do Not
@@ -92,12 +91,6 @@ PR description includes:
 ## Operational safeguards (must follow)
 - Work only in a worktree (never edit `C:\Repos\Bloomjoy_hub` directly).
 - Run the preflight check in `Docs/LOCAL_DEV.md` before making edits.
+- After a PR is merged or intentionally closed, follow the post-merge hygiene checklist in `Docs/LOCAL_DEV.md` before deleting worktrees or local branches.
 - Track priorities in GitHub Issues labeled `P0`-`P3` and use the Project board.
 - Keep personal notes local; do not commit them.
-
-## Session closeout hygiene (must follow)
-- Before ending a session, run `git status -sb` and either leave the worktree clean or record what is intentionally left and why.
-- Remove temporary debug files, scratch notes, exports, screenshots, and one-off scripts that are not meant to stay in the repo.
-- Record the next step, blockers, active localhost URLs/ports, and any required env/setup details in the PR, issue, or handoff note.
-- If you created local operational state such as extra dev servers, temporary test data, or exploratory worktrees, either clean it up or document exactly what remains.
-- Only prune or delete a worktree after confirming the branch or PR is merged, closed, or intentionally abandoned.
