@@ -3,8 +3,9 @@
 ## Status
 This is a docs-only implementation spec for GitHub issue `#183`: Define machine-scoped technician reporting entitlements.
 
-Dependency notes:
-- PR `#184` (`agent/entitlements-persona-roadmap`) is still open at the time of this spec. This document uses the persona roadmap from that PR as planning input and should be rebased against `Docs/ENTITLEMENTS_PERSONA_ROADMAP.md` after PR `#184` merges.
+Source and coordination notes:
+- `Docs/ENTITLEMENTS_PERSONA_ROADMAP.md` is the source of truth for the broader Super Admin, Scoped Admin, Plus Account Owner, Technician, and Partner Viewer persona boundaries.
+- This document is the detailed companion spec for the Technician portion of that roadmap.
 - PR `#182` is actively changing `/portal/reports`, partner dashboard UI, `src/lib/partnerDashboardReporting.ts`, and reporting preview migrations. This spec does not edit or require changes in those files.
 
 ## Scope
