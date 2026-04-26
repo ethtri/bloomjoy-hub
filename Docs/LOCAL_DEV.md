@@ -202,6 +202,25 @@ To use all login methods in local dev:
 6) Run `npm run commerce:preflight` when working on Stripe/order/notification changes
 7) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
 
+## Post-merge hygiene (2 minutes)
+Use this after a PR is merged or intentionally closed. Do not remove a worktree that still has uncommitted work.
+
+1) Confirm the PR state and branch:
+   - `gh pr view <number> --json state,mergedAt,headRefName`
+2) In the task worktree, confirm there is nothing local to keep:
+   - `git status -sb`
+3) Refresh local remote-tracking refs:
+   - `git fetch --prune origin`
+4) Remove the task worktree:
+   - `git worktree remove C:\Repos\wt-<task>`
+5) Delete the local task branch with the safe form:
+   - `git branch -d agent/<task>`
+6) Prune stale worktree metadata:
+   - `git worktree prune`
+7) Verify cleanup:
+   - `git worktree list`
+   - `git branch --all --list "*<task>*"`
+
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
 - Use a GitHub Project board for "Backlog -> Ready -> In Progress -> Review -> Done".
