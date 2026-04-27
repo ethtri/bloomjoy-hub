@@ -259,7 +259,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
 - [ ] Admin Access > Scoped Admins can grant `scoped_admin` to an existing user with selected machine scopes and a required reason
-- [ ] Scoped Admin users can open `/admin/access?tab=reporting-access` and see only machines inside their scoped grant
+- [ ] Scoped Admin users can open `/admin/access?tab=reporting-access`, see only machines inside their scoped grant, and see only Access in admin tools navigation
 - [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/partnerships`, `/admin/reporting`, or `/admin/access?tab=global-roles`
 - [ ] Scoped Admin reporting-access saves affect only manual reporting grants inside the scoped machine set and do not revoke Technician-derived grants
 - [ ] Scoped Admin grant, update, revoke, and reporting-access changes create `admin_audit_log` entries
@@ -270,6 +270,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/partnerships`
 - [ ] Super-admin user can access `/admin/partnerships`
 - [ ] Admin dashboard and app nav expose separate Partner Records, Machines, Partnerships, and Reporting modules
+- [ ] Desktop admin routes show a persistent `Admin tools` navigation row for Admin Home, Orders, Support, Access, Partner Records, Machines, Partnerships, and Reporting
+- [ ] Mobile admin routes show the same super-admin destinations in the operator menu: Admin Home, Orders, Support, Access, Partner Records, Machines, Partnerships, and Reporting
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
 - [ ] Admin Partner Records can search, create, and edit reusable partner records with separate display name and legal name fields, without exposing "party" terminology
