@@ -32,9 +32,9 @@ Set the following values before launch.
 | `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_AGENT_SECRET` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
-| `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions | Supabase project URL | Technical owner |
+| `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions, `refund-adjustment-sync` | Supabase project URL | Technical owner |
 | `SUPABASE_ANON_KEY` | Server-only | `stripe-sugar-checkout`, `stripe-plus-checkout`, `stripe-customer-portal` | Supabase project anon key | Technical owner |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake` | Supabase service role key | Technical owner |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake`, `refund-adjustment-sync` | Supabase service role key | Technical owner |
 | `REPORT_SCHEDULER_SECRET` | Server-only | `sales-report-scheduler`, `refund-adjustment-sync` | Generated secret stored in function secrets | Technical owner |
 | `REPORTING_INGEST_TOKEN` | Server-only + GitHub Actions secret | `sunze-sales-ingest`, Sunze sync workflow | Generated ingest token | Technical owner |
 | `REPORTING_ROW_HASH_SALT` | Server-only | `sunze-sales-ingest` | Generated secret stored in function secrets | Technical owner |
@@ -43,6 +43,7 @@ Set the following values before launch.
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Server-only | `refund-adjustment-sync` | Google service account JSON | Technical owner |
 | `REFUND_ADJUSTMENT_SYNC_URL` | GitHub Actions secret | Refund sync workflow | Supabase Edge Function URL | Technical owner |
 | `REFUND_ADJUSTMENT_SYNC_TOKEN` | GitHub Actions secret | Refund sync workflow | Same scheduler token value, never a service-role key | Technical owner |
+| `REFUND_ADJUSTMENT_SYNC_ENABLED` | GitHub Actions variable | Refund sync workflow | Set to `true` only after manual dry-run/live validation | Technical owner |
 | `SUNZE_LOGIN_URL` | GitHub Actions secret | Sunze sync workflow | Sunze service-account login URL | Technical owner |
 | `SUNZE_REPORTING_EMAIL` | GitHub Actions secret | Sunze sync workflow | Sunze service-account email | Technical owner |
 | `SUNZE_REPORTING_PASSWORD` | GitHub Actions secret | Sunze sync workflow | Sunze service-account password | Technical owner |
@@ -127,8 +128,7 @@ WeCom note:
 
 Refund source note:
 - Enable Google Sheets API for the service account project, share the refund source sheet with the service account email as Viewer, and keep `GOOGLE_SERVICE_ACCOUNT_JSON` only in Supabase function secrets.
-- Add GitHub secrets `REFUND_ADJUSTMENT_SYNC_URL` and `REFUND_ADJUSTMENT_SYNC_TOKEN`. The token should match `REPORT_SCHEDULER_SECRET`; do not use the Supabase service-role key. Scheduled runs skip until these secrets exist, while manual runs fail fast if they are missing.
-- First run the `Refund Adjustment Sync` workflow manually with `dry_run=true`. The workflow should print aggregate counts only. Then run it without dry run and confirm `/admin/reporting` shows the completed refund import run plus any review-only rows.
+- Add GitHub secrets `REFUND_ADJUSTMENT_SYNC_URL` and `REFUND_ADJUSTMENT_SYNC_TOKEN`. The token should match `REPORT_SCHEDULER_SECRET`; do not use the Supabase service-role key. Manual runs fail fast if they are missing. Scheduled runs skip until the repository variable `REFUND_ADJUSTMENT_SYNC_ENABLED=true`.
 
 ### Step C: Deploy Supabase Edge Functions
 Deploy all current checkout, submission, and reporting functions:
@@ -147,6 +147,11 @@ supabase functions deploy sunze-sales-ingest --no-verify-jwt
 supabase functions deploy sunze-sales-sync --no-verify-jwt
 supabase functions deploy refund-adjustment-sync --no-verify-jwt
 ```
+
+Refund sync validation:
+- First run the `Refund Adjustment Sync` workflow manually with `dry_run=true`. The workflow should print aggregate counts only.
+- Then run it manually with `dry_run=false` and confirm `/admin/reporting` shows the completed refund import run plus any review-only rows.
+- Set the GitHub repository variable `REFUND_ADJUSTMENT_SYNC_ENABLED=true` only after the manual live run is validated.
 
 ### Step D: Configure Stripe webhook endpoint
 Stripe endpoint URL:
@@ -188,6 +193,8 @@ Run immediately after deploy:
 - [ ] Bloomjoy branded sticks checkout test order sends internal summary email to configured operations recipients.
 - [ ] Bloomjoy branded sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
+- [ ] Refund Adjustment Sync manual `dry_run=true` run returns aggregate counts only, with no private customer/payment/free-text values in logs.
+- [ ] Refund Adjustment Sync manual `dry_run=false` run creates a completed import run in `/admin/reporting`, applies only approved closed matched refunds, and leaves open/denied/unmatched/ambiguous/invalid rows in review.
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
 - [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
 - [ ] `/admin/orders` shows address, pricing tier, receipt URL, order breakdown, and notification status for the test orders.

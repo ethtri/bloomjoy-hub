@@ -9,7 +9,7 @@ on:
       dry_run:
         description: 'Fetch and validate rows without writing review or adjustment records'
         required: false
-        default: 'false'
+        default: 'true'
 
 permissions:
   contents: read
@@ -25,6 +25,7 @@ jobs:
     env:
       REFUND_ADJUSTMENT_SYNC_URL: ${{ secrets.REFUND_ADJUSTMENT_SYNC_URL }}
       REFUND_ADJUSTMENT_SYNC_TOKEN: ${{ secrets.REFUND_ADJUSTMENT_SYNC_TOKEN }}
+      REFUND_ADJUSTMENT_SYNC_ENABLED: ${{ vars.REFUND_ADJUSTMENT_SYNC_ENABLED || 'false' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
     steps:
       - name: Checkout
@@ -47,11 +48,12 @@ jobs:
       - name: Sync refund adjustments
         shell: bash
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$REFUND_ADJUSTMENT_SYNC_ENABLED" != "true" ]]; then
+            echo "Skipping scheduled refund sync because REFUND_ADJUSTMENT_SYNC_ENABLED is not true."
+            exit 0
+          fi
+
           if [[ -z "$REFUND_ADJUSTMENT_SYNC_URL" || -z "$REFUND_ADJUSTMENT_SYNC_TOKEN" ]]; then
-            if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
-              echo "Skipping scheduled refund sync because REFUND_ADJUSTMENT_SYNC_URL or REFUND_ADJUSTMENT_SYNC_TOKEN is not configured."
-              exit 0
-            fi
             echo "Missing REFUND_ADJUSTMENT_SYNC_URL or REFUND_ADJUSTMENT_SYNC_TOKEN."
             exit 1
           fi
@@ -62,6 +64,7 @@ jobs:
           fi
 
           response_file="$(mktemp)"
+          set +e
           status_code="$(
             curl -sS \
               -o "$response_file" \
@@ -71,12 +74,15 @@ jobs:
               -H "Content-Type: application/json" \
               --data "$payload"
           )"
+          curl_exit=$?
+          set -e
 
-          node --input-type=module - "$response_file" "$status_code" <<'NODE'
+          node --input-type=module - "$response_file" "$status_code" "$curl_exit" <<'NODE'
           import { readFileSync } from 'node:fs';
 
-          const [responseFile, statusCodeText] = process.argv.slice(2);
+          const [responseFile, statusCodeText, curlExitText] = process.argv.slice(2);
           const statusCode = Number(statusCodeText);
+          const curlExit = Number(curlExitText);
           const raw = readFileSync(responseFile, 'utf8');
           let body = {};
           try {
@@ -87,6 +93,7 @@ jobs:
 
           const summary = {
             httpStatus: statusCode,
+            transportOk: curlExit === 0,
             status: body.status ?? null,
             dryRun: body.dryRun ?? null,
             reviewSource: body.reviewSource ?? null,
@@ -104,7 +111,12 @@ jobs:
 
           console.log(JSON.stringify(summary, null, 2));
 
-          if (statusCode >= 400 || body.error || body.status === 'failed') {
+          if (curlExit !== 0) {
+            console.error('Refund adjustment sync request failed before an HTTP response was accepted.');
+            process.exit(1);
+          }
+
+          if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300 || body.error || body.status === 'failed') {
             console.error(body.error || 'Refund adjustment sync failed.');
             process.exit(1);
           }

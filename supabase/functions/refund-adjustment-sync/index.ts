@@ -53,21 +53,7 @@ type GoogleServiceAccount = {
   token_uri?: string;
 };
 
-const autoApplyStatuses = new Set([
-  "approved",
-  "complete",
-  "completed",
-  "closed",
-  "processed",
-  "refund approved",
-  "refund complete",
-  "refund completed",
-  "refund issued",
-  "refund processed",
-  "refunded",
-  "resolved",
-  "settled",
-]);
+const autoApplyStatuses = new Set(["closed"]);
 
 const autoApplyDecisions = new Set([
   "approve",
@@ -157,7 +143,6 @@ const parseCents = (row: RefundAdjustmentRow) => {
 const normalizeAdjustmentType = (value: unknown): RefundInput["adjustmentType"] => {
   const normalized = normalizeStatus(value);
   if (normalized.includes("complaint")) return "complaint_refund";
-  if (normalized.includes("manual")) return "manual_adjustment";
   return "refund";
 };
 
@@ -368,11 +353,11 @@ const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: stri
 
 const sourceRowHash = async (input: RefundInput) =>
   sha256Hex(JSON.stringify({
+    sourceRowReference: input.sourceRowReference,
     sourceLocation: input.normalizedLocation,
     refundDate: input.refundDate,
     originalOrderDate: input.originalOrderDate,
     amountCents: input.amountCents,
-    reason: normalizeMatchText(input.reason),
     sourceStatus: input.normalizedSourceStatus,
     sourceDecision: input.normalizedSourceDecision,
     adjustmentType: input.adjustmentType,
@@ -509,11 +494,11 @@ const matchRefund = (input: RefundInput, machines: MachineProfile[]) => {
     };
   }
 
-  if (input.normalizedSourceDecision && !autoApplyDecisions.has(input.normalizedSourceDecision)) {
+  if (!autoApplyDecisions.has(input.normalizedSourceDecision)) {
     return {
       status: "needs_review",
       confidence: 0,
-      reason: "source_decision_requires_review",
+      reason: input.normalizedSourceDecision ? "source_decision_requires_review" : "missing_source_decision",
       candidateMachineIds: [] as string[],
       matchedMachine: null as MachineProfile | null,
     };
@@ -663,6 +648,7 @@ const importRows = async (
   const machines = await buildMachineProfiles();
   const existingHashOwners = await loadExistingAdjustments();
   const seenHashes = new Set<string>();
+  const seenOwnerKeys = new Set<string>();
   const counts = {
     rowsSeen: rows.length,
     rowsStaged: 0,
@@ -686,13 +672,15 @@ const importRows = async (
       const currentOwnerKey = existingAdjustmentKey(resolvedSourceReference, input.sourceRowReference);
       const duplicateFromExisting = [...(existingHashOwners.get(hash) ?? new Set<string>())]
         .some((ownerKey) => ownerKey !== currentOwnerKey);
-      const duplicate = seenHashes.has(hash) || duplicateFromExisting;
+      const duplicateRowReference = seenOwnerKeys.has(currentOwnerKey);
+      const duplicate = duplicateRowReference || seenHashes.has(hash) || duplicateFromExisting;
       seenHashes.add(hash);
+      seenOwnerKeys.add(currentOwnerKey);
       const match = duplicate
         ? {
           status: "duplicate",
           confidence: 0,
-          reason: "duplicate_source_row_hash",
+          reason: duplicateRowReference ? "duplicate_source_row_reference" : "duplicate_source_row_hash",
           candidateMachineIds: [] as string[],
           matchedMachine: null as MachineProfile | null,
         }
@@ -731,7 +719,7 @@ const importRows = async (
             candidate_machine_ids: match.candidateMachineIds,
             matched_machine_id: match.matchedMachine?.id ?? null,
             matched_location_id: match.matchedMachine?.locationId ?? null,
-            resolution_status: canApply ? "approved" : "unresolved",
+            resolution_status: "unresolved",
           }, { onConflict: "source,source_reference,source_row_reference" })
           .select("id")
           .single();

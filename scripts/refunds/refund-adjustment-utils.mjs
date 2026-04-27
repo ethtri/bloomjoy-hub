@@ -1,20 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const AUTO_APPLY_STATUSES = new Set([
-  'approved',
-  'complete',
-  'completed',
-  'closed',
-  'processed',
-  'refund approved',
-  'refund complete',
-  'refund completed',
-  'refund issued',
-  'refund processed',
-  'refunded',
-  'resolved',
-  'settled',
-]);
+export const AUTO_APPLY_STATUSES = new Set(['closed']);
 
 export const AUTO_APPLY_DECISIONS = new Set([
   'approve',
@@ -181,7 +167,6 @@ export const normalizeStatus = (value) =>
 export const normalizeAdjustmentType = (value) => {
   const normalized = normalizeStatus(value);
   if (normalized.includes('complaint')) return 'complaint_refund';
-  if (normalized.includes('manual')) return 'manual_adjustment';
   return 'refund';
 };
 
@@ -254,11 +239,11 @@ export const makeSourceRowHash = (input) =>
   createHash('sha256')
     .update(
       JSON.stringify({
+        sourceRowReference: input.sourceRowReference,
         sourceLocation: input.normalizedLocation,
         refundDate: input.refundDate,
         originalOrderDate: input.originalOrderDate,
         amountCents: input.amountCents,
-        reason: normalizeMatchText(input.reason),
         sourceStatus: input.normalizedSourceStatus,
         sourceDecision: input.normalizedSourceDecision,
         adjustmentType: input.adjustmentType,
@@ -367,14 +352,13 @@ export const matchRefundToMachine = (input, machineProfiles) => {
     };
   }
 
-  if (
-    input.normalizedSourceDecision &&
-    !AUTO_APPLY_DECISIONS.has(input.normalizedSourceDecision)
-  ) {
+  if (!AUTO_APPLY_DECISIONS.has(input.normalizedSourceDecision)) {
     return {
       matchStatus: 'needs_review',
       matchConfidence: 0,
-      matchReason: 'source_decision_requires_review',
+      matchReason: input.normalizedSourceDecision
+        ? 'source_decision_requires_review'
+        : 'missing_source_decision',
       candidateMachineIds: [],
       matchedMachine: null,
     };

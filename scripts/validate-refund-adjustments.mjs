@@ -68,7 +68,8 @@ const exactMatch = matchRow({
   location: 'North Lobby',
   refund_date: '2026-04-06',
   refund_amount_usd: '12.50',
-  status: 'Refunded',
+  status: 'Closed',
+  decision: 'Approve',
 });
 assert.equal(exactMatch.matchStatus, 'matched');
 assert.equal(exactMatch.matchConfidence, 1);
@@ -78,7 +79,8 @@ const fuzzyMatch = matchRow({
   location: 'North entrance kiosk - manual refund',
   refund_date: '2026-04-07',
   refund_amount_usd: '6.00',
-  status: 'Approved',
+  status: 'Closed',
+  decision: 'Approve',
 });
 assert.equal(fuzzyMatch.matchStatus, 'matched');
 assert.equal(fuzzyMatch.matchReason, 'single_alias_containment_match');
@@ -88,7 +90,8 @@ const ambiguousMatch = matchRow({
   location: 'Desk',
   refund_date: '2026-04-08',
   refund_amount_usd: '4.00',
-  status: 'Completed',
+  status: 'Closed',
+  decision: 'Approve',
 });
 assert.equal(ambiguousMatch.matchStatus, 'ambiguous');
 assert.deepEqual(
@@ -100,7 +103,8 @@ const unmatched = matchRow({
   location: 'Unknown venue',
   refund_date: '2026-04-09',
   refund_amount_usd: '3.00',
-  status: 'Refunded',
+  status: 'Closed',
+  decision: 'Approve',
 });
 assert.equal(unmatched.matchStatus, 'unmatched');
 
@@ -154,13 +158,34 @@ const deniedFormContractMatch = matchRow({
 assert.equal(deniedFormContractMatch.matchStatus, 'needs_review');
 assert.equal(deniedFormContractMatch.matchReason, 'source_decision_requires_review');
 
+const missingDecisionFormContractMatch = matchRow({
+  location_of_purchase: 'North Lobby',
+  decision_date: '2026-04-11',
+  refund_amount: '7.25',
+  status: 'Closed',
+  decision: '',
+});
+assert.equal(missingDecisionFormContractMatch.matchStatus, 'needs_review');
+assert.equal(missingDecisionFormContractMatch.matchReason, 'missing_source_decision');
+
+const invalidFormContractMatch = matchRow({
+  location_of_purchase: '',
+  decision_date: '',
+  refund_amount: '',
+  status: 'Closed',
+  decision: 'Approve',
+});
+assert.equal(invalidFormContractMatch.matchStatus, 'invalid');
+assert.equal(invalidFormContractMatch.matchReason, 'missing_required_refund_fields');
+
 const duplicateInput = extractRefundInput(
   {
     location: 'North Lobby',
     refund_date: '2026-04-06',
     refund_amount_usd: '12.50',
-    status: 'Refunded',
-    reason: 'Duplicate check',
+    status: 'Closed',
+    decision: 'Approve',
+    request_id: 'SANITIZED-DUPLICATE-REQ',
   },
   'duplicate-fixture'
 );
@@ -171,8 +196,21 @@ assert.equal(seenHashes.has(firstHash), false);
 seenHashes.add(firstHash);
 assert.equal(seenHashes.has(duplicateHash), true);
 
+const sameContentDifferentRequestInput = extractRefundInput(
+  {
+    location: 'North Lobby',
+    refund_date: '2026-04-06',
+    refund_amount_usd: '12.50',
+    status: 'Closed',
+    decision: 'Approve',
+    request_id: 'SANITIZED-DIFFERENT-REQ',
+  },
+  'different-request-fixture'
+);
+assert.notEqual(firstHash, makeSourceRowHash(sameContentDifferentRequestInput));
+
 const parsed = parseCsv(
-  'Location,Refund Date,Refund Amount USD,Status\nNorth Lobby,2026-04-06,12.50,Refunded\n'
+  'Location,Refund Date,Refund Amount USD,Status,Decision\nNorth Lobby,2026-04-06,12.50,Closed,Approve\n'
 );
 assert.equal(parsed.length, 1);
 assert.equal(parsed[0].row.refund_amount_usd, '12.50');
@@ -230,6 +268,16 @@ assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'email_addre
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'venmo_zelle_payment_id'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'last_4_digits_of_your_card'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'incident_description'), false);
+const sanitizedPayloadText = JSON.stringify(sanitizedPayload);
+for (const privateValue of [
+  'Customer Name',
+  'customer@example.com',
+  'private-payment-id',
+  '1234',
+  'Private fixture detail',
+]) {
+  assert.equal(sanitizedPayloadText.includes(privateValue), false);
+}
 
 const withoutRefund = calculatePartnerSettlementTotals({
   grossSalesCents: 10000,
@@ -275,7 +323,10 @@ console.log(
       currentFormContract: currentFormContractMatch.matchStatus,
       openStatusReviewOnly: openFormContractMatch.matchStatus,
       deniedDecisionReviewOnly: deniedFormContractMatch.matchStatus,
+      missingDecisionReviewOnly: missingDecisionFormContractMatch.matchStatus,
+      invalidRefundRow: invalidFormContractMatch.matchStatus,
       duplicateHashDetected: true,
+      sameContentDifferentRequestNotDuplicate: true,
       liveSheetValuesParsed: true,
       sanitizedPayloadExcludesPrivateFields: true,
       refundReducesPartnerSettlement: true,
