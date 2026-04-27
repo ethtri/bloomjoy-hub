@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { createServer } from "vite";
 
@@ -409,6 +409,59 @@ const hasStaticPrerenderRewriteRules = (routes) => {
   );
 };
 
+const hasPrivateNoStoreHeaders = (routes) => {
+  const privateShellHeadersIndex = routes.findIndex(
+    (route) =>
+      route?.src === "/(portal|admin)(.*)" &&
+      route?.continue === true &&
+      route?.headers?.["Cache-Control"] === "no-store" &&
+      route?.headers?.["X-Robots-Tag"] === "noindex, nofollow, noarchive, nosnippet"
+  );
+
+  const authShellHeadersIndex = routes.findIndex(
+    (route) =>
+      route?.src === "/(login(?:/operator)?|reset-password|cart)/?" &&
+      route?.continue === true &&
+      route?.headers?.["Cache-Control"] === "no-store" &&
+      route?.headers?.["X-Robots-Tag"] === "noindex, nofollow, noarchive, nosnippet"
+  );
+  const authPrivateRewriteIndex = routes.findIndex(
+    (route) =>
+      route?.src === "/(cart|login(?:/operator)?|reset-password)/?" &&
+      route?.dest === "/$1.html"
+  );
+  const portalCatchAllRewriteIndex = routes.findIndex(
+    (route) =>
+      route?.src === "/portal(?:/.*)?/?" &&
+      route?.dest === "/portal.html"
+  );
+  const adminCatchAllRewriteIndex = routes.findIndex(
+    (route) =>
+      route?.src === "/admin(?:/.*)?/?" &&
+      route?.dest === "/admin.html"
+  );
+
+  return (
+    privateShellHeadersIndex >= 0 &&
+    privateShellHeadersIndex < portalCatchAllRewriteIndex &&
+    privateShellHeadersIndex < adminCatchAllRewriteIndex &&
+    authShellHeadersIndex >= 0 &&
+    authShellHeadersIndex < authPrivateRewriteIndex
+  );
+};
+
+const hasImmutableAssetHeadersBeforeFilesystem = (routes) => {
+  const filesystemIndex = routes.findIndex((route) => route?.handle === "filesystem");
+  const immutableAssetIndex = routes.findIndex(
+    (route) =>
+      route?.src === "/assets/(.*)" &&
+      route?.continue === true &&
+      route?.headers?.["Cache-Control"] === "public, max-age=31536000, immutable"
+  );
+
+  return immutableAssetIndex >= 0 && filesystemIndex > immutableAssetIndex;
+};
+
 const hasMissingAssetFallbackGuard = (routes) => {
   const filesystemIndex = routes.findIndex((route) => route?.handle === "filesystem");
   const assetGuardIndex = routes.findIndex(
@@ -454,11 +507,75 @@ const validateVercelConfig = async () => {
     throw new Error("vercel.json is missing static prerender rewrite rules before SPA fallback");
   }
 
+  if (!hasPrivateNoStoreHeaders(routes)) {
+    throw new Error("vercel.json must mark app/auth/private shell routes with Cache-Control: no-store");
+  }
+
+  if (!hasImmutableAssetHeadersBeforeFilesystem(routes)) {
+    throw new Error("vercel.json must mark existing /assets/* files immutable before filesystem serving");
+  }
+
   if (!hasMissingAssetFallbackGuard(routes)) {
     throw new Error(
       "vercel.json must return a 404 for missing /assets/* files before the SPA fallback"
     );
   }
+};
+
+const assertDistFileExists = async (manifestPath, context) => {
+  const normalizedPath = manifestPath.replace(/^\/+/, "");
+  const resolvedPath = path.join(DIST_DIR, normalizedPath);
+
+  try {
+    await access(resolvedPath);
+  } catch {
+    throw new Error(`Vite manifest references missing ${context}: ${normalizedPath}`);
+  }
+};
+
+const validateViteManifestReferences = async () => {
+  const manifestPath = path.join(DIST_DIR, ".vite", "manifest.json");
+  const raw = await readFile(manifestPath, "utf8");
+  const manifest = JSON.parse(raw);
+  const visitedEntries = new Set();
+
+  const validateManifestEntry = async (entryKey) => {
+    if (visitedEntries.has(entryKey)) {
+      return;
+    }
+
+    const entry = manifest?.[entryKey];
+
+    if (!entry) {
+      throw new Error(`Vite manifest is missing referenced entry: ${entryKey}`);
+    }
+
+    visitedEntries.add(entryKey);
+
+    if (entry.file) {
+      await assertDistFileExists(entry.file, `${entryKey} file`);
+    }
+
+    for (const field of ["css", "assets"]) {
+      for (const referencedFile of entry[field] ?? []) {
+        await assertDistFileExists(referencedFile, `${entryKey} ${field} asset`);
+      }
+    }
+
+    for (const field of ["imports", "dynamicImports"]) {
+      for (const referencedEntry of entry[field] ?? []) {
+        if (!manifest[referencedEntry]) {
+          throw new Error(
+            `Vite manifest entry ${entryKey} references missing ${field} entry: ${referencedEntry}`
+          );
+        }
+
+        await validateManifestEntry(referencedEntry);
+      }
+    }
+  };
+
+  await Promise.all(Object.keys(manifest).map((entryKey) => validateManifestEntry(entryKey)));
 };
 
 const main = async () => {
@@ -468,6 +585,7 @@ const main = async () => {
     await validateRobots();
     await validateSitemap(seoRoutes);
     await validateVercelConfig();
+    await validateViteManifestReferences();
 
     for (const route of seoRoutes.publicRoutes) {
       await validatePublicRouteHtml(route, seoRoutes);

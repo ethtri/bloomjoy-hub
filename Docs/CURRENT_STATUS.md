@@ -9,7 +9,10 @@
 ## Production admin asset loading guard (2026-04-27)
 - P0 issue `#246` was traced to stale lazy-loaded chunk URLs under `/assets/*` being served through the SPA fallback as `200 text/html` after the referenced hashed files were no longer present in the active Vercel deployment.
 - Current production `/admin/access` HTML references fresh chunk hashes, and those current chunks return `application/javascript`; the repo hardening adds a Vercel guard so missing `/assets/*` files return `404` instead of `index.html`.
-- The SEO/config regression check now verifies the missing-asset guard stays between filesystem serving and the catch-all SPA fallback.
+- P0 issue `#253` found the follow-on stale-tab failure: already-open admin tabs could still request old chunks such as `Dashboard-Ck3AyZbi.js`; the server correctly returned `404 text/plain`, but the SPA had no lazy-load recovery or route error boundary, so the route crashed instead of recovering.
+- The app now wraps route-level lazy imports with a one-time stale chunk reload guard and a root route error boundary. If the same chunk still fails after one reload, the user sees an app-update refresh fallback instead of a blank route.
+- Vercel config now keeps app/auth/private shell HTML (`/admin*`, `/portal*`, `/login`, `/reset-password`) on `Cache-Control: no-store`, serves existing `/assets/*` files as immutable, and leaves the missing-asset `404 text/plain` guard between filesystem serving and the catch-all SPA fallback.
+- The SEO/config regression check now verifies the asset route order, private shell cache headers, missing-asset guard, and Vite manifest asset references.
 
 ## Machine-buyer SEO static generation (2026-04-17)
 - Public marketing/legal routes now build as static HTML with rendered body content, production asset URLs, route-specific metadata, canonical tags, and JSON-LD before client JavaScript runs.
