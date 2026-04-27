@@ -23,7 +23,7 @@ export const AUTO_APPLY_DECISIONS = new Set([
   'refund approve',
 ]);
 
-const normalizeHeader = (value) =>
+export const normalizeHeader = (value) =>
   String(value ?? '')
     .normalize('NFKD')
     .toLowerCase()
@@ -85,6 +85,34 @@ export const parseCsv = (text) => {
     rowNumber: rowIndex + 2,
     row: Object.fromEntries(headers.map((header, index) => [header, cells[index]?.trim() ?? ''])),
   }));
+};
+
+export const parseSheetValues = (values) => {
+  if (!Array.isArray(values) || values.length === 0) return [];
+
+  const headers = values[0].map((header) => normalizeHeader(header));
+  return values
+    .slice(1)
+    .map((cells, rowIndex) => {
+      const rowNumber = rowIndex + 2;
+      const row = Object.fromEntries(
+        headers.map((header, cellIndex) => [
+          header,
+          String(cells?.[cellIndex] ?? '').trim(),
+        ])
+      );
+
+      if (!row.source_sheet_row_number) {
+        row.source_sheet_row_number = String(rowNumber);
+      }
+
+      return { rowNumber, row };
+    })
+    .filter(({ row }) =>
+      Object.entries(row).some(
+        ([key, value]) => key !== 'source_sheet_row_number' && String(value).trim() !== ''
+      )
+    );
 };
 
 export const normalizeMatchText = (value) =>
@@ -237,6 +265,35 @@ export const makeSourceRowHash = (input) =>
       })
     )
     .digest('hex');
+
+export const buildSanitizedRefundPayload = ({
+  input,
+  sourceReference,
+  sourceRowHash,
+  sourceRowNumber,
+  match,
+  appliedAdjustmentId = null,
+}) => ({
+  payload_schema: 'refund_adjustment.v1',
+  source_reference: sourceReference || null,
+  source_row_reference: input.sourceRowReference,
+  source_row_hash: sourceRowHash,
+  source_row_number: sourceRowNumber ? String(sourceRowNumber) : null,
+  source_location: input.sourceLocation || null,
+  refund_date: input.refundDate || null,
+  original_order_date: input.originalOrderDate || null,
+  amount_cents: input.amountCents,
+  adjustment_type: input.adjustmentType,
+  complaint_count: input.complaintCount,
+  source_status: input.sourceStatus || null,
+  source_decision: input.sourceDecision || null,
+  match_status: match?.matchStatus ?? null,
+  match_confidence: match?.matchConfidence ?? null,
+  match_reason: match?.matchReason ?? null,
+  candidate_machine_count: match?.candidateMachineIds?.length ?? 0,
+  matched_machine_id: match?.matchedMachine?.id ?? null,
+  applied_adjustment_id: appliedAdjustmentId,
+});
 
 export const buildMachineProfiles = ({ machines, aliases = [] }) => {
   const aliasesByMachineId = new Map();

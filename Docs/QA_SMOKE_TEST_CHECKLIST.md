@@ -180,7 +180,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Portal Reports > Partner Dashboard shows gross sales, refund impact, net sales, split base, and amount owed as separate values when applied refund adjustments exist
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
-- [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate, current customer-service export header, and partner-settlement fixtures
+- [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate, current customer-service export header, live sheet-shaped rows, sanitized-payload, and partner-settlement fixtures
+- [ ] Refund Adjustment Sync GitHub Action can be run manually with `dry_run=true` and returns aggregate counts only, with no customer names, emails, payment IDs, card digits, or free-text incident descriptions in logs
 - [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, reconciles parsed row count/revenue against the Sunze UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
 - [ ] `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30` reports the latest completed Sunze import or sends a stale-data ops alert
 
@@ -306,6 +307,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows report export archive, partner report exports, recent sales/refund import runs, and stale/failed sync status clearly
 - [ ] Admin Reporting > Sync shows a refund adjustment review summary/list where ambiguous, unmatched, duplicate, invalid, and missing-status rows require review and do not silently affect settlement
+- [ ] Admin Reporting > Sync shows the latest live refund sync run after the scheduled workflow runs, and open/denied rows remain review-only
 - [ ] Admin reporting does not mark Sunze freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
 - [ ] Admin can open discovered Sunze machine IDs from `/admin/reporting`, map them in `/admin/machines`, ignore them, and reopen them
 - [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
