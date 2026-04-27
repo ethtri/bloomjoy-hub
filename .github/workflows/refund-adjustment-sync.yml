@@ -26,6 +26,7 @@ jobs:
       REFUND_ADJUSTMENT_SYNC_URL: ${{ secrets.REFUND_ADJUSTMENT_SYNC_URL }}
       REFUND_ADJUSTMENT_SYNC_TOKEN: ${{ secrets.REFUND_ADJUSTMENT_SYNC_TOKEN }}
       REFUND_ADJUSTMENT_SYNC_ENABLED: ${{ vars.REFUND_ADJUSTMENT_SYNC_ENABLED || 'false' }}
+      REFUND_ADJUSTMENT_SYNC_ROW_LIMIT: ${{ vars.REFUND_ADJUSTMENT_SYNC_ROW_LIMIT || '50' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
     steps:
       - name: Checkout
@@ -58,66 +59,92 @@ jobs:
             exit 1
           fi
 
-          payload='{"dryRun":false}'
-          if [[ "$DRY_RUN" == "true" ]]; then
-            payload='{"dryRun":true}'
-          fi
-
-          response_file="$(mktemp)"
-          set +e
-          status_code="$(
-            curl -sS \
-              -o "$response_file" \
-              -w "%{http_code}" \
-              -X POST "$REFUND_ADJUSTMENT_SYNC_URL" \
-              -H "Authorization: Bearer $REFUND_ADJUSTMENT_SYNC_TOKEN" \
-              -H "Content-Type: application/json" \
-              --data "$payload"
-          )"
-          curl_exit=$?
-          set -e
-
-          node --input-type=module - "$response_file" "$status_code" "$curl_exit" <<'NODE'
-          import { readFileSync } from 'node:fs';
-
-          const [responseFile, statusCodeText, curlExitText] = process.argv.slice(2);
-          const statusCode = Number(statusCodeText);
-          const curlExit = Number(curlExitText);
-          const raw = readFileSync(responseFile, 'utf8');
-          let body = {};
-          try {
-            body = raw ? JSON.parse(raw) : {};
-          } catch {
-            body = { error: 'Refund sync returned a non-JSON response.' };
-          }
-
-          const summary = {
-            httpStatus: statusCode,
-            transportOk: curlExit === 0,
-            status: body.status ?? null,
-            dryRun: body.dryRun ?? null,
-            reviewSource: body.reviewSource ?? null,
-            runId: body.runId ?? null,
-            rowsSeen: body.rowsSeen ?? 0,
-            rowsStaged: body.rowsStaged ?? 0,
-            rowsApplied: body.rowsApplied ?? 0,
-            rowsReview: body.rowsReview ?? 0,
-            rowsDuplicate: body.rowsDuplicate ?? 0,
-            rowsInvalid: body.rowsInvalid ?? 0,
-            rowsAmbiguous: body.rowsAmbiguous ?? 0,
-            rowsUnmatched: body.rowsUnmatched ?? 0,
-            rowsUnapplied: body.rowsUnapplied ?? 0,
+          node --input-type=module <<'NODE'
+          const url = process.env.REFUND_ADJUSTMENT_SYNC_URL;
+          const token = process.env.REFUND_ADJUSTMENT_SYNC_TOKEN;
+          const dryRun = process.env.DRY_RUN === 'true';
+          const rowLimit = Math.max(1, Math.min(Number(process.env.REFUND_ADJUSTMENT_SYNC_ROW_LIMIT || 50), 100));
+          const aggregate = {
+            rowsSeen: 0,
+            rowsStaged: 0,
+            rowsApplied: 0,
+            rowsReview: 0,
+            rowsDuplicate: 0,
+            rowsInvalid: 0,
+            rowsAmbiguous: 0,
+            rowsUnmatched: 0,
+            rowsUnapplied: 0,
           };
+          let rowOffset = 0;
+          let chunk = 0;
+          let sourceRowsTotal = null;
 
-          console.log(JSON.stringify(summary, null, 2));
+          while (true) {
+            chunk += 1;
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ dryRun, rowOffset, rowLimit }),
+            });
+            const raw = await response.text();
+            let body = {};
+            try {
+              body = raw ? JSON.parse(raw) : {};
+            } catch {
+              body = { error: 'Refund sync returned a non-JSON response.' };
+            }
 
-          if (curlExit !== 0) {
-            console.error('Refund adjustment sync request failed before an HTTP response was accepted.');
-            process.exit(1);
+            const summary = {
+              chunk,
+              httpStatus: response.status,
+              status: body.status ?? null,
+              dryRun: body.dryRun ?? null,
+              reviewSource: body.reviewSource ?? null,
+              sourceRowsTotal: body.sourceRowsTotal ?? null,
+              rowOffset: body.rowOffset ?? rowOffset,
+              rowLimit: body.rowLimit ?? rowLimit,
+              hasMore: Boolean(body.hasMore),
+              rowsSeen: body.rowsSeen ?? 0,
+              rowsStaged: body.rowsStaged ?? 0,
+              rowsApplied: body.rowsApplied ?? 0,
+              rowsReview: body.rowsReview ?? 0,
+              rowsDuplicate: body.rowsDuplicate ?? 0,
+              rowsInvalid: body.rowsInvalid ?? 0,
+              rowsAmbiguous: body.rowsAmbiguous ?? 0,
+              rowsUnmatched: body.rowsUnmatched ?? 0,
+              rowsUnapplied: body.rowsUnapplied ?? 0,
+            };
+
+            console.log(JSON.stringify(summary, null, 2));
+
+            if (!response.ok || body.error || body.status === 'failed') {
+              console.error(body.error || 'Refund adjustment sync failed.');
+              process.exit(1);
+            }
+
+            for (const key of Object.keys(aggregate)) {
+              aggregate[key] += Number(body[key] ?? 0);
+            }
+            sourceRowsTotal = body.sourceRowsTotal ?? sourceRowsTotal;
+
+            if (!body.hasMore) break;
+
+            const nextOffset = Number(body.nextRowOffset ?? rowOffset + rowLimit);
+            if (!Number.isFinite(nextOffset) || nextOffset <= rowOffset) {
+              console.error('Refund adjustment sync did not return a valid next row offset.');
+              process.exit(1);
+            }
+            rowOffset = nextOffset;
           }
 
-          if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300 || body.error || body.status === 'failed') {
-            console.error(body.error || 'Refund adjustment sync failed.');
-            process.exit(1);
-          }
+          console.log(JSON.stringify({
+            status: 'completed',
+            dryRun,
+            sourceRowsTotal,
+            chunks: chunk,
+            ...aggregate,
+          }, null, 2));
           NODE
