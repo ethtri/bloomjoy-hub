@@ -158,6 +158,7 @@ export type AdminRefundAdjustmentReviewRow = {
 
 export type AdminReportingOverview = {
   machines: AdminReportingMachine[];
+  partnerships: AdminReportingPartnershipOption[];
   importRuns: AdminReportingImportRun[];
   schedules: AdminReportSchedule[];
   snapshots: AdminReportViewSnapshot[];
@@ -177,6 +178,14 @@ export type AdminSunzeMachineQueueItem = {
   pendingRowCount: number;
   pendingRevenueCents: number;
   latestSaleDate: string | null;
+};
+
+export type AdminReportingPartnershipOption = {
+  id: string;
+  name: string;
+  status: 'draft' | 'active' | 'archived';
+  effective_start_date: string;
+  effective_end_date: string | null;
 };
 
 export type AdminReportingAccessPerson = {
@@ -357,6 +366,33 @@ type SetSunzeMachineDiscoveryStatusInput = {
   reason: string;
 };
 
+type MapSourceMachineToPartnershipInput = {
+  externalMachineId: string;
+  partnershipId: string;
+  machineLabel: string;
+  locationName: string;
+  machineType: ReportingMachineType;
+  taxRatePercent: number;
+  assignmentStartDate: string;
+  assignmentEndDate?: string | null;
+  taxEffectiveStartDate: string;
+  reason: string;
+};
+
+export type MapSourceMachineToPartnershipResult = {
+  machineId: string;
+  machineLabel: string;
+  externalMachineId: string;
+  accountName: string;
+  locationName: string;
+  partnershipId: string;
+  partnershipName: string;
+  assignmentId: string;
+  taxRateId: string;
+  promotedRowCount: number;
+  promotedRevenueCents: number;
+};
+
 type SetUserMachineReportingAccessInput = {
   userEmail: string;
   machineIds: string[];
@@ -506,6 +542,7 @@ export const exportSalesReportPdf = async (
 export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverview> => {
   const [
     machinesResult,
+    partnershipsResult,
     runsResult,
     schedulesResult,
     snapshotsResult,
@@ -518,6 +555,12 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       .from('reporting_machines')
       .select('*, reporting_locations(name, timezone), customer_accounts(name)')
       .order('updated_at', { ascending: false }),
+    supabaseClient
+      .from('reporting_partnerships')
+      .select('id, name, status, effective_start_date, effective_end_date')
+      .in('status', ['active', 'draft'])
+      .order('status', { ascending: true })
+      .order('name', { ascending: true }),
     supabaseClient
       .from('sales_import_runs')
       .select('*')
@@ -553,6 +596,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
 
   const firstError =
     machinesResult.error ||
+    partnershipsResult.error ||
     runsResult.error ||
     schedulesResult.error ||
     snapshotsResult.error ||
@@ -620,12 +664,49 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
 
   return {
     machines: (machinesResult.data ?? []) as AdminReportingMachine[],
+    partnerships: (partnershipsResult.data ?? []) as AdminReportingPartnershipOption[],
     importRuns: (runsResult.data ?? []) as AdminReportingImportRun[],
     schedules: (schedulesResult.data ?? []) as AdminReportSchedule[],
     snapshots,
     entitlements: (entitlementsResult.data ?? []) as AdminReportingEntitlement[],
     sunzeMachineQueue: mapSunzeMachineQueue(sunzeQueueResult.data),
     refundReviewRows: (refundReviewResult.data ?? []) as AdminRefundAdjustmentReviewRow[],
+  };
+};
+
+export const mapSourceMachineToPartnershipAdmin = async (
+  input: MapSourceMachineToPartnershipInput
+): Promise<MapSourceMachineToPartnershipResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_map_source_machine_to_partnership', {
+    p_external_machine_id: input.externalMachineId,
+    p_partnership_id: input.partnershipId,
+    p_machine_label: input.machineLabel,
+    p_location_name: input.locationName,
+    p_machine_type: input.machineType,
+    p_tax_rate_percent: input.taxRatePercent,
+    p_assignment_start_date: input.assignmentStartDate,
+    p_assignment_end_date: input.assignmentEndDate || null,
+    p_tax_effective_start_date: input.taxEffectiveStartDate,
+    p_reason: input.reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to set up imported machine.');
+  }
+
+  const record = data as Partial<MapSourceMachineToPartnershipResult>;
+  return {
+    machineId: String(record.machineId ?? ''),
+    machineLabel: String(record.machineLabel ?? ''),
+    externalMachineId: String(record.externalMachineId ?? input.externalMachineId),
+    accountName: String(record.accountName ?? ''),
+    locationName: String(record.locationName ?? ''),
+    partnershipId: String(record.partnershipId ?? input.partnershipId),
+    partnershipName: String(record.partnershipName ?? ''),
+    assignmentId: String(record.assignmentId ?? ''),
+    taxRateId: String(record.taxRateId ?? ''),
+    promotedRowCount: Number(record.promotedRowCount ?? 0),
+    promotedRevenueCents: Number(record.promotedRevenueCents ?? 0),
   };
 };
 

@@ -55,10 +55,11 @@ import {
 
 type MachineTaxFilter = 'all' | TaxStatus;
 type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
-type MachineSort = 'status' | 'machine' | 'account' | 'latest_sale';
+type MachineSort = 'status' | 'machine' | 'latest_sale';
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
 const initialReportingTaxStartDate = '2026-01-01';
+const hiddenManualMachineAccountName = 'Manual Reporting Machines';
 const hiddenFallbackLocationName = 'Unmapped source machines';
 
 const emptySetup: PartnershipReportingSetup = {
@@ -117,10 +118,8 @@ export default function AdminMachinesPage() {
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
 
   const highlightedMachineId = searchParams.get('machineId');
-  const pendingSunzeMachineId =
+  const pendingSourceMachineId =
     searchParams.get('externalMachineId') ?? searchParams.get('sunzeMachineId');
-  const pendingSunzeMachineName =
-    searchParams.get('externalMachineName') ?? searchParams.get('sunzeMachineName');
 
   const {
     data: setup = emptySetup,
@@ -160,7 +159,13 @@ export default function AdminMachinesPage() {
           draftValue: taxDrafts[machine.id] ?? (taxRate ? String(Number(taxRate.tax_rate_percent)) : ''),
         };
       })
-      .filter((row) => taxFilter === 'all' || row.taxStatus === taxFilter)
+      .filter((row) => {
+        if (taxFilter === 'all') return true;
+        if (taxFilter === 'missing') {
+          return row.activeAssignments.length > 0 && row.taxStatus === 'missing';
+        }
+        return row.taxStatus === taxFilter;
+      })
       .filter((row) => {
         if (assignmentFilter === 'all') return true;
         if (assignmentFilter === 'unassigned') return row.activeAssignments.length === 0;
@@ -175,7 +180,6 @@ export default function AdminMachinesPage() {
         if (!normalizedSearch) return true;
         return [
           row.machine.machine_label,
-          row.machine.account_name,
           row.machine.sunze_machine_id ?? '',
           row.activeAssignments.map((assignment) => assignment.partnership_name).join(' '),
         ]
@@ -185,9 +189,6 @@ export default function AdminMachinesPage() {
       })
       .sort((left, right) => {
         if (sort === 'machine') return left.machine.machine_label.localeCompare(right.machine.machine_label);
-        if (sort === 'account') {
-          return left.machine.account_name.localeCompare(right.machine.account_name);
-        }
         if (sort === 'latest_sale') {
           return (right.machine.latest_sale_date ?? '').localeCompare(left.machine.latest_sale_date ?? '');
         }
@@ -198,16 +199,15 @@ export default function AdminMachinesPage() {
   const readinessCounts = useMemo(() => {
     const currentDate = today();
     const missingTax = setup.machines.filter(
-      (machine) => getTaxStatus(getCurrentTaxRate(setup.taxRates, machine.id, currentDate)) === 'missing'
-    ).length;
-    const unassigned = setup.machines.filter(
-      (machine) => getActiveMachineAssignments(setup, machine.id, currentDate).length === 0
+      (machine) =>
+        getActiveMachineAssignments(setup, machine.id, currentDate).length > 0 &&
+        getTaxStatus(getCurrentTaxRate(setup.taxRates, machine.id, currentDate)) === 'missing'
     ).length;
     const overlappingAssignments = setup.warnings.filter(
       (warning) => warning.warningType === 'overlapping_partnership_assignments'
     ).length;
 
-    return { missingTax, unassigned, overlappingAssignments };
+    return { missingTax, overlappingAssignments };
   }, [setup]);
 
   const updateTaxFilter = (nextFilter: MachineTaxFilter) => {
@@ -268,12 +268,6 @@ export default function AdminMachinesPage() {
       setSearchParams(nextParams, { replace: true });
     }
   };
-
-  useEffect(() => {
-    if (!pendingSunzeMachineId || isMachineDialogOpen) return;
-    setEditingMachine(null);
-    setIsMachineDialogOpen(true);
-  }, [isMachineDialogOpen, pendingSunzeMachineId]);
 
   const openTaxChangeDialog = (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => {
     setTaxChangeForm({
@@ -390,8 +384,8 @@ export default function AdminMachinesPage() {
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Machines</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage machine labels, external machine IDs, partnership assignment readiness, and
-                reporting tax rates in one operational table.
+                Manage machine labels, external machine IDs, assignment readiness, and reporting
+                tax rates. Report membership is assigned from Partnerships.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -401,7 +395,7 @@ export default function AdminMachinesPage() {
               </Button>
               <Button onClick={openCreateMachine}>
                 <Plus className="mr-2 h-4 w-4" />
-                New Machine
+                New Manual Machine
               </Button>
             </div>
           </div>
@@ -412,24 +406,26 @@ export default function AdminMachinesPage() {
             </div>
           )}
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          {pendingSourceMachineId && (
+            <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              Imported machine setup now happens from Reporting Operations so the report assignment,
+              tax setup, and queued sales are handled together.
+            </div>
+          )}
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <ReadinessCard
-              label="Missing tax"
+              label="Assigned machines missing tax"
               value={readinessCounts.missingTax}
+              description="Only machines assigned to partner reports need reporting tax."
               actionLabel="Show missing"
               onAction={() => updateTaxFilter('missing')}
               isWarning={readinessCounts.missingTax > 0}
             />
             <ReadinessCard
-              label="Unassigned machines"
-              value={readinessCounts.unassigned}
-              actionLabel="Review table"
-              onAction={() => updateAssignmentFilter('unassigned')}
-              isWarning={readinessCounts.unassigned > 0}
-            />
-            <ReadinessCard
-              label="Overlaps"
+              label="Assignment overlaps"
               value={readinessCounts.overlappingAssignments}
+              description="A machine is assigned to more than one active report window."
               actionLabel="Review rows"
               onAction={() => updateAssignmentFilter('overlap')}
               isWarning={readinessCounts.overlappingAssignments > 0}
@@ -439,7 +435,8 @@ export default function AdminMachinesPage() {
           <div className="mt-6 rounded-lg border border-border bg-card p-4">
             <div className="mb-4 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
               Reporting tax rates are used only for partner report estimates. They do not set
-              machine prices or replace the accounting tax workflow.
+              machine prices or replace the accounting tax workflow. Machines without a partnership
+              assignment are not included in partner reports, and that is a normal state.
             </div>
             <div className="grid gap-3 xl:grid-cols-[1fr_auto_auto_auto] xl:items-end">
               <div>
@@ -451,7 +448,7 @@ export default function AdminMachinesPage() {
                     className="pl-9"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Machine, account, external machine ID, partnership"
+                    placeholder="Machine, external machine ID, partnership"
                   />
                 </div>
               </div>
@@ -464,7 +461,7 @@ export default function AdminMachinesPage() {
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="all">All tax states</option>
-                  <option value="missing">Missing tax</option>
+                  <option value="missing">Missing tax for assigned machines</option>
                   <option value="no_tax">Explicit no tax</option>
                   <option value="configured">Configured tax</option>
                 </select>
@@ -479,21 +476,20 @@ export default function AdminMachinesPage() {
                 >
                   <option value="status">Tax status</option>
                   <option value="machine">Machine</option>
-                  <option value="account">Account</option>
                   <option value="latest_sale">Latest sale</option>
                 </select>
               </div>
               <div>
-                <Label htmlFor="assignment-filter">Assignment</Label>
+                <Label htmlFor="assignment-filter">Partner report status</Label>
                 <select
                   id="assignment-filter"
                   value={assignmentFilter}
                   onChange={(event) => updateAssignmentFilter(event.target.value as MachineAssignmentFilter)}
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
-                  <option value="all">All assignments</option>
-                  <option value="unassigned">Unassigned</option>
-                  <option value="overlap">Overlaps</option>
+                  <option value="all">All machines</option>
+                  <option value="unassigned">Not in partner reports</option>
+                  <option value="overlap">Assignment overlaps</option>
                 </select>
               </div>
             </div>
@@ -501,7 +497,7 @@ export default function AdminMachinesPage() {
 
           <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
             <div className="flex items-center justify-between gap-3 border-b border-border p-4">
-              <h2 className="font-semibold text-foreground">Machine Readiness</h2>
+              <h2 className="font-semibold text-foreground">Machine Setup</h2>
               <Badge variant="outline">{machineRows.length}</Badge>
             </div>
 
@@ -511,11 +507,10 @@ export default function AdminMachinesPage() {
               <div className="p-6 text-sm text-muted-foreground">No machines match this filter.</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-[1040px] w-full divide-y divide-border text-sm">
+                <table className="min-w-[960px] w-full divide-y divide-border text-sm">
                   <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold">Machine label / alias</th>
-                      <th className="px-4 py-3 text-left font-semibold">Account</th>
                       <th className="px-4 py-3 text-left font-semibold">Type</th>
                       <th className="px-4 py-3 text-left font-semibold">External machine ID</th>
                       <th className="px-4 py-3 text-left font-semibold">Assignment</th>
@@ -529,12 +524,16 @@ export default function AdminMachinesPage() {
                     {machineRows.map(({ machine, taxRate, taxStatus, activeAssignments, machineWarnings, draftValue }) => {
                       const machineTaxHistory = setup.taxRates.filter((rate) => rate.machine_id === machine.id);
                       const isHighlighted = highlightedMachineId === machine.id;
-                      const hasActionableWarning = machineWarnings.some(
-                        (warning) =>
-                          warning.warningType === 'missing_machine_tax_rate' ||
-                          warning.warningType === 'missing_partnership_assignment' ||
-                          warning.warningType === 'overlapping_partnership_assignments'
+                      const hasMissingRequiredTax =
+                        activeAssignments.length > 0 && taxStatus === 'missing';
+                      const hasAssignmentOverlap = machineWarnings.some(
+                        (warning) => warning.warningType === 'overlapping_partnership_assignments'
                       );
+                      const hasActionableWarning = hasMissingRequiredTax || hasAssignmentOverlap;
+                      const taxStatusLabel =
+                        activeAssignments.length === 0 && taxStatus === 'missing'
+                          ? 'Not required'
+                          : getTaxStatusLabel(taxStatus);
 
                       return (
                         <tr key={machine.id} className={isHighlighted ? 'bg-primary/5' : ''}>
@@ -547,12 +546,11 @@ export default function AdminMachinesPage() {
                               </div>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-muted-foreground">{machine.account_name}</td>
                           <td className="px-4 py-3 text-muted-foreground">{formatLabel(machine.machine_type)}</td>
                           <td className="px-4 py-3 text-muted-foreground">{machine.sunze_machine_id ?? 'n/a'}</td>
                           <td className="px-4 py-3">
                             {activeAssignments.length === 0 ? (
-                              <Badge variant="destructive">Unassigned</Badge>
+                              <Badge variant="outline">Not in partner reports</Badge>
                             ) : (
                               <div className="grid gap-1">
                                 {activeAssignments.map((assignment) => (
@@ -566,14 +564,16 @@ export default function AdminMachinesPage() {
                           <td className="px-4 py-3">
                             <Badge
                               variant={
-                                taxStatus === 'missing'
+                                activeAssignments.length === 0 && taxStatus === 'missing'
+                                  ? 'outline'
+                                  : taxStatus === 'missing'
                                   ? 'destructive'
                                   : taxStatus === 'no_tax'
                                     ? 'secondary'
                                     : 'default'
                               }
                             >
-                              {getTaxStatusLabel(taxStatus)}
+                              {taxStatusLabel}
                             </Badge>
                           </td>
                           <td className="px-4 py-3">
@@ -590,7 +590,7 @@ export default function AdminMachinesPage() {
                                   [machine.id]: event.target.value,
                                 }))
                               }
-                              placeholder="Missing"
+                              placeholder={activeAssignments.length === 0 ? 'Optional' : 'Missing'}
                               className="w-28"
                             />
                           </td>
@@ -650,8 +650,6 @@ export default function AdminMachinesPage() {
         onOpenChange={closeMachineDialog}
         machine={editingMachine}
         machines={setup.machines}
-        initialSunzeMachineId={pendingSunzeMachineId}
-        initialSunzeMachineName={pendingSunzeMachineName}
         onSaved={refresh}
       />
       <TaxChangeDialog
@@ -710,12 +708,14 @@ export default function AdminMachinesPage() {
 function ReadinessCard({
   label,
   value,
+  description,
   actionLabel,
   isWarning,
   onAction,
 }: {
   label: string;
   value: number;
+  description?: string;
   actionLabel: string;
   isWarning: boolean;
   onAction?: () => void;
@@ -724,6 +724,7 @@ function ReadinessCard({
     <div className={`rounded-lg border p-4 ${isWarning ? 'border-amber-300 bg-amber-50' : 'border-border bg-card'}`}>
       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-1 text-2xl font-bold text-foreground">{value}</div>
+      {description && <div className="mt-1 text-xs text-muted-foreground">{description}</div>}
       {onAction ? (
         <Button variant="outline" size="sm" className="mt-3" onClick={onAction}>
           {actionLabel}
@@ -811,16 +812,12 @@ function MachineDialog({
   onOpenChange,
   machine,
   machines,
-  initialSunzeMachineId,
-  initialSunzeMachineName,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   machine: PartnershipSetupMachine | null;
   machines: PartnershipSetupMachine[];
-  initialSunzeMachineId: string | null;
-  initialSunzeMachineName: string | null;
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
@@ -831,52 +828,34 @@ function MachineDialog({
     if (!machine) {
       setForm({
         ...emptyMachineForm,
+        accountName: hiddenManualMachineAccountName,
         locationName: hiddenFallbackLocationName,
-        machineLabel:
-          initialSunzeMachineName && initialSunzeMachineName !== initialSunzeMachineId
-            ? initialSunzeMachineName
-            : '',
-        sunzeMachineId: initialSunzeMachineId ?? '',
       });
       return;
     }
 
     setForm({
       machineId: machine.id,
-      accountName: machine.account_name,
+      accountName: machine.account_name || hiddenManualMachineAccountName,
       locationName: machine.location_name,
       machineLabel: machine.machine_label,
       machineType: machine.machine_type,
       sunzeMachineId: machine.sunze_machine_id ?? '',
     });
-  }, [initialSunzeMachineId, initialSunzeMachineName, machine, open]);
-
-  const accountOptions = useMemo(
-    () => Array.from(new Set(machines.map((candidate) => candidate.account_name).filter(Boolean))).sort(),
-    [machines]
-  );
+  }, [machine, open]);
 
   const saveMachine = async () => {
-    if (!form.accountName.trim() || !form.machineLabel.trim()) {
-      toast.error('Account and machine label are required.');
+    if (!form.machineLabel.trim()) {
+      toast.error('Machine label is required.');
       return;
     }
 
-    const accountName = form.accountName.trim();
-    const locationName = form.locationName.trim() || hiddenFallbackLocationName;
+    const accountName =
+      form.accountName.trim() || machine?.account_name || hiddenManualMachineAccountName;
+    const locationName =
+      form.locationName.trim() || machine?.location_name || hiddenFallbackLocationName;
     const machineLabel = form.machineLabel.trim();
     const sunzeMachineId = form.sunzeMachineId.trim();
-    const duplicateIdentity = machines.find(
-      (candidate) =>
-        candidate.id !== form.machineId &&
-        normalizeComparableText(candidate.account_name) === normalizeComparableText(accountName) &&
-        normalizeComparableText(candidate.machine_label) === normalizeComparableText(machineLabel)
-    );
-    if (duplicateIdentity) {
-      toast.error('A machine with this account and label already exists.');
-      return;
-    }
-
     const duplicateSunze = sunzeMachineId
       ? machines.find(
           (candidate) =>
@@ -913,26 +892,13 @@ function MachineDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{form.machineId ? 'Edit Machine' : 'New Machine'}</DialogTitle>
+          <DialogTitle>{form.machineId ? 'Edit Machine' : 'New Manual Machine'}</DialogTitle>
           <DialogDescription>
-            Update the reporting label, account display, machine type, and external machine ID.
+            Manage the machine identity only. Report membership is assigned from Partnerships, and
+            imported machines with queued sales are set up from Reporting Operations.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="machine-account">Account</Label>
-            <Input
-              id="machine-account"
-              list="machine-account-options"
-              value={form.accountName}
-              onChange={(event) => setForm({ ...form, accountName: event.target.value })}
-            />
-            <datalist id="machine-account-options">
-              {accountOptions.map((accountName) => (
-                <option key={accountName} value={accountName} />
-              ))}
-            </datalist>
-          </div>
           <div>
             <Label htmlFor="machine-label">Machine label / alias</Label>
             <Input

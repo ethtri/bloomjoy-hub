@@ -120,10 +120,10 @@ Guidelines:
    - Tighten public page spacing on `/machines`, `/resources`, `/plus`, and `/contact` without changing the global visual system.
    - Improve contact form labels/input semantics, mobile icon-button labels, and product-gallery thumbnail state.
    - Validate the remediated public routes on desktop and common mobile viewport sizes.
-33. **Simplify source machine mapping admin flow** (`#174`)
-   - Add a focused mapping action from `/admin/reporting` for newly discovered source machines.
-   - Keep location/site grouping optional and support multiple machines at the same location.
-   - Let admins assign reporting users during mapping, while keeping partner/tax setup as a separate advanced step.
+33. **Simplify imported machine setup admin flow** (`#174`)
+   - Implemented in PR `#277`: `/admin/reporting` now has a focused setup action for newly discovered source machines.
+   - Admins choose the report/partnership, confirm label/location/type/tax, and save once.
+   - The external machine ID remains source-owned/read-only, while report assignment and queued-sale promotion happen together.
 34. **Parts taxonomy integration for training + parts assistance** (`#127`)
    - Normalize the internal machine parts taxonomy into a structured reference with numbered part IDs, English labels/aliases, and machine-area groupings.
    - Use the taxonomy in training so maintenance and troubleshooting guides can point operators to the right assembly or part.

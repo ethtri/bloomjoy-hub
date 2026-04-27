@@ -20,9 +20,9 @@ Bloomjoy sales reporting will use account/location/machine entitlements that are
 - Daily Sunze extraction runs as a GitHub Actions Playwright worker because the task needs a full browser runtime. The worker receives Sunze credentials plus an ingest token, but never receives the Supabase service-role key.
 - The Sunze worker uses the Orders page `Last 7 Days` preset for daily catch-up plus a monthly `Last Month` catch-up, validates the `.xlsx` workbook headers, deletes raw downloads after parsing, and sends normalized rows to `sunze-sales-ingest`.
 - Sunze imports must reconcile the visible Orders UI record count and revenue against the downloaded workbook before ingesting, and must fail closed if the selected date window, payment/status mappings, or export integrity cannot be verified.
-- Sunze machine discovery uses the top-level Machine Center list visible to the workflow account. `SUNZE_EXPECTED_MACHINE_COUNT` is optional and treated as an operations signal because new machines can appear before admins finish mapping them.
-- GitHub dry-runs call `sunze-sales-ingest` in validation mode so Supabase row normalization and current machine mapping state are checked without writing `machine_sales_facts`.
-- Unmapped Sunze machines are handled through an admin mapping queue. Mapped rows continue into `machine_sales_facts`; unmapped rows are quarantined in normalized form using salted order hashes and no raw order numbers until an admin maps the Sunze ID to a canonical reporting machine or marks it ignored.
+- Sunze machine discovery uses the top-level Machine Center list visible to the workflow account. `SUNZE_EXPECTED_MACHINE_COUNT` is optional and treated as an operations signal because new machines can appear before admins finish setting them up for reporting.
+- GitHub dry-runs call `sunze-sales-ingest` in validation mode so Supabase row normalization and current machine setup state are checked without writing `machine_sales_facts`.
+- Unconfigured Sunze machines are handled through an admin setup queue. Configured rows continue into `machine_sales_facts`; unconfigured rows are quarantined in normalized form using salted order hashes and no raw order numbers until an admin sets up the Sunze ID for a report or marks it ignored.
 - The Sunze UI exposes date presets but not always concrete date endpoints; for approved presets such as `Last 7 Days`, `Last Month`, and `Last 3 Months`, the worker records the selected preset and derives an expected date window in `SUNZE_REPORTING_TIMEZONE`, then verifies all exported sale dates fall inside that window.
 - Sunze order idempotency is based on a salted source order hash. The row hash remains available for change detection when a corrected export updates an already-seen order.
 - Raw Sunze workbooks are not retained. Operational evidence is limited to normalized facts, salted order hashes, import-run metadata, GitHub run IDs, and admin-visible freshness/error status.
@@ -41,7 +41,7 @@ Admin permission work and partnership financial setup are separate concerns.
 - `/admin/access` is the single admin place for users, Plus grants, super-admin roles, audit history, and explicit machine-level reporting visibility.
 - `/admin/reporting` is for reporting operations: schedules, import/sync status, stale-data warnings, and export archive visibility.
 - `/admin/partner-records` is for reusable external organizations and contacts that can become participants in one or more partnerships.
-- `/admin/machines` is for machine identity, aliases, Sunze mapping, assignment readiness, and current machine tax rates.
+- `/admin/machines` is for machine identity, aliases, partner-report inclusion status, and current machine tax rates.
 - `/admin/partnerships` is for guided agreement setup: partnership details, participants, assigned machines, payout rules, and weekly preview.
 
 **Canonical partnership model**
