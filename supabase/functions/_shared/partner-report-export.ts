@@ -2,6 +2,7 @@ type PartnerReportSummary = {
   order_count?: number;
   item_quantity?: number;
   gross_sales_cents?: number;
+  refund_amount_cents?: number;
   tax_cents?: number;
   fee_cents?: number;
   cost_cents?: number;
@@ -19,6 +20,7 @@ type PartnerReportMachine = {
   order_count?: number;
   item_quantity?: number;
   gross_sales_cents?: number;
+  refund_amount_cents?: number;
   tax_cents?: number;
   fee_cents?: number;
   cost_cents?: number;
@@ -215,6 +217,7 @@ export const buildPartnerReportCsv = ({
     csvRow(["Orders", formatInteger(summary.order_count)]),
     csvRow(["Sticks/items", formatInteger(summary.item_quantity)]),
     csvRow(["Gross sales", formatCurrency(summary.gross_sales_cents)]),
+    csvRow(["Refund impact", `-${formatCurrency(summary.refund_amount_cents)}`]),
     csvRow(["Machine taxes", formatCurrency(summary.tax_cents)]),
     csvRow([feeLabel, formatCurrency(summary.fee_cents)]),
     csvRow([costLabel, formatCurrency(summary.cost_cents)]),
@@ -242,6 +245,7 @@ export const buildPartnerReportCsv = ({
       "Orders",
       "Sticks/items",
       "Gross sales",
+      "Refund impact",
       "Machine taxes",
       feeLabel,
       costLabel,
@@ -253,6 +257,7 @@ export const buildPartnerReportCsv = ({
         formatInteger(machine.order_count),
         formatInteger(machine.item_quantity),
         formatCurrency(machine.gross_sales_cents),
+        `-${formatCurrency(machine.refund_amount_cents)}`,
         formatCurrency(machine.tax_cents),
         formatCurrency(machine.fee_cents),
         formatCurrency(machine.cost_cents),
@@ -390,8 +395,8 @@ export const buildPartnerReportPdf = ({
     if (pageIndex === 0) {
       const cards = [
         ["Orders", formatInteger(summary.order_count)],
-        ["Sticks/items", formatInteger(summary.item_quantity)],
         ["Gross sales", formatCurrency(summary.gross_sales_cents)],
+        ["Refund impact", `-${formatCurrency(summary.refund_amount_cents)}`],
         ["Machine taxes", formatCurrency(summary.tax_cents)],
         [feeLabel, formatCurrency(summary.fee_cents)],
         ["Net sales", formatCurrency(summary.net_sales_cents)],
@@ -516,8 +521,18 @@ export const buildPartnerReportPdf = ({
     );
     lines.push(
       pdfText({
+        text: "Refund",
+        x: 392,
+        y: tableTop - 24,
+        size: 7,
+        bold: true,
+        color: "muted",
+      }),
+    );
+    lines.push(
+      pdfText({
         text: "Tax",
-        x: 414,
+        x: 442,
         y: tableTop - 24,
         size: 7,
         bold: true,
@@ -527,7 +542,7 @@ export const buildPartnerReportPdf = ({
     lines.push(
       pdfText({
         text: truncateWithDots(feeLabel, 12),
-        x: 468,
+        x: 488,
         y: tableTop - 24,
         size: 7,
         bold: true,
@@ -537,7 +552,7 @@ export const buildPartnerReportPdf = ({
     lines.push(
       pdfText({
         text: "Net",
-        x: 536,
+        x: 542,
         y: tableTop - 24,
         size: 7,
         bold: true,
@@ -583,8 +598,16 @@ export const buildPartnerReportPdf = ({
       );
       lines.push(
         pdfText({
+          text: `-${formatCurrency(machine.refund_amount_cents)}`,
+          x: 392,
+          y,
+          size: 8,
+        }),
+      );
+      lines.push(
+        pdfText({
           text: formatCurrency(machine.tax_cents),
-          x: 414,
+          x: 442,
           y,
           size: 8,
         }),
@@ -592,7 +615,7 @@ export const buildPartnerReportPdf = ({
       lines.push(
         pdfText({
           text: formatCurrency(machine.fee_cents),
-          x: 468,
+          x: 488,
           y,
           size: 8,
         }),
@@ -600,7 +623,7 @@ export const buildPartnerReportPdf = ({
       lines.push(
         pdfText({
           text: formatCurrency(machine.net_sales_cents),
-          x: 536,
+          x: 542,
           y,
           size: 8,
         }),

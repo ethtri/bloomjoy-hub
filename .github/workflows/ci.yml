@@ -24,6 +24,8 @@ jobs:
         run: npm run seo:check
       - name: Sunze Parser Regression Checks
         run: npm run reporting:validate-sunze-parser
+      - name: Refund Adjustment Regression Checks
+        run: npm run reporting:validate-refund-adjustments
       - name: Test
         run: npm test --if-present
       - name: Lint

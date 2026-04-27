@@ -141,11 +141,14 @@ export type PartnerWeeklyReportPreview = {
     order_count?: number;
     item_quantity?: number;
     gross_sales_cents?: number;
+    refund_amount_cents?: number;
     tax_cents?: number;
     fee_cents?: number;
     cost_cents?: number;
     net_sales_cents?: number;
     split_base_cents?: number;
+    amount_owed_cents?: number;
+    bloomjoy_retained_cents?: number;
     fever_profit_cents?: number;
     partner_profit_cents?: number;
     bloomjoy_profit_cents?: number;
@@ -156,11 +159,13 @@ export type PartnerWeeklyReportPreview = {
     order_count: number;
     item_quantity: number;
     gross_sales_cents: number;
+    refund_amount_cents?: number;
     tax_cents: number;
     fee_cents: number;
     cost_cents: number;
     net_sales_cents: number;
     split_base_cents: number;
+    amount_owed_cents?: number;
   }>;
   warnings: PartnershipSetupWarning[];
 };
@@ -187,6 +192,61 @@ const normalizePartnerWeeklyReportPreview = (
   weekEndingDate: string
 ): PartnerWeeklyReportPreview => {
   const raw = (Array.isArray(data) ? data[0] : data) as Partial<PartnerWeeklyReportPreview> | null;
+  const periodPreview = (Array.isArray(data) ? null : data) as
+    | {
+        partnership_id?: string;
+        partnership_name?: string;
+        date_from?: string;
+        date_to?: string;
+        summary?: PartnerWeeklyReportPreview['summary'];
+        machine_periods?: PartnerWeeklyReportPreview['machines'];
+        warnings?: Array<{
+          warning_type?: string;
+          warningType?: string;
+          machine_id?: string | null;
+          machine_label?: string | null;
+          partnership_id?: string | null;
+          partnership_name?: string | null;
+          message?: string;
+        }>;
+      }
+    | null;
+
+  if (periodPreview?.summary || periodPreview?.machine_periods) {
+    return {
+      partnershipId: String(periodPreview.partnership_id ?? partnershipId),
+      partnershipName: periodPreview.partnership_name,
+      weekEndingDate: String(periodPreview.date_to ?? weekEndingDate),
+      weekStartDate: String(periodPreview.date_from ?? getPreviewWeekStartDate(weekEndingDate)),
+      summary: periodPreview.summary ?? {},
+      machines: Array.isArray(periodPreview.machine_periods)
+        ? periodPreview.machine_periods.map((machine) => ({
+            reporting_machine_id: String(machine.reporting_machine_id ?? ''),
+            machine_label: String(machine.machine_label ?? 'Unnamed machine'),
+            order_count: Number(machine.order_count ?? 0),
+            item_quantity: Number(machine.item_quantity ?? 0),
+            gross_sales_cents: Number(machine.gross_sales_cents ?? 0),
+            refund_amount_cents: Number(machine.refund_amount_cents ?? 0),
+            tax_cents: Number(machine.tax_cents ?? 0),
+            fee_cents: Number(machine.fee_cents ?? 0),
+            cost_cents: Number(machine.cost_cents ?? 0),
+            net_sales_cents: Number(machine.net_sales_cents ?? 0),
+            split_base_cents: Number(machine.split_base_cents ?? 0),
+            amount_owed_cents: Number(machine.amount_owed_cents ?? 0),
+          }))
+        : [],
+      warnings: Array.isArray(periodPreview.warnings)
+        ? periodPreview.warnings.map((warning) => ({
+            warningType: String(warning.warningType ?? warning.warning_type ?? 'unknown'),
+            machineId: warning.machine_id ?? undefined,
+            machineLabel: warning.machine_label ?? undefined,
+            partnershipId: warning.partnership_id ?? undefined,
+            partnershipName: warning.partnership_name ?? undefined,
+            message: String(warning.message ?? 'Review this reporting issue before sharing numbers.'),
+          }))
+        : [],
+    };
+  }
 
   return {
     partnershipId: String(raw?.partnershipId ?? partnershipId),
@@ -520,9 +580,12 @@ export const previewPartnerWeeklyReportAdmin = async (
   partnershipId: string,
   weekEndingDate: string
 ): Promise<PartnerWeeklyReportPreview> => {
-  const { data, error } = await supabaseClient.rpc('admin_preview_partner_weekly_report', {
+  const weekStartDate = getPreviewWeekStartDate(weekEndingDate);
+  const { data, error } = await supabaseClient.rpc('admin_preview_partner_period_report', {
     p_partnership_id: partnershipId,
-    p_week_ending_date: weekEndingDate,
+    p_date_from: weekStartDate,
+    p_date_to: weekEndingDate,
+    p_period_grain: 'reporting_week',
   });
 
   if (error) {
@@ -537,11 +600,14 @@ export const exportPartnerWeeklyReportAdmin = async (
   weekEndingDate: string,
   format: ExportPartnerWeeklyReportFormat
 ): Promise<ExportPartnerWeeklyReportResponse> => {
+  const weekStartDate = getPreviewWeekStartDate(weekEndingDate);
   return invokeEdgeFunction<ExportPartnerWeeklyReportResponse>(
     'partner-report-export',
     {
       partnershipId,
-      weekEndingDate,
+      periodGrain: 'reporting_week',
+      dateFrom: weekStartDate,
+      dateTo: weekEndingDate,
       format,
     },
     {

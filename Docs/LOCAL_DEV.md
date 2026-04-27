@@ -56,6 +56,7 @@
    - Partner dashboard amount owed repair: `supabase/migrations/202604260017_partner_dashboard_amount_owed_repair.sql`
    - Reporting partnership participant remove RPC: `supabase/migrations/202604260018_reporting_partnership_party_remove_rpc.sql`
    - Partner report weekly/monthly export metadata: `supabase/migrations/202604260019_partner_report_period_exports.sql`
+   - Refund adjustment review/matching: `supabase/migrations/202604270001_refund_adjustment_review_matching.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
@@ -75,11 +76,14 @@ Use these after the sales reporting migration has been applied.
 2) Import or dry-run normalized Sunze/manual sales CSV rows:
    - `npm run reporting:import-sales -- --file scripts/sample-sales-reporting.csv --dry-run`
    - `npm run reporting:import-sales -- --file path/to/sunze-export.csv --source manual_csv`
-3) Import or dry-run refund/complaint adjustments exported from Google Sheets:
+3) Import or dry-run refund/complaint adjustments from a sanitized CSV/export:
    - `npm run reporting:import-refunds -- --file scripts/sample-refund-adjustments.csv --dry-run`
-   - `npm run reporting:import-refunds -- --file path/to/refunds.csv --source-reference <sheet-or-export-id>`
-4) Validate the sanitized Sunze `.xlsx` parser fixture:
+   - `npm run reporting:import-refunds -- --file path/to/refunds.csv --source-reference <refund-export-id>`
+   - Required/referrable columns are `location` or `source_location`, `refund_date` or `processed_date`, `refund_amount_usd` or `refund_amount_cents`, and `status`. Optional audit columns include `order_date`, `reason`, `source_row_reference`, and `complaint_count`.
+   - Only approved/completed/refunded-style statuses with one conservative machine match auto-apply. Ambiguous, unmatched, duplicate, invalid, missing-status, or low-confidence rows stay in the admin review ledger and do not change partner settlement.
+4) Validate sanitized reporting parser/matching fixtures:
    - `npm run reporting:validate-sunze-parser`
+   - `npm run reporting:validate-refund-adjustments`
 5) Dry-run the Sunze browser export locally:
    - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
    - Historical backfill dry run with a supported Sunze preset:
@@ -98,8 +102,9 @@ Use these after the sales reporting migration has been applied.
    - `REPORTING_INGEST_TOKEN`
 
 Notes:
-- CSV rows must map to configured reporting machines by `machine_id`/`reporting_machine_id` or `sunze_machine_id`.
-- `machine_sales_facts` stores Sunze/manual sales as net sales. `sales_adjustment_facts` stores refunds separately so gross sales can be calculated as net plus refunds.
+- Sales CSV rows must map to configured reporting machines by `machine_id`/`reporting_machine_id` or `sunze_machine_id`.
+- Refund CSV rows are staged first and map through `reporting_machine_aliases`; do not paste raw private refund exports into repo files, issues, PRs, or chat.
+- `machine_sales_facts` stores Sunze/manual sales as net sales. `sales_adjustment_facts` stores approved refund adjustments separately so partner gross sales remains the imported sales basis while refund impact reduces net sales and split base.
 - `sunze-sales-ingest` requires `REPORTING_INGEST_TOKEN` and `REPORTING_ROW_HASH_SALT` as Supabase function secrets. The GitHub worker receives only `REPORTING_INGEST_TOKEN`, never the Supabase service-role key.
 - GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
 - Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.

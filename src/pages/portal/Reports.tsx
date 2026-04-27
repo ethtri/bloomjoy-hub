@@ -1170,6 +1170,7 @@ function PartnerDashboardView() {
                           <TableRow>
                             <TableHead>Machine</TableHead>
                             <TableHead className="text-right">Gross sales</TableHead>
+                            <TableHead className="text-right">Refunds</TableHead>
                             <TableHead className="text-right">Volume</TableHead>
                             <TableHead className="text-right">Tax + deductions</TableHead>
                             <TableHead className="text-right">Net sales</TableHead>
@@ -1190,6 +1191,9 @@ function PartnerDashboardView() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {formatCurrency(row.current.grossSalesCents)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  -{formatCurrency(row.current.refundAmountCents, true)}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <div>{numberFormatter.format(periodVolume(row.current))} items</div>
@@ -1308,7 +1312,7 @@ function PartnerAnswerBand({
           {preview.partnershipName} - {periodLabel} - {trendLabel} view
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-5 p-5 pt-0 md:grid-cols-2 xl:grid-cols-4">
+      <CardContent className="grid gap-5 p-5 pt-0 md:grid-cols-2 xl:grid-cols-5">
         <AnswerItem
           label="Amount owed"
           value={formatCurrency(current.amountOwedCents, true)}
@@ -1321,14 +1325,19 @@ function PartnerAnswerBand({
           detail={`${formatPercentChange(current.grossSalesCents, previous?.grossSalesCents ?? 0)} vs previous ${lowerTrendLabel}`}
         />
         <AnswerItem
-          label="Transactions"
-          value={numberFormatter.format(current.orderCount)}
-          detail={`${numberFormatter.format(current.itemQuantity)} items sold`}
+          label="Refund impact"
+          value={`-${formatCurrency(current.refundAmountCents, true)}`}
+          detail="Applied approved adjustments"
         />
         <AnswerItem
           label="Net sales"
           value={formatCurrency(current.netSalesCents, true)}
-          detail="After tax and configured deductions"
+          detail="After tax, refunds, and configured deductions"
+        />
+        <AnswerItem
+          label="Split base"
+          value={formatCurrency(current.splitBaseCents, true)}
+          detail={`${numberFormatter.format(current.orderCount)} transactions`}
         />
       </CardContent>
     </Card>
@@ -1520,7 +1529,7 @@ function PartnerPrintableReport({
           </div>
         </header>
 
-        <section className="grid grid-cols-4 gap-3">
+        <section className="grid grid-cols-5 gap-3">
           <PrintableMetric
             label="Amount owed"
             value={formatCurrency(current.amountOwedCents, true)}
@@ -1533,14 +1542,19 @@ function PartnerPrintableReport({
             detail={`${formatPercentChange(current.grossSalesCents, previousPeriod?.grossSalesCents ?? 0)} vs prior`}
           />
           <PrintableMetric
-            label="Net sales"
-            value={formatCurrency(current.netSalesCents, true)}
-            detail="After tax and deductions"
+            label="Refund impact"
+            value={`-${formatCurrency(current.refundAmountCents, true)}`}
+            detail="Applied adjustments"
           />
           <PrintableMetric
-            label="Transactions"
-            value={numberFormatter.format(current.orderCount)}
-            detail={`${numberFormatter.format(current.itemQuantity)} items sold`}
+            label="Net sales"
+            value={formatCurrency(current.netSalesCents, true)}
+            detail="After tax, refunds, and deductions"
+          />
+          <PrintableMetric
+            label="Split base"
+            value={formatCurrency(current.splitBaseCents, true)}
+            detail={`${numberFormatter.format(current.orderCount)} transactions`}
           />
         </section>
 
@@ -1548,7 +1562,7 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">{modeLabel} sales trend</h2>
             <p className="text-sm text-muted-foreground">
-              Net sales, gross sales, volume, and amount owed across the selected period.
+              Gross sales, refund impact, net sales, volume, and amount owed across the selected period.
             </p>
           </div>
           <table className="w-full border-collapse text-sm">
@@ -1556,6 +1570,7 @@ function PartnerPrintableReport({
               <tr className="border-b border-border text-left text-muted-foreground">
                 <th className="py-2 pr-3 font-medium">Period</th>
                 <th className="px-3 py-2 text-right font-medium">Gross sales</th>
+                <th className="px-3 py-2 text-right font-medium">Refunds</th>
                 <th className="px-3 py-2 text-right font-medium">Net sales</th>
                 <th className="px-3 py-2 text-right font-medium">Transactions</th>
                 <th className="px-3 py-2 text-right font-medium">Items</th>
@@ -1570,6 +1585,9 @@ function PartnerPrintableReport({
                   </td>
                   <td className="px-3 py-2 text-right">
                     {formatCurrency(period.grossSalesCents, true)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    -{formatCurrency(period.refundAmountCents, true)}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {formatCurrency(period.netSalesCents, true)}
@@ -1601,6 +1619,7 @@ function PartnerPrintableReport({
               <tr className="border-b border-border text-left text-muted-foreground">
                 <th className="py-2 pr-3 font-medium">Machine</th>
                 <th className="px-3 py-2 text-right font-medium">Gross sales</th>
+                <th className="px-3 py-2 text-right font-medium">Refunds</th>
                 <th className="px-3 py-2 text-right font-medium">Volume</th>
                 <th className="px-3 py-2 text-right font-medium">Net sales</th>
                 <th className="px-3 py-2 text-right font-medium">Amount owed</th>
@@ -1610,7 +1629,7 @@ function PartnerPrintableReport({
             <tbody>
               {machineRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-muted-foreground">
+                  <td colSpan={7} className="py-6 text-center text-muted-foreground">
                     No machine sales found for this period.
                   </td>
                 </tr>
@@ -1622,6 +1641,9 @@ function PartnerPrintableReport({
                     </td>
                     <td className="px-3 py-2 text-right">
                       {formatCurrency(row.current.grossSalesCents, true)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      -{formatCurrency(row.current.refundAmountCents, true)}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div>{numberFormatter.format(periodVolume(row.current))} items</div>
@@ -1659,8 +1681,9 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">Calculation summary</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Gross sales uses the Sunze order amount for partner settlement. Machine tax and
-              configured deductions are deducted once to create net sales.
+              Gross sales uses the imported order amount for partner settlement. Machine tax,
+              approved refund adjustments, and configured deductions are deducted once to create
+              net sales.
               {currentUsesNetSalesAsPayoutBasis
                 ? ' Net sales is the payout basis for this period.'
                 : ' The active rule then adjusts net sales into the payout basis.'}
@@ -1669,6 +1692,7 @@ function PartnerPrintableReport({
           </div>
           <div className="flex flex-col gap-2 text-sm">
             <CalculationLine label="Gross sales" value={formatCurrency(current.grossSalesCents, true)} />
+            <CalculationLine label="Refund impact" value={`-${formatCurrency(current.refundAmountCents, true)}`} />
             <CalculationLine label="Tax impact" value={`-${formatCurrency(current.taxCents, true)}`} />
             <CalculationLine label="Configured deductions" value={`-${formatCurrency(current.feeCents, true)}`} />
             {currentHasAdditionalCosts && (
@@ -1757,7 +1781,7 @@ function PartnerMachineMobileCard({
         <MobileProofItem
           label="Net sales"
           value={formatCurrency(row.current.netSalesCents, true)}
-          detail={formatPayoutBasisDetail(row.current)}
+          detail={`Refunds -${formatCurrency(row.current.refundAmountCents, true)} / ${formatPayoutBasisDetail(row.current)}`}
         />
         <MobileProofItem
           label="Tax + deductions"
@@ -1807,6 +1831,7 @@ function PartnerCalculationCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <CalculationLine label="Gross sales" value={formatCurrency(summary.grossSalesCents, true)} />
+        <CalculationLine label="Refund impact" value={`-${formatCurrency(summary.refundAmountCents, true)}`} />
         <CalculationLine label="Tax impact" value={`-${formatCurrency(summary.taxCents, true)}`} />
         <CalculationLine label="Configured deductions" value={`-${formatCurrency(summary.feeCents, true)}`} />
         {summaryHasAdditionalCosts && (
@@ -1828,8 +1853,9 @@ function PartnerCalculationCard({
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="font-medium text-foreground">How this is calculated</div>
           <p className="mt-2">
-            Gross sales uses the Sunze order amount for partner settlement. Machine tax and
-            configured deductions are deducted once to create net sales.
+            Gross sales uses the imported order amount for partner settlement. Machine tax,
+            approved refund adjustments, and configured deductions are deducted once to create net
+            sales.
             {summaryUsesNetSalesAsPayoutBasis
               ? ' Net sales is the payout basis for this period.'
               : ' The active rule then adjusts net sales into the payout basis.'}

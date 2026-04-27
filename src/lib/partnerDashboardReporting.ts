@@ -15,6 +15,7 @@ export type PartnerDashboardTotals = {
   orderCount: number;
   itemQuantity: number;
   grossSalesCents: number;
+  refundAmountCents: number;
   taxCents: number;
   feeCents: number;
   costCents: number;
@@ -85,6 +86,7 @@ type PartnerDashboardTotalsRpc = {
   order_count?: number;
   item_quantity?: number;
   gross_sales_cents?: number;
+  refund_amount_cents?: number;
   tax_cents?: number;
   fee_cents?: number;
   cost_cents?: number;
@@ -134,6 +136,7 @@ const mapTotals = (record: PartnerDashboardTotalsRpc | undefined): PartnerDashbo
   orderCount: numberValue(record?.order_count),
   itemQuantity: numberValue(record?.item_quantity),
   grossSalesCents: numberValue(record?.gross_sales_cents),
+  refundAmountCents: numberValue(record?.refund_amount_cents),
   taxCents: numberValue(record?.tax_cents),
   feeCents: numberValue(record?.fee_cents),
   costCents: numberValue(record?.cost_cents),
