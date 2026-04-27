@@ -32,12 +32,13 @@ export function PortalLayout({ children }: PortalLayoutProps) {
   const sortedDestinations = [...portalDestinations].sort(
     (left, right) => left.mobileOrder - right.mobileOrder
   );
-  const visibleDestinations =
-    portalAccessTier === 'training'
-      ? sortedDestinations.filter((destination) =>
-          canAccessPortalLevel(portalAccessTier, destination.access, hasReportingAccess)
-        )
-      : sortedDestinations;
+  const visibleDestinations = sortedDestinations
+    .filter((destination) => destination.access !== 'reporting' || hasReportingAccess)
+    .filter((destination) =>
+      portalAccessTier === 'training'
+        ? canAccessPortalLevel(portalAccessTier, destination.access, hasReportingAccess)
+        : true
+    );
   const accessStatusLabel =
     portalAccessTier === 'plus'
       ? 'Plus active'

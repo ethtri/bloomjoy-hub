@@ -95,6 +95,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
+- [ ] User with reporting access sees Reporting in portal navigation, quick actions, and the above-the-fold dashboard reporting card linking to `/portal/reports`
+- [ ] User without reporting access does not see Reporting in portal navigation or dashboard quick actions
 - [ ] On mobile app routes, page-intro actions stack cleanly full width instead of squeezing side-by-side on `/portal`, `/portal/orders`, `/portal/account`, `/portal/onboarding`, `/portal/support`, and `/portal/training`
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
