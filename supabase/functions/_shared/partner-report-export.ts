@@ -307,7 +307,7 @@ const formatSignedCurrencyChange = (current: unknown, previous: unknown): string
   return "$0.00";
 };
 
-const formatPriorPeriodPayoutLine = (
+const formatPriorPeriodHeroLine = (
   current: unknown,
   previous: unknown,
 ): string => {
@@ -320,15 +320,16 @@ const formatPriorPeriodPayoutLine = (
   } (${formatPercentChangeValue(current, previous)})`;
 };
 
-const formatTrendPayoutLine = (
+const formatTrendMetricLine = (
+  label: string,
   current: unknown,
   previous: unknown,
 ): string => {
   if (typeof previous === "undefined") {
-    return `${formatCurrency(current)} amount owed for the selected period`;
+    return `${label}: ${formatCurrency(current)} for the selected period`;
   }
 
-  return `${formatCurrency(current)} amount owed vs ${
+  return `${label}: ${formatCurrency(current)} vs ${
     formatCurrency(previous)
   } prior (${formatSignedCurrencyChange(current, previous)}, ${
     formatPercentChangeValue(current, previous)
@@ -852,17 +853,28 @@ const drawTrendPanel = (
   const previousPayout = previous
     ? getPrimaryPartnerPayoutCents(previous)
     : undefined;
-  drawText(page, fonts, formatTrendPayoutLine(selectedPayout, previousPayout), {
+  const selectedNetSales = selected?.net_sales_cents;
+  const previousNetSales = previous?.net_sales_cents;
+  drawText(page, fonts, formatTrendMetricLine("Net sales", selectedNetSales, previousNetSales), {
     x: x + 16,
     y: y + height - 39,
-    size: 8,
+    size: 7.5,
     color: COLORS.muted,
-    maxWidth: width - 32,
+    maxWidth: 238,
+    lineHeight: 9,
+  });
+  drawText(page, fonts, formatTrendMetricLine("Amount owed", selectedPayout, previousPayout), {
+    x: x + 282,
+    y: y + height - 39,
+    size: 7.5,
+    color: COLORS.muted,
+    maxWidth: width - 300,
+    lineHeight: 9,
   });
 
   const chartX = x + 20;
-  const chartY = y + 28;
-  const chartHeight = 40;
+  const chartY = y + 24;
+  const chartHeight = 32;
   const chartWidth = width - 40;
   const maxNetValue = Math.max(
     ...periods.map((period) => numberValue(period.net_sales_cents)),
@@ -965,7 +977,6 @@ const drawDashboardPage = (
 ) => {
   const {
     preview,
-    payoutRecipientLabels,
     generatedAt,
     feeLabel = "Stick cost deduction",
     costLabel = "Costs",
@@ -976,11 +987,15 @@ const drawDashboardPage = (
   const partnerName = toAscii(preview.partnershipName ?? "Partner report");
   const periodLabel = getFriendlyPeriodLabel(preview);
   const generatedAtLabel = formatGeneratedAt(generatedAt);
-  const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
+  const netSalesCents = numberValue(summary.net_sales_cents);
   const payoutCents = numberValue(getPrimaryPartnerPayoutCents(summary));
   const bloomjoyCents = numberValue(getBloomjoyRetainedCents(summary));
   const previousPeriod = findPreviousTrendPeriod(preview);
-  const payoutMovement = formatPriorPeriodPayoutLine(
+  const netSalesMovement = formatPriorPeriodHeroLine(
+    netSalesCents,
+    previousPeriod?.net_sales_cents,
+  );
+  const payoutMovement = formatPriorPeriodHeroLine(
     payoutCents,
     previousPeriod ? getPrimaryPartnerPayoutCents(previousPeriod) : undefined,
   );
@@ -997,54 +1012,70 @@ const drawDashboardPage = (
     generatedAt: generatedAtLabel,
   });
 
-  page.drawRectangle({ x: 42, y: 522, width: 528, height: 132, color: COLORS.slatePanel });
-  page.drawRectangle({ x: 42, y: 522, width: 6, height: 132, color: COLORS.coral });
-  drawText(page, fonts, "Amount owed", {
+  page.drawRectangle({ x: 42, y: 514, width: 528, height: 140, color: COLORS.slatePanel });
+  page.drawRectangle({ x: 42, y: 514, width: 6, height: 140, color: COLORS.coral });
+  drawText(page, fonts, "Net sales", {
     x: 68,
     y: 624,
     size: 10,
     font: fonts.bold,
     color: rgb(0.86, 0.88, 0.93),
   });
-  drawText(page, fonts, formatCurrency(payoutCents), {
+  drawText(page, fonts, formatCurrency(netSalesCents), {
     x: 68,
-    y: 580,
-    size: 34,
+    y: 585,
+    size: 29,
     font: fonts.bold,
     color: COLORS.white,
+    maxWidth: 178,
   });
-  drawText(page, fonts, `${partnerLabel} for ${periodLabel}`, {
+  drawText(page, fonts, netSalesMovement, {
     x: 68,
     y: 552,
-    size: 9,
+    size: 8,
     color: rgb(0.86, 0.88, 0.93),
-    maxWidth: 250,
+    maxWidth: 178,
+    lineHeight: 10,
+  });
+  drawText(page, fonts, "Amount owed", {
+    x: 268,
+    y: 624,
+    size: 10,
+    font: fonts.bold,
+    color: rgb(0.86, 0.88, 0.93),
+  });
+  drawText(page, fonts, formatCurrency(payoutCents), {
+    x: 268,
+    y: 585,
+    size: 29,
+    font: fonts.bold,
+    color: COLORS.white,
+    maxWidth: 145,
+  });
+  drawText(page, fonts, payoutMovement, {
+    x: 268,
+    y: 552,
+    size: 8,
+    color: rgb(0.86, 0.88, 0.93),
+    maxWidth: 145,
+    lineHeight: 10,
   });
   drawText(page, fonts, "Selected period", {
-    x: 392,
+    x: 438,
     y: 620,
     size: 8,
     font: fonts.bold,
     color: rgb(0.86, 0.88, 0.93),
   });
   drawText(page, fonts, periodLabel, {
-    x: 392,
+    x: 438,
     y: 597,
-    size: 14,
+    size: 11,
     font: fonts.bold,
     color: COLORS.white,
-    maxWidth: 150,
-    lineHeight: 16,
+    maxWidth: 104,
+    lineHeight: 13,
   });
-  drawText(page, fonts, payoutMovement, {
-    x: 392,
-    y: 552,
-    size: 8,
-    color: rgb(0.86, 0.88, 0.93),
-    maxWidth: 150,
-    lineHeight: 10,
-  });
-
   const cardY = 404;
   const cardWidth = 99.2;
   const cardGap = 8;
