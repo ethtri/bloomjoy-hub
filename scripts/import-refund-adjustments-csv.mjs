@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import {
+  buildSanitizedRefundPayload,
   buildMachineProfiles,
   extractRefundInput,
   makeSourceRowHash,
@@ -69,10 +70,20 @@ const loadMachineProfiles = async () => {
 
 const loadExistingAdjustmentHashes = async () => {
   const rows = requireNoError(
-    await supabase.from('sales_adjustment_facts').select('source_row_hash').eq('source', 'google_sheets'),
+    await supabase
+      .from('sales_adjustment_facts')
+      .select('source_reference, source_row_reference, source_row_hash')
+      .eq('source', 'google_sheets'),
     'Unable to load existing refund adjustment hashes'
   );
-  return new Set((rows ?? []).map((row) => row.source_row_hash).filter(Boolean));
+  const hashOwners = new Map();
+  for (const row of rows ?? []) {
+    if (!row.source_row_hash || !row.source_row_reference) continue;
+    const owners = hashOwners.get(row.source_row_hash) ?? new Set();
+    owners.add(`${row.source_reference ?? ''}\u0000${row.source_row_reference}`);
+    hashOwners.set(row.source_row_hash, owners);
+  }
+  return hashOwners;
 };
 
 const createImportRun = async (rowsSeen) => {
@@ -129,7 +140,7 @@ const applyAdjustment = async ({
   reviewRowId,
   matchedMachine,
   matchConfidence,
-  row,
+  rawPayload,
 }) => {
   if (dryRun) return { id: null };
 
@@ -152,8 +163,8 @@ const applyAdjustment = async ({
           refund_review_row_id: reviewRowId,
           match_status: 'applied',
           match_confidence: matchConfidence,
-          notes: input.reason || null,
-          raw_payload: row,
+          notes: null,
+          raw_payload: rawPayload,
         },
         { onConflict: 'source,source_reference,source_row_reference' }
       )
@@ -167,7 +178,7 @@ const applyAdjustment = async ({
 
 const rows = parseCsv(await readFile(filePath, 'utf8'));
 const machineProfiles = await loadMachineProfiles();
-const existingHashes = await loadExistingAdjustmentHashes();
+const existingHashOwners = await loadExistingAdjustmentHashes();
 const seenHashes = new Set();
 const counts = {
   rowsSeen: rows.length,
@@ -178,6 +189,7 @@ const counts = {
   rowsInvalid: 0,
   rowsAmbiguous: 0,
   rowsUnmatched: 0,
+  rowsUnapplied: 0,
 };
 const runId = await createImportRun(rows.length);
 
@@ -185,7 +197,10 @@ try {
   for (const { row, rowNumber } of rows) {
     const input = extractRefundInput(row, `row-${rowNumber}`);
     const sourceRowHash = makeSourceRowHash(input);
-    const duplicate = seenHashes.has(sourceRowHash) || existingHashes.has(sourceRowHash);
+    const currentOwnerKey = `${sourceReference}\u0000${input.sourceRowReference}`;
+    const duplicateFromExisting = [...(existingHashOwners.get(sourceRowHash) ?? new Set())]
+      .some((ownerKey) => ownerKey !== currentOwnerKey);
+    const duplicate = seenHashes.has(sourceRowHash) || duplicateFromExisting;
     seenHashes.add(sourceRowHash);
 
     const match = duplicate
@@ -199,6 +214,13 @@ try {
       : matchRefundToMachine(input, machineProfiles);
     const canApply = match.matchStatus === 'matched' && match.matchedMachine;
     const reviewStatus = canApply ? 'approved' : 'unresolved';
+    const rawPayload = buildSanitizedRefundPayload({
+      input,
+      sourceReference,
+      sourceRowHash,
+      sourceRowNumber: row.source_sheet_row_number ?? rowNumber,
+      match,
+    });
     const staged = await stageReviewRow({
       import_run_id: runId,
       source: 'sheet_export',
@@ -211,9 +233,9 @@ try {
       amount_cents: input.amountCents,
       adjustment_type: input.adjustmentType,
       complaint_count: input.complaintCount,
-      reason: input.reason || null,
+      reason: null,
       source_status: [input.sourceStatus, input.sourceDecision].filter(Boolean).join(' / ') || null,
-      raw_payload: row,
+      raw_payload: rawPayload,
       match_status: canApply ? 'matched' : match.matchStatus,
       match_confidence: match.matchConfidence,
       match_reason: match.matchReason,
@@ -232,7 +254,7 @@ try {
         reviewRowId: staged.id,
         matchedMachine: match.matchedMachine,
         matchConfidence: match.matchConfidence,
-        row,
+        rawPayload,
       });
       if (!dryRun && staged.id && adjustment.id) {
         requireNoError(
@@ -247,9 +269,44 @@ try {
           'Unable to mark refund review row applied'
         );
       }
-      existingHashes.add(sourceRowHash);
+      const owners = existingHashOwners.get(sourceRowHash) ?? new Set();
+      owners.add(currentOwnerKey);
+      existingHashOwners.set(sourceRowHash, owners);
       counts.rowsApplied += 1;
       continue;
+    }
+
+    if (!dryRun) {
+      const existingAdjustment = requireNoError(
+        await supabase
+          .from('sales_adjustment_facts')
+          .select('id')
+          .eq('source', 'google_sheets')
+          .eq('source_reference', sourceReference)
+          .eq('source_row_reference', input.sourceRowReference)
+          .maybeSingle(),
+        'Unable to check existing refund adjustment'
+      );
+
+      if (existingAdjustment?.id) {
+        requireNoError(
+          await supabase
+            .from('sales_adjustment_facts')
+            .delete()
+            .eq('id', existingAdjustment.id),
+          'Unable to remove refund adjustment that no longer qualifies for auto-apply'
+        );
+        if (staged.id) {
+          requireNoError(
+            await supabase
+              .from('refund_adjustment_review_rows')
+              .update({ applied_adjustment_id: null })
+              .eq('id', staged.id),
+            'Unable to clear stale applied refund link'
+          );
+        }
+        counts.rowsUnapplied += 1;
+      }
     }
 
     counts.rowsReview += 1;
@@ -272,6 +329,7 @@ try {
       rows_invalid: counts.rowsInvalid,
       rows_ambiguous: counts.rowsAmbiguous,
       rows_unmatched: counts.rowsUnmatched,
+      rows_unapplied: counts.rowsUnapplied,
     },
     completed_at: new Date().toISOString(),
   });

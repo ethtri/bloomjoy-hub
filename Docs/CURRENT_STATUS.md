@@ -69,7 +69,7 @@
 - Follow-up `#174` should simplify machine mapping into a focused admin flow from `/admin/reporting`: admins should only need to confirm the canonical machine name, Sunze ID, machine type, and user access, with site/location grouping optional and able to contain multiple machines.
 - `Docs/SUNZE_SALES_DISCOVERY.md` records the validated Sunze routes, export headers, payment/status mappings, and remaining open questions without storing credentials or raw order data.
 - Refund adjustment imports now use a safe review layer: rows are staged with source-row audit fields, deterministic machine-alias matching, match confidence/status, and applied adjustment links before they can affect partner settlement. Approved uniquely matched refunds reduce partner net sales, split base, and amount owed while gross sales remains the imported sales basis.
-- Google Sheets complaints/refunds ingestion still needs service-account access before live API fetching is enabled. A local XLSX export confirmed the current customer service sheet contract: `Location of Purchase`, `Decision Date`, `Date and Time of Incident`, `Refund Amount`, `Status`, `Decision`, and `Request ID`. The importer handles those headers with sanitized fixtures; production live reads still wait on the service-account path.
+- Refund source ingestion now has a service-account API path for production: `refund-adjustment-sync` can read the private sheet with a read-only Google service account, stage rows as review records, and auto-apply only uniquely matched `Status=Closed` plus approve-style `Decision` rows. The current customer service sheet contract is `Location of Purchase`, `Decision Date`, `Date and Time of Incident`, `Refund Amount`, `Status`, `Decision`, and `Request ID`; raw customer/payment/free-text source rows are not stored in reporting payloads.
 - Account/entitlement follow-up is tracked in issue `#150`; stale PR `#143` was closed instead of carrying forward older partner/operator schema work.
 
 ## Partner reporting PM roadmap (2026-04-25)
@@ -140,7 +140,7 @@
 
 ## Next P0 milestones
 - Complete trusted corporate partner settlement before building operator performance dashboards:
-  - resolve issue `#244` so the live Google Sheet service-account ingestion path is confirmed for production refund imports
+  - complete issue `#244` by deploying the refund service-account secrets, sharing the source sheet with the service account, and confirming the first dry-run/live sync in production
   - keep issue `#169` open until production UAT evidence confirms reviewed refund handling and partner-ready settlement expectations across current partner agreements
 - Clear the remaining WeCom production blocker:
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom

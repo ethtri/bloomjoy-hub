@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import {
+  buildSanitizedRefundPayload,
   buildMachineProfiles,
   calculatePartnerSettlementTotals,
   extractRefundInput,
   makeSourceRowHash,
   matchRefundToMachine,
   parseCsv,
+  parseSheetValues,
 } from './refunds/refund-adjustment-utils.mjs';
 
 const machines = [
@@ -175,6 +177,60 @@ const parsed = parseCsv(
 assert.equal(parsed.length, 1);
 assert.equal(parsed[0].row.refund_amount_usd, '12.50');
 
+const sheetRows = parseSheetValues([
+  [
+    'Timestamp',
+    'Your Name',
+    'Email Address',
+    'Location of Purchase',
+    'Date and Time of Incident',
+    'Incident Description',
+    'Venmo/Zelle Payment ID',
+    'Last 4 digits of your card',
+    'Request ID',
+    'Status',
+    'Refund Amount',
+    'Decision',
+    'Decision Date',
+  ],
+  [
+    '2026-04-11 09:00:00',
+    'Customer Name',
+    'customer@example.com',
+    'North Lobby',
+    '2026-04-10 10:30 AM',
+    'Private fixture detail',
+    'private-payment-id',
+    '1234',
+    'SANITIZED-REQ-2',
+    'Closed',
+    '8.50',
+    'Approve',
+    '2026-04-11',
+  ],
+]);
+assert.equal(sheetRows.length, 1);
+assert.equal(sheetRows[0].row.location_of_purchase, 'North Lobby');
+assert.equal(sheetRows[0].row.source_sheet_row_number, '2');
+
+const sheetInput = extractRefundInput(sheetRows[0].row, 'sheet-row-2');
+const sheetMatch = matchRefundToMachine(sheetInput, profiles);
+assert.equal(sheetMatch.matchStatus, 'matched');
+const sanitizedPayload = buildSanitizedRefundPayload({
+  input: sheetInput,
+  sourceReference: 'sanitized-source',
+  sourceRowHash: makeSourceRowHash(sheetInput),
+  sourceRowNumber: sheetRows[0].row.source_sheet_row_number,
+  match: sheetMatch,
+});
+assert.equal(sanitizedPayload.source_row_reference, 'SANITIZED-REQ-2');
+assert.equal(sanitizedPayload.source_location, 'North Lobby');
+assert.equal(sanitizedPayload.amount_cents, 850);
+assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'email_address'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'venmo_zelle_payment_id'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'last_4_digits_of_your_card'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'incident_description'), false);
+
 const withoutRefund = calculatePartnerSettlementTotals({
   grossSalesCents: 10000,
   taxCents: 800,
@@ -220,6 +276,8 @@ console.log(
       openStatusReviewOnly: openFormContractMatch.matchStatus,
       deniedDecisionReviewOnly: deniedFormContractMatch.matchStatus,
       duplicateHashDetected: true,
+      liveSheetValuesParsed: true,
+      sanitizedPayloadExcludesPrivateFields: true,
       refundReducesPartnerSettlement: true,
     },
   })

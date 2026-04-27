@@ -57,6 +57,7 @@
    - Reporting partnership participant remove RPC: `supabase/migrations/202604260018_reporting_partnership_party_remove_rpc.sql`
    - Partner report weekly/monthly export metadata: `supabase/migrations/202604260019_partner_report_period_exports.sql`
    - Refund adjustment review/matching: `supabase/migrations/202604270001_refund_adjustment_review_matching.sql`
+   - Live refund sheet ingestion source marker: `supabase/migrations/202604270002_live_refund_sheet_ingestion.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`
@@ -79,12 +80,16 @@ Use these after the sales reporting migration has been applied.
 3) Import or dry-run refund/complaint adjustments from a sanitized CSV/export:
    - `npm run reporting:import-refunds -- --file scripts/sample-refund-adjustments.csv --dry-run`
    - `npm run reporting:import-refunds -- --file path/to/refunds.csv --source-reference <refund-export-id>`
-   - Required/referrable columns are `location` / `Location of Purchase`, `refund_date` / `Decision Date`, `refund_amount_usd` / `Refund Amount`, and `status` / `Status`. Optional audit columns include `order_date` / `Date and Time of Incident`, `reason` / `Incident Description`, `source_row_reference` / `Request ID`, `decision` / `Refund Decision`, and `complaint_count`.
+   - Required/referrable columns are `location` / `Location of Purchase`, `refund_date` / `Decision Date`, `refund_amount_usd` / `Refund Amount`, and `status` / `Status`. Optional fields include `order_date` / `Date and Time of Incident`, `source_row_reference` / `Request ID`, `decision` / `Refund Decision`, and `complaint_count`. Free-text reason/incident fields are recognized for change detection only and are not stored in reporting payloads.
    - Only approved/completed/refunded-style statuses with one conservative machine match auto-apply. For the current customer service export, `Status=Closed` must pair with an approve-style `Decision`; `Open`, `Deny`, ambiguous, unmatched, duplicate, invalid, missing-status, or low-confidence rows stay in the admin review ledger and do not change partner settlement.
-4) Validate sanitized reporting parser/matching fixtures:
+4) Run the live refund source sync through the Supabase Edge Function after secrets are configured:
+   - Local dry run: `curl -X POST http://127.0.0.1:54321/functions/v1/refund-adjustment-sync -H "Authorization: Bearer $REPORT_SCHEDULER_SECRET" -H "Content-Type: application/json" --data "{\"dryRun\":true}"`
+   - Production trigger: run the `Refund Adjustment Sync` GitHub Action first with `dry_run=true`, then without dry run after aggregate counts look right.
+   - The live sync reads the configured sheet range, stages all rows, applies only safe rows, and returns aggregate counts only.
+5) Validate sanitized reporting parser/matching fixtures:
    - `npm run reporting:validate-sunze-parser`
    - `npm run reporting:validate-refund-adjustments`
-5) Dry-run the Sunze browser export locally:
+6) Dry-run the Sunze browser export locally:
    - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
    - Historical backfill dry run with a supported Sunze preset:
      `npm run reporting:sunze-sync -- --env-file path/to/local.env --date-preset "Last Month" --dry-run`
@@ -103,11 +108,12 @@ Use these after the sales reporting migration has been applied.
 
 Notes:
 - Sales CSV rows must map to configured reporting machines by `machine_id`/`reporting_machine_id` or `sunze_machine_id`.
-- Refund CSV rows are staged first and map through `reporting_machine_aliases`; do not paste raw private refund exports into repo files, issues, PRs, or chat.
+- Refund CSV and live source rows are staged first and map through `reporting_machine_aliases`; do not paste raw private refund exports into repo files, issues, PRs, or chat. Reporting payloads keep calculation/audit fields only and omit customer names, emails, payment identifiers, card digits, and free-text incident descriptions.
 - `machine_sales_facts` stores Sunze/manual sales as net sales. `sales_adjustment_facts` stores approved refund adjustments separately so partner gross sales remains the imported sales basis while refund impact reduces net sales and split base.
 - `sunze-sales-ingest` requires `REPORTING_INGEST_TOKEN` and `REPORTING_ROW_HASH_SALT` as Supabase function secrets. The GitHub worker receives only `REPORTING_INGEST_TOKEN`, never the Supabase service-role key.
 - GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
-- Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
+- GitHub encrypted secrets for the refund sync worker are `REFUND_ADJUSTMENT_SYNC_URL` and `REFUND_ADJUSTMENT_SYNC_TOKEN`; the GitHub workflow does not receive the Google service-account JSON or Supabase service-role key.
+- Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, optional `GOOGLE_REFUNDS_SHEET_RANGE`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
 - Sunze sync controls use optional `SUNZE_EXPECTED_MACHINE_COUNT`, `SUNZE_SYNC_STALE_HOURS=30`, and `SUNZE_REPORTING_TIMEZONE=America/Los_Angeles` by default. The scheduled sync workflow uses `Last 7 Days` daily for rolling overlap and `Last Month` monthly as a safety sweep, then performs a post-import freshness check. The separate Sunze health workflow checks again later for missed/stale imports. Set the expected count only after confirming how many machines the workflow Sunze account exposes in the top-level Machine Center; new visible machines are placed in the `/admin/reporting` mapping queue instead of blocking already mapped sales.
 - Admins map newly discovered Sunze IDs from `/admin/reporting`; the current PR flow pre-fills the broader `/admin/partnerships` machine form. Pending rows for unmapped machines are quarantined in normalized form and replayed into `machine_sales_facts` after the Sunze ID is mapped to a canonical reporting machine. Follow-up `#174` tracks a simpler machine-first mapping flow so new Sunze machines do not become recurring engineering blockers.
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
@@ -283,6 +289,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set REPORTING_ROW_HASH_SALT=...`
    - `supabase secrets set SUNZE_SYNC_STALE_HOURS=30`
    - `supabase secrets set GOOGLE_REFUNDS_SHEET_ID=...`
+   - `supabase secrets set GOOGLE_REFUNDS_SHEET_RANGE="'Form Responses 1'!A:T"`
    - `supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON=...`
    - Ensure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
 3) Run the commerce release preflight before deploy:

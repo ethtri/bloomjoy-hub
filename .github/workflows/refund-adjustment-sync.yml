@@ -1,0 +1,107 @@
+name: Refund Adjustment Sync
+
+on:
+  schedule:
+    # Daily private-source sync. Avoid the top of the hour because scheduled Actions can be delayed or dropped under load.
+    - cron: '17 15 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Fetch and validate rows without writing review or adjustment records'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-adjustment-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REFUND_ADJUSTMENT_SYNC_URL: ${{ secrets.REFUND_ADJUSTMENT_SYNC_URL }}
+      REFUND_ADJUSTMENT_SYNC_TOKEN: ${{ secrets.REFUND_ADJUSTMENT_SYNC_TOKEN }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate refund adjustment fixtures
+        run: npm run reporting:validate-refund-adjustments
+
+      - name: Sync refund adjustments
+        shell: bash
+        run: |
+          if [[ -z "$REFUND_ADJUSTMENT_SYNC_URL" || -z "$REFUND_ADJUSTMENT_SYNC_TOKEN" ]]; then
+            echo "Missing REFUND_ADJUSTMENT_SYNC_URL or REFUND_ADJUSTMENT_SYNC_TOKEN."
+            exit 1
+          fi
+
+          payload='{"dryRun":false}'
+          if [[ "$DRY_RUN" == "true" ]]; then
+            payload='{"dryRun":true}'
+          fi
+
+          response_file="$(mktemp)"
+          status_code="$(
+            curl -sS \
+              -o "$response_file" \
+              -w "%{http_code}" \
+              -X POST "$REFUND_ADJUSTMENT_SYNC_URL" \
+              -H "Authorization: Bearer $REFUND_ADJUSTMENT_SYNC_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$payload"
+          )"
+
+          node --input-type=module - "$response_file" "$status_code" <<'NODE'
+          import { readFileSync } from 'node:fs';
+
+          const [responseFile, statusCodeText] = process.argv.slice(2);
+          const statusCode = Number(statusCodeText);
+          const raw = readFileSync(responseFile, 'utf8');
+          let body = {};
+          try {
+            body = raw ? JSON.parse(raw) : {};
+          } catch {
+            body = { error: 'Refund sync returned a non-JSON response.' };
+          }
+
+          const summary = {
+            httpStatus: statusCode,
+            status: body.status ?? null,
+            dryRun: body.dryRun ?? null,
+            reviewSource: body.reviewSource ?? null,
+            runId: body.runId ?? null,
+            rowsSeen: body.rowsSeen ?? 0,
+            rowsStaged: body.rowsStaged ?? 0,
+            rowsApplied: body.rowsApplied ?? 0,
+            rowsReview: body.rowsReview ?? 0,
+            rowsDuplicate: body.rowsDuplicate ?? 0,
+            rowsInvalid: body.rowsInvalid ?? 0,
+            rowsAmbiguous: body.rowsAmbiguous ?? 0,
+            rowsUnmatched: body.rowsUnmatched ?? 0,
+            rowsUnapplied: body.rowsUnapplied ?? 0,
+          };
+
+          console.log(JSON.stringify(summary, null, 2));
+
+          if (statusCode >= 400 || body.error || body.status === 'failed') {
+            console.error(body.error || 'Refund adjustment sync failed.');
+            process.exit(1);
+          }
+          NODE

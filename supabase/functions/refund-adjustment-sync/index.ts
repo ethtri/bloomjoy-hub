@@ -6,6 +6,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const schedulerSecret = Deno.env.get("REPORT_SCHEDULER_SECRET");
 const googleRefundsSheetId = Deno.env.get("GOOGLE_REFUNDS_SHEET_ID");
+const googleRefundsSheetRange = Deno.env.get("GOOGLE_REFUNDS_SHEET_RANGE") || "'Form Responses 1'!A:T";
 const googleServiceAccountJson = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON");
 const encoder = new TextEncoder();
 
@@ -17,6 +18,11 @@ const supabase =
     : null;
 
 type RefundAdjustmentRow = Record<string, unknown>;
+
+type ImportRowsOptions = {
+  dryRun?: boolean;
+  reviewSource?: "api_payload" | "sheet_api";
+};
 
 type RefundInput = {
   sourceRowReference: string;
@@ -39,6 +45,12 @@ type MachineProfile = {
   locationId: string;
   machineLabel: string;
   labels: Array<{ kind: string; normalized: string }>;
+};
+
+type GoogleServiceAccount = {
+  client_email?: string;
+  private_key?: string;
+  token_uri?: string;
 };
 
 const autoApplyStatuses = new Set([
@@ -80,8 +92,21 @@ const normalizeMatchText = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const normalizeHeader = (value: unknown) =>
+  String(value ?? "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
 const normalizeStatus = (value: unknown) =>
   sanitizeText(value).toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+
+const parseBoolean = (value: unknown) => {
+  if (value === true) return true;
+  if (typeof value === "string") return normalizeStatus(value) === "true";
+  return false;
+};
 
 const normalizeDate = (value: unknown) => {
   const text = sanitizeText(value);
@@ -145,6 +170,141 @@ const parseCount = (value: unknown) => {
 const sha256Hex = async (value: string) => {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+
+const base64Url = (value: string | Uint8Array) => {
+  const bytes = typeof value === "string" ? encoder.encode(value) : value;
+  const binary = [...bytes].map((byte) => String.fromCharCode(byte)).join("");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+};
+
+const pemToArrayBuffer = (pem: string) => {
+  const base64 = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+    .replace(/-----END PRIVATE KEY-----/g, "")
+    .replace(/\s+/g, "");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+};
+
+const createGoogleAccessToken = async () => {
+  if (!googleServiceAccountJson) {
+    throw new Error("Live refund source credentials are not configured.");
+  }
+
+  let credentials: GoogleServiceAccount;
+  try {
+    credentials = JSON.parse(googleServiceAccountJson) as GoogleServiceAccount;
+  } catch {
+    throw new Error("Live refund source credentials are not valid JSON.");
+  }
+
+  const clientEmail = sanitizeText(credentials.client_email);
+  const privateKey = sanitizeText(credentials.private_key);
+  const tokenUri = sanitizeText(credentials.token_uri) || "https://oauth2.googleapis.com/token";
+
+  if (!clientEmail || !privateKey) {
+    throw new Error("Live refund source credentials are missing service account fields.");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claimSet = {
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
+    aud: tokenUri,
+    exp: now + 3600,
+    iat: now,
+  };
+  const unsignedJwt = `${base64Url(JSON.stringify(header))}.${base64Url(JSON.stringify(claimSet))}`;
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    pemToArrayBuffer(privateKey),
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, encoder.encode(unsignedJwt)));
+  const assertion = `${unsignedJwt}.${base64Url(signature)}`;
+
+  const response = await fetch(tokenUri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unable to authenticate to live refund source. Status: ${response.status}`);
+  }
+
+  const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+  const accessToken = sanitizeText(body.access_token);
+  if (!accessToken) {
+    throw new Error("Live refund source did not return an access token.");
+  }
+  return accessToken;
+};
+
+const sheetValuesToRows = (values: unknown[][]) => {
+  if (!Array.isArray(values) || values.length === 0) return [] as RefundAdjustmentRow[];
+
+  const headers = (values[0] ?? []).map((header) => normalizeHeader(header));
+  return values
+    .slice(1)
+    .map((cells, rowIndex) => {
+      const rowNumber = rowIndex + 2;
+      const row = Object.fromEntries(
+        headers.map((header, cellIndex) => [
+          header,
+          String((cells ?? [])[cellIndex] ?? "").trim(),
+        ]),
+      ) as RefundAdjustmentRow;
+      if (!sanitizeText(row.source_sheet_row_number)) {
+        row.source_sheet_row_number = String(rowNumber);
+      }
+      return row;
+    })
+    .filter((row) =>
+      Object.entries(row).some(
+        ([key, value]) => key !== "source_sheet_row_number" && sanitizeText(value),
+      )
+    );
+};
+
+const fetchRefundSheetRows = async () => {
+  if (!googleRefundsSheetId) {
+    throw new Error("Live refund source sheet ID is not configured.");
+  }
+
+  const accessToken = await createGoogleAccessToken();
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(googleRefundsSheetId)}/values/${encodeURIComponent(googleRefundsSheetRange)}`,
+  );
+  url.searchParams.set("majorDimension", "ROWS");
+  url.searchParams.set("valueRenderOption", "FORMATTED_VALUE");
+  url.searchParams.set("dateTimeRenderOption", "FORMATTED_STRING");
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unable to fetch live refund source rows. Status: ${response.status}`);
+  }
+
+  const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+  const values = Array.isArray(body.values) ? (body.values as unknown[][]) : [];
+  return {
+    rows: sheetValuesToRows(values),
+    sourceReference: `sheet:${googleRefundsSheetId}:${googleRefundsSheetRange}`,
+  };
 };
 
 const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: string): RefundInput => {
@@ -418,29 +578,90 @@ const matchRefund = (input: RefundInput, machines: MachineProfile[]) => {
   };
 };
 
-const loadExistingHashes = async () => {
-  if (!supabase) return new Set<string>();
+const buildSanitizedRefundPayload = ({
+  input,
+  sourceReference,
+  sourceRowHash,
+  sourceRowNumber,
+  match,
+  appliedAdjustmentId = null,
+}: {
+  input: RefundInput;
+  sourceReference: string | null;
+  sourceRowHash: string;
+  sourceRowNumber?: unknown;
+  match: ReturnType<typeof matchRefund>;
+  appliedAdjustmentId?: string | null;
+}) => ({
+  payload_schema: "refund_adjustment.v1",
+  source_reference: sourceReference || null,
+  source_row_reference: input.sourceRowReference,
+  source_row_hash: sourceRowHash,
+  source_row_number: sanitizeText(sourceRowNumber) || null,
+  source_location: input.sourceLocation || null,
+  refund_date: input.refundDate || null,
+  original_order_date: input.originalOrderDate || null,
+  amount_cents: input.amountCents,
+  adjustment_type: input.adjustmentType,
+  complaint_count: input.complaintCount,
+  source_status: input.sourceStatus || null,
+  source_decision: input.sourceDecision || null,
+  match_status: match.status,
+  match_confidence: match.confidence,
+  match_reason: match.reason,
+  candidate_machine_count: match.candidateMachineIds.length,
+  matched_machine_id: match.matchedMachine?.id ?? null,
+  applied_adjustment_id: appliedAdjustmentId,
+});
+
+const existingAdjustmentKey = (sourceReference: string | null, sourceRowReference: string) =>
+  `${sourceReference ?? ""}\u0000${sourceRowReference}`;
+
+const loadExistingAdjustments = async () => {
+  const hashOwners = new Map<string, Set<string>>();
+  if (!supabase) return hashOwners;
   const { data, error } = await supabase
     .from("sales_adjustment_facts")
-    .select("source_row_hash")
+    .select("source_reference, source_row_reference, source_row_hash")
     .eq("source", "google_sheets");
   if (error) throw new Error(error.message || "Unable to load existing refund adjustments.");
-  return new Set(((data ?? []) as Array<Record<string, unknown>>).map((row) => sanitizeText(row.source_row_hash)).filter(Boolean));
+
+  ((data ?? []) as Array<Record<string, unknown>>).forEach((row) => {
+    const hash = sanitizeText(row.source_row_hash);
+    const sourceReference = sanitizeText(row.source_reference);
+    const sourceRowReference = sanitizeText(row.source_row_reference);
+    if (!hash || !sourceRowReference) return;
+    const owners = hashOwners.get(hash) ?? new Set<string>();
+    owners.add(existingAdjustmentKey(sourceReference, sourceRowReference));
+    hashOwners.set(hash, owners);
+  });
+
+  return hashOwners;
 };
 
 const importRows = async (
   rows: RefundAdjustmentRow[],
   sourceReference: string | null,
+  options: ImportRowsOptions = {},
 ) => {
   if (!supabase) throw new Error("Supabase is not configured.");
 
-  const runId = await recordRun({
-    status: "running",
-    sourceReference,
-    rowsSeen: rows.length,
-  });
+  const dryRun = Boolean(options.dryRun);
+  const reviewSource = options.reviewSource ?? "api_payload";
+  const runId = dryRun
+    ? null
+    : await recordRun({
+      status: "running",
+      sourceReference,
+      rowsSeen: rows.length,
+      meta: {
+        dry_run: false,
+        review_source: reviewSource,
+        sheet_range: reviewSource === "sheet_api" ? googleRefundsSheetRange : null,
+      },
+    });
   const machines = await buildMachineProfiles();
-  const existingHashes = await loadExistingHashes();
+  const existingHashOwners = await loadExistingAdjustments();
   const seenHashes = new Set<string>();
   const counts = {
     rowsSeen: rows.length,
@@ -451,13 +672,21 @@ const importRows = async (
     rowsInvalid: 0,
     rowsAmbiguous: 0,
     rowsUnmatched: 0,
+    rowsUnapplied: 0,
   };
 
   try {
     for (const [index, row] of rows.entries()) {
-      const input = extractRefundInput(row, `row-${index + 1}`);
+      const fallbackRowReference = sanitizeText(row.source_sheet_row_number)
+        ? `sheet-row-${sanitizeText(row.source_sheet_row_number)}`
+        : `row-${index + 1}`;
+      const input = extractRefundInput(row, fallbackRowReference);
       const hash = await sourceRowHash(input);
-      const duplicate = seenHashes.has(hash) || existingHashes.has(hash);
+      const resolvedSourceReference = sourceReference ?? googleRefundsSheetId ?? "refund-source-export";
+      const currentOwnerKey = existingAdjustmentKey(resolvedSourceReference, input.sourceRowReference);
+      const duplicateFromExisting = [...(existingHashOwners.get(hash) ?? new Set<string>())]
+        .some((ownerKey) => ownerKey !== currentOwnerKey);
+      const duplicate = seenHashes.has(hash) || duplicateFromExisting;
       seenHashes.add(hash);
       const match = duplicate
         ? {
@@ -469,85 +698,137 @@ const importRows = async (
         }
         : matchRefund(input, machines);
       const canApply = match.status === "matched" && match.matchedMachine;
+      const rawPayload = buildSanitizedRefundPayload({
+        input,
+        sourceReference: resolvedSourceReference,
+        sourceRowHash: hash,
+        sourceRowNumber: row.source_sheet_row_number,
+        match,
+      });
+      let staged: { id: string | null } = { id: null };
 
-      const { data: staged, error: stageError } = await supabase
-        .from("refund_adjustment_review_rows")
-        .upsert({
-          import_run_id: runId,
-          source: "api_payload",
-          source_reference: sourceReference ?? googleRefundsSheetId ?? "refund-source-export",
-          source_row_reference: input.sourceRowReference,
-          source_row_hash: hash,
-          source_location: input.sourceLocation || null,
-          refund_date: input.refundDate || null,
-          original_order_date: input.originalOrderDate || null,
-          amount_cents: input.amountCents,
-          adjustment_type: input.adjustmentType,
-          complaint_count: input.complaintCount,
-          reason: input.reason || null,
-          source_status: [input.sourceStatus, input.sourceDecision].filter(Boolean).join(" / ") || null,
-          raw_payload: row,
-          match_status: canApply ? "matched" : match.status,
-          match_confidence: match.confidence,
-          match_reason: match.reason,
-          candidate_machine_ids: match.candidateMachineIds,
-          matched_machine_id: match.matchedMachine?.id ?? null,
-          matched_location_id: match.matchedMachine?.locationId ?? null,
-          resolution_status: canApply ? "approved" : "unresolved",
-        }, { onConflict: "source,source_reference,source_row_reference" })
-        .select("id")
-        .single();
+      if (!dryRun) {
+        const { data, error: stageError } = await supabase
+          .from("refund_adjustment_review_rows")
+          .upsert({
+            import_run_id: runId,
+            source: reviewSource,
+            source_reference: resolvedSourceReference,
+            source_row_reference: input.sourceRowReference,
+            source_row_hash: hash,
+            source_location: input.sourceLocation || null,
+            refund_date: input.refundDate || null,
+            original_order_date: input.originalOrderDate || null,
+            amount_cents: input.amountCents,
+            adjustment_type: input.adjustmentType,
+            complaint_count: input.complaintCount,
+            reason: null,
+            source_status: [input.sourceStatus, input.sourceDecision].filter(Boolean).join(" / ") || null,
+            raw_payload: rawPayload,
+            match_status: canApply ? "matched" : match.status,
+            match_confidence: match.confidence,
+            match_reason: match.reason,
+            candidate_machine_ids: match.candidateMachineIds,
+            matched_machine_id: match.matchedMachine?.id ?? null,
+            matched_location_id: match.matchedMachine?.locationId ?? null,
+            resolution_status: canApply ? "approved" : "unresolved",
+          }, { onConflict: "source,source_reference,source_row_reference" })
+          .select("id")
+          .single();
 
-      if (stageError || !staged) {
-        throw new Error(stageError?.message || "Unable to stage refund review row.");
+        if (stageError || !data) {
+          throw new Error(stageError?.message || "Unable to stage refund review row.");
+        }
+        staged = data;
       }
 
       counts.rowsStaged += 1;
 
       if (canApply && match.matchedMachine) {
-        const { data: adjustment, error: adjustmentError } = await supabase
-          .from("sales_adjustment_facts")
-          .upsert({
-            reporting_machine_id: match.matchedMachine.id,
-            reporting_location_id: match.matchedMachine.locationId,
-            adjustment_date: input.refundDate,
-            adjustment_type: input.adjustmentType,
-            amount_cents: input.amountCents,
-            complaint_count: input.complaintCount,
-            source: "google_sheets",
-            source_reference: sourceReference ?? googleRefundsSheetId ?? "refund-source-export",
-            source_row_reference: input.sourceRowReference,
-            source_row_hash: hash,
-            import_run_id: runId,
-            refund_review_row_id: staged.id,
-            match_status: "applied",
-            match_confidence: match.confidence,
-            notes: input.reason || null,
-            raw_payload: row,
-          }, { onConflict: "source,source_reference,source_row_reference" })
-          .select("id")
-          .single();
+        if (!dryRun) {
+          const { data: adjustment, error: adjustmentError } = await supabase
+            .from("sales_adjustment_facts")
+            .upsert({
+              reporting_machine_id: match.matchedMachine.id,
+              reporting_location_id: match.matchedMachine.locationId,
+              adjustment_date: input.refundDate,
+              adjustment_type: input.adjustmentType,
+              amount_cents: input.amountCents,
+              complaint_count: input.complaintCount,
+              source: "google_sheets",
+              source_reference: resolvedSourceReference,
+              source_row_reference: input.sourceRowReference,
+              source_row_hash: hash,
+              import_run_id: runId,
+              refund_review_row_id: staged.id,
+              match_status: "applied",
+              match_confidence: match.confidence,
+              notes: null,
+              raw_payload: rawPayload,
+            }, { onConflict: "source,source_reference,source_row_reference" })
+            .select("id")
+            .single();
 
-        if (adjustmentError || !adjustment) {
-          throw new Error(adjustmentError?.message || "Unable to apply refund adjustment.");
+          if (adjustmentError || !adjustment) {
+            throw new Error(adjustmentError?.message || "Unable to apply refund adjustment.");
+          }
+
+          const { error: reviewUpdateError } = await supabase
+            .from("refund_adjustment_review_rows")
+            .update({
+              match_status: "applied",
+              applied_adjustment_id: adjustment.id,
+              resolution_status: "approved",
+            })
+            .eq("id", staged.id);
+
+          if (reviewUpdateError) {
+            throw new Error(reviewUpdateError.message || "Unable to mark refund row applied.");
+          }
         }
 
-        const { error: reviewUpdateError } = await supabase
-          .from("refund_adjustment_review_rows")
-          .update({
-            match_status: "applied",
-            applied_adjustment_id: adjustment.id,
-            resolution_status: "approved",
-          })
-          .eq("id", staged.id);
-
-        if (reviewUpdateError) {
-          throw new Error(reviewUpdateError.message || "Unable to mark refund row applied.");
-        }
-
-        existingHashes.add(hash);
+        const owners = existingHashOwners.get(hash) ?? new Set<string>();
+        owners.add(currentOwnerKey);
+        existingHashOwners.set(hash, owners);
         counts.rowsApplied += 1;
       } else {
+        if (!dryRun) {
+          const { data: existingAdjustment, error: existingAdjustmentError } = await supabase
+            .from("sales_adjustment_facts")
+            .select("id")
+            .eq("source", "google_sheets")
+            .eq("source_reference", resolvedSourceReference)
+            .eq("source_row_reference", input.sourceRowReference)
+            .maybeSingle();
+
+          if (existingAdjustmentError) {
+            throw new Error(existingAdjustmentError.message || "Unable to check existing refund adjustment.");
+          }
+
+          const existingAdjustmentId = sanitizeText(existingAdjustment?.id);
+          if (existingAdjustmentId) {
+            const { error: deleteError } = await supabase
+              .from("sales_adjustment_facts")
+              .delete()
+              .eq("id", existingAdjustmentId);
+
+            if (deleteError) {
+              throw new Error(deleteError.message || "Unable to remove refund adjustment that no longer qualifies for auto-apply.");
+            }
+
+            if (staged.id) {
+              const { error: clearReviewError } = await supabase
+                .from("refund_adjustment_review_rows")
+                .update({ applied_adjustment_id: null })
+                .eq("id", staged.id);
+
+              if (clearReviewError) {
+                throw new Error(clearReviewError.message || "Unable to clear stale applied refund link.");
+              }
+            }
+            counts.rowsUnapplied += 1;
+          }
+        }
         counts.rowsReview += 1;
         if (match.status === "duplicate") counts.rowsDuplicate += 1;
         if (match.status === "invalid") counts.rowsInvalid += 1;
@@ -556,7 +837,7 @@ const importRows = async (
       }
     }
 
-    await updateRun(runId, {
+    if (!dryRun) await updateRun(runId, {
       status: "completed",
       rows_seen: counts.rowsSeen,
       rows_imported: counts.rowsApplied,
@@ -569,13 +850,14 @@ const importRows = async (
         rows_invalid: counts.rowsInvalid,
         rows_ambiguous: counts.rowsAmbiguous,
         rows_unmatched: counts.rowsUnmatched,
+        rows_unapplied: counts.rowsUnapplied,
       },
       completed_at: new Date().toISOString(),
     });
 
     return { runId, ...counts };
   } catch (error) {
-    await updateRun(runId, {
+    if (!dryRun) await updateRun(runId, {
       status: "failed",
       rows_imported: counts.rowsApplied,
       rows_skipped: counts.rowsSeen - counts.rowsApplied,
@@ -609,31 +891,48 @@ serve(async (req) => {
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const rows = Array.isArray(body.rows) ? (body.rows as RefundAdjustmentRow[]) : [];
-    const sourceReference = sanitizeText(body.sourceReference) || googleRefundsSheetId || "refund-source-export";
+    let rows = Array.isArray(body.rows) ? (body.rows as RefundAdjustmentRow[]) : [];
+    let sourceReference = sanitizeText(body.sourceReference) || googleRefundsSheetId || "refund-source-export";
+    const dryRun = parseBoolean(body.dryRun ?? body.dry_run);
+    let reviewSource: ImportRowsOptions["reviewSource"] = "api_payload";
 
     if (rows.length === 0) {
-      const runId = await recordRun({
-        status: "failed",
-        sourceReference,
-        errorMessage:
-          googleRefundsSheetId && googleServiceAccountJson
-            ? "External refund source fetch is blocked until the header and status contract is confirmed."
-            : "External refund source credentials are not configured.",
-      });
-      return jsonResponse({
-        status: "blocked",
-        runId,
-        message:
-          "Send sanitized rows in the request body for now. Live refund-source ingestion is a follow-up after the sheet contract is confirmed.",
-      });
+      try {
+        const fetched = await fetchRefundSheetRows();
+        rows = fetched.rows;
+        sourceReference = sanitizeText(body.sourceReference) || fetched.sourceReference;
+        reviewSource = "sheet_api";
+      } catch (error) {
+        const errorMessage = error instanceof Error && error.message
+          ? error.message
+          : "Unable to fetch live refund source rows.";
+        const runId = dryRun
+          ? null
+          : await recordRun({
+            status: "failed",
+            sourceReference,
+            errorMessage,
+            meta: {
+              dry_run: false,
+              review_source: "sheet_api",
+              sheet_range: googleRefundsSheetRange,
+            },
+          });
+        return jsonResponse({
+          status: "failed",
+          runId,
+          error: errorMessage,
+        }, 500);
+      }
     }
 
-    const result = await importRows(rows, sourceReference);
+    const result = await importRows(rows, sourceReference, { dryRun, reviewSource });
 
     return jsonResponse({
       status: "completed",
       source: "refund_adjustments",
+      dryRun,
+      reviewSource,
       ...result,
     });
   } catch (error) {
