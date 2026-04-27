@@ -52,7 +52,7 @@ export const portalDestinations: PortalDestination[] = [
   {
     href: '/portal/reports',
     label: 'Reporting',
-    description: 'Machine sales, location rollups, and partner dashboard previews.',
+    description: 'Machine sales, location rollups, and available reporting views.',
     icon: BarChart3,
     access: 'reporting',
     mobileOrder: 4,
