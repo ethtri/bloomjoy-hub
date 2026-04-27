@@ -180,6 +180,7 @@ const rows = parseCsv(await readFile(filePath, 'utf8'));
 const machineProfiles = await loadMachineProfiles();
 const existingHashOwners = await loadExistingAdjustmentHashes();
 const seenHashes = new Set();
+const seenOwnerKeys = new Set();
 const counts = {
   rowsSeen: rows.length,
   rowsStaged: 0,
@@ -200,20 +201,23 @@ try {
     const currentOwnerKey = `${sourceReference}\u0000${input.sourceRowReference}`;
     const duplicateFromExisting = [...(existingHashOwners.get(sourceRowHash) ?? new Set())]
       .some((ownerKey) => ownerKey !== currentOwnerKey);
-    const duplicate = seenHashes.has(sourceRowHash) || duplicateFromExisting;
+    const duplicateRowReference = seenOwnerKeys.has(currentOwnerKey);
+    const duplicate = duplicateRowReference || seenHashes.has(sourceRowHash) || duplicateFromExisting;
     seenHashes.add(sourceRowHash);
+    seenOwnerKeys.add(currentOwnerKey);
 
     const match = duplicate
       ? {
           matchStatus: 'duplicate',
           matchConfidence: 0,
-          matchReason: 'duplicate_source_row_hash',
+          matchReason: duplicateRowReference
+            ? 'duplicate_source_row_reference'
+            : 'duplicate_source_row_hash',
           candidateMachineIds: [],
           matchedMachine: null,
         }
       : matchRefundToMachine(input, machineProfiles);
     const canApply = match.matchStatus === 'matched' && match.matchedMachine;
-    const reviewStatus = canApply ? 'approved' : 'unresolved';
     const rawPayload = buildSanitizedRefundPayload({
       input,
       sourceReference,
@@ -242,7 +246,7 @@ try {
       candidate_machine_ids: match.candidateMachineIds,
       matched_machine_id: match.matchedMachine?.id ?? null,
       matched_location_id: match.matchedMachine?.locationId ?? null,
-      resolution_status: reviewStatus,
+      resolution_status: 'unresolved',
     });
     counts.rowsStaged += 1;
 
