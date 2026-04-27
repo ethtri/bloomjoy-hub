@@ -483,7 +483,7 @@ const importRows = async (
             match_confidence: match.confidence,
             notes: input.reason || null,
             raw_payload: row,
-          }, { onConflict: "source,source_row_hash" })
+          }, { onConflict: "source,source_reference,source_row_reference" })
           .select("id")
           .single();
 

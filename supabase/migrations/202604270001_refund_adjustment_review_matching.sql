@@ -174,6 +174,9 @@ $$;
 create index if not exists sales_adjustment_facts_source_reference_idx
   on public.sales_adjustment_facts (source, source_reference);
 
+create unique index if not exists sales_adjustment_facts_source_row_reference_idx
+  on public.sales_adjustment_facts (source, source_reference, source_row_reference);
+
 create index if not exists sales_adjustment_facts_refund_review_row_idx
   on public.sales_adjustment_facts (refund_review_row_id)
   where refund_review_row_id is not null;
