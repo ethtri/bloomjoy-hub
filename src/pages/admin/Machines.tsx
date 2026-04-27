@@ -159,7 +159,13 @@ export default function AdminMachinesPage() {
           draftValue: taxDrafts[machine.id] ?? (taxRate ? String(Number(taxRate.tax_rate_percent)) : ''),
         };
       })
-      .filter((row) => taxFilter === 'all' || row.taxStatus === taxFilter)
+      .filter((row) => {
+        if (taxFilter === 'all') return true;
+        if (taxFilter === 'missing') {
+          return row.activeAssignments.length > 0 && row.taxStatus === 'missing';
+        }
+        return row.taxStatus === taxFilter;
+      })
       .filter((row) => {
         if (assignmentFilter === 'all') return true;
         if (assignmentFilter === 'unassigned') return row.activeAssignments.length === 0;
@@ -193,16 +199,15 @@ export default function AdminMachinesPage() {
   const readinessCounts = useMemo(() => {
     const currentDate = today();
     const missingTax = setup.machines.filter(
-      (machine) => getTaxStatus(getCurrentTaxRate(setup.taxRates, machine.id, currentDate)) === 'missing'
-    ).length;
-    const unassigned = setup.machines.filter(
-      (machine) => getActiveMachineAssignments(setup, machine.id, currentDate).length === 0
+      (machine) =>
+        getActiveMachineAssignments(setup, machine.id, currentDate).length > 0 &&
+        getTaxStatus(getCurrentTaxRate(setup.taxRates, machine.id, currentDate)) === 'missing'
     ).length;
     const overlappingAssignments = setup.warnings.filter(
       (warning) => warning.warningType === 'overlapping_partnership_assignments'
     ).length;
 
-    return { missingTax, unassigned, overlappingAssignments };
+    return { missingTax, overlappingAssignments };
   }, [setup]);
 
   const updateTaxFilter = (nextFilter: MachineTaxFilter) => {
@@ -408,25 +413,19 @@ export default function AdminMachinesPage() {
             </div>
           )}
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <ReadinessCard
-              label="Missing tax"
+              label="Assigned machines missing tax"
               value={readinessCounts.missingTax}
+              description="Only machines assigned to partner reports need reporting tax."
               actionLabel="Show missing"
               onAction={() => updateTaxFilter('missing')}
               isWarning={readinessCounts.missingTax > 0}
             />
             <ReadinessCard
-              label="No report assignment"
-              value={readinessCounts.unassigned}
-              description="Not included in partner reports until assigned in Partnerships."
-              actionLabel="Show machines"
-              onAction={() => updateAssignmentFilter('unassigned')}
-              isWarning={readinessCounts.unassigned > 0}
-            />
-            <ReadinessCard
-              label="Overlaps"
+              label="Assignment overlaps"
               value={readinessCounts.overlappingAssignments}
+              description="A machine is assigned to more than one active report window."
               actionLabel="Review rows"
               onAction={() => updateAssignmentFilter('overlap')}
               isWarning={readinessCounts.overlappingAssignments > 0}
@@ -436,7 +435,8 @@ export default function AdminMachinesPage() {
           <div className="mt-6 rounded-lg border border-border bg-card p-4">
             <div className="mb-4 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
               Reporting tax rates are used only for partner report estimates. They do not set
-              machine prices or replace the accounting tax workflow.
+              machine prices or replace the accounting tax workflow. Machines without a partnership
+              assignment are not included in partner reports, and that is a normal state.
             </div>
             <div className="grid gap-3 xl:grid-cols-[1fr_auto_auto_auto] xl:items-end">
               <div>
@@ -461,7 +461,7 @@ export default function AdminMachinesPage() {
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="all">All tax states</option>
-                  <option value="missing">Missing tax</option>
+                  <option value="missing">Missing tax for assigned machines</option>
                   <option value="no_tax">Explicit no tax</option>
                   <option value="configured">Configured tax</option>
                 </select>
@@ -480,16 +480,16 @@ export default function AdminMachinesPage() {
                 </select>
               </div>
               <div>
-                <Label htmlFor="assignment-filter">Assignment</Label>
+                <Label htmlFor="assignment-filter">Partner report status</Label>
                 <select
                   id="assignment-filter"
                   value={assignmentFilter}
                   onChange={(event) => updateAssignmentFilter(event.target.value as MachineAssignmentFilter)}
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
-                  <option value="all">All assignments</option>
-                  <option value="unassigned">No report assignment</option>
-                  <option value="overlap">Overlaps</option>
+                  <option value="all">All machines</option>
+                  <option value="unassigned">Not in partner reports</option>
+                  <option value="overlap">Assignment overlaps</option>
                 </select>
               </div>
             </div>
@@ -497,7 +497,7 @@ export default function AdminMachinesPage() {
 
           <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
             <div className="flex items-center justify-between gap-3 border-b border-border p-4">
-              <h2 className="font-semibold text-foreground">Machine Readiness</h2>
+              <h2 className="font-semibold text-foreground">Machine Setup</h2>
               <Badge variant="outline">{machineRows.length}</Badge>
             </div>
 
@@ -524,12 +524,16 @@ export default function AdminMachinesPage() {
                     {machineRows.map(({ machine, taxRate, taxStatus, activeAssignments, machineWarnings, draftValue }) => {
                       const machineTaxHistory = setup.taxRates.filter((rate) => rate.machine_id === machine.id);
                       const isHighlighted = highlightedMachineId === machine.id;
-                      const hasActionableWarning = machineWarnings.some(
-                        (warning) =>
-                          warning.warningType === 'missing_machine_tax_rate' ||
-                          warning.warningType === 'missing_partnership_assignment' ||
-                          warning.warningType === 'overlapping_partnership_assignments'
+                      const hasMissingRequiredTax =
+                        activeAssignments.length > 0 && taxStatus === 'missing';
+                      const hasAssignmentOverlap = machineWarnings.some(
+                        (warning) => warning.warningType === 'overlapping_partnership_assignments'
                       );
+                      const hasActionableWarning = hasMissingRequiredTax || hasAssignmentOverlap;
+                      const taxStatusLabel =
+                        activeAssignments.length === 0 && taxStatus === 'missing'
+                          ? 'Not required'
+                          : getTaxStatusLabel(taxStatus);
 
                       return (
                         <tr key={machine.id} className={isHighlighted ? 'bg-primary/5' : ''}>
@@ -546,7 +550,7 @@ export default function AdminMachinesPage() {
                           <td className="px-4 py-3 text-muted-foreground">{machine.sunze_machine_id ?? 'n/a'}</td>
                           <td className="px-4 py-3">
                             {activeAssignments.length === 0 ? (
-                              <Badge variant="destructive">No report assignment</Badge>
+                              <Badge variant="outline">Not in partner reports</Badge>
                             ) : (
                               <div className="grid gap-1">
                                 {activeAssignments.map((assignment) => (
@@ -560,14 +564,16 @@ export default function AdminMachinesPage() {
                           <td className="px-4 py-3">
                             <Badge
                               variant={
-                                taxStatus === 'missing'
+                                activeAssignments.length === 0 && taxStatus === 'missing'
+                                  ? 'outline'
+                                  : taxStatus === 'missing'
                                   ? 'destructive'
                                   : taxStatus === 'no_tax'
                                     ? 'secondary'
                                     : 'default'
                               }
                             >
-                              {getTaxStatusLabel(taxStatus)}
+                              {taxStatusLabel}
                             </Badge>
                           </td>
                           <td className="px-4 py-3">
@@ -584,7 +590,7 @@ export default function AdminMachinesPage() {
                                   [machine.id]: event.target.value,
                                 }))
                               }
-                              placeholder="Missing"
+                              placeholder={activeAssignments.length === 0 ? 'Optional' : 'Missing'}
                               className="w-28"
                             />
                           </td>
