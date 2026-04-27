@@ -9,6 +9,8 @@ const googleRefundsSheetId = Deno.env.get("GOOGLE_REFUNDS_SHEET_ID");
 const googleRefundsSheetRange = Deno.env.get("GOOGLE_REFUNDS_SHEET_RANGE") || "'Form Responses 1'!A:T";
 const googleServiceAccountJson = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON");
 const encoder = new TextEncoder();
+const defaultSheetRowLimit = 50;
+const maxSheetRowLimit = 100;
 
 const supabase =
   supabaseUrl && supabaseServiceRoleKey
@@ -92,6 +94,18 @@ const parseBoolean = (value: unknown) => {
   if (value === true) return true;
   if (typeof value === "string") return normalizeStatus(value) === "true";
   return false;
+};
+
+const parseNonNegativeInteger = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.floor(parsed);
+};
+
+const parsePositiveInteger = (value: unknown, fallback: number, max: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.floor(parsed), max);
 };
 
 const normalizeDate = (value: unknown) => {
@@ -882,6 +896,15 @@ serve(async (req) => {
     let rows = Array.isArray(body.rows) ? (body.rows as RefundAdjustmentRow[]) : [];
     let sourceReference = sanitizeText(body.sourceReference) || googleRefundsSheetId || "refund-source-export";
     const dryRun = parseBoolean(body.dryRun ?? body.dry_run);
+    const rowOffset = parseNonNegativeInteger(body.rowOffset ?? body.row_offset, 0);
+    const requestedRowLimit = parsePositiveInteger(
+      body.rowLimit ?? body.row_limit,
+      defaultSheetRowLimit,
+      maxSheetRowLimit,
+    );
+    let sourceRowsTotal = rows.length;
+    let effectiveRowOffset = 0;
+    let effectiveRowLimit = rows.length;
     let reviewSource: ImportRowsOptions["reviewSource"] = "api_payload";
 
     if (rows.length === 0) {
@@ -890,6 +913,10 @@ serve(async (req) => {
         rows = fetched.rows;
         sourceReference = sanitizeText(body.sourceReference) || fetched.sourceReference;
         reviewSource = "sheet_api";
+        sourceRowsTotal = rows.length;
+        effectiveRowOffset = Math.min(rowOffset, sourceRowsTotal);
+        effectiveRowLimit = requestedRowLimit;
+        rows = rows.slice(effectiveRowOffset, effectiveRowOffset + effectiveRowLimit);
       } catch (error) {
         const errorMessage = error instanceof Error && error.message
           ? error.message
@@ -921,6 +948,11 @@ serve(async (req) => {
       source: "refund_adjustments",
       dryRun,
       reviewSource,
+      sourceRowsTotal,
+      rowOffset: effectiveRowOffset,
+      rowLimit: effectiveRowLimit,
+      nextRowOffset: effectiveRowOffset + rows.length,
+      hasMore: effectiveRowOffset + rows.length < sourceRowsTotal,
       ...result,
     });
   } catch (error) {
