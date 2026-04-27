@@ -74,15 +74,13 @@ Guidelines:
    - Add partner-report snapshot/run records for reporting period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and warning state.
    - Generate a polished weekly PDF with executive summary, machine-level appendix, calculation assumptions, amount owed, generated timestamp, and snapshot ID.
    - Keep delivery manual for V1: super-admin reviews, downloads, then sends outside automation until the report is trusted.
+   - Status: weekly/monthly PDF and CSV exports are implemented and production-smoke-tested for current partner agreements; remaining trusted-settlement blocker is refund/complaint adjustment handling in `#236`.
    - Dependency: partnership setup UX and reliable Sunze sales facts.
 
 ## P1 - Reporting UX/CX follow-ups
 21. **Partner dashboard UX/CX and reporting tab design** (`#172`)
-   - Design the reporting tab so users see operator-style reporting for assigned machines by default.
-   - Add a partner dashboard concept for users with partner-dashboard permissions.
-   - Default V1 partner dashboard access to super-admins only until explicit partner-viewer permissions are implemented.
-   - Define dashboard KPIs, period controls, machine rollups, warning states, PDF export/review entry points, and mobile/desktop behavior.
-   - Dependency: corporate partner reporting model and admin partnership setup direction.
+   - Status: delivered for V1 via the reporting tab, super-admin-only Partner Dashboard, weekly/monthly period controls, machine rollups, calculation transparency, exports, and the `#239` machine-rollup label clarification.
+   - Remaining follow-ups are separate issues: explicit Partner Viewer access in `#128`, optional XLSX reconciliation export in `#205`, and operator dashboards in `#171` after partner reporting acceptance.
 
 22. **Operator performance dashboards** (`#171`)
    - Add operator dashboards only after corporate partner reporting reaches acceptance.

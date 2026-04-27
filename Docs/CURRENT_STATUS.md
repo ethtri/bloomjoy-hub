@@ -53,6 +53,7 @@
 - Bubble Planet QA corrected the workbook's order-level fee mistake: the product source of truth is a `$0.40` stick-level cost deduction, so a paid two-stick order deducts `$0.80` and no-pay rows deduct `$0`.
 - Bubble Planet dashboard data-gap repair completed on `2026-04-26`: the production partnership's three active machine assignments and active payout rule were backdated from `2026-04-13` to `2026-02-23`, matching the first imported fact date in the current 8-week dashboard window. The partner dashboard now has nonzero weekly net-sales bars for `2026-02-23` through `2026-04-19`; the verified 8-week total is `$56,594.47` net sales after tax and configured per-stick fees.
 - Follow-up review found the partner dashboard period-preview RPC counted only the second payout-recipient share as `Amount owed`; migration `202604260017_partner_dashboard_amount_owed_repair.sql` now includes both configured non-Bloomjoy payout-recipient share fields before reporting amount owed.
+- Partner dashboard Machine rollups UX follow-up closed on `2026-04-26` via PR `#239`: Bubble Planet's `Costs $0.00` was expected because the active rule has no separate additional-cost split rule; the `$0.40` per-stick deduction is included in configured deductions before net sales. The UI now says `Tax + deductions`, hides zero-dollar additional costs, and hides the duplicate payout-basis column when payout basis equals net sales. Authenticated desktop/mobile UAT passed on `/portal/reports`.
 - Partnership Weekly Preview now supports reviewed partner-report export: PDF is the primary partner-facing artifact, and CSV is the finance reconciliation companion, both stored through `partner_report_snapshots`.
 - Manual CSV import helpers and sample files are available before production sync is enabled.
 - Sunze browser automation is now implemented as a scheduled GitHub Actions Playwright worker that exports the Orders workbook with a rolling `Last 7 Days` daily preset plus a monthly `Last Month` catch-up, deletes the raw workbook after parsing, and sends normalized rows to the locked `sunze-sales-ingest` Edge Function.
@@ -134,8 +135,7 @@
 ## Next P0 milestones
 - Complete trusted corporate partner settlement before building operator performance dashboards:
   - resolve issue `#236` so Google Sheets complaint/refund adjustments flow into net sales, split base, amount owed, and report snapshots
-  - resolve issue `#225` if partner dashboard machine-rollup cost/split-base review confirms a settlement math or presentation bug
-  - keep issue `#169` open until production UAT evidence confirms the remaining settlement math, refund handling, and partner-ready reporting expectations
+  - keep issue `#169` open until production UAT evidence confirms refund handling and partner-ready settlement expectations across current partner agreements
 - Clear the remaining WeCom production blocker:
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
   - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully
