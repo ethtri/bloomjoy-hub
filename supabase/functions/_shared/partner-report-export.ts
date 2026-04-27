@@ -169,6 +169,15 @@ const formatCurrency = (cents: unknown): string =>
     })
   }`;
 
+const formatCompactCurrency = (cents: unknown): string => {
+  const dollars = Math.round(numberValue(cents)) / 100;
+  const absolute = Math.abs(dollars);
+  const sign = dollars < 0 ? "-" : "";
+  if (absolute >= 1_000_000) return `${sign}$${(absolute / 1_000_000).toFixed(1)}M`;
+  if (absolute >= 1_000) return `${sign}$${(absolute / 1_000).toFixed(1)}k`;
+  return `${sign}$${absolute.toFixed(0)}`;
+};
+
 const formatDeduction = (cents: unknown): string => {
   const amount = numberValue(cents);
   return amount > 0 ? `-${formatCurrency(amount)}` : formatCurrency(0);
@@ -588,6 +597,25 @@ const drawRightAlignedText = (
   });
 };
 
+const drawCenteredText = (
+  page: PDFPage,
+  font: PDFFont,
+  text: unknown,
+  centerX: number,
+  y: number,
+  size: number,
+  color = COLORS.ink,
+) => {
+  const normalized = toAscii(text);
+  page.drawText(normalized, {
+    x: centerX - font.widthOfTextAtSize(normalized, size) / 2,
+    y,
+    size,
+    font,
+    color,
+  });
+};
+
 const drawCard = (
   page: PDFPage,
   fonts: PdfFonts,
@@ -849,10 +877,6 @@ const drawTrendPanel = (
 
   const selected = findSelectedTrendPeriod(preview);
   const previous = findPreviousTrendPeriod(preview);
-  const selectedPayout = getPrimaryPartnerPayoutCents(selected ?? {});
-  const previousPayout = previous
-    ? getPrimaryPartnerPayoutCents(previous)
-    : undefined;
   const selectedNetSales = selected?.net_sales_cents;
   const previousNetSales = previous?.net_sales_cents;
   drawText(page, fonts, formatTrendMetricLine("Net sales", selectedNetSales, previousNetSales), {
@@ -860,34 +884,21 @@ const drawTrendPanel = (
     y: y + height - 39,
     size: 7.5,
     color: COLORS.muted,
-    maxWidth: 238,
-    lineHeight: 9,
-  });
-  drawText(page, fonts, formatTrendMetricLine("Amount owed", selectedPayout, previousPayout), {
-    x: x + 282,
-    y: y + height - 39,
-    size: 7.5,
-    color: COLORS.muted,
-    maxWidth: width - 300,
+    maxWidth: width - 190,
     lineHeight: 9,
   });
 
   const chartX = x + 20;
   const chartY = y + 24;
-  const chartHeight = 32;
+  const chartHeight = 34;
   const chartWidth = width - 40;
   const maxNetValue = Math.max(
     ...periods.map((period) => numberValue(period.net_sales_cents)),
     1,
   );
-  const maxPayoutValue = Math.max(
-    ...periods.map((period) => numberValue(getPrimaryPartnerPayoutCents(period))),
-    1,
-  );
   const gap = Math.max(periods.length > 1 ? 8 : 0, 0);
   const slotWidth = (chartWidth - gap * (periods.length - 1)) / periods.length;
   const barWidth = Math.min(34, Math.max(16, slotWidth * 0.66));
-  const payoutPoints: Array<{ x: number; y: number; selected: boolean }> = [];
 
   page.drawLine({
     start: { x: chartX, y: chartY },
@@ -905,9 +916,6 @@ const drawTrendPanel = (
       (numberValue(period.net_sales_cents) / maxNetValue) * chartHeight,
       numberValue(period.net_sales_cents) > 0 ? 3 : 0,
     );
-    const payoutY = chartY +
-      (numberValue(getPrimaryPartnerPayoutCents(period)) / maxPayoutValue) *
-        chartHeight;
 
     page.drawRectangle({
       x: barX,
@@ -918,11 +926,15 @@ const drawTrendPanel = (
       borderColor: isSelected ? COLORS.sage : COLORS.border,
       borderWidth: 0.35,
     });
-    payoutPoints.push({
-      x: barX + barWidth / 2,
-      y: Math.max(chartY + 3, payoutY),
-      selected: isSelected,
-    });
+    drawCenteredText(
+      page,
+      isSelected ? fonts.bold : fonts.regular,
+      formatCompactCurrency(period.net_sales_cents),
+      barX + barWidth / 2,
+      chartY + netHeight + 5,
+      6.4,
+      isSelected ? COLORS.ink : COLORS.muted,
+    );
     drawText(page, fonts, formatTrendPeriodLabel(period, preview), {
       x: slotX,
       y: y + 14,
@@ -933,35 +945,9 @@ const drawTrendPanel = (
     });
   });
 
-  payoutPoints.forEach((point, index) => {
-    const nextPoint = payoutPoints[index + 1];
-    if (!nextPoint) return;
-    page.drawLine({
-      start: { x: point.x, y: point.y },
-      end: { x: nextPoint.x, y: nextPoint.y },
-      thickness: 1,
-      color: COLORS.coral,
-    });
-  });
-  payoutPoints.forEach((point) => {
-    page.drawCircle({
-      x: point.x,
-      y: point.y,
-      size: point.selected ? 3.4 : 2.6,
-      color: COLORS.coral,
-    });
-  });
-
-  page.drawRectangle({ x: x + width - 157, y: y + height - 24, width: 8, height: 8, color: COLORS.sage });
+  page.drawRectangle({ x: x + width - 96, y: y + height - 24, width: 8, height: 8, color: COLORS.sage });
   drawText(page, fonts, "Net sales", {
-    x: x + width - 145,
-    y: y + height - 23,
-    size: 7,
-    color: COLORS.muted,
-  });
-  page.drawCircle({ x: x + width - 72, y: y + height - 20, size: 3, color: COLORS.coral });
-  drawText(page, fonts, "Amount owed", {
-    x: x + width - 64,
+    x: x + width - 84,
     y: y + height - 23,
     size: 7,
     color: COLORS.muted,
@@ -989,7 +975,6 @@ const drawDashboardPage = (
   const generatedAtLabel = formatGeneratedAt(generatedAt);
   const netSalesCents = numberValue(summary.net_sales_cents);
   const payoutCents = numberValue(getPrimaryPartnerPayoutCents(summary));
-  const bloomjoyCents = numberValue(getBloomjoyRetainedCents(summary));
   const previousPeriod = findPreviousTrendPeriod(preview);
   const netSalesMovement = formatPriorPeriodHeroLine(
     netSalesCents,
@@ -1077,8 +1062,8 @@ const drawDashboardPage = (
     lineHeight: 13,
   });
   const cardY = 404;
-  const cardWidth = 99.2;
-  const cardGap = 8;
+  const cardGap = 10;
+  const cardWidth = (528 - cardGap * 3) / 4;
   drawCard(page, fonts, {
     x: 42,
     y: cardY,
@@ -1104,25 +1089,17 @@ const drawDashboardPage = (
     height: 82,
     label: "Net sales",
     value: formatCurrency(summary.net_sales_cents),
-    detail: "After refunds and deductions",
+    detail: "After refunds, taxes, and configured deductions",
   });
   drawCard(page, fonts, {
     x: 42 + (cardWidth + cardGap) * 3,
     y: cardY,
     width: cardWidth,
     height: 82,
-    label: "Payout basis",
-    value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
-    detail: "After agreement adjustments",
-  });
-  drawCard(page, fonts, {
-    x: 42 + (cardWidth + cardGap) * 4,
-    y: cardY,
-    width: cardWidth,
-    height: 82,
-    label: "Bloomjoy retained",
-    value: formatCurrency(bloomjoyCents),
-    detail: "After partner payout",
+    label: "Amount owed",
+    value: formatCurrency(payoutCents),
+    detail: "Partner payout for this period",
+    emphasis: true,
   });
 
   drawTrendPanel(page, fonts, preview, { x: 42, y: 246, width: 528, height: 116 });
