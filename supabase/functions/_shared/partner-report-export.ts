@@ -1,5 +1,6 @@
 import {
   PDFDocument,
+  type PDFImage,
   StandardFonts,
   rgb,
   type PDFFont,
@@ -39,6 +40,11 @@ type PartnerReportMachine = {
   bloomjoy_retained_cents?: number;
 };
 
+type PartnerReportPeriod = PartnerReportSummary & {
+  period_start?: string;
+  period_end?: string;
+};
+
 type PartnerReportWarning = {
   message?: string;
   severity?: string;
@@ -55,6 +61,7 @@ export type PartnerReportPreview = {
   weekEndingDate?: string;
   summary?: PartnerReportSummary;
   machines?: PartnerReportMachine[];
+  periods?: PartnerReportPeriod[];
   warnings?: PartnerReportWarning[];
 };
 
@@ -66,12 +73,18 @@ export type PartnerReportExportContext = {
   snapshotId: string;
   feeLabel?: string;
   costLabel?: string;
+  splitBaseLabel?: string;
+  calculationModelLabel?: string;
   additionalDeductionsNotes?: string | null;
 };
 
 type PdfFonts = {
   regular: PDFFont;
   bold: PDFFont;
+};
+
+type PdfAssets = {
+  logo?: PDFImage;
 };
 
 type DrawTextOptions = {
@@ -103,6 +116,19 @@ const COLORS = {
   slatePanel: rgb(0.12, 0.15, 0.22),
   slateSoft: rgb(0.2, 0.23, 0.31),
 };
+
+const BLOOMJOY_LOGO_PNG_BASE64 =
+  "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";
+
+const BLOOMJOY_LOGO_SAFE_PNG_BASE64 =
+  "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";
+
+const BLOOMJOY_LOGO_ASSET_BASE64 =
+  BLOOMJOY_LOGO_SAFE_PNG_BASE64 || BLOOMJOY_LOGO_PNG_BASE64;
+
+const decodeBase64 = (value: string): Uint8Array =>
+  Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+
 
 const csvCell = (value: unknown): string => {
   const text = neutralizeProviderCopy(value);
@@ -176,6 +202,17 @@ const formatDateLong = (value: unknown): string => {
   }).format(date));
 };
 
+const formatDateShort = (value: unknown): string => {
+  const date = new Date(`${String(value ?? "")}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return toAscii(value);
+
+  return toAscii(new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  }).format(date));
+};
+
 const getPartnerPayoutLabel = (labels: string[]) =>
   labels[0] ?? "Partner payout";
 
@@ -217,6 +254,64 @@ const getFriendlyPeriodLabel = (preview: PartnerReportPreview) => {
   return `${formatDateLong(preview.periodStartDate)} - ${
     formatDateLong(preview.periodEndDate)
   }`;
+};
+
+const getTrendPeriods = (preview: PartnerReportPreview): PartnerReportPeriod[] =>
+  [...(preview.periods ?? [])]
+    .filter((period) => period.period_start && period.period_end)
+    .sort((left, right) =>
+      String(left.period_start).localeCompare(String(right.period_start))
+    );
+
+const findSelectedTrendPeriod = (
+  preview: PartnerReportPreview,
+): PartnerReportPeriod | undefined => {
+  const periods = getTrendPeriods(preview);
+  return periods.find((period) =>
+    period.period_start === preview.periodStartDate &&
+    period.period_end === preview.periodEndDate
+  ) ?? periods[periods.length - 1];
+};
+
+const findPreviousTrendPeriod = (
+  preview: PartnerReportPreview,
+): PartnerReportPeriod | undefined => {
+  const periods = getTrendPeriods(preview);
+  const selectedIndex = periods.findIndex((period) =>
+    period.period_start === preview.periodStartDate &&
+    period.period_end === preview.periodEndDate
+  );
+  if (selectedIndex > 0) return periods[selectedIndex - 1];
+  return periods.length > 1 ? periods[periods.length - 2] : undefined;
+};
+
+const formatPercentChange = (current: unknown, previous: unknown): string => {
+  const currentValue = numberValue(current);
+  const previousValue = numberValue(previous);
+  if (previousValue === 0) {
+    return currentValue > 0 ? "New activity vs prior period" : "No change vs prior period";
+  }
+
+  const change = ((currentValue - previousValue) / previousValue) * 100;
+  const sign = change > 0 ? "+" : "";
+  return `${sign}${change.toFixed(1)}% vs prior period`;
+};
+
+const formatTrendPeriodLabel = (
+  period: PartnerReportPeriod,
+  preview: PartnerReportPreview,
+): string => {
+  if (preview.periodGrain === "calendar_month" && period.period_start) {
+    const date = new Date(`${period.period_start}T00:00:00.000Z`);
+    if (!Number.isNaN(date.getTime())) {
+      return toAscii(new Intl.DateTimeFormat("en-US", {
+        timeZone: "UTC",
+        month: "short",
+      }).format(date));
+    }
+  }
+
+  return formatDateShort(period.period_end ?? period.period_start);
 };
 
 const hasCombinedPartnerPayout = (summary: PartnerReportSummary) =>
@@ -508,6 +603,7 @@ const drawCard = (
 const drawHeader = (
   page: PDFPage,
   fonts: PdfFonts,
+  assets: PdfAssets,
   {
     title,
     partnerName,
@@ -525,29 +621,31 @@ const drawHeader = (
   const { width, height } = page.getSize();
   page.drawRectangle({ x: 0, y: 0, width, height, color: COLORS.page });
   page.drawRectangle({ x: 0, y: height - 10, width, height: 10, color: COLORS.coral });
-  page.drawCircle({ x: 48, y: height - 42, size: 13, color: COLORS.coral });
-  drawText(page, fonts, "B", {
-    x: 43.5,
-    y: height - 47,
-    size: 13,
-    font: fonts.bold,
-    color: COLORS.white,
-  });
+  if (assets.logo) {
+    page.drawImage(assets.logo, {
+      x: 40,
+      y: height - 59,
+      width: 34,
+      height: 34,
+    });
+  } else {
+    page.drawCircle({ x: 57, y: height - 42, size: 13, color: COLORS.coral });
+  }
   drawText(page, fonts, "BLOOMJOY", {
-    x: 68,
+    x: 82,
     y: height - 36,
     size: 10,
     font: fonts.bold,
     color: COLORS.ink,
   });
   drawText(page, fonts, title, {
-    x: 68,
+    x: 82,
     y: height - 51,
     size: 8,
     color: COLORS.muted,
   });
   drawRightAlignedText(page, fonts.bold, reportReference, width - 42, height - 35, 8, COLORS.ink);
-  drawRightAlignedText(page, fonts.regular, `Generated ${generatedAt}`, width - 42, height - 50, 7.5, COLORS.muted);
+  drawRightAlignedText(page, fonts.regular, generatedAt, width - 42, height - 50, 7.5, COLORS.muted);
 
   page.drawLine({
     start: { x: 42, y: height - 72 },
@@ -653,9 +751,136 @@ const drawBridgeSegment = (
   });
 };
 
+const drawTrendPanel = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  preview: PartnerReportPreview,
+  {
+    x,
+    y,
+    width,
+    height,
+  }: { x: number; y: number; width: number; height: number },
+) => {
+  const periods = getTrendPeriods(preview);
+  page.drawRectangle({
+    x,
+    y,
+    width,
+    height,
+    color: COLORS.white,
+    borderColor: COLORS.border,
+    borderWidth: 0.7,
+  });
+
+  drawText(page, fonts, "Trend over time", {
+    x: x + 16,
+    y: y + height - 22,
+    size: 11,
+    font: fonts.bold,
+  });
+
+  if (periods.length < 2) {
+    drawText(page, fonts, "No prior period data available for this selected report period.", {
+      x: x + 16,
+      y: y + height - 48,
+      size: 8.5,
+      color: COLORS.muted,
+      maxWidth: width - 32,
+    });
+    return;
+  }
+
+  const selected = findSelectedTrendPeriod(preview);
+  const previous = findPreviousTrendPeriod(preview);
+  drawText(page, fonts, `${formatPercentChange(getPrimaryPartnerPayoutCents(selected ?? {}), getPrimaryPartnerPayoutCents(previous ?? {}))} on amount owed`, {
+    x: x + 16,
+    y: y + height - 39,
+    size: 8,
+    color: COLORS.muted,
+    maxWidth: width - 32,
+  });
+
+  const chartX = x + 20;
+  const chartY = y + 30;
+  const chartHeight = 56;
+  const chartWidth = width - 40;
+  const maxValue = Math.max(
+    ...periods.flatMap((period) => [
+      numberValue(period.net_sales_cents),
+      numberValue(getPrimaryPartnerPayoutCents(period)),
+    ]),
+    1,
+  );
+  const gap = Math.max(periods.length > 1 ? 8 : 0, 0);
+  const slotWidth = (chartWidth - gap * (periods.length - 1)) / periods.length;
+  const barWidth = Math.min(34, Math.max(16, slotWidth * 0.66));
+
+  page.drawLine({
+    start: { x: chartX, y: chartY },
+    end: { x: chartX + chartWidth, y: chartY },
+    thickness: 0.5,
+    color: COLORS.border,
+  });
+
+  periods.forEach((period, index) => {
+    const slotX = chartX + index * (slotWidth + gap);
+    const barX = slotX + (slotWidth - barWidth) / 2;
+    const isSelected = period.period_start === preview.periodStartDate &&
+      period.period_end === preview.periodEndDate;
+    const netHeight = Math.max(
+      (numberValue(period.net_sales_cents) / maxValue) * chartHeight,
+      numberValue(period.net_sales_cents) > 0 ? 3 : 0,
+    );
+    const payoutY = chartY +
+      (numberValue(getPrimaryPartnerPayoutCents(period)) / maxValue) *
+        chartHeight;
+
+    page.drawRectangle({
+      x: barX,
+      y: chartY,
+      width: barWidth,
+      height: netHeight,
+      color: isSelected ? COLORS.sage : COLORS.sageLight,
+      borderColor: isSelected ? COLORS.sage : COLORS.border,
+      borderWidth: 0.35,
+    });
+    page.drawCircle({
+      x: barX + barWidth / 2,
+      y: Math.max(chartY + 3, payoutY),
+      size: isSelected ? 3.2 : 2.5,
+      color: COLORS.coral,
+    });
+    drawText(page, fonts, formatTrendPeriodLabel(period, preview), {
+      x: slotX,
+      y: y + 14,
+      size: 6.5,
+      color: isSelected ? COLORS.ink : COLORS.softText,
+      font: isSelected ? fonts.bold : fonts.regular,
+      maxWidth: slotWidth,
+    });
+  });
+
+  page.drawRectangle({ x: x + width - 157, y: y + height - 24, width: 8, height: 8, color: COLORS.sage });
+  drawText(page, fonts, "Net sales", {
+    x: x + width - 145,
+    y: y + height - 23,
+    size: 7,
+    color: COLORS.muted,
+  });
+  page.drawCircle({ x: x + width - 72, y: y + height - 20, size: 3, color: COLORS.coral });
+  drawText(page, fonts, "Amount owed", {
+    x: x + width - 64,
+    y: y + height - 23,
+    size: 7,
+    color: COLORS.muted,
+  });
+};
+
 const drawDashboardPage = (
   pdfDoc: PDFDocument,
   fonts: PdfFonts,
+  assets: PdfAssets,
   context: PartnerReportExportContext,
   reportReference: string,
 ) => {
@@ -668,11 +893,18 @@ const drawDashboardPage = (
   const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
   const payoutCents = numberValue(getPrimaryPartnerPayoutCents(summary));
   const bloomjoyCents = numberValue(getBloomjoyRetainedCents(summary));
+  const previousPeriod = findPreviousTrendPeriod(preview);
+  const payoutMovement = previousPeriod
+    ? formatPercentChange(
+      payoutCents,
+      getPrimaryPartnerPayoutCents(previousPeriod),
+    )
+    : "No prior period comparison available";
   const taxAndDeductions = numberValue(summary.tax_cents) +
     numberValue(summary.fee_cents) +
     numberValue(summary.cost_cents);
 
-  drawHeader(page, fonts, {
+  drawHeader(page, fonts, assets, {
     title: getReportTitle(preview),
     partnerName,
     periodLabel: `${getPeriodKindLabel(preview)}: ${periodLabel}`,
@@ -680,60 +912,62 @@ const drawDashboardPage = (
     generatedAt: generatedAtLabel,
   });
 
-  page.drawRectangle({ x: 42, y: 522, width: 528, height: 128, color: COLORS.slatePanel });
-  page.drawRectangle({ x: 42, y: 522, width: 6, height: 128, color: COLORS.coral });
+  page.drawRectangle({ x: 42, y: 522, width: 528, height: 132, color: COLORS.slatePanel });
+  page.drawRectangle({ x: 42, y: 522, width: 6, height: 132, color: COLORS.coral });
   drawText(page, fonts, "Amount owed", {
     x: 68,
-    y: 618,
+    y: 624,
     size: 10,
     font: fonts.bold,
     color: rgb(0.86, 0.88, 0.93),
   });
   drawText(page, fonts, formatCurrency(payoutCents), {
     x: 68,
-    y: 574,
+    y: 580,
     size: 34,
     font: fonts.bold,
     color: COLORS.white,
   });
   drawText(page, fonts, `${partnerLabel} for ${periodLabel}`, {
     x: 68,
-    y: 546,
+    y: 552,
     size: 9,
     color: rgb(0.86, 0.88, 0.93),
     maxWidth: 250,
   });
-  drawText(page, fonts, "Settlement packet", {
-    x: 390,
-    y: 618,
-    size: 10,
+  drawText(page, fonts, "Selected period", {
+    x: 392,
+    y: 620,
+    size: 8,
     font: fonts.bold,
     color: rgb(0.86, 0.88, 0.93),
   });
-  drawText(page, fonts, "Designed for partner review: the dashboard shows the answer, and the following pages show the calculation support.", {
-    x: 390,
-    y: 592,
-    size: 8.5,
-    color: rgb(0.86, 0.88, 0.93),
+  drawText(page, fonts, periodLabel, {
+    x: 392,
+    y: 597,
+    size: 14,
+    font: fonts.bold,
+    color: COLORS.white,
     maxWidth: 150,
-    lineHeight: 11,
+    lineHeight: 16,
   });
-  drawText(page, fonts, `Report reference ${reportReference}`, {
-    x: 390,
-    y: 540,
+  drawText(page, fonts, payoutMovement, {
+    x: 392,
+    y: 552,
     size: 8,
     color: rgb(0.86, 0.88, 0.93),
     maxWidth: 150,
+    lineHeight: 10,
   });
 
-  const cardY = 386;
-  const cardWidth = 125;
-  const cardGap = 10;
+  const cardY = 404;
+  const cardWidth = 99.2;
+  const cardGap = 8;
   drawCard(page, fonts, {
     x: 42,
     y: cardY,
     width: cardWidth,
-    height: 94,
+    height: 82,
     label: "Gross sales",
     value: formatCurrency(summary.gross_sales_cents),
     detail: `${formatInteger(summary.order_count)} transactions`,
@@ -742,7 +976,7 @@ const drawDashboardPage = (
     x: 42 + (cardWidth + cardGap),
     y: cardY,
     width: cardWidth,
-    height: 94,
+    height: 82,
     label: "Refund impact",
     value: formatDeduction(summary.refund_amount_cents),
     detail: "Approved adjustments only",
@@ -751,32 +985,44 @@ const drawDashboardPage = (
     x: 42 + (cardWidth + cardGap) * 2,
     y: cardY,
     width: cardWidth,
-    height: 94,
-    label: "Payout basis",
-    value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
-    detail: "After tax and deductions",
+    height: 82,
+    label: "Net sales",
+    value: formatCurrency(summary.net_sales_cents),
+    detail: "After refunds and deductions",
   });
   drawCard(page, fonts, {
     x: 42 + (cardWidth + cardGap) * 3,
     y: cardY,
     width: cardWidth,
-    height: 94,
+    height: 82,
+    label: "Payout basis",
+    value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
+    detail: `${formatInteger(summary.item_quantity)} items`,
+  });
+  drawCard(page, fonts, {
+    x: 42 + (cardWidth + cardGap) * 4,
+    y: cardY,
+    width: cardWidth,
+    height: 82,
     label: "Bloomjoy retained",
     value: formatCurrency(bloomjoyCents),
-    detail: "Remaining share after payout",
+    detail: "After partner payout",
   });
+
+  drawTrendPanel(page, fonts, preview, { x: 42, y: 246, width: 528, height: 116 });
 
   drawText(page, fonts, "Sales-to-payout bridge", {
     x: 42,
-    y: 330,
+    y: 208,
     size: 13,
     font: fonts.bold,
   });
-  drawText(page, fonts, "How gross sales become the partner settlement amount.", {
+  drawText(page, fonts, "The selected period's settlement math, from recorded sales to partner payout.", {
     x: 42,
-    y: 314,
+    y: 192,
     size: 8.5,
     color: COLORS.muted,
+    maxWidth: 528,
   });
 
   const bridgeBase = Math.max(
@@ -825,60 +1071,12 @@ const drawDashboardPage = (
     const scaledWidth = Math.max((Math.abs(segment.cents) / bridgeBase) * segmentWidth, 12);
     drawBridgeSegment(page, fonts, {
       x,
-      y: 278,
+      y: 154,
       width: scaledWidth,
       label: segment.label,
       value: segment.value,
       color: segment.color,
     });
-  });
-
-  page.drawRectangle({
-    x: 42,
-    y: 122,
-    width: 250,
-    height: 92,
-    color: COLORS.white,
-    borderColor: COLORS.border,
-    borderWidth: 0.7,
-  });
-  drawText(page, fonts, "What this period shows", {
-    x: 60,
-    y: 188,
-    size: 11,
-    font: fonts.bold,
-  });
-  drawText(page, fonts, `${formatInteger(summary.item_quantity)} paid or counted items across ${formatInteger(summary.order_count)} transactions produced ${formatCurrency(summary.net_sales_cents)} in net sales after refunds, taxes, and configured deductions.`, {
-    x: 60,
-    y: 168,
-    size: 8.5,
-    color: COLORS.muted,
-    maxWidth: 210,
-    lineHeight: 11,
-  });
-
-  page.drawRectangle({
-    x: 310,
-    y: 122,
-    width: 260,
-    height: 92,
-    color: COLORS.blushLight,
-    borderColor: COLORS.border,
-    borderWidth: 0.7,
-  });
-  drawText(page, fonts, "Review confidence", {
-    x: 328,
-    y: 188,
-    size: 11,
-    font: fonts.bold,
-  });
-  drawText(page, fonts, "The report was generated after required data checks passed. The appendix shows the machine-level proof behind the totals.", {
-    x: 328,
-    y: 168,
-    size: 8.5,
-    color: COLORS.muted,
-    maxWidth: 218,
-    lineHeight: 11,
   });
 
   drawText(page, fonts, `${feeLabel}${costLabel === "Costs" ? "" : ` and ${costLabel}`} details appear in the calculation support section.`, {
@@ -946,17 +1144,28 @@ const drawCalculationRow = (
 const drawDetailPage = (
   pdfDoc: PDFDocument,
   fonts: PdfFonts,
+  assets: PdfAssets,
   context: PartnerReportExportContext,
   reportReference: string,
 ) => {
-  const { preview, payoutRecipientLabels, calculationLabel, generatedAt, feeLabel = "Stick cost deduction", costLabel = "Costs", additionalDeductionsNotes } = context;
+  const {
+    preview,
+    payoutRecipientLabels,
+    calculationLabel,
+    generatedAt,
+    feeLabel = "Stick cost deduction",
+    costLabel = "Costs",
+    splitBaseLabel = "Net sales",
+    calculationModelLabel = "Partner share",
+    additionalDeductionsNotes,
+  } = context;
   const summary = preview.summary ?? {};
   const page = pdfDoc.addPage([612, 792]);
   const periodLabel = getFriendlyPeriodLabel(preview);
   const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
   const payoutCents = getPrimaryPartnerPayoutCents(summary);
 
-  drawHeader(page, fonts, {
+  drawHeader(page, fonts, assets, {
     title: "Calculation support",
     partnerName: "How the settlement was calculated",
     periodLabel: `${getPeriodKindLabel(preview)}: ${periodLabel}`,
@@ -970,7 +1179,7 @@ const drawDetailPage = (
     size: 13,
     font: fonts.bold,
   });
-  drawText(page, fonts, "This page explains the numbers in business terms so the settlement can be reviewed without internal system context.", {
+  drawText(page, fonts, "A transparent calculation trail using recorded sales, approved refunds, and the active agreement terms for this selected period.", {
     x: 42,
     y: 604,
     size: 8.5,
@@ -1009,19 +1218,19 @@ const drawDetailPage = (
     },
     {
       label: "Net sales",
-      formula: "Gross sales minus refunds, taxes, and configured deductions.",
+      formula: "Gross sales minus approved refunds, machine taxes, and configured deductions.",
       value: formatCurrency(summary.net_sales_cents),
       emphasis: true,
     },
     {
       label: "Payout basis",
-      formula: "The amount eligible for partner-share allocation under the agreement.",
+      formula: `Configured agreement basis: ${splitBaseLabel}.`,
       value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
       emphasis: true,
     },
     {
       label: partnerLabel,
-      formula: "Partner share calculated from the payout basis and active agreement terms.",
+      formula: `Calculated from ${splitBaseLabel.toLowerCase()} using the active agreement terms.`,
       value: formatCurrency(payoutCents),
       emphasis: true,
     },
@@ -1055,15 +1264,16 @@ const drawDetailPage = (
   });
   const assumptions = [
     `${getPeriodKindLabel(preview)} uses ${periodLabel}.`,
+    `Agreement basis: ${splitBaseLabel} (${calculationModelLabel}).`,
     "No-pay transactions are counted in operating volume and contribute $0 to sales.",
-    "Refund impact includes approved adjustments available at generation time.",
-    `Tax plus agreement deductions total ${formatDeduction(taxAndDeductions)} for this report.`,
+    "Refund impact includes approved adjustments applied to this selected period.",
+    `Tax plus agreement deductions total ${formatCurrency(taxAndDeductions)} for this report.`,
   ];
   assumptions.forEach((assumption, index) => {
-    page.drawCircle({ x: 64, y: 217 - index * 17, size: 2, color: COLORS.coral });
+    page.drawCircle({ x: 64, y: 217 - index * 15, size: 2, color: COLORS.coral });
     drawText(page, fonts, assumption, {
       x: 74,
-      y: 213 - index * 17,
+      y: 213 - index * 15,
       size: 8,
       color: COLORS.muted,
       maxWidth: 468,
@@ -1096,6 +1306,7 @@ const drawDetailPage = (
 const drawAppendixHeader = (
   page: PDFPage,
   fonts: PdfFonts,
+  assets: PdfAssets,
   {
     periodLabel,
     reportReference,
@@ -1109,20 +1320,28 @@ const drawAppendixHeader = (
   const { width, height } = page.getSize();
   page.drawRectangle({ x: 0, y: 0, width, height, color: COLORS.page });
   page.drawRectangle({ x: 0, y: height - 9, width, height: 9, color: COLORS.coral });
+  if (assets.logo) {
+    page.drawImage(assets.logo, {
+      x: 28,
+      y: height - 48,
+      width: 28,
+      height: 28,
+    });
+  }
   drawText(page, fonts, "Machine appendix", {
-    x: 30,
+    x: assets.logo ? 66 : 30,
     y: height - 34,
     size: 16,
     font: fonts.bold,
   });
   drawText(page, fonts, periodLabel, {
-    x: 30,
+    x: assets.logo ? 66 : 30,
     y: height - 50,
     size: 8,
     color: COLORS.muted,
   });
   drawRightAlignedText(page, fonts.bold, reportReference, width - 30, height - 34, 8, COLORS.ink);
-  drawRightAlignedText(page, fonts.regular, `Generated ${generatedAt}`, width - 30, height - 48, 7, COLORS.muted);
+  drawRightAlignedText(page, fonts.regular, generatedAt, width - 30, height - 48, 7, COLORS.muted);
 };
 
 const drawAppendixTableHeader = (
@@ -1159,18 +1378,20 @@ const drawAppendixTableHeader = (
 const drawAppendixPage = (
   pdfDoc: PDFDocument,
   fonts: PdfFonts,
+  assets: PdfAssets,
   periodLabel: string,
   reportReference: string,
   generatedAt: string,
 ) => {
   const page = pdfDoc.addPage([792, 612]);
-  drawAppendixHeader(page, fonts, { periodLabel, reportReference, generatedAt });
+  drawAppendixHeader(page, fonts, assets, { periodLabel, reportReference, generatedAt });
   return page;
 };
 
 const drawMachineAppendix = (
   pdfDoc: PDFDocument,
   fonts: PdfFonts,
+  assets: PdfAssets,
   context: PartnerReportExportContext,
   reportReference: string,
 ) => {
@@ -1191,7 +1412,7 @@ const drawMachineAppendix = (
     { label: "Bloomjoy", x: 724, width: 38, align: "right" as const },
   ];
 
-  let page = drawAppendixPage(pdfDoc, fonts, periodLabel, reportReference, generatedAtLabel);
+  let page = drawAppendixPage(pdfDoc, fonts, assets, periodLabel, reportReference, generatedAtLabel);
   let y = 526;
   drawText(page, fonts, `Detailed machine rollup. Machine labels are shown as partner-facing names. ${feeLabel} is combined with tax in the tax + deductions column.`, {
     x: 30,
@@ -1229,7 +1450,7 @@ const drawMachineAppendix = (
     const rowHeight = Math.max(28, labelLines.length * 9 + 12);
 
     if (y - rowHeight < 54) {
-      page = drawAppendixPage(pdfDoc, fonts, periodLabel, reportReference, generatedAtLabel);
+      page = drawAppendixPage(pdfDoc, fonts, assets, periodLabel, reportReference, generatedAtLabel);
       y = 526;
       drawAppendixTableHeader(page, fonts, y, columns);
       y -= 28;
@@ -1276,6 +1497,49 @@ const drawMachineAppendix = (
 
     y -= rowHeight;
   });
+
+  const summary = preview.summary ?? {};
+  const totalRowHeight = 30;
+  if (y - totalRowHeight < 54) {
+    page = drawAppendixPage(pdfDoc, fonts, assets, periodLabel, reportReference, generatedAtLabel);
+    y = 526;
+    drawAppendixTableHeader(page, fonts, y, columns);
+    y -= 28;
+  }
+
+  page.drawRectangle({
+    x: 30,
+    y: y - totalRowHeight + 8,
+    width: 732,
+    height: totalRowHeight,
+    color: COLORS.slatePanel,
+    borderColor: COLORS.slatePanel,
+    borderWidth: 0.35,
+  });
+  drawText(page, fonts, "Total", {
+    x: columns[0].x,
+    y,
+    size: 7.2,
+    font: fonts.bold,
+    color: COLORS.white,
+  });
+  const totalTaxAndDeductions = numberValue(summary.tax_cents) +
+    numberValue(summary.fee_cents) +
+    numberValue(summary.cost_cents);
+  [
+    formatInteger(summary.order_count),
+    formatInteger(summary.item_quantity),
+    formatCurrency(summary.gross_sales_cents),
+    formatDeduction(summary.refund_amount_cents),
+    formatDeduction(totalTaxAndDeductions),
+    formatCurrency(summary.net_sales_cents),
+    formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
+    formatCurrency(getPrimaryPartnerPayoutCents(summary)),
+    formatCurrency(getBloomjoyRetainedCents(summary)),
+  ].forEach((value, valueIndex) => {
+    const column = columns[valueIndex + 1];
+    drawRightAlignedText(page, fonts.bold, value, column.x + column.width, y, 6.8, COLORS.white);
+  });
 };
 
 export const buildPartnerReportPdf = async (
@@ -1286,6 +1550,9 @@ export const buildPartnerReportPdf = async (
     regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
     bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
   };
+  const assets: PdfAssets = {
+    logo: await pdfDoc.embedPng(decodeBase64(BLOOMJOY_LOGO_ASSET_BASE64)),
+  };
   const reportReference = buildPartnerReportReference(
     context.snapshotId,
     context.preview,
@@ -1294,9 +1561,9 @@ export const buildPartnerReportPdf = async (
     getFriendlyPeriodLabel(context.preview)
   }`;
 
-  drawDashboardPage(pdfDoc, fonts, context, reportReference);
-  drawDetailPage(pdfDoc, fonts, context, reportReference);
-  drawMachineAppendix(pdfDoc, fonts, context, reportReference);
+  drawDashboardPage(pdfDoc, fonts, assets, context, reportReference);
+  drawDetailPage(pdfDoc, fonts, assets, context, reportReference);
+  drawMachineAppendix(pdfDoc, fonts, assets, context, reportReference);
 
   const pages = pdfDoc.getPages();
   pages.forEach((page, index) => {
