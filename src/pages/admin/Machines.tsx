@@ -417,9 +417,10 @@ export default function AdminMachinesPage() {
               isWarning={readinessCounts.missingTax > 0}
             />
             <ReadinessCard
-              label="Unassigned machines"
+              label="No report assignment"
               value={readinessCounts.unassigned}
-              actionLabel="Review table"
+              description="Not included in partner reports until assigned in Partnerships."
+              actionLabel="Show machines"
               onAction={() => updateAssignmentFilter('unassigned')}
               isWarning={readinessCounts.unassigned > 0}
             />
@@ -487,7 +488,7 @@ export default function AdminMachinesPage() {
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="all">All assignments</option>
-                  <option value="unassigned">Unassigned</option>
+                  <option value="unassigned">No report assignment</option>
                   <option value="overlap">Overlaps</option>
                 </select>
               </div>
@@ -545,7 +546,7 @@ export default function AdminMachinesPage() {
                           <td className="px-4 py-3 text-muted-foreground">{machine.sunze_machine_id ?? 'n/a'}</td>
                           <td className="px-4 py-3">
                             {activeAssignments.length === 0 ? (
-                              <Badge variant="destructive">Unassigned</Badge>
+                              <Badge variant="destructive">No report assignment</Badge>
                             ) : (
                               <div className="grid gap-1">
                                 {activeAssignments.map((assignment) => (
@@ -701,12 +702,14 @@ export default function AdminMachinesPage() {
 function ReadinessCard({
   label,
   value,
+  description,
   actionLabel,
   isWarning,
   onAction,
 }: {
   label: string;
   value: number;
+  description?: string;
   actionLabel: string;
   isWarning: boolean;
   onAction?: () => void;
@@ -715,6 +718,7 @@ function ReadinessCard({
     <div className={`rounded-lg border p-4 ${isWarning ? 'border-amber-300 bg-amber-50' : 'border-border bg-card'}`}>
       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-1 text-2xl font-bold text-foreground">{value}</div>
+      {description && <div className="mt-1 text-xs text-muted-foreground">{description}</div>}
       {onAction ? (
         <Button variant="outline" size="sm" className="mt-3" onClick={onAction}>
           {actionLabel}
