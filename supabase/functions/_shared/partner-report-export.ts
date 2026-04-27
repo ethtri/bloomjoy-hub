@@ -201,6 +201,9 @@ const formatGeneratedAt = (value: unknown): string => {
   }).format(date));
 };
 
+const formatPreparedAt = (value: unknown): string =>
+  `Prepared ${formatGeneratedAt(value)}`;
+
 const formatDateLong = (value: unknown): string => {
   const date = new Date(`${String(value ?? "")}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime())) return toAscii(value);
@@ -354,6 +357,12 @@ const formatBasisPointsPercent = (basisPoints: unknown): string => {
 
 const getPartnerShareLabel = (context: PartnerReportExportContext): string =>
   context.partnerShareLabel ?? formatBasisPointsPercent(context.partnerShareBasisPoints);
+
+const formatUnitsSoldDetail = (summary: PartnerReportSummary): string => {
+  const units = numberValue(summary.item_quantity);
+  if (units > 0) return `${formatInteger(units)} units sold`;
+  return `${formatInteger(summary.order_count)} transactions`;
+};
 
 const getSplitBaseKind = (splitBaseLabel: string): "gross" | "contribution" | "net" => {
   const normalized = splitBaseLabel.toLowerCase();
@@ -760,7 +769,6 @@ const drawFooter = (
   page: PDFPage,
   fonts: PdfFonts,
   reportReference: string,
-  periodLabel: string,
   pageNumber: number,
   pageCount: number,
 ) => {
@@ -776,13 +784,6 @@ const drawFooter = (
     y: 18,
     size: 7,
     color: COLORS.softText,
-  });
-  drawText(page, fonts, periodLabel, {
-    x: width / 2 - 110,
-    y: 18,
-    size: 7,
-    color: COLORS.softText,
-    maxWidth: 220,
   });
   drawRightAlignedText(
     page,
@@ -972,7 +973,7 @@ const drawDashboardPage = (
   const page = pdfDoc.addPage([612, 792]);
   const partnerName = toAscii(preview.partnershipName ?? "Partner report");
   const periodLabel = getFriendlyPeriodLabel(preview);
-  const generatedAtLabel = formatGeneratedAt(generatedAt);
+  const generatedAtLabel = formatPreparedAt(generatedAt);
   const netSalesCents = numberValue(summary.net_sales_cents);
   const payoutCents = numberValue(getPrimaryPartnerPayoutCents(summary));
   const previousPeriod = findPreviousTrendPeriod(preview);
@@ -1023,43 +1024,27 @@ const drawDashboardPage = (
     lineHeight: 10,
   });
   drawText(page, fonts, "Amount owed", {
-    x: 268,
+    x: 328,
     y: 624,
     size: 10,
     font: fonts.bold,
     color: rgb(0.86, 0.88, 0.93),
   });
   drawText(page, fonts, formatCurrency(payoutCents), {
-    x: 268,
+    x: 328,
     y: 585,
     size: 29,
     font: fonts.bold,
     color: COLORS.white,
-    maxWidth: 145,
+    maxWidth: 178,
   });
   drawText(page, fonts, payoutMovement, {
-    x: 268,
+    x: 328,
     y: 552,
     size: 8,
     color: rgb(0.86, 0.88, 0.93),
-    maxWidth: 145,
+    maxWidth: 178,
     lineHeight: 10,
-  });
-  drawText(page, fonts, "Selected period", {
-    x: 438,
-    y: 620,
-    size: 8,
-    font: fonts.bold,
-    color: rgb(0.86, 0.88, 0.93),
-  });
-  drawText(page, fonts, periodLabel, {
-    x: 438,
-    y: 597,
-    size: 11,
-    font: fonts.bold,
-    color: COLORS.white,
-    maxWidth: 104,
-    lineHeight: 13,
   });
   const cardY = 404;
   const cardGap = 10;
@@ -1071,7 +1056,7 @@ const drawDashboardPage = (
     height: 82,
     label: "Gross sales",
     value: formatCurrency(summary.gross_sales_cents),
-    detail: `${formatInteger(summary.order_count)} transactions`,
+    detail: formatUnitsSoldDetail(summary),
   });
   drawCard(page, fonts, {
     x: 42 + (cardWidth + cardGap),
@@ -1274,7 +1259,7 @@ const drawDetailPage = (
     partnerName: "How the settlement was calculated",
     periodLabel: `${getPeriodKindLabel(preview)}: ${periodLabel}`,
     reportReference,
-    generatedAt: formatGeneratedAt(generatedAt),
+    generatedAt: formatPreparedAt(generatedAt),
   });
 
   drawText(page, fonts, "Settlement math", {
@@ -1514,7 +1499,7 @@ const drawMachineAppendix = (
 ) => {
   const { preview, generatedAt, feeLabel = "Deductions" } = context;
   const periodLabel = `${getPeriodKindLabel(preview)}: ${getFriendlyPeriodLabel(preview)}`;
-  const generatedAtLabel = formatGeneratedAt(generatedAt);
+  const generatedAtLabel = formatPreparedAt(generatedAt);
   const machines = preview.machines ?? [];
   const columns = [
     { label: "Machine", x: 34, width: 128 },
@@ -1674,10 +1659,6 @@ export const buildPartnerReportPdf = async (
     context.snapshotId,
     context.preview,
   );
-  const periodLabel = `${getPeriodKindLabel(context.preview)}: ${
-    getFriendlyPeriodLabel(context.preview)
-  }`;
-
   drawDashboardPage(pdfDoc, fonts, assets, context, reportReference);
   drawDetailPage(pdfDoc, fonts, assets, context, reportReference);
   drawMachineAppendix(pdfDoc, fonts, assets, context, reportReference);
@@ -1688,7 +1669,6 @@ export const buildPartnerReportPdf = async (
       page,
       fonts,
       reportReference,
-      periodLabel,
       index + 1,
       pages.length,
     );
