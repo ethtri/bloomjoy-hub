@@ -127,7 +127,7 @@ WeCom note:
 
 Refund source note:
 - Enable Google Sheets API for the service account project, share the refund source sheet with the service account email as Viewer, and keep `GOOGLE_SERVICE_ACCOUNT_JSON` only in Supabase function secrets.
-- Add GitHub secrets `REFUND_ADJUSTMENT_SYNC_URL` and `REFUND_ADJUSTMENT_SYNC_TOKEN` before enabling the scheduled workflow. The token should match `REPORT_SCHEDULER_SECRET`; do not use the Supabase service-role key.
+- Add GitHub secrets `REFUND_ADJUSTMENT_SYNC_URL` and `REFUND_ADJUSTMENT_SYNC_TOKEN`. The token should match `REPORT_SCHEDULER_SECRET`; do not use the Supabase service-role key. Scheduled runs skip until these secrets exist, while manual runs fail fast if they are missing.
 - First run the `Refund Adjustment Sync` workflow manually with `dry_run=true`. The workflow should print aggregate counts only. Then run it without dry run and confirm `/admin/reporting` shows the completed refund import run plus any review-only rows.
 
 ### Step C: Deploy Supabase Edge Functions

@@ -48,6 +48,10 @@ jobs:
         shell: bash
         run: |
           if [[ -z "$REFUND_ADJUSTMENT_SYNC_URL" || -z "$REFUND_ADJUSTMENT_SYNC_TOKEN" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+              echo "Skipping scheduled refund sync because REFUND_ADJUSTMENT_SYNC_URL or REFUND_ADJUSTMENT_SYNC_TOKEN is not configured."
+              exit 0
+            fi
             echo "Missing REFUND_ADJUSTMENT_SYNC_URL or REFUND_ADJUSTMENT_SYNC_TOKEN."
             exit 1
           fi

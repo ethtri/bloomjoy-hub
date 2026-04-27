@@ -84,7 +84,7 @@ Use these after the sales reporting migration has been applied.
    - Only approved/completed/refunded-style statuses with one conservative machine match auto-apply. For the current customer service export, `Status=Closed` must pair with an approve-style `Decision`; `Open`, `Deny`, ambiguous, unmatched, duplicate, invalid, missing-status, or low-confidence rows stay in the admin review ledger and do not change partner settlement.
 4) Run the live refund source sync through the Supabase Edge Function after secrets are configured:
    - Local dry run: `curl -X POST http://127.0.0.1:54321/functions/v1/refund-adjustment-sync -H "Authorization: Bearer $REPORT_SCHEDULER_SECRET" -H "Content-Type: application/json" --data "{\"dryRun\":true}"`
-   - Production trigger: run the `Refund Adjustment Sync` GitHub Action first with `dry_run=true`, then without dry run after aggregate counts look right.
+   - Production trigger: run the `Refund Adjustment Sync` GitHub Action first with `dry_run=true`, then without dry run after aggregate counts look right. Scheduled runs skip until the required GitHub secrets are configured; manual runs fail fast if they are missing.
    - The live sync reads the configured sheet range, stages all rows, applies only safe rows, and returns aggregate counts only.
 5) Validate sanitized reporting parser/matching fixtures:
    - `npm run reporting:validate-sunze-parser`
