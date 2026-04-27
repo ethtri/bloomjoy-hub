@@ -140,7 +140,7 @@ const mobileAdminDestinations = [
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const { isAdmin, isAuthenticated, portalAccessTier, signOut, user } = useAuth();
+  const { isAdmin, isAuthenticated, isSuperAdmin, portalAccessTier, signOut, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const appContext = getAppContext(location.pathname);
@@ -205,27 +205,29 @@ export function AppLayout({ children }: AppLayoutProps) {
         Admin tools
       </div>
       <div className="grid gap-2">
-        {mobileAdminDestinations.map((item) => {
-          const isActive =
-            location.pathname === item.href || location.pathname.startsWith(`${item.href}/`);
+        {mobileAdminDestinations
+          .filter((item) => isSuperAdmin || item.href === '/admin/access')
+          .map((item) => {
+            const isActive =
+              location.pathname === item.href || location.pathname.startsWith(`${item.href}/`);
 
-          return (
-            <SheetClose asChild key={item.href}>
-              <Link
-                to={item.href}
-                className={cn(
-                  'flex min-h-11 items-center justify-between rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'border-primary/20 bg-primary/10 text-primary'
-                    : 'border-border bg-background text-foreground hover:bg-muted/40'
-                )}
-              >
-                <span>{item.label}</span>
-                {isActive && <span className="text-xs text-primary">Current</span>}
-              </Link>
-            </SheetClose>
-          );
-        })}
+            return (
+              <SheetClose asChild key={item.href}>
+                <Link
+                  to={item.href}
+                  className={cn(
+                    'flex min-h-11 items-center justify-between rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'border-primary/20 bg-primary/10 text-primary'
+                      : 'border-border bg-background text-foreground hover:bg-muted/40'
+                  )}
+                >
+                  <span>{item.label}</span>
+                  {isActive && <span className="text-xs text-primary">Current</span>}
+                </Link>
+              </SheetClose>
+            );
+          })}
       </div>
     </div>
   );

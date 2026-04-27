@@ -30,6 +30,9 @@ interface User {
   plusAccess: PlusAccessSummary;
   reportingAccess: ReportingAccessContext;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
+  isScopedAdmin: boolean;
+  adminAccess: AdminAccessContext;
 }
 
 interface AuthContextType {
@@ -55,10 +58,29 @@ interface AuthContextType {
   reportingLocationCount: number;
   canManageReporting: boolean;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
+  isScopedAdmin: boolean;
+  adminAccess: AdminAccessContext;
 }
 
 type AdminRoleRecord = {
   role: string;
+};
+
+type AdminAccessContext = {
+  isSuperAdmin: boolean;
+  isScopedAdmin: boolean;
+  canAccessAdmin: boolean;
+  allowedSurfaces: string[];
+  scopedMachineIds: string[];
+};
+
+type AdminAccessContextRpc = {
+  isSuperAdmin?: boolean | null;
+  isScopedAdmin?: boolean | null;
+  canAccessAdmin?: boolean | null;
+  allowedSurfaces?: string[] | null;
+  scopedMachineIds?: string[] | null;
 };
 
 type PortalAccessContextRecord = {
@@ -94,6 +116,14 @@ const devAdminEmailAllowlist = getDevAdminEmailAllowlist();
 const hasDevAdminEmailOverride = (email: string): boolean =>
   import.meta.env.DEV && devAdminEmailAllowlist.has(email.toLowerCase());
 
+const emptyAdminAccessContext: AdminAccessContext = {
+  isSuperAdmin: false,
+  isScopedAdmin: false,
+  canAccessAdmin: false,
+  allowedSurfaces: [],
+  scopedMachineIds: [],
+};
+
 const getIsAdmin = async (userId: string): Promise<boolean> => {
   const { data, error } = await supabaseClient
     .from('admin_roles')
@@ -109,6 +139,37 @@ const getIsAdmin = async (userId: string): Promise<boolean> => {
   }
 
   return Boolean((data as AdminRoleRecord | null)?.role);
+};
+
+const mapAdminAccessContext = (
+  record: AdminAccessContextRpc | null,
+  fallbackIsSuperAdmin = false
+): AdminAccessContext => {
+  const isSuperAdmin = Boolean(record?.isSuperAdmin ?? fallbackIsSuperAdmin);
+  const isScopedAdmin = Boolean(record?.isScopedAdmin);
+
+  return {
+    isSuperAdmin,
+    isScopedAdmin,
+    canAccessAdmin: Boolean(record?.canAccessAdmin ?? (isSuperAdmin || isScopedAdmin)),
+    allowedSurfaces: Array.isArray(record?.allowedSurfaces) ? record.allowedSurfaces : [],
+    scopedMachineIds: Array.isArray(record?.scopedMachineIds) ? record.scopedMachineIds : [],
+  };
+};
+
+const getAdminAccess = async (userId: string): Promise<AdminAccessContext> => {
+  try {
+    const { data, error } = await supabaseClient.rpc('get_my_admin_access_context');
+
+    if (!error && data) {
+      return mapAdminAccessContext(data as AdminAccessContextRpc);
+    }
+  } catch {
+    // Fall through to the legacy super-admin check for environments that have
+    // not applied the scoped-admin migration yet.
+  }
+
+  return mapAdminAccessContext(null, await getIsAdmin(userId));
 };
 
 const getPlusAccess = async (): Promise<PlusAccessSummary> => {
@@ -155,15 +216,24 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
     await resolveTechnicianEntitlements();
   }
 
-  const [plusAccess, dbIsAdmin, portalAccessContext, reportingAccess] = await Promise.all([
+  const [plusAccess, dbAdminAccess, portalAccessContext, reportingAccess] = await Promise.all([
     getPlusAccess(),
-    getIsAdmin(supabaseUser.id),
+    getAdminAccess(supabaseUser.id),
     getPortalAccessContext(),
     getReportingAccess(),
   ]);
-  const isAdmin = dbIsAdmin || hasDevAdminEmailOverride(email);
-  const hasFullPlusAccess = isAdmin || plusAccess.hasPlusAccess;
-  const effectiveReportingAccess: ReportingAccessContext = isAdmin
+  const hasDevAdminOverride = hasDevAdminEmailOverride(email);
+  const adminAccess: AdminAccessContext = hasDevAdminOverride
+    ? {
+        ...dbAdminAccess,
+        isSuperAdmin: true,
+        canAccessAdmin: true,
+        allowedSurfaces: ['*'],
+      }
+    : dbAdminAccess;
+  const isAdmin = adminAccess.canAccessAdmin;
+  const hasFullPlusAccess = adminAccess.isSuperAdmin || plusAccess.hasPlusAccess;
+  const effectiveReportingAccess: ReportingAccessContext = adminAccess.isSuperAdmin
     ? {
         ...reportingAccess,
         hasReportingAccess: true,
@@ -187,6 +257,9 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
     plusAccess,
     reportingAccess: effectiveReportingAccess,
     isAdmin,
+    isSuperAdmin: adminAccess.isSuperAdmin,
+    isScopedAdmin: adminAccess.isScopedAdmin,
+    adminAccess,
   };
 };
 
@@ -373,6 +446,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         reportingLocationCount: user?.reportingAccess.accessibleLocationCount ?? 0,
         canManageReporting: user?.reportingAccess.canManageReporting ?? false,
         isAdmin: user?.isAdmin ?? false,
+        isSuperAdmin: user?.isSuperAdmin ?? false,
+        isScopedAdmin: user?.isScopedAdmin ?? false,
+        adminAccess: user?.adminAccess ?? emptyAdminAccessContext,
       }}
     >
       {children}
