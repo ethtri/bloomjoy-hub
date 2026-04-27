@@ -514,7 +514,7 @@ begin
     select jsonb_build_object(
       'warning_type', 'refund_adjustment_review_needed',
       'severity', 'non_blocking',
-      'message', 'Refund adjustment rows for this report's machines need admin review before they affect partner settlement.'
+      'message', 'Refund adjustment rows for this report''s machines need admin review before they affect partner settlement.'
     ) as warning
     from unresolved_refund_review review
     where review.row_count > 0
