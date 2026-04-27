@@ -1481,7 +1481,6 @@ function MachineAssignmentsSection({
       [
         machine.machine_label,
         machine.account_name,
-        machine.location_name,
         machine.sunze_machine_id ?? '',
       ]
         .join(' ')
@@ -1657,7 +1656,7 @@ function MachineAssignmentsSection({
                 value={machineSearch}
                 onChange={(event) => setMachineSearch(event.target.value)}
                 className="pl-9"
-                placeholder="Machine, account, location, Sunze ID"
+                placeholder="Machine, account, Sunze ID"
               />
             </div>
           </div>
@@ -1709,8 +1708,7 @@ function MachineAssignmentsSection({
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium text-foreground">{machine.machine_label}</span>
                       <span className="mt-1 block text-sm text-muted-foreground">
-                        {machine.account_name} / {machine.location_name} / Sunze:{' '}
-                        {machine.sunze_machine_id ?? 'n/a'}
+                        {machine.account_name} / Sunze: {machine.sunze_machine_id ?? 'n/a'}
                       </span>
                       {otherAssignments.length > 0 && (
                         <span className="mt-2 flex flex-wrap gap-1">

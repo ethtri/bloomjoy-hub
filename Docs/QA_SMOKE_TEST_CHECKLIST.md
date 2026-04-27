@@ -174,7 +174,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] WeChat onboarding concierge submit writes `support_requests.request_type=wechat_onboarding` and structured `support_requests.intake_meta` values (`phone_region`, `phone_number`, `device_type`, `blocked_step`, `referral_needed`, optional `wechat_id`)
 - [ ] User with no reporting entitlement is blocked from `/portal/reports` with clear reporting-access copy
 - [ ] User with one reporting machine entitlement can open `/portal/reports` and sees only that machine in filters/results
-- [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, location, machine, and cash/credit payment filters
+- [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, machine, and cash/credit payment filters without exposing location controls or columns
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
@@ -266,7 +266,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Participants includes an `Add new partner record` dropdown option that opens a modal, saves minimum viable partner fields, and selects the new record
 - [ ] Admin Partnerships > Machines supports bulk searchable check/uncheck machine alignment and archives unchecked active assignments without exposing dates, status, role, or notes
 - [ ] Admin Partnerships > Machines shows when selected machines are already assigned to another active partnership and requires confirmation before saving an overlap
-- [ ] Admin Machines can edit machine label/alias, account, location, machine type, and Sunze ID
+- [ ] Admin Machines can edit machine label/alias, account, and machine type while hiding location and showing Sunze ID as read-only system metadata
 - [ ] Admin Machines shows a sortable/filterable table with assignment readiness, assignment state filters, latest sale, and current tax states: Missing, No tax, Configured
 - [ ] Admin Machines can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow, and newly documented rates apply from `2026-01-01`
 - [ ] Admin Machines can record a reporting tax rate change with only `New reporting tax %` and `Applies from`, and the previous active rate closes without overlap

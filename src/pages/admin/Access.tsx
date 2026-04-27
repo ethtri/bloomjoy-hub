@@ -127,14 +127,11 @@ const mergePeople = (
 const groupMachines = (machines: AdminReportingAccessMachine[]) => {
   const groups = new Map<string, AdminReportingAccessMachine[]>();
   machines.forEach((machine) => {
-    const key = `${machine.accountName}||${machine.locationName}`;
+    const key = machine.accountName;
     groups.set(key, [...(groups.get(key) ?? []), machine]);
   });
 
-  return [...groups.entries()].map(([key, values]) => {
-    const [accountName, locationName] = key.split('||');
-    return { key, accountName, locationName, machines: values };
-  });
+  return [...groups.entries()].map(([key, values]) => ({ key, accountName: key, machines: values }));
 };
 
 const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
@@ -645,7 +642,7 @@ function ReportingAccessTab() {
     const search = normalizeSearch(machineSearch);
     if (!search) return matrix.machines;
     return matrix.machines.filter((machine) =>
-      [machine.machineLabel, machine.sunzeMachineId ?? '', machine.accountName, machine.locationName]
+      [machine.machineLabel, machine.sunzeMachineId ?? '', machine.accountName]
         .join(' ')
         .toLowerCase()
         .includes(search)
@@ -873,7 +870,7 @@ function ReportingAccessTab() {
                       id="machine-search"
                       value={machineSearch}
                       onChange={(event) => setMachineSearch(event.target.value)}
-                      placeholder="Filter by label, Sunze ID, account, or location"
+                      placeholder="Filter by label, Sunze ID, or account"
                     />
                   </div>
 
@@ -884,7 +881,7 @@ function ReportingAccessTab() {
                       groupedMachines.map((group) => (
                         <div key={group.key} className="border-b border-border last:border-b-0">
                           <div className="bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            {group.accountName} / {group.locationName}
+                            {group.accountName}
                           </div>
                           {group.machines.map((machine) => (
                             <label

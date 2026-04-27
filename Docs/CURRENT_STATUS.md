@@ -30,11 +30,11 @@
 - Production runtime hotfix branch `agent/fix-reporting-chart-runtime` removes the forced Recharts manual chunk split that caused the app shell to crash with `Cannot access 'P' before initialization` after the reporting deployment.
 - Sales reporting is now a Supabase-backed extension to the existing operator app on `main`.
 - The reporting foundation includes account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
-- The portal now has `/portal/reports` for entitled users, with date/grain/location/machine/payment filters and on-demand PDF export.
+- The portal now has `/portal/reports` for entitled users, with date/grain/machine/payment filters and on-demand PDF export.
 - Admin access and reporting operations are split into clearer surfaces:
   - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
   - `/admin/partner-records` is the reusable organization/contact directory for partnership participants.
-  - `/admin/machines` is the machine setup area for aliases, Sunze mapping, assignment readiness, and current machine tax rates.
+  - `/admin/machines` is the machine setup area for aliases, read-only Sunze mapping, assignment readiness, and current machine tax rates. Location stays as backend reporting structure but is hidden from current admin/reporting UI.
   - `/admin/partnerships` is the guided agreement setup flow for partnership details, role-only participants, bulk machine alignment, payout rules, and weekly preview.
   - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
 - Production RPC repair is complete: migration `202604260004_reporting_admin_rpc_repair.sql` reapplied missing admin reporting/partnership RPCs, restored PostgREST schema visibility, and production migration history is aligned through `202604260006`.
