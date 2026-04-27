@@ -55,8 +55,8 @@ type AdminDestination = {
 const adminDestinations: AdminDestination[] = [
   {
     href: '/admin',
-    label: 'Admin home',
-    shortLabel: 'Home',
+    label: 'Admin Home',
+    shortLabel: 'Admin Home',
     description: 'Operations modules, queue visibility, and internal governance tools.',
     icon: LayoutDashboard,
     requiresSuperAdmin: true,

@@ -268,6 +268,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/partnerships`
 - [ ] Admin dashboard and app nav expose separate Partner Records, Machines, Partnerships, and Reporting modules
 - [ ] Desktop admin routes show a persistent `Admin tools` navigation row for Admin Home, Orders, Support, Access, Partner Records, Machines, Partnerships, and Reporting
+- [ ] Mobile admin routes show the same super-admin destinations in the operator menu: Admin Home, Orders, Support, Access, Partner Records, Machines, Partnerships, and Reporting
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
 - [ ] Admin Partner Records can search, create, and edit reusable partner records with separate display name and legal name fields, without exposing "party" terminology
