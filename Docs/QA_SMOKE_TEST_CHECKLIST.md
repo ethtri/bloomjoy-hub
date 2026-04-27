@@ -180,7 +180,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Portal Reports > Partner Dashboard shows gross sales, refund impact, net sales, split base, and amount owed as separate values when applied refund adjustments exist
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
-- [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate, and partner-settlement fixtures
+- [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate, current customer-service export header, and partner-settlement fixtures
 - [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, reconciles parsed row count/revenue against the Sunze UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
 - [ ] `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30` reports the latest completed Sunze import or sends a stale-data ops alert
 

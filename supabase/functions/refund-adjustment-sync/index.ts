@@ -28,6 +28,8 @@ type RefundInput = {
   reason: string;
   sourceStatus: string;
   normalizedSourceStatus: string;
+  sourceDecision: string;
+  normalizedSourceDecision: string;
   adjustmentType: "refund" | "complaint_refund" | "manual_adjustment";
   complaintCount: number;
 };
@@ -53,6 +55,13 @@ const autoApplyStatuses = new Set([
   "refunded",
   "resolved",
   "settled",
+]);
+
+const autoApplyDecisions = new Set([
+  "approve",
+  "approved",
+  "refund approved",
+  "refund approve",
 ]);
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
@@ -141,6 +150,7 @@ const sha256Hex = async (value: string) => {
 const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: string): RefundInput => {
   const sourceLocation = pickText(row, [
     "location",
+    "location_of_purchase",
     "source_location",
     "machine_location",
     "refund_location",
@@ -150,9 +160,11 @@ const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: stri
     "machine",
   ]);
   const sourceStatus = pickText(row, ["status", "refund_status", "source_status"]);
+  const sourceDecision = pickText(row, ["decision", "refund_decision"]);
   return {
     sourceRowReference: pickText(row, [
       "source_row_reference",
+      "request_id",
       "row_reference",
       "row_id",
       "response_id",
@@ -160,17 +172,35 @@ const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: stri
     ]) || fallbackRowReference,
     sourceLocation,
     normalizedLocation: normalizeMatchText(sourceLocation),
-    refundDate: normalizeDate(pickText(row, ["refund_date", "processed_date", "adjustment_date", "date"])),
+    refundDate: normalizeDate(pickText(row, [
+      "refund_date",
+      "decision_date",
+      "processed_date",
+      "adjustment_date",
+      "date",
+    ])),
     originalOrderDate: normalizeDate(pickText(row, [
       "original_order_date",
+      "date_and_time_of_incident",
+      "incident_date",
       "order_date",
       "sale_date",
       "transaction_date",
     ])),
     amountCents: parseCents(row),
-    reason: pickText(row, ["reason", "notes", "complaint_reason", "refund_reason"]),
+    reason: pickText(row, [
+      "reason",
+      "incident_description",
+      "mgr_commentary",
+      "commentary",
+      "notes",
+      "complaint_reason",
+      "refund_reason",
+    ]),
     sourceStatus,
     normalizedSourceStatus: normalizeStatus(sourceStatus),
+    sourceDecision,
+    normalizedSourceDecision: normalizeStatus(sourceDecision),
     adjustmentType: normalizeAdjustmentType(row.adjustment_type ?? row.type ?? row.reason),
     complaintCount: parseCount(row.complaint_count ?? row.complaints),
   };
@@ -184,6 +214,7 @@ const sourceRowHash = async (input: RefundInput) =>
     amountCents: input.amountCents,
     reason: normalizeMatchText(input.reason),
     sourceStatus: input.normalizedSourceStatus,
+    sourceDecision: input.normalizedSourceDecision,
     adjustmentType: input.adjustmentType,
   }));
 
@@ -318,6 +349,16 @@ const matchRefund = (input: RefundInput, machines: MachineProfile[]) => {
     };
   }
 
+  if (input.normalizedSourceDecision && !autoApplyDecisions.has(input.normalizedSourceDecision)) {
+    return {
+      status: "needs_review",
+      confidence: 0,
+      reason: "source_decision_requires_review",
+      candidateMachineIds: [] as string[],
+      matchedMachine: null as MachineProfile | null,
+    };
+  }
+
   const exactMatches = machines.filter((machine) =>
     machine.labels.some((label) => label.normalized === input.normalizedLocation)
   );
@@ -444,7 +485,7 @@ const importRows = async (
           adjustment_type: input.adjustmentType,
           complaint_count: input.complaintCount,
           reason: input.reason || null,
-          source_status: input.sourceStatus || null,
+          source_status: [input.sourceStatus, input.sourceDecision].filter(Boolean).join(" / ") || null,
           raw_payload: row,
           match_status: canApply ? "matched" : match.status,
           match_confidence: match.confidence,
