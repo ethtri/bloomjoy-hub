@@ -62,6 +62,7 @@ Security rule:
   - [ ] `npm run build`
   - [ ] `npm test --if-present`
   - [ ] `npm run lint --if-present`
+- [ ] `npm run db:validate-migrations` passes before any production Supabase migration push.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref>` passes
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
@@ -76,13 +77,20 @@ Use this order exactly.
 Apply all `supabase/migrations/*.sql` not already applied, oldest to newest.
 
 Recommended:
-1) Link Supabase project:
+1) Validate migration SQL against a disposable local database:
+   - `npm run db:validate-migrations`
+2) Link Supabase project:
    - `supabase link --project-ref <project-ref>`
-2) Push migrations:
+3) Preview pending migration history:
+   - `supabase db push --dry-run`
+4) Push migrations:
    - `supabase db push`
-3) If a migration adds or replaces frontend-facing RPCs, confirm PostgREST schema visibility:
+5) If a migration adds or replaces frontend-facing RPCs, confirm PostgREST schema visibility:
    - Changed RPCs do not return `404` or `PGRST202`.
    - Admin/reporting examples: `admin_get_account_summaries`, `admin_set_user_machine_reporting_access`, and `admin_get_partnership_reporting_setup`.
+
+Validation note:
+- `supabase db push --dry-run` checks migration history and lists what would be pushed to the linked project, but it does not execute the SQL. Use `npm run db:validate-migrations` first because it actually applies repo migrations to disposable local Postgres and catches SQL parse/apply errors without production data or secrets.
 
 Migration repair rule:
 - Do not edit an already-applied migration and expect production to replay it.

@@ -67,7 +67,9 @@
 
 Migration notes:
 - Supabase will not replay an edited migration after production has marked that version applied. Add a later forward-only repair migration when production schema drift needs to be fixed.
-- After migrations that add or replace frontend-facing RPCs, verify `supabase db push --dry-run` is clean and confirm the live REST endpoint does not return `404` or `PGRST202` for the changed RPCs.
+- Before production pushes for any migration branch, run `npm run db:validate-migrations`. This creates a temporary local Supabase project, copies `supabase/migrations`, starts a disposable local Postgres container on random ports, applies every migration from an empty database, and then tears it down. It requires Docker plus the Supabase CLI, but it does not require secrets or production data.
+- `supabase db push --dry-run` is still useful after linking a project because it checks local/remote migration history and shows which migrations would be pushed. It does not execute the SQL, so it can miss parse/apply failures inside SQL scripts or function bodies. `npm run db:validate-migrations` performs the actual local parse/apply validation.
+- After migrations that add or replace frontend-facing RPCs, run `npm run db:validate-migrations`, verify `supabase db push --dry-run` is clean, and confirm the live REST endpoint does not return `404` or `PGRST202` for the changed RPCs.
 
 ## Sales reporting import helpers
 Use these after the sales reporting migration has been applied.
@@ -229,7 +231,8 @@ To use all login methods in local dev:
 4) Run `git status -sb` and make sure it looks clean
 5) Run `npm run auth:preflight` when working on auth/OAuth launch tasks
 6) Run `npm run commerce:preflight` when working on Stripe/order/notification changes
-7) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
+7) Run `npm run db:validate-migrations` when working on Supabase migrations
+8) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
 
 ## Post-merge hygiene (2 minutes)
 Use this after a PR is merged or intentionally closed. Do not remove a worktree that still has uncommitted work.
