@@ -365,6 +365,148 @@ export const buildMachineProfiles = ({ machines, aliases = [] }) => {
 
 const uniqueCandidateIds = (candidates) => [...new Set(candidates.map((candidate) => candidate.id))];
 
+const isActiveStatus = (value) => !value || value === 'active';
+
+const getMachineLocationName = (machine) =>
+  machine.location_name ??
+  machine.reporting_locations?.name ??
+  machine.locationName ??
+  '';
+
+export const buildGlobalUniqueRefundScopeLabelMap = ({ machines, aliases = [] }) => {
+  const activeMachineIds = new Set(
+    machines.filter((machine) => isActiveStatus(machine.status)).map((machine) => machine.id)
+  );
+  const labelsByNormalized = new Map();
+  const addLabel = (normalizedLabel, machineId) => {
+    if (!normalizedLabel || !machineId || !activeMachineIds.has(machineId)) return;
+    const current = labelsByNormalized.get(normalizedLabel) ?? new Set();
+    current.add(machineId);
+    labelsByNormalized.set(normalizedLabel, current);
+  };
+
+  machines.forEach((machine) => {
+    if (!activeMachineIds.has(machine.id)) return;
+    addLabel(normalizeMatchText(machine.machine_label ?? machine.machineLabel), machine.id);
+    if (isActiveStatus(machine.location_status ?? machine.locationStatus)) {
+      addLabel(normalizeMatchText(getMachineLocationName(machine)), machine.id);
+    }
+  });
+
+  aliases.forEach((alias) => {
+    if (!isActiveStatus(alias.status)) return;
+    addLabel(normalizeMatchText(alias.alias), alias.reporting_machine_id ?? alias.reportingMachineId);
+  });
+
+  const uniqueLabels = new Map();
+  labelsByNormalized.forEach((machineIds, normalizedLabel) => {
+    if (machineIds.size === 1) {
+      uniqueLabels.set(normalizedLabel, [...machineIds][0]);
+    }
+  });
+
+  return uniqueLabels;
+};
+
+const assignmentMachineId = (assignment) => assignment.machine_id ?? assignment.machineId;
+const assignmentPartnershipId = (assignment) =>
+  assignment.partnership_id ?? assignment.partnershipId;
+
+const isAssignmentActiveForRefundDate = ({ assignment, partnershipId, machineId, refundDate }) => {
+  if (assignmentMachineId(assignment) !== machineId) return false;
+  if (assignmentPartnershipId(assignment) !== partnershipId) return false;
+  if ((assignment.assignment_role ?? assignment.assignmentRole ?? 'primary_reporting') !== 'primary_reporting') {
+    return false;
+  }
+  if ((assignment.status ?? 'active') !== 'active') return false;
+
+  const start = assignment.effective_start_date ?? assignment.effectiveStartDate ?? '0001-01-01';
+  const end = assignment.effective_end_date ?? assignment.effectiveEndDate ?? null;
+  return start <= refundDate && (!end || end >= refundDate);
+};
+
+const parseCandidateMachineIds = (value) => {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === 'string' && value.trim()) {
+    return value
+      .replace(/[{}]/g, '')
+      .split(',')
+      .map((candidate) => candidate.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const reviewMatchStatus = (row) => row.match_status ?? row.matchStatus ?? '';
+const reviewResolutionStatus = (row) => row.resolution_status ?? row.resolutionStatus ?? '';
+
+const warningReviewStatuses = new Set([
+  'needs_review',
+  'matched',
+  'ambiguous',
+  'unmatched',
+  'invalid',
+  'duplicate',
+]);
+
+export const refundReviewRowAppliesToPartnerScope = ({
+  row,
+  partnershipId,
+  dateFrom,
+  dateTo,
+  assignments,
+  uniqueLabelMap,
+}) => {
+  const refundDate = normalizeDate(row.refund_date ?? row.refundDate);
+  if (!refundDate || refundDate < dateFrom || refundDate > dateTo) return false;
+  if (reviewResolutionStatus(row) !== 'unresolved') return false;
+  if (!warningReviewStatuses.has(reviewMatchStatus(row))) return false;
+
+  const isAssignedForRefundDate = (machineId) =>
+    assignments.some((assignment) =>
+      isAssignmentActiveForRefundDate({ assignment, partnershipId, machineId, refundDate })
+    );
+
+  const matchedMachineId = row.matched_machine_id ?? row.matchedMachineId ?? null;
+  if (matchedMachineId && isAssignedForRefundDate(matchedMachineId)) return true;
+
+  const candidateMachineIds = parseCandidateMachineIds(
+    row.candidate_machine_ids ?? row.candidateMachineIds
+  );
+  if (candidateMachineIds.length === 1 && isAssignedForRefundDate(candidateMachineIds[0])) {
+    return true;
+  }
+
+  const normalizedLocation =
+    row.normalized_source_location ??
+    row.normalizedSourceLocation ??
+    normalizeMatchText(row.source_location ?? row.sourceLocation);
+  const uniqueLabelMachineId = uniqueLabelMap.get(normalizedLocation);
+  return Boolean(uniqueLabelMachineId && isAssignedForRefundDate(uniqueLabelMachineId));
+};
+
+export const countPartnerScopedRefundReviewRows = ({
+  rows,
+  partnershipId,
+  dateFrom,
+  dateTo,
+  assignments,
+  machines,
+  aliases,
+}) => {
+  const uniqueLabelMap = buildGlobalUniqueRefundScopeLabelMap({ machines, aliases });
+  return rows.filter((row) =>
+    refundReviewRowAppliesToPartnerScope({
+      row,
+      partnershipId,
+      dateFrom,
+      dateTo,
+      assignments,
+      uniqueLabelMap,
+    })
+  ).length;
+};
+
 export const matchRefundToMachine = (input, machineProfiles) => {
   if (!input.refundDate || input.amountCents <= 0 || !input.normalizedLocation) {
     return {
