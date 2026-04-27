@@ -17,7 +17,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] View page source on a direct-loaded private route (for example `/portal`) and confirm robots is `noindex`
 - [ ] `https://www.bloomjoyusa.com/login`, `/reset-password`, `/portal*`, and `/admin*` redirect to `https://app.bloomjoyusa.com/...`
 - [ ] `https://app.bloomjoyusa.com/` plus public marketing/storefront paths redirect back to `https://www.bloomjoyusa.com/...`
-- [ ] Production/preview asset check: JS files referenced by `/admin/access` return `application/javascript`, and a bogus `/assets/__missing-admin-chunk__.js` returns a non-HTML `404` instead of the SPA fallback page
+- [ ] Production/preview asset check: JS files referenced by `/admin`, `/admin/access`, `/admin/reporting`, and `/admin/partnerships` return `application/javascript`, and a bogus `/assets/__missing-admin-chunk__.js` returns `404 text/plain` instead of the SPA fallback page
+- [ ] Stale route chunk recovery check: simulate one route-level JS chunk load failure, confirm the app performs one automatic reload, then confirm a repeated failure shows the app-update refresh fallback instead of a blank page
 - [ ] `robots.txt` is reachable and includes a sitemap reference
 - [ ] `sitemap.xml` is reachable, lists core public routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about URLs
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior

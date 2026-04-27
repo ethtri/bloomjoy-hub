@@ -70,13 +70,15 @@
     {
       "src": "/(portal|admin)(.*)",
       "headers": {
+        "Cache-Control": "no-store",
         "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
       },
       "continue": true
     },
     {
-      "src": "/(login(?:/operator)?|reset-password|cart)",
+      "src": "/(login(?:/operator)?|reset-password|cart)/?",
       "headers": {
+        "Cache-Control": "no-store",
         "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet"
       },
       "continue": true
@@ -100,6 +102,13 @@
     {
       "src": "/admin(?:/.*)?/?",
       "dest": "/admin.html"
+    },
+    {
+      "src": "/assets/(.*)",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "continue": true
     },
     {
       "handle": "filesystem"
