@@ -454,7 +454,7 @@ export default function AdminMachinesPage() {
                     className="pl-9"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Machine, display group, external machine ID, partnership"
+                    placeholder="Machine, customer/partner group, external machine ID, partnership"
                   />
                 </div>
               </div>
@@ -518,7 +518,7 @@ export default function AdminMachinesPage() {
                   <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold">Machine label / alias</th>
-                      <th className="px-4 py-3 text-left font-semibold">Display group</th>
+                      <th className="px-4 py-3 text-left font-semibold">Customer / partner group</th>
                       <th className="px-4 py-3 text-left font-semibold">Type</th>
                       <th className="px-4 py-3 text-left font-semibold">External machine ID</th>
                       <th className="px-4 py-3 text-left font-semibold">Assignment</th>
@@ -859,7 +859,7 @@ function MachineDialog({
 
   const saveMachine = async () => {
     if (!form.accountName.trim() || !form.machineLabel.trim()) {
-      toast.error('Display group and machine label are required.');
+      toast.error('Customer / partner group and machine label are required.');
       return;
     }
 
@@ -874,7 +874,7 @@ function MachineDialog({
         normalizeComparableText(candidate.machine_label) === normalizeComparableText(machineLabel)
     );
     if (duplicateIdentity) {
-      toast.error('A machine with this display group and label already exists.');
+      toast.error('A machine with this customer/partner group and label already exists.');
       return;
     }
 
@@ -916,17 +916,18 @@ function MachineDialog({
         <DialogHeader>
           <DialogTitle>{form.machineId ? 'Edit Machine' : 'New Machine'}</DialogTitle>
           <DialogDescription>
-            Update manual reporting machine details. Imported machines should be set up from
-            Reporting Operations so report assignment and queued sales are handled together.
+            Create or edit a manually managed reporting machine. Imported machines with queued
+            sales are set up from Reporting Operations.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <Label htmlFor="machine-account">Reporting account / display group</Label>
+            <Label htmlFor="machine-account">Customer / partner group</Label>
             <Input
               id="machine-account"
               list="machine-account-options"
               value={form.accountName}
+              placeholder="Example: Merlin Entertainments"
               onChange={(event) => setForm({ ...form, accountName: event.target.value })}
             />
             <datalist id="machine-account-options">
