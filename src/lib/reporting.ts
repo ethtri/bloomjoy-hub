@@ -514,7 +514,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       .limit(10),
     supabaseClient
       .from('partner_report_snapshots')
-      .select('id, partnership_id, week_ending_date, status, generated_at, generated_by, summary_json, export_storage_path, reporting_partnerships(name)')
+      .select('id, partnership_id, week_ending_date, period_grain, period_start_date, period_end_date, status, generated_at, generated_by, summary_json, export_storage_path, reporting_partnerships(name)')
       .order('generated_at', { ascending: false })
       .limit(10),
     supabaseClient
@@ -546,6 +546,9 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     id: string;
     partnership_id: string;
     week_ending_date: string;
+    period_grain?: 'reporting_week' | 'calendar_month' | null;
+    period_start_date?: string | null;
+    period_end_date?: string | null;
     status: string;
     generated_at: string;
     generated_by: string | null;
@@ -556,7 +559,14 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     const partnership = Array.isArray(snapshot.reporting_partnerships)
       ? snapshot.reporting_partnerships[0]
       : snapshot.reporting_partnerships;
-    const title = `${partnership?.name ?? 'Partner report'} week ending ${snapshot.week_ending_date}`;
+    const periodGrain = snapshot.period_grain ?? 'reporting_week';
+    const periodStartDate = snapshot.period_start_date ?? snapshot.week_ending_date;
+    const periodEndDate = snapshot.period_end_date ?? snapshot.week_ending_date;
+    const periodLabel =
+      periodGrain === 'calendar_month'
+        ? `month ending ${periodEndDate}`
+        : `week ending ${periodEndDate}`;
+    const title = `${partnership?.name ?? 'Partner report'} ${periodLabel}`;
 
     return {
       id: snapshot.id,
@@ -564,6 +574,9 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       filters: {
         partnershipId: snapshot.partnership_id,
         weekEndingDate: snapshot.week_ending_date,
+        periodGrain,
+        periodStartDate,
+        periodEndDate,
       },
       summary: snapshot.summary_json ?? {},
       export_storage_path: snapshot.export_storage_path,

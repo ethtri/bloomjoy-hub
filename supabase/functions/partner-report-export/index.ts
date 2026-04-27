@@ -16,6 +16,30 @@ const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const validFormats = new Set(["pdf", "csv"]);
+const validPeriodGrains = new Set(["reporting_week", "calendar_month"]);
+
+type PartnerReportPeriodGrain = "reporting_week" | "calendar_month";
+
+type PartnerPeriodPreviewRpc = {
+  partnership_id?: string;
+  partnership_name?: string;
+  period_grain?: PartnerReportPeriodGrain;
+  date_from?: string;
+  date_to?: string;
+  summary?: Record<string, unknown>;
+  machine_periods?: Array<Record<string, unknown>>;
+  warnings?: Array<{ message?: string }>;
+};
+
+type ExportRequest = {
+  partnershipId: string;
+  format: string;
+  periodGrain: PartnerReportPeriodGrain;
+  periodStartDate: string;
+  periodEndDate: string;
+  periodLabel: string;
+  useLegacyWeeklyPreview: boolean;
+};
 
 const serviceSupabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -42,6 +66,109 @@ const getWeekStartDate = (weekEndingDate: string) => {
   const date = new Date(`${weekEndingDate}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() - 6);
   return dateInputFromDate(date);
+};
+
+const formatMonthLabel = (dateInput: string) => {
+  const date = new Date(`${dateInput}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return dateInput;
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+};
+
+const formatPeriodLabel = (
+  periodGrain: PartnerReportPeriodGrain,
+  periodStartDate: string,
+  periodEndDate: string,
+) => {
+  if (
+    periodGrain === "calendar_month" &&
+    periodStartDate.slice(0, 7) === periodEndDate.slice(0, 7)
+  ) {
+    return formatMonthLabel(periodStartDate);
+  }
+
+  return `${periodStartDate} through ${periodEndDate}`;
+};
+
+const resolveExportRequest = (
+  raw: Record<string, unknown>,
+): { request?: ExportRequest; error?: string } => {
+  const partnershipId = String(raw.partnershipId ?? "").trim();
+  const format = String(raw.format ?? "pdf").trim().toLowerCase();
+  const rawPeriodGrain = String(raw.periodGrain ?? "").trim();
+  const hasExplicitPeriod = rawPeriodGrain.length > 0;
+  const periodGrain = hasExplicitPeriod ? rawPeriodGrain : "reporting_week";
+
+  if (!uuidPattern.test(partnershipId)) {
+    return { error: "Valid partnershipId is required." };
+  }
+
+  if (!validFormats.has(format)) {
+    return { error: "format must be pdf or csv." };
+  }
+
+  if (!validPeriodGrains.has(periodGrain)) {
+    return { error: "periodGrain must be reporting_week or calendar_month." };
+  }
+
+  if (hasExplicitPeriod) {
+    const periodStartDate = String(raw.dateFrom ?? "").trim();
+    const periodEndDate = String(raw.dateTo ?? "").trim();
+
+    if (
+      !datePattern.test(periodStartDate) || !datePattern.test(periodEndDate)
+    ) {
+      return { error: "Valid dateFrom and dateTo are required." };
+    }
+
+    if (periodStartDate > periodEndDate) {
+      return { error: "dateFrom must be on or before dateTo." };
+    }
+
+    return {
+      request: {
+        partnershipId,
+        format,
+        periodGrain: periodGrain as PartnerReportPeriodGrain,
+        periodStartDate,
+        periodEndDate,
+        periodLabel: formatPeriodLabel(
+          periodGrain as PartnerReportPeriodGrain,
+          periodStartDate,
+          periodEndDate,
+        ),
+        useLegacyWeeklyPreview: false,
+      },
+    };
+  }
+
+  const weekEndingDate = String(raw.weekEndingDate ?? "").trim();
+
+  if (!datePattern.test(weekEndingDate)) {
+    return { error: "Valid weekEndingDate is required." };
+  }
+
+  const periodStartDate = getWeekStartDate(weekEndingDate);
+
+  return {
+    request: {
+      partnershipId,
+      format,
+      periodGrain: "reporting_week",
+      periodStartDate,
+      periodEndDate: weekEndingDate,
+      periodLabel: formatPeriodLabel(
+        "reporting_week",
+        periodStartDate,
+        weekEndingDate,
+      ),
+      useLegacyWeeklyPreview: true,
+    },
+  };
 };
 
 const toBlobPart = (bytes: Uint8Array): ArrayBuffer => {
@@ -72,9 +199,9 @@ const formatCalculationLabel = (rule: Record<string, unknown> | null) => {
       (feeAmount / 100).toFixed(2)
     } ${feeLabel.toLowerCase()} per paid stick/item`
     : feeAmount > 0
-    ? `$${(feeAmount / 100).toFixed(2)} ${
-      feeLabel.toLowerCase()
-    } (${feeBasis.replaceAll("_", " ")})`
+    ? `$${(feeAmount / 100).toFixed(2)} ${feeLabel.toLowerCase()} (${
+      feeBasis.replaceAll("_", " ")
+    })`
     : "no configured deduction";
   const additionalNotes = String(rule.additional_deductions_notes ?? "").trim();
 
@@ -126,8 +253,8 @@ const getPayoutRecipientLabels = async (
 
 const getActiveFinancialRule = async (
   partnershipId: string,
-  weekStartDate: string,
-  weekEndingDate: string,
+  periodStartDate: string,
+  periodEndDate: string,
 ): Promise<Record<string, unknown> | null> => {
   if (!serviceSupabase) return null;
 
@@ -136,8 +263,8 @@ const getActiveFinancialRule = async (
     .select("*")
     .eq("partnership_id", partnershipId)
     .eq("status", "active")
-    .lte("effective_start_date", weekEndingDate)
-    .or(`effective_end_date.is.null,effective_end_date.gte.${weekStartDate}`)
+    .lte("effective_start_date", periodEndDate)
+    .or(`effective_end_date.is.null,effective_end_date.gte.${periodStartDate}`)
     .order("effective_start_date", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -149,14 +276,68 @@ const getActiveFinancialRule = async (
   return data ?? null;
 };
 
+const mapPeriodPreviewToPartnerReportPreview = (
+  data: PartnerPeriodPreviewRpc | null,
+  request: ExportRequest,
+): PartnerReportPreview => {
+  const summary = data?.summary ?? {};
+  const machinePeriods = Array.isArray(data?.machine_periods)
+    ? data.machine_periods
+    : [];
+
+  return {
+    partnershipId: String(data?.partnership_id ?? request.partnershipId),
+    partnershipName: data?.partnership_name,
+    periodGrain: request.periodGrain,
+    periodStartDate: request.periodStartDate,
+    periodEndDate: request.periodEndDate,
+    periodLabel: request.periodLabel,
+    weekStartDate: request.periodGrain === "reporting_week"
+      ? request.periodStartDate
+      : undefined,
+    weekEndingDate: request.periodGrain === "reporting_week"
+      ? request.periodEndDate
+      : undefined,
+    summary: {
+      order_count: Number(summary.order_count ?? 0),
+      item_quantity: Number(summary.item_quantity ?? 0),
+      gross_sales_cents: Number(summary.gross_sales_cents ?? 0),
+      tax_cents: Number(summary.tax_cents ?? 0),
+      fee_cents: Number(summary.fee_cents ?? 0),
+      cost_cents: Number(summary.cost_cents ?? 0),
+      net_sales_cents: Number(summary.net_sales_cents ?? 0),
+      split_base_cents: Number(summary.split_base_cents ?? 0),
+      amount_owed_cents: Number(summary.amount_owed_cents ?? 0),
+      bloomjoy_retained_cents: Number(summary.bloomjoy_retained_cents ?? 0),
+    },
+    machines: machinePeriods.map((machine) => ({
+      machine_label: String(machine.machine_label ?? "Unnamed machine"),
+      order_count: Number(machine.order_count ?? 0),
+      item_quantity: Number(machine.item_quantity ?? 0),
+      gross_sales_cents: Number(machine.gross_sales_cents ?? 0),
+      tax_cents: Number(machine.tax_cents ?? 0),
+      fee_cents: Number(machine.fee_cents ?? 0),
+      cost_cents: Number(machine.cost_cents ?? 0),
+      net_sales_cents: Number(machine.net_sales_cents ?? 0),
+    })),
+    warnings: (data?.warnings ?? []).map((warning) => ({
+      message: warning.message,
+    })),
+  };
+};
+
 const getOrCreateSnapshot = async ({
   partnershipId,
-  weekEndingDate,
+  periodGrain,
+  periodStartDate,
+  periodEndDate,
   userId,
   summaryJson,
 }: {
   partnershipId: string;
-  weekEndingDate: string;
+  periodGrain: PartnerReportPeriodGrain;
+  periodStartDate: string;
+  periodEndDate: string;
   userId: string;
   summaryJson: Record<string, unknown>;
 }) => {
@@ -168,7 +349,9 @@ const getOrCreateSnapshot = async ({
     .from("partner_report_snapshots")
     .select("id, summary_json")
     .eq("partnership_id", partnershipId)
-    .eq("week_ending_date", weekEndingDate)
+    .eq("period_grain", periodGrain)
+    .eq("period_start_date", periodStartDate)
+    .eq("period_end_date", periodEndDate)
     .eq("status", "draft")
     .maybeSingle();
 
@@ -184,6 +367,10 @@ const getOrCreateSnapshot = async ({
       .update({
         generated_at: new Date().toISOString(),
         generated_by: userId,
+        week_ending_date: periodEndDate,
+        period_grain: periodGrain,
+        period_start_date: periodStartDate,
+        period_end_date: periodEndDate,
         summary_json: {
           ...((existing.summary_json as Record<string, unknown> | null) ?? {}),
           ...summaryJson,
@@ -206,7 +393,10 @@ const getOrCreateSnapshot = async ({
     .from("partner_report_snapshots")
     .insert({
       partnership_id: partnershipId,
-      week_ending_date: weekEndingDate,
+      week_ending_date: periodEndDate,
+      period_grain: periodGrain,
+      period_start_date: periodStartDate,
+      period_end_date: periodEndDate,
       status: "draft",
       generated_by: userId,
       summary_json: summaryJson,
@@ -256,20 +446,13 @@ serve(async (req) => {
     const raw = body && typeof body === "object"
       ? (body as Record<string, unknown>)
       : {};
-    const partnershipId = String(raw.partnershipId ?? "").trim();
-    const weekEndingDate = String(raw.weekEndingDate ?? "").trim();
-    const format = String(raw.format ?? "pdf").trim().toLowerCase();
+    const { request, error: requestError } = resolveExportRequest(raw);
 
-    if (!uuidPattern.test(partnershipId)) {
-      return jsonResponse({ error: "Valid partnershipId is required." }, 400);
-    }
-
-    if (!datePattern.test(weekEndingDate)) {
-      return jsonResponse({ error: "Valid weekEndingDate is required." }, 400);
-    }
-
-    if (!validFormats.has(format)) {
-      return jsonResponse({ error: "format must be pdf or csv." }, 400);
+    if (!request) {
+      return jsonResponse(
+        { error: requestError ?? "Invalid export request." },
+        400,
+      );
     }
 
     const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -281,13 +464,24 @@ serve(async (req) => {
       },
     });
 
-    const { data: previewData, error: previewError } = await userSupabase.rpc(
-      "admin_preview_partner_weekly_report",
-      {
-        p_partnership_id: partnershipId,
-        p_week_ending_date: weekEndingDate,
-      },
-    );
+    const { data: previewData, error: previewError } = request
+        .useLegacyWeeklyPreview
+      ? await userSupabase.rpc(
+        "admin_preview_partner_weekly_report",
+        {
+          p_partnership_id: request.partnershipId,
+          p_week_ending_date: request.periodEndDate,
+        },
+      )
+      : await userSupabase.rpc(
+        "admin_preview_partner_period_report",
+        {
+          p_partnership_id: request.partnershipId,
+          p_date_from: request.periodStartDate,
+          p_date_to: request.periodEndDate,
+          p_period_grain: request.periodGrain,
+        },
+      );
 
     if (previewError) {
       return jsonResponse({
@@ -295,46 +489,74 @@ serve(async (req) => {
       }, 400);
     }
 
-    const preview = (previewData ?? {}) as PartnerReportPreview;
-    const weekStartDate = String(
-      preview.weekStartDate ?? getWeekStartDate(weekEndingDate),
-    );
+    const preview = request.useLegacyWeeklyPreview
+      ? ({
+        ...((previewData ?? {}) as PartnerReportPreview),
+        periodGrain: "reporting_week",
+        periodStartDate: request.periodStartDate,
+        periodEndDate: request.periodEndDate,
+        periodLabel: request.periodLabel,
+      } satisfies PartnerReportPreview)
+      : mapPeriodPreviewToPartnerReportPreview(
+        (previewData ?? {}) as PartnerPeriodPreviewRpc,
+        request,
+      );
     const generatedAt = new Date().toISOString();
     const [payoutRecipientLabels, financialRule] = await Promise.all([
-      getPayoutRecipientLabels(partnershipId),
-      getActiveFinancialRule(partnershipId, weekStartDate, weekEndingDate),
+      getPayoutRecipientLabels(request.partnershipId),
+      getActiveFinancialRule(
+        request.partnershipId,
+        request.periodStartDate,
+        request.periodEndDate,
+      ),
     ]);
     const calculationLabel = formatCalculationLabel(financialRule);
     const ruleExportLabels = getRuleExportLabels(financialRule);
+    const exportPayoutRecipientLabels = request.useLegacyWeeklyPreview
+      ? payoutRecipientLabels
+      : payoutRecipientLabels.length > 1
+      ? [payoutRecipientLabels.join(" + ")]
+      : payoutRecipientLabels;
     const snapshot = await getOrCreateSnapshot({
-      partnershipId,
-      weekEndingDate,
+      partnershipId: request.partnershipId,
+      periodGrain: request.periodGrain,
+      periodStartDate: request.periodStartDate,
+      periodEndDate: request.periodEndDate,
       userId: user.id,
       summaryJson: {
         preview,
         calculationLabel,
-        payoutRecipientLabels,
+        payoutRecipientLabels: exportPayoutRecipientLabels,
         ...ruleExportLabels,
         generatedAt,
+        periodGrain: request.periodGrain,
+        periodStartDate: request.periodStartDate,
+        periodEndDate: request.periodEndDate,
+        periodLabel: request.periodLabel,
       },
     });
     const context = {
       preview,
-      payoutRecipientLabels,
+      payoutRecipientLabels: exportPayoutRecipientLabels,
       calculationLabel,
       generatedAt,
       snapshotId: snapshot.id,
       ...ruleExportLabels,
     };
-    const fileBytes = format === "pdf"
+    const fileBytes = request.format === "pdf"
       ? buildPartnerReportPdf(context)
       : encoder.encode(buildPartnerReportCsv(context));
-    const contentType = format === "pdf" ? "application/pdf" : "text/csv";
-    const fileName = `${
-      slugify(preview.partnershipName ?? "partner-report")
-    }-${weekEndingDate}.${format}`;
+    const contentType = request.format === "pdf"
+      ? "application/pdf"
+      : "text/csv";
+    const periodSlug = request.periodGrain === "calendar_month"
+      ? request.periodStartDate.slice(0, 7)
+      : request.periodEndDate;
+    const fileName = `${slugify(preview.partnershipName ?? "partner-report")}-${
+      request.periodGrain === "calendar_month" ? "monthly" : "weekly"
+    }-${periodSlug}.${request.format}`;
     const storagePath =
-      `partner-reports/${partnershipId}/${snapshot.id}/${fileName}`;
+      `partner-reports/${request.partnershipId}/${request.periodGrain}/${snapshot.id}/${fileName}`;
 
     const { error: uploadError } = await serviceSupabase.storage
       .from(exportBucket)
@@ -349,7 +571,7 @@ serve(async (req) => {
 
     if (uploadError) {
       if (
-        format === "csv" &&
+        request.format === "csv" &&
         uploadError.message?.toLowerCase().includes("mime")
       ) {
         throw new Error(
@@ -365,13 +587,17 @@ serve(async (req) => {
       ...((snapshot.summary_json as Record<string, unknown> | null) ?? {}),
       preview,
       calculationLabel,
-      payoutRecipientLabels,
+      payoutRecipientLabels: exportPayoutRecipientLabels,
       snapshotId: snapshot.id,
       ...ruleExportLabels,
+      periodGrain: request.periodGrain,
+      periodStartDate: request.periodStartDate,
+      periodEndDate: request.periodEndDate,
+      periodLabel: request.periodLabel,
       exports: {
         ...(((snapshot.summary_json as Record<string, unknown> | null)
           ?.exports as Record<string, unknown> | undefined) ?? {}),
-        [format]: {
+        [request.format]: {
           storagePath,
           generatedAt,
           fileName,
@@ -383,6 +609,10 @@ serve(async (req) => {
       .from("partner_report_snapshots")
       .update({
         export_storage_path: storagePath,
+        week_ending_date: request.periodEndDate,
+        period_grain: request.periodGrain,
+        period_start_date: request.periodStartDate,
+        period_end_date: request.periodEndDate,
         summary_json: nextSummaryJson,
         generated_at: generatedAt,
       })
@@ -410,8 +640,11 @@ serve(async (req) => {
       snapshotId: snapshot.id,
       storagePath,
       signedUrl: signedUrlData.signedUrl,
-      format,
+      format: request.format,
       fileName,
+      periodGrain: request.periodGrain,
+      periodStartDate: request.periodStartDate,
+      periodEndDate: request.periodEndDate,
     });
   } catch (error) {
     console.error("partner-report-export error", error);

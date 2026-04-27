@@ -4,7 +4,6 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
   AlertTriangle,
   Download,
-  FileText,
   Info,
   Loader2,
   RefreshCw,
@@ -66,8 +65,10 @@ import {
   type SalesReportRow,
 } from '@/lib/reporting';
 import {
+  exportPartnerDashboardReport,
   fetchPartnerDashboardPartnerships,
   fetchPartnerDashboardPeriodPreview,
+  type PartnerDashboardExportFormat,
   type PartnerDashboardMachinePeriod,
   type PartnerDashboardPartnershipOption,
   type PartnerDashboardPeriod,
@@ -831,6 +832,8 @@ function PartnerDashboardView() {
   const queryClient = useQueryClient();
   const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
   const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
+  const [exportingPartnerFormat, setExportingPartnerFormat] =
+    useState<PartnerDashboardExportFormat | null>(null);
 
   const {
     data: partnerships = [],
@@ -913,19 +916,40 @@ function PartnerDashboardView() {
     ]);
   };
 
-  const exportPartnerPdf = () => {
-    if (!preview) return;
+  const exportPartnerReport = async (format: PartnerDashboardExportFormat) => {
+    if (!preview || !currentPeriod) {
+      toast.error('Load a partner report period before exporting.');
+      return;
+    }
     if (previewFetching) {
       toast.error('Wait for the latest partner dashboard numbers before exporting.');
       return;
     }
     if (hasBlockingWarnings) {
-      toast.error('Resolve blocking admin review items before exporting the partner PDF.');
+      toast.error('Resolve blocking admin review items before exporting the partner report.');
       return;
     }
 
-    toast.success('Opening branded partner report for PDF export.');
-    window.setTimeout(() => window.print(), 50);
+    setExportingPartnerFormat(format);
+    try {
+      const exportResult = await exportPartnerDashboardReport({
+        partnershipId: preview.partnershipId,
+        periodGrain: partnerRange?.periodGrain ?? preview.periodGrain,
+        dateFrom: currentPeriod.periodStart,
+        dateTo: currentPeriod.periodEnd,
+        format,
+      });
+      window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
+      toast.success(
+        format === 'pdf'
+          ? `${trendLabel} partner PDF generated.`
+          : `${trendLabel} partner CSV generated.`
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to export partner report.');
+    } finally {
+      setExportingPartnerFormat(null);
+    }
   };
 
   if (partnershipsLoading) {
@@ -966,8 +990,8 @@ function PartnerDashboardView() {
   return (
     <>
       <div className="flex flex-col gap-6 print:hidden">
-      <Card>
-        <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end lg:justify-between">
+        <Card>
+          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(220px,0.6fr)_1fr]">
             <LabeledControl label="Partnership">
               <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
@@ -1029,11 +1053,41 @@ function PartnerDashboardView() {
               Refresh
             </Button>
             <Button
-              onClick={exportPartnerPdf}
-              disabled={!preview || previewLoading || previewFetching || hasBlockingWarnings}
+              onClick={() => exportPartnerReport('pdf')}
+              disabled={
+                !preview ||
+                !currentPeriod ||
+                previewLoading ||
+                previewFetching ||
+                hasBlockingWarnings ||
+                Boolean(exportingPartnerFormat)
+              }
             >
-              <FileText className="mr-2 h-4 w-4" />
-              Export PDF
+              {exportingPartnerFormat === 'pdf' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              PDF
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => exportPartnerReport('csv')}
+              disabled={
+                !preview ||
+                !currentPeriod ||
+                previewLoading ||
+                previewFetching ||
+                hasBlockingWarnings ||
+                Boolean(exportingPartnerFormat)
+              }
+            >
+              {exportingPartnerFormat === 'csv' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              CSV
             </Button>
           </div>
         </CardContent>

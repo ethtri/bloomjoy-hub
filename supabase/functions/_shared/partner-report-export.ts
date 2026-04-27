@@ -7,6 +7,8 @@ type PartnerReportSummary = {
   cost_cents?: number;
   net_sales_cents?: number;
   split_base_cents?: number;
+  amount_owed_cents?: number;
+  bloomjoy_retained_cents?: number;
   fever_profit_cents?: number;
   partner_profit_cents?: number;
   bloomjoy_profit_cents?: number;
@@ -26,6 +28,10 @@ type PartnerReportMachine = {
 export type PartnerReportPreview = {
   partnershipId?: string;
   partnershipName?: string;
+  periodGrain?: "reporting_week" | "calendar_month";
+  periodStartDate?: string;
+  periodEndDate?: string;
+  periodLabel?: string;
   weekStartDate?: string;
   weekEndingDate?: string;
   summary?: PartnerReportSummary;
@@ -153,6 +159,32 @@ const csvRow = (values: unknown[]) => values.map(csvCell).join(",");
 const getPartnerPayoutLabel = (labels: string[]) =>
   labels[0] ?? "Partner payout";
 
+const getReportTitle = (preview: PartnerReportPreview) =>
+  preview.periodGrain === "calendar_month"
+    ? "Bloomjoy Partner Monthly Report"
+    : "Bloomjoy Partner Weekly Report";
+
+const getReportPeriodLabel = (preview: PartnerReportPreview) =>
+  preview.periodLabel ??
+    (preview.periodStartDate && preview.periodEndDate
+      ? `${preview.periodStartDate} through ${preview.periodEndDate}`
+      : `${preview.weekStartDate ?? ""} through ${
+        preview.weekEndingDate ?? ""
+      }`);
+
+const hasCombinedPartnerPayout = (summary: PartnerReportSummary) =>
+  typeof summary.amount_owed_cents !== "undefined";
+
+const getPrimaryPartnerPayoutCents = (summary: PartnerReportSummary) =>
+  hasCombinedPartnerPayout(summary)
+    ? summary.amount_owed_cents
+    : summary.fever_profit_cents;
+
+const getBloomjoyRetainedCents = (summary: PartnerReportSummary) =>
+  typeof summary.bloomjoy_retained_cents !== "undefined"
+    ? summary.bloomjoy_retained_cents
+    : summary.bloomjoy_profit_cents;
+
 export const buildPartnerReportCsv = ({
   preview,
   payoutRecipientLabels,
@@ -165,13 +197,12 @@ export const buildPartnerReportCsv = ({
 }: PartnerReportExportContext): string => {
   const summary = preview.summary ?? {};
   const generatedAtLabel = formatGeneratedAt(generatedAt);
+  const reportTitle = getReportTitle(preview);
+  const periodLabel = getReportPeriodLabel(preview);
   const rows = [
-    csvRow(["Bloomjoy Partner Weekly Report"]),
+    csvRow([reportTitle]),
     csvRow(["Partnership", preview.partnershipName ?? ""]),
-    csvRow([
-      "Week",
-      `${preview.weekStartDate ?? ""} through ${preview.weekEndingDate ?? ""}`,
-    ]),
+    csvRow(["Period", periodLabel]),
     csvRow(["Generated", generatedAtLabel]),
     csvRow(["Snapshot ID", snapshotId]),
     csvRow(["Calculation", calculationLabel]),
@@ -190,9 +221,9 @@ export const buildPartnerReportCsv = ({
     csvRow(["Net sales", formatCurrency(summary.net_sales_cents)]),
     csvRow([
       getPartnerPayoutLabel(payoutRecipientLabels),
-      formatCurrency(summary.fever_profit_cents),
+      formatCurrency(getPrimaryPartnerPayoutCents(summary)),
     ]),
-    ...(payoutRecipientLabels[1]
+    ...(!hasCombinedPartnerPayout(summary) && payoutRecipientLabels[1]
       ? [
         csvRow([
           payoutRecipientLabels[1],
@@ -202,7 +233,7 @@ export const buildPartnerReportCsv = ({
       : []),
     csvRow([
       "Bloomjoy retained",
-      formatCurrency(summary.bloomjoy_profit_cents),
+      formatCurrency(getBloomjoyRetainedCents(summary)),
     ]),
     "",
     csvRow(["Machine Rollup"]),
@@ -284,8 +315,12 @@ export const buildPartnerReportPdf = ({
   const warnings = preview.warnings ?? [];
   const pages: string[] = [];
   const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
-  const additionalPartnerLabel = payoutRecipientLabels[1];
+  const additionalPartnerLabel = hasCombinedPartnerPayout(summary)
+    ? undefined
+    : payoutRecipientLabels[1];
   const generatedAtLabel = formatGeneratedAt(generatedAt);
+  const reportTitle = getReportTitle(preview);
+  const periodLabel = getReportPeriodLabel(preview);
   const machineChunks: PartnerReportMachine[][] = [];
   const firstPageMachineCount = warnings.length > 0 ? 12 : 14;
 
@@ -307,7 +342,7 @@ export const buildPartnerReportPdf = ({
     lines.push("q\n0.88 0.20 0.42 rg\n0 748 612 44 re\nf\nQ");
     lines.push(
       pdfText({
-        text: "Bloomjoy Partner Weekly Report",
+        text: reportTitle,
         x: 44,
         y: 766,
         size: 17,
@@ -326,9 +361,7 @@ export const buildPartnerReportPdf = ({
     );
     lines.push(
       pdfText({
-        text: `${preview.weekStartDate ?? ""} through ${
-          preview.weekEndingDate ?? ""
-        }`,
+        text: periodLabel,
         x: 44,
         y: 712,
         size: 9,
@@ -362,8 +395,11 @@ export const buildPartnerReportPdf = ({
         ["Machine taxes", formatCurrency(summary.tax_cents)],
         [feeLabel, formatCurrency(summary.fee_cents)],
         ["Net sales", formatCurrency(summary.net_sales_cents)],
-        [partnerLabel, formatCurrency(summary.fever_profit_cents)],
-        ["Bloomjoy retained", formatCurrency(summary.bloomjoy_profit_cents)],
+        [partnerLabel, formatCurrency(getPrimaryPartnerPayoutCents(summary))],
+        [
+          "Bloomjoy retained",
+          formatCurrency(getBloomjoyRetainedCents(summary)),
+        ],
       ];
       if (additionalPartnerLabel) {
         cards.splice(7, 0, [

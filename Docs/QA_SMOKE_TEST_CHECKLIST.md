@@ -287,6 +287,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Weekly Preview labels payout metrics with legal partner names when recorded, otherwise the same participant names used in Payout Rules, plus Bloomjoy
 - [ ] Admin Partnerships > Weekly Preview matches the corrected Bubble Planet product math: Sunze order amount as gross, machine tax plus configured `$0.40` stick-level cost deduction before split, no-pay orders counted as `$0`, and 60/40 split when configured
 - [ ] Admin Partnerships > Weekly Preview can generate a branded partner PDF and a CSV reconciliation export from the loaded preview, and both exports include the snapshot ID
+- [ ] Portal Reports > Partner Dashboard can download PDF and CSV exports from the Weekly view for the current completed report week, and the artifact filename/snapshot metadata identify the weekly period
+- [ ] Portal Reports > Partner Dashboard can download PDF and CSV exports from the Monthly view for the current completed calendar month, and the artifact filename/snapshot metadata identify the monthly period
 - [ ] Corporate partner P0: super-admin can create a corporate partner, create a partnership/agreement, assign machines, configure machine tax assumptions, and configure typed revenue-share terms without developer support
 - [ ] Corporate partner P0: super-admin can preview a completed weekly report before generating a PDF and sees any missing tax, missing assignment, missing financial-rule, or stale-data warnings
 - [ ] Corporate partner P0: generated partner PDF includes executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, generated timestamp, and snapshot ID
