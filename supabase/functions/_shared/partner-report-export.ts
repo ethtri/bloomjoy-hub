@@ -358,10 +358,10 @@ const formatBasisPointsPercent = (basisPoints: unknown): string => {
 const getPartnerShareLabel = (context: PartnerReportExportContext): string =>
   context.partnerShareLabel ?? formatBasisPointsPercent(context.partnerShareBasisPoints);
 
-const formatUnitsSoldDetail = (summary: PartnerReportSummary): string => {
+const formatUnitsSoldValue = (summary: PartnerReportSummary): string => {
   const units = numberValue(summary.item_quantity);
-  if (units > 0) return `${formatInteger(units)} units sold`;
-  return `${formatInteger(summary.order_count)} transactions`;
+  if (units > 0) return formatInteger(units);
+  return formatInteger(summary.order_count);
 };
 
 const getSplitBaseKind = (splitBaseLabel: string): "gross" | "contribution" | "net" => {
@@ -1056,10 +1056,19 @@ const drawDashboardPage = (
     height: 82,
     label: "Gross sales",
     value: formatCurrency(summary.gross_sales_cents),
-    detail: formatUnitsSoldDetail(summary),
+    detail: "Before refunds and deductions",
   });
   drawCard(page, fonts, {
     x: 42 + (cardWidth + cardGap),
+    y: cardY,
+    width: cardWidth,
+    height: 82,
+    label: "Units sold",
+    value: formatUnitsSoldValue(summary),
+    detail: "Items sold this period",
+  });
+  drawCard(page, fonts, {
+    x: 42 + (cardWidth + cardGap) * 2,
     y: cardY,
     width: cardWidth,
     height: 82,
@@ -1068,23 +1077,13 @@ const drawDashboardPage = (
     detail: "Approved adjustments only",
   });
   drawCard(page, fonts, {
-    x: 42 + (cardWidth + cardGap) * 2,
-    y: cardY,
-    width: cardWidth,
-    height: 82,
-    label: "Net sales",
-    value: formatCurrency(summary.net_sales_cents),
-    detail: "After refunds, taxes, and configured deductions",
-  });
-  drawCard(page, fonts, {
     x: 42 + (cardWidth + cardGap) * 3,
     y: cardY,
     width: cardWidth,
     height: 82,
-    label: "Amount owed",
-    value: formatCurrency(payoutCents),
-    detail: "Partner payout for this period",
-    emphasis: true,
+    label: "Tax + deductions",
+    value: formatDeduction(taxAndDeductions),
+    detail: "Used to calculate net sales",
   });
 
   drawTrendPanel(page, fonts, preview, { x: 42, y: 246, width: 528, height: 116 });
