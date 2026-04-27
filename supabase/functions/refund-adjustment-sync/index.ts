@@ -33,6 +33,7 @@ type RefundInput = {
   refundDate: string;
   originalOrderDate: string;
   amountCents: number;
+  amountSource: string | null;
   reason: string;
   sourceStatus: string;
   normalizedSourceStatus: string;
@@ -132,12 +133,31 @@ const pickNumberValue = (row: RefundAdjustmentRow, keys: string[]) => {
   return "";
 };
 
-const parseCents = (row: RefundAdjustmentRow) => {
+const parseCentAmount = (value: unknown) => {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const cents = Number(text.replace(/[$,]/g, ""));
+  return Number.isFinite(cents) && cents >= 0 ? Math.round(cents) : null;
+};
+
+const parseUsdAmount = (value: unknown) => {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const usd = Number(text.replace(/[$,]/g, ""));
+  return Number.isFinite(usd) && usd >= 0 ? Math.round(usd * 100) : null;
+};
+
+const canUseRequestAmountFallback = (sourceStatus: string, sourceDecision: string) =>
+  autoApplyStatuses.has(normalizeStatus(sourceStatus)) &&
+  autoApplyDecisions.has(normalizeStatus(sourceDecision));
+
+const resolveAmountCents = (
+  row: RefundAdjustmentRow,
+  { sourceStatus = "", sourceDecision = "" }: { sourceStatus?: string; sourceDecision?: string } = {},
+) => {
   const centsValue = pickNumberValue(row, ["amount_cents", "refund_amount_cents"]);
-  const cents = Number(String(centsValue).replace(/[$,]/g, ""));
-  if (Number.isFinite(cents) && cents >= 0 && String(centsValue).trim() !== "") {
-    return Math.round(cents);
-  }
+  const cents = parseCentAmount(centsValue);
+  if (cents !== null) return { amountCents: cents, amountSource: "refund_amount_cents" };
 
   const usdValue = pickNumberValue(row, [
     "amount_usd",
@@ -146,12 +166,27 @@ const parseCents = (row: RefundAdjustmentRow) => {
     "refund_amount",
     "refund",
   ]);
-  const usd = Number(String(usdValue).replace(/[$,]/g, ""));
-  if (Number.isFinite(usd) && usd >= 0 && String(usdValue).trim() !== "") {
-    return Math.round(usd * 100);
+  const usd = parseUsdAmount(usdValue);
+  if (usd !== null) return { amountCents: usd, amountSource: "refund_amount" };
+
+  if (canUseRequestAmountFallback(sourceStatus, sourceDecision)) {
+    const requestCentsValue = pickNumberValue(row, ["request_amount_cents", "requested_amount_cents"]);
+    const requestCents = parseCentAmount(requestCentsValue);
+    if (requestCents !== null) {
+      return { amountCents: requestCents, amountSource: "request_amount_cents" };
+    }
+
+    const requestUsdValue = pickNumberValue(row, [
+      "request_amount",
+      "request_amount_usd",
+      "requested_amount",
+      "requested_amount_usd",
+    ]);
+    const requestUsd = parseUsdAmount(requestUsdValue);
+    if (requestUsd !== null) return { amountCents: requestUsd, amountSource: "request_amount" };
   }
 
-  return 0;
+  return { amountCents: 0, amountSource: null };
 };
 
 const normalizeAdjustmentType = (value: unknown): RefundInput["adjustmentType"] => {
@@ -320,6 +355,7 @@ const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: stri
   ]);
   const sourceStatus = pickText(row, ["status", "refund_status", "source_status"]);
   const sourceDecision = pickText(row, ["decision", "refund_decision"]);
+  const amount = resolveAmountCents(row, { sourceStatus, sourceDecision });
   return {
     sourceRowReference: pickText(row, [
       "source_row_reference",
@@ -346,7 +382,8 @@ const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: stri
       "sale_date",
       "transaction_date",
     ])),
-    amountCents: parseCents(row),
+    amountCents: amount.amountCents,
+    amountSource: amount.amountSource,
     reason: pickText(row, [
       "reason",
       "incident_description",
@@ -601,6 +638,7 @@ const buildSanitizedRefundPayload = ({
   refund_date: input.refundDate || null,
   original_order_date: input.originalOrderDate || null,
   amount_cents: input.amountCents,
+  amount_source: input.amountSource || null,
   adjustment_type: input.adjustmentType,
   complaint_count: input.complaintCount,
   source_status: input.sourceStatus || null,
