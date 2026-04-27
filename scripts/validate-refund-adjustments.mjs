@@ -138,6 +138,41 @@ const currentFormContractMatch = matchRefundToMachine(currentFormContractInput, 
 assert.equal(currentFormContractMatch.matchStatus, 'matched');
 assert.equal(currentFormContractMatch.matchedMachine?.id, machines[0].id);
 
+const approvedRequestAmountFallbackInput = extractRefundInput(
+  {
+    location_of_purchase: 'North Lobby',
+    decision_date: '2026-04-11',
+    request_amount: '9.75',
+    refund_amount: '',
+    status: 'Closed',
+    decision: 'Approve',
+    request_id: 'SANITIZED-REQ-FALLBACK',
+  },
+  'approved-request-amount-fallback'
+);
+assert.equal(approvedRequestAmountFallbackInput.amountCents, 975);
+assert.equal(approvedRequestAmountFallbackInput.amountSource, 'request_amount');
+const approvedRequestAmountFallbackMatch = matchRefundToMachine(
+  approvedRequestAmountFallbackInput,
+  profiles
+);
+assert.equal(approvedRequestAmountFallbackMatch.matchStatus, 'matched');
+
+const openRequestAmountFallbackInput = extractRefundInput(
+  {
+    location_of_purchase: 'North Lobby',
+    decision_date: '2026-04-11',
+    request_amount: '9.75',
+    refund_amount: '',
+    status: 'Open',
+    decision: 'Approve',
+  },
+  'open-request-amount-fallback'
+);
+assert.equal(openRequestAmountFallbackInput.amountCents, 0);
+const openRequestAmountFallbackMatch = matchRefundToMachine(openRequestAmountFallbackInput, profiles);
+assert.equal(openRequestAmountFallbackMatch.matchStatus, 'invalid');
+
 const openFormContractMatch = matchRow({
   location_of_purchase: 'North Lobby',
   decision_date: '2026-04-11',
@@ -227,6 +262,7 @@ const sheetRows = parseSheetValues([
     'Last 4 digits of your card',
     'Request ID',
     'Status',
+    'Request Amount',
     'Refund Amount',
     'Decision',
     'Decision Date',
@@ -242,6 +278,7 @@ const sheetRows = parseSheetValues([
     '1234',
     'SANITIZED-REQ-2',
     'Closed',
+    '8.50',
     '8.50',
     'Approve',
     '2026-04-11',
@@ -264,6 +301,7 @@ const sanitizedPayload = buildSanitizedRefundPayload({
 assert.equal(sanitizedPayload.source_row_reference, 'SANITIZED-REQ-2');
 assert.equal(sanitizedPayload.source_location, 'North Lobby');
 assert.equal(sanitizedPayload.amount_cents, 850);
+assert.equal(sanitizedPayload.amount_source, 'refund_amount');
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'email_address'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'venmo_zelle_payment_id'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'last_4_digits_of_your_card'), false);
@@ -321,6 +359,8 @@ console.log(
       ambiguousMatch: ambiguousMatch.matchStatus,
       unmatchedRefund: unmatched.matchStatus,
       currentFormContract: currentFormContractMatch.matchStatus,
+      approvedRequestAmountFallback: approvedRequestAmountFallbackMatch.matchStatus,
+      openRequestAmountFallback: openRequestAmountFallbackMatch.matchStatus,
       openStatusReviewOnly: openFormContractMatch.matchStatus,
       deniedDecisionReviewOnly: deniedFormContractMatch.matchStatus,
       missingDecisionReviewOnly: missingDecisionFormContractMatch.matchStatus,
