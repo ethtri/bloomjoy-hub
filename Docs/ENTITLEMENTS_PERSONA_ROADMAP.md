@@ -1,74 +1,104 @@
 # Entitlements Persona Roadmap
 
 ## Purpose
-This document turns the current Bloomjoy entitlement brainstorm into a planning artifact for product, UAT, and future implementation work. It is intentionally documentation-only: no code, schema, RLS, route, or UI changes are introduced by this plan.
+This document is the current product source of truth for Bloomjoy entitlement planning. It keeps the MVP persona names that are useful for operations, but the planning model should follow a capability shape:
 
-The near-term goal is to make the current role and entitlement direction clear enough that agents can build the next slices without blurring customer, technician, partner, and internal-admin access.
+`subject + action + resource + scope + source`
+
+This roadmap is documentation-only. It does not introduce code, schema, RLS, route, or UI changes.
+
+The near-term goal is to let super-admins make fast, auditable access decisions without turning every one-off need into a new role. The long-term goal is to keep customer, Technician, partner, reporting, and internal-admin boundaries clear as the product scales.
 
 ## Product Guardrails
-- Corporate partner reviewed-PDF reporting remains the P0 reporting milestone.
-- `/admin` stays internal-only for now.
-- Customer account and team management should live under `/portal/account` or a future `/portal/team`.
+- Corporate partner reviewed-PDF reporting remains the P0 milestone (`#169`).
+- `/admin` stays internal-only until Scoped Admin is explicitly implemented.
+- `/admin/access` is the near-term management surface for internal grants, reporting access, Plus grants, and audit review.
+- Customer account and Technician management stays under `/portal/account` for now; a future `/portal/team` can replace it when customer team management grows.
 - Partner Viewer surfaces should live under `/portal/reports` once enabled, not under `/admin`.
 - Partnership setup must not grant portal access by itself.
-- Full super-admin role and entitlement builder UI remains P2.
+- `report_manager` is reporting-only. It must not be used as a Scoped Admin workaround.
+- Manual short-term fixes must be explicit, scoped, auditable, and tied to a GitHub issue.
+
+## Capability Model
+Use this model for new entitlement design, issue writing, and implementation review.
+
+| Dimension | Current Vocabulary | Rule |
+| --- | --- | --- |
+| Subject | Super Admin, Scoped Admin, Plus Account Owner, Technician, Partner Viewer, Reporting User | Persona names remain useful for MVP operations, but implementation should check capabilities, not infer broad power from the label. |
+| Action | `view`, `manage`, `grant`, `revoke`, `export`, `approve`, `configure` | Prefer specific action helpers such as `can_manage_machine` or `can_view_partner_report` over broad role checks. |
+| Resource | account, machine, partnership, report snapshot, technician grant, admin surface | Scope access to the smallest resource that matches the workflow. |
+| Scope | global, account, machine, partnership, report snapshot | Global scope should remain limited to Super Admin. |
+| Source | manual admin grant, subscription, Plus grant, training grant, Technician grant, Partner Viewer grant | Source-aware entitlements make revoke/suspension safe without removing unrelated access. |
+
+### Capability Defaults
+- Super Admin is the only global subject.
+- Reporting access should be explicit and machine-scoped unless a later decision approves broader account/location inheritance for a specific persona.
+- Technician-derived reporting access must remain source-aware and machine-scoped.
+- Partner Viewer access must be explicit partner/reporting access and must not be inherited from partnership setup or Plus membership.
+- Scoped Admin should be a first-class internal capability, not a repurposed reporting entitlement.
 
 ## Current Foundations
-- `super_admin` exists through `admin_roles` and is the current internal owner/admin mechanism.
-- Bloomjoy Plus access exists through paid subscriptions and free Plus grants.
-- Training-only operator grants exist and are separate from paid Plus membership.
+- `super_admin` exists through `admin_roles` and remains the current internal owner/admin mechanism.
+- Bloomjoy Plus access exists through paid subscriptions, free Plus grants, and super-admin-derived access.
+- Training-only operator access exists through `operator_training_grants` and remains separate from paid Plus membership.
+- Technician access is partially implemented through `technician_grants`, `technician_machine_assignments`, source-aware reporting entitlements, RPCs, and `/portal/account` UI. Production verification/restoration remains tracked in `#214`.
 - Machine-level reporting entitlements exist with `viewer` and `report_manager` access levels.
-- `customer_account_memberships` already includes `partner_viewer`, but it is not yet a live customer-facing flow.
-- Current partner-dashboard planning keeps V1 partner-dashboard access super-admin-only until explicit partner-viewer permissions exist.
+- `customer_account_memberships` includes planning vocabulary such as `account_admin`, `billing_manager`, `report_viewer`, `report_manager`, and `partner_viewer`, but those are not all productized flows.
+- Partner-dashboard access remains super-admin-only in V1 until explicit Partner Viewer permissions are implemented.
 
-## Gap Assessment
-- Scoped internal admins are not implemented yet.
-- Plus Account Owners cannot yet manage machine-scoped technician reporting access.
-- Technicians are not yet modeled as users with both training and machine-scoped reporting visibility.
-- Partner Viewer needs a first-class definition as external, non-paying, partner/reporting-only access.
-- A full role and entitlement management page for super-admins is still a lower-priority roadmap item.
+## Gaps
+- Scoped Admin is not implemented. Issue `#259` tracks the P1 Admin UI/access-management improvement.
+- Partner Viewer is not a live customer-facing flow. Issue `#128` tracks explicit partner/reporting-only access.
+- The scalable entitlement model remains an umbrella concern in `#150`.
+- A full custom entitlement-builder UI is not planned for the near term.
 
-## Persona Matrix
-| Persona | Who | Can See | Can Manage Or Grant | Explicit Exclusions | Status |
+## Persona-To-Capability Traceability
+| MVP Persona | Subject / Source | Current Scope | Can Do Now | Must Not Do | Status / Issue |
 | --- | --- | --- | --- | --- | --- |
-| Super Admin | Ethan and Ian as Bloomjoy co-owners | All Bloomjoy admin, portal, reporting, partnership, partner PDF, and audit surfaces | Roles, grants, machines, machine metadata, reporting access, partnerships, partner PDF generation/review/download, and audit review | None beyond normal production safeguards and auditability | Current owner role through `admin_roles`; continue as P0/P1 operating model |
-| Scoped Admin | Internal Bloomjoy admin such as Adam, limited to granted machines/accounts | Only machines, accounts, reports, and metadata explicitly granted by a super-admin | Future ability to manage machine metadata, reporting, and operational workflows only for entitled machines/accounts | Cannot view or manage ungranted machines, accounts, reports, partnerships, or users | Future implementation; keep in P2 umbrella until P0 reporting is trusted |
-| Plus Account Owner | Paying Bloomjoy Plus customer account owner | Their own machines, machine reporting, training, onboarding, support, account tools, and Plus benefits | Invite technicians and assign only machines the owner already controls; default V1 cap is 10 technician grants per Plus account | No internal admin setup, no unrelated customer accounts, no partner settlement access unless separately granted Partner Viewer, no global role management | P1 customer/team-management direction |
-| Technician | Customer staff member responsible for assigned machines | Training and reporting only for machines assigned by a Plus Account Owner or super-admin | No grant authority by default | No Plus discounts, billing, account-owner tools, partner settlement, admin operations, machine setup, or global reporting | P1 gap: define machine-scoped technician reporting entitlements |
-| Partner Viewer | External corporate partner or venue contact | Approved partner dashboards, report snapshots, and PDFs for granted partnerships or machines | No setup changes; may download approved artifacts only when the final product flow allows it | No Bloomjoy Plus benefits, commerce discounts, billing, technician management, admin setup, imports, tax/rule edits, schedules, or internal warning ledgers | Planned after reviewed corporate PDFs are trusted |
+| Super Admin | `admin_roles.role = 'super_admin'` | Global | View, configure, grant, revoke, approve, export, and audit all current admin/reporting surfaces | Bypass production safeguards or audit requirements | Implemented; keep as the only global role |
+| Scoped Admin | Future internal admin grant | Future account/machine scope | Future: manage assigned machines/accounts and operational metadata | No global admin, unrelated accounts, partnership setup, user/global role management, or ungranted reports | Planned; `#259` |
+| Plus Account Owner | Active Plus access plus owner account membership | Owned customer account and controlled machines | Manage Technician grants for controlled machines; access Plus portal benefits and assigned reporting | No internal admin setup, unrelated customer accounts, partner settlement, global reporting, or role management | Partially implemented; customer/team direction from `#123` |
+| Technician | Technician grant plus Technician-sourced reporting entitlement | Explicit assigned machines | Access training and read-only reports for assigned machines | No Plus discounts, billing, account-owner tools, partner settlement, admin operations, machine setup, or global reporting | Partially implemented; production caveat `#214`; spec reference `#183` |
+| Partner Viewer | Future Partner Viewer grant | Future partnership/report artifact scope | Future: view approved partner dashboards, snapshots, and PDFs | No Plus benefits, billing, Technician management, admin setup, imports, tax/rule edits, schedules, or warning ledgers | Planned; `#128` |
+| Reporting User | Manual reporting entitlement or account membership | Machine; account/location only when explicitly allowed | View assigned machine reporting; `report_manager` may manage reporting-only workflows only when explicitly supported | No `/admin`, no partner settlement setup, no global import/schedule/config authority unless separately granted | Implemented for machine reporting; keep distinct from Scoped Admin |
+| Training-only Operator | `operator_training_grants` | Training access only | Access `/portal/training*` and training progress/certificate flows | No reporting, Plus benefits, billing, support/onboarding owner tools, Technician management, partner settlement, or `/admin` | Implemented |
 
-## Permissioning Rules For Near-Term Work
-- Super Admin remains the only role that can configure partnerships, revenue-share rules, tax assumptions, partner report generation, and manual PDF review in V1.
-- Scoped Admin should be implemented only when the business is ready to support internal users with restricted machine/account visibility.
-- Plus Account Owner can grant technician access only within the machine/account boundary already granted to that owner.
-- Technician grants should compose training access with machine-scoped reporting visibility, without creating Plus benefits or account-owner permissions.
-- Partner Viewer access must be explicit and partner/reporting-only; it must not be inherited from partnership setup or Plus membership.
-- Reporting visibility remains scoped and auditable. Do not add hidden global access paths for customer, technician, or partner personas.
-- Paid additional technician seats are a P2 commercial option; the near-term default is a 10 technician grant cap per Plus account.
+## Short-Term Entitlement Operations
+- Use Super Admin for current internal setup, partner PDF review, machine mapping, access grants, and audit review.
+- Use explicit machine reporting grants for temporary reporting access. Prefer `viewer`; use `report_manager` only when the user needs reporting-management behavior, not internal admin behavior.
+- Use Technician grants for customer staff who need training plus assigned-machine reporting.
+- Use training-only grants for staff who need training but no reporting or Plus benefits.
+- Do not grant Super Admin to solve a narrow operational need unless the person truly needs global owner/admin power.
+- If a short-term grant is needed before the proper persona is implemented, record the issue link, reason, scope, source, and expected cleanup path.
 
 ## Recommended UX
-- Internal user and entitlement administration stays in `/admin/access`.
-- Partnership setup, revenue-share rules, machine assignment, tax assumptions, and partner PDF generation stay in `/admin/partnerships`.
-- Customer team and technician management should live under `/portal/account` or future `/portal/team`.
-- Operator and Plus Account Owner reporting should continue under `/portal/reports`.
-- Partner Viewer reporting should eventually appear under `/portal/reports` as a permissioned partner-dashboard/report-artifact view.
+- `/admin/access` remains the near-term person-first place for internal entitlement administration.
+- `/portal/account` remains the current customer place for Technician management.
+- `/portal/reports` remains the operator/reporting surface for assigned machines.
+- Partner Viewer reporting should eventually appear in `/portal/reports` as a permissioned partner-dashboard/report-artifact view.
 - Users without partner-dashboard visibility should not see disabled partner tabs or upsell-style placeholders.
 
-## GitHub Issue Roadmap
-- `#150` remains the P2 umbrella for scalable roles, entitlements, and a future super-admin role-management UI.
-- `#123` should carry the Plus Account Owner technician-management scope, including the 10 technician grant cap, grant-only-owned-machines rule, and paid additional seats as P2.
-- `#128` should define Partner Viewer as explicit partner/reporting-only access with no inherited Plus benefits or admin powers.
-- `#183` is the P1 issue for machine-scoped technician reporting entitlements, connecting current training-only grants with machine-specific reporting visibility. See `Docs/TECHNICIAN_ENTITLEMENTS_SPEC.md` for the detailed implementation spec.
+## Issue Traceability
+| Issue | Entitlement Area | Roadmap Role |
+| --- | --- | --- |
+| `#266` | Entitlement roadmap alignment | P0 docs alignment issue for keeping this roadmap consistent with the implemented role model. |
+| `#169` | Corporate partner reviewed PDF reporting | P0 milestone that keeps partner delivery super-admin-reviewed before Partner Viewer is live. |
+| `#150` | Scalable account roles and entitlement model | Umbrella for capability-model hardening and future entitlement-builder work. |
+| `#259` | Admin UI access management for scoped admin roles | Scoped Admin planning and `/admin/access` improvements. |
+| `#128` | Partner Viewer reporting access | Explicit partner/reporting-only access with no inherited Plus or admin powers. |
+| `#214` | Technician entitlement resolution in production | Production verification/restoration for Technician invite resolution. |
+| `#123` | Plus operator access and invite flow | Closed definition issue that informed customer/owner team-management direction. |
+| `#183` | Machine-scoped Technician reporting entitlements | Closed definition/spec issue; `Docs/TECHNICIAN_ENTITLEMENTS_SPEC.md` remains the detailed implementation reference. |
 
 ## Acceptance Criteria
-- The roadmap clearly answers who can see what, who can grant what, and what is deferred.
-- Partner Viewer is first-class in the matrix and issue roadmap.
+- The roadmap maps MVP personas to capability dimensions and linked issues.
+- Current implementation status is accurate for Super Admin, Plus, training-only, Technician, reporting, Scoped Admin, and Partner Viewer.
+- Short-term operational grants can be chosen quickly without confusing `report_manager`, Scoped Admin, Technician, and Partner Viewer.
 - No persona receives implicit access through partnership setup alone.
-- Plus Account Owner, Technician, and Partner Viewer boundaries are distinct and non-overlapping.
-- Existing GitHub issues are updated instead of duplicated where possible.
+- Future implementations can add scoped capabilities incrementally without introducing a broad entitlement-engine rewrite.
 
 ## Assumptions
-- Partner Viewer is planned now, but implementation waits until corporate partner reviewed-PDF reporting is trusted.
-- `/admin` remains internal-only.
-- Partner Viewer receives reporting and partner artifacts only, not Bloomjoy Plus.
-- Full custom role and entitlement editing remains P2.
+- The roadmap should optimize near-term ops speed while avoiding permission shortcuts.
+- No generic entitlement engine is planned now; use capability conventions and scoped helper functions as the incremental path.
+- Partner Viewer implementation waits until corporate partner reviewed-PDF reporting is trusted.
+- Scoped Admin and custom entitlement-builder UI remain planned work, not current repo functionality.
