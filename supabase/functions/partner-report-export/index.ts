@@ -236,6 +236,17 @@ const formatCalculationModelLabel = (value: unknown) => {
   return "Net-sales share";
 };
 
+const numberValue = (value: unknown) => {
+  const normalized = Number(value ?? 0);
+  return Number.isFinite(normalized) ? normalized : 0;
+};
+
+const formatSharePercent = (basisPoints: unknown) => {
+  const percent = numberValue(basisPoints) / 100;
+  if (percent <= 0) return "";
+  return Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2);
+};
+
 const formatCalculationLabel = (rule: Record<string, unknown> | null) => {
   if (!rule) {
     return "No active payout rule covered this selected period.";
@@ -248,6 +259,7 @@ const formatCalculationLabel = (rule: Record<string, unknown> | null) => {
   const calculationModelLabel = formatCalculationModelLabel(
     rule.calculation_model,
   );
+  const splitBase = String(rule.split_base ?? "net_sales").trim().toLowerCase();
   const feeText = feeAmount > 0 && feeBasis === "per_stick"
     ? `$${
       (feeAmount / 100).toFixed(2)
@@ -258,20 +270,41 @@ const formatCalculationLabel = (rule: Record<string, unknown> | null) => {
     })`
     : "no configured deduction";
   const additionalNotes = String(rule.additional_deductions_notes ?? "").trim();
+  const deductionText = splitBase === "gross_sales"
+    ? `Machine taxes and ${feeText} are reported in the calculation detail, while the payout basis follows ${splitBaseLabel.toLowerCase()} under the active agreement.`
+    : splitBase === "contribution_after_costs"
+    ? `Gross sales are reduced by approved refunds, machine taxes, ${feeText}, and configured contribution costs before the payout basis.`
+    : `Gross sales are reduced by approved refunds, machine taxes, and ${feeText} before the payout basis.`;
 
-  return `${calculationModelLabel}: partner share is calculated from ${splitBaseLabel.toLowerCase()} after approved refunds. Gross sales are reduced by machine taxes and ${feeText}; no-pay rows count in volume and contribute $0.${
+  return `${calculationModelLabel}: partner share is calculated from ${splitBaseLabel.toLowerCase()}. ${deductionText} No-pay transactions count in volume and contribute $0.${
     additionalNotes ? ` Additional notes: ${additionalNotes}` : ""
   } Approved refund adjustments reduce net sales and the active split base.`;
 };
 
-const getRuleExportLabels = (rule: Record<string, unknown> | null) => ({
-  feeLabel: String(rule?.fee_label ?? "Stick cost deduction"),
-  costLabel: String(rule?.cost_label ?? "Costs"),
-  splitBaseLabel: formatSplitBaseLabel(rule?.split_base),
-  calculationModelLabel: formatCalculationModelLabel(rule?.calculation_model),
-  additionalDeductionsNotes: String(rule?.additional_deductions_notes ?? "")
-    .trim() || null,
-});
+const getRuleExportLabels = (
+  rule: Record<string, unknown> | null,
+  { combineRecipientShares }: { combineRecipientShares: boolean },
+) => {
+  const partnerShareBasisPoints = rule
+    ? combineRecipientShares
+      ? numberValue(rule.fever_share_basis_points) +
+        numberValue(rule.partner_share_basis_points)
+      : numberValue(rule.fever_share_basis_points)
+    : 0;
+
+  return {
+    feeLabel: String(rule?.fee_label ?? "Stick cost deduction"),
+    costLabel: String(rule?.cost_label ?? "Costs"),
+    splitBaseLabel: formatSplitBaseLabel(rule?.split_base),
+    calculationModelLabel: formatCalculationModelLabel(rule?.calculation_model),
+    partnerShareBasisPoints,
+    partnerShareLabel: partnerShareBasisPoints > 0
+      ? `${formatSharePercent(partnerShareBasisPoints)}%`
+      : "",
+    additionalDeductionsNotes: String(rule?.additional_deductions_notes ?? "")
+      .trim() || null,
+  };
+};
 
 const getBlockingWarnings = (preview: PartnerReportPreview) =>
   (preview.warnings ?? []).filter((warning) =>
@@ -642,12 +675,14 @@ serve(async (req) => {
         : Promise.resolve([]),
     ]);
     const calculationLabel = formatCalculationLabel(financialRule);
-    const ruleExportLabels = getRuleExportLabels(financialRule);
     const exportPayoutRecipientLabels = request.useLegacyWeeklyPreview
       ? payoutRecipientLabels
       : payoutRecipientLabels.length > 1
       ? [payoutRecipientLabels.join(" + ")]
       : payoutRecipientLabels;
+    const ruleExportLabels = getRuleExportLabels(financialRule, {
+      combineRecipientShares: !request.useLegacyWeeklyPreview,
+    });
     const exportPreview = trendPeriods.length > 0
       ? { ...preview, periods: trendPeriods }
       : preview;

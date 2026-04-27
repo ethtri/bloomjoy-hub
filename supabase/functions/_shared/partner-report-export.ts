@@ -75,6 +75,8 @@ export type PartnerReportExportContext = {
   costLabel?: string;
   splitBaseLabel?: string;
   calculationModelLabel?: string;
+  partnerShareBasisPoints?: number;
+  partnerShareLabel?: string;
   additionalDeductionsNotes?: string | null;
 };
 
@@ -285,16 +287,69 @@ const findPreviousTrendPeriod = (
   return periods.length > 1 ? periods[periods.length - 2] : undefined;
 };
 
-const formatPercentChange = (current: unknown, previous: unknown): string => {
+const formatPercentChangeValue = (current: unknown, previous: unknown): string => {
   const currentValue = numberValue(current);
   const previousValue = numberValue(previous);
   if (previousValue === 0) {
-    return currentValue > 0 ? "New activity vs prior period" : "No change vs prior period";
+    return currentValue > 0 ? "new activity" : "no change";
   }
 
   const change = ((currentValue - previousValue) / previousValue) * 100;
   const sign = change > 0 ? "+" : "";
-  return `${sign}${change.toFixed(1)}% vs prior period`;
+  return `${sign}${change.toFixed(1)}%`;
+};
+
+const formatSignedCurrencyChange = (current: unknown, previous: unknown): string => {
+  const delta = numberValue(current) - numberValue(previous);
+  const formatted = formatCurrency(Math.abs(delta));
+  if (delta > 0) return `+${formatted}`;
+  if (delta < 0) return `-${formatted}`;
+  return "$0.00";
+};
+
+const formatPriorPeriodPayoutLine = (
+  current: unknown,
+  previous: unknown,
+): string => {
+  if (typeof previous === "undefined") {
+    return "No prior period comparison available";
+  }
+
+  return `Prior period ${formatCurrency(previous)}; change ${
+    formatSignedCurrencyChange(current, previous)
+  } (${formatPercentChangeValue(current, previous)})`;
+};
+
+const formatTrendPayoutLine = (
+  current: unknown,
+  previous: unknown,
+): string => {
+  if (typeof previous === "undefined") {
+    return `${formatCurrency(current)} amount owed for the selected period`;
+  }
+
+  return `${formatCurrency(current)} amount owed vs ${
+    formatCurrency(previous)
+  } prior (${formatSignedCurrencyChange(current, previous)}, ${
+    formatPercentChangeValue(current, previous)
+  })`;
+};
+
+const formatBasisPointsPercent = (basisPoints: unknown): string => {
+  const value = numberValue(basisPoints);
+  if (value <= 0) return "";
+  const percent = value / 100;
+  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(2)}%`;
+};
+
+const getPartnerShareLabel = (context: PartnerReportExportContext): string =>
+  context.partnerShareLabel ?? formatBasisPointsPercent(context.partnerShareBasisPoints);
+
+const getSplitBaseKind = (splitBaseLabel: string): "gross" | "contribution" | "net" => {
+  const normalized = splitBaseLabel.toLowerCase();
+  if (normalized.includes("gross sales")) return "gross";
+  if (normalized.includes("contribution")) return "contribution";
+  return "net";
 };
 
 const formatTrendPeriodLabel = (
@@ -793,7 +848,11 @@ const drawTrendPanel = (
 
   const selected = findSelectedTrendPeriod(preview);
   const previous = findPreviousTrendPeriod(preview);
-  drawText(page, fonts, `${formatPercentChange(getPrimaryPartnerPayoutCents(selected ?? {}), getPrimaryPartnerPayoutCents(previous ?? {}))} on amount owed`, {
+  const selectedPayout = getPrimaryPartnerPayoutCents(selected ?? {});
+  const previousPayout = previous
+    ? getPrimaryPartnerPayoutCents(previous)
+    : undefined;
+  drawText(page, fonts, formatTrendPayoutLine(selectedPayout, previousPayout), {
     x: x + 16,
     y: y + height - 39,
     size: 8,
@@ -802,19 +861,21 @@ const drawTrendPanel = (
   });
 
   const chartX = x + 20;
-  const chartY = y + 30;
-  const chartHeight = 56;
+  const chartY = y + 28;
+  const chartHeight = 40;
   const chartWidth = width - 40;
-  const maxValue = Math.max(
-    ...periods.flatMap((period) => [
-      numberValue(period.net_sales_cents),
-      numberValue(getPrimaryPartnerPayoutCents(period)),
-    ]),
+  const maxNetValue = Math.max(
+    ...periods.map((period) => numberValue(period.net_sales_cents)),
+    1,
+  );
+  const maxPayoutValue = Math.max(
+    ...periods.map((period) => numberValue(getPrimaryPartnerPayoutCents(period))),
     1,
   );
   const gap = Math.max(periods.length > 1 ? 8 : 0, 0);
   const slotWidth = (chartWidth - gap * (periods.length - 1)) / periods.length;
   const barWidth = Math.min(34, Math.max(16, slotWidth * 0.66));
+  const payoutPoints: Array<{ x: number; y: number; selected: boolean }> = [];
 
   page.drawLine({
     start: { x: chartX, y: chartY },
@@ -829,11 +890,11 @@ const drawTrendPanel = (
     const isSelected = period.period_start === preview.periodStartDate &&
       period.period_end === preview.periodEndDate;
     const netHeight = Math.max(
-      (numberValue(period.net_sales_cents) / maxValue) * chartHeight,
+      (numberValue(period.net_sales_cents) / maxNetValue) * chartHeight,
       numberValue(period.net_sales_cents) > 0 ? 3 : 0,
     );
     const payoutY = chartY +
-      (numberValue(getPrimaryPartnerPayoutCents(period)) / maxValue) *
+      (numberValue(getPrimaryPartnerPayoutCents(period)) / maxPayoutValue) *
         chartHeight;
 
     page.drawRectangle({
@@ -845,11 +906,10 @@ const drawTrendPanel = (
       borderColor: isSelected ? COLORS.sage : COLORS.border,
       borderWidth: 0.35,
     });
-    page.drawCircle({
+    payoutPoints.push({
       x: barX + barWidth / 2,
       y: Math.max(chartY + 3, payoutY),
-      size: isSelected ? 3.2 : 2.5,
-      color: COLORS.coral,
+      selected: isSelected,
     });
     drawText(page, fonts, formatTrendPeriodLabel(period, preview), {
       x: slotX,
@@ -858,6 +918,25 @@ const drawTrendPanel = (
       color: isSelected ? COLORS.ink : COLORS.softText,
       font: isSelected ? fonts.bold : fonts.regular,
       maxWidth: slotWidth,
+    });
+  });
+
+  payoutPoints.forEach((point, index) => {
+    const nextPoint = payoutPoints[index + 1];
+    if (!nextPoint) return;
+    page.drawLine({
+      start: { x: point.x, y: point.y },
+      end: { x: nextPoint.x, y: nextPoint.y },
+      thickness: 1,
+      color: COLORS.coral,
+    });
+  });
+  payoutPoints.forEach((point) => {
+    page.drawCircle({
+      x: point.x,
+      y: point.y,
+      size: point.selected ? 3.4 : 2.6,
+      color: COLORS.coral,
     });
   });
 
@@ -884,7 +963,14 @@ const drawDashboardPage = (
   context: PartnerReportExportContext,
   reportReference: string,
 ) => {
-  const { preview, payoutRecipientLabels, generatedAt, feeLabel = "Stick cost deduction", costLabel = "Costs" } = context;
+  const {
+    preview,
+    payoutRecipientLabels,
+    generatedAt,
+    feeLabel = "Stick cost deduction",
+    costLabel = "Costs",
+    splitBaseLabel = "Net sales",
+  } = context;
   const summary = preview.summary ?? {};
   const page = pdfDoc.addPage([612, 792]);
   const partnerName = toAscii(preview.partnershipName ?? "Partner report");
@@ -894,15 +980,14 @@ const drawDashboardPage = (
   const payoutCents = numberValue(getPrimaryPartnerPayoutCents(summary));
   const bloomjoyCents = numberValue(getBloomjoyRetainedCents(summary));
   const previousPeriod = findPreviousTrendPeriod(preview);
-  const payoutMovement = previousPeriod
-    ? formatPercentChange(
-      payoutCents,
-      getPrimaryPartnerPayoutCents(previousPeriod),
-    )
-    : "No prior period comparison available";
+  const payoutMovement = formatPriorPeriodPayoutLine(
+    payoutCents,
+    previousPeriod ? getPrimaryPartnerPayoutCents(previousPeriod) : undefined,
+  );
   const taxAndDeductions = numberValue(summary.tax_cents) +
     numberValue(summary.fee_cents) +
     numberValue(summary.cost_cents);
+  const splitBaseKind = getSplitBaseKind(splitBaseLabel);
 
   drawHeader(page, fonts, assets, {
     title: getReportTitle(preview),
@@ -997,7 +1082,7 @@ const drawDashboardPage = (
     height: 82,
     label: "Payout basis",
     value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
-    detail: `${formatInteger(summary.item_quantity)} items`,
+    detail: "After agreement adjustments",
   });
   drawCard(page, fonts, {
     x: 42 + (cardWidth + cardGap) * 4,
@@ -1017,7 +1102,9 @@ const drawDashboardPage = (
     size: 13,
     font: fonts.bold,
   });
-  drawText(page, fonts, "The selected period's settlement math, from recorded sales to partner payout.", {
+  drawText(page, fonts, splitBaseKind === "gross"
+    ? "The selected period's sales, refund impact, agreement payout basis, and partner payout."
+    : "The selected period's settlement math, from recorded sales to partner payout.", {
     x: 42,
     y: 192,
     size: 8.5,
@@ -1045,12 +1132,14 @@ const drawDashboardPage = (
       cents: numberValue(summary.refund_amount_cents),
       color: COLORS.amber,
     },
-    {
-      label: "Tax + deductions",
-      value: formatDeduction(taxAndDeductions),
-      cents: taxAndDeductions,
-      color: COLORS.softText,
-    },
+    ...(splitBaseKind === "gross" ? [] : [
+      {
+        label: "Tax + deductions",
+        value: formatDeduction(taxAndDeductions),
+        cents: taxAndDeductions,
+        color: COLORS.softText,
+      },
+    ]),
     {
       label: "Payout basis",
       value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
@@ -1064,8 +1153,8 @@ const drawDashboardPage = (
       color: COLORS.coral,
     },
   ];
-  const segmentGap = 14;
-  const segmentWidth = 92;
+  const segmentGap = bridgeSegments.length > 4 ? 14 : 22;
+  const segmentWidth = bridgeSegments.length > 4 ? 92 : 112;
   bridgeSegments.forEach((segment, index) => {
     const x = 42 + index * (segmentWidth + segmentGap);
     const scaledWidth = Math.max((Math.abs(segment.cents) / bridgeBase) * segmentWidth, 12);
@@ -1079,7 +1168,10 @@ const drawDashboardPage = (
     });
   });
 
-  drawText(page, fonts, `${feeLabel}${costLabel === "Costs" ? "" : ` and ${costLabel}`} details appear in the calculation support section.`, {
+  const deductionNote = splitBaseKind === "gross"
+    ? `${feeLabel}${costLabel === "Costs" ? "" : ` and ${costLabel}`} details appear in calculation support; this agreement's payout basis is ${splitBaseLabel.toLowerCase()}.`
+    : `${feeLabel}${costLabel === "Costs" ? "" : ` and ${costLabel}`} details appear in the calculation support section.`;
+  drawText(page, fonts, deductionNote, {
     x: 42,
     y: 88,
     size: 8,
@@ -1164,6 +1256,10 @@ const drawDetailPage = (
   const periodLabel = getFriendlyPeriodLabel(preview);
   const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
   const payoutCents = getPrimaryPartnerPayoutCents(summary);
+  const partnerShare = getPartnerShareLabel(context);
+  const partnerShareFormula = partnerShare
+    ? `${partnerShare} of ${splitBaseLabel.toLowerCase()}.`
+    : `Calculated from ${splitBaseLabel.toLowerCase()} using the active agreement terms.`;
 
   drawHeader(page, fonts, assets, {
     title: "Calculation support",
@@ -1190,6 +1286,7 @@ const drawDetailPage = (
   const taxAndDeductions = numberValue(summary.tax_cents) +
     numberValue(summary.fee_cents) +
     numberValue(summary.cost_cents);
+  const additionalCostCents = numberValue(summary.cost_cents);
   const rows = [
     {
       label: "Gross sales",
@@ -1203,7 +1300,7 @@ const drawDetailPage = (
     },
     {
       label: "Less machine taxes",
-      formula: "Machine tax assumptions applied before the payout split.",
+      formula: "Machine taxes applied under the active agreement.",
       value: formatDeduction(summary.tax_cents),
     },
     {
@@ -1212,9 +1309,19 @@ const drawDetailPage = (
       value: formatDeduction(summary.fee_cents),
     },
     {
-      label: costLabel === "Costs" ? "Less additional costs" : `Less ${costLabel}`,
-      formula: "Additional agreement-specific costs, if any, applied before the split.",
-      value: formatDeduction(summary.cost_cents),
+      label: additionalCostCents === 0
+        ? costLabel === "Costs"
+          ? "Additional costs"
+          : costLabel
+        : costLabel === "Costs"
+        ? "Less additional costs"
+        : `Less ${costLabel}`,
+      formula: additionalCostCents === 0
+        ? "No additional costs applied for this selected period."
+        : "Additional agreement-specific costs applied before the split.",
+      value: additionalCostCents === 0
+        ? formatCurrency(0)
+        : formatDeduction(summary.cost_cents),
     },
     {
       label: "Net sales",
@@ -1230,7 +1337,7 @@ const drawDetailPage = (
     },
     {
       label: partnerLabel,
-      formula: `Calculated from ${splitBaseLabel.toLowerCase()} using the active agreement terms.`,
+      formula: partnerShareFormula,
       value: formatCurrency(payoutCents),
       emphasis: true,
     },
@@ -1256,7 +1363,7 @@ const drawDetailPage = (
     borderColor: COLORS.border,
     borderWidth: 0.7,
   });
-  drawText(page, fonts, "Assumptions and treatments", {
+  drawText(page, fonts, "Calculation notes", {
     x: 60,
     y: 238,
     size: 11,
@@ -1264,11 +1371,13 @@ const drawDetailPage = (
   });
   const assumptions = [
     `${getPeriodKindLabel(preview)} uses ${periodLabel}.`,
-    `Agreement basis: ${splitBaseLabel} (${calculationModelLabel}).`,
+    partnerShare
+      ? `Agreement basis: ${splitBaseLabel}; amount owed is ${partnerShare} of that basis.`
+      : `Agreement basis: ${splitBaseLabel} (${calculationModelLabel}).`,
     "No-pay transactions are counted in operating volume and contribute $0 to sales.",
     "Refund impact includes approved adjustments applied to this selected period.",
     `Tax plus agreement deductions total ${formatCurrency(taxAndDeductions)} for this report.`,
-  ];
+  ].filter(Boolean);
   assumptions.forEach((assumption, index) => {
     page.drawCircle({ x: 64, y: 217 - index * 15, size: 2, color: COLORS.coral });
     drawText(page, fonts, assumption, {
@@ -1328,7 +1437,7 @@ const drawAppendixHeader = (
       height: 28,
     });
   }
-  drawText(page, fonts, "Machine appendix", {
+  drawText(page, fonts, "Machine detail", {
     x: assets.logo ? 66 : 30,
     y: height - 34,
     size: 16,
@@ -1400,16 +1509,16 @@ const drawMachineAppendix = (
   const generatedAtLabel = formatGeneratedAt(generatedAt);
   const machines = preview.machines ?? [];
   const columns = [
-    { label: "Machine", x: 34, width: 145 },
-    { label: "Orders", x: 190, width: 38, align: "right" as const },
-    { label: "Items", x: 236, width: 42, align: "right" as const },
-    { label: "Gross sales", x: 286, width: 66, align: "right" as const },
-    { label: "Refund impact", x: 360, width: 66, align: "right" as const },
-    { label: "Tax + deductions", x: 434, width: 78, align: "right" as const },
-    { label: "Net sales", x: 520, width: 62, align: "right" as const },
-    { label: "Payout basis", x: 590, width: 62, align: "right" as const },
-    { label: "Amount owed", x: 660, width: 58, align: "right" as const },
-    { label: "Bloomjoy", x: 724, width: 38, align: "right" as const },
+    { label: "Machine", x: 34, width: 128 },
+    { label: "Orders", x: 170, width: 34, align: "right" as const },
+    { label: "Items", x: 211, width: 34, align: "right" as const },
+    { label: "Gross sales", x: 252, width: 64, align: "right" as const },
+    { label: "Refund impact", x: 324, width: 62, align: "right" as const },
+    { label: "Tax + deductions", x: 394, width: 72, align: "right" as const },
+    { label: "Net sales", x: 474, width: 60, align: "right" as const },
+    { label: "Payout basis", x: 542, width: 60, align: "right" as const },
+    { label: "Amount owed", x: 608, width: 62, align: "right" as const },
+    { label: "Bloomjoy retained", x: 676, width: 82, align: "right" as const },
   ];
 
   let page = drawAppendixPage(pdfDoc, fonts, assets, periodLabel, reportReference, generatedAtLabel);
