@@ -319,8 +319,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Reporting > Sync shows a refund adjustment review summary/list where ambiguous, unmatched, duplicate, invalid, and missing-status rows require review and do not silently affect settlement
 - [ ] Admin Reporting > Sync shows the latest live refund sync run after the scheduled workflow runs, and open/denied rows remain review-only
 - [ ] Admin reporting does not mark sales import freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
-- [ ] Admin can open discovered source machine IDs from `/admin/reporting`, map them in `/admin/machines`, ignore them, and reopen them
-- [ ] Failed, stale, or mapping-needed sales ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
+- [ ] Admin Reporting > Sync lists imported machines needing setup with source name, read-only external machine ID, queued rows/revenue, latest sale, and last-seen time
+- [ ] Admin can set up an imported machine from `/admin/reporting` by choosing the report/partnership, confirming machine label, location, machine type, and reporting tax rate without editing the external machine ID
+- [ ] Imported machine setup creates/updates the reporting machine, assigns it to the selected partnership, applies tax setup, promotes queued sales rows, and shows the promoted row count/revenue in the success message
+- [ ] Admin can ignore an imported machine and reopen it later without changing already configured reporting machines
+- [ ] Failed, stale, or setup-needed sales ingest runs appear in `/admin/reporting` without changing existing configured sales facts incorrectly
 - [ ] Non-admin user cannot access `/admin/audit`
 - [ ] Super-admin user can access `/admin/audit`
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata

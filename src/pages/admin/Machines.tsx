@@ -98,6 +98,10 @@ const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter =>
 };
 
 const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+const isInternalImportHoldingAccount = (value: string) =>
+  normalizeComparableText(value) === 'sunze import holding';
+const formatAccountDisplayName = (value: string) =>
+  isInternalImportHoldingAccount(value) ? 'Pending imported-machine setup' : value;
 
 export default function AdminMachinesPage() {
   const queryClient = useQueryClient();
@@ -117,10 +121,8 @@ export default function AdminMachinesPage() {
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
 
   const highlightedMachineId = searchParams.get('machineId');
-  const pendingSunzeMachineId =
+  const pendingSourceMachineId =
     searchParams.get('externalMachineId') ?? searchParams.get('sunzeMachineId');
-  const pendingSunzeMachineName =
-    searchParams.get('externalMachineName') ?? searchParams.get('sunzeMachineName');
 
   const {
     data: setup = emptySetup,
@@ -269,12 +271,6 @@ export default function AdminMachinesPage() {
     }
   };
 
-  useEffect(() => {
-    if (!pendingSunzeMachineId || isMachineDialogOpen) return;
-    setEditingMachine(null);
-    setIsMachineDialogOpen(true);
-  }, [isMachineDialogOpen, pendingSunzeMachineId]);
-
   const openTaxChangeDialog = (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => {
     setTaxChangeForm({
       machineId: machine.id,
@@ -412,6 +408,13 @@ export default function AdminMachinesPage() {
             </div>
           )}
 
+          {pendingSourceMachineId && (
+            <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              Imported machine setup now happens from Reporting Operations so the report assignment,
+              tax setup, and queued sales are handled together.
+            </div>
+          )}
+
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <ReadinessCard
               label="Missing tax"
@@ -451,7 +454,7 @@ export default function AdminMachinesPage() {
                     className="pl-9"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Machine, account, external machine ID, partnership"
+                    placeholder="Machine, display group, external machine ID, partnership"
                   />
                 </div>
               </div>
@@ -515,7 +518,7 @@ export default function AdminMachinesPage() {
                   <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold">Machine label / alias</th>
-                      <th className="px-4 py-3 text-left font-semibold">Account</th>
+                      <th className="px-4 py-3 text-left font-semibold">Display group</th>
                       <th className="px-4 py-3 text-left font-semibold">Type</th>
                       <th className="px-4 py-3 text-left font-semibold">External machine ID</th>
                       <th className="px-4 py-3 text-left font-semibold">Assignment</th>
@@ -547,7 +550,9 @@ export default function AdminMachinesPage() {
                               </div>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-muted-foreground">{machine.account_name}</td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {formatAccountDisplayName(machine.account_name)}
+                          </td>
                           <td className="px-4 py-3 text-muted-foreground">{formatLabel(machine.machine_type)}</td>
                           <td className="px-4 py-3 text-muted-foreground">{machine.sunze_machine_id ?? 'n/a'}</td>
                           <td className="px-4 py-3">
@@ -650,8 +655,6 @@ export default function AdminMachinesPage() {
         onOpenChange={closeMachineDialog}
         machine={editingMachine}
         machines={setup.machines}
-        initialSunzeMachineId={pendingSunzeMachineId}
-        initialSunzeMachineName={pendingSunzeMachineName}
         onSaved={refresh}
       />
       <TaxChangeDialog
@@ -811,16 +814,12 @@ function MachineDialog({
   onOpenChange,
   machine,
   machines,
-  initialSunzeMachineId,
-  initialSunzeMachineName,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   machine: PartnershipSetupMachine | null;
   machines: PartnershipSetupMachine[];
-  initialSunzeMachineId: string | null;
-  initialSunzeMachineName: string | null;
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
@@ -832,33 +831,35 @@ function MachineDialog({
       setForm({
         ...emptyMachineForm,
         locationName: hiddenFallbackLocationName,
-        machineLabel:
-          initialSunzeMachineName && initialSunzeMachineName !== initialSunzeMachineId
-            ? initialSunzeMachineName
-            : '',
-        sunzeMachineId: initialSunzeMachineId ?? '',
       });
       return;
     }
 
     setForm({
       machineId: machine.id,
-      accountName: machine.account_name,
+      accountName: isInternalImportHoldingAccount(machine.account_name) ? '' : machine.account_name,
       locationName: machine.location_name,
       machineLabel: machine.machine_label,
       machineType: machine.machine_type,
       sunzeMachineId: machine.sunze_machine_id ?? '',
     });
-  }, [initialSunzeMachineId, initialSunzeMachineName, machine, open]);
+  }, [machine, open]);
 
   const accountOptions = useMemo(
-    () => Array.from(new Set(machines.map((candidate) => candidate.account_name).filter(Boolean))).sort(),
+    () =>
+      Array.from(
+        new Set(
+          machines
+            .map((candidate) => candidate.account_name)
+            .filter((accountName) => accountName && !isInternalImportHoldingAccount(accountName))
+        )
+      ).sort(),
     [machines]
   );
 
   const saveMachine = async () => {
     if (!form.accountName.trim() || !form.machineLabel.trim()) {
-      toast.error('Account and machine label are required.');
+      toast.error('Display group and machine label are required.');
       return;
     }
 
@@ -873,7 +874,7 @@ function MachineDialog({
         normalizeComparableText(candidate.machine_label) === normalizeComparableText(machineLabel)
     );
     if (duplicateIdentity) {
-      toast.error('A machine with this account and label already exists.');
+      toast.error('A machine with this display group and label already exists.');
       return;
     }
 
@@ -915,12 +916,13 @@ function MachineDialog({
         <DialogHeader>
           <DialogTitle>{form.machineId ? 'Edit Machine' : 'New Machine'}</DialogTitle>
           <DialogDescription>
-            Update the reporting label, account display, machine type, and external machine ID.
+            Update manual reporting machine details. Imported machines should be set up from
+            Reporting Operations so report assignment and queued sales are handled together.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <Label htmlFor="machine-account">Account</Label>
+            <Label htmlFor="machine-account">Reporting account / display group</Label>
             <Input
               id="machine-account"
               list="machine-account-options"

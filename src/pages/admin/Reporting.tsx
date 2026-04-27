@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   CalendarDays,
@@ -14,22 +13,52 @@ import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   createReportScheduleAdmin,
   fetchAdminReportingOverview,
+  mapSourceMachineToPartnershipAdmin,
   setSunzeMachineDiscoveryStatusAdmin,
   type AdminReportSchedule,
   type AdminReportViewSnapshot,
   type AdminRefundAdjustmentReviewRow,
   type AdminReportingImportRun,
+  type AdminReportingPartnershipOption,
   type AdminSunzeMachineQueueItem,
+  type MapSourceMachineToPartnershipResult,
+  type ReportingMachineType,
 } from '@/lib/reporting';
 import { trackEvent } from '@/lib/analytics';
+import { formatLabel, machineTypes } from '@/pages/admin/reportingSetupUi';
 
 const sunzeStaleHours = 30;
+const importedMachineSetupReason = 'Imported source machine setup';
+
+type ImportedMachineSetupForm = {
+  partnershipId: string;
+  machineLabel: string;
+  locationName: string;
+  machineType: ReportingMachineType;
+  taxRatePercent: string;
+};
+
+const emptyImportedMachineSetupForm: ImportedMachineSetupForm = {
+  partnershipId: '',
+  machineLabel: '',
+  locationName: '',
+  machineType: 'commercial',
+  taxRatePercent: '0',
+};
 
 const splitEmails = (value: string) =>
   value
@@ -59,6 +88,11 @@ const formatCents = (value: unknown) => {
   }).format(cents / 100);
 };
 
+const getImportedMachineSetupSummary = (result: MapSourceMachineToPartnershipResult) =>
+  `${result.machineLabel} is ready for ${result.partnershipName}. ${result.promotedRowCount} queued row${
+    result.promotedRowCount === 1 ? '' : 's'
+  } / ${formatCents(result.promotedRevenueCents)} moved into reporting.`;
+
 const metaText = (meta: Record<string, unknown> | undefined, key: string) => {
   const value = meta?.[key];
   return typeof value === 'string' && value.trim() ? value : null;
@@ -87,6 +121,8 @@ export default function AdminReportingPage() {
   });
   const [isCreatingSchedule, setIsCreatingSchedule] = useState(false);
   const [updatingSunzeMachineId, setUpdatingSunzeMachineId] = useState<string | null>(null);
+  const [setupMachine, setSetupMachine] = useState<AdminSunzeMachineQueueItem | null>(null);
+  const [isSettingUpMachine, setIsSettingUpMachine] = useState(false);
 
   const {
     data: overview,
@@ -100,6 +136,7 @@ export default function AdminReportingPage() {
   });
 
   const machines = useMemo(() => overview?.machines ?? [], [overview?.machines]);
+  const partnerships = useMemo(() => overview?.partnerships ?? [], [overview?.partnerships]);
   const importRuns = useMemo(() => overview?.importRuns ?? [], [overview?.importRuns]);
   const schedules = useMemo(() => overview?.schedules ?? [], [overview?.schedules]);
   const snapshots = useMemo(() => overview?.snapshots ?? [], [overview?.snapshots]);
@@ -132,7 +169,7 @@ export default function AdminReportingPage() {
   const sunzeHasRecentFailure = Boolean(latestFailedSunzeRun);
   const sunzeNeedsMapping = pendingSunzeMachineQueue.length > 0;
   const sunzeHealthLabel = sunzeNeedsMapping
-    ? 'Needs Mapping'
+    ? 'Needs Setup'
     : sunzeIsStale
       ? 'Stale'
       : sunzeHasRecentFailure
@@ -151,6 +188,68 @@ export default function AdminReportingPage() {
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['admin-reporting-overview'] });
 
+  const setupImportedMachine = async (form: ImportedMachineSetupForm) => {
+    if (!setupMachine) return;
+
+    const selectedPartnership = partnerships.find(
+      (partnership) => partnership.id === form.partnershipId
+    );
+    if (!selectedPartnership) {
+      toast.error('Choose the report this machine belongs to.');
+      return;
+    }
+
+    const taxRatePercent = Number(form.taxRatePercent);
+    if (
+      !form.machineLabel.trim() ||
+      !form.locationName.trim() ||
+      !form.taxRatePercent.trim() ||
+      Number.isNaN(taxRatePercent) ||
+      taxRatePercent < 0 ||
+      taxRatePercent > 100
+    ) {
+      toast.error('Enter a machine label, location, and reporting tax rate from 0 to 100.');
+      return;
+    }
+
+    setIsSettingUpMachine(true);
+    try {
+      const result = await mapSourceMachineToPartnershipAdmin({
+        externalMachineId: setupMachine.sunzeMachineId,
+        partnershipId: selectedPartnership.id,
+        machineLabel: form.machineLabel.trim(),
+        locationName: form.locationName.trim(),
+        machineType: form.machineType,
+        taxRatePercent,
+        assignmentStartDate: selectedPartnership.effective_start_date,
+        assignmentEndDate: selectedPartnership.effective_end_date,
+        taxEffectiveStartDate: selectedPartnership.effective_start_date,
+        reason: importedMachineSetupReason,
+      });
+
+      trackEvent('admin_imported_machine_setup_completed', {
+        external_machine_id: result.externalMachineId,
+        partnership_id: result.partnershipId,
+        promoted_row_count: result.promotedRowCount,
+        promoted_revenue_cents: result.promotedRevenueCents,
+      });
+      toast.success(getImportedMachineSetupSummary(result));
+      setSetupMachine(null);
+      await Promise.all([
+        refresh(),
+        queryClient.invalidateQueries({ queryKey: ['admin-partnership-reporting-setup'] }),
+        queryClient.invalidateQueries({ queryKey: ['partner-dashboard-partnerships'] }),
+        queryClient.invalidateQueries({ queryKey: ['partner-dashboard-period-preview'] }),
+      ]);
+    } catch (setupError) {
+      toast.error(
+        setupError instanceof Error ? setupError.message : 'Unable to set up imported machine.'
+      );
+    } finally {
+      setIsSettingUpMachine(false);
+    }
+  };
+
   const setSunzeQueueStatus = async (
     machine: AdminSunzeMachineQueueItem,
     status: 'pending' | 'ignored'
@@ -163,7 +262,7 @@ export default function AdminReportingPage() {
         reason:
           status === 'ignored'
             ? 'Marked non-production or not reportable from admin reporting'
-            : 'Reopened for reporting machine mapping',
+            : 'Reopened for imported machine setup',
       });
       trackEvent('admin_source_machine_discovery_status_updated', {
         external_machine_id: machine.sunzeMachineId,
@@ -324,10 +423,12 @@ export default function AdminReportingPage() {
               ) : (
                 <SyncTab
                   importRuns={importRuns}
+                  partnerships={partnerships}
                   sunzeMachineQueue={sunzeMachineQueue}
                   refundReviewRows={refundReviewRows}
                   pendingSunzeMachineCount={pendingSunzeMachineQueue.length}
                   updatingSunzeMachineId={updatingSunzeMachineId}
+                  onSetupMachine={setSetupMachine}
                   setSunzeQueueStatus={setSunzeQueueStatus}
                 />
               )}
@@ -338,6 +439,15 @@ export default function AdminReportingPage() {
           </Tabs>
         </div>
       </section>
+      <ImportedMachineSetupDialog
+        machine={setupMachine}
+        partnerships={partnerships}
+        isSaving={isSettingUpMachine}
+        onOpenChange={(open) => {
+          if (!open) setSetupMachine(null);
+        }}
+        onSave={setupImportedMachine}
+      />
     </AppLayout>
   );
 }
@@ -540,17 +650,21 @@ function SchedulesTab({
 
 function SyncTab({
   importRuns,
+  partnerships,
   sunzeMachineQueue,
   refundReviewRows,
   pendingSunzeMachineCount,
   updatingSunzeMachineId,
+  onSetupMachine,
   setSunzeQueueStatus,
 }: {
   importRuns: AdminReportingImportRun[];
+  partnerships: AdminReportingPartnershipOption[];
   sunzeMachineQueue: AdminSunzeMachineQueueItem[];
   refundReviewRows: AdminRefundAdjustmentReviewRow[];
   pendingSunzeMachineCount: number;
   updatingSunzeMachineId: string | null;
+  onSetupMachine: (machine: AdminSunzeMachineQueueItem) => void;
   setSunzeQueueStatus: (
     machine: AdminSunzeMachineQueueItem,
     status: 'pending' | 'ignored'
@@ -561,81 +675,79 @@ function SyncTab({
       <div className="rounded-lg border border-border bg-card">
         <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="font-semibold text-foreground">Source Machine Mapping Queue</h2>
+            <h2 className="font-semibold text-foreground">Imported Machines Needing Setup</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {pendingSunzeMachineCount} pending machine
-              {pendingSunzeMachineCount === 1 ? '' : 's'} with queued sales.
+              {pendingSunzeMachineCount} imported machine
+              {pendingSunzeMachineCount === 1 ? '' : 's'} with queued sales not yet included in reports.
             </p>
           </div>
           {pendingSunzeMachineCount > 0 && (
             <Badge variant="outline" className="w-fit text-amber-700">
-              Needs mapping
+              Needs setup
             </Badge>
           )}
         </div>
         {sunzeMachineQueue.length === 0 ? (
           <EmptyRow text="No discovered source machines need action." />
         ) : (
-          sunzeMachineQueue.map((machine) => {
-            const mappingUrl = `/admin/machines?externalMachineId=${encodeURIComponent(
-              machine.sunzeMachineId
-            )}&externalMachineName=${encodeURIComponent(
-              machine.sunzeMachineName ?? machine.sunzeMachineId
-            )}`;
-            return (
-              <Row key={machine.sunzeMachineId}>
-                <div>
-                  <div className="font-medium text-foreground">
-                    {machine.sunzeMachineName ?? machine.sunzeMachineId}
-                  </div>
+          sunzeMachineQueue.map((machine) => (
+            <Row key={machine.sunzeMachineId}>
+              <div>
+                <div className="font-medium text-foreground">
+                  {machine.sunzeMachineName ?? machine.sunzeMachineId}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  External machine ID {machine.sunzeMachineId} / status {machine.status}
+                </div>
+                {machine.ignoreReason && (
                   <div className="mt-1 text-xs text-muted-foreground">
-                    External machine ID {machine.sunzeMachineId} / status {machine.status}
+                    Ignored: {machine.ignoreReason}
                   </div>
-                  {machine.ignoreReason && (
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Ignored: {machine.ignoreReason}
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-3 text-sm sm:items-end">
-                  <div className="text-left sm:text-right">
-                    <div className="font-medium text-foreground">
-                      {machine.pendingRowCount} rows / {formatCents(machine.pendingRevenueCents)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Latest sale {machine.latestSaleDate ?? 'n/a'} / seen{' '}
-                      {formatDate(machine.lastSeenAt)}
-                    </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-3 text-sm sm:items-end">
+                <div className="text-left sm:text-right">
+                  <div className="font-medium text-foreground">
+                    {machine.pendingRowCount} rows / {formatCents(machine.pendingRevenueCents)}
                   </div>
-                  <div className="flex flex-wrap gap-2 sm:justify-end">
-                    <Button asChild size="sm">
-                      <Link to={mappingUrl}>Map</Link>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={updatingSunzeMachineId === machine.sunzeMachineId}
-                      onClick={() =>
-                        setSunzeQueueStatus(
-                          machine,
-                          machine.status === 'ignored' ? 'pending' : 'ignored'
-                        )
-                      }
-                    >
-                      {updatingSunzeMachineId === machine.sunzeMachineId ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : machine.status === 'ignored' ? (
-                        'Reopen'
-                      ) : (
-                        'Ignore'
-                      )}
-                    </Button>
+                  <div className="text-xs text-muted-foreground">
+                    Latest sale {machine.latestSaleDate ?? 'n/a'} / seen{' '}
+                    {formatDate(machine.lastSeenAt)}
                   </div>
                 </div>
-              </Row>
-            );
-          })
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={partnerships.length === 0}
+                    onClick={() => onSetupMachine(machine)}
+                  >
+                    Set up
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={updatingSunzeMachineId === machine.sunzeMachineId}
+                    onClick={() =>
+                      setSunzeQueueStatus(
+                        machine,
+                        machine.status === 'ignored' ? 'pending' : 'ignored'
+                      )
+                    }
+                  >
+                    {updatingSunzeMachineId === machine.sunzeMachineId ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : machine.status === 'ignored' ? (
+                      'Reopen'
+                    ) : (
+                      'Ignore'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </Row>
+          ))
         )}
       </div>
 
@@ -650,6 +762,170 @@ function SyncTab({
         )}
       </div>
     </div>
+  );
+}
+
+function ImportedMachineSetupDialog({
+  machine,
+  partnerships,
+  isSaving,
+  onOpenChange,
+  onSave,
+}: {
+  machine: AdminSunzeMachineQueueItem | null;
+  partnerships: AdminReportingPartnershipOption[];
+  isSaving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (form: ImportedMachineSetupForm) => void;
+}) {
+  const [form, setForm] = useState<ImportedMachineSetupForm>(emptyImportedMachineSetupForm);
+  const selectedPartnership = partnerships.find(
+    (partnership) => partnership.id === form.partnershipId
+  );
+
+  useEffect(() => {
+    if (!machine) return;
+    const defaultPartnership =
+      partnerships.find((partnership) => partnership.status === 'active') ?? partnerships[0];
+    setForm({
+      ...emptyImportedMachineSetupForm,
+      partnershipId: defaultPartnership?.id ?? '',
+      machineLabel: machine.sunzeMachineName ?? '',
+    });
+  }, [machine, partnerships]);
+
+  return (
+    <Dialog open={Boolean(machine)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Set Up Imported Machine</DialogTitle>
+          <DialogDescription>
+            Choose which report should include this imported machine. The source-owned external ID
+            stays locked, and queued sales move into reporting after setup.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Imported machine
+            </div>
+            <div className="mt-1 font-medium text-foreground">
+              {machine?.sunzeMachineName ?? machine?.sunzeMachineId ?? 'Imported machine'}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {machine?.pendingRowCount ?? 0} queued rows /{' '}
+              {formatCents(machine?.pendingRevenueCents ?? 0)}
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="imported-machine-partnership">Report / partnership</Label>
+              <select
+                id="imported-machine-partnership"
+                value={form.partnershipId}
+                onChange={(event) => setForm({ ...form, partnershipId: event.target.value })}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Choose report</option>
+                {partnerships.map((partnership) => (
+                  <option key={partnership.id} value={partnership.id}>
+                    {partnership.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="imported-machine-external-id">External machine ID</Label>
+              <Input
+                id="imported-machine-external-id"
+                value={machine?.sunzeMachineId ?? ''}
+                readOnly
+                aria-readonly="true"
+              />
+            </div>
+            <div>
+              <Label htmlFor="imported-machine-label">Machine label</Label>
+              <Input
+                id="imported-machine-label"
+                value={form.machineLabel}
+                onChange={(event) => setForm({ ...form, machineLabel: event.target.value })}
+                placeholder="Merlin Minneapolis"
+              />
+            </div>
+            <div>
+              <Label htmlFor="imported-machine-location">Location</Label>
+              <Input
+                id="imported-machine-location"
+                value={form.locationName}
+                onChange={(event) => setForm({ ...form, locationName: event.target.value })}
+                placeholder="Minneapolis"
+              />
+            </div>
+            <div>
+              <Label htmlFor="imported-machine-type">Machine type</Label>
+              <select
+                id="imported-machine-type"
+                value={form.machineType}
+                onChange={(event) =>
+                  setForm({ ...form, machineType: event.target.value as ReportingMachineType })
+                }
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {machineTypes.map((machineType) => (
+                  <option key={machineType} value={machineType}>
+                    {formatLabel(machineType)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="imported-machine-tax">Reporting tax %</Label>
+              <Input
+                id="imported-machine-tax"
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                value={form.taxRatePercent}
+                onChange={(event) => setForm({ ...form, taxRatePercent: event.target.value })}
+              />
+            </div>
+          </div>
+          <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+            {selectedPartnership ? (
+              <>
+                Assignment dates use {selectedPartnership.name}:{' '}
+                {selectedPartnership.effective_start_date}
+                {selectedPartnership.effective_end_date
+                  ? ` through ${selectedPartnership.effective_end_date}`
+                  : ' onward'}
+                .
+              </>
+            ) : partnerships.length === 0 ? (
+              'Create an active partnership before setting up imported machines.'
+            ) : (
+              'Choose a report to see the assignment dates.'
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onSave(form)}
+            disabled={isSaving || !machine || partnerships.length === 0}
+          >
+            {isSaving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+            )}
+            Finish Setup
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
