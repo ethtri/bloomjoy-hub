@@ -341,7 +341,7 @@ const groupRows = <TKey extends string>(
 };
 
 export default function ReportsPage() {
-  const { isAdmin } = useAuth();
+  const { isSuperAdmin } = useAuth();
   const [activeView, setActiveView] = useState<ReportingView>('operator');
 
   const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
@@ -349,13 +349,13 @@ export default function ReportsPage() {
       queryKey: ['reporting-access-context'],
       queryFn: fetchReportingAccessContext,
       staleTime: 1000 * 60,
-    });
+  });
 
   useEffect(() => {
-    if (!isAdmin && activeView === 'partner') {
+    if (!isSuperAdmin && activeView === 'partner') {
       setActiveView('operator');
     }
-  }, [activeView, isAdmin]);
+  }, [activeView, isSuperAdmin]);
 
   return (
     <PortalLayout>
@@ -375,12 +375,16 @@ export default function ReportsPage() {
                 tone: 'muted',
               },
               {
-                label: accessFetching ? 'Refreshing' : isAdmin ? 'Super-admin reporting' : 'Operator reporting',
-                tone: isAdmin ? 'accent' : 'default',
+                label: accessFetching
+                  ? 'Refreshing'
+                  : isSuperAdmin
+                    ? 'Super-admin reporting'
+                    : 'Operator reporting',
+                tone: isSuperAdmin ? 'accent' : 'default',
               },
             ]}
             actions={
-              isAdmin ? (
+              isSuperAdmin ? (
                 <ToggleGroup
                   type="single"
                   value={activeView}
@@ -401,7 +405,7 @@ export default function ReportsPage() {
           />
 
           <div className="mt-6">
-            {activeView === 'partner' && isAdmin ? (
+            {activeView === 'partner' && isSuperAdmin ? (
               <PartnerDashboardView />
             ) : (
               <OperatorReportingView accessContext={accessContext} />

@@ -58,6 +58,7 @@
    - Partner report weekly/monthly export metadata: `supabase/migrations/202604260019_partner_report_period_exports.sql`
    - Refund adjustment review/matching: `supabase/migrations/202604270001_refund_adjustment_review_matching.sql`
    - Live refund sheet ingestion source marker: `supabase/migrations/202604270002_live_refund_sheet_ingestion.sql`
+   - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`

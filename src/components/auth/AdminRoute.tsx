@@ -1,11 +1,12 @@
-import { Link, Outlet } from 'react-router-dom';
+import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function AdminRoute() {
-  const { loading, isAdmin } = useAuth();
+  const { loading, isAdmin, isScopedAdmin, isSuperAdmin } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -15,7 +16,18 @@ export function AdminRoute() {
     );
   }
 
-  if (isAdmin) {
+  if (isSuperAdmin) {
+    return <Outlet />;
+  }
+
+  if (isScopedAdmin && location.pathname === '/admin') {
+    return <Navigate to="/admin/access?tab=reporting-access" replace />;
+  }
+
+  if (
+    isScopedAdmin &&
+    (location.pathname === '/admin/access' || location.pathname.startsWith('/admin/access/'))
+  ) {
     return <Outlet />;
   }
 
@@ -32,6 +44,9 @@ export function AdminRoute() {
             </h1>
             <p className="mt-3 text-muted-foreground">
               This area is restricted to Bloomjoy operations administrators.
+              {isAdmin
+                ? ' Your current admin grant does not include this surface.'
+                : ''}
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
               <Button asChild variant="outline">

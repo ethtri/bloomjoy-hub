@@ -47,7 +47,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 - Partner-dashboard access remains super-admin-only in V1 until explicit Partner Viewer permissions are implemented.
 
 ## Gaps
-- Scoped Admin is not implemented. Issue `#259` tracks the P1 Admin UI/access-management improvement.
+- Scoped Admin has a minimal P0 implementation path in `#259`: explicit machine-scoped internal admin grants managed from `/admin/access`. Broader account-scope delegation and a custom entitlement-builder UI remain future work.
 - Partner Viewer is not a live customer-facing flow. Issue `#128` tracks explicit partner/reporting-only access.
 - The scalable entitlement model remains an umbrella concern in `#150`.
 - A full custom entitlement-builder UI is not planned for the near term.
@@ -56,7 +56,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 | MVP Persona | Subject / Source | Current Scope | Can Do Now | Must Not Do | Status / Issue |
 | --- | --- | --- | --- | --- | --- |
 | Super Admin | `admin_roles.role = 'super_admin'` | Global | View, configure, grant, revoke, approve, export, and audit all current admin/reporting surfaces | Bypass production safeguards or audit requirements | Implemented; keep as the only global role |
-| Scoped Admin | Future internal admin grant | Future account/machine scope | Future: manage assigned machines/accounts and operational metadata | No global admin, unrelated accounts, partnership setup, user/global role management, or ungranted reports | Planned; `#259` |
+| Scoped Admin | Manual scoped-admin grant | Machine scope in the P0 implementation; account scope remains future | Manage manual reporting access inside assigned machine scope from `/admin/access` | No global admin, unrelated accounts, partnership setup, user/global role management, ungranted reports, or Technician-derived grant revocation | P0 minimal implementation; `#259` |
 | Plus Account Owner | Active Plus access plus owner account membership | Owned customer account and controlled machines | Manage Technician grants for controlled machines; access Plus portal benefits and assigned reporting | No internal admin setup, unrelated customer accounts, partner settlement, global reporting, or role management | Partially implemented; customer/team direction from `#123` |
 | Technician | Technician grant plus Technician-sourced reporting entitlement | Explicit assigned machines | Access training and read-only reports for assigned machines | No Plus discounts, billing, account-owner tools, partner settlement, admin operations, machine setup, or global reporting | Partially implemented; production caveat `#214`; spec reference `#183` |
 | Partner Viewer | Future Partner Viewer grant | Future partnership/report artifact scope | Future: view approved partner dashboards, snapshots, and PDFs | No Plus benefits, billing, Technician management, admin setup, imports, tax/rule edits, schedules, or warning ledgers | Planned; `#128` |
@@ -84,7 +84,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 | `#266` | Entitlement roadmap alignment | P0 docs alignment issue for keeping this roadmap consistent with the implemented role model. |
 | `#169` | Corporate partner reviewed PDF reporting | P0 milestone that keeps partner delivery super-admin-reviewed before Partner Viewer is live. |
 | `#150` | Scalable account roles and entitlement model | Umbrella for capability-model hardening and future entitlement-builder work. |
-| `#259` | Admin UI access management for scoped admin roles | Scoped Admin planning and `/admin/access` improvements. |
+| `#259` | Admin UI access management for scoped admin roles | P0 minimal Scoped Admin implementation and `/admin/access` improvements. |
 | `#128` | Partner Viewer reporting access | Explicit partner/reporting-only access with no inherited Plus or admin powers. |
 | `#214` | Technician entitlement resolution in production | Production verification/restoration for Technician invite resolution. |
 | `#123` | Plus operator access and invite flow | Closed definition issue that informed customer/owner team-management direction. |
@@ -92,7 +92,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 
 ## Acceptance Criteria
 - The roadmap maps MVP personas to capability dimensions and linked issues.
-- Current implementation status is accurate for Super Admin, Plus, training-only, Technician, reporting, Scoped Admin, and Partner Viewer.
+- Current implementation status is accurate for Super Admin, Plus, training-only, Technician, reporting, minimal Scoped Admin, and Partner Viewer.
 - Short-term operational grants can be chosen quickly without confusing `report_manager`, Scoped Admin, Technician, and Partner Viewer.
 - No persona receives implicit access through partnership setup alone.
 - Future implementations can add scoped capabilities incrementally without introducing a broad entitlement-engine rewrite.
@@ -101,4 +101,4 @@ Use this model for new entitlement design, issue writing, and implementation rev
 - The roadmap should optimize near-term ops speed while avoiding permission shortcuts.
 - No generic entitlement engine is planned now; use capability conventions and scoped helper functions as the incremental path.
 - Partner Viewer implementation waits until corporate partner reviewed-PDF reporting is trusted.
-- Scoped Admin and custom entitlement-builder UI remain planned work, not current repo functionality.
+- Broader Scoped Admin delegation and custom entitlement-builder UI remain planned work beyond the minimal P0 machine-scoped implementation.

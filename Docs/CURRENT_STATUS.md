@@ -46,6 +46,7 @@
   - `/admin/partnerships` is the guided agreement setup flow for partnership details, role-only participants, bulk machine alignment, payout rules, and weekly preview.
   - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
 - Production RPC repair is complete: migration `202604260004_reporting_admin_rpc_repair.sql` reapplied missing admin reporting/partnership RPCs, restored PostgREST schema visibility, and production migration history is aligned through `202604260006`.
+- Scoped Admin production entitlement work is tracked in issue `#259`: migration `202604270004_scoped_admin_entitlements.sql` adds explicit machine-scoped internal admin grants, lets super-admins manage those grants from `/admin/access`, limits scoped admins to the reporting-access surface, and bootstraps `adam@bloomjoysweets.com` to active reporting-machine scopes when that auth user exists. `report_manager` remains reporting-only and is not a scoped-admin substitute.
 - Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
 - Tax rates are configured directly on machines, not on partnerships. The Machines admin page edits current rates inline while the backend keeps effective-dated history for reporting/audit.
 - Reporting tax setup is intentionally simple in the UI: missing initial rates save with a hidden `2026-01-01` effective start, rare tax changes use a compact rate-change action, and tax history is read-only for audit context.

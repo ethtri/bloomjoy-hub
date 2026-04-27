@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   fetchAdminAccountSummaries,
   fetchMachineInventoryForAccount,
@@ -31,10 +32,14 @@ import {
 import {
   fetchAdminAuditLog,
   fetchAdminRoles,
+  fetchScopedAdminGrants,
+  grantScopedAdminByEmail,
   grantSuperAdminByEmail,
+  revokeScopedAdmin,
   revokeSuperAdmin,
   type AdminAuditLogRecord,
   type AdminRoleRecord,
+  type ScopedAdminGrantRecord,
 } from '@/lib/adminGovernance';
 import {
   fetchAdminReportingAccessMatrix,
@@ -48,7 +53,8 @@ import {
 import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 
-const tabs = ['users', 'reporting-access', 'global-roles', 'audit'];
+const superAdminTabs = ['users', 'reporting-access', 'scoped-admins', 'global-roles', 'audit'];
+const scopedAdminTabs = ['reporting-access'];
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
   { key: 'mini', label: 'Mini' },
@@ -142,10 +148,12 @@ const roleSort = (a: AdminRoleRecord, b: AdminRoleRecord) => {
 };
 
 export default function AdminAccessPage() {
+  const { isScopedAdmin, isSuperAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = tabs.includes(searchParams.get('tab') ?? '')
+  const availableTabs = isSuperAdmin ? superAdminTabs : scopedAdminTabs;
+  const activeTab = availableTabs.includes(searchParams.get('tab') ?? '')
     ? (searchParams.get('tab') as string)
-    : 'users';
+    : 'reporting-access';
 
   const setActiveTab = (value: string) => {
     setSearchParams({ tab: value }, { replace: true });
@@ -164,32 +172,50 @@ export default function AdminAccessPage() {
                 Access
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage users, Plus access, global roles, and explicit machine-level reporting
-                visibility from one place.
+                {isSuperAdmin
+                  ? 'Manage users, Plus access, global roles, scoped admins, and explicit machine-level reporting visibility from one place.'
+                  : 'Manage reporting visibility for the machines included in your scoped admin grant.'}
               </p>
+              {isScopedAdmin && !isSuperAdmin && (
+                <Badge className="mt-3" variant="secondary">
+                  Scoped Admin
+                </Badge>
+              )}
             </div>
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
             <TabsList className="h-auto flex-wrap justify-start">
-              <TabsTrigger value="users">Users</TabsTrigger>
+              {isSuperAdmin && <TabsTrigger value="users">Users</TabsTrigger>}
               <TabsTrigger value="reporting-access">Reporting Access</TabsTrigger>
-              <TabsTrigger value="global-roles">Global Roles</TabsTrigger>
-              <TabsTrigger value="audit">Audit</TabsTrigger>
+              {isSuperAdmin && <TabsTrigger value="scoped-admins">Scoped Admins</TabsTrigger>}
+              {isSuperAdmin && <TabsTrigger value="global-roles">Global Roles</TabsTrigger>}
+              {isSuperAdmin && <TabsTrigger value="audit">Audit</TabsTrigger>}
             </TabsList>
 
-            <TabsContent value="users" className="mt-6">
-              <UsersTab />
-            </TabsContent>
+            {isSuperAdmin && (
+              <TabsContent value="users" className="mt-6">
+                <UsersTab />
+              </TabsContent>
+            )}
             <TabsContent value="reporting-access" className="mt-6">
               <ReportingAccessTab />
             </TabsContent>
-            <TabsContent value="global-roles" className="mt-6">
-              <GlobalRolesTab />
-            </TabsContent>
-            <TabsContent value="audit" className="mt-6">
-              <AuditTab />
-            </TabsContent>
+            {isSuperAdmin && (
+              <TabsContent value="scoped-admins" className="mt-6">
+                <ScopedAdminsTab />
+              </TabsContent>
+            )}
+            {isSuperAdmin && (
+              <TabsContent value="global-roles" className="mt-6">
+                <GlobalRolesTab />
+              </TabsContent>
+            )}
+            {isSuperAdmin && (
+              <TabsContent value="audit" className="mt-6">
+                <AuditTab />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
       </section>
@@ -578,6 +604,7 @@ function UsersTab() {
 }
 
 function ReportingAccessTab() {
+  const { isScopedAdmin, isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [peopleSearch, setPeopleSearch] = useState('');
   const [lookupEmail, setLookupEmail] = useState('');
@@ -727,6 +754,13 @@ function ReportingAccessTab() {
 
   return (
     <div className="space-y-4">
+      {isScopedAdmin && !isSuperAdmin && (
+        <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+          Your scoped admin grant limits this matrix to assigned machines. Saving changes only
+          affects manual reporting grants inside that scope.
+        </div>
+      )}
+
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           <div className="flex-1">
@@ -908,6 +942,311 @@ function ReportingAccessTab() {
               )}
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function scopedGrantSort(a: ScopedAdminGrantRecord, b: ScopedAdminGrantRecord) {
+  if (a.active !== b.active) return a.active ? -1 : 1;
+  return new Date(b.grantedAt).getTime() - new Date(a.grantedAt).getTime();
+}
+
+function ScopedAdminsTab() {
+  const queryClient = useQueryClient();
+  const [grantEmail, setGrantEmail] = useState('');
+  const [grantReason, setGrantReason] = useState('');
+  const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(new Set());
+  const [machineSearch, setMachineSearch] = useState('');
+  const [revokeReasons, setRevokeReasons] = useState<Record<string, string>>({});
+  const [isSavingGrant, setIsSavingGrant] = useState(false);
+  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+
+  const {
+    data: matrix = { people: [], machines: [], grants: [] },
+    isLoading: machinesLoading,
+    error: machinesError,
+  } = useQuery({
+    queryKey: ['admin-reporting-access-matrix'],
+    queryFn: fetchAdminReportingAccessMatrix,
+    staleTime: 1000 * 30,
+  });
+
+  const {
+    data: grants = [],
+    isLoading: grantsLoading,
+    isFetching: grantsFetching,
+    error: grantsError,
+  } = useQuery({
+    queryKey: ['admin-scoped-admin-grants'],
+    queryFn: fetchScopedAdminGrants,
+    staleTime: 1000 * 30,
+  });
+
+  const filteredMachines = useMemo(() => {
+    const search = normalizeSearch(machineSearch);
+    if (!search) return matrix.machines;
+    return matrix.machines.filter((machine) =>
+      [machine.machineLabel, machine.sunzeMachineId ?? '', machine.accountName]
+        .join(' ')
+        .toLowerCase()
+        .includes(search)
+    );
+  }, [machineSearch, matrix.machines]);
+
+  const groupedMachines = useMemo(() => groupMachines(filteredMachines), [filteredMachines]);
+  const sortedGrants = useMemo(() => [...grants].sort(scopedGrantSort), [grants]);
+
+  const refreshScopedAdmins = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-scoped-admin-grants'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-reporting-access-matrix'] }),
+    ]);
+  };
+
+  const toggleMachine = (machineId: string, checked: boolean) => {
+    setSelectedMachineIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(machineId);
+      else next.delete(machineId);
+      return next;
+    });
+  };
+
+  const loadGrantForEditing = (grant: ScopedAdminGrantRecord) => {
+    setGrantEmail(grant.userEmail ?? '');
+    setGrantReason(grant.grantReason);
+    setSelectedMachineIds(
+      new Set(
+        grant.scopes
+          .filter((scope) => scope.active && scope.scopeType === 'machine' && scope.machineId)
+          .map((scope) => scope.machineId as string)
+      )
+    );
+  };
+
+  const handleGrantScopedAdmin = async () => {
+    if (!grantEmail.trim()) {
+      toast.error('Email is required.');
+      return;
+    }
+    if (!grantReason.trim()) {
+      toast.error('Grant reason is required.');
+      return;
+    }
+    if (selectedMachineIds.size === 0) {
+      toast.error('Select at least one machine scope.');
+      return;
+    }
+
+    setIsSavingGrant(true);
+    try {
+      await grantScopedAdminByEmail({
+        targetEmail: grantEmail.trim(),
+        machineIds: [...selectedMachineIds],
+        reason: grantReason.trim(),
+      });
+      trackEvent('admin_role_granted', {
+        target_email: grantEmail.trim(),
+        role: 'scoped_admin',
+        machine_count: selectedMachineIds.size,
+      });
+      toast.success('Scoped admin grant saved.');
+      setGrantEmail('');
+      setGrantReason('');
+      setSelectedMachineIds(new Set());
+      await refreshScopedAdmins();
+    } catch (grantError) {
+      toast.error(grantError instanceof Error ? grantError.message : 'Unable to save scoped admin.');
+    } finally {
+      setIsSavingGrant(false);
+    }
+  };
+
+  const handleRevokeScopedAdmin = async (grant: ScopedAdminGrantRecord) => {
+    const reason = revokeReasons[grant.id]?.trim();
+    if (!reason) {
+      toast.error('Revoke reason is required.');
+      return;
+    }
+
+    setRevokingGrantId(grant.id);
+    try {
+      await revokeScopedAdmin({ grantId: grant.id, reason });
+      trackEvent('admin_role_revoked', {
+        target_user_id: grant.userId,
+        role: 'scoped_admin',
+      });
+      toast.success('Scoped admin revoked.');
+      setRevokeReasons((current) => ({ ...current, [grant.id]: '' }));
+      await refreshScopedAdmins();
+    } catch (revokeError) {
+      toast.error(revokeError instanceof Error ? revokeError.message : 'Unable to revoke scoped admin.');
+    } finally {
+      setRevokingGrantId(null);
+    }
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="space-y-4 rounded-lg border border-border bg-card p-5">
+        <div>
+          <h2 className="font-semibold text-foreground">Grant Scoped Admin</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Scoped Admin can open Admin Access and manage manual reporting grants for selected
+            machines only.
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <Label htmlFor="scoped-admin-email">Email</Label>
+            <Input
+              id="scoped-admin-email"
+              type="email"
+              value={grantEmail}
+              onChange={(event) => setGrantEmail(event.target.value)}
+              placeholder="admin@company.com"
+            />
+          </div>
+          <div>
+            <Label htmlFor="scoped-admin-reason">Grant reason</Label>
+            <Input
+              id="scoped-admin-reason"
+              value={grantReason}
+              onChange={(event) => setGrantReason(event.target.value)}
+              placeholder="Required reason"
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-end justify-between gap-3">
+            <div className="flex-1">
+              <Label htmlFor="scoped-admin-machine-search">Machine scope</Label>
+              <Input
+                id="scoped-admin-machine-search"
+                value={machineSearch}
+                onChange={(event) => setMachineSearch(event.target.value)}
+                placeholder="Filter machines"
+              />
+            </div>
+            <Badge variant="outline">{selectedMachineIds.size} selected</Badge>
+          </div>
+
+          {machinesError && (
+            <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              Unable to load machines.
+            </div>
+          )}
+
+          <div className="mt-3 max-h-[440px] overflow-y-auto rounded-md border border-border">
+            {machinesLoading && (
+              <div className="p-4 text-sm text-muted-foreground">Loading machines...</div>
+            )}
+            {!machinesLoading && groupedMachines.length === 0 && (
+              <div className="p-4 text-sm text-muted-foreground">No machines found.</div>
+            )}
+            {groupedMachines.map((group) => (
+              <div key={group.key} className="border-b border-border last:border-b-0">
+                <div className="bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {group.accountName}
+                </div>
+                {group.machines.map((machine) => (
+                  <label
+                    key={machine.id}
+                    className="flex cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0"
+                  >
+                    <Checkbox
+                      checked={selectedMachineIds.has(machine.id)}
+                      onCheckedChange={(checked) => toggleMachine(machine.id, Boolean(checked))}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-foreground">{machine.machineLabel}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {machine.accountName} / external ID {machine.sunzeMachineId ?? 'n/a'}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <Button onClick={handleGrantScopedAdmin} disabled={isSavingGrant}>
+          {isSavingGrant ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+          Save Scoped Admin
+        </Button>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-foreground">Current Scoped Admins</h2>
+          <Button variant="outline" size="sm" onClick={refreshScopedAdmins} disabled={grantsFetching}>
+            {grantsFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Refresh
+          </Button>
+        </div>
+
+        {grantsError && (
+          <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            Unable to load scoped admins.
+          </div>
+        )}
+
+        <div className="mt-4 space-y-3">
+          {grantsLoading && <div className="text-sm text-muted-foreground">Loading scoped admins...</div>}
+          {!grantsLoading && sortedGrants.length === 0 && (
+            <div className="text-sm text-muted-foreground">No scoped admins found.</div>
+          )}
+          {sortedGrants.map((grant) => (
+            <div key={grant.id} className="rounded-md border border-border p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium text-foreground">{grant.userEmail ?? grant.userId}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{grant.userId}</div>
+                </div>
+                <Badge variant={grant.active ? 'default' : 'outline'}>{grant.active ? 'active' : 'revoked'}</Badge>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Badge variant="outline">{grant.scopes.length} machine scopes</Badge>
+                <Badge variant="outline">{grant.source}</Badge>
+              </div>
+              <div className="mt-3 max-h-28 overflow-y-auto rounded-md bg-muted/30 p-2 text-xs text-muted-foreground">
+                {grant.scopes.length === 0
+                  ? 'No active scopes.'
+                  : grant.scopes
+                      .map((scope) => scope.machineLabel ?? scope.accountName ?? scope.id)
+                      .join(', ')}
+              </div>
+              {grant.active && (
+                <div className="mt-3 space-y-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button variant="outline" onClick={() => loadGrantForEditing(grant)}>
+                      Edit Scopes
+                    </Button>
+                    <Input
+                      value={revokeReasons[grant.id] ?? ''}
+                      onChange={(event) =>
+                        setRevokeReasons((prev) => ({ ...prev, [grant.id]: event.target.value }))
+                      }
+                      placeholder="Required revoke reason"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => handleRevokeScopedAdmin(grant)}
+                      disabled={revokingGrantId === grant.id}
+                    >
+                      {revokingGrantId === grant.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Revoke
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </div>
