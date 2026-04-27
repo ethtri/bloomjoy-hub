@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import {
   buildSanitizedRefundPayload,
   buildMachineProfiles,
+  buildGlobalUniqueRefundScopeLabelMap,
   calculatePartnerSettlementTotals,
+  countPartnerScopedRefundReviewRows,
   extractRefundInput,
   makeSourceRowHash,
   matchRefundToMachine,
   parseCsv,
   parseSheetValues,
+  refundReviewRowAppliesToPartnerScope,
 } from './refunds/refund-adjustment-utils.mjs';
 
 const machines = [
@@ -58,6 +61,35 @@ const aliases = [
 ];
 
 const profiles = buildMachineProfiles({ machines, aliases });
+const partnershipId = '55555555-5555-4555-8555-555555555555';
+const otherPartnershipId = '66666666-6666-4666-8666-666666666666';
+const assignments = [
+  {
+    partnership_id: partnershipId,
+    machine_id: machines[0].id,
+    assignment_role: 'primary_reporting',
+    status: 'active',
+    effective_start_date: '2026-04-01',
+    effective_end_date: null,
+  },
+  {
+    partnership_id: partnershipId,
+    machine_id: machines[1].id,
+    assignment_role: 'primary_reporting',
+    status: 'active',
+    effective_start_date: '2026-04-01',
+    effective_end_date: null,
+  },
+  {
+    partnership_id: otherPartnershipId,
+    machine_id: machines[3].id,
+    assignment_role: 'primary_reporting',
+    status: 'active',
+    effective_start_date: '2026-04-01',
+    effective_end_date: null,
+  },
+];
+const uniqueRefundScopeLabels = buildGlobalUniqueRefundScopeLabelMap({ machines, aliases });
 
 const matchRow = (row) => {
   const input = extractRefundInput(row, 'fixture-row');
@@ -317,6 +349,114 @@ for (const privateValue of [
   assert.equal(sanitizedPayloadText.includes(privateValue), false);
 }
 
+const scopeArgs = {
+  partnershipId,
+  dateFrom: '2026-04-01',
+  dateTo: '2026-04-30',
+  assignments,
+  uniqueLabelMap: uniqueRefundScopeLabels,
+};
+const matchedMachineReviewWarns = refundReviewRowAppliesToPartnerScope({
+  ...scopeArgs,
+  row: {
+    refund_date: '2026-04-12',
+    resolution_status: 'unresolved',
+    match_status: 'matched',
+    matched_machine_id: machines[0].id,
+    source_location: 'North Lobby',
+  },
+});
+assert.equal(matchedMachineReviewWarns, true);
+
+const singleCandidateReviewWarns = refundReviewRowAppliesToPartnerScope({
+  ...scopeArgs,
+  row: {
+    refund_date: '2026-04-12',
+    resolution_status: 'unresolved',
+    match_status: 'ambiguous',
+    candidate_machine_ids: [machines[1].id],
+    source_location: 'Manual desk correction',
+  },
+});
+assert.equal(singleCandidateReviewWarns, true);
+
+const exactUniqueAliasReviewWarns = refundReviewRowAppliesToPartnerScope({
+  ...scopeArgs,
+  row: {
+    refund_date: '2026-04-12',
+    resolution_status: 'unresolved',
+    match_status: 'unmatched',
+    source_location: 'North entrance kiosk',
+  },
+});
+assert.equal(exactUniqueAliasReviewWarns, true);
+
+const otherPartnerMachineDoesNotWarn = refundReviewRowAppliesToPartnerScope({
+  ...scopeArgs,
+  row: {
+    refund_date: '2026-04-12',
+    resolution_status: 'unresolved',
+    match_status: 'needs_review',
+    matched_machine_id: machines[3].id,
+    source_location: 'Warehouse',
+  },
+});
+assert.equal(otherPartnerMachineDoesNotWarn, false);
+
+const outOfScopePhoneCaseDoesNotWarn = refundReviewRowAppliesToPartnerScope({
+  ...scopeArgs,
+  row: {
+    refund_date: '2026-04-12',
+    resolution_status: 'unresolved',
+    match_status: 'unmatched',
+    source_location: 'Phone Case Kiosk',
+  },
+});
+assert.equal(outOfScopePhoneCaseDoesNotWarn, false);
+
+const ambiguousLabelDoesNotWarn = refundReviewRowAppliesToPartnerScope({
+  ...scopeArgs,
+  row: {
+    refund_date: '2026-04-12',
+    resolution_status: 'unresolved',
+    match_status: 'unmatched',
+    source_location: 'Desk',
+  },
+});
+assert.equal(ambiguousLabelDoesNotWarn, false);
+
+assert.equal(
+  countPartnerScopedRefundReviewRows({
+    rows: [
+      {
+        refund_date: '2026-04-12',
+        resolution_status: 'unresolved',
+        match_status: 'needs_review',
+        matched_machine_id: machines[0].id,
+      },
+      {
+        refund_date: '2026-04-12',
+        resolution_status: 'unresolved',
+        match_status: 'unmatched',
+        source_location: 'Phone Case Kiosk',
+      },
+      {
+        refund_date: '2026-04-12',
+        resolution_status: 'approved',
+        match_status: 'applied',
+        matched_machine_id: machines[0].id,
+      },
+    ],
+    partnershipId,
+    dateFrom: '2026-04-01',
+    dateTo: '2026-04-30',
+    assignments,
+    machines,
+    aliases,
+  }),
+  1
+);
+
 const withoutRefund = calculatePartnerSettlementTotals({
   grossSalesCents: 10000,
   taxCents: 800,
@@ -369,6 +509,12 @@ console.log(
       sameContentDifferentRequestNotDuplicate: true,
       liveSheetValuesParsed: true,
       sanitizedPayloadExcludesPrivateFields: true,
+      partnerScopedMatchedMachineReview: matchedMachineReviewWarns,
+      partnerScopedSingleCandidateReview: singleCandidateReviewWarns,
+      partnerScopedExactAliasReview: exactUniqueAliasReviewWarns,
+      partnerScopedOtherPartnerSuppressed: !otherPartnerMachineDoesNotWarn,
+      partnerScopedOutOfScopeSuppressed: !outOfScopePhoneCaseDoesNotWarn,
+      partnerScopedAmbiguousLabelSuppressed: !ambiguousLabelDoesNotWarn,
       refundReducesPartnerSettlement: true,
     },
   })
