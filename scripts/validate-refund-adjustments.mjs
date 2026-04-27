@@ -17,28 +17,28 @@ const machines = [
     location_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     machine_label: 'Lobby North',
     location_name: 'North Lobby',
-    sunze_machine_id: 'MACH-NORTH',
+    external_machine_id: 'MACH-NORTH',
   },
   {
     id: '22222222-2222-4222-8222-222222222222',
     location_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     machine_label: 'Main Desk',
     location_name: 'Main Desk',
-    sunze_machine_id: 'MACH-DESK',
+    external_machine_id: 'MACH-DESK',
   },
   {
     id: '33333333-3333-4333-8333-333333333333',
     location_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     machine_label: 'Main Desk Annex',
     location_name: 'Annex Desk',
-    sunze_machine_id: 'MACH-ANNEX',
+    external_machine_id: 'MACH-ANNEX',
   },
   {
     id: '44444444-4444-4444-8444-444444444444',
     location_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
     machine_label: 'Warehouse',
     location_name: 'Warehouse',
-    sunze_machine_id: 'MACH-WH',
+    external_machine_id: 'MACH-WH',
   },
 ];
 

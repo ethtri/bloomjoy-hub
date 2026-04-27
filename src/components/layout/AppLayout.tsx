@@ -63,7 +63,7 @@ const adminDestinations = [
   {
     href: '/admin/machines',
     label: 'Machines',
-    description: 'Machine aliases, Sunze mapping, assignment readiness, and tax rates.',
+    description: 'Machine aliases, external machine IDs, assignment readiness, and tax rates.',
   },
   {
     href: '/admin/partnerships',

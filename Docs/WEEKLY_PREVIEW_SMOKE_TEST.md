@@ -5,7 +5,7 @@ Use this smoke path to verify the admin partner Weekly Preview before relying on
 
 This is an authenticated super-admin QA path for `/admin/partnerships?partnershipId=<id>&step=preview`. It covers the happy path for week ending `2026-04-19` and the three common blank-preview warning states: no assignment coverage, no active payout rule, and no imported facts.
 
-Do not commit production credentials, raw Sunze workbooks, service-role keys, or private partner/customer exports. If a fixture ID or test account is sensitive, share it in the UAT packet instead of committing it.
+Do not commit production credentials, raw provider workbooks, service-role keys, or private partner/customer exports. If a fixture ID or test account is sensitive, share it in the UAT packet instead of committing it.
 
 ## Fixture Requirements
 The happy-path fixture should be a test or launch partnership with:
@@ -14,9 +14,9 @@ The happy-path fixture should be a test or launch partnership with:
 - Active machine assignments covering the full week `2026-04-13` through `2026-04-19`.
 - An active payout rule covering the same full week.
 - At least one assigned machine with imported sales facts between `2026-04-13` and `2026-04-19`.
-- Bubble Planet-style assumptions when validating launch math: Sunze order amount as gross, configured machine tax, `$0.40` per-stick fee before split, and the configured partner/Bloomjoy split.
+- Bubble Planet-style assumptions when validating launch math: sales-source order amount as gross, configured machine tax, `$0.40` per-stick fee before split, and the configured partner/Bloomjoy split.
 
-If the happy-path fixture returns no rows, treat the smoke as blocked. Fix the setup dates, payout-rule coverage, machine mapping, or Sunze backfill first; do not pass the smoke by changing the expected date.
+If the happy-path fixture returns no rows, treat the smoke as blocked. Fix the setup dates, payout-rule coverage, machine mapping, or provider import backfill first; do not pass the smoke by changing the expected date.
 
 ## Optional Fixture Qualification Query
 Run this only in an approved local, preview, or production admin SQL context. It is for finding a qualifying fixture; it is not a migration.
@@ -130,4 +130,4 @@ Record:
 - Week ending date.
 - Happy-path result: order count, gross sales, and machine-row count.
 - Warning states verified and where they were verified.
-- Any blockers, such as missing Sunze backfill, missing mapping, setup dates, or missing payout-rule coverage.
+- Any blockers, such as missing provider import backfill, missing mapping, setup dates, or missing payout-rule coverage.

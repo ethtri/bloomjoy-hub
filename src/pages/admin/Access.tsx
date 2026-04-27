@@ -870,7 +870,7 @@ function ReportingAccessTab() {
                       id="machine-search"
                       value={machineSearch}
                       onChange={(event) => setMachineSearch(event.target.value)}
-                      placeholder="Filter by label, Sunze ID, or account"
+                      placeholder="Filter by label, external machine ID, or account"
                     />
                   </div>
 
@@ -895,7 +895,7 @@ function ReportingAccessTab() {
                               <div className="min-w-0 flex-1">
                                 <div className="font-medium text-foreground">{machine.machineLabel}</div>
                                 <div className="mt-1 text-xs text-muted-foreground">
-                                  Sunze: {machine.sunzeMachineId ?? 'n/a'} / Viewers: {machine.viewerCount}
+                                  External machine ID: {machine.sunzeMachineId ?? 'n/a'} / Viewers: {machine.viewerCount}
                                 </div>
                               </div>
                             </label>

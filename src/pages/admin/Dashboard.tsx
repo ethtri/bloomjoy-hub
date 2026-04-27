@@ -30,7 +30,7 @@ const adminModules = [
   },
   {
     title: 'Machines',
-    description: 'Manage machine aliases, Sunze mapping, tax status, and assignment readiness.',
+    description: 'Manage machine aliases, external machine IDs, tax status, and assignment readiness.',
     icon: MonitorCog,
     href: '/admin/machines',
   },

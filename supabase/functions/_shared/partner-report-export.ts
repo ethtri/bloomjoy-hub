@@ -54,8 +54,16 @@ export type PartnerReportExportContext = {
 
 const encoder = new TextEncoder();
 
-const toAscii = (value: unknown): string =>
+const neutralizeProviderCopy = (value: unknown): string =>
   String(value ?? "")
+    .replace(/sunze-sales-ingest/gi, "sales import endpoint")
+    .replace(/sunze-sales-sync/gi, "sales import workflow")
+    .replace(/sunze-orders/gi, "provider import")
+    .replace(/sunze_browser/gi, "sales import")
+    .replace(/\bSunze\b/gi, "sales source");
+
+const toAscii = (value: unknown): string =>
+  neutralizeProviderCopy(value)
     .normalize("NFKD")
     .replace(/\s+/g, " ")
     .replace(/[^\x20-\x7e]/g, "")
@@ -152,7 +160,7 @@ const formatGeneratedAt = (value: unknown): string => {
 };
 
 const csvCell = (value: unknown): string => {
-  const text = String(value ?? "");
+  const text = neutralizeProviderCopy(value);
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
 
