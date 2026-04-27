@@ -46,7 +46,7 @@
 - Official agreement setup now needs legal/display partner naming, weekly-plus-monthly cadence tracking, invoice/payment terms, ownership model, and consumer-pricing authority so partner reports can match signed partnership agreements without turning the app into a full contract-management system.
 - Production migration rollout on `2026-04-26` confirmed a current Supabase physical backup, repaired stale `202604260005` and `2026042600051` history entries, and applied migrations through `202604260018`.
 - Final migration hygiene moved the non-canonical `2026042600051` partnership-party remove RPC migration to `202604260018` so future `supabase db push --dry-run` checks reconcile local and remote order cleanly. Post-rollout QA found remaining official partnership reporting gaps tracked in issue `#230`.
-- Partner report exports are being expanded from weekly-only artifacts to period-aware weekly/monthly artifacts with explicit snapshot period metadata.
+- Partner report exports now support period-aware weekly and monthly PDF/CSV artifacts with explicit snapshot period metadata. Production rollout still needs migration `202604260019_partner_report_period_exports.sql`, the updated `partner-report-export` Edge Function deployment, and admin-session UAT for the current partner agreements.
 - Payout percentages live in one current Payout Rule as stable participant-named allocation rows plus Bloomjoy, with whole-percent inputs, a 100% allocation check, and weekly-preview labels that match the configured payout recipients while still mapping to the existing backend split fields for compatibility.
 - Weekly Preview now surfaces actionable readiness issues for the selected week, including missing active machine assignment coverage, missing active payout rules, and no imported sales for the selected week, and keeps RPC errors visible in-page instead of relying only on toast feedback.
 - The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` per-stick/item fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.
@@ -62,7 +62,7 @@
 - Sunze hardening PR `#161` now uses an admin mapping queue: mapped machine rows keep importing, unmapped Sunze rows are quarantined without raw order numbers, and `/admin/reporting` lets admins map, ignore, or reopen discovered Sunze machine IDs. Fresh dry-run and live runs passed on `2026-04-25`; migration `202604260006_sunze_order_hash_index_repair.sql` protects environments affected by the brief `202604260002` migration timestamp collision. The next launch proof is the first scheduled daily run after merge.
 - Follow-up `#174` should simplify machine mapping into a focused admin flow from `/admin/reporting`: admins should only need to confirm the canonical machine name, Sunze ID, machine type, and user access, with site/location grouping optional and able to contain multiple machines.
 - `Docs/SUNZE_SALES_DISCOVERY.md` records the validated Sunze routes, export headers, payment/status mappings, and remaining open questions without storing credentials or raw order data.
-- Google Sheets complaints/refunds ingestion is represented as a server-side adjustment sync stub plus a CSV import helper. Production Sheets API ingestion still depends on confirming the sheet columns and service-account setup.
+- Google Sheets complaints/refunds ingestion is represented as a server-side adjustment sync stub plus a CSV import helper. Production Sheets API ingestion still depends on confirming the sheet columns and service-account setup, and issue `#236` tracks the P0 reporting requirement to subtract matched refund adjustments from partner net sales before settlement math is considered trusted.
 - Account/entitlement follow-up is tracked in issue `#150`; stale PR `#143` was closed instead of carrying forward older partner/operator schema work.
 
 ## Partner reporting PM roadmap (2026-04-25)
@@ -132,11 +132,11 @@
   - a live `$0` Stripe checkout smoke order after the webhook email redesign deployment
 
 ## Next P0 milestones
-- Complete the corporate partner reporting review/download milestone before building operator performance dashboards:
-  - merge the Sunze controls and partnership UX PRs in the recommended order
-  - add partner-report snapshots/runs for auditability
-  - generate a polished weekly partner PDF from configured partnership rules
-  - validate the flow with the Bubble Planet-style Monday-Sunday revenue-share fixture
+- Complete the corporate partner reporting rollout before building operator performance dashboards:
+  - apply migration `202604260019_partner_report_period_exports.sql` and deploy the updated `partner-report-export` function
+  - run admin-session UAT for weekly and monthly PDF/CSV exports on the current partner agreements
+  - resolve issue `#236` so Google Sheets complaint/refund adjustments flow into net sales, split base, amount owed, and report snapshots
+  - keep issues `#169` and `#230` open until production UAT evidence confirms trusted exports and settlement math
 - Clear the remaining WeCom production blocker:
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
   - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully
