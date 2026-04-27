@@ -1,15 +1,16 @@
 # Technician Entitlements Spec
 
 ## Status
-This is a docs-only implementation spec for GitHub issue `#183`: Define machine-scoped technician reporting entitlements.
+This document is the detailed Technician implementation reference that came out of GitHub issue `#183`: Define machine-scoped technician reporting entitlements. Issue `#183` is closed, and the repo-side Technician model has landed.
 
 Source and coordination notes:
 - `Docs/ENTITLEMENTS_PERSONA_ROADMAP.md` is the source of truth for the broader Super Admin, Scoped Admin, Plus Account Owner, Technician, and Partner Viewer persona boundaries.
 - This document is the detailed companion spec for the Technician portion of that roadmap.
-- PR `#182` is actively changing `/portal/reports`, partner dashboard UI, `src/lib/partnerDashboardReporting.ts`, and reporting preview migrations. This spec does not edit or require changes in those files.
+- Repo-side implementation lives in `technician_grants`, `technician_machine_assignments`, Technician-sourced `reporting_machine_entitlements`, the Technician RPC migrations, `src/lib/technicianEntitlements.ts`, `AuthContext`, and `TechnicianManagementPanel`.
+- Production caveat: issue `#214` remains open to verify/restore `resolve_my_technician_entitlements` in production. Do not treat production Technician invite resolution as fully verified until `#214` is resolved.
 
 ## Scope
-Define how a future Technician persona should combine existing training-only operator access with machine-scoped reporting access.
+Document how the Technician persona combines existing training-only operator access with machine-scoped reporting access.
 
 This spec does not implement partner viewer UI, partner dashboard permissions, PDF export behavior, billing behavior, dependency upgrades, or any route/code changes.
 
@@ -41,24 +42,24 @@ A Technician is not a Plus Account Owner, Partner Viewer, report manager, billin
 ### Training Relationship
 Current training-only operator grants remain valid and should continue to mean training-only access.
 
-Future Technician access should build on the training grant model rather than rename all existing operators into technicians automatically. The practical rule is:
+Technician access builds on the training grant model rather than renaming all existing operators into technicians automatically. The practical rule is:
 
 - An active `operator_training_grants` row grants training access only.
 - A Technician grant adds one or more assigned reporting machines to that training relationship.
 - Existing training-only operators with no machine assignments stay training-only.
-- If a Plus Account Owner assigns machines to an email that already has an active training grant from that owner/account, the later RPC should reuse/update that relationship instead of creating a duplicate seat.
-- If a Plus Account Owner assigns machines to a new email, the later RPC should create or update the training grant and then create machine assignments.
+- If a Plus Account Owner assigns machines to an email that already has an active training grant from that owner/account, the Technician RPCs reuse/update that relationship instead of creating a duplicate seat.
+- If a Plus Account Owner assigns machines to a new email, the Technician RPCs create or update the training grant and then create machine assignments.
 
 ### Reporting Relationship
-Technician reporting should compose with the existing reporting entitlement model, but only at machine scope.
+Technician reporting composes with the existing reporting entitlement model, but only at machine scope.
 
 Rules:
 
-- Technician reporting access should use `reporting_machine_entitlements` with `machine_id` populated.
-- Technician grants should not create account-level or location-level reporting entitlements.
-- Technician machine assignments should use `access_level = 'viewer'` by default.
-- `report_manager` should stay reserved for super-admin-managed reporting users unless a later decision explicitly delegates management authority.
-- Derived reporting entitlements should carry enough source metadata in a future schema slice to identify their Technician grant source, such as `source_type = 'technician_grant'` and `source_id = technician_grant_id`.
+- Technician reporting access uses `reporting_machine_entitlements` with `machine_id` populated.
+- Technician grants do not create account-level or location-level reporting entitlements.
+- Technician machine assignments use `access_level = 'viewer'` by default.
+- `report_manager` stays reserved for super-admin-managed reporting users unless a later decision explicitly delegates management authority.
+- Derived reporting entitlements carry Technician source metadata with `source_type = 'technician_grant'` and `source_id = technician_grant_id`.
 - Revoking a Technician grant or removing a Technician machine assignment must revoke or suspend the derived reporting entitlement for that machine.
 - A manually granted super-admin reporting entitlement should remain independent. The Technician revoke flow should not remove unrelated manual reporting access from the same user.
 
@@ -66,7 +67,7 @@ Effective Technician report visibility should be the active assigned-machine set
 
 ## Who Can Grant Or Revoke
 
-V1 grant authority:
+Implemented V1 grant authority:
 
 - Plus Account Owner: can grant, update, and revoke Technician access for their own Plus account.
 - Super Admin: can grant, update, and revoke Technician access for any account with a required audit reason.
@@ -80,7 +81,7 @@ Not V1 grant authority:
 - Reporting `report_manager`, unless a later decision explicitly expands this role.
 - Account admin or delegated team manager, unless a later decision adds delegated customer team management.
 
-The customer-facing flow should live in `/portal/account` or a future `/portal/team`, not in `/admin`. Internal override and audit review can stay in `/admin/access`.
+The current customer-facing flow lives in `/portal/account`, not in `/admin`. Future broader team management may move to `/portal/team`. Internal override and audit review can stay in `/admin/access`.
 
 ## Plus Account Owner Limits
 
@@ -169,28 +170,31 @@ Minimum audit fields:
 
 Use `admin_audit_log` if it remains the canonical audit table. If a customer-facing audit table is added later, it should still be queryable by super-admins and tied back to the same source grant IDs.
 
-## Proposed Implementation Slices
+## Implemented Repo Slices
+
+These slices have landed repo-side and remain listed here as implementation reference. Production verification for invite resolution is still tracked by issue `#214`.
 
 ### 1. Data Model And RLS
-Add a forward-only migration that introduces Technician source records and machine assignments without changing partner reporting behavior.
+Forward-only migrations introduced Technician source records and machine assignments without changing partner reporting behavior.
 
-Recommended shape:
+Implemented shape:
 
 - `technician_grants`: account, owner/sponsor, technician email/user, status, invite metadata, starts/expires, grant/revoke fields, audit reason.
 - `technician_machine_assignments`: technician grant ID, machine ID, active/revoked state, grant/revoke fields.
-- Optional source columns on `reporting_machine_entitlements`, such as `source_type` and `source_id`, so derived entitlements can be safely revoked without touching manual grants.
+- Source columns on `reporting_machine_entitlements`, including `source_type` and `source_id`, so derived entitlements can be safely revoked without touching manual grants.
 - RLS/helper functions that validate the owner controls the account and machine before allowing grants.
 - Helper that counts active unique Technician grants per Plus account and enforces the default cap of 10.
 
 Do not add account/location broad reporting inheritance for Technician in this slice.
 
 ### 2. Grant And Revoke RPCs
-Add customer-safe RPCs for the owner flow:
+Customer-safe RPCs exist for the owner flow:
 
 - `grant_technician_access(email, machine_ids, reason)`.
 - `update_technician_machines(grant_id, machine_ids, reason)`.
 - `revoke_technician_access(grant_id, reason)`.
 - `get_my_technician_grants()`.
+- `resolve_my_technician_entitlements(reason)`.
 
 RPC requirements:
 
@@ -202,14 +206,12 @@ RPC requirements:
 - Reuse or create the underlying operator training grant.
 - Create, update, or revoke derived machine-level reporting entitlements.
 - Write audit rows.
-- Send or queue invite email without blocking the database transaction on email delivery failure.
-
-Add super-admin override RPCs only if the internal UI needs them in the same slice. Otherwise keep internal override as a later PR.
+- Resolve pending Technician invites on sign-in and upsert derived machine-level reporting entitlements.
 
 ### 3. Customer UX
-Add the customer flow under `/portal/account` or a future `/portal/team`.
+The customer flow is under `/portal/account`.
 
-V1 UX should show:
+V1 UX shows:
 
 - Technician list with email, invite/status, assigned machine count, and last updated timestamp.
 - Seat usage: `used / 10`.
@@ -222,16 +224,16 @@ V1 UX should show:
 Do not add partner dashboard UI, partner viewer UI, PDF/report export behavior, or `/admin` customer team management.
 
 ### 4. Portal Reporting Integration
-Keep `/portal/reports` behavior machine-scoped.
+`/portal/reports` behavior remains machine-scoped.
 
-The reporting route should continue to rely on effective machine access, but future Technician implementation should ensure effective access excludes unassigned machines and suspended source grants. If source-aware entitlement filtering requires a helper change, make that change in a narrow PR with targeted tests.
+The reporting route relies on effective machine access. Technician-sourced access must exclude unassigned machines and suspended/revoked source grants.
 
 Do not edit partner dashboard behavior for this Technician slice.
 
 ### 5. QA And Smoke Tests
-Add smoke checklist items when implementation begins, not in this docs-only PR.
+Smoke checklist items now exist in `Docs/QA_SMOKE_TEST_CHECKLIST.md`.
 
-Future checks:
+Checks:
 
 - Plus Account Owner can add a Technician with one assigned machine.
 - Technician can open `/portal/training*`.
@@ -253,7 +255,7 @@ Backfill should be conservative:
 - Existing manual `reporting_machine_entitlements` remain manual reporting grants.
 - Do not reinterpret existing account/location reporting entitlements as Technician assignments.
 
-## Acceptance Criteria For Later Implementation
+## Acceptance Criteria For Implemented Repo-Side Model
 
 - Current training-only access continues to work unchanged.
 - A Technician with assigned machines has training plus reporting only for those machines.

@@ -6,6 +6,12 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Entitlement roadmap alignment (2026-04-27)
+- P0 issue `#266` tracks the docs/source-of-truth gap where the entitlement persona roadmap still described Technician as a future gap after repo-side Technician entitlement work had landed.
+- `Docs/ENTITLEMENTS_PERSONA_ROADMAP.md` now separates implemented roles from schema/planning vocabulary and planned/not-live roles. Implemented repo-side roles now include Super Admin, baseline signed-in user, Plus access, training-only operator, Plus Account Owner for Technician management, Technician, and machine reporting entitlement levels.
+- Scoped Admin, customer-facing Partner Viewer, and the full custom entitlement-builder UI remain planned/not-live; this docs alignment does not implement them.
+- Caveat: repo-side Technician is implemented, but production issue `#214` remains open to verify/restore `resolve_my_technician_entitlements` before production Technician invite resolution is treated as fully verified.
+
 ## Production admin asset loading guard (2026-04-27)
 - P0 issue `#246` was traced to stale lazy-loaded chunk URLs under `/assets/*` being served through the SPA fallback as `200 text/html` after the referenced hashed files were no longer present in the active Vercel deployment.
 - Current production `/admin/access` HTML references fresh chunk hashes, and those current chunks return `application/javascript`; the repo hardening adds a Vercel guard so missing `/assets/*` files return `404` instead of `index.html`.
