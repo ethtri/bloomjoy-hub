@@ -409,6 +409,26 @@ const hasStaticPrerenderRewriteRules = (routes) => {
   );
 };
 
+const hasMissingAssetFallbackGuard = (routes) => {
+  const filesystemIndex = routes.findIndex((route) => route?.handle === "filesystem");
+  const assetGuardIndex = routes.findIndex(
+    (route) =>
+      route?.src === "/assets/(.*)" &&
+      route?.status === 404 &&
+      route?.headers?.["Cache-Control"] === "no-store" &&
+      route?.headers?.["Content-Type"] === "text/plain; charset=utf-8"
+  );
+  const spaFallbackIndex = routes.findIndex(
+    (route) => route?.src === "/(.*)" && route?.dest === "/index.html"
+  );
+
+  return (
+    filesystemIndex >= 0 &&
+    assetGuardIndex > filesystemIndex &&
+    spaFallbackIndex > assetGuardIndex
+  );
+};
+
 const validateVercelConfig = async () => {
   const raw = await readFile(VERCEL_CONFIG_PATH, "utf8");
   const parsed = JSON.parse(raw);
@@ -432,6 +452,12 @@ const validateVercelConfig = async () => {
 
   if (!hasStaticPrerenderRewriteRules(routes)) {
     throw new Error("vercel.json is missing static prerender rewrite rules before SPA fallback");
+  }
+
+  if (!hasMissingAssetFallbackGuard(routes)) {
+    throw new Error(
+      "vercel.json must return a 404 for missing /assets/* files before the SPA fallback"
+    );
   }
 };
 
