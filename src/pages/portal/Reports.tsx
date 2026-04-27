@@ -82,6 +82,14 @@ import { cn } from '@/lib/utils';
 type ReportingView = 'operator' | 'partner';
 type OperatorPeriodPreset = 'this_week' | 'last_week' | 'last_30_days' | 'month_to_date' | 'custom';
 type PartnerPeriodMode = 'weekly' | 'monthly';
+type PartnerPeriodOption = {
+  key: string;
+  mode: PartnerPeriodMode;
+  label: string;
+  dateFrom: string;
+  dateTo: string;
+  periodGrain: PartnerDashboardPeriodGrain;
+};
 type PartnerMachineComparisonRow = {
   current: PartnerDashboardMachinePeriod;
   previous?: PartnerDashboardMachinePeriod;
@@ -185,40 +193,108 @@ const getOperatorPresetRange = (preset: OperatorPeriodPreset) => {
   };
 };
 
-const getLastCompletedWeekEnd = (weekEndDay: number) => {
+const getTodayForTimezone = (timezone: string | undefined) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  if (!timezone) return today;
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = Number(parts.find((part) => part.type === 'year')?.value);
+    const month = Number(parts.find((part) => part.type === 'month')?.value);
+    const day = Number(parts.find((part) => part.type === 'day')?.value);
+
+    if (!year || !month || !day) return today;
+    return new Date(year, month - 1, day);
+  } catch {
+    return today;
+  }
+};
+
+const getLastCompletedWeekEnd = (weekEndDay: number, timezone?: string) => {
+  const today = getTodayForTimezone(timezone);
   let daysSinceWeekEnd = (today.getDay() - weekEndDay + 7) % 7;
   if (daysSinceWeekEnd === 0) daysSinceWeekEnd = 7;
   return addDays(today, -daysSinceWeekEnd);
 };
 
-const getPartnerDateRange = (
+const getPartnerPeriodKey = (
+  periodGrain: PartnerDashboardPeriodGrain,
+  dateFrom: string,
+  dateTo: string
+) => `${periodGrain}:${dateFrom}:${dateTo}`;
+
+const getPartnerPeriodOptions = (
   partnership: PartnerDashboardPartnershipOption | undefined,
   mode: PartnerPeriodMode
-) => {
-  if (!partnership) return null;
+): PartnerPeriodOption[] => {
+  if (!partnership) return [];
 
   if (mode === 'weekly') {
-    const lastWeekEnd = getLastCompletedWeekEnd(partnership.reportingWeekEndDay);
-    const firstWeekStart = addDays(lastWeekEnd, -(7 * 7 + 6));
-    return {
-      dateFrom: toDateInput(firstWeekStart),
-      dateTo: toDateInput(lastWeekEnd),
-      periodGrain: 'reporting_week' as PartnerDashboardPeriodGrain,
-      label: `Last 8 completed weeks ending ${dayNames[partnership.reportingWeekEndDay]}`,
-    };
+    const lastWeekEnd = getLastCompletedWeekEnd(
+      partnership.reportingWeekEndDay,
+      partnership.timezone
+    );
+
+    return Array.from({ length: 8 }, (_, index) => {
+      const weekEnd = addDays(lastWeekEnd, index * -7);
+      const weekStart = addDays(weekEnd, -6);
+      const dateFrom = toDateInput(weekStart);
+      const dateTo = toDateInput(weekEnd);
+      const periodGrain = 'reporting_week' as PartnerDashboardPeriodGrain;
+
+      return {
+        key: getPartnerPeriodKey(periodGrain, dateFrom, dateTo),
+        mode,
+        label: formatPartnerPeriod({ periodStart: dateFrom, periodEnd: dateTo }, mode),
+        dateFrom,
+        dateTo,
+        periodGrain,
+      };
+    });
   }
 
-  const currentMonthStart = startOfMonth(new Date());
+  const currentMonthStart = startOfMonth(getTodayForTimezone(partnership.timezone));
   const lastCompletedMonthEnd = addDays(currentMonthStart, -1);
-  const firstMonthStart = startOfMonth(addMonths(lastCompletedMonthEnd, -5));
+  const lastCompletedMonthStart = startOfMonth(lastCompletedMonthEnd);
+
+  return Array.from({ length: 6 }, (_, index) => {
+    const monthStart = addMonths(lastCompletedMonthStart, index * -1);
+    const monthEnd = endOfMonth(monthStart);
+    const dateFrom = toDateInput(monthStart);
+    const dateTo = toDateInput(monthEnd);
+    const periodGrain = 'calendar_month' as PartnerDashboardPeriodGrain;
+
+    return {
+      key: getPartnerPeriodKey(periodGrain, dateFrom, dateTo),
+      mode,
+      label: formatPartnerPeriod({ periodStart: dateFrom, periodEnd: dateTo }, mode),
+      dateFrom,
+      dateTo,
+      periodGrain,
+    };
+  });
+};
+
+const getPartnerTrendRange = (period: PartnerPeriodOption | undefined) => {
+  if (!period) return null;
+
+  const selectedStart = parseDateInput(period.dateFrom);
+  const trendStart =
+    period.mode === 'monthly'
+      ? startOfMonth(addMonths(selectedStart, -5))
+      : addDays(selectedStart, -49);
 
   return {
-    dateFrom: toDateInput(firstMonthStart),
-    dateTo: toDateInput(endOfMonth(lastCompletedMonthEnd)),
-    periodGrain: 'calendar_month' as PartnerDashboardPeriodGrain,
-    label: 'Last 6 completed months',
+    dateFrom: toDateInput(trendStart),
+    dateTo: period.dateTo,
+    periodGrain: period.periodGrain,
   };
 };
 
@@ -250,6 +326,9 @@ const formatPartnerPeriod = (
   periodMode === 'weekly'
     ? formatDateRange(period.periodStart, period.periodEnd)
     : formatMonth(period.periodStart);
+
+const getPartnerPeriodNoun = (periodMode: PartnerPeriodMode) =>
+  periodMode === 'weekly' ? 'week' : 'month';
 
 const formatDateTime = (value: string | null | undefined) =>
   value
@@ -386,6 +465,7 @@ export default function ReportsPage() {
             actions={
               isSuperAdmin ? (
                 <ToggleGroup
+                  aria-label="Reporting view"
                   type="single"
                   value={activeView}
                   onValueChange={(value) => {
@@ -822,6 +902,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
 function PartnerDashboardView() {
   const queryClient = useQueryClient();
   const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
+  const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
   const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
   const [exportingPartnerFormat, setExportingPartnerFormat] =
     useState<PartnerDashboardExportFormat | null>(null);
@@ -846,63 +927,176 @@ function PartnerDashboardView() {
     (partnership) => partnership.id === selectedPartnershipId
   );
 
-  const partnerRange = useMemo(
-    () => getPartnerDateRange(selectedPartnership, periodMode),
+  const periodOptions = useMemo(
+    () => getPartnerPeriodOptions(selectedPartnership, periodMode),
     [periodMode, selectedPartnership]
   );
+
+  useEffect(() => {
+    if (periodOptions.length === 0) {
+      if (selectedPeriodKey) setSelectedPeriodKey('');
+      return;
+    }
+
+    if (!periodOptions.some((period) => period.key === selectedPeriodKey)) {
+      setSelectedPeriodKey(periodOptions[0].key);
+    }
+  }, [periodOptions, selectedPeriodKey]);
+
+  const selectedPeriod =
+    periodOptions.find((period) => period.key === selectedPeriodKey) ?? periodOptions[0];
+
+  const trendRange = useMemo(() => getPartnerTrendRange(selectedPeriod), [selectedPeriod]);
 
   const {
     data: preview,
     isLoading: previewLoading,
-    isFetching: previewFetching,
+    isFetching: selectedPreviewFetching,
     error: previewError,
   } = useQuery({
     queryKey: [
       'partner-dashboard-period-preview',
+      'selected',
       selectedPartnershipId,
-      partnerRange?.periodGrain,
-      partnerRange?.dateFrom,
-      partnerRange?.dateTo,
+      selectedPeriod?.periodGrain,
+      selectedPeriod?.dateFrom,
+      selectedPeriod?.dateTo,
     ],
-    queryFn: () =>
-      fetchPartnerDashboardPeriodPreview({
+    queryFn: () => {
+      if (!selectedPeriod) {
+        throw new Error('Select a completed reporting period.');
+      }
+
+      return fetchPartnerDashboardPeriodPreview({
         partnershipId: selectedPartnershipId,
-        dateFrom: partnerRange?.dateFrom ?? '',
-        dateTo: partnerRange?.dateTo ?? '',
-        periodGrain: partnerRange?.periodGrain ?? 'reporting_week',
-      }),
-    enabled: Boolean(selectedPartnershipId && partnerRange),
+        dateFrom: selectedPeriod.dateFrom,
+        dateTo: selectedPeriod.dateTo,
+        periodGrain: selectedPeriod.periodGrain,
+      });
+    },
+    enabled: Boolean(selectedPartnershipId && selectedPeriod),
     staleTime: 1000 * 30,
   });
 
-  const sortedPeriods = useMemo(
-    () => [...(preview?.periods ?? [])].sort((left, right) => left.periodStart.localeCompare(right.periodStart)),
-    [preview?.periods]
+  const {
+    data: trendPreview,
+    isFetching: trendPreviewFetching,
+    error: trendPreviewError,
+  } = useQuery({
+    queryKey: [
+      'partner-dashboard-period-preview',
+      'trend',
+      selectedPartnershipId,
+      trendRange?.periodGrain,
+      trendRange?.dateFrom,
+      trendRange?.dateTo,
+    ],
+    queryFn: () => {
+      if (!trendRange) {
+        throw new Error('Select a completed reporting period.');
+      }
+
+      return fetchPartnerDashboardPeriodPreview({
+        partnershipId: selectedPartnershipId,
+        dateFrom: trendRange.dateFrom,
+        dateTo: trendRange.dateTo,
+        periodGrain: trendRange.periodGrain,
+      });
+    },
+    enabled: Boolean(selectedPartnershipId && trendRange),
+    staleTime: 1000 * 30,
+  });
+
+  const selectedPreviewPeriod = useMemo(
+    () =>
+      preview?.periods.find(
+        (period) =>
+          period.periodStart === selectedPeriod?.dateFrom &&
+          period.periodEnd === selectedPeriod?.dateTo
+      ) ?? preview?.periods[0],
+    [preview?.periods, selectedPeriod?.dateFrom, selectedPeriod?.dateTo]
   );
-  const currentPeriod = sortedPeriods[sortedPeriods.length - 1];
-  const previousPeriod = sortedPeriods[sortedPeriods.length - 2];
+
+  const trendPeriods = useMemo(
+    () =>
+      [...(trendPreview?.periods ?? [])].sort((left, right) =>
+        left.periodStart.localeCompare(right.periodStart)
+      ),
+    [trendPreview?.periods]
+  );
+  const currentPeriod = selectedPreviewPeriod;
+  const previousPeriod = useMemo(() => {
+    if (!selectedPeriod) return undefined;
+    const priorPeriods = trendPeriods.filter(
+      (period) => period.periodEnd < selectedPeriod.dateTo
+    );
+    return priorPeriods[priorPeriods.length - 1];
+  }, [selectedPeriod, trendPeriods]);
+  const displayPeriods = useMemo(
+    () => {
+      if (!currentPeriod) return trendPeriods;
+      if (trendPeriods.length === 0) return [currentPeriod];
+
+      let includesSelectedPeriod = false;
+      const periods = trendPeriods.map((period) => {
+        const isSelectedPeriod =
+          period.periodStart === currentPeriod.periodStart &&
+          period.periodEnd === currentPeriod.periodEnd;
+        if (isSelectedPeriod) {
+          includesSelectedPeriod = true;
+          return currentPeriod;
+        }
+        return period;
+      });
+
+      if (includesSelectedPeriod) return periods;
+
+      return [...periods, currentPeriod].sort((left, right) =>
+        left.periodStart.localeCompare(right.periodStart)
+      );
+    },
+    [currentPeriod, trendPeriods]
+  );
 
   const machineRows = useMemo(
-    () => buildPartnerMachineRows(preview, currentPeriod, previousPeriod),
-    [currentPeriod, preview, previousPeriod]
+    () => buildPartnerMachineRows(preview, currentPeriod, previousPeriod, trendPreview),
+    [currentPeriod, preview, previousPeriod, trendPreview]
   );
   const showPayoutBasisColumn = shouldShowPayoutBasisColumn(machineRows);
 
   const netSalesTrendData = useMemo(
     () =>
-      sortedPeriods.map((period) => ({
+      displayPeriods.map((period) => ({
         period: formatPartnerPeriod(period, periodMode),
         netSales: period.netSalesCents / 100,
       })),
-    [periodMode, sortedPeriods]
+    [displayPeriods, periodMode]
   );
 
-  const reportingTabWarnings = useMemo(
+  const blockingWarnings = useMemo(
     () => preview?.warnings.filter(isReportingTabWarning) ?? [],
     [preview?.warnings]
   );
-  const hasBlockingWarnings = reportingTabWarnings.length > 0;
+  const nonBlockingWarnings = useMemo(
+    () => preview?.warnings.filter((warning) => !isReportingTabWarning(warning)) ?? [],
+    [preview?.warnings]
+  );
+  const hasBlockingWarnings = blockingWarnings.length > 0;
+  const previewFetching = selectedPreviewFetching || trendPreviewFetching;
   const trendLabel = periodMode === 'weekly' ? 'Weekly' : 'Monthly';
+  const selectedPeriodSummaryLabel = selectedPeriod
+    ? periodMode === 'weekly'
+      ? `Selected week ending ${formatDate(selectedPeriod.dateTo)}`
+      : `Selected month ${formatMonth(selectedPeriod.dateFrom)}`
+    : 'No completed period';
+  const selectedPeriodEmptyMessage = !selectedPartnershipId
+    ? 'Select a partnership'
+    : periodOptions.length === 0
+      ? `No completed ${getPartnerPeriodNoun(periodMode)}s available`
+      : 'Select a completed period';
+  const selectedPeriodSummaryRange = selectedPeriod
+    ? `${formatDate(selectedPeriod.dateFrom)} through ${formatDate(selectedPeriod.dateTo)}`
+    : selectedPeriodEmptyMessage;
 
   const refreshPartnerDashboard = async () => {
     await Promise.all([
@@ -927,9 +1121,12 @@ function PartnerDashboardView() {
 
     setExportingPartnerFormat(format);
     try {
+      const exportPeriodLabel = currentPeriod
+        ? formatPartnerPeriod(currentPeriod, periodMode)
+        : selectedPeriod?.label;
       const exportResult = await exportPartnerDashboardReport({
         partnershipId: preview.partnershipId,
-        periodGrain: partnerRange?.periodGrain ?? preview.periodGrain,
+        periodGrain: selectedPeriod?.periodGrain ?? preview.periodGrain,
         dateFrom: currentPeriod.periodStart,
         dateTo: currentPeriod.periodEnd,
         format,
@@ -937,8 +1134,8 @@ function PartnerDashboardView() {
       window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
       toast.success(
         format === 'pdf'
-          ? `${trendLabel} partner PDF generated.`
-          : `${trendLabel} partner CSV generated.`
+          ? `${trendLabel} partner PDF generated for ${exportPeriodLabel}.`
+          : `${trendLabel} partner CSV generated for ${exportPeriodLabel}.`
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to export partner report.');
@@ -987,106 +1184,131 @@ function PartnerDashboardView() {
       <div className="flex flex-col gap-6 print:hidden">
         <Card>
           <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(220px,0.6fr)_1fr]">
-            <LabeledControl label="Partnership">
-              <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select partnership" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {partnerships.map((partnership) => (
-                      <SelectItem key={partnership.id} value={partnership.id}>
-                        {partnership.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </LabeledControl>
+            <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(240px,0.8fr)_minmax(180px,0.45fr)_minmax(220px,0.65fr)_1fr]">
+              <LabeledControl label="Partnership" htmlFor="partner-dashboard-partnership">
+                <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
+                  <SelectTrigger id="partner-dashboard-partnership">
+                    <SelectValue placeholder="Select partnership" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {partnerships.map((partnership) => (
+                        <SelectItem key={partnership.id} value={partnership.id}>
+                          {partnership.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </LabeledControl>
 
-            <div className="flex flex-col gap-2">
-              <Label>View</Label>
-              <ToggleGroup
-                type="single"
-                value={periodMode}
-                onValueChange={(value) => {
-                  if (value === 'weekly' || value === 'monthly') setPeriodMode(value);
-                }}
-                className="grid grid-cols-2 rounded-lg border border-border bg-background p-1"
-              >
-                <ToggleGroupItem value="weekly" className="h-9 rounded-md text-sm">
-                  Weekly
-                </ToggleGroupItem>
-                <ToggleGroupItem value="monthly" className="h-9 rounded-md text-sm">
-                  Monthly
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
+              <div className="flex flex-col gap-2">
+                <Label id="partner-dashboard-view-label">View</Label>
+                <ToggleGroup
+                  aria-labelledby="partner-dashboard-view-label"
+                  type="single"
+                  value={periodMode}
+                  onValueChange={(value) => {
+                    if (value === 'weekly' || value === 'monthly') setPeriodMode(value);
+                  }}
+                  className="grid grid-cols-2 rounded-lg border border-border bg-background p-1"
+                >
+                  <ToggleGroupItem value="weekly" className="h-9 rounded-md text-sm">
+                    Weekly
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="monthly" className="h-9 rounded-md text-sm">
+                    Monthly
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
 
-            <div className="flex items-end">
-              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{partnerRange?.label}</span>
-                <span className="block">
-                  {partnerRange ? `${formatDate(partnerRange.dateFrom)} through ${formatDate(partnerRange.dateTo)}` : 'Select a partnership'}
-                </span>
+              <LabeledControl label="Completed period" htmlFor="partner-dashboard-period">
+                <Select
+                  value={selectedPeriod?.key ?? ''}
+                  onValueChange={setSelectedPeriodKey}
+                  disabled={periodOptions.length === 0}
+                >
+                  <SelectTrigger id="partner-dashboard-period">
+                    <SelectValue placeholder={`Select ${periodMode === 'weekly' ? 'week' : 'month'}`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {periodOptions.map((period) => (
+                        <SelectItem key={period.key} value={period.key}>
+                          {period.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </LabeledControl>
+
+              <div className="flex items-end">
+                <div
+                  aria-live="polite"
+                  className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+                >
+                  <span className="font-medium text-foreground">{selectedPeriodSummaryLabel}</span>
+                  <span className="block">{selectedPeriodSummaryRange}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              onClick={refreshPartnerDashboard}
-              disabled={previewFetching}
-            >
-              {previewFetching ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Refresh
-            </Button>
-            <Button
-              onClick={() => exportPartnerReport('pdf')}
-              disabled={
-                !preview ||
-                !currentPeriod ||
-                previewLoading ||
-                previewFetching ||
-                hasBlockingWarnings ||
-                Boolean(exportingPartnerFormat)
-              }
-            >
-              {exportingPartnerFormat === 'pdf' ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              PDF
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => exportPartnerReport('csv')}
-              disabled={
-                !preview ||
-                !currentPeriod ||
-                previewLoading ||
-                previewFetching ||
-                hasBlockingWarnings ||
-                Boolean(exportingPartnerFormat)
-              }
-            >
-              {exportingPartnerFormat === 'csv' ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              CSV
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                variant="outline"
+                onClick={refreshPartnerDashboard}
+                disabled={previewFetching}
+              >
+                {previewFetching ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh
+              </Button>
+              <Button
+                onClick={() => exportPartnerReport('pdf')}
+                disabled={
+                  !preview ||
+                  !currentPeriod ||
+                  !selectedPeriod ||
+                  previewLoading ||
+                  previewFetching ||
+                  hasBlockingWarnings ||
+                  Boolean(exportingPartnerFormat)
+                }
+              >
+                {exportingPartnerFormat === 'pdf' ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                PDF
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => exportPartnerReport('csv')}
+                disabled={
+                  !preview ||
+                  !currentPeriod ||
+                  !selectedPeriod ||
+                  previewLoading ||
+                  previewFetching ||
+                  hasBlockingWarnings ||
+                  Boolean(exportingPartnerFormat)
+                }
+              >
+                {exportingPartnerFormat === 'csv' ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                CSV
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
       {previewError && (
         <Alert variant="destructive">
@@ -1096,6 +1318,16 @@ function PartnerDashboardView() {
             {previewError instanceof Error
               ? previewError.message
               : 'Check the partnership setup and try again.'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {trendPreviewError && !previewError && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertTitle>Comparison trend unavailable</AlertTitle>
+          <AlertDescription>
+            The selected period values are loaded, but the prior-period comparison could not refresh.
           </AlertDescription>
         </Alert>
       )}
@@ -1112,27 +1344,44 @@ function PartnerDashboardView() {
             periodMode={periodMode}
           />
 
-          {reportingTabWarnings.length > 0 && (
+          {(blockingWarnings.length > 0 || nonBlockingWarnings.length > 0) && (
             <Alert className="border-amber/20 bg-amber/10 text-foreground">
               <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>Report setup needs attention</AlertTitle>
+              <AlertTitle>
+                {blockingWarnings.length > 0 ? 'Report setup needs attention' : 'Period review notes'}
+              </AlertTitle>
               <AlertDescription>
                 <div className="mt-2 flex flex-col gap-2">
-                  <div className="font-medium">
-                    Partner export is locked until blocking setup items are resolved in admin.
-                  </div>
-                  {reportingTabWarnings.slice(0, 4).map((warning, index) => (
+                  {blockingWarnings.length > 0 && (
+                    <div className="font-medium">
+                      Partner export is locked until blocking setup items are resolved in admin.
+                    </div>
+                  )}
+                  {blockingWarnings.slice(0, 4).map((warning, index) => (
                     <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
                       <Badge variant="destructive">Blocking</Badge>{' '}
                       {warning.message}
                     </div>
                   ))}
-                  {reportingTabWarnings.length > 4 && (
-                    <div>{reportingTabWarnings.length - 4} more blocking warnings hidden.</div>
+                  {blockingWarnings.length > 4 && (
+                    <div>{blockingWarnings.length - 4} more blocking warnings hidden.</div>
                   )}
-                  <Button asChild variant="outline" size="sm" className="w-fit">
-                    <Link to="/admin/partnerships">Open admin setup</Link>
-                  </Button>
+                  {nonBlockingWarnings.slice(0, blockingWarnings.length > 0 ? 2 : 4).map((warning, index) => (
+                    <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-note-${index}`}>
+                      <Badge variant="secondary">Note</Badge>{' '}
+                      {warning.message}
+                    </div>
+                  ))}
+                  {nonBlockingWarnings.length > (blockingWarnings.length > 0 ? 2 : 4) && (
+                    <div>
+                      {nonBlockingWarnings.length - (blockingWarnings.length > 0 ? 2 : 4)} more notes hidden.
+                    </div>
+                  )}
+                  {blockingWarnings.length > 0 && (
+                    <Button asChild variant="outline" size="sm" className="w-fit">
+                      <Link to="/admin/partnerships">Open admin setup</Link>
+                    </Button>
+                  )}
                 </div>
               </AlertDescription>
             </Alert>
@@ -1161,7 +1410,7 @@ function PartnerDashboardView() {
               <CardHeader>
                 <CardTitle className="text-xl">Machine rollups</CardTitle>
                 <CardDescription>
-                  Current {periodMode === 'weekly' ? 'week' : 'month'} compared with the previous period.
+                  Selected {getPartnerPeriodNoun(periodMode)} compared with the previous period.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1283,7 +1532,7 @@ function PartnerDashboardView() {
       {preview && !hasBlockingWarnings && (
         <PartnerPrintableReport
           preview={preview}
-          periods={sortedPeriods}
+          periods={displayPeriods}
           machineRows={machineRows}
           currentPeriod={currentPeriod}
           previousPeriod={previousPeriod}
@@ -1312,7 +1561,7 @@ function PartnerAnswerBand({
   const periodLabel = currentPeriod
     ? formatPartnerPeriod(currentPeriod, periodMode)
     : `${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`;
-  const lowerTrendLabel = trendLabel.toLowerCase();
+  const periodNoun = getPartnerPeriodNoun(periodMode);
 
   return (
     <Card>
@@ -1326,13 +1575,13 @@ function PartnerAnswerBand({
         <AnswerItem
           label="Amount owed"
           value={formatCurrency(current.amountOwedCents, true)}
-          detail={`${formatPercentChange(current.amountOwedCents, previous?.amountOwedCents ?? 0)} vs previous ${lowerTrendLabel}`}
+          detail={`${formatPercentChange(current.amountOwedCents, previous?.amountOwedCents ?? 0)} vs previous ${periodNoun}`}
           emphasis
         />
         <AnswerItem
           label="Gross sales"
           value={formatCurrency(current.grossSalesCents, true)}
-          detail={`${formatPercentChange(current.grossSalesCents, previous?.grossSalesCents ?? 0)} vs previous ${lowerTrendLabel}`}
+          detail={`${formatPercentChange(current.grossSalesCents, previous?.grossSalesCents ?? 0)} vs previous ${periodNoun}`}
         />
         <AnswerItem
           label="Refund impact"
@@ -1621,7 +1870,7 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">Machine rollup</h2>
             <p className="text-sm text-muted-foreground">
-              Current {periodMode === 'weekly' ? 'week' : 'month'} performance by assigned machine.
+              Selected {getPartnerPeriodNoun(periodMode)} performance by assigned machine.
             </p>
           </div>
           <table className="w-full border-collapse text-sm">
@@ -1880,13 +2129,14 @@ function PartnerCalculationCard({
 function buildPartnerMachineRows(
   preview: PartnerDashboardPeriodPreview | undefined,
   currentPeriod: PartnerDashboardPeriod | undefined,
-  previousPeriod: PartnerDashboardPeriod | undefined
+  previousPeriod: PartnerDashboardPeriod | undefined,
+  comparisonPreview?: PartnerDashboardPeriodPreview
 ): PartnerMachineComparisonRow[] {
   if (!preview || !currentPeriod) return [];
 
   const previousByMachine = new Map<string, PartnerDashboardMachinePeriod>();
   if (previousPeriod) {
-    preview.machinePeriods
+    (comparisonPreview ?? preview).machinePeriods
       .filter((machine) => machine.periodStart === previousPeriod.periodStart)
       .forEach((machine) => previousByMachine.set(machine.reportingMachineId, machine));
   }
@@ -1900,10 +2150,18 @@ function buildPartnerMachineRows(
     .sort((left, right) => right.current.grossSalesCents - left.current.grossSalesCents);
 }
 
-function LabeledControl({ label, children }: { label: string; children: ReactNode }) {
+function LabeledControl({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-2">
-      <Label>{label}</Label>
+      <Label htmlFor={htmlFor}>{label}</Label>
       {children}
     </div>
   );
