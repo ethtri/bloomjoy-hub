@@ -1,3 +1,12 @@
+import {
+  PDFDocument,
+  StandardFonts,
+  rgb,
+  type PDFFont,
+  type PDFPage,
+  type RGB,
+} from "https://esm.sh/pdf-lib@1.17.1";
+
 type PartnerReportSummary = {
   order_count?: number;
   item_quantity?: number;
@@ -25,6 +34,14 @@ type PartnerReportMachine = {
   fee_cents?: number;
   cost_cents?: number;
   net_sales_cents?: number;
+  split_base_cents?: number;
+  amount_owed_cents?: number;
+  bloomjoy_retained_cents?: number;
+};
+
+type PartnerReportWarning = {
+  message?: string;
+  severity?: string;
 };
 
 export type PartnerReportPreview = {
@@ -38,7 +55,7 @@ export type PartnerReportPreview = {
   weekEndingDate?: string;
   summary?: PartnerReportSummary;
   machines?: PartnerReportMachine[];
-  warnings?: Array<{ message?: string }>;
+  warnings?: PartnerReportWarning[];
 };
 
 export type PartnerReportExportContext = {
@@ -52,7 +69,47 @@ export type PartnerReportExportContext = {
   additionalDeductionsNotes?: string | null;
 };
 
-const encoder = new TextEncoder();
+type PdfFonts = {
+  regular: PDFFont;
+  bold: PDFFont;
+};
+
+type DrawTextOptions = {
+  x: number;
+  y: number;
+  size?: number;
+  font?: PDFFont;
+  color?: RGB;
+  maxWidth?: number;
+  lineHeight?: number;
+};
+
+const COLORS = {
+  page: rgb(0.995, 0.985, 0.99),
+  white: rgb(1, 1, 1),
+  ink: rgb(0.05, 0.08, 0.16),
+  muted: rgb(0.35, 0.39, 0.48),
+  softText: rgb(0.49, 0.53, 0.61),
+  coral: rgb(0.88, 0.2, 0.42),
+  coralDark: rgb(0.68, 0.12, 0.28),
+  blush: rgb(0.99, 0.9, 0.94),
+  blushLight: rgb(1, 0.96, 0.98),
+  border: rgb(0.9, 0.86, 0.89),
+  borderStrong: rgb(0.78, 0.78, 0.84),
+  sage: rgb(0.25, 0.48, 0.34),
+  sageLight: rgb(0.9, 0.96, 0.92),
+  amber: rgb(0.9, 0.54, 0.1),
+  amberLight: rgb(1, 0.95, 0.86),
+  slatePanel: rgb(0.12, 0.15, 0.22),
+  slateSoft: rgb(0.2, 0.23, 0.31),
+};
+
+const csvCell = (value: unknown): string => {
+  const text = neutralizeProviderCopy(value);
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+};
+
+const csvRow = (values: unknown[]) => values.map(csvCell).join(",");
 
 const neutralizeProviderCopy = (value: unknown): string =>
   String(value ?? "")
@@ -71,65 +128,6 @@ const toAscii = (value: unknown): string =>
     .replace(/[^\x20-\x7e]/g, "")
     .trim();
 
-const escapePdfText = (value: string): string =>
-  toAscii(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(
-    /\)/g,
-    "\\)",
-  );
-
-const truncate = (value: unknown, length: number): string => {
-  const normalized = toAscii(value);
-  return normalized.length > length
-    ? `${normalized.slice(0, length - 1)}`
-    : normalized;
-};
-
-const truncateWithDots = (value: unknown, length: number): string => {
-  const normalized = toAscii(value);
-  if (normalized.length <= length) return normalized;
-  if (length <= 3) return normalized.slice(0, length);
-  return `${normalized.slice(0, length - 3)}...`;
-};
-
-const wrapText = (
-  value: unknown,
-  maxLineLength: number,
-  maxLines: number,
-): string[] => {
-  const normalized = toAscii(value);
-  if (!normalized) return [""];
-
-  const lines: string[] = [];
-  let current = "";
-
-  normalized.split(/\s+/).forEach((word) => {
-    const chunks = word.length > maxLineLength
-      ? word.match(new RegExp(`.{1,${maxLineLength}}`, "g")) ?? [word]
-      : [word];
-
-    chunks.forEach((chunk) => {
-      const candidate = current ? `${current} ${chunk}` : chunk;
-      if (candidate.length <= maxLineLength) {
-        current = candidate;
-        return;
-      }
-
-      if (current) lines.push(current);
-      current = chunk;
-    });
-  });
-
-  if (current) lines.push(current);
-  if (lines.length <= maxLines) return lines;
-
-  const visibleLines = lines.slice(0, maxLines);
-  visibleLines[maxLines - 1] = truncateWithDots(
-    visibleLines[maxLines - 1],
-    maxLineLength,
-  );
-  return visibleLines;
-};
-
 const numberValue = (value: unknown): number => {
   const normalized = Number(value ?? 0);
   return Number.isFinite(normalized) ? normalized : 0;
@@ -142,6 +140,11 @@ const formatCurrency = (cents: unknown): string =>
       maximumFractionDigits: 2,
     })
   }`;
+
+const formatDeduction = (cents: unknown): string => {
+  const amount = numberValue(cents);
+  return amount > 0 ? `-${formatCurrency(amount)}` : formatCurrency(0);
+};
 
 const formatInteger = (value: unknown): string =>
   Math.round(numberValue(value)).toLocaleString("en-US");
@@ -161,12 +164,17 @@ const formatGeneratedAt = (value: unknown): string => {
   }).format(date));
 };
 
-const csvCell = (value: unknown): string => {
-  const text = neutralizeProviderCopy(value);
-  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-};
+const formatDateLong = (value: unknown): string => {
+  const date = new Date(`${String(value ?? "")}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return toAscii(value);
 
-const csvRow = (values: unknown[]) => values.map(csvCell).join(",");
+  return toAscii(new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date));
+};
 
 const getPartnerPayoutLabel = (labels: string[]) =>
   labels[0] ?? "Partner payout";
@@ -176,6 +184,11 @@ const getReportTitle = (preview: PartnerReportPreview) =>
     ? "Bloomjoy Partner Monthly Report"
     : "Bloomjoy Partner Weekly Report";
 
+const getPeriodKindLabel = (preview: PartnerReportPreview) =>
+  preview.periodGrain === "calendar_month"
+    ? "Selected reporting month"
+    : "Selected reporting week";
+
 const getReportPeriodLabel = (preview: PartnerReportPreview) =>
   preview.periodLabel ??
     (preview.periodStartDate && preview.periodEndDate
@@ -183,6 +196,28 @@ const getReportPeriodLabel = (preview: PartnerReportPreview) =>
       : `${preview.weekStartDate ?? ""} through ${
         preview.weekEndingDate ?? ""
       }`);
+
+const getFriendlyPeriodLabel = (preview: PartnerReportPreview) => {
+  if (!preview.periodStartDate || !preview.periodEndDate) {
+    return getReportPeriodLabel(preview);
+  }
+
+  if (
+    preview.periodGrain === "calendar_month" &&
+    preview.periodStartDate.slice(0, 7) === preview.periodEndDate.slice(0, 7)
+  ) {
+    const date = new Date(`${preview.periodStartDate}T00:00:00.000Z`);
+    return toAscii(new Intl.DateTimeFormat("en-US", {
+      timeZone: "UTC",
+      month: "long",
+      year: "numeric",
+    }).format(date));
+  }
+
+  return `${formatDateLong(preview.periodStartDate)} - ${
+    formatDateLong(preview.periodEndDate)
+  }`;
+};
 
 const hasCombinedPartnerPayout = (summary: PartnerReportSummary) =>
   typeof summary.amount_owed_cents !== "undefined";
@@ -196,6 +231,30 @@ const getBloomjoyRetainedCents = (summary: PartnerReportSummary) =>
   typeof summary.bloomjoy_retained_cents !== "undefined"
     ? summary.bloomjoy_retained_cents
     : summary.bloomjoy_profit_cents;
+
+const getMachinePartnerPayoutCents = (machine: PartnerReportMachine) =>
+  typeof machine.amount_owed_cents !== "undefined"
+    ? machine.amount_owed_cents
+    : 0;
+
+const getMachineBloomjoyRetainedCents = (machine: PartnerReportMachine) =>
+  typeof machine.bloomjoy_retained_cents !== "undefined"
+    ? machine.bloomjoy_retained_cents
+    : 0;
+
+export const buildPartnerReportReference = (
+  snapshotId: string,
+  preview: PartnerReportPreview,
+) => {
+  const periodPrefix = preview.periodGrain === "calendar_month" ? "M" : "W";
+  const periodEnd = toAscii(preview.periodEndDate ?? preview.weekEndingDate)
+    .replaceAll("-", "")
+    .slice(0, 8) || "PERIOD";
+  const shortId = toAscii(snapshotId).replaceAll("-", "").slice(0, 8)
+    .toUpperCase() || "REPORT";
+
+  return `BJ-${periodPrefix}-${periodEnd}-${shortId}`;
+};
 
 export const buildPartnerReportCsv = ({
   preview,
@@ -285,440 +344,971 @@ export const buildPartnerReportCsv = ({
   return `${rows.join("\n")}\n`;
 };
 
-type PdfLine = {
-  text: string;
-  x: number;
-  y: number;
-  size?: number;
-  bold?: boolean;
-  color?: "dark" | "muted" | "pink";
-};
-
-const pdfText = (
-  { text, x, y, size = 9, bold = false, color = "dark" }: PdfLine,
+const drawText = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  text: unknown,
+  {
+    x,
+    y,
+    size = 9,
+    font = fonts.regular,
+    color = COLORS.ink,
+    maxWidth,
+    lineHeight = size + 3,
+  }: DrawTextOptions,
 ) => {
-  const colorCommand = color === "pink"
-    ? "0.88 0.20 0.42 rg"
-    : color === "muted"
-    ? "0.35 0.39 0.48 rg"
-    : "0.05 0.08 0.16 rg";
-  return `BT\n${colorCommand}\n/${
-    bold ? "F2" : "F1"
-  } ${size} Tf\n${x} ${y} Td\n(${escapePdfText(text)}) Tj\nET`;
-};
+  const lines = maxWidth
+    ? wrapTextToWidth(text, font, size, maxWidth)
+    : [toAscii(text)];
 
-const pdfLine = (x1: number, y: number, x2: number) =>
-  `q\n0.88 0.90 0.94 RG\n0.7 w\n${x1} ${y} m\n${x2} ${y} l\nS\nQ`;
-
-const pdfBox = (x: number, y: number, width: number, height: number) =>
-  `q\n0.98 0.98 0.99 rg\n${x} ${y} ${width} ${height} re\nf\n0.90 0.91 0.94 RG\n0.7 w\n${x} ${y} ${width} ${height} re\nS\nQ`;
-
-const createPage = (lines: string[]) => lines.join("\n");
-
-export const buildPartnerReportPdf = ({
-  preview,
-  payoutRecipientLabels,
-  calculationLabel,
-  generatedAt,
-  snapshotId,
-  feeLabel = "Stick cost deduction",
-  costLabel = "Costs",
-  additionalDeductionsNotes,
-}: PartnerReportExportContext): Uint8Array => {
-  const summary = preview.summary ?? {};
-  const machines = preview.machines ?? [];
-  const warnings = preview.warnings ?? [];
-  const pages: string[] = [];
-  const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
-  const additionalPartnerLabel = hasCombinedPartnerPayout(summary)
-    ? undefined
-    : payoutRecipientLabels[1];
-  const generatedAtLabel = formatGeneratedAt(generatedAt);
-  const reportTitle = getReportTitle(preview);
-  const periodLabel = getReportPeriodLabel(preview);
-  const machineChunks: PartnerReportMachine[][] = [];
-  const firstPageMachineCount = warnings.length > 0 ? 12 : 14;
-
-  if (machines.length === 0) {
-    machineChunks.push([]);
-  } else {
-    machineChunks.push(machines.slice(0, firstPageMachineCount));
-  }
-  for (
-    let index = firstPageMachineCount;
-    index < machines.length;
-    index += 22
-  ) {
-    machineChunks.push(machines.slice(index, index + 22));
-  }
-
-  machineChunks.forEach((chunk, pageIndex) => {
-    const lines: string[] = [];
-    lines.push("q\n0.88 0.20 0.42 rg\n0 748 612 44 re\nf\nQ");
-    lines.push(
-      pdfText({
-        text: reportTitle,
-        x: 44,
-        y: 766,
-        size: 17,
-        bold: true,
-        color: "dark",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: toAscii(preview.partnershipName ?? "Partner report"),
-        x: 44,
-        y: 728,
-        size: 14,
-        bold: true,
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: periodLabel,
-        x: 44,
-        y: 712,
-        size: 9,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: `Generated ${generatedAtLabel}`,
-        x: 384,
-        y: 728,
-        size: 8,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: `Snapshot ${snapshotId}`,
-        x: 384,
-        y: 716,
-        size: 8,
-        color: "muted",
-      }),
-    );
-
-    if (pageIndex === 0) {
-      const cards = [
-        ["Orders", formatInteger(summary.order_count)],
-        ["Gross sales", formatCurrency(summary.gross_sales_cents)],
-        ["Refund impact", `-${formatCurrency(summary.refund_amount_cents)}`],
-        ["Machine taxes", formatCurrency(summary.tax_cents)],
-        [feeLabel, formatCurrency(summary.fee_cents)],
-        ["Net sales", formatCurrency(summary.net_sales_cents)],
-        [partnerLabel, formatCurrency(getPrimaryPartnerPayoutCents(summary))],
-        [
-          "Bloomjoy retained",
-          formatCurrency(getBloomjoyRetainedCents(summary)),
-        ],
-      ];
-      if (additionalPartnerLabel) {
-        cards.splice(7, 0, [
-          additionalPartnerLabel,
-          formatCurrency(summary.partner_profit_cents),
-        ]);
-      }
-      cards.slice(0, 8).forEach(([label, value], index) => {
-        const x = 44 + (index % 4) * 132;
-        const y = 656 - Math.floor(index / 4) * 62;
-        lines.push(pdfBox(x, y, 118, 46));
-        wrapText(label.toUpperCase(), 18, 2).forEach((labelLine, lineIndex) => {
-          lines.push(
-            pdfText({
-              text: labelLine,
-              x: x + 9,
-              y: y + 31 - lineIndex * 8,
-              size: 6.5,
-              color: "muted",
-              bold: true,
-            }),
-          );
-        });
-        lines.push(
-          pdfText({ text: value, x: x + 9, y: y + 13, size: 12, bold: true }),
-        );
-      });
-      lines.push(
-        pdfText({
-          text: "Calculation basis",
-          x: 44,
-          y: 518,
-          size: 10,
-          bold: true,
-        }),
-      );
-      wrapText(calculationLabel, 104, 2).forEach((calculationLine, index) => {
-        lines.push(
-          pdfText({
-            text: calculationLine,
-            x: 44,
-            y: 504 - index * 12,
-            size: 8,
-            color: "muted",
-          }),
-        );
-      });
-      if (additionalDeductionsNotes) {
-        wrapText(`Deduction notes: ${additionalDeductionsNotes}`, 104, 2)
-          .forEach((notesLine, index) => {
-            lines.push(
-              pdfText({
-                text: notesLine,
-                x: 44,
-                y: 480 - index * 12,
-                size: 8,
-                color: "muted",
-              }),
-            );
-          });
-      }
-    }
-
-    const tableTop = pageIndex === 0 ? 454 : 676;
-    lines.push(
-      pdfText({
-        text: "Machine rollup",
-        x: 44,
-        y: tableTop,
-        size: 11,
-        bold: true,
-      }),
-    );
-    lines.push(pdfLine(44, tableTop - 8, 568));
-    lines.push(
-      pdfText({
-        text: "Machine",
-        x: 44,
-        y: tableTop - 24,
-        size: 7,
-        bold: true,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: "Orders",
-        x: 252,
-        y: tableTop - 24,
-        size: 7,
-        bold: true,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: "Items",
-        x: 300,
-        y: tableTop - 24,
-        size: 7,
-        bold: true,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: "Gross",
-        x: 345,
-        y: tableTop - 24,
-        size: 7,
-        bold: true,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: "Refund",
-        x: 392,
-        y: tableTop - 24,
-        size: 7,
-        bold: true,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: "Tax",
-        x: 442,
-        y: tableTop - 24,
-        size: 7,
-        bold: true,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: truncateWithDots(feeLabel, 12),
-        x: 488,
-        y: tableTop - 24,
-        size: 7,
-        bold: true,
-        color: "muted",
-      }),
-    );
-    lines.push(
-      pdfText({
-        text: "Net",
-        x: 542,
-        y: tableTop - 24,
-        size: 7,
-        bold: true,
-        color: "muted",
-      }),
-    );
-
-    const tableRows = chunk.length ? chunk : [];
-    tableRows.forEach((machine, index) => {
-      const y = tableTop - 44 - index * 24;
-      lines.push(pdfLine(44, y - 8, 568));
-      lines.push(
-        pdfText({
-          text: truncate(machine.machine_label ?? "", 31),
-          x: 44,
-          y,
-          size: 8,
-        }),
-      );
-      lines.push(
-        pdfText({
-          text: formatInteger(machine.order_count),
-          x: 252,
-          y,
-          size: 8,
-        }),
-      );
-      lines.push(
-        pdfText({
-          text: formatInteger(machine.item_quantity),
-          x: 300,
-          y,
-          size: 8,
-        }),
-      );
-      lines.push(
-        pdfText({
-          text: formatCurrency(machine.gross_sales_cents),
-          x: 345,
-          y,
-          size: 8,
-        }),
-      );
-      lines.push(
-        pdfText({
-          text: `-${formatCurrency(machine.refund_amount_cents)}`,
-          x: 392,
-          y,
-          size: 8,
-        }),
-      );
-      lines.push(
-        pdfText({
-          text: formatCurrency(machine.tax_cents),
-          x: 442,
-          y,
-          size: 8,
-        }),
-      );
-      lines.push(
-        pdfText({
-          text: formatCurrency(machine.fee_cents),
-          x: 488,
-          y,
-          size: 8,
-        }),
-      );
-      lines.push(
-        pdfText({
-          text: formatCurrency(machine.net_sales_cents),
-          x: 542,
-          y,
-          size: 8,
-        }),
-      );
+  lines.forEach((line, index) => {
+    page.drawText(line, {
+      x,
+      y: y - index * lineHeight,
+      size,
+      font,
+      color,
     });
-
-    if (pageIndex === 0 && warnings.length > 0) {
-      const warningY = 94;
-      lines.push(
-        pdfText({
-          text: "Warnings",
-          x: 44,
-          y: warningY,
-          size: 10,
-          bold: true,
-          color: "pink",
-        }),
-      );
-      warnings.slice(0, 3).forEach((warning, index) => {
-        lines.push(
-          pdfText({
-            text: truncate(warning.message ?? "", 94),
-            x: 44,
-            y: warningY - 16 - index * 13,
-            size: 8,
-            color: "muted",
-          }),
-        );
-      });
-    }
-
-    lines.push(
-      pdfText({
-        text: `Page ${pageIndex + 1} of ${machineChunks.length}`,
-        x: 508,
-        y: 34,
-        size: 8,
-        color: "muted",
-      }),
-    );
-    pages.push(createPage(lines));
   });
 
-  const objects: string[] = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    `<< /Type /Pages /Kids [${
-      pages.map((_, index) => `${3 + index * 2} 0 R`).join(" ")
-    }] /Count ${pages.length} >>`,
+  return y - Math.max(lines.length - 1, 0) * lineHeight;
+};
+
+const wrapTextToWidth = (
+  value: unknown,
+  font: PDFFont,
+  size: number,
+  maxWidth: number,
+): string[] => {
+  const text = toAscii(value);
+  if (!text) return [""];
+
+  const lines: string[] = [];
+  let current = "";
+
+  text.split(/\s+/).forEach((word) => {
+    const chunks: string[] = [];
+    let chunk = "";
+
+    Array.from(word).forEach((character) => {
+      const nextChunk = `${chunk}${character}`;
+      if (font.widthOfTextAtSize(nextChunk, size) <= maxWidth || !chunk) {
+        chunk = nextChunk;
+        return;
+      }
+      chunks.push(chunk);
+      chunk = character;
+    });
+    if (chunk) chunks.push(chunk);
+
+    chunks.forEach((part) => {
+      const candidate = current ? `${current} ${part}` : part;
+      if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+        current = candidate;
+        return;
+      }
+
+      if (current) lines.push(current);
+      current = part;
+    });
+  });
+
+  if (current) lines.push(current);
+  return lines;
+};
+
+const drawRightAlignedText = (
+  page: PDFPage,
+  font: PDFFont,
+  text: unknown,
+  xRight: number,
+  y: number,
+  size: number,
+  color = COLORS.ink,
+) => {
+  const normalized = toAscii(text);
+  page.drawText(normalized, {
+    x: xRight - font.widthOfTextAtSize(normalized, size),
+    y,
+    size,
+    font,
+    color,
+  });
+};
+
+const drawCard = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  {
+    x,
+    y,
+    width,
+    height,
+    label,
+    value,
+    detail,
+    emphasis = false,
+  }: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    label: string;
+    value: string;
+    detail?: string;
+    emphasis?: boolean;
+  },
+) => {
+  page.drawRectangle({
+    x,
+    y,
+    width,
+    height,
+    color: emphasis ? COLORS.slatePanel : COLORS.white,
+    borderColor: emphasis ? COLORS.slatePanel : COLORS.border,
+    borderWidth: 0.7,
+  });
+  page.drawRectangle({
+    x,
+    y: y + height - 4,
+    width,
+    height: 4,
+    color: emphasis ? COLORS.coral : COLORS.blush,
+  });
+
+  drawText(page, fonts, label.toUpperCase(), {
+    x: x + 14,
+    y: y + height - 20,
+    size: 7.5,
+    font: fonts.bold,
+    color: emphasis ? COLORS.blush : COLORS.muted,
+    maxWidth: width - 28,
+  });
+  drawText(page, fonts, value, {
+    x: x + 14,
+    y: y + height - 44,
+    size: emphasis ? 18 : 14,
+    font: fonts.bold,
+    color: emphasis ? COLORS.white : COLORS.ink,
+    maxWidth: width - 28,
+  });
+  if (detail) {
+    drawText(page, fonts, detail, {
+      x: x + 14,
+      y: y + 14,
+      size: 7.5,
+      color: emphasis ? rgb(0.84, 0.87, 0.92) : COLORS.softText,
+      maxWidth: width - 28,
+      lineHeight: 9,
+    });
+  }
+};
+
+const drawHeader = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  {
+    title,
+    partnerName,
+    periodLabel,
+    reportReference,
+    generatedAt,
+  }: {
+    title: string;
+    partnerName: string;
+    periodLabel: string;
+    reportReference: string;
+    generatedAt: string;
+  },
+) => {
+  const { width, height } = page.getSize();
+  page.drawRectangle({ x: 0, y: 0, width, height, color: COLORS.page });
+  page.drawRectangle({ x: 0, y: height - 10, width, height: 10, color: COLORS.coral });
+  page.drawCircle({ x: 48, y: height - 42, size: 13, color: COLORS.coral });
+  drawText(page, fonts, "B", {
+    x: 43.5,
+    y: height - 47,
+    size: 13,
+    font: fonts.bold,
+    color: COLORS.white,
+  });
+  drawText(page, fonts, "BLOOMJOY", {
+    x: 68,
+    y: height - 36,
+    size: 10,
+    font: fonts.bold,
+    color: COLORS.ink,
+  });
+  drawText(page, fonts, title, {
+    x: 68,
+    y: height - 51,
+    size: 8,
+    color: COLORS.muted,
+  });
+  drawRightAlignedText(page, fonts.bold, reportReference, width - 42, height - 35, 8, COLORS.ink);
+  drawRightAlignedText(page, fonts.regular, `Generated ${generatedAt}`, width - 42, height - 50, 7.5, COLORS.muted);
+
+  page.drawLine({
+    start: { x: 42, y: height - 72 },
+    end: { x: width - 42, y: height - 72 },
+    thickness: 0.6,
+    color: COLORS.border,
+  });
+
+  drawText(page, fonts, partnerName, {
+    x: 42,
+    y: height - 96,
+    size: 19,
+    font: fonts.bold,
+    color: COLORS.ink,
+    maxWidth: width - 84,
+    lineHeight: 21,
+  });
+  drawText(page, fonts, periodLabel, {
+    x: 42,
+    y: height - 118,
+    size: 9,
+    color: COLORS.muted,
+    maxWidth: width - 84,
+  });
+};
+
+const drawFooter = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  reportReference: string,
+  periodLabel: string,
+  pageNumber: number,
+  pageCount: number,
+) => {
+  const { width } = page.getSize();
+  page.drawLine({
+    start: { x: 36, y: 32 },
+    end: { x: width - 36, y: 32 },
+    thickness: 0.5,
+    color: COLORS.border,
+  });
+  drawText(page, fonts, `Report reference ${reportReference}`, {
+    x: 36,
+    y: 18,
+    size: 7,
+    color: COLORS.softText,
+  });
+  drawText(page, fonts, periodLabel, {
+    x: width / 2 - 110,
+    y: 18,
+    size: 7,
+    color: COLORS.softText,
+    maxWidth: 220,
+  });
+  drawRightAlignedText(
+    page,
+    fonts.regular,
+    `Page ${pageNumber} of ${pageCount}`,
+    width - 36,
+    18,
+    7,
+    COLORS.softText,
+  );
+};
+
+const drawBridgeSegment = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  {
+    x,
+    y,
+    width,
+    label,
+    value,
+    color,
+  }: {
+    x: number;
+    y: number;
+    width: number;
+    label: string;
+    value: string;
+    color: RGB;
+  },
+) => {
+  const safeWidth = Math.max(width, 8);
+  page.drawRectangle({ x, y, width: safeWidth, height: 13, color });
+  drawText(page, fonts, label, {
+    x,
+    y: y - 12,
+    size: 7,
+    font: fonts.bold,
+    color: COLORS.muted,
+    maxWidth: Math.max(safeWidth + 28, 70),
+    lineHeight: 8,
+  });
+  drawText(page, fonts, value, {
+    x,
+    y: y - 30,
+    size: 8,
+    font: fonts.bold,
+    color: COLORS.ink,
+    maxWidth: Math.max(safeWidth + 28, 70),
+  });
+};
+
+const drawDashboardPage = (
+  pdfDoc: PDFDocument,
+  fonts: PdfFonts,
+  context: PartnerReportExportContext,
+  reportReference: string,
+) => {
+  const { preview, payoutRecipientLabels, generatedAt, feeLabel = "Stick cost deduction", costLabel = "Costs" } = context;
+  const summary = preview.summary ?? {};
+  const page = pdfDoc.addPage([612, 792]);
+  const partnerName = toAscii(preview.partnershipName ?? "Partner report");
+  const periodLabel = getFriendlyPeriodLabel(preview);
+  const generatedAtLabel = formatGeneratedAt(generatedAt);
+  const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
+  const payoutCents = numberValue(getPrimaryPartnerPayoutCents(summary));
+  const bloomjoyCents = numberValue(getBloomjoyRetainedCents(summary));
+  const taxAndDeductions = numberValue(summary.tax_cents) +
+    numberValue(summary.fee_cents) +
+    numberValue(summary.cost_cents);
+
+  drawHeader(page, fonts, {
+    title: getReportTitle(preview),
+    partnerName,
+    periodLabel: `${getPeriodKindLabel(preview)}: ${periodLabel}`,
+    reportReference,
+    generatedAt: generatedAtLabel,
+  });
+
+  page.drawRectangle({ x: 42, y: 522, width: 528, height: 128, color: COLORS.slatePanel });
+  page.drawRectangle({ x: 42, y: 522, width: 6, height: 128, color: COLORS.coral });
+  drawText(page, fonts, "Amount owed", {
+    x: 68,
+    y: 618,
+    size: 10,
+    font: fonts.bold,
+    color: rgb(0.86, 0.88, 0.93),
+  });
+  drawText(page, fonts, formatCurrency(payoutCents), {
+    x: 68,
+    y: 574,
+    size: 34,
+    font: fonts.bold,
+    color: COLORS.white,
+  });
+  drawText(page, fonts, `${partnerLabel} for ${periodLabel}`, {
+    x: 68,
+    y: 546,
+    size: 9,
+    color: rgb(0.86, 0.88, 0.93),
+    maxWidth: 250,
+  });
+  drawText(page, fonts, "Settlement packet", {
+    x: 390,
+    y: 618,
+    size: 10,
+    font: fonts.bold,
+    color: rgb(0.86, 0.88, 0.93),
+  });
+  drawText(page, fonts, "Designed for partner review: the dashboard shows the answer, and the following pages show the calculation support.", {
+    x: 390,
+    y: 592,
+    size: 8.5,
+    color: rgb(0.86, 0.88, 0.93),
+    maxWidth: 150,
+    lineHeight: 11,
+  });
+  drawText(page, fonts, `Report reference ${reportReference}`, {
+    x: 390,
+    y: 540,
+    size: 8,
+    color: rgb(0.86, 0.88, 0.93),
+    maxWidth: 150,
+  });
+
+  const cardY = 386;
+  const cardWidth = 125;
+  const cardGap = 10;
+  drawCard(page, fonts, {
+    x: 42,
+    y: cardY,
+    width: cardWidth,
+    height: 94,
+    label: "Gross sales",
+    value: formatCurrency(summary.gross_sales_cents),
+    detail: `${formatInteger(summary.order_count)} transactions`,
+  });
+  drawCard(page, fonts, {
+    x: 42 + (cardWidth + cardGap),
+    y: cardY,
+    width: cardWidth,
+    height: 94,
+    label: "Refund impact",
+    value: formatDeduction(summary.refund_amount_cents),
+    detail: "Approved adjustments only",
+  });
+  drawCard(page, fonts, {
+    x: 42 + (cardWidth + cardGap) * 2,
+    y: cardY,
+    width: cardWidth,
+    height: 94,
+    label: "Payout basis",
+    value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
+    detail: "After tax and deductions",
+  });
+  drawCard(page, fonts, {
+    x: 42 + (cardWidth + cardGap) * 3,
+    y: cardY,
+    width: cardWidth,
+    height: 94,
+    label: "Bloomjoy retained",
+    value: formatCurrency(bloomjoyCents),
+    detail: "Remaining share after payout",
+  });
+
+  drawText(page, fonts, "Sales-to-payout bridge", {
+    x: 42,
+    y: 330,
+    size: 13,
+    font: fonts.bold,
+  });
+  drawText(page, fonts, "How gross sales become the partner settlement amount.", {
+    x: 42,
+    y: 314,
+    size: 8.5,
+    color: COLORS.muted,
+  });
+
+  const bridgeBase = Math.max(
+    numberValue(summary.gross_sales_cents),
+    numberValue(summary.net_sales_cents),
+    numberValue(summary.split_base_cents),
+    payoutCents,
+    1,
+  );
+  const bridgeSegments = [
+    {
+      label: "Gross sales",
+      value: formatCurrency(summary.gross_sales_cents),
+      cents: numberValue(summary.gross_sales_cents),
+      color: COLORS.sage,
+    },
+    {
+      label: "Refunds",
+      value: formatDeduction(summary.refund_amount_cents),
+      cents: numberValue(summary.refund_amount_cents),
+      color: COLORS.amber,
+    },
+    {
+      label: "Tax + deductions",
+      value: formatDeduction(taxAndDeductions),
+      cents: taxAndDeductions,
+      color: COLORS.softText,
+    },
+    {
+      label: "Payout basis",
+      value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
+      cents: numberValue(summary.split_base_cents ?? summary.net_sales_cents),
+      color: COLORS.slateSoft,
+    },
+    {
+      label: "Amount owed",
+      value: formatCurrency(payoutCents),
+      cents: payoutCents,
+      color: COLORS.coral,
+    },
+  ];
+  const segmentGap = 14;
+  const segmentWidth = 92;
+  bridgeSegments.forEach((segment, index) => {
+    const x = 42 + index * (segmentWidth + segmentGap);
+    const scaledWidth = Math.max((Math.abs(segment.cents) / bridgeBase) * segmentWidth, 12);
+    drawBridgeSegment(page, fonts, {
+      x,
+      y: 278,
+      width: scaledWidth,
+      label: segment.label,
+      value: segment.value,
+      color: segment.color,
+    });
+  });
+
+  page.drawRectangle({
+    x: 42,
+    y: 122,
+    width: 250,
+    height: 92,
+    color: COLORS.white,
+    borderColor: COLORS.border,
+    borderWidth: 0.7,
+  });
+  drawText(page, fonts, "What this period shows", {
+    x: 60,
+    y: 188,
+    size: 11,
+    font: fonts.bold,
+  });
+  drawText(page, fonts, `${formatInteger(summary.item_quantity)} paid or counted items across ${formatInteger(summary.order_count)} transactions produced ${formatCurrency(summary.net_sales_cents)} in net sales after refunds, taxes, and configured deductions.`, {
+    x: 60,
+    y: 168,
+    size: 8.5,
+    color: COLORS.muted,
+    maxWidth: 210,
+    lineHeight: 11,
+  });
+
+  page.drawRectangle({
+    x: 310,
+    y: 122,
+    width: 260,
+    height: 92,
+    color: COLORS.blushLight,
+    borderColor: COLORS.border,
+    borderWidth: 0.7,
+  });
+  drawText(page, fonts, "Review confidence", {
+    x: 328,
+    y: 188,
+    size: 11,
+    font: fonts.bold,
+  });
+  drawText(page, fonts, "The report was generated after required data checks passed. The appendix shows the machine-level proof behind the totals.", {
+    x: 328,
+    y: 168,
+    size: 8.5,
+    color: COLORS.muted,
+    maxWidth: 218,
+    lineHeight: 11,
+  });
+
+  drawText(page, fonts, `${feeLabel}${costLabel === "Costs" ? "" : ` and ${costLabel}`} details appear in the calculation support section.`, {
+    x: 42,
+    y: 88,
+    size: 8,
+    color: COLORS.softText,
+    maxWidth: 528,
+  });
+};
+
+const drawCalculationRow = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  {
+    y,
+    label,
+    formula,
+    value,
+    emphasis = false,
+  }: {
+    y: number;
+    label: string;
+    formula: string;
+    value: string;
+    emphasis?: boolean;
+  },
+) => {
+  const rowHeight = emphasis ? 34 : 28;
+  page.drawRectangle({
+    x: 42,
+    y: y - rowHeight + 10,
+    width: 528,
+    height: rowHeight,
+    color: emphasis ? COLORS.blushLight : COLORS.white,
+    borderColor: COLORS.border,
+    borderWidth: 0.5,
+  });
+  drawText(page, fonts, label, {
+    x: 58,
+    y: y,
+    size: emphasis ? 10 : 8.5,
+    font: emphasis ? fonts.bold : fonts.regular,
+    maxWidth: 170,
+  });
+  drawText(page, fonts, formula, {
+    x: 235,
+    y,
+    size: 7.5,
+    color: COLORS.muted,
+    maxWidth: 205,
+    lineHeight: 9,
+  });
+  drawRightAlignedText(
+    page,
+    emphasis ? fonts.bold : fonts.regular,
+    value,
+    552,
+    y,
+    emphasis ? 10 : 8.5,
+    emphasis ? COLORS.coralDark : COLORS.ink,
+  );
+};
+
+const drawDetailPage = (
+  pdfDoc: PDFDocument,
+  fonts: PdfFonts,
+  context: PartnerReportExportContext,
+  reportReference: string,
+) => {
+  const { preview, payoutRecipientLabels, calculationLabel, generatedAt, feeLabel = "Stick cost deduction", costLabel = "Costs", additionalDeductionsNotes } = context;
+  const summary = preview.summary ?? {};
+  const page = pdfDoc.addPage([612, 792]);
+  const periodLabel = getFriendlyPeriodLabel(preview);
+  const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
+  const payoutCents = getPrimaryPartnerPayoutCents(summary);
+
+  drawHeader(page, fonts, {
+    title: "Calculation support",
+    partnerName: "How the settlement was calculated",
+    periodLabel: `${getPeriodKindLabel(preview)}: ${periodLabel}`,
+    reportReference,
+    generatedAt: formatGeneratedAt(generatedAt),
+  });
+
+  drawText(page, fonts, "Settlement math", {
+    x: 42,
+    y: 620,
+    size: 13,
+    font: fonts.bold,
+  });
+  drawText(page, fonts, "This page explains the numbers in business terms so the settlement can be reviewed without internal system context.", {
+    x: 42,
+    y: 604,
+    size: 8.5,
+    color: COLORS.muted,
+    maxWidth: 505,
+  });
+
+  const taxAndDeductions = numberValue(summary.tax_cents) +
+    numberValue(summary.fee_cents) +
+    numberValue(summary.cost_cents);
+  const rows = [
+    {
+      label: "Gross sales",
+      formula: "Recorded sales for machines assigned to this partnership during the selected period.",
+      value: formatCurrency(summary.gross_sales_cents),
+    },
+    {
+      label: "Less refund impact",
+      formula: "Approved refund adjustments matched to this period and these machines.",
+      value: formatDeduction(summary.refund_amount_cents),
+    },
+    {
+      label: "Less machine taxes",
+      formula: "Machine tax assumptions applied before the payout split.",
+      value: formatDeduction(summary.tax_cents),
+    },
+    {
+      label: `Less ${feeLabel}`,
+      formula: "Contract-specific item or transaction deduction applied before the split.",
+      value: formatDeduction(summary.fee_cents),
+    },
+    {
+      label: costLabel === "Costs" ? "Less additional costs" : `Less ${costLabel}`,
+      formula: "Additional agreement-specific costs, if any, applied before the split.",
+      value: formatDeduction(summary.cost_cents),
+    },
+    {
+      label: "Net sales",
+      formula: "Gross sales minus refunds, taxes, and configured deductions.",
+      value: formatCurrency(summary.net_sales_cents),
+      emphasis: true,
+    },
+    {
+      label: "Payout basis",
+      formula: "The amount eligible for partner-share allocation under the agreement.",
+      value: formatCurrency(summary.split_base_cents ?? summary.net_sales_cents),
+      emphasis: true,
+    },
+    {
+      label: partnerLabel,
+      formula: "Partner share calculated from the payout basis and active agreement terms.",
+      value: formatCurrency(payoutCents),
+      emphasis: true,
+    },
+    {
+      label: "Bloomjoy retained",
+      formula: "Bloomjoy share retained after the partner payout.",
+      value: formatCurrency(getBloomjoyRetainedCents(summary)),
+    },
   ];
 
+  let rowY = 574;
+  rows.forEach((row) => {
+    drawCalculationRow(page, fonts, { y: rowY, ...row });
+    rowY -= row.emphasis ? 38 : 32;
+  });
+
+  page.drawRectangle({
+    x: 42,
+    y: 150,
+    width: 528,
+    height: 112,
+    color: COLORS.white,
+    borderColor: COLORS.border,
+    borderWidth: 0.7,
+  });
+  drawText(page, fonts, "Assumptions and treatments", {
+    x: 60,
+    y: 238,
+    size: 11,
+    font: fonts.bold,
+  });
+  const assumptions = [
+    `${getPeriodKindLabel(preview)} uses ${periodLabel}.`,
+    "No-pay transactions are counted in operating volume and contribute $0 to sales.",
+    "Refund impact includes approved adjustments available at generation time.",
+    `Tax plus agreement deductions total ${formatDeduction(taxAndDeductions)} for this report.`,
+  ];
+  assumptions.forEach((assumption, index) => {
+    page.drawCircle({ x: 64, y: 217 - index * 17, size: 2, color: COLORS.coral });
+    drawText(page, fonts, assumption, {
+      x: 74,
+      y: 213 - index * 17,
+      size: 8,
+      color: COLORS.muted,
+      maxWidth: 468,
+      lineHeight: 9,
+    });
+  });
+
+  const notes = [
+    calculationLabel,
+    additionalDeductionsNotes ? `Additional deduction notes: ${additionalDeductionsNotes}` : "",
+  ].filter(Boolean).join(" ");
+  if (notes) {
+    drawText(page, fonts, "Agreement note", {
+      x: 42,
+      y: 118,
+      size: 9,
+      font: fonts.bold,
+    });
+    drawText(page, fonts, notes, {
+      x: 42,
+      y: 102,
+      size: 7.5,
+      color: COLORS.muted,
+      maxWidth: 528,
+      lineHeight: 9,
+    });
+  }
+};
+
+const drawAppendixHeader = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  {
+    periodLabel,
+    reportReference,
+    generatedAt,
+  }: {
+    periodLabel: string;
+    reportReference: string;
+    generatedAt: string;
+  },
+) => {
+  const { width, height } = page.getSize();
+  page.drawRectangle({ x: 0, y: 0, width, height, color: COLORS.page });
+  page.drawRectangle({ x: 0, y: height - 9, width, height: 9, color: COLORS.coral });
+  drawText(page, fonts, "Machine appendix", {
+    x: 30,
+    y: height - 34,
+    size: 16,
+    font: fonts.bold,
+  });
+  drawText(page, fonts, periodLabel, {
+    x: 30,
+    y: height - 50,
+    size: 8,
+    color: COLORS.muted,
+  });
+  drawRightAlignedText(page, fonts.bold, reportReference, width - 30, height - 34, 8, COLORS.ink);
+  drawRightAlignedText(page, fonts.regular, `Generated ${generatedAt}`, width - 30, height - 48, 7, COLORS.muted);
+};
+
+const drawAppendixTableHeader = (
+  page: PDFPage,
+  fonts: PdfFonts,
+  y: number,
+  columns: Array<{ label: string; x: number; width: number; align?: "right" }>,
+) => {
+  page.drawRectangle({
+    x: 30,
+    y: y - 14,
+    width: 732,
+    height: 22,
+    color: COLORS.slatePanel,
+  });
+  columns.forEach((column) => {
+    const lines = wrapTextToWidth(column.label, fonts.bold, 6.5, column.width);
+    lines.slice(0, 2).forEach((line, index) => {
+      if (column.align === "right") {
+        drawRightAlignedText(page, fonts.bold, line, column.x + column.width, y - index * 8, 6.5, COLORS.white);
+        return;
+      }
+      drawText(page, fonts, line, {
+        x: column.x,
+        y: y - index * 8,
+        size: 6.5,
+        font: fonts.bold,
+        color: COLORS.white,
+      });
+    });
+  });
+};
+
+const drawAppendixPage = (
+  pdfDoc: PDFDocument,
+  fonts: PdfFonts,
+  periodLabel: string,
+  reportReference: string,
+  generatedAt: string,
+) => {
+  const page = pdfDoc.addPage([792, 612]);
+  drawAppendixHeader(page, fonts, { periodLabel, reportReference, generatedAt });
+  return page;
+};
+
+const drawMachineAppendix = (
+  pdfDoc: PDFDocument,
+  fonts: PdfFonts,
+  context: PartnerReportExportContext,
+  reportReference: string,
+) => {
+  const { preview, generatedAt, feeLabel = "Deductions" } = context;
+  const periodLabel = `${getPeriodKindLabel(preview)}: ${getFriendlyPeriodLabel(preview)}`;
+  const generatedAtLabel = formatGeneratedAt(generatedAt);
+  const machines = preview.machines ?? [];
+  const columns = [
+    { label: "Machine", x: 34, width: 145 },
+    { label: "Orders", x: 190, width: 38, align: "right" as const },
+    { label: "Items", x: 236, width: 42, align: "right" as const },
+    { label: "Gross sales", x: 286, width: 66, align: "right" as const },
+    { label: "Refund impact", x: 360, width: 66, align: "right" as const },
+    { label: "Tax + deductions", x: 434, width: 78, align: "right" as const },
+    { label: "Net sales", x: 520, width: 62, align: "right" as const },
+    { label: "Payout basis", x: 590, width: 62, align: "right" as const },
+    { label: "Amount owed", x: 660, width: 58, align: "right" as const },
+    { label: "Bloomjoy", x: 724, width: 38, align: "right" as const },
+  ];
+
+  let page = drawAppendixPage(pdfDoc, fonts, periodLabel, reportReference, generatedAtLabel);
+  let y = 526;
+  drawText(page, fonts, `Detailed machine rollup. Machine labels are shown as partner-facing names. ${feeLabel} is combined with tax in the tax + deductions column.`, {
+    x: 30,
+    y,
+    size: 8,
+    color: COLORS.muted,
+    maxWidth: 720,
+  });
+  y -= 36;
+  drawAppendixTableHeader(page, fonts, y, columns);
+  y -= 28;
+
+  if (machines.length === 0) {
+    page.drawRectangle({
+      x: 30,
+      y: 408,
+      width: 732,
+      height: 60,
+      color: COLORS.white,
+      borderColor: COLORS.border,
+      borderWidth: 0.7,
+    });
+    drawText(page, fonts, "No machine activity is included in this report period.", {
+      x: 48,
+      y: 440,
+      size: 10,
+      font: fonts.bold,
+      color: COLORS.muted,
+    });
+    return;
+  }
+
+  machines.forEach((machine, index) => {
+    const labelLines = wrapTextToWidth(machine.machine_label ?? "Unnamed machine", fonts.regular, 7, columns[0].width);
+    const rowHeight = Math.max(28, labelLines.length * 9 + 12);
+
+    if (y - rowHeight < 54) {
+      page = drawAppendixPage(pdfDoc, fonts, periodLabel, reportReference, generatedAtLabel);
+      y = 526;
+      drawAppendixTableHeader(page, fonts, y, columns);
+      y -= 28;
+    }
+
+    page.drawRectangle({
+      x: 30,
+      y: y - rowHeight + 8,
+      width: 732,
+      height: rowHeight,
+      color: index % 2 === 0 ? COLORS.white : COLORS.blushLight,
+      borderColor: COLORS.border,
+      borderWidth: 0.35,
+    });
+
+    labelLines.forEach((line, lineIndex) => {
+      drawText(page, fonts, line, {
+        x: columns[0].x,
+        y: y - lineIndex * 9,
+        size: 7,
+        color: COLORS.ink,
+      });
+    });
+
+    const taxAndDeductions = numberValue(machine.tax_cents) +
+      numberValue(machine.fee_cents) +
+      numberValue(machine.cost_cents);
+    const values = [
+      formatInteger(machine.order_count),
+      formatInteger(machine.item_quantity),
+      formatCurrency(machine.gross_sales_cents),
+      formatDeduction(machine.refund_amount_cents),
+      formatDeduction(taxAndDeductions),
+      formatCurrency(machine.net_sales_cents),
+      formatCurrency(machine.split_base_cents ?? machine.net_sales_cents),
+      formatCurrency(getMachinePartnerPayoutCents(machine)),
+      formatCurrency(getMachineBloomjoyRetainedCents(machine)),
+    ];
+
+    values.forEach((value, valueIndex) => {
+      const column = columns[valueIndex + 1];
+      drawRightAlignedText(page, fonts.regular, value, column.x + column.width, y, 6.7, COLORS.ink);
+    });
+
+    y -= rowHeight;
+  });
+};
+
+export const buildPartnerReportPdf = async (
+  context: PartnerReportExportContext,
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.create();
+  const fonts = {
+    regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
+    bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+  };
+  const reportReference = buildPartnerReportReference(
+    context.snapshotId,
+    context.preview,
+  );
+  const periodLabel = `${getPeriodKindLabel(context.preview)}: ${
+    getFriendlyPeriodLabel(context.preview)
+  }`;
+
+  drawDashboardPage(pdfDoc, fonts, context, reportReference);
+  drawDetailPage(pdfDoc, fonts, context, reportReference);
+  drawMachineAppendix(pdfDoc, fonts, context, reportReference);
+
+  const pages = pdfDoc.getPages();
   pages.forEach((page, index) => {
-    const pageObjectId = 3 + index * 2;
-    const contentObjectId = pageObjectId + 1;
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${
-        3 + pages.length * 2
-      } 0 R /F2 ${
-        4 + pages.length * 2
-      } 0 R >> >> /Contents ${contentObjectId} 0 R >>`,
-    );
-    objects.push(
-      `<< /Length ${
-        encoder.encode(page).length
-      } >>\nstream\n${page}\nendstream`,
+    drawFooter(
+      page,
+      fonts,
+      reportReference,
+      periodLabel,
+      index + 1,
+      pages.length,
     );
   });
 
-  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
-
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [];
-  objects.forEach((object, index) => {
-    offsets.push(encoder.encode(pdf).length);
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-
-  const xrefOffset = encoder.encode(pdf).length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.forEach((offset) => {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${
-    objects.length + 1
-  } /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-  return encoder.encode(pdf);
+  return pdfDoc.save();
 };

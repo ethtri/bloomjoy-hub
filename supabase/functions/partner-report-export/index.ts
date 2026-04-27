@@ -5,6 +5,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   buildPartnerReportCsv,
   buildPartnerReportPdf,
+  buildPartnerReportReference,
   type PartnerReportPreview,
 } from "../_shared/partner-report-export.ts";
 
@@ -28,7 +29,7 @@ type PartnerPeriodPreviewRpc = {
   date_to?: string;
   summary?: Record<string, unknown>;
   machine_periods?: Array<Record<string, unknown>>;
-  warnings?: Array<{ message?: string }>;
+  warnings?: Array<{ message?: string; severity?: string }>;
 };
 
 type ExportRequest = {
@@ -217,6 +218,11 @@ const getRuleExportLabels = (rule: Record<string, unknown> | null) => ({
     .trim() || null,
 });
 
+const getBlockingWarnings = (preview: PartnerReportPreview) =>
+  (preview.warnings ?? []).filter((warning) =>
+    String(warning.severity ?? "blocking").toLowerCase() !== "non_blocking"
+  );
+
 const getPayoutRecipientLabels = async (
   partnershipId: string,
 ): Promise<string[]> => {
@@ -321,9 +327,13 @@ const mapPeriodPreviewToPartnerReportPreview = (
       fee_cents: Number(machine.fee_cents ?? 0),
       cost_cents: Number(machine.cost_cents ?? 0),
       net_sales_cents: Number(machine.net_sales_cents ?? 0),
+      split_base_cents: Number(machine.split_base_cents ?? 0),
+      amount_owed_cents: Number(machine.amount_owed_cents ?? 0),
+      bloomjoy_retained_cents: Number(machine.bloomjoy_retained_cents ?? 0),
     })),
     warnings: (data?.warnings ?? []).map((warning) => ({
       message: warning.message,
+      severity: warning.severity,
     })),
   };
 };
@@ -503,6 +513,14 @@ serve(async (req) => {
         (previewData ?? {}) as PartnerPeriodPreviewRpc,
         request,
       );
+    const blockingWarnings = getBlockingWarnings(preview);
+    if (blockingWarnings.length > 0) {
+      return jsonResponse({
+        error:
+          "Resolve blocking report review items before exporting this partner report.",
+      }, 409);
+    }
+
     const generatedAt = new Date().toISOString();
     const [payoutRecipientLabels, financialRule] = await Promise.all([
       getPayoutRecipientLabels(request.partnershipId),
@@ -537,6 +555,7 @@ serve(async (req) => {
         periodLabel: request.periodLabel,
       },
     });
+    const reportReference = buildPartnerReportReference(snapshot.id, preview);
     const context = {
       preview,
       payoutRecipientLabels: exportPayoutRecipientLabels,
@@ -546,7 +565,7 @@ serve(async (req) => {
       ...ruleExportLabels,
     };
     const fileBytes = request.format === "pdf"
-      ? buildPartnerReportPdf(context)
+      ? await buildPartnerReportPdf(context)
       : encoder.encode(buildPartnerReportCsv(context));
     const contentType = request.format === "pdf"
       ? "application/pdf"
@@ -591,6 +610,7 @@ serve(async (req) => {
       calculationLabel,
       payoutRecipientLabels: exportPayoutRecipientLabels,
       snapshotId: snapshot.id,
+      reportReference,
       ...ruleExportLabels,
       periodGrain: request.periodGrain,
       periodStartDate: request.periodStartDate,
