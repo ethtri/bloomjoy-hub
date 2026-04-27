@@ -58,10 +58,11 @@ export default function AdminDashboardPage() {
               Bloomjoy Operations
             </p>
             <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-              Admin Dashboard
+              Admin Home
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Use the app shell for quick switches between portal and operations tools.
+              Use the admin tools navigation for quick switches between access, setup,
+              reporting, and operations queues.
             </p>
           </div>
         </div>

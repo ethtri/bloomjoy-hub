@@ -1,13 +1,22 @@
 import type { ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
+  BarChart3,
+  Building2,
   ExternalLink,
+  Handshake,
   KeyRound,
+  LayoutDashboard,
+  LifeBuoy,
   LogOut,
   Menu,
+  MonitorCog,
   Settings,
   Shield,
+  ShoppingBag,
   User,
+  Users,
+  type LucideIcon,
 } from 'lucide-react';
 import logo from '@/assets/logo.png';
 import { portalDestinations, getPortalDestinationByPath } from '@/components/portal/portalNavigation';
@@ -34,46 +43,78 @@ type AppContext = {
   description: string;
 };
 
-const adminDestinations = [
+type AdminDestination = {
+  href: string;
+  label: string;
+  shortLabel: string;
+  description: string;
+  icon: LucideIcon;
+  requiresSuperAdmin?: boolean;
+};
+
+const adminDestinations: AdminDestination[] = [
   {
     href: '/admin',
-    label: 'Admin dashboard',
+    label: 'Admin home',
+    shortLabel: 'Home',
     description: 'Operations modules, queue visibility, and internal governance tools.',
+    icon: LayoutDashboard,
+    requiresSuperAdmin: true,
   },
   {
     href: '/admin/orders',
-    label: 'Admin orders',
+    label: 'Orders',
+    shortLabel: 'Orders',
     description: 'Fulfillment updates, tracking links, and order operations.',
+    icon: ShoppingBag,
+    requiresSuperAdmin: true,
   },
   {
     href: '/admin/support',
-    label: 'Admin support',
+    label: 'Support',
+    shortLabel: 'Support',
     description: 'Support triage, concierge intake, and request routing.',
+    icon: LifeBuoy,
+    requiresSuperAdmin: true,
   },
   {
     href: '/admin/access',
-    label: 'Admin access',
+    label: 'Access',
+    shortLabel: 'Access',
     description: 'Users, Plus grants, global roles, reporting access, and audit history.',
+    icon: Users,
   },
   {
     href: '/admin/partner-records',
     label: 'Partner records',
+    shortLabel: 'Partner Records',
     description: 'Reusable external organizations and reporting contacts.',
+    icon: Building2,
+    requiresSuperAdmin: true,
   },
   {
     href: '/admin/machines',
     label: 'Machines',
+    shortLabel: 'Machines',
     description: 'Machine aliases, external machine IDs, assignment readiness, and tax rates.',
+    icon: MonitorCog,
+    requiresSuperAdmin: true,
   },
   {
     href: '/admin/partnerships',
-    label: 'Admin partnerships',
+    label: 'Partnerships',
+    shortLabel: 'Partnerships',
     description: 'Guided agreement setup, participants, assigned machines, split terms, and preview.',
+    icon: Handshake,
+    requiresSuperAdmin: true,
   },
   {
     href: '/admin/reporting',
-    label: 'Admin reporting',
+    label: 'Reporting',
+    shortLabel: 'Reporting',
     description: 'Report schedules, exports, and sync status.',
+    icon: BarChart3,
+    requiresSuperAdmin: true,
   },
 ];
 
@@ -131,13 +172,10 @@ const workspaceLinks = [
   },
 ];
 
-const mobileAdminDestinations = [
-  { href: '/admin/access', label: 'Access' },
-  { href: '/admin/partner-records', label: 'Partner Records' },
-  { href: '/admin/machines', label: 'Machines' },
-  { href: '/admin/partnerships', label: 'Partnerships' },
-  { href: '/admin/reporting', label: 'Reporting' },
-];
+const isActiveAdminDestination = (pathname: string, destination: AdminDestination) =>
+  destination.href === '/admin'
+    ? pathname === '/admin'
+    : pathname === destination.href || pathname.startsWith(`${destination.href}/`);
 
 export function AppLayout({ children }: AppLayoutProps) {
   const { isAdmin, isAuthenticated, isSuperAdmin, portalAccessTier, signOut, user } = useAuth();
@@ -150,6 +188,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const showAccountLink = portalAccessTier !== 'training';
   const homeUrl = isAuthenticated ? '/portal' : '/login';
   const isAdminPath = location.pathname.startsWith('/admin');
+  const visibleAdminDestinations = adminDestinations.filter(
+    (item) => isSuperAdmin || !item.requiresSuperAdmin
+  );
 
   const handleSignOut = async () => {
     await signOut();
@@ -205,32 +246,76 @@ export function AppLayout({ children }: AppLayoutProps) {
         Admin tools
       </div>
       <div className="grid gap-2">
-        {mobileAdminDestinations
-          .filter((item) => isSuperAdmin || item.href === '/admin/access')
-          .map((item) => {
-            const isActive =
-              location.pathname === item.href || location.pathname.startsWith(`${item.href}/`);
+        {visibleAdminDestinations.map((item) => {
+          const isActive = isActiveAdminDestination(location.pathname, item);
+          const Icon = item.icon;
 
-            return (
-              <SheetClose asChild key={item.href}>
-                <Link
-                  to={item.href}
-                  className={cn(
-                    'flex min-h-11 items-center justify-between rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'border-primary/20 bg-primary/10 text-primary'
-                      : 'border-border bg-background text-foreground hover:bg-muted/40'
-                  )}
-                >
-                  <span>{item.label}</span>
-                  {isActive && <span className="text-xs text-primary">Current</span>}
-                </Link>
-              </SheetClose>
-            );
-          })}
+          return (
+            <SheetClose asChild key={item.href}>
+              <Link
+                to={item.href}
+                className={cn(
+                  'flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'border-primary/20 bg-primary/10 text-primary'
+                    : 'border-border bg-background text-foreground hover:bg-muted/40'
+                )}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.shortLabel}</span>
+                </span>
+                {isActive && <span className="shrink-0 text-xs text-primary">Current</span>}
+              </Link>
+            </SheetClose>
+          );
+        })}
       </div>
     </div>
   );
+
+  const renderAdminSubnav = () => {
+    if (!isAuthenticated || !isAdmin || !isAdminPath || visibleAdminDestinations.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="hidden border-t border-border/60 md:block">
+        <div className="container-page">
+          <nav
+            aria-label="Admin tools"
+            className="flex items-center gap-2 overflow-x-auto py-2.5"
+          >
+            <span className="shrink-0 pr-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Admin tools
+            </span>
+            {visibleAdminDestinations.map((item) => {
+              const isActive = isActiveAdminDestination(location.pathname, item);
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  aria-current={isActive ? 'page' : undefined}
+                  title={item.description}
+                  className={cn(
+                    'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'border-primary/20 bg-primary/10 text-primary'
+                      : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.shortLabel}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-muted/20">
@@ -360,6 +445,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             </div>
           </div>
         </div>
+        {renderAdminSubnav()}
       </header>
 
       <main className="flex-1">{children}</main>
