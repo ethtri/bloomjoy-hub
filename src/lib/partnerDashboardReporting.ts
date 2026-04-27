@@ -132,6 +132,16 @@ const numberValue = (value: unknown): number => {
   return Number.isFinite(normalized) ? normalized : 0;
 };
 
+const neutralizeProviderCopy = (value: unknown, fallback = '') =>
+  String(value ?? fallback)
+    .replace(/sunze-sales-ingest/gi, 'sales import endpoint')
+    .replace(/sunze-sales-sync/gi, 'sales import workflow')
+    .replace(/sunze-orders/gi, 'provider import')
+    .replace(/sunze_browser/gi, 'sales import')
+    .replace(/\bsunze-[a-z0-9-]+\b/gi, 'sales source')
+    .replace(/\b[a-z0-9_]*sunze[a-z0-9_]*\b/gi, 'sales source')
+    .replace(/\bSunze\b/gi, 'sales source');
+
 const mapTotals = (record: PartnerDashboardTotalsRpc | undefined): PartnerDashboardTotals => ({
   orderCount: numberValue(record?.order_count),
   itemQuantity: numberValue(record?.item_quantity),
@@ -158,8 +168,8 @@ const mapMachinePeriod = (
   periodStart: String(record.period_start ?? ''),
   periodEnd: String(record.period_end ?? ''),
   reportingMachineId: String(record.reporting_machine_id ?? ''),
-  machineLabel: String(record.machine_label ?? 'Unnamed machine'),
-  locationName: record.location_name ?? null,
+  machineLabel: neutralizeProviderCopy(record.machine_label, 'Unnamed machine'),
+  locationName: record.location_name ? neutralizeProviderCopy(record.location_name) : null,
   ...mapTotals(record),
 });
 
@@ -167,8 +177,8 @@ const mapWarning = (record: PartnerDashboardWarningRpc): PartnerDashboardWarning
   warningType: String(record.warning_type ?? 'unknown'),
   severity: record.severity === 'non_blocking' ? 'non_blocking' : 'blocking',
   machineId: record.machine_id ?? null,
-  machineLabel: record.machine_label ?? null,
-  message: String(record.message ?? 'Review this reporting issue before sharing numbers.'),
+  machineLabel: record.machine_label ? neutralizeProviderCopy(record.machine_label) : null,
+  message: neutralizeProviderCopy(record.message, 'Review this reporting issue before sharing numbers.'),
 });
 
 export const fetchPartnerDashboardPartnerships = async (): Promise<
@@ -186,7 +196,7 @@ export const fetchPartnerDashboardPartnerships = async (): Promise<
     .filter((partnership) => partnership.id && partnership.status === 'active')
     .map((partnership) => ({
       id: partnership.id as string,
-      name: partnership.name ?? 'Unnamed partnership',
+      name: neutralizeProviderCopy(partnership.name, 'Unnamed partnership'),
       status: partnership.status ?? 'draft',
       reportingWeekEndDay: Number(partnership.reporting_week_end_day ?? 0),
       timezone: partnership.timezone ?? 'America/Los_Angeles',
@@ -220,7 +230,7 @@ export const fetchPartnerDashboardPeriodPreview = async ({
 
   return {
     partnershipId: String(record.partnership_id ?? partnershipId),
-    partnershipName: String(record.partnership_name ?? 'Partnership'),
+    partnershipName: neutralizeProviderCopy(record.partnership_name, 'Partnership'),
     periodGrain: record.period_grain ?? periodGrain,
     dateFrom: String(record.date_from ?? dateFrom),
     dateTo: String(record.date_to ?? dateTo),

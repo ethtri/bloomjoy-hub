@@ -18,7 +18,7 @@ Before asking for owner UAT, the agent must provide:
 - Any known limits or intentionally untested paths.
 - Rollback plan for medium/high-risk work.
 
-Do not put real passwords, secret keys, service-role tokens, Stripe secrets, Sunze credentials, Google credentials, or Supabase secrets in the repo, PRs, issues, screenshots, or chat. If a test account is needed, identify the persona and email only; share passwords through the owner's approved secure channel.
+Do not put real passwords, secret keys, service-role tokens, Stripe secrets, sales-provider credentials, Google credentials, or Supabase secrets in the repo, PRs, issues, screenshots, or chat. If a test account is needed, identify the persona and email only; share passwords through the owner's approved secure channel.
 
 ## Owner UAT Versus AI Verification
 

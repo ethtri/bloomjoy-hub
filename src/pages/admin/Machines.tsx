@@ -59,7 +59,7 @@ type MachineSort = 'status' | 'machine' | 'account' | 'latest_sale';
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
 const initialReportingTaxStartDate = '2026-01-01';
-const hiddenFallbackLocationName = 'Unmapped Sunze Machines';
+const hiddenFallbackLocationName = 'Unmapped source machines';
 
 const emptySetup: PartnershipReportingSetup = {
   partners: [],
@@ -117,8 +117,10 @@ export default function AdminMachinesPage() {
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
 
   const highlightedMachineId = searchParams.get('machineId');
-  const pendingSunzeMachineId = searchParams.get('sunzeMachineId');
-  const pendingSunzeMachineName = searchParams.get('sunzeMachineName');
+  const pendingSunzeMachineId =
+    searchParams.get('externalMachineId') ?? searchParams.get('sunzeMachineId');
+  const pendingSunzeMachineName =
+    searchParams.get('externalMachineName') ?? searchParams.get('sunzeMachineName');
 
   const {
     data: setup = emptySetup,
@@ -236,6 +238,8 @@ export default function AdminMachinesPage() {
     nextParams.delete('machineId');
     nextParams.delete('sunzeMachineId');
     nextParams.delete('sunzeMachineName');
+    nextParams.delete('externalMachineId');
+    nextParams.delete('externalMachineName');
     setSearchParams(nextParams, { replace: true });
     setIsMachineDialogOpen(true);
   };
@@ -246,6 +250,8 @@ export default function AdminMachinesPage() {
     nextParams.set('machineId', machine.id);
     nextParams.delete('sunzeMachineId');
     nextParams.delete('sunzeMachineName');
+    nextParams.delete('externalMachineId');
+    nextParams.delete('externalMachineName');
     setSearchParams(nextParams, { replace: true });
     setIsMachineDialogOpen(true);
   };
@@ -257,6 +263,8 @@ export default function AdminMachinesPage() {
       nextParams.delete('machineId');
       nextParams.delete('sunzeMachineId');
       nextParams.delete('sunzeMachineName');
+      nextParams.delete('externalMachineId');
+      nextParams.delete('externalMachineName');
       setSearchParams(nextParams, { replace: true });
     }
   };
@@ -382,7 +390,7 @@ export default function AdminMachinesPage() {
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Machines</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage machine labels, Sunze mapping, partnership assignment readiness, and
+                Manage machine labels, external machine IDs, partnership assignment readiness, and
                 reporting tax rates in one operational table.
               </p>
             </div>
@@ -443,7 +451,7 @@ export default function AdminMachinesPage() {
                     className="pl-9"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Machine, account, Sunze ID, partnership"
+                    placeholder="Machine, account, external machine ID, partnership"
                   />
                 </div>
               </div>
@@ -509,7 +517,7 @@ export default function AdminMachinesPage() {
                       <th className="px-4 py-3 text-left font-semibold">Machine label / alias</th>
                       <th className="px-4 py-3 text-left font-semibold">Account</th>
                       <th className="px-4 py-3 text-left font-semibold">Type</th>
-                      <th className="px-4 py-3 text-left font-semibold">Sunze ID</th>
+                      <th className="px-4 py-3 text-left font-semibold">External machine ID</th>
                       <th className="px-4 py-3 text-left font-semibold">Assignment</th>
                       <th className="px-4 py-3 text-left font-semibold">Tax status</th>
                       <th className="px-4 py-3 text-left font-semibold">Reporting tax %</th>
@@ -877,7 +885,7 @@ function MachineDialog({
         )
       : null;
     if (duplicateSunze) {
-      toast.error('This Sunze ID is already assigned to another machine.');
+      toast.error('This external machine ID is already assigned to another machine.');
       return;
     }
 
@@ -907,7 +915,7 @@ function MachineDialog({
         <DialogHeader>
           <DialogTitle>{form.machineId ? 'Edit Machine' : 'New Machine'}</DialogTitle>
           <DialogDescription>
-            Update the reporting label, account display, machine type, and Sunze mapping.
+            Update the reporting label, account display, machine type, and external machine ID.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -949,10 +957,10 @@ function MachineDialog({
             </select>
           </div>
           <div className="sm:col-span-2">
-            <Label htmlFor="sunze-id">Sunze ID</Label>
+            <Label htmlFor="sunze-id">External machine ID</Label>
             <Input
               id="sunze-id"
-              value={form.sunzeMachineId || 'Not mapped from Sunze yet'}
+              value={form.sunzeMachineId || 'Not mapped from a provider import yet'}
               readOnly
               aria-readonly="true"
             />

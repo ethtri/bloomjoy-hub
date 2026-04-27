@@ -179,11 +179,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
 - [ ] Portal Reports > Partner Dashboard shows gross sales, refund impact, net sales, split base, and amount owed as separate values when applied refund adjustments exist
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
-- [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
+- [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
 - [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate, current customer-service export header, live sheet-shaped rows, sanitized-payload, and partner-settlement fixtures
 - [ ] Refund Adjustment Sync GitHub Action can be run manually with `dry_run=true` and returns aggregate counts only, with no customer names, emails, payment IDs, card digits, or free-text incident descriptions in logs
-- [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, reconciles parsed row count/revenue against the Sunze UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
-- [ ] `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30` reports the latest completed Sunze import or sends a stale-data ops alert
+- [ ] `npm run reporting:provider-sync -- --dry-run` downloads the provider Orders export, reconciles parsed row count/revenue against the provider UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
+- [ ] `npm run reporting:provider-health -- --event freshness_check --stale-hours 30` reports the latest completed sales import or sends a stale-data ops alert
 
 ## Payments (test mode)
 - [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
@@ -270,7 +270,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Participants includes an `Add new partner record` dropdown option that opens a modal, saves minimum viable partner fields, and selects the new record
 - [ ] Admin Partnerships > Machines supports bulk searchable check/uncheck machine alignment and archives unchecked active assignments without exposing dates, status, role, or notes
 - [ ] Admin Partnerships > Machines shows when selected machines are already assigned to another active partnership and requires confirmation before saving an overlap
-- [ ] Admin Machines can edit machine label/alias, account, and machine type while hiding location and showing Sunze ID as read-only system metadata
+- [ ] Admin Machines can edit machine label/alias, account, and machine type while hiding location and showing external machine ID as read-only system metadata
 - [ ] Admin Machines shows a sortable/filterable table with assignment readiness, assignment state filters, latest sale, and current tax states: Missing, No tax, Configured
 - [ ] Admin Machines can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow, and newly documented rates apply from `2026-01-01`
 - [ ] Admin Machines can record a reporting tax rate change with only `New reporting tax %` and `Applies from`, and the previous active rate closes without overlap
@@ -286,10 +286,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
 - [ ] Admin Partnerships > Weekly Preview shows actionable in-page readiness messages when the selected week has no active machine assignment coverage, no active payout rule coverage, partial-week coverage, or no imported assigned-machine sales
 - [ ] Authenticated Weekly Preview smoke path is run from `Docs/WEEKLY_PREVIEW_SMOKE_TEST.md` with a super-admin on `/admin/partnerships?partnershipId=<qualified_fixture_partnership_id>&step=preview`
-- [ ] Authenticated Weekly Preview happy path for week ending `2026-04-19` shows `2026-04-13 through 2026-04-19`, `Ready`, `Orders` > 0, `Gross sales` > `$0`, and at least one `Sales by Machine` row after the Sunze backfill/setup dates are corrected
+- [ ] Authenticated Weekly Preview happy path for week ending `2026-04-19` shows `2026-04-13 through 2026-04-19`, `Ready`, `Orders` > 0, `Gross sales` > `$0`, and at least one `Sales by Machine` row after the provider import backfill/setup dates are corrected
 - [ ] Authenticated Weekly Preview warning states are checked for `No machines are assigned for this week`, `No active payout rule covers this week`, and `No sales found for this selected week`
 - [ ] Admin Partnerships > Weekly Preview labels payout metrics with legal partner names when recorded, otherwise the same participant names used in Payout Rules, plus Bloomjoy
-- [ ] Admin Partnerships > Weekly Preview matches the corrected Bubble Planet product math: Sunze order amount as gross, machine tax plus configured `$0.40` stick-level cost deduction before split, no-pay orders counted as `$0`, and 60/40 split when configured
+- [ ] Admin Partnerships > Weekly Preview matches the corrected Bubble Planet product math: sales-source order amount as gross, machine tax plus configured `$0.40` stick-level cost deduction before split, no-pay orders counted as `$0`, and 60/40 split when configured
 - [ ] Admin Partnerships > Weekly Preview shows refund impact separately and reduces net sales, split base, and amount owed only for applied refund adjustments
 - [ ] Admin Partnerships > Weekly Preview can generate a branded partner PDF and a CSV reconciliation export from the loaded preview, and both exports include the snapshot ID
 - [ ] Portal Reports > Partner Dashboard can download PDF and CSV exports from the Weekly view for the current completed report week, and the artifact filename/snapshot metadata identify the weekly period
@@ -308,9 +308,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin reporting shows report export archive, partner report exports, recent sales/refund import runs, and stale/failed sync status clearly
 - [ ] Admin Reporting > Sync shows a refund adjustment review summary/list where ambiguous, unmatched, duplicate, invalid, and missing-status rows require review and do not silently affect settlement
 - [ ] Admin Reporting > Sync shows the latest live refund sync run after the scheduled workflow runs, and open/denied rows remain review-only
-- [ ] Admin reporting does not mark Sunze freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
-- [ ] Admin can open discovered Sunze machine IDs from `/admin/reporting`, map them in `/admin/machines`, ignore them, and reopen them
-- [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
+- [ ] Admin reporting does not mark sales import freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
+- [ ] Admin can open discovered source machine IDs from `/admin/reporting`, map them in `/admin/machines`, ignore them, and reopen them
+- [ ] Failed, stale, or mapping-needed sales ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
 - [ ] Non-admin user cannot access `/admin/audit`
 - [ ] Super-admin user can access `/admin/audit`
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata

@@ -60,22 +60,22 @@ Guidelines:
 17. Webhook sync (membership/order status -> DB)
 
 ## P0 - Corporate partner reporting (current critical path)
-18. **Harden Sunze sales source controls before partner report launch** (`#161`)
-   - Merge the hardened Sunze sync controls before relying on weekly partner reporting.
+18. **Harden sales-source controls before partner report launch** (`#161`)
+   - Merge the hardened provider import controls before relying on weekly partner reporting.
    - Confirm mapped-machine imports, unmapped-machine quarantine, dry-run/live sync, and freshness reporting are green.
    - Dependency: merged sales reporting foundation.
 
 19. **Streamline admin partnership setup** (`#167`)
    - Merge the selected-partnership setup workflow after syncing with `main`.
    - Keep participants, assigned machines, current machine tax rates, financial split terms, and weekly preview together in `/admin/partnerships`.
-   - Dependency: Sunze controls and merged partnership reporting foundation.
+   - Dependency: sales-source controls and merged partnership reporting foundation.
 
 20. **Corporate partner reviewed PDF milestone**
    - Add partner-report snapshot/run records for reporting period, rule version, assumptions, generated-by user, status, recipients/download metadata, storage path, and warning state.
    - Generate a polished weekly PDF with executive summary, machine-level appendix, calculation assumptions, amount owed, generated timestamp, and snapshot ID.
    - Keep delivery manual for V1: super-admin reviews, downloads, then sends outside automation until the report is trusted.
    - Status: weekly/monthly PDF and CSV exports are implemented and production-smoke-tested for current partner agreements; reviewed refund adjustment math is implemented in `#236`/PR `#245`; remaining external blocker is live refund sheet contract/service-account ingestion in `#244`.
-   - Dependency: partnership setup UX and reliable Sunze sales facts.
+   - Dependency: partnership setup UX and reliable imported sales facts.
 
 ## P1 - Reporting UX/CX follow-ups
 21. **Partner dashboard UX/CX and reporting tab design** (`#172`)
@@ -120,8 +120,8 @@ Guidelines:
    - Tighten public page spacing on `/machines`, `/resources`, `/plus`, and `/contact` without changing the global visual system.
    - Improve contact form labels/input semantics, mobile icon-button labels, and product-gallery thumbnail state.
    - Validate the remediated public routes on desktop and common mobile viewport sizes.
-33. **Simplify Sunze machine mapping admin flow** (`#174`)
-   - Add a focused mapping action from `/admin/reporting` for newly discovered Sunze machines.
+33. **Simplify source machine mapping admin flow** (`#174`)
+   - Add a focused mapping action from `/admin/reporting` for newly discovered source machines.
    - Keep location/site grouping optional and support multiple machines at the same location.
    - Let admins assign reporting users during mapping, while keeping partner/tax setup as a separate advanced step.
 34. **Parts taxonomy integration for training + parts assistance** (`#127`)

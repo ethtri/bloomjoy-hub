@@ -186,6 +186,16 @@ const getPreviewWeekStartDate = (weekEndingDate: string) => {
   return dateInputFromDate(date);
 };
 
+const neutralizeProviderCopy = (value: unknown, fallback = '') =>
+  String(value ?? fallback)
+    .replace(/sunze-sales-ingest/gi, 'sales import endpoint')
+    .replace(/sunze-sales-sync/gi, 'sales import workflow')
+    .replace(/sunze-orders/gi, 'provider import')
+    .replace(/sunze_browser/gi, 'sales import')
+    .replace(/\bsunze-[a-z0-9-]+\b/gi, 'sales source')
+    .replace(/\b[a-z0-9_]*sunze[a-z0-9_]*\b/gi, 'sales source')
+    .replace(/\bSunze\b/gi, 'sales source');
+
 const normalizePartnerWeeklyReportPreview = (
   data: unknown,
   partnershipId: string,
@@ -215,14 +225,16 @@ const normalizePartnerWeeklyReportPreview = (
   if (periodPreview?.summary || periodPreview?.machine_periods) {
     return {
       partnershipId: String(periodPreview.partnership_id ?? partnershipId),
-      partnershipName: periodPreview.partnership_name,
+      partnershipName: periodPreview.partnership_name
+        ? neutralizeProviderCopy(periodPreview.partnership_name)
+        : undefined,
       weekEndingDate: String(periodPreview.date_to ?? weekEndingDate),
       weekStartDate: String(periodPreview.date_from ?? getPreviewWeekStartDate(weekEndingDate)),
       summary: periodPreview.summary ?? {},
       machines: Array.isArray(periodPreview.machine_periods)
         ? periodPreview.machine_periods.map((machine) => ({
             reporting_machine_id: String(machine.reporting_machine_id ?? ''),
-            machine_label: String(machine.machine_label ?? 'Unnamed machine'),
+            machine_label: neutralizeProviderCopy(machine.machine_label, 'Unnamed machine'),
             order_count: Number(machine.order_count ?? 0),
             item_quantity: Number(machine.item_quantity ?? 0),
             gross_sales_cents: Number(machine.gross_sales_cents ?? 0),
@@ -239,10 +251,12 @@ const normalizePartnerWeeklyReportPreview = (
         ? periodPreview.warnings.map((warning) => ({
             warningType: String(warning.warningType ?? warning.warning_type ?? 'unknown'),
             machineId: warning.machine_id ?? undefined,
-            machineLabel: warning.machine_label ?? undefined,
+            machineLabel: warning.machine_label ? neutralizeProviderCopy(warning.machine_label) : undefined,
             partnershipId: warning.partnership_id ?? undefined,
-            partnershipName: warning.partnership_name ?? undefined,
-            message: String(warning.message ?? 'Review this reporting issue before sharing numbers.'),
+            partnershipName: warning.partnership_name
+              ? neutralizeProviderCopy(warning.partnership_name)
+              : undefined,
+            message: neutralizeProviderCopy(warning.message, 'Review this reporting issue before sharing numbers.'),
           }))
         : [],
     };
@@ -250,13 +264,27 @@ const normalizePartnerWeeklyReportPreview = (
 
   return {
     partnershipId: String(raw?.partnershipId ?? partnershipId),
-    partnershipName: raw?.partnershipName,
+    partnershipName: raw?.partnershipName ? neutralizeProviderCopy(raw.partnershipName) : undefined,
     reportingWeekEndDay: raw?.reportingWeekEndDay,
     weekEndingDate: String(raw?.weekEndingDate ?? weekEndingDate),
     weekStartDate: String(raw?.weekStartDate ?? getPreviewWeekStartDate(weekEndingDate)),
     summary: raw?.summary ?? {},
-    machines: Array.isArray(raw?.machines) ? raw.machines : [],
-    warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
+    machines: Array.isArray(raw?.machines)
+      ? raw.machines.map((machine) => ({
+          ...machine,
+          machine_label: neutralizeProviderCopy(machine.machine_label, 'Unnamed machine'),
+        }))
+      : [],
+    warnings: Array.isArray(raw?.warnings)
+      ? raw.warnings.map((warning) => ({
+          ...warning,
+          machineLabel: warning.machineLabel ? neutralizeProviderCopy(warning.machineLabel) : undefined,
+          partnershipName: warning.partnershipName
+            ? neutralizeProviderCopy(warning.partnershipName)
+            : undefined,
+          message: neutralizeProviderCopy(warning.message, 'Review this reporting issue before sharing numbers.'),
+        }))
+      : [],
   };
 };
 

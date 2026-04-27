@@ -146,7 +146,7 @@ export default function AdminReportingPage() {
       )}${latestFailedSunzeRun ? ` / latest issue ${formatDate(latestFailedSunzeRun.created_at)}` : ''}`
     : latestSunzeRun
       ? `${latestSunzeRun.status} / ${formatDate(latestSunzeRun.completed_at ?? latestSunzeRun.created_at)}`
-      : 'No Sunze imports yet';
+      : 'No sales imports yet';
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['admin-reporting-overview'] });
@@ -165,11 +165,11 @@ export default function AdminReportingPage() {
             ? 'Marked non-production or not reportable from admin reporting'
             : 'Reopened for reporting machine mapping',
       });
-      trackEvent('admin_sunze_machine_discovery_status_updated', {
-        sunze_machine_id: machine.sunzeMachineId,
+      trackEvent('admin_source_machine_discovery_status_updated', {
+        external_machine_id: machine.sunzeMachineId,
         status,
       });
-      toast.success(status === 'ignored' ? 'Sunze machine ignored.' : 'Sunze machine reopened.');
+      toast.success(status === 'ignored' ? 'Source machine ignored.' : 'Source machine reopened.');
       await refresh();
     } catch (statusError) {
       toast.error(statusError instanceof Error ? statusError.message : 'Unable to update queue.');
@@ -241,7 +241,7 @@ export default function AdminReportingPage() {
                 Reporting Operations
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Monitor Sunze sync health, scheduled deliveries, and report exports. User access
+                Monitor sales import health, scheduled deliveries, and report exports. User access
                 lives in Admin Access; machine and partnership setup lives in Admin Partnerships.
               </p>
             </div>
@@ -264,7 +264,7 @@ export default function AdminReportingPage() {
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             <StatusCard
               icon={<Database className="h-5 w-5" />}
-              label="Sunze Sync Health"
+              label="Sales Import Health"
               value={sunzeHealthLabel}
               detail={sunzeHealthDetail}
               status={sunzeHealthStatus}
@@ -437,7 +437,7 @@ function SchedulesTab({
               <option value="">All accessible machines in filter</option>
               {machines.map((machine) => (
                 <option key={machine.id} value={machine.id}>
-                  {machine.machine_label} / {machine.sunze_machine_id ?? 'no Sunze ID'}
+                  {machine.machine_label} / {machine.sunze_machine_id ?? 'no external machine ID'}
                 </option>
               ))}
             </select>
@@ -561,7 +561,7 @@ function SyncTab({
       <div className="rounded-lg border border-border bg-card">
         <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="font-semibold text-foreground">Sunze Mapping Queue</h2>
+            <h2 className="font-semibold text-foreground">Source Machine Mapping Queue</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {pendingSunzeMachineCount} pending machine
               {pendingSunzeMachineCount === 1 ? '' : 's'} with queued sales.
@@ -574,12 +574,12 @@ function SyncTab({
           )}
         </div>
         {sunzeMachineQueue.length === 0 ? (
-          <EmptyRow text="No discovered Sunze machines need action." />
+          <EmptyRow text="No discovered source machines need action." />
         ) : (
           sunzeMachineQueue.map((machine) => {
-            const mappingUrl = `/admin/machines?sunzeMachineId=${encodeURIComponent(
+            const mappingUrl = `/admin/machines?externalMachineId=${encodeURIComponent(
               machine.sunzeMachineId
-            )}&sunzeMachineName=${encodeURIComponent(
+            )}&externalMachineName=${encodeURIComponent(
               machine.sunzeMachineName ?? machine.sunzeMachineId
             )}`;
             return (
@@ -589,7 +589,7 @@ function SyncTab({
                     {machine.sunzeMachineName ?? machine.sunzeMachineId}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    Sunze {machine.sunzeMachineId} / status {machine.status}
+                    External machine ID {machine.sunzeMachineId} / status {machine.status}
                   </div>
                   {machine.ignoreReason && (
                     <div className="mt-1 text-xs text-muted-foreground">
@@ -750,14 +750,28 @@ function ReviewCount({ label, value }: { label: string; value: number }) {
   );
 }
 
+const neutralizeProviderCopy = (value: string | null | undefined) =>
+  String(value ?? '')
+    .replace(/sunze-sales-ingest/gi, 'sales import endpoint')
+    .replace(/sunze-sales-sync/gi, 'sales import workflow')
+    .replace(/sunze-orders/gi, 'provider import')
+    .replace(/sunze_browser/gi, 'sales import')
+    .replace(/\bsunze-[a-z0-9-]+\b/gi, 'sales source')
+    .replace(/\b[a-z0-9_]*sunze[a-z0-9_]*\b/gi, 'sales source')
+    .replace(/\bSunze\b/gi, 'sales source');
+
 const importSourceLabel = (source: string) => {
+  if (source === 'sunze_browser') return 'Sales import';
   if (source === 'google_sheets_refunds') return 'Refund adjustments';
-  return source;
+  return neutralizeProviderCopy(source);
 };
 
 function ImportRunRow({ run }: { run: AdminReportingImportRun }) {
   const meta = run.meta ?? {};
   const isRefundImport = run.source === 'google_sheets_refunds';
+  const sourceReference = run.source === 'sunze_browser'
+    ? 'provider import'
+    : neutralizeProviderCopy(run.source_reference ?? 'no source reference');
   const windowStart = metaText(meta, 'selected_window_start') ?? metaText(meta, 'window_start');
   const windowEnd = metaText(meta, 'selected_window_end') ?? metaText(meta, 'window_end');
   const parsedRows = metaNumber(meta, 'parsed_row_count');
@@ -772,7 +786,7 @@ function ImportRunRow({ run }: { run: AdminReportingImportRun }) {
       <div>
         <div className="font-medium text-foreground">{importSourceLabel(run.source)}</div>
         <div className="mt-1 text-xs text-muted-foreground">
-          {isRefundImport ? 'reviewed adjustment import' : run.source_reference ?? 'no source reference'} / started{' '}
+          {isRefundImport ? 'reviewed adjustment import' : sourceReference} / started{' '}
           {formatDate(run.started_at)}
         </div>
         {windowStart && windowEnd && (
@@ -783,7 +797,7 @@ function ImportRunRow({ run }: { run: AdminReportingImportRun }) {
         {run.error_message && (
           <div className="mt-2 flex items-start gap-2 text-xs text-destructive">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5" />
-            {run.error_message}
+            {neutralizeProviderCopy(run.error_message)}
           </div>
         )}
       </div>

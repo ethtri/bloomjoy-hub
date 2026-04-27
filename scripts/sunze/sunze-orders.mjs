@@ -180,7 +180,7 @@ const validateHeaders = (headers) => {
   const unexpected = normalized.filter((header) => header && !SUNZE_ORDER_HEADERS.includes(header));
 
   if (missing.length || unexpected.length) {
-    throw new SunzeOrderParseError('Sunze order export headers changed.', {
+    throw new SunzeOrderParseError('Provider order export headers changed.', {
       expectedHeaders: SUNZE_ORDER_HEADERS,
       observedHeaders: normalized,
       missingHeaders: missing,
@@ -193,7 +193,7 @@ const validateHeaders = (headers) => {
 
 export const parseSunzeOrderRows = (rows) => {
   if (!Array.isArray(rows) || rows.length === 0) {
-    throw new SunzeOrderParseError('Sunze order workbook is empty.');
+    throw new SunzeOrderParseError('Provider order workbook is empty.');
   }
 
   const headerIndexes = validateHeaders(rows[0] ?? []);

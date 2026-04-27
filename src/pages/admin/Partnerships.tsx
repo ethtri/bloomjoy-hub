@@ -545,6 +545,8 @@ export default function AdminPartnershipsPage() {
     if (tab !== 'machines') {
       nextParams.delete('sunzeMachineId');
       nextParams.delete('sunzeMachineName');
+      nextParams.delete('externalMachineId');
+      nextParams.delete('externalMachineName');
     }
 
     setSearchParams(nextParams, { replace: true });
@@ -555,6 +557,8 @@ export default function AdminPartnershipsPage() {
     nextParams.set('tab', 'machines');
     nextParams.delete('sunzeMachineId');
     nextParams.delete('sunzeMachineName');
+    nextParams.delete('externalMachineId');
+    nextParams.delete('externalMachineName');
     setSearchParams(nextParams, { replace: true });
   };
 
@@ -1656,7 +1660,7 @@ function MachineAssignmentsSection({
                 value={machineSearch}
                 onChange={(event) => setMachineSearch(event.target.value)}
                 className="pl-9"
-                placeholder="Machine, account, Sunze ID"
+                placeholder="Machine, account, external machine ID"
               />
             </div>
           </div>
@@ -1708,7 +1712,7 @@ function MachineAssignmentsSection({
                     <span className="min-w-0 flex-1">
                       <span className="block font-medium text-foreground">{machine.machine_label}</span>
                       <span className="mt-1 block text-sm text-muted-foreground">
-                        {machine.account_name} / Sunze: {machine.sunze_machine_id ?? 'n/a'}
+                        {machine.account_name} / external machine ID: {machine.sunze_machine_id ?? 'n/a'}
                       </span>
                       {otherAssignments.length > 0 && (
                         <span className="mt-2 flex flex-wrap gap-1">
@@ -2679,7 +2683,7 @@ function WeeklyPreviewSection({
                 <div className="font-medium text-foreground">No sales found for this selected week.</div>
                 <div className="mt-1 text-muted-foreground">
                   Preview checked {preview.weekStartDate} through {preview.weekEndingDate}. Sales appear
-                  when imported Sunze sales and active machine assignments overlap the selected dates;
+                  when sales import rows and active machine assignments overlap the selected dates;
                   payout rules control whether payout amounts can be calculated.
                 </div>
                 <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">

@@ -22,8 +22,8 @@ jobs:
         run: npm run build
       - name: SEO Regression Checks
         run: npm run seo:check
-      - name: Sunze Parser Regression Checks
-        run: npm run reporting:validate-sunze-parser
+      - name: Provider Parser Regression Checks
+        run: npm run reporting:validate-provider-parser
       - name: Refund Adjustment Regression Checks
         run: npm run reporting:validate-refund-adjustments
       - name: Test

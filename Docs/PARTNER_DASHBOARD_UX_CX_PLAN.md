@@ -190,7 +190,7 @@ Blocking warnings:
 - Missing active partnership assignment.
 - Missing active financial rule.
 - Stale or failed source import for the period.
-- Unmapped Sunze machine rows that affect the partnership period.
+- Unmapped source machine rows that affect the partnership period.
 - Generated snapshot mismatch with current preview inputs.
 
 Non-blocking warnings:
@@ -309,7 +309,7 @@ The PDF should feel like a polished partner settlement and performance report. T
 - No partner portal invitation flow.
 - No scheduled auto-email in V1.
 - No editing of admin partnership setup UX owned by PR `#167`.
-- No changes to Sunze ingestion/admin reporting internals owned by PR `#161`.
+- No changes to sales-source ingestion/admin reporting internals owned by PR `#161`.
 
 ## Acceptance Criteria
 ### Reporting IA

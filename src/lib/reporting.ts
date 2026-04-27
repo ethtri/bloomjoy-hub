@@ -748,7 +748,7 @@ export const setSunzeMachineDiscoveryStatusAdmin = async (
   });
 
   if (error) {
-    throw new Error(error.message || 'Unable to update Sunze machine queue.');
+    throw new Error(error.message || 'Unable to update source machine queue.');
   }
 };
 

@@ -26,8 +26,18 @@ export type SalesReportPdfSummary = {
 
 const encoder = new TextEncoder();
 
-const toAscii = (value: unknown): string =>
+const neutralizeProviderCopy = (value: unknown): string =>
   String(value ?? "")
+    .replace(/sunze-sales-ingest/gi, "sales import endpoint")
+    .replace(/sunze-sales-sync/gi, "sales import workflow")
+    .replace(/sunze-orders/gi, "provider import")
+    .replace(/sunze_browser/gi, "sales import")
+    .replace(/\bsunze-[a-z0-9-]+\b/gi, "sales source")
+    .replace(/\b[a-z0-9_]*sunze[a-z0-9_]*\b/gi, "sales source")
+    .replace(/\bSunze\b/gi, "sales source");
+
+const toAscii = (value: unknown): string =>
+  neutralizeProviderCopy(value)
     .normalize("NFKD")
     .replace(/[^\x20-\x7e]/g, "")
     .replace(/\s+/g, " ")

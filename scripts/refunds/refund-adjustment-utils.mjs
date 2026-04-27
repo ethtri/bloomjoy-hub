@@ -316,7 +316,15 @@ export const buildMachineProfiles = ({ machines, aliases = [] }) => {
     const labels = [
       { kind: 'machine_label', text: machine.machine_label ?? machine.machineLabel ?? '' },
       { kind: 'location_name', text: locationName },
-      { kind: 'external_machine_id', text: machine.sunze_machine_id ?? machine.sunzeMachineId ?? '' },
+      {
+        kind: 'external_machine_id',
+        text:
+          machine.external_machine_id ??
+          machine.externalMachineId ??
+          machine.sunze_machine_id ??
+          machine.sunzeMachineId ??
+          '',
+      },
       ...(aliasesByMachineId.get(machine.id) ?? []).map((alias) => ({
         kind: 'alias',
         text: alias.alias,
