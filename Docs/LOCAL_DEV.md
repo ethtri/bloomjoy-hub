@@ -55,6 +55,7 @@
    - Technician invite resolution: `supabase/migrations/202604260016_technician_invite_resolution.sql`
    - Partner dashboard amount owed repair: `supabase/migrations/202604260017_partner_dashboard_amount_owed_repair.sql`
    - Reporting partnership participant remove RPC: `supabase/migrations/202604260018_reporting_partnership_party_remove_rpc.sql`
+   - Partner report weekly/monthly export metadata: `supabase/migrations/202604260019_partner_report_period_exports.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`

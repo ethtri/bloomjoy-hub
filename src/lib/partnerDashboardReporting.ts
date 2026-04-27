@@ -1,4 +1,5 @@
 import { supabaseClient } from '@/lib/supabaseClient';
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 
 export type PartnerDashboardPeriodGrain = 'reporting_week' | 'calendar_month';
 
@@ -54,6 +55,20 @@ export type PartnerDashboardPeriodPreview = {
   periods: PartnerDashboardPeriod[];
   machinePeriods: PartnerDashboardMachinePeriod[];
   warnings: PartnerDashboardWarning[];
+};
+
+export type PartnerDashboardExportFormat = 'pdf' | 'csv';
+
+export type PartnerDashboardExportResponse = {
+  error?: string;
+  snapshotId: string;
+  storagePath: string;
+  signedUrl: string;
+  format: PartnerDashboardExportFormat;
+  fileName: string;
+  periodGrain: PartnerDashboardPeriodGrain;
+  periodStartDate: string;
+  periodEndDate: string;
 };
 
 type PartnershipSetupRpc = {
@@ -211,4 +226,33 @@ export const fetchPartnerDashboardPeriodPreview = async ({
     machinePeriods: (record.machine_periods ?? []).map(mapMachinePeriod),
     warnings: (record.warnings ?? []).map(mapWarning),
   };
+};
+
+export const exportPartnerDashboardReport = async ({
+  partnershipId,
+  periodGrain,
+  dateFrom,
+  dateTo,
+  format,
+}: {
+  partnershipId: string;
+  periodGrain: PartnerDashboardPeriodGrain;
+  dateFrom: string;
+  dateTo: string;
+  format: PartnerDashboardExportFormat;
+}): Promise<PartnerDashboardExportResponse> => {
+  return invokeEdgeFunction<PartnerDashboardExportResponse>(
+    'partner-report-export',
+    {
+      partnershipId,
+      periodGrain,
+      dateFrom,
+      dateTo,
+      format,
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to export partner reports.',
+    }
+  );
 };
