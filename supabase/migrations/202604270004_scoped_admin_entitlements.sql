@@ -1394,10 +1394,26 @@ begin
 end;
 $$;
 
-grant execute on function public.admin_scoped_grant_is_active(timestamptz, timestamptz, timestamptz) to authenticated;
-grant execute on function public.scoped_admin_machine_ids(uuid) to authenticated;
-grant execute on function public.is_scoped_admin(uuid) to authenticated;
-grant execute on function public.can_access_admin_surface(uuid, text) to authenticated;
+revoke execute on function public.admin_scoped_grant_is_active(timestamptz, timestamptz, timestamptz) from public, anon, authenticated;
+revoke execute on function public.scoped_admin_machine_ids(uuid) from public, anon, authenticated;
+revoke execute on function public.is_scoped_admin(uuid) from public, anon, authenticated;
+revoke execute on function public.can_access_admin_surface(uuid, text) from public, anon, authenticated;
+
+grant execute on function public.admin_scoped_grant_is_active(timestamptz, timestamptz, timestamptz) to service_role;
+grant execute on function public.scoped_admin_machine_ids(uuid) to service_role;
+grant execute on function public.is_scoped_admin(uuid) to service_role;
+grant execute on function public.can_access_admin_surface(uuid, text) to service_role;
+
+revoke execute on function public.get_my_admin_access_context() from public, anon;
+revoke execute on function public.admin_list_scoped_admin_grants() from public, anon;
+revoke execute on function public.admin_grant_scoped_admin_by_email(text, uuid[], text) from public, anon;
+revoke execute on function public.admin_revoke_scoped_admin(uuid, text) from public, anon;
+revoke execute on function public.admin_get_reporting_access_matrix() from public, anon;
+revoke execute on function public.admin_lookup_reporting_user_by_email(text) from public, anon;
+revoke execute on function public.admin_grant_machine_report_access(text, uuid, uuid, uuid, text, text) from public, anon;
+revoke execute on function public.admin_revoke_reporting_access(uuid, text) from public, anon;
+revoke execute on function public.admin_set_user_machine_reporting_access(text, uuid[], text, text) from public, anon;
+
 grant execute on function public.get_my_admin_access_context() to authenticated;
 grant execute on function public.admin_list_scoped_admin_grants() to authenticated;
 grant execute on function public.admin_grant_scoped_admin_by_email(text, uuid[], text) to authenticated;

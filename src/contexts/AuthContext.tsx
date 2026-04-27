@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
@@ -264,14 +265,25 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const activeAuthUserIdRef = useRef<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
 
+    const clearQueryCacheForUserChange = (nextUserId: string | null) => {
+      if (activeAuthUserIdRef.current === nextUserId) return;
+
+      activeAuthUserIdRef.current = nextUserId;
+      queryClient.clear();
+    };
+
     const setUserFromSession = async (supabaseUser: SupabaseUser | null) => {
       if (!mounted) return;
+
+      clearQueryCacheForUserChange(supabaseUser?.id ?? null);
 
       if (!supabaseUser) {
         setUser(null);
@@ -312,7 +324,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [queryClient]);
 
   const getAuthRedirectUrl = () =>
     typeof window !== 'undefined'
@@ -417,6 +429,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = signInWithMagicLink;
 
   const signOut = async () => {
+    activeAuthUserIdRef.current = null;
+    queryClient.clear();
     await supabaseClient.auth.signOut();
     setUser(null);
   };

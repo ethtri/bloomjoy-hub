@@ -260,6 +260,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/partnerships`, `/admin/reporting`, or `/admin/access?tab=global-roles`
 - [ ] Scoped Admin reporting-access saves affect only manual reporting grants inside the scoped machine set and do not revoke Technician-derived grants
 - [ ] Scoped Admin grant, update, revoke, and reporting-access changes create `admin_audit_log` entries
+- [ ] `report_manager` users can open assigned `/portal/reports` views but remain blocked from `/admin`, `/admin/access`, and other admin routes
+- [ ] Adam scoped-admin bootstrap or manual grant creates `scoped_admin` audit entries and does not create or require a `super_admin` grant
 - [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
 - [ ] Admin Access > Audit supports filtering and shows role + operational actions
 - [ ] Non-admin user cannot access `/admin/partnerships`
