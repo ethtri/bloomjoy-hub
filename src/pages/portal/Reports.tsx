@@ -267,6 +267,25 @@ const formatPercentChange = (current: number, previous: number) => {
 const periodVolume = (period: PartnerDashboardTotals | undefined) =>
   period ? period.itemQuantity || period.orderCount : 0;
 
+const hasAdditionalCosts = (period: PartnerDashboardTotals | undefined) =>
+  (period?.costCents ?? 0) > 0;
+
+const usesNetSalesAsPayoutBasis = (period: PartnerDashboardTotals | undefined) =>
+  !period || period.splitBaseCents === period.netSalesCents;
+
+const shouldShowPayoutBasisColumn = (rows: PartnerMachineComparisonRow[]) =>
+  rows.some((row) => !usesNetSalesAsPayoutBasis(row.current));
+
+const formatPayoutBasisDetail = (period: PartnerDashboardTotals) =>
+  usesNetSalesAsPayoutBasis(period)
+    ? 'Payout basis'
+    : `Payout basis ${formatCurrency(period.splitBaseCents, true)}`;
+
+const formatTaxDeductionsDetail = (period: PartnerDashboardTotals) =>
+  hasAdditionalCosts(period)
+    ? `Additional costs ${formatCurrency(period.costCents, true)}`
+    : 'Tax and configured deductions';
+
 const getChangeTone = (current: number, previous: number) => {
   if (current === previous) return 'text-muted-foreground';
   return current > previous ? 'text-sage' : 'text-amber';
@@ -859,6 +878,7 @@ function PartnerDashboardView() {
     () => buildPartnerMachineRows(preview, currentPeriod, previousPeriod),
     [currentPeriod, preview, previousPeriod]
   );
+  const showPayoutBasisColumn = shouldShowPayoutBasisColumn(machineRows);
 
   const netSalesTrendData = useMemo(
     () =>
@@ -1151,9 +1171,11 @@ function PartnerDashboardView() {
                             <TableHead>Machine</TableHead>
                             <TableHead className="text-right">Gross sales</TableHead>
                             <TableHead className="text-right">Volume</TableHead>
-                            <TableHead className="text-right">Tax + fees</TableHead>
+                            <TableHead className="text-right">Tax + deductions</TableHead>
                             <TableHead className="text-right">Net sales</TableHead>
-                            <TableHead className="text-right">Split base</TableHead>
+                            {showPayoutBasisColumn && (
+                              <TableHead className="text-right">Payout basis</TableHead>
+                            )}
                             <TableHead className="text-right">Amount owed</TableHead>
                             <TableHead className="text-right">Change</TableHead>
                           </TableRow>
@@ -1177,16 +1199,23 @@ function PartnerDashboardView() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <div>{formatCurrency(row.current.taxCents + row.current.feeCents, true)}</div>
-                                  <div className="text-xs text-muted-foreground">
-                                    Costs {formatCurrency(row.current.costCents, true)}
-                                  </div>
+                                  {hasAdditionalCosts(row.current) && (
+                                    <div className="text-xs text-muted-foreground">
+                                      Additional costs {formatCurrency(row.current.costCents, true)}
+                                    </div>
+                                  )}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  {formatCurrency(row.current.netSalesCents, true)}
+                                  <div>{formatCurrency(row.current.netSalesCents, true)}</div>
+                                  {!showPayoutBasisColumn && usesNetSalesAsPayoutBasis(row.current) && (
+                                    <div className="text-xs text-muted-foreground">Payout basis</div>
+                                  )}
                                 </TableCell>
-                                <TableCell className="text-right">
-                                  {formatCurrency(row.current.splitBaseCents, true)}
-                                </TableCell>
+                                {showPayoutBasisColumn && (
+                                  <TableCell className="text-right">
+                                    {formatCurrency(row.current.splitBaseCents, true)}
+                                  </TableCell>
+                                )}
                                 <TableCell className="text-right">
                                   {formatCurrency(row.current.amountOwedCents, true)}
                                 </TableCell>
@@ -1299,7 +1328,7 @@ function PartnerAnswerBand({
         <AnswerItem
           label="Net sales"
           value={formatCurrency(current.netSalesCents, true)}
-          detail="After tax and configured fees"
+          detail="After tax and configured deductions"
         />
       </CardContent>
     </Card>
@@ -1424,6 +1453,8 @@ function PartnerPrintableReport({
   periodMode: PartnerPeriodMode;
 }) {
   const current = currentPeriod ?? preview.summary;
+  const currentHasAdditionalCosts = hasAdditionalCosts(current);
+  const currentUsesNetSalesAsPayoutBasis = usesNetSalesAsPayoutBasis(current);
   const periodLabel = currentPeriod
     ? formatPartnerPeriod(currentPeriod, periodMode)
     : `${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`;
@@ -1504,7 +1535,7 @@ function PartnerPrintableReport({
           <PrintableMetric
             label="Net sales"
             value={formatCurrency(current.netSalesCents, true)}
-            detail="After tax and fees"
+            detail="After tax and deductions"
           />
           <PrintableMetric
             label="Transactions"
@@ -1629,16 +1660,24 @@ function PartnerPrintableReport({
             <h2 className="text-lg font-semibold text-foreground">Calculation summary</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Gross sales uses the Sunze order amount for partner settlement. Machine tax and
-              configured fees are deducted once to create net sales. Configured costs can reduce
-              the split base when the active partnership rule uses contribution after costs.
+              configured deductions are deducted once to create net sales.
+              {currentUsesNetSalesAsPayoutBasis
+                ? ' Net sales is the payout basis for this period.'
+                : ' The active rule then adjusts net sales into the payout basis.'}
+              {' '}The partner share is applied to the payout basis to calculate amount owed.
             </p>
           </div>
           <div className="flex flex-col gap-2 text-sm">
             <CalculationLine label="Gross sales" value={formatCurrency(current.grossSalesCents, true)} />
             <CalculationLine label="Tax impact" value={`-${formatCurrency(current.taxCents, true)}`} />
-            <CalculationLine label="Fees" value={`-${formatCurrency(current.feeCents, true)}`} />
-            <CalculationLine label="Costs" value={`-${formatCurrency(current.costCents, true)}`} />
+            <CalculationLine label="Configured deductions" value={`-${formatCurrency(current.feeCents, true)}`} />
+            {currentHasAdditionalCosts && (
+              <CalculationLine label="Additional costs" value={`-${formatCurrency(current.costCents, true)}`} />
+            )}
             <CalculationLine label="Net sales" value={formatCurrency(current.netSalesCents, true)} />
+            {!currentUsesNetSalesAsPayoutBasis && (
+              <CalculationLine label="Payout basis" value={formatCurrency(current.splitBaseCents, true)} />
+            )}
             <CalculationLine
               label="Amount owed"
               value={formatCurrency(current.amountOwedCents, true)}
@@ -1718,12 +1757,12 @@ function PartnerMachineMobileCard({
         <MobileProofItem
           label="Net sales"
           value={formatCurrency(row.current.netSalesCents, true)}
-          detail={`Split ${formatCurrency(row.current.splitBaseCents, true)}`}
+          detail={formatPayoutBasisDetail(row.current)}
         />
         <MobileProofItem
-          label="Tax, fees, costs"
+          label="Tax + deductions"
           value={formatCurrency(row.current.taxCents + row.current.feeCents, true)}
-          detail={`Costs ${formatCurrency(row.current.costCents, true)}`}
+          detail={formatTaxDeductionsDetail(row.current)}
         />
       </div>
     </div>
@@ -1757,6 +1796,9 @@ function PartnerCalculationCard({
   summary: PartnerDashboardTotals;
   periodLabel: string;
 }) {
+  const summaryHasAdditionalCosts = hasAdditionalCosts(summary);
+  const summaryUsesNetSalesAsPayoutBasis = usesNetSalesAsPayoutBasis(summary);
+
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -1766,10 +1808,14 @@ function PartnerCalculationCard({
       <CardContent className="flex flex-col gap-4">
         <CalculationLine label="Gross sales" value={formatCurrency(summary.grossSalesCents, true)} />
         <CalculationLine label="Tax impact" value={`-${formatCurrency(summary.taxCents, true)}`} />
-        <CalculationLine label="Fees" value={`-${formatCurrency(summary.feeCents, true)}`} />
-        <CalculationLine label="Costs" value={`-${formatCurrency(summary.costCents, true)}`} />
+        <CalculationLine label="Configured deductions" value={`-${formatCurrency(summary.feeCents, true)}`} />
+        {summaryHasAdditionalCosts && (
+          <CalculationLine label="Additional costs" value={`-${formatCurrency(summary.costCents, true)}`} />
+        )}
         <CalculationLine label="Net sales" value={formatCurrency(summary.netSalesCents, true)} />
-        <CalculationLine label="Split base" value={formatCurrency(summary.splitBaseCents, true)} />
+        {!summaryUsesNetSalesAsPayoutBasis && (
+          <CalculationLine label="Payout basis" value={formatCurrency(summary.splitBaseCents, true)} />
+        )}
         <CalculationLine
           label="Amount owed"
           value={formatCurrency(summary.amountOwedCents, true)}
@@ -1783,8 +1829,11 @@ function PartnerCalculationCard({
           <div className="font-medium text-foreground">How this is calculated</div>
           <p className="mt-2">
             Gross sales uses the Sunze order amount for partner settlement. Machine tax and
-            configured fees are deducted once to create net sales, then the partner share is
-            applied to the active split base to calculate amount owed.
+            configured deductions are deducted once to create net sales.
+            {summaryUsesNetSalesAsPayoutBasis
+              ? ' Net sales is the payout basis for this period.'
+              : ' The active rule then adjusts net sales into the payout basis.'}
+            {' '}The partner share is applied to the payout basis to calculate amount owed.
           </p>
         </div>
       </CardContent>
