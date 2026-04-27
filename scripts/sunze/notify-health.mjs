@@ -40,7 +40,9 @@ const ingestUrl = process.env.REPORTING_INGEST_URL;
 const ingestToken = process.env.REPORTING_INGEST_TOKEN;
 const event = getArg('--event', 'freshness_check');
 const message = getArg('--message', '');
-const staleHours = Number(getArg('--stale-hours', process.env.SUNZE_SYNC_STALE_HOURS ?? '30'));
+const staleHours = Number(
+  getArg('--stale-hours', process.env.PROVIDER_SYNC_STALE_HOURS ?? process.env.SUNZE_SYNC_STALE_HOURS ?? '30')
+);
 const githubRunUrl =
   process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
     ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
@@ -81,7 +83,7 @@ if (!response.ok) {
   throw new Error(
     typeof responseBody.error === 'string'
       ? responseBody.error
-      : `Sunze health check failed with HTTP ${response.status}`
+      : `Sales import health check failed with HTTP ${response.status}`
   );
 }
 

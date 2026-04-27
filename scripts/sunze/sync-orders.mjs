@@ -47,7 +47,10 @@ const parseFilePath = getArg('--parse-file');
 const datePreset = getArg('--date-preset', 'Last 7 Days');
 const downloadDirArg = getArg('--download-dir');
 const summaryMachineCodesArg =
-  getArg('--summary-machine-codes') || process.env.SUNZE_SUMMARY_MACHINE_CODES || '';
+  getArg('--summary-machine-codes') ||
+  process.env.PROVIDER_SUMMARY_MACHINE_CODES ||
+  process.env.SUNZE_SUMMARY_MACHINE_CODES ||
+  '';
 const DEFAULT_INGEST_CHUNK_SIZE = 1000;
 const MAX_INGEST_CHUNK_SIZE = 10000;
 const parsePositiveInteger = (value, fallback) => {
@@ -56,7 +59,10 @@ const parsePositiveInteger = (value, fallback) => {
 };
 const ingestChunkSize = Math.min(
   MAX_INGEST_CHUNK_SIZE,
-  parsePositiveInteger(process.env.SUNZE_INGEST_CHUNK_SIZE, DEFAULT_INGEST_CHUNK_SIZE)
+  parsePositiveInteger(
+    process.env.PROVIDER_INGEST_CHUNK_SIZE ?? process.env.SUNZE_INGEST_CHUNK_SIZE,
+    DEFAULT_INGEST_CHUNK_SIZE
+  )
 );
 const supportedDatePresets = new Set([
   'Today',
@@ -66,13 +72,16 @@ const supportedDatePresets = new Set([
   'Last Month',
   'Last 3 Months',
 ]);
-const expectedVisibleMachineCount = process.env.SUNZE_EXPECTED_MACHINE_COUNT
-  ? Number(process.env.SUNZE_EXPECTED_MACHINE_COUNT)
+const expectedVisibleMachineCountEnv =
+  process.env.PROVIDER_EXPECTED_MACHINE_COUNT ?? process.env.SUNZE_EXPECTED_MACHINE_COUNT;
+const expectedVisibleMachineCount = expectedVisibleMachineCountEnv
+  ? Number(expectedVisibleMachineCountEnv)
   : null;
-const reportingTimezone = process.env.SUNZE_REPORTING_TIMEZONE || 'America/Los_Angeles';
-const loginUrl = process.env.SUNZE_LOGIN_URL;
-const email = process.env.SUNZE_REPORTING_EMAIL;
-const password = process.env.SUNZE_REPORTING_PASSWORD;
+const reportingTimezone =
+  process.env.PROVIDER_REPORTING_TIMEZONE || process.env.SUNZE_REPORTING_TIMEZONE || 'America/Los_Angeles';
+const loginUrl = process.env.PROVIDER_LOGIN_URL ?? process.env.SUNZE_LOGIN_URL;
+const email = process.env.PROVIDER_REPORTING_EMAIL ?? process.env.SUNZE_REPORTING_EMAIL;
+const password = process.env.PROVIDER_REPORTING_PASSWORD ?? process.env.SUNZE_REPORTING_PASSWORD;
 const ingestUrl = process.env.REPORTING_INGEST_URL;
 const ingestToken = process.env.REPORTING_INGEST_TOKEN;
 
@@ -128,7 +137,7 @@ const addDays = (dateKey, days) => {
 
 if (!supportedDatePresets.has(datePreset)) {
   throw new Error(
-    `Unsupported Sunze date preset: ${datePreset}. Supported presets: ${[...supportedDatePresets].join(', ')}. Sunze Custom Range exports are not used because they have produced corrupted workbooks.`
+    `Unsupported provider date preset: ${datePreset}. Supported presets: ${[...supportedDatePresets].join(', ')}. Provider Custom Range exports are not used because they have produced corrupted workbooks.`
   );
 }
 
@@ -342,17 +351,17 @@ const readOrdersUiSummary = async (page) => {
     const diagnostic = buildUiSummaryDiagnostic(visibleTexts);
     throw new Error(
       diagnostic
-        ? `Unable to verify the selected Sunze order date range. Visible filter controls: ${diagnostic}`
-        : 'Unable to verify the selected Sunze order date range.'
+        ? `Unable to verify the selected provider order date range. Visible filter controls: ${diagnostic}`
+        : 'Unable to verify the selected provider order date range.'
     );
   }
 
   if (uiRevenueCents === null) {
-    throw new Error('Unable to verify the Sunze order revenue total.');
+    throw new Error('Unable to verify the provider order revenue total.');
   }
 
   if (uiRecordCount === null) {
-    throw new Error('Unable to verify the Sunze order record count.');
+    throw new Error('Unable to verify the provider order record count.');
   }
 
   return {
@@ -389,7 +398,7 @@ const assertExportMatchesUi = (summary, uiSummaries) => {
     .join('; ');
 
   throw new Error(
-    `Sunze export mismatch: workbook parsed ${summary.rowCount} rows/${summary.orderAmountCents} cents/${summary.windowStart} to ${summary.windowEnd}; UI ${uiDiagnostic}.`
+    `Provider export mismatch: workbook parsed ${summary.rowCount} rows/${summary.orderAmountCents} cents/${summary.windowStart} to ${summary.windowEnd}; UI ${uiDiagnostic}.`
   );
 };
 
@@ -566,7 +575,7 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
     .join(' | ');
 
   if (machineCodes.length === 0) {
-    throw new Error('Unable to verify Sunze machine coverage from the top-level machine list.');
+    throw new Error('Unable to verify source machine coverage from the top-level machine list.');
   }
 
   if (
@@ -575,7 +584,7 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
     machineCodes.length !== expectedVisibleMachineCount
   ) {
     console.warn(
-      `Sunze visible machine count changed: expected ${expectedVisibleMachineCount}, observed ${machineCodes.length}. Scanned ${pagesScanned} top-level page(s), clicked next ${nextClicks} time(s), scrolled ${scrollAttempts} time(s). Pagination controls: ${paginationDiagnostic || 'none'}.`
+      `Visible source machine count changed: expected ${expectedVisibleMachineCount}, observed ${machineCodes.length}. Scanned ${pagesScanned} top-level page(s), clicked next ${nextClicks} time(s), scrolled ${scrollAttempts} time(s). Pagination controls: ${paginationDiagnostic || 'none'}.`
     );
   }
 
@@ -588,27 +597,27 @@ const assertAllowedSunzeRoute = (page) => {
   const isAllowed = allowedHashes.some((hash) => url.hash.startsWith(hash));
 
   if (!isAllowed) {
-    throw new Error(`Unexpected Sunze route during reporting sync: ${url.origin}${url.pathname}${url.hash}`);
+    throw new Error(`Unexpected provider route during reporting sync: ${url.origin}${url.pathname}${url.hash}`);
   }
 };
 
 const openOrdersPage = async (page) => {
-  const baseUrl = required(loginUrl, 'SUNZE_LOGIN_URL').split('#')[0];
+  const baseUrl = required(loginUrl, 'PROVIDER_LOGIN_URL').split('#')[0];
 
   await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
   assertAllowedSunzeRoute(page);
   await page.getByText(/Password/i).first().click().catch(() => {});
   await page
     .getByPlaceholder(/Username|Email/i)
-    .fill(required(email, 'SUNZE_REPORTING_EMAIL'))
+    .fill(required(email, 'PROVIDER_REPORTING_EMAIL'))
     .catch(async () => {
-      await page.locator('input').nth(0).fill(required(email, 'SUNZE_REPORTING_EMAIL'));
+      await page.locator('input').nth(0).fill(required(email, 'PROVIDER_REPORTING_EMAIL'));
     });
   await page
     .getByPlaceholder(/Password/i)
-    .fill(required(password, 'SUNZE_REPORTING_PASSWORD'))
+    .fill(required(password, 'PROVIDER_REPORTING_PASSWORD'))
     .catch(async () => {
-      await page.locator('input[type="password"]').first().fill(required(password, 'SUNZE_REPORTING_PASSWORD'));
+      await page.locator('input[type="password"]').first().fill(required(password, 'PROVIDER_REPORTING_PASSWORD'));
     });
   await page
     .getByRole('button', { name: /login/i })
@@ -638,7 +647,7 @@ const selectDatePreset = async (page, preset) => {
 const exportOrdersWorkbook = async () => {
   const downloadRoot = downloadDirArg
     ? resolve(downloadDirArg)
-    : await mkdtemp(join(tmpdir(), 'bloomjoy-sunze-orders-'));
+    : await mkdtemp(join(tmpdir(), 'bloomjoy-sales-orders-'));
   await mkdir(downloadRoot, { recursive: true });
 
   const browser = await chromium.launch({ headless: !headful });
@@ -700,7 +709,7 @@ const postIngestPayload = async (payload) => {
     throw new Error(
       typeof responseBody.error === 'string'
         ? responseBody.error
-        : `Sunze ingest failed with HTTP ${response.status}`
+        : `Sales import ingest failed with HTTP ${response.status}`
     );
   }
 
@@ -828,12 +837,12 @@ const loadOrdersSource = async () => {
       }
 
       console.warn(
-        `Sunze workbook parse failed after export attempt ${attempt}/${maxAttempts}; retrying export. ${error instanceof Error ? error.message : String(error)}`
+        `Provider workbook parse failed after export attempt ${attempt}/${maxAttempts}; retrying export. ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
 
-  throw new Error('Unable to export and parse Sunze Orders workbook.');
+  throw new Error('Unable to export and parse provider Orders workbook.');
 };
 
 let cleanupTarget = null;
@@ -907,7 +916,7 @@ try {
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
-      visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
+      visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
       ignoredUnmappedMachineCount: ingestValidation?.ignoredUnmappedMachineCount ?? null,
@@ -927,7 +936,7 @@ try {
       selectedWindowEnd: matchedUiSummary?.uiWindowEnd ?? null,
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
-      visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
+      visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
       importRunIds: result.importRunIds ?? null,

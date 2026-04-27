@@ -1,15 +1,15 @@
-name: Sunze Sales Sync
+name: Sales Import Sync
 
 on:
   schedule:
-    # Daily catch-up with a rolling overlap so missed/late Sunze rows are repaired idempotently.
+    # Daily catch-up with a rolling overlap so missed/late sales rows are repaired idempotently.
     - cron: '30 13 * * *'
     # Monthly safety sweep for historical gaps and missed daily workflow runs.
     - cron: '45 14 1 * *'
   workflow_dispatch:
     inputs:
       date_preset:
-        description: 'Sunze date preset to export'
+        description: 'Provider date preset to export'
         required: false
         default: 'Last 7 Days'
       dry_run:
@@ -17,7 +17,7 @@ on:
         required: false
         default: 'false'
       summary_machine_codes:
-        description: 'Optional comma-separated Sunze machine codes to summarize in logs'
+        description: 'Optional comma-separated source machine codes to summarize in logs'
         required: false
       ingest_chunk_size:
         description: 'Rows per Supabase ingest request'
@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sunze-sales-sync
+  group: sales-import-sync
   cancel-in-progress: false
 
 jobs:
@@ -35,19 +35,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      SUNZE_LOGIN_URL: ${{ secrets.SUNZE_LOGIN_URL }}
-      SUNZE_REPORTING_EMAIL: ${{ secrets.SUNZE_REPORTING_EMAIL }}
-      SUNZE_REPORTING_PASSWORD: ${{ secrets.SUNZE_REPORTING_PASSWORD }}
+      PROVIDER_LOGIN_URL: ${{ secrets.SUNZE_LOGIN_URL }}
+      PROVIDER_REPORTING_EMAIL: ${{ secrets.SUNZE_REPORTING_EMAIL }}
+      PROVIDER_REPORTING_PASSWORD: ${{ secrets.SUNZE_REPORTING_PASSWORD }}
       REPORTING_INGEST_URL: ${{ secrets.REPORTING_INGEST_URL }}
       REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
       DATE_PRESET: ${{ inputs.date_preset || '' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
       GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
       SUMMARY_MACHINE_CODES: ${{ inputs.summary_machine_codes || '' }}
-      SUNZE_INGEST_CHUNK_SIZE: ${{ inputs.ingest_chunk_size || vars.SUNZE_INGEST_CHUNK_SIZE || '1000' }}
-      SUNZE_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
-      SUNZE_SYNC_STALE_HOURS: '30'
-      SUNZE_REPORTING_TIMEZONE: America/Los_Angeles
+      PROVIDER_INGEST_CHUNK_SIZE: ${{ inputs.ingest_chunk_size || vars.SUNZE_INGEST_CHUNK_SIZE || '1000' }}
+      PROVIDER_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
+      SALES_IMPORT_STALE_HOURS: '30'
+      PROVIDER_REPORTING_TIMEZONE: America/Los_Angeles
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,9 +67,9 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Validate parser fixture
-        run: npm run reporting:validate-sunze-parser
+        run: npm run reporting:validate-provider-parser
 
-      - name: Sync Sunze orders
+      - name: Sync sales orders
         shell: bash
         run: |
           date_preset="$DATE_PRESET"
@@ -87,16 +87,16 @@ jobs:
           if [[ -n "$SUMMARY_MACHINE_CODES" ]]; then
             args+=(--summary-machine-codes "$SUMMARY_MACHINE_CODES")
           fi
-          npm run reporting:sunze-sync -- "${args[@]}"
+          npm run reporting:provider-sync -- "${args[@]}"
 
-      - name: Check Sunze import freshness
+      - name: Check sales import freshness
         if: ${{ success() && env.DRY_RUN != 'true' }}
-        run: npm run reporting:sunze-health -- --event freshness_check --stale-hours "$SUNZE_SYNC_STALE_HOURS"
+        run: npm run reporting:provider-health -- --event freshness_check --stale-hours "$SALES_IMPORT_STALE_HOURS"
 
-      - name: Notify Sunze sync failure
+      - name: Notify sales import failure
         if: ${{ failure() }}
         run: >
-          npm run reporting:sunze-health --
+          npm run reporting:provider-health --
           --event failure
-          --message "Sunze Sales Sync workflow failed before a completed import."
-          --stale-hours "$SUNZE_SYNC_STALE_HOURS"
+          --message "Sales Import Sync workflow failed before a completed import."
+          --stale-hours "$SALES_IMPORT_STALE_HOURS"

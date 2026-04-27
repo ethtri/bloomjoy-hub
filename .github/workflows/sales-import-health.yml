@@ -1,4 +1,4 @@
-name: Sunze Sales Health
+name: Sales Import Health
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sunze-sales-health
+  group: sales-import-health
   cancel-in-progress: false
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
     env:
       REPORTING_INGEST_URL: ${{ secrets.REPORTING_INGEST_URL }}
       REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
-      SUNZE_SYNC_STALE_HOURS: '30'
+      SALES_IMPORT_STALE_HOURS: '30'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,5 +35,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check Sunze import freshness
-        run: npm run reporting:sunze-health -- --event freshness_check --stale-hours "$SUNZE_SYNC_STALE_HOURS"
+      - name: Check sales import freshness
+        run: npm run reporting:provider-health -- --event freshness_check --stale-hours "$SALES_IMPORT_STALE_HOURS"

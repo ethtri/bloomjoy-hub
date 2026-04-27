@@ -192,6 +192,8 @@ const neutralizeProviderCopy = (value: unknown, fallback = '') =>
     .replace(/sunze-sales-sync/gi, 'sales import workflow')
     .replace(/sunze-orders/gi, 'provider import')
     .replace(/sunze_browser/gi, 'sales import')
+    .replace(/\bsunze-[a-z0-9-]+\b/gi, 'sales source')
+    .replace(/\b[a-z0-9_]*sunze[a-z0-9_]*\b/gi, 'sales source')
     .replace(/\bSunze\b/gi, 'sales source');
 
 const normalizePartnerWeeklyReportPreview = (
