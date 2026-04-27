@@ -23,6 +23,7 @@ import {
   setSunzeMachineDiscoveryStatusAdmin,
   type AdminReportSchedule,
   type AdminReportViewSnapshot,
+  type AdminRefundAdjustmentReviewRow,
   type AdminReportingImportRun,
   type AdminSunzeMachineQueueItem,
 } from '@/lib/reporting';
@@ -105,6 +106,10 @@ export default function AdminReportingPage() {
   const sunzeMachineQueue = useMemo(
     () => overview?.sunzeMachineQueue ?? [],
     [overview?.sunzeMachineQueue]
+  );
+  const refundReviewRows = useMemo(
+    () => overview?.refundReviewRows ?? [],
+    [overview?.refundReviewRows]
   );
   const pendingSunzeMachineQueue = useMemo(
     () => sunzeMachineQueue.filter((machine) => machine.status === 'pending'),
@@ -256,7 +261,7 @@ export default function AdminReportingPage() {
             </div>
           )}
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
             <StatusCard
               icon={<Database className="h-5 w-5" />}
               label="Sunze Sync Health"
@@ -283,6 +288,13 @@ export default function AdminReportingPage() {
               value={String(schedules.filter((schedule) => schedule.active).length)}
               detail={`${snapshots.length} recent export snapshots`}
               status="completed"
+            />
+            <StatusCard
+              icon={<AlertTriangle className="h-5 w-5" />}
+              label="Refund Review"
+              value={String(refundReviewRows.filter(isRefundReviewActionable).length)}
+              detail={`${refundReviewRows.filter((row) => row.match_status === 'applied').length} recently applied`}
+              status={refundReviewRows.some(isRefundReviewActionable) ? 'pending' : 'completed'}
             />
           </div>
 
@@ -313,6 +325,7 @@ export default function AdminReportingPage() {
                 <SyncTab
                   importRuns={importRuns}
                   sunzeMachineQueue={sunzeMachineQueue}
+                  refundReviewRows={refundReviewRows}
                   pendingSunzeMachineCount={pendingSunzeMachineQueue.length}
                   updatingSunzeMachineId={updatingSunzeMachineId}
                   setSunzeQueueStatus={setSunzeQueueStatus}
@@ -528,12 +541,14 @@ function SchedulesTab({
 function SyncTab({
   importRuns,
   sunzeMachineQueue,
+  refundReviewRows,
   pendingSunzeMachineCount,
   updatingSunzeMachineId,
   setSunzeQueueStatus,
 }: {
   importRuns: AdminReportingImportRun[];
   sunzeMachineQueue: AdminSunzeMachineQueueItem[];
+  refundReviewRows: AdminRefundAdjustmentReviewRow[];
   pendingSunzeMachineCount: number;
   updatingSunzeMachineId: string | null;
   setSunzeQueueStatus: (
@@ -624,6 +639,8 @@ function SyncTab({
         )}
       </div>
 
+      <RefundReviewPanel rows={refundReviewRows} />
+
       <div className="rounded-lg border border-border bg-card">
         <ListHeader title="Recent Import Runs" count={importRuns.length} />
         {importRuns.length === 0 ? (
@@ -636,8 +653,111 @@ function SyncTab({
   );
 }
 
+const isRefundReviewActionable = (row: AdminRefundAdjustmentReviewRow) =>
+  row.resolution_status === 'unresolved' &&
+  row.match_status !== 'applied' &&
+  row.match_status !== 'ignored';
+
+function RefundReviewPanel({ rows }: { rows: AdminRefundAdjustmentReviewRow[] }) {
+  const counts = rows.reduce(
+    (summary, row) => {
+      summary.total += 1;
+      if (row.match_status === 'applied') summary.applied += 1;
+      if (isRefundReviewActionable(row)) summary.needsReview += 1;
+      if (row.match_status === 'ambiguous') summary.ambiguous += 1;
+      if (row.match_status === 'unmatched') summary.unmatched += 1;
+      if (row.match_status === 'duplicate') summary.duplicate += 1;
+      if (row.match_status === 'invalid') summary.invalid += 1;
+      return summary;
+    },
+    {
+      total: 0,
+      applied: 0,
+      needsReview: 0,
+      ambiguous: 0,
+      unmatched: 0,
+      duplicate: 0,
+      invalid: 0,
+    }
+  );
+
+  return (
+    <div className="rounded-lg border border-border bg-card">
+      <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-semibold text-foreground">Refund Adjustment Review</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {counts.needsReview} row{counts.needsReview === 1 ? '' : 's'} need review before they can
+            change partner settlement.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{counts.applied} applied</Badge>
+          <Badge variant={counts.needsReview > 0 ? 'destructive' : 'outline'}>
+            {counts.needsReview} review
+          </Badge>
+        </div>
+      </div>
+      <div className="grid gap-3 border-b border-border bg-muted/20 p-4 text-sm sm:grid-cols-4">
+        <ReviewCount label="Ambiguous" value={counts.ambiguous} />
+        <ReviewCount label="Unmatched" value={counts.unmatched} />
+        <ReviewCount label="Duplicates" value={counts.duplicate} />
+        <ReviewCount label="Invalid" value={counts.invalid} />
+      </div>
+      {rows.length === 0 ? (
+        <EmptyRow text="No refund adjustment rows have been staged yet." />
+      ) : (
+        rows.slice(0, 8).map((row) => (
+          <Row key={row.id}>
+            <div>
+              <div className="font-medium text-foreground">
+                {row.source_location || row.reporting_machines?.machine_label || 'Unmatched refund row'}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Refund date {row.refund_date ?? 'n/a'} / status {row.source_status ?? 'n/a'} / imported{' '}
+                {formatDate(row.imported_at)}
+              </div>
+              {row.match_reason && (
+                <div className="mt-1 text-xs text-muted-foreground">{row.match_reason}</div>
+              )}
+            </div>
+            <div className="text-left text-sm sm:text-right">
+              <Badge variant={row.match_status === 'applied' ? 'default' : 'outline'}>
+                {row.match_status.replaceAll('_', ' ')}
+              </Badge>
+              <div className="mt-2 font-medium text-foreground">
+                {formatCents(row.amount_cents)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Confidence {Math.round(Number(row.match_confidence ?? 0) * 100)}%
+              </div>
+            </div>
+          </Row>
+        ))
+      )}
+    </div>
+  );
+}
+
+function ReviewCount({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 text-lg font-semibold text-foreground">{value}</div>
+    </div>
+  );
+}
+
+const importSourceLabel = (source: string) => {
+  if (source === 'google_sheets_refunds') return 'Refund adjustments';
+  return source;
+};
+
 function ImportRunRow({ run }: { run: AdminReportingImportRun }) {
   const meta = run.meta ?? {};
+  const isRefundImport = run.source === 'google_sheets_refunds';
   const windowStart = metaText(meta, 'selected_window_start') ?? metaText(meta, 'window_start');
   const windowEnd = metaText(meta, 'selected_window_end') ?? metaText(meta, 'window_end');
   const parsedRows = metaNumber(meta, 'parsed_row_count');
@@ -650,9 +770,10 @@ function ImportRunRow({ run }: { run: AdminReportingImportRun }) {
   return (
     <Row>
       <div>
-        <div className="font-medium text-foreground">{run.source}</div>
+        <div className="font-medium text-foreground">{importSourceLabel(run.source)}</div>
         <div className="mt-1 text-xs text-muted-foreground">
-          {run.source_reference ?? 'no source reference'} / started {formatDate(run.started_at)}
+          {isRefundImport ? 'reviewed adjustment import' : run.source_reference ?? 'no source reference'} / started{' '}
+          {formatDate(run.started_at)}
         </div>
         {windowStart && windowEnd && (
           <div className="mt-1 text-xs text-muted-foreground">

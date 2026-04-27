@@ -2202,6 +2202,21 @@ function getPreviewPayoutMetrics(
   payoutParticipants: ReportingPartnershipParty[]
 ) {
   const metrics = [];
+  if (typeof summary.amount_owed_cents !== 'undefined') {
+    const payoutLabel = payoutParticipants.length
+      ? payoutParticipants.map(getPartyReportName).join(' + ')
+      : 'Amount owed';
+    metrics.push({
+      label: payoutLabel,
+      value: formatMoney(summary.amount_owed_cents),
+    });
+    metrics.push({
+      label: 'Bloomjoy',
+      value: formatMoney(summary.bloomjoy_retained_cents),
+    });
+    return metrics;
+  }
+
   if (payoutParticipants[0] || Number(summary.fever_profit_cents ?? 0) !== 0) {
     metrics.push({
       label: payoutParticipants[0] ? getPartyReportName(payoutParticipants[0]) : 'Payout recipient 1',
@@ -2641,6 +2656,7 @@ function WeeklyPreviewSection({
               <Metric label="Orders" value={String(preview.summary.order_count ?? 0)} />
               <Metric label="Sticks/items" value={String(preview.summary.item_quantity ?? 0)} />
               <Metric label="Gross sales" value={formatMoney(preview.summary.gross_sales_cents)} />
+              <Metric label="Refund impact" value={`-${formatMoney(preview.summary.refund_amount_cents)}`} />
               <Metric label="Machine taxes" value={formatMoney(preview.summary.tax_cents)} />
               <Metric label="Stick cost deduction" value={formatMoney(preview.summary.fee_cents)} />
               <Metric label="Costs" value={formatMoney(preview.summary.cost_cents)} />
@@ -2714,7 +2730,9 @@ function WeeklyPreviewSection({
                   </div>
                   <div className="text-right text-sm">
                     <div className="font-medium text-foreground">{formatMoney(machine.gross_sales_cents)}</div>
-                    <div className="text-xs text-muted-foreground">Net {formatMoney(machine.net_sales_cents)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Refunds {formatMoney(machine.refund_amount_cents)} / Net {formatMoney(machine.net_sales_cents)}
+                    </div>
                   </div>
                 </Row>
               ))

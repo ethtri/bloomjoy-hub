@@ -207,7 +207,7 @@ const formatCalculationLabel = (rule: Record<string, unknown> | null) => {
 
   return `Net sales split: gross sales less machine taxes and ${feeText}; no-pay rows count in volume but deduct $0.${
     additionalNotes ? ` Additional notes: ${additionalNotes}` : ""
-  }`;
+  } Approved refund adjustments reduce net sales and the active split base.`;
 };
 
 const getRuleExportLabels = (rule: Record<string, unknown> | null) => ({
@@ -302,6 +302,7 @@ const mapPeriodPreviewToPartnerReportPreview = (
       order_count: Number(summary.order_count ?? 0),
       item_quantity: Number(summary.item_quantity ?? 0),
       gross_sales_cents: Number(summary.gross_sales_cents ?? 0),
+      refund_amount_cents: Number(summary.refund_amount_cents ?? 0),
       tax_cents: Number(summary.tax_cents ?? 0),
       fee_cents: Number(summary.fee_cents ?? 0),
       cost_cents: Number(summary.cost_cents ?? 0),
@@ -315,6 +316,7 @@ const mapPeriodPreviewToPartnerReportPreview = (
       order_count: Number(machine.order_count ?? 0),
       item_quantity: Number(machine.item_quantity ?? 0),
       gross_sales_cents: Number(machine.gross_sales_cents ?? 0),
+      refund_amount_cents: Number(machine.refund_amount_cents ?? 0),
       tax_cents: Number(machine.tax_cents ?? 0),
       fee_cents: Number(machine.fee_cents ?? 0),
       cost_cents: Number(machine.cost_cents ?? 0),

@@ -1,2 +1,2 @@
-adjustment_date,sunze_machine_id,adjustment_type,refund_amount_usd,complaint_count,notes
-2026-04-13,BUBBLE-PLANET-01,complaint_refund,15.00,1,Guest refund from complaints sheet
+source_row_reference,location,refund_date,order_date,adjustment_type,refund_amount_usd,complaint_count,status,reason
+sample-row-1,Sample Lobby Kiosk,2026-04-13,2026-04-12,complaint_refund,15.00,1,refunded,Sanitized refund fixture

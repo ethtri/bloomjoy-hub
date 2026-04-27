@@ -16,6 +16,7 @@
     "reporting:sunze-sync": "node scripts/sunze/sync-orders.mjs",
     "reporting:sunze-health": "node scripts/sunze/notify-health.mjs",
     "reporting:validate-sunze-parser": "node scripts/sunze/validate-sunze-orders-parser.mjs",
+    "reporting:validate-refund-adjustments": "node scripts/validate-refund-adjustments.mjs",
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",
     "training:sync-guides": "node scripts/sync-training-guides.mjs",
     "training:upload-docs": "node scripts/upload-training-documents.mjs",

@@ -137,6 +137,25 @@ export type AdminReportingEntitlement = {
   customer_accounts?: { name: string } | null;
 };
 
+export type AdminRefundAdjustmentReviewRow = {
+  id: string;
+  source_reference: string;
+  source_row_reference: string;
+  source_location: string | null;
+  refund_date: string | null;
+  amount_cents: number;
+  source_status: string | null;
+  match_status: string;
+  match_confidence: number;
+  match_reason: string | null;
+  candidate_machine_ids: string[];
+  matched_machine_id: string | null;
+  resolution_status: string;
+  applied_adjustment_id: string | null;
+  imported_at: string;
+  reporting_machines?: { machine_label: string } | null;
+};
+
 export type AdminReportingOverview = {
   machines: AdminReportingMachine[];
   importRuns: AdminReportingImportRun[];
@@ -144,6 +163,7 @@ export type AdminReportingOverview = {
   snapshots: AdminReportViewSnapshot[];
   entitlements: AdminReportingEntitlement[];
   sunzeMachineQueue: AdminSunzeMachineQueueItem[];
+  refundReviewRows: AdminRefundAdjustmentReviewRow[];
 };
 
 export type AdminSunzeMachineQueueItem = {
@@ -492,6 +512,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     partnerSnapshotsResult,
     entitlementsResult,
     sunzeQueueResult,
+    refundReviewResult,
   ] = await Promise.all([
     supabaseClient
       .from('reporting_machines')
@@ -523,6 +544,11 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       .order('created_at', { ascending: false })
       .limit(20),
     supabaseClient.rpc('admin_get_sunze_machine_mapping_queue'),
+    supabaseClient
+      .from('refund_adjustment_review_rows')
+      .select('id, source_reference, source_row_reference, source_location, refund_date, amount_cents, source_status, match_status, match_confidence, match_reason, candidate_machine_ids, matched_machine_id, resolution_status, applied_adjustment_id, imported_at, reporting_machines(machine_label)')
+      .order('imported_at', { ascending: false })
+      .limit(20),
   ]);
 
   const firstError =
@@ -532,7 +558,8 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     snapshotsResult.error ||
     partnerSnapshotsResult.error ||
     entitlementsResult.error ||
-    sunzeQueueResult.error;
+    sunzeQueueResult.error ||
+    refundReviewResult.error;
 
   if (firstError) {
     throw new Error(firstError.message || 'Unable to load reporting admin overview.');
@@ -598,6 +625,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     snapshots,
     entitlements: (entitlementsResult.data ?? []) as AdminReportingEntitlement[],
     sunzeMachineQueue: mapSunzeMachineQueue(sunzeQueueResult.data),
+    refundReviewRows: (refundReviewResult.data ?? []) as AdminRefundAdjustmentReviewRow[],
   };
 };
 

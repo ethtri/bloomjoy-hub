@@ -176,8 +176,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] User with one reporting machine entitlement can open `/portal/reports` and sees only that machine in filters/results
 - [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, machine, and cash/credit payment filters without exposing location controls or columns
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
+- [ ] Portal Reports > Partner Dashboard shows gross sales, refund impact, net sales, split base, and amount owed as separate values when applied refund adjustments exist
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-sunze-parser` passes with the sanitized Sunze `.xlsx` fixture
+- [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate, and partner-settlement fixtures
 - [ ] `npm run reporting:sunze-sync -- --dry-run` downloads the Sunze Orders export, reconciles parsed row count/revenue against the Sunze UI, checks top-level machine discovery, deletes the raw workbook, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
 - [ ] `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30` reports the latest completed Sunze import or sends a stale-data ops alert
 
@@ -286,13 +288,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Authenticated Weekly Preview warning states are checked for `No machines are assigned for this week`, `No active payout rule covers this week`, and `No sales found for this selected week`
 - [ ] Admin Partnerships > Weekly Preview labels payout metrics with legal partner names when recorded, otherwise the same participant names used in Payout Rules, plus Bloomjoy
 - [ ] Admin Partnerships > Weekly Preview matches the corrected Bubble Planet product math: Sunze order amount as gross, machine tax plus configured `$0.40` stick-level cost deduction before split, no-pay orders counted as `$0`, and 60/40 split when configured
+- [ ] Admin Partnerships > Weekly Preview shows refund impact separately and reduces net sales, split base, and amount owed only for applied refund adjustments
 - [ ] Admin Partnerships > Weekly Preview can generate a branded partner PDF and a CSV reconciliation export from the loaded preview, and both exports include the snapshot ID
 - [ ] Portal Reports > Partner Dashboard can download PDF and CSV exports from the Weekly view for the current completed report week, and the artifact filename/snapshot metadata identify the weekly period
 - [ ] Portal Reports > Partner Dashboard can download PDF and CSV exports from the Monthly view for the current completed calendar month, and the artifact filename/snapshot metadata identify the monthly period
 - [ ] Portal Reports > Partner Dashboard machine rollups use partner-facing labels (`Tax + deductions`, `Payout basis` when needed), hide zero-dollar additional costs, and do not show a duplicate payout-basis column when it equals net sales
 - [ ] Corporate partner P0: super-admin can create a corporate partner, create a partnership/agreement, assign machines, configure machine tax assumptions, and configure typed revenue-share terms without developer support
 - [ ] Corporate partner P0: super-admin can preview a completed weekly report before generating a PDF and sees any missing tax, missing assignment, missing financial-rule, or stale-data warnings
-- [ ] Corporate partner P0: generated partner PDF includes executive summary, reporting period, gross sales, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, generated timestamp, and snapshot ID
+- [ ] Corporate partner P0: generated partner PDF includes executive summary, reporting period, gross sales, refund impact, tax impact, net sales, unit/fee/cost assumptions, split calculation, amount owed, machine-level appendix, generated timestamp, and snapshot ID
 - [ ] Corporate partner P0: generated partner PDF is backed by an auditable snapshot/run record with period, rule version, assumptions, generated-by user, status, storage path, and warning state
 - [ ] Corporate partner P0: super-admin can download the reviewed partner PDF for manual sending; scheduled auto-email is not required for V1 acceptance
 - [ ] Corporate partner P0: generated partner CSV export matches the weekly preview totals and machine rollup
@@ -301,6 +304,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/reporting`
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows report export archive, partner report exports, recent sales/refund import runs, and stale/failed sync status clearly
+- [ ] Admin Reporting > Sync shows a refund adjustment review summary/list where ambiguous, unmatched, duplicate, invalid, and missing-status rows require review and do not silently affect settlement
 - [ ] Admin reporting does not mark Sunze freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
 - [ ] Admin can open discovered Sunze machine IDs from `/admin/reporting`, map them in `/admin/machines`, ignore them, and reopen them
 - [ ] Failed, stale, or mapping-needed Sunze ingest runs appear in `/admin/reporting` without changing existing mapped sales facts incorrectly
