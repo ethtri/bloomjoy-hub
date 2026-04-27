@@ -45,8 +45,8 @@
 - Partnership setup exposes one agreement-level timeline plus a simple active/inactive control; payout-rule date/status fields remain backend compatibility fields and are not normal admin inputs.
 - Official agreement setup now needs legal/display partner naming, weekly-plus-monthly cadence tracking, invoice/payment terms, ownership model, and consumer-pricing authority so partner reports can match signed partnership agreements without turning the app into a full contract-management system.
 - Production migration rollout on `2026-04-26` confirmed a current Supabase physical backup, repaired stale `202604260005` and `2026042600051` history entries, and applied migrations through `202604260018`.
-- Final migration hygiene moved the non-canonical `2026042600051` partnership-party remove RPC migration to `202604260018` so future `supabase db push --dry-run` checks reconcile local and remote order cleanly. Post-rollout QA found remaining official partnership reporting gaps tracked in issue `#230`.
-- Partner report exports now support period-aware weekly and monthly PDF/CSV artifacts with explicit snapshot period metadata. Production rollout still needs migration `202604260019_partner_report_period_exports.sql`, the updated `partner-report-export` Edge Function deployment, and admin-session UAT for the current partner agreements.
+- Final migration hygiene moved the non-canonical `2026042600051` partnership-party remove RPC migration to `202604260018` so future `supabase db push --dry-run` checks reconcile local and remote order cleanly. Follow-up official partnership export gaps were tracked in issue `#230` and closed after production rollout/UAT.
+- Partner report exports now support period-aware weekly and monthly PDF/CSV artifacts with explicit snapshot period metadata. Production rollout completed on `2026-04-27`: migration `202604260019_partner_report_period_exports.sql` was applied, the updated `partner-report-export` Edge Function was deployed, and admin-session UAT generated ready weekly and monthly Bubble Planet PDF/CSV snapshots.
 - Payout percentages live in one current Payout Rule as stable participant-named allocation rows plus Bloomjoy, with whole-percent inputs, a 100% allocation check, and weekly-preview labels that match the configured payout recipients while still mapping to the existing backend split fields for compatibility.
 - Weekly Preview now surfaces actionable readiness issues for the selected week, including missing active machine assignment coverage, missing active payout rules, and no imported sales for the selected week, and keeps RPC errors visible in-page instead of relying only on toast feedback.
 - The Bubble Planet workbook baseline uses Sunze order amount as gross sales, subtracts machine tax plus a configured `$0.40` per-stick/item fee before the 60/40 split, counts no-pay orders as `$0`, and reports completed Monday-Sunday weeks.
@@ -132,11 +132,10 @@
   - a live `$0` Stripe checkout smoke order after the webhook email redesign deployment
 
 ## Next P0 milestones
-- Complete the corporate partner reporting rollout before building operator performance dashboards:
-  - apply migration `202604260019_partner_report_period_exports.sql` and deploy the updated `partner-report-export` function
-  - run admin-session UAT for weekly and monthly PDF/CSV exports on the current partner agreements
+- Complete trusted corporate partner settlement before building operator performance dashboards:
   - resolve issue `#236` so Google Sheets complaint/refund adjustments flow into net sales, split base, amount owed, and report snapshots
-  - keep issues `#169` and `#230` open until production UAT evidence confirms trusted exports and settlement math
+  - resolve issue `#225` if partner dashboard machine-rollup cost/split-base review confirms a settlement math or presentation bug
+  - keep issue `#169` open until production UAT evidence confirms the remaining settlement math, refund handling, and partner-ready reporting expectations
 - Clear the remaining WeCom production blocker:
   - confirm whether the Bloomjoy Alerts app enforces an IP allowlist or trusted network restriction in WeCom
   - update the WeCom app policy so Supabase Edge Function traffic can send messages successfully
