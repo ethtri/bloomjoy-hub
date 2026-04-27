@@ -16,6 +16,13 @@ export const AUTO_APPLY_STATUSES = new Set([
   'settled',
 ]);
 
+export const AUTO_APPLY_DECISIONS = new Set([
+  'approve',
+  'approved',
+  'refund approved',
+  'refund approve',
+]);
+
 const normalizeHeader = (value) =>
   String(value ?? '')
     .normalize('NFKD')
@@ -153,6 +160,7 @@ export const normalizeAdjustmentType = (value) => {
 export const extractRefundInput = (row, fallbackRowReference) => {
   const sourceLocation = pickText(row, [
     'location',
+    'location_of_purchase',
     'source_location',
     'machine_location',
     'refund_location',
@@ -162,15 +170,31 @@ export const extractRefundInput = (row, fallbackRowReference) => {
     'machine',
   ]);
   const refundDate = normalizeDate(
-    pickText(row, ['refund_date', 'processed_date', 'adjustment_date', 'date'])
+    pickText(row, ['refund_date', 'decision_date', 'processed_date', 'adjustment_date', 'date'])
   );
   const originalOrderDate = normalizeDate(
-    pickText(row, ['original_order_date', 'order_date', 'sale_date', 'transaction_date'])
+    pickText(row, [
+      'original_order_date',
+      'date_and_time_of_incident',
+      'incident_date',
+      'order_date',
+      'sale_date',
+      'transaction_date',
+    ])
   );
   const sourceStatus = pickText(row, ['status', 'refund_status', 'source_status']);
+  const sourceDecision = pickText(row, ['decision', 'refund_decision']);
   const normalizedSourceStatus = normalizeStatus(sourceStatus);
+  const normalizedSourceDecision = normalizeStatus(sourceDecision);
   const sourceRowReference =
-    pickText(row, ['source_row_reference', 'row_reference', 'row_id', 'response_id', 'timestamp']) ||
+    pickText(row, [
+      'source_row_reference',
+      'request_id',
+      'row_reference',
+      'row_id',
+      'response_id',
+      'timestamp',
+    ]) ||
     fallbackRowReference;
 
   return {
@@ -180,9 +204,19 @@ export const extractRefundInput = (row, fallbackRowReference) => {
     refundDate,
     originalOrderDate,
     amountCents: parseCents(row),
-    reason: pickText(row, ['reason', 'notes', 'complaint_reason', 'refund_reason']),
+    reason: pickText(row, [
+      'reason',
+      'incident_description',
+      'mgr_commentary',
+      'commentary',
+      'notes',
+      'complaint_reason',
+      'refund_reason',
+    ]),
     sourceStatus,
     normalizedSourceStatus,
+    sourceDecision,
+    normalizedSourceDecision,
     adjustmentType: normalizeAdjustmentType(row.adjustment_type || row.type || row.reason),
     complaintCount: Math.max(0, Math.round(Number(row.complaint_count || row.complaints || 0))),
   };
@@ -198,6 +232,7 @@ export const makeSourceRowHash = (input) =>
         amountCents: input.amountCents,
         reason: normalizeMatchText(input.reason),
         sourceStatus: input.normalizedSourceStatus,
+        sourceDecision: input.normalizedSourceDecision,
         adjustmentType: input.adjustmentType,
       })
     )
@@ -262,6 +297,19 @@ export const matchRefundToMachine = (input, machineProfiles) => {
       matchReason: input.normalizedSourceStatus
         ? 'source_status_requires_review'
         : 'missing_source_status',
+      candidateMachineIds: [],
+      matchedMachine: null,
+    };
+  }
+
+  if (
+    input.normalizedSourceDecision &&
+    !AUTO_APPLY_DECISIONS.has(input.normalizedSourceDecision)
+  ) {
+    return {
+      matchStatus: 'needs_review',
+      matchConfidence: 0,
+      matchReason: 'source_decision_requires_review',
       candidateMachineIds: [],
       matchedMachine: null,
     };

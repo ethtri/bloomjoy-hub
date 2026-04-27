@@ -111,6 +111,47 @@ const statusReview = matchRow({
 assert.equal(statusReview.matchStatus, 'needs_review');
 assert.equal(statusReview.matchReason, 'missing_source_status');
 
+const currentFormContractInput = extractRefundInput(
+  {
+    location_of_purchase: 'North Lobby',
+    decision_date: '2026-04-11',
+    date_and_time_of_incident: '2026-04-10 10:30 AM',
+    refund_amount: '7.25',
+    status: 'Closed',
+    decision: 'Approve',
+    request_id: 'SANITIZED-REQ-1',
+    incident_description: 'Sanitized fixture reason',
+  },
+  'current-form-contract-fixture'
+);
+assert.equal(currentFormContractInput.sourceRowReference, 'SANITIZED-REQ-1');
+assert.equal(currentFormContractInput.refundDate, '2026-04-11');
+assert.equal(currentFormContractInput.originalOrderDate, '2026-04-10');
+assert.equal(currentFormContractInput.amountCents, 725);
+const currentFormContractMatch = matchRefundToMachine(currentFormContractInput, profiles);
+assert.equal(currentFormContractMatch.matchStatus, 'matched');
+assert.equal(currentFormContractMatch.matchedMachine?.id, machines[0].id);
+
+const openFormContractMatch = matchRow({
+  location_of_purchase: 'North Lobby',
+  decision_date: '2026-04-11',
+  refund_amount: '7.25',
+  status: 'Open',
+  decision: 'Approve',
+});
+assert.equal(openFormContractMatch.matchStatus, 'needs_review');
+assert.equal(openFormContractMatch.matchReason, 'source_status_requires_review');
+
+const deniedFormContractMatch = matchRow({
+  location_of_purchase: 'North Lobby',
+  decision_date: '2026-04-11',
+  refund_amount: '7.25',
+  status: 'Closed',
+  decision: 'Deny',
+});
+assert.equal(deniedFormContractMatch.matchStatus, 'needs_review');
+assert.equal(deniedFormContractMatch.matchReason, 'source_decision_requires_review');
+
 const duplicateInput = extractRefundInput(
   {
     location: 'North Lobby',
@@ -175,6 +216,9 @@ console.log(
       fuzzyAliasMatch: fuzzyMatch.matchStatus,
       ambiguousMatch: ambiguousMatch.matchStatus,
       unmatchedRefund: unmatched.matchStatus,
+      currentFormContract: currentFormContractMatch.matchStatus,
+      openStatusReviewOnly: openFormContractMatch.matchStatus,
+      deniedDecisionReviewOnly: deniedFormContractMatch.matchStatus,
       duplicateHashDetected: true,
       refundReducesPartnerSettlement: true,
     },

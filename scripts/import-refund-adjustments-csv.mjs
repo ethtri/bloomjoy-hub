@@ -212,7 +212,7 @@ try {
       adjustment_type: input.adjustmentType,
       complaint_count: input.complaintCount,
       reason: input.reason || null,
-      source_status: input.sourceStatus || null,
+      source_status: [input.sourceStatus, input.sourceDecision].filter(Boolean).join(' / ') || null,
       raw_payload: row,
       match_status: canApply ? 'matched' : match.matchStatus,
       match_confidence: match.matchConfidence,

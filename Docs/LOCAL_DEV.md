@@ -79,8 +79,8 @@ Use these after the sales reporting migration has been applied.
 3) Import or dry-run refund/complaint adjustments from a sanitized CSV/export:
    - `npm run reporting:import-refunds -- --file scripts/sample-refund-adjustments.csv --dry-run`
    - `npm run reporting:import-refunds -- --file path/to/refunds.csv --source-reference <refund-export-id>`
-   - Required/referrable columns are `location` or `source_location`, `refund_date` or `processed_date`, `refund_amount_usd` or `refund_amount_cents`, and `status`. Optional audit columns include `order_date`, `reason`, `source_row_reference`, and `complaint_count`.
-   - Only approved/completed/refunded-style statuses with one conservative machine match auto-apply. Ambiguous, unmatched, duplicate, invalid, missing-status, or low-confidence rows stay in the admin review ledger and do not change partner settlement.
+   - Required/referrable columns are `location` / `Location of Purchase`, `refund_date` / `Decision Date`, `refund_amount_usd` / `Refund Amount`, and `status` / `Status`. Optional audit columns include `order_date` / `Date and Time of Incident`, `reason` / `Incident Description`, `source_row_reference` / `Request ID`, `decision` / `Refund Decision`, and `complaint_count`.
+   - Only approved/completed/refunded-style statuses with one conservative machine match auto-apply. For the current customer service export, `Status=Closed` must pair with an approve-style `Decision`; `Open`, `Deny`, ambiguous, unmatched, duplicate, invalid, missing-status, or low-confidence rows stay in the admin review ledger and do not change partner settlement.
 4) Validate sanitized reporting parser/matching fixtures:
    - `npm run reporting:validate-sunze-parser`
    - `npm run reporting:validate-refund-adjustments`
