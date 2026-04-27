@@ -115,6 +115,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Plus Account Owner sees Technician Access on `/portal/account` with seat usage, owned machines, and current Technician grants
 - [ ] Plus Account Owner can add a Technician with one or more owned machines, then edit that Technician's machine assignments
 - [ ] Pending Technician invite resolves on first login so the Technician gets training plus assigned-machine reporting without admin repair
+- [ ] Authenticated `/portal` and `/admin` route loads do not show `404` or `PGRST202` for `resolve_my_technician_entitlements` in the browser network log or console
 - [ ] Plus Account Owner cannot assign Technician access when the account has no active controlled reporting machines
 - [ ] Plus Account Owner sees a clear no-paid-seats message when the default 10 Technician grant cap is reached
 - [ ] Plus Account Owner can revoke Technician access only after entering a revoke reason
