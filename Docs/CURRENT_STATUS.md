@@ -6,6 +6,11 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Production admin asset loading guard (2026-04-27)
+- P0 issue `#246` was traced to stale lazy-loaded chunk URLs under `/assets/*` being served through the SPA fallback as `200 text/html` after the referenced hashed files were no longer present in the active Vercel deployment.
+- Current production `/admin/access` HTML references fresh chunk hashes, and those current chunks return `application/javascript`; the repo hardening adds a Vercel guard so missing `/assets/*` files return `404` instead of `index.html`.
+- The SEO/config regression check now verifies the missing-asset guard stays between filesystem serving and the catch-all SPA fallback.
+
 ## Machine-buyer SEO static generation (2026-04-17)
 - Public marketing/legal routes now build as static HTML with rendered body content, production asset URLs, route-specific metadata, canonical tags, and JSON-LD before client JavaScript runs.
 - Route SEO data is centralized in `src/lib/seoRoutes.ts` and shared by client route metadata plus the prerender/SEO regression scripts.

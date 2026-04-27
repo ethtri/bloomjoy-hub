@@ -168,6 +168,7 @@ Run immediately after deploy:
 - [ ] Login works, password recovery works, and protected routes redirect correctly on `app.bloomjoyusa.com`.
 - [ ] Auth launch sign-off checklist is completed with evidence (`Docs/AUTH_PRODUCTION_SIGNOFF.md`).
 - [ ] `Docs/QA_SMOKE_TEST_CHECKLIST.md` core payment/auth checks pass.
+- [ ] Admin asset MIME smoke passes: current `/admin/access` JS chunks return `application/javascript`, and a stale or bogus `/assets/*.js` URL returns `404` instead of `index.html`.
 - [ ] Anonymous/non-member sugar checkout charges `$10/kg` and creates `orders` record in Supabase.
 - [ ] Bloomjoy Plus sugar checkout charges `$8/kg` and creates `orders` record in Supabase.
 - [ ] Sugar checkout test order stores customer contact, billing/shipping address, pricing tier, receipt URL, and color breakdown in `orders`.
