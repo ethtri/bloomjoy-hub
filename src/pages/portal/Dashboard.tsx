@@ -138,8 +138,23 @@ export default function PortalDashboard() {
   const onboardingRemainingCount =
     onboardingProgress.totalSteps - onboardingProgress.completedCount;
   const nextOnboardingSteps = onboardingProgress.steps.filter((step) => !step.completed).slice(0, 3);
+  const reportingScopeDescription =
+    reportingMachineCount > 0
+      ? `Open sales reporting for ${formatCountLabel(reportingMachineCount, 'machine', 'machines')}${
+          reportingLocationCount > 0
+            ? ` across ${formatCountLabel(reportingLocationCount, 'location', 'locations')}`
+            : ''
+        }.`
+      : 'Open sales reporting for the machines assigned to this account.';
 
-  const primaryAction = !canAccessTraining
+  const primaryAction = hasReportingAccess && !isMember
+    ? {
+        label: 'Open Reporting',
+        href: '/portal/reports',
+        description: 'Review assigned machine sales, trends, and reporting exports.',
+        helper: reportingScopeDescription,
+      }
+    : !canAccessTraining
     ? {
         label: 'Reorder Supplies',
         href: '/supplies',
@@ -272,6 +287,30 @@ export default function PortalDashboard() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                {hasReportingAccess && (
+                  <div className="rounded-[24px] border border-primary/20 bg-primary/5 p-5 shadow-[var(--shadow-sm)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                          Reporting access
+                        </p>
+                        <p className="mt-2 font-display text-xl font-semibold text-foreground">
+                          Machine reporting is ready
+                        </p>
+                      </div>
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <BarChart3 className="h-5 w-5" />
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {reportingScopeDescription}
+                    </p>
+                    <Button asChild variant="outline" className="mt-5 w-full sm:w-auto">
+                      <Link to="/portal/reports">Open reporting</Link>
+                    </Button>
+                  </div>
+                )}
+
                 <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     Portal access
@@ -291,41 +330,6 @@ export default function PortalDashboard() {
                         : 'Baseline access keeps reorders, order history, and account updates simple while Bloomjoy Plus unlocks guided setup, training, and support.'}
                   </p>
                 </div>
-
-                {hasReportingAccess && (
-                  <div className="rounded-[24px] border border-primary/20 bg-primary/5 p-5 shadow-[var(--shadow-sm)]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                          Reporting access
-                        </p>
-                        <p className="mt-2 font-display text-xl font-semibold text-foreground">
-                          Machine reporting is ready
-                        </p>
-                      </div>
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                        <BarChart3 className="h-5 w-5" />
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {reportingMachineCount > 0 ? (
-                        <>
-                          Open sales reporting for{' '}
-                          {formatCountLabel(reportingMachineCount, 'machine', 'machines')}
-                          {reportingLocationCount > 0
-                            ? ` across ${formatCountLabel(reportingLocationCount, 'location', 'locations')}`
-                            : ''}
-                          .
-                        </>
-                      ) : (
-                        'Open sales reporting for the machines assigned to this account.'
-                      )}
-                    </p>
-                    <Button asChild variant="outline" className="mt-5 w-full sm:w-auto">
-                      <Link to="/portal/reports">Open reporting</Link>
-                    </Button>
-                  </div>
-                )}
 
                 {canAccessTraining ? (
                   <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
