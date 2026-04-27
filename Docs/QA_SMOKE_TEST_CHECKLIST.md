@@ -255,6 +255,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Access > Reporting Access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
 - [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
+- [ ] Non-super-admin `report_manager` user with explicit machine grants can access `/portal/reports` for granted machines and remains blocked from `/admin/access`
 - [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
 - [ ] Admin Access > Audit supports filtering and shows role + operational actions
 - [ ] Non-admin user cannot access `/admin/partnerships`
