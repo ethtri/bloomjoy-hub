@@ -74,6 +74,7 @@ import {
   type PartnerDashboardPeriod,
   type PartnerDashboardPeriodGrain,
   type PartnerDashboardPeriodPreview,
+  type PartnerDashboardWarning,
   type PartnerDashboardTotals,
 } from '@/lib/partnerDashboardReporting';
 import { cn } from '@/lib/utils';
@@ -85,6 +86,9 @@ type PartnerMachineComparisonRow = {
   current: PartnerDashboardMachinePeriod;
   previous?: PartnerDashboardMachinePeriod;
 };
+
+const isReportingTabWarning = (warning: PartnerDashboardWarning) =>
+  warning.severity === 'blocking';
 
 const paymentMethods: PaymentMethod[] = ['cash', 'credit', 'other', 'unknown'];
 const paymentMethodLabels: Record<PaymentMethod, string> = {
@@ -889,8 +893,11 @@ function PartnerDashboardView() {
     [periodMode, sortedPeriods]
   );
 
-  const hasBlockingWarnings =
-    preview?.warnings.some((warning) => warning.severity === 'blocking') ?? false;
+  const reportingTabWarnings = useMemo(
+    () => preview?.warnings.filter(isReportingTabWarning) ?? [],
+    [preview?.warnings]
+  );
+  const hasBlockingWarnings = reportingTabWarnings.length > 0;
   const trendLabel = periodMode === 'weekly' ? 'Weekly' : 'Monthly';
 
   const refreshPartnerDashboard = async () => {
@@ -1101,28 +1108,27 @@ function PartnerDashboardView() {
             periodMode={periodMode}
           />
 
-          {preview.warnings.length > 0 && (
+          {reportingTabWarnings.length > 0 && (
             <Alert className="border-amber/20 bg-amber/10 text-foreground">
               <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>Admin-only data quality review</AlertTitle>
+              <AlertTitle>Report setup needs attention</AlertTitle>
               <AlertDescription>
                 <div className="mt-2 flex flex-col gap-2">
-                  {hasBlockingWarnings && (
-                    <div className="font-medium">
-                      Partner PDF export is locked until blocking items are resolved.
-                    </div>
-                  )}
-                  {preview.warnings.slice(0, 4).map((warning, index) => (
+                  <div className="font-medium">
+                    Partner export is locked until blocking setup items are resolved in admin.
+                  </div>
+                  {reportingTabWarnings.slice(0, 4).map((warning, index) => (
                     <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
-                      <Badge variant={warning.severity === 'blocking' ? 'destructive' : 'outline'}>
-                        {warning.severity === 'blocking' ? 'Blocking' : 'Review'}
-                      </Badge>{' '}
+                      <Badge variant="destructive">Blocking</Badge>{' '}
                       {warning.message}
                     </div>
                   ))}
-                  {preview.warnings.length > 4 && (
-                    <div>{preview.warnings.length - 4} more admin-only warnings hidden.</div>
+                  {reportingTabWarnings.length > 4 && (
+                    <div>{reportingTabWarnings.length - 4} more blocking warnings hidden.</div>
                   )}
+                  <Button asChild variant="outline" size="sm" className="w-fit">
+                    <Link to="/admin/partnerships">Open admin setup</Link>
+                  </Button>
                 </div>
               </AlertDescription>
             </Alert>
