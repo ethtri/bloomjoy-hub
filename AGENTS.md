@@ -88,6 +88,13 @@ PR description includes:
 - Helpful repo plugins/skills: GitHub for issues/PRs/CI, Browser Use or Vercel browser verification for localhost UI checks, Build Web Apps/shadcn/React skills for UI work, Supabase Postgres guidance for migrations/RLS/reporting SQL, Stripe guidance for checkout/billing/webhooks, and Vercel guidance for redirects/domains/deploy config.
 - Use Gmail, Google Drive, or Sheets only when the task explicitly depends on connected business source material. Never move secrets or private operational data into repo files.
 
+### Issue hygiene
+- When you find a meaningful bug, blocker, gap, risk, or follow-up opportunity that is not fixed in the current PR, create or update a GitHub Issue.
+- Search open issues first and update the existing issue when possible instead of duplicating it.
+- Label tracked issues with `P0`, `P1`, `P2`, or `P3`, and add them to the Bloomjoy Hub Priorities Project board.
+- Do not create issues for tiny notes that are fully resolved in the current PR.
+- Mention new or updated issues in the PR description or final status update.
+
 ## Operational safeguards (must follow)
 - Work only in a worktree (never edit `C:\Repos\Bloomjoy_hub` directly).
 - Run the preflight check in `Docs/LOCAL_DEV.md` before making edits.
