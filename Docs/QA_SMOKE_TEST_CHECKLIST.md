@@ -128,11 +128,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
 - [ ] Training catalog shows `Data source: Supabase` in local dev after auth/session settles
-- [ ] Training hub hero makes the next action obvious (`Resume learning` or `Open start path`) without requiring deep scrolling
+- [ ] Training hub hero makes one primary next action obvious (`Open start path` for a new path, `Resume learning` only for an in-progress item) without requiring deep scrolling
 - [ ] `Explore the full library` scrolls to the searchable library section and focuses the search field instead of appearing dead when `All` is already selected
 - [ ] Training hub shows an operator-first `Start Here` sequence plus task-based jump cards for `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`, `Build / Assembly`, and `Reference`
 - [ ] Selecting a task-path card scrolls into the searchable library with that path active instead of only changing above-the-fold state
-- [ ] Training hub surfaces compact quick job aids near the library entry as supporting references, with the main task library clearly separated below
+- [ ] Training hub surfaces compact job aids by flow moment near the library entry (`Safe Power Off and Cooldown`, `Timer Control Reference`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`), with the main task library clearly separated below; Supabase-backed UUID rows still resolve the Safe Power Off moment through the canonical shutdown task route
 - [ ] Main task-library browse cards show canonical operator tasks only; duplicate sibling video/checklist rows are collapsed for shutdown, cleaning, troubleshooting, and consumables
 - [ ] When live Supabase training rows load, the hub hero shows non-zero quick-aid/manual counts and those same quick aids do not reappear as peer cards in the main task library
 - [ ] Training hub keeps advanced filters hidden behind `More filters` by default and does not expose an `Unassigned` section anywhere in the library
@@ -163,7 +163,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `Software Setup Quickstart`, `Pricing, Passwords, and Payment Settings`, and `Module Function Check Guide` no longer render as text-only guides when source-manual figures are available
 - [ ] New job aids (`Safe Power Off and Cooldown`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`) appear in the library/search and open from linked resource cards
 - [ ] `Unlock Machine Door (Physical Service Access)` is titled to match the footage and is grouped under `Build / Assembly`, not `Software & Payments` or `Start Here`
-- [ ] On mobile widths (360x800, 390x844, 414x896), the training hub keeps Start Here, task cards, quick job aids, and library search readable without oversized gaps between sections
+- [ ] On mobile widths (360x800, 390x844, 414x896), the training hub keeps the compact Start Here sequence, task shortcuts, job-aid moment cards, and library search readable without oversized gaps between sections
 - [ ] On mobile widths (360x800, 390x844, 414x896), training filters, onboarding checklist CTAs, support forms, and order-card actions stack cleanly without cramped button rows
 - [ ] `Mark complete` persists to `training_progress` and the item remains completed after refresh/re-login
 - [ ] Operator Essentials certificate appears as a secondary section below the main library and stays locked until all required items are complete and the final acknowledgement is checked
