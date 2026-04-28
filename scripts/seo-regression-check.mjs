@@ -482,10 +482,132 @@ const hasMissingAssetFallbackGuard = (routes) => {
   );
 };
 
+const parseContentSecurityPolicy = (policy) =>
+  new Map(
+    policy
+      .split(";")
+      .map((directive) => directive.trim())
+      .filter(Boolean)
+      .map((directive) => {
+        const [name, ...values] = directive.split(/\s+/);
+        return [name, values];
+      })
+  );
+
+const directiveIncludes = (policy, directive, expectedSource) =>
+  policy.get(directive)?.includes(expectedSource) ?? false;
+
+const validateGlobalSecurityHeaders = (routes) => {
+  const securityHeaderRouteIndex = routes.findIndex(
+    (route) =>
+      route?.src === "/(.*)" &&
+      route?.continue === true &&
+      typeof route?.headers?.["Content-Security-Policy"] === "string"
+  );
+
+  if (securityHeaderRouteIndex !== 0) {
+    throw new Error(
+      "vercel.json must apply global security headers before redirects, rewrites, and fallbacks"
+    );
+  }
+
+  const headers = routes[securityHeaderRouteIndex].headers;
+  const csp = parseContentSecurityPolicy(headers["Content-Security-Policy"]);
+
+  const requiredCspSources = [
+    ["default-src", "'self'"],
+    ["base-uri", "'self'"],
+    ["object-src", "'none'"],
+    ["frame-ancestors", "'none'"],
+    ["script-src", "'self'"],
+    ["script-src", "https://accounts.google.com"],
+    ["script-src", "https://js.stripe.com"],
+    ["script-src", "https://www.googletagmanager.com"],
+    ["script-src", "https://*.posthog.com"],
+    ["style-src", "'self'"],
+    ["style-src", "'unsafe-inline'"],
+    ["style-src", "https://fonts.googleapis.com"],
+    ["img-src", "data:"],
+    ["img-src", "blob:"],
+    ["img-src", "https://*.supabase.co"],
+    ["img-src", "https://*.vimeocdn.com"],
+    ["font-src", "https://fonts.gstatic.com"],
+    ["connect-src", "https://auth.bloomjoyusa.com"],
+    ["connect-src", "wss://auth.bloomjoyusa.com"],
+    ["connect-src", "https://*.supabase.co"],
+    ["connect-src", "wss://*.supabase.co"],
+    ["connect-src", "https://api.stripe.com"],
+    ["connect-src", "https://checkout.stripe.com"],
+    ["connect-src", "https://player.vimeo.com"],
+    ["connect-src", "https://www.google-analytics.com"],
+    ["connect-src", "https://*.posthog.com"],
+    ["frame-src", "https://player.vimeo.com"],
+    ["frame-src", "https://accounts.google.com"],
+    ["frame-src", "https://js.stripe.com"],
+    ["frame-src", "https://hooks.stripe.com"],
+    ["frame-src", "https://checkout.stripe.com"],
+    ["child-src", "https://player.vimeo.com"],
+    ["media-src", "https://*.vimeocdn.com"],
+    ["worker-src", "blob:"],
+    ["manifest-src", "'self'"],
+    ["form-action", "'self'"],
+    ["form-action", "https://accounts.google.com"],
+    ["form-action", "https://checkout.stripe.com"],
+  ];
+
+  for (const [directive, expectedSource] of requiredCspSources) {
+    if (!directiveIncludes(csp, directive, expectedSource)) {
+      throw new Error(
+        `vercel.json security CSP is missing ${expectedSource} in ${directive}`
+      );
+    }
+  }
+
+  if (!csp.has("upgrade-insecure-requests")) {
+    throw new Error("vercel.json security CSP is missing upgrade-insecure-requests");
+  }
+
+  if (headers["X-Frame-Options"] !== "DENY") {
+    throw new Error("vercel.json security headers must deny third-party framing");
+  }
+
+  if (headers["X-Content-Type-Options"] !== "nosniff") {
+    throw new Error("vercel.json security headers must set X-Content-Type-Options: nosniff");
+  }
+
+  if (headers["Referrer-Policy"] !== "strict-origin-when-cross-origin") {
+    throw new Error(
+      "vercel.json security headers must set Referrer-Policy: strict-origin-when-cross-origin"
+    );
+  }
+
+  if (headers["Strict-Transport-Security"] !== "max-age=63072000") {
+    throw new Error("vercel.json security headers must preserve the deployment HSTS baseline");
+  }
+
+  const permissionsPolicy = headers["Permissions-Policy"] ?? "";
+  const requiredPermissionsPolicyTokens = [
+    "camera=()",
+    "geolocation=()",
+    "microphone=()",
+    'payment=(self "https://checkout.stripe.com")',
+    'fullscreen=(self "https://player.vimeo.com")',
+    'picture-in-picture=(self "https://player.vimeo.com")',
+  ];
+
+  for (const token of requiredPermissionsPolicyTokens) {
+    if (!permissionsPolicy.includes(token)) {
+      throw new Error(`vercel.json Permissions-Policy is missing ${token}`);
+    }
+  }
+};
+
 const validateVercelConfig = async () => {
   const raw = await readFile(VERCEL_CONFIG_PATH, "utf8");
   const parsed = JSON.parse(raw);
   const routes = Array.isArray(parsed?.routes) ? parsed.routes : [];
+
+  validateGlobalSecurityHeaders(routes);
 
   if (!hasHostRedirectRule(routes)) {
     throw new Error("vercel.json is missing apex->www 308 host redirect rule");
