@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
+import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
 
 export const config = {
@@ -77,16 +78,6 @@ serve(async (req) => {
   }
 
   try {
-    if (!stripe) {
-      return new Response(
-        JSON.stringify({ error: "Stripe is not configured." }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
     const authResult = await resolveAuthenticatedUser(req);
     if (!authResult.user) {
       return new Response(
@@ -99,7 +90,9 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const returnUrl = body?.returnUrl;
+    const returnUrlResult = validateBrowserUrl(body?.returnUrl, {
+      label: "return URL",
+    });
     const email = authResult.user.email?.trim().toLowerCase() ?? null;
 
     if (!email) {
@@ -112,11 +105,23 @@ serve(async (req) => {
       );
     }
 
-    if (!returnUrl) {
+    if (!returnUrlResult.ok) {
       return new Response(
-        JSON.stringify({ error: "Missing return URL." }),
+        JSON.stringify({ error: returnUrlResult.error }),
         {
           status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const returnUrl = returnUrlResult.url;
+
+    if (!stripe) {
+      return new Response(
+        JSON.stringify({ error: "Stripe is not configured." }),
+        {
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );

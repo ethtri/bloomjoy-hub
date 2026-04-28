@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
+import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
 
 export const config = {
@@ -36,29 +37,46 @@ serve(async (req) => {
   }
 
   try {
-    if (!stripe || !sticksPriceId) {
-      return new Response(
-        JSON.stringify({ error: "Stripe is not configured." }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
     const body = await req.json();
-    const successUrl = body?.successUrl;
-    const cancelUrl = body?.cancelUrl;
+    const successUrlResult = validateBrowserUrl(body?.successUrl, {
+      label: "success URL",
+    });
+    const cancelUrlResult = validateBrowserUrl(body?.cancelUrl, {
+      label: "cancel URL",
+    });
     const boxCount = Number(body?.boxCount ?? 0);
     const stickSize = String(body?.stickSize ?? "");
     const addressType = String(body?.addressType ?? "");
     const variant = body?.variant ? String(body.variant) : "plain";
 
-    if (!successUrl || !cancelUrl) {
+    if (!successUrlResult.ok) {
       return new Response(
-        JSON.stringify({ error: "Missing success or cancel URL." }),
+        JSON.stringify({ error: successUrlResult.error }),
         {
           status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (!cancelUrlResult.ok) {
+      return new Response(
+        JSON.stringify({ error: cancelUrlResult.error }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const successUrl = successUrlResult.url;
+    const cancelUrl = cancelUrlResult.url;
+
+    if (!stripe || !sticksPriceId) {
+      return new Response(
+        JSON.stringify({ error: "Stripe is not configured." }),
+        {
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );

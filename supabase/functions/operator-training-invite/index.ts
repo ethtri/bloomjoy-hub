@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
+import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 
@@ -33,21 +34,6 @@ type OperatorTrainingGrantRow = {
 };
 
 const sanitizeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
-
-const sanitizeLoginUrl = (value: unknown): string => {
-  const raw = sanitizeText(value);
-  if (!raw) return fallbackLoginUrl;
-
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
-      return fallbackLoginUrl;
-    }
-    return url.toString();
-  } catch {
-    return fallbackLoginUrl;
-  }
-};
 
 const escapeHtml = (value: string): string =>
   value
@@ -161,7 +147,19 @@ serve(async (req) => {
 
     const body = await req.json();
     const grantId = sanitizeText(body?.grantId);
-    const loginUrl = sanitizeLoginUrl(body?.loginUrl);
+    const loginUrlResult = validateBrowserUrl(body?.loginUrl, {
+      label: "login URL",
+      fallbackUrl: fallbackLoginUrl,
+    });
+
+    if (!loginUrlResult.ok) {
+      return new Response(JSON.stringify({ error: loginUrlResult.error }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const loginUrl = loginUrlResult.url;
 
     if (!uuidPattern.test(grantId)) {
       return new Response(JSON.stringify({ error: "Operator grant ID is required." }), {

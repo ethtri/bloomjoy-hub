@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import {
   resolveForwardedSupabaseAccessToken,
 } from "../_shared/auth.ts";
+import { validateBrowserUrl } from "../_shared/browser-url-allowlist.mjs";
 import { corsHeaders } from "../_shared/cors.ts";
 
 export const config = {
@@ -162,16 +163,6 @@ serve(async (req) => {
   }
 
   try {
-    if (!stripe || !memberSugarPriceId || !nonMemberSugarPriceId) {
-      return new Response(
-        JSON.stringify({ error: "Stripe sugar pricing is not configured." }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
     const authResult = await resolveOptionalCheckoutUser(req);
     if (!authResult.user && authResult.error) {
       return new Response(
@@ -185,14 +176,41 @@ serve(async (req) => {
 
     const body = await req.json();
     const items = Array.isArray(body?.items) ? body.items : [];
-    const successUrl = body?.successUrl;
-    const cancelUrl = body?.cancelUrl;
+    const successUrlResult = validateBrowserUrl(body?.successUrl, {
+      label: "success URL",
+    });
+    const cancelUrlResult = validateBrowserUrl(body?.cancelUrl, {
+      label: "cancel URL",
+    });
 
-    if (!successUrl || !cancelUrl) {
+    if (!successUrlResult.ok) {
       return new Response(
-        JSON.stringify({ error: "Missing success or cancel URL." }),
+        JSON.stringify({ error: successUrlResult.error }),
         {
           status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (!cancelUrlResult.ok) {
+      return new Response(
+        JSON.stringify({ error: cancelUrlResult.error }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const successUrl = successUrlResult.url;
+    const cancelUrl = cancelUrlResult.url;
+
+    if (!stripe || !memberSugarPriceId || !nonMemberSugarPriceId) {
+      return new Response(
+        JSON.stringify({ error: "Stripe sugar pricing is not configured." }),
+        {
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
