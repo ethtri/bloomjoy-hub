@@ -1,6 +1,7 @@
 import { supabaseClient } from '@/lib/supabaseClient';
 import type { PlusAccessSummary } from '@/lib/membership';
 import { fetchMyPlusAccess } from '@/lib/plusAccess';
+import { isSupportedLanguage, type LanguageCode } from '@/lib/i18n';
 
 export type CustomerProfileRecord = {
   user_id: string;
@@ -13,6 +14,7 @@ export type CustomerProfileRecord = {
   shipping_state: string | null;
   shipping_postal_code: string | null;
   shipping_country: string | null;
+  language_preference?: LanguageCode | null;
   created_at: string;
   updated_at: string;
 };
@@ -82,4 +84,40 @@ export const fetchPortalMembershipSummary = async (
   _userId: string
 ): Promise<PortalMembershipSummary> => {
   return fetchMyPlusAccess();
+};
+
+export const fetchPortalLanguagePreference = async (
+  userId: string
+): Promise<LanguageCode | null> => {
+  const { data, error } = await supabaseClient
+    .from('customer_profiles')
+    .select('language_preference')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    return null;
+  }
+
+  const languagePreference = (data as { language_preference?: unknown } | null)
+    ?.language_preference;
+
+  return isSupportedLanguage(languagePreference) ? languagePreference : null;
+};
+
+export const savePortalLanguagePreference = async (
+  userId: string,
+  languagePreference: LanguageCode
+): Promise<void> => {
+  const { error } = await supabaseClient.from('customer_profiles').upsert(
+    {
+      user_id: userId,
+      language_preference: languagePreference,
+    },
+    { onConflict: 'user_id' }
+  );
+
+  if (error) {
+    throw new Error(error.message || 'Unable to save language preference.');
+  }
 };

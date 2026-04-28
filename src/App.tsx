@@ -1,4 +1,4 @@
-import { Suspense, type ReactNode } from "react";
+import { Suspense, useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,8 +7,9 @@ import {
   QueryClientProvider,
   type QueryClient as QueryClientInstance,
 } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { MemberRoute } from "@/components/auth/MemberRoute";
 import { AdminRoute } from "@/components/auth/AdminRoute";
@@ -58,6 +59,32 @@ const RouteFallback = () => (
   <div className="container-page py-10 text-sm text-muted-foreground">Loading page...</div>
 );
 
+const isAppLanguageSurface = (pathname: string) =>
+  pathname === "/login" ||
+  pathname === "/reset-password" ||
+  pathname.startsWith("/portal") ||
+  pathname.startsWith("/admin");
+
+const AppLanguageMetadata = () => {
+  const { language, supportedLanguages } = useLanguage();
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const htmlLanguage = isAppLanguageSurface(pathname)
+      ? supportedLanguages.find((supportedLanguage) => supportedLanguage.code === language)
+          ?.htmlLang ?? "en"
+      : "en";
+
+    document.documentElement.lang = htmlLanguage;
+  }, [language, pathname, supportedLanguages]);
+
+  return null;
+};
+
 export const AppProviders = ({
   children,
   queryClient = browserQueryClient,
@@ -67,17 +94,20 @@ export const AppProviders = ({
 }) => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        {children}
-      </TooltipProvider>
+      <LanguageProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          {children}
+        </TooltipProvider>
+      </LanguageProvider>
     </AuthProvider>
   </QueryClientProvider>
 );
 
 export const AppShell = () => (
   <HostRedirectGate>
+    <AppLanguageMetadata />
     <RouteSeoManager />
     <RouteErrorBoundary>
       <Suspense fallback={<RouteFallback />}>

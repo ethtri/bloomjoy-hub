@@ -85,6 +85,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
 - [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights and the top app header stays compact without an extra context row pushing content below the fold
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
+- [ ] Language selector on `/login` switches between English and Simplified Chinese and the selected language persists after refresh on desktop
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Password sign-in works for an existing email/password user
@@ -99,6 +100,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
+- [ ] Signed-in `/portal/account` language preference switches core portal navigation, dashboard/reporting/training/support/account entry labels, then persists after refresh
+- [ ] On mobile (`390x844`), Chinese app-shell and portal navigation labels fit without horizontal page overflow
 - [ ] User with reporting access sees Reporting in portal navigation, quick actions, and the above-the-fold dashboard reporting card linking to `/portal/reports`
 - [ ] User without reporting access does not see Reporting in portal navigation or dashboard quick actions
 - [ ] On mobile app routes, page-intro actions stack cleanly full width instead of squeezing side-by-side on `/portal`, `/portal/orders`, `/portal/account`, `/portal/onboarding`, `/portal/support`, and `/portal/training`

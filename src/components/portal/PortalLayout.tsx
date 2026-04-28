@@ -13,10 +13,11 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import {
   canAccessPortalLevel,
-  getAccessLevelLabel,
+  getAccessLevelLabelKey,
   getPortalDestinationByPath,
   portalDestinations,
 } from '@/components/portal/portalNavigation';
@@ -27,6 +28,7 @@ interface PortalLayoutProps {
 
 export function PortalLayout({ children }: PortalLayoutProps) {
   const { hasReportingAccess, isAdmin, portalAccessTier } = useAuth();
+  const { t } = useLanguage();
   const location = useLocation();
   const currentDestination = getPortalDestinationByPath(location.pathname);
   const sortedDestinations = [...portalDestinations].sort(
@@ -41,10 +43,10 @@ export function PortalLayout({ children }: PortalLayoutProps) {
     );
   const accessStatusLabel =
     portalAccessTier === 'plus'
-      ? 'Plus active'
+      ? t('portal.plusActive')
       : portalAccessTier === 'training'
-        ? 'Training access'
-        : 'Baseline access';
+        ? t('portal.trainingAccess')
+        : t('portal.baselineAccess');
 
   return (
     <AppLayout>
@@ -54,11 +56,10 @@ export function PortalLayout({ children }: PortalLayoutProps) {
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  Member Portal
+                  {t('portal.memberPortal')}
                 </p>
                 <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                  Move between orders, account details, training, onboarding, and support
-                  without losing context.
+                  {t('portal.description')}
                 </p>
               </div>
               <div className="hidden md:flex">
@@ -86,10 +87,10 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                         </span>
                         <span className="min-w-0">
                           <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Current section
+                            {t('portal.currentSection')}
                           </span>
                           <span className="block truncate font-semibold text-foreground">
-                            {currentDestination.label}
+                            {t(currentDestination.labelKey)}
                           </span>
                         </span>
                       </span>
@@ -100,7 +101,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                           hasReportingAccess
                         ) && (
                           <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-                            {getAccessLevelLabel(currentDestination.access)}
+                            {t(getAccessLevelLabelKey(currentDestination.access))}
                           </span>
                         )}
                         <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -112,9 +113,9 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                     className="max-h-[85vh] overflow-y-auto rounded-t-[28px] border-border bg-background px-5 pb-8 pt-6"
                   >
                     <SheetHeader className="text-left">
-                      <SheetTitle>Portal navigation</SheetTitle>
+                      <SheetTitle>{t('portal.navigation')}</SheetTitle>
                       <SheetDescription>
-                        Choose the next destination without horizontal scrolling.
+                        {t('portal.navigationDescription')}
                       </SheetDescription>
                     </SheetHeader>
                     <div className="mt-6 space-y-2">
@@ -151,16 +152,18 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                               <span className="min-w-0 flex-1">
                                 <span className="flex flex-wrap items-center gap-2">
                                   <span className="font-semibold text-foreground">
-                                    {destination.label}
+                                    {t(destination.labelKey)}
                                   </span>
                                   {locked && (
                                     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-                                      {getAccessLevelLabel(destination.access)}
+                                      {t(getAccessLevelLabelKey(destination.access))}
                                     </span>
                                   )}
                                 </span>
                                 <span className="mt-1 block text-sm text-muted-foreground">
-                                  {locked ? destination.upsellCopy : destination.description}
+                                  {locked
+                                    ? t(destination.upsellCopyKey ?? destination.descriptionKey)
+                                    : t(destination.descriptionKey)}
                                 </span>
                               </span>
                             </NavLink>
@@ -178,9 +181,9 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                               <Shield className="h-5 w-5" />
                             </span>
                             <span className="min-w-0 flex-1">
-                              <span className="font-semibold text-foreground">Admin</span>
+                              <span className="font-semibold text-foreground">{t('app.admin')}</span>
                               <span className="mt-1 block text-sm text-muted-foreground">
-                                Queue management, orders, and audit tools.
+                                {t('portal.adminDescription')}
                               </span>
                             </span>
                           </NavLink>
@@ -213,10 +216,10 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                   >
                     <span className="flex items-center gap-2">
                       <destination.icon className="h-4 w-4" />
-                      <span>{destination.label}</span>
+                      <span>{t(destination.labelKey)}</span>
                       {locked && (
                         <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
-                          {getAccessLevelLabel(destination.access)}
+                          {t(getAccessLevelLabelKey(destination.access))}
                         </span>
                       )}
                     </span>
@@ -231,7 +234,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                 >
                   <span className="flex items-center gap-2">
                     <Shield className="h-4 w-4" />
-                    <span>Admin</span>
+                    <span>{t('app.admin')}</span>
                   </span>
                 </NavLink>
               )}

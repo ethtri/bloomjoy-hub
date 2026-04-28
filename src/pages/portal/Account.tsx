@@ -16,7 +16,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { TechnicianManagementPanel } from '@/components/portal/TechnicianManagementPanel';
+import { LanguagePreferenceControl } from '@/components/i18n/LanguagePreferenceControl';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { openCustomerPortal } from '@/lib/stripeCheckout';
 import { hasPlusAccess } from '@/lib/membership';
 import {
@@ -63,6 +65,7 @@ const parseOperatorEmails = (value: string): string[] =>
 
 export default function AccountPage() {
   const { user, canManageOperatorTraining } = useAuth();
+  const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -363,8 +366,8 @@ export default function AccountPage() {
       <section className="portal-section overflow-x-clip">
         <div className="container-page">
           <PortalPageIntro
-            title="Account Settings"
-            description="Manage the billing details, profile information, and shipping address that keep future orders and support handoffs running smoothly."
+            title={t('account.title')}
+            description={t('account.description')}
             badges={[
               { label: membershipStatusLabel, tone: isMember ? 'success' : 'accent' },
               ...(nextBillingLabel
@@ -403,39 +406,41 @@ export default function AccountPage() {
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <User className="h-5 w-5 text-primary" />
                   </div>
-                  <h2 className="font-display text-lg font-semibold text-foreground">Profile</h2>
+                  <h2 className="font-display text-lg font-semibold text-foreground">
+                    {t('account.profile')}
+                  </h2>
                 </div>
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Email</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.email')}</label>
                     <Input value={user?.email || ''} disabled className="mt-1" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Name</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.name')}</label>
                     <Input
                       value={profileForm.fullName}
                       onChange={(event) => updateProfileField('fullName', event.target.value)}
-                      placeholder="Your name"
+                      placeholder={t('account.namePlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Company</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.company')}</label>
                     <Input
                       value={profileForm.companyName}
                       onChange={(event) => updateProfileField('companyName', event.target.value)}
-                      placeholder="Company name (optional)"
+                      placeholder={t('account.companyPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Phone</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.phone')}</label>
                     <Input
                       value={profileForm.phone}
                       onChange={(event) => updateProfileField('phone', event.target.value)}
-                      placeholder="Phone number"
+                      placeholder={t('account.phonePlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
@@ -446,7 +451,7 @@ export default function AccountPage() {
                   onClick={saveProfileSection}
                   disabled={saveProfileMutation.isPending || isProfileLoading}
                 >
-                  {saveProfileMutation.isPending ? 'Saving...' : 'Save Changes'}
+                  {saveProfileMutation.isPending ? t('account.saving') : t('account.saveChanges')}
                 </Button>
               </div>
 
@@ -457,70 +462,70 @@ export default function AccountPage() {
                     <MapPin className="h-5 w-5 text-primary" />
                   </div>
                   <h2 className="font-display text-lg font-semibold text-foreground">
-                    Shipping Address
+                    {t('account.shippingAddress')}
                   </h2>
                 </div>
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-foreground">Street Address</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.streetAddress')}</label>
                     <Input
                       value={profileForm.shippingStreet1}
                       onChange={(event) => updateProfileField('shippingStreet1', event.target.value)}
-                      placeholder="123 Main St"
+                      placeholder={t('account.streetPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-foreground">
-                      Apartment/Suite
+                      {t('account.apartmentSuite')}
                     </label>
                     <Input
                       value={profileForm.shippingStreet2}
                       onChange={(event) => updateProfileField('shippingStreet2', event.target.value)}
-                      placeholder="Suite 100 (optional)"
+                      placeholder={t('account.apartmentPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">City</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.city')}</label>
                     <Input
                       value={profileForm.shippingCity}
                       onChange={(event) => updateProfileField('shippingCity', event.target.value)}
-                      placeholder="City"
+                      placeholder={t('account.cityPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">State</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.state')}</label>
                     <Input
                       value={profileForm.shippingState}
                       onChange={(event) => updateProfileField('shippingState', event.target.value)}
-                      placeholder="State"
+                      placeholder={t('account.statePlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">ZIP Code</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.zipCode')}</label>
                     <Input
                       value={profileForm.shippingPostalCode}
                       onChange={(event) =>
                         updateProfileField('shippingPostalCode', event.target.value)
                       }
-                      placeholder="12345"
+                      placeholder={t('account.zipPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Country</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.country')}</label>
                     <Input
                       value={profileForm.shippingCountry}
                       onChange={(event) => updateProfileField('shippingCountry', event.target.value)}
-                      placeholder="US"
+                      placeholder={t('account.countryPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
@@ -531,13 +536,17 @@ export default function AccountPage() {
                   onClick={saveShippingSection}
                   disabled={saveProfileMutation.isPending || isProfileLoading}
                 >
-                  {saveProfileMutation.isPending ? 'Saving...' : 'Update Address'}
+                  {saveProfileMutation.isPending ? t('account.saving') : t('account.updateAddress')}
                 </Button>
               </div>
             </div>
 
             {/* Billing */}
             <div className="min-w-0">
+              <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
+                <LanguagePreferenceControl showText fullWidth />
+              </div>
+
               <div className="card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">

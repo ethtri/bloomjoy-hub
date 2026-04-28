@@ -16,7 +16,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
+import type { TranslationKey } from '@/lib/i18n';
 import { toast } from 'sonner';
 
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -58,30 +60,30 @@ declare global {
 }
 
 type OperatorHighlight = {
-  title: string;
-  description: string;
+  titleKey: TranslationKey;
+  descriptionKey: TranslationKey;
   icon: LucideIcon;
 };
 
 const operatorHighlights: OperatorHighlight[] = [
   {
-    title: 'Training library',
-    description: 'Start operator essentials, task-based guides, and progress-aware recommendations.',
+    titleKey: 'login.highlight.trainingTitle',
+    descriptionKey: 'login.highlight.trainingDescription',
     icon: GraduationCap,
   },
   {
-    title: 'Onboarding milestones',
-    description: 'Track setup, first-spin readiness, and the steps that still need attention.',
+    titleKey: 'login.highlight.onboardingTitle',
+    descriptionKey: 'login.highlight.onboardingDescription',
     icon: ClipboardCheck,
   },
   {
-    title: 'Support workflows',
-    description: 'Reach concierge support and parts help without digging through public sales pages.',
+    titleKey: 'login.highlight.supportTitle',
+    descriptionKey: 'login.highlight.supportDescription',
     icon: Headset,
   },
   {
-    title: 'Orders and account',
-    description: 'Jump into reorders, order history, shipping details, and membership settings.',
+    titleKey: 'login.highlight.ordersTitle',
+    descriptionKey: 'login.highlight.ordersDescription',
     icon: Package,
   },
 ];
@@ -219,6 +221,7 @@ const getRedirectErrorMessage = (errorCode?: string | null, errorDescription?: s
 };
 
 export default function LoginPage() {
+  const { t } = useLanguage();
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
   const useGisRenderedButton =
     import.meta.env.DEV && import.meta.env.VITE_USE_GIS_BUTTON === 'true' && Boolean(googleClientId);
@@ -513,14 +516,13 @@ export default function LoginPage() {
                 <Mail className="h-6 w-6 sm:h-7 sm:w-7" />
               </div>
               <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                Operator access
+                {t('login.operatorAccess')}
               </p>
               <h1 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-4xl">
-                Sign in to the Bloomjoy operator app
+                {t('login.heroTitle')}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-                Use password, Google, or email-link sign-in to reach orders, account details,
-                training, onboarding, and support without bouncing through the sales shell.
+                {t('login.heroDescription')}
               </p>
 
               <div className="mt-5 rounded-2xl border border-primary/20 bg-primary/5 p-4 shadow-[var(--shadow-sm)]">
@@ -530,11 +532,10 @@ export default function LoginPage() {
                   </div>
                   <div>
                     <p className="font-semibold text-foreground">
-                      Reporting is available in the portal
+                      {t('login.reportingTitle')}
                     </p>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      Eligible operator accounts can review assigned-machine sales trends and
-                      exports after sign-in.
+                      {t('login.reportingDescription')}
                     </p>
                   </div>
                 </div>
@@ -546,7 +547,7 @@ export default function LoginPage() {
 
                   return (
                     <div
-                      key={highlight.title}
+                      key={highlight.titleKey}
                       className="rounded-[22px] border border-border bg-background/90 p-4 shadow-[var(--shadow-sm)]"
                     >
                       <div className="flex items-start gap-3">
@@ -554,9 +555,11 @@ export default function LoginPage() {
                           <HighlightIcon className="h-5 w-5" />
                         </div>
                         <div>
-                          <h2 className="font-semibold text-foreground">{highlight.title}</h2>
+                          <h2 className="font-semibold text-foreground">
+                            {t(highlight.titleKey)}
+                          </h2>
                           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                            {highlight.description}
+                            {t(highlight.descriptionKey)}
                           </p>
                         </div>
                       </div>
@@ -567,9 +570,9 @@ export default function LoginPage() {
 
               <div className="mt-6 rounded-[22px] border border-border bg-background/90 p-4 shadow-[var(--shadow-sm)]">
                 <p className="text-sm text-muted-foreground">
-                  Need product details or public resources first?{' '}
+                  {t('login.productDetailsPrompt')}{' '}
                   <a href={mainSiteUrl} className="font-medium text-primary hover:underline">
-                    Visit bloomjoyusa.com
+                    {t('login.visitPublicSite')}
                   </a>
                 </p>
               </div>
@@ -578,13 +581,13 @@ export default function LoginPage() {
             <div className="order-1 rounded-[28px] border border-border bg-background p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-2">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Sign in
+                  {t('login.signInEyebrow')}
                 </p>
                 <h2 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-3xl">
-                  Choose the fastest way back in
+                  {t('login.chooseFastest')}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Password, Google, and email-link sign-in all route into the operator app.
+                  {t('login.methodDescription')}
                 </p>
               </div>
 
@@ -607,7 +610,7 @@ export default function LoginPage() {
                     </div>
                     {!googleButtonReady && !googleButtonFailed && (
                       <p className="text-center text-xs text-muted-foreground">
-                        Loading Google sign-in...
+                        {t('login.loadingGoogle')}
                       </p>
                     )}
                     {googleButtonFailed && (
@@ -620,11 +623,11 @@ export default function LoginPage() {
                         <GoogleMark />
                         {oauthLoading ? (
                           <>
-                            Redirecting...
+                            {t('login.redirecting')}
                             <Loader2 className="h-4 w-4 animate-spin text-[#5f6368]" />
                           </>
                         ) : (
-                          'Continue with Google'
+                          t('login.continueGoogle')
                         )}
                       </button>
                     )}
@@ -640,11 +643,11 @@ export default function LoginPage() {
                       <GoogleMark />
                       {oauthLoading ? (
                         <>
-                          Redirecting to Google...
+                          {t('login.redirectingGoogle')}
                           <Loader2 className="h-4 w-4 animate-spin text-[#5f6368]" />
                         </>
                       ) : (
-                        'Continue with Google'
+                        t('login.continueGoogle')
                       )}
                     </button>
                   </>
@@ -662,7 +665,7 @@ export default function LoginPage() {
                     }`}
                     onClick={() => handleSwitchMethod('password')}
                   >
-                    Password
+                    {t('login.password')}
                   </button>
                   <button
                     type="button"
@@ -673,7 +676,7 @@ export default function LoginPage() {
                     }`}
                     onClick={() => handleSwitchMethod('magic_link')}
                   >
-                    Email Link
+                    {t('login.emailLink')}
                   </button>
                 </div>
               </div>
@@ -681,21 +684,21 @@ export default function LoginPage() {
               {authMethod === 'magic_link' ? (
                 sent ? (
                   <div className="rounded-xl border border-sage bg-sage-light p-6 text-center">
-                    <h2 className="font-display text-lg font-semibold text-sage">Check your email</h2>
+                    <h2 className="font-display text-lg font-semibold text-sage">
+                      {t('login.checkEmail')}
+                    </h2>
                     <p className="mt-2 text-sm text-sage/80">
-                      We sent a sign-in email to <strong>{email}</strong>. Click the newest link to
-                      continue.
+                      {t('login.sentEmail', { email })}
                     </p>
                     <p className="mt-2 text-xs text-sage/80">
-                      First-time users may see a signup confirmation email first. After confirming,
-                      request a new sign-in link.
+                      {t('login.firstTimeNote')}
                     </p>
                   </div>
                 ) : (
                   <form onSubmit={handleMagicLinkSubmit} className="space-y-4">
                     <div>
                       <label htmlFor="email-link" className="block text-sm font-medium text-foreground">
-                        Email address
+                        {t('login.emailAddress')}
                       </label>
                       <Input
                         id="email-link"
@@ -717,21 +720,20 @@ export default function LoginPage() {
                       {loading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Sending...
+                          {t('login.sending')}
                         </>
                       ) : cooldownSeconds > 0 ? (
-                        <>Try again in {cooldownSeconds}s</>
+                        <>{t('login.tryAgain', { seconds: cooldownSeconds })}</>
                       ) : (
                         <>
-                          Continue with Email Link
+                          {t('login.continueEmail')}
                           <ArrowRight className="ml-2 h-4 w-4" />
                         </>
                       )}
                     </Button>
                     {cooldownSeconds > 0 && (
                       <p className="text-center text-xs text-muted-foreground">
-                        Email sends are temporarily limited. Please wait before requesting another
-                        link.
+                        {t('login.emailLimited')}
                       </p>
                     )}
                   </form>
@@ -740,7 +742,7 @@ export default function LoginPage() {
                 <form onSubmit={handlePasswordSubmit} className="space-y-4">
                   <div>
                     <label htmlFor="email-password" className="block text-sm font-medium text-foreground">
-                      Email address
+                      {t('login.emailAddress')}
                     </label>
                     <Input
                       id="email-password"
@@ -754,12 +756,12 @@ export default function LoginPage() {
                   </div>
                   <div>
                     <label htmlFor="password" className="block text-sm font-medium text-foreground">
-                      Password
+                      {t('login.password')}
                     </label>
                     <Input
                       id="password"
                       type="password"
-                      placeholder="Enter your password"
+                      placeholder={t('login.passwordPlaceholder')}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
@@ -772,7 +774,7 @@ export default function LoginPage() {
                     onClick={handlePasswordResetRequest}
                     disabled={loading || oauthLoading}
                   >
-                    Forgot password? Send reset email
+                    {t('login.forgotPassword')}
                   </button>
                   <Button
                     type="submit"
@@ -784,16 +786,16 @@ export default function LoginPage() {
                     {loading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Working...
+                        {t('login.working')}
                       </>
                     ) : createAccountMode ? (
                       <>
-                        Create Account with Password
+                        {t('login.createAccount')}
                         <ArrowRight className="ml-2 h-4 w-4" />
                       </>
                     ) : (
                       <>
-                        Sign in with Password
+                        {t('login.signInPassword')}
                         <KeyRound className="ml-2 h-4 w-4" />
                       </>
                     )}
@@ -805,20 +807,19 @@ export default function LoginPage() {
                     disabled={loading || oauthLoading}
                   >
                     {createAccountMode
-                      ? 'Already have an account? Sign in instead'
-                      : 'Need an account? Create one with password'}
+                      ? t('login.alreadyHaveAccount')
+                      : t('login.needAccount')}
                   </button>
                   <p className="text-center text-xs text-muted-foreground">
-                    If your account was created with email link only, use the Email Link tab to
-                    sign in first.
+                    {t('login.emailLinkOnly')}
                   </p>
                 </form>
               )}
 
               <p className="text-center text-sm text-muted-foreground">
-                Need premium training, onboarding, and support?{' '}
+                {t('login.plusPrompt')}{' '}
                 <a href={plusUrl} className="font-medium text-primary hover:underline">
-                  Learn about Plus
+                  {t('login.learnPlus')}
                 </a>
               </p>
             </div>
