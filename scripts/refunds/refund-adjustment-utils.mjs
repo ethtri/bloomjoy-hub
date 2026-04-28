@@ -125,6 +125,31 @@ const pickNumberValue = (row, keys) => {
   return '';
 };
 
+const canonicalReportingMachineIdKeys = [
+  'source_reporting_machine_id',
+  'reporting_machine_id',
+  'canonical_reporting_machine_id',
+  'bloomjoy_reporting_machine_id',
+  'canonical_machine_id',
+  'bloomjoy_machine_id',
+  'machine_id',
+];
+
+const normalizeUuid = (value) => {
+  const text = String(value ?? '').trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(text)
+    ? text
+    : '';
+};
+
+const pickCanonicalReportingMachineId = (row) => {
+  const rawValue = pickText(row, canonicalReportingMachineIdKeys);
+  return {
+    rawPresent: Boolean(rawValue),
+    value: normalizeUuid(rawValue),
+  };
+};
+
 const parseCentAmount = (value) => {
   const text = String(value ?? '').trim();
   if (!text) return null;
@@ -204,6 +229,7 @@ export const normalizeAdjustmentType = (value) => {
 };
 
 export const extractRefundInput = (row, fallbackRowReference) => {
+  const canonicalMachineId = pickCanonicalReportingMachineId(row);
   const sourceLocation = pickText(row, [
     'location',
     'location_of_purchase',
@@ -246,6 +272,8 @@ export const extractRefundInput = (row, fallbackRowReference) => {
 
   return {
     sourceRowReference,
+    sourceReportingMachineId: canonicalMachineId.value,
+    hasSourceReportingMachineId: canonicalMachineId.rawPresent,
     sourceLocation,
     normalizedLocation: normalizeMatchText(sourceLocation),
     refundDate,
@@ -270,21 +298,24 @@ export const extractRefundInput = (row, fallbackRowReference) => {
   };
 };
 
-export const makeSourceRowHash = (input) =>
-  createHash('sha256')
-    .update(
-      JSON.stringify({
-        sourceRowReference: input.sourceRowReference,
-        sourceLocation: input.normalizedLocation,
-        refundDate: input.refundDate,
-        originalOrderDate: input.originalOrderDate,
-        amountCents: input.amountCents,
-        sourceStatus: input.normalizedSourceStatus,
-        sourceDecision: input.normalizedSourceDecision,
-        adjustmentType: input.adjustmentType,
-      })
-    )
-    .digest('hex');
+export const makeSourceRowHash = (input) => {
+  const hashPayload = {
+    sourceRowReference: input.sourceRowReference,
+    sourceLocation: input.normalizedLocation,
+    refundDate: input.refundDate,
+    originalOrderDate: input.originalOrderDate,
+    amountCents: input.amountCents,
+    sourceStatus: input.normalizedSourceStatus,
+    sourceDecision: input.normalizedSourceDecision,
+    adjustmentType: input.adjustmentType,
+  };
+
+  if (input.hasSourceReportingMachineId) {
+    hashPayload.sourceReportingMachineId = input.sourceReportingMachineId || null;
+  }
+
+  return createHash('sha256').update(JSON.stringify(hashPayload)).digest('hex');
+};
 
 export const buildSanitizedRefundPayload = ({
   input,
@@ -299,6 +330,8 @@ export const buildSanitizedRefundPayload = ({
   source_row_reference: input.sourceRowReference,
   source_row_hash: sourceRowHash,
   source_row_number: sourceRowNumber ? String(sourceRowNumber) : null,
+  source_reporting_machine_id: input.sourceReportingMachineId || null,
+  source_reporting_machine_id_present: Boolean(input.hasSourceReportingMachineId),
   source_location: input.sourceLocation || null,
   refund_date: input.refundDate || null,
   original_order_date: input.originalOrderDate || null,
@@ -508,7 +541,9 @@ export const countPartnerScopedRefundReviewRows = ({
 };
 
 export const matchRefundToMachine = (input, machineProfiles) => {
-  if (!input.refundDate || input.amountCents <= 0 || !input.normalizedLocation) {
+  const hasCanonicalMachineId = Boolean(input.hasSourceReportingMachineId);
+
+  if (!input.refundDate || input.amountCents <= 0 || (!input.normalizedLocation && !hasCanonicalMachineId)) {
     return {
       matchStatus: 'invalid',
       matchConfidence: 0,
@@ -539,6 +574,39 @@ export const matchRefundToMachine = (input, machineProfiles) => {
         : 'missing_source_decision',
       candidateMachineIds: [],
       matchedMachine: null,
+    };
+  }
+
+  if (hasCanonicalMachineId) {
+    if (!input.sourceReportingMachineId) {
+      return {
+        matchStatus: 'needs_review',
+        matchConfidence: 0,
+        matchReason: 'invalid_canonical_reporting_machine_id',
+        candidateMachineIds: [],
+        matchedMachine: null,
+      };
+    }
+
+    const matchedMachine =
+      machineProfiles.find((machine) => machine.id === input.sourceReportingMachineId) ?? null;
+
+    if (!matchedMachine) {
+      return {
+        matchStatus: 'needs_review',
+        matchConfidence: 0,
+        matchReason: 'canonical_reporting_machine_id_not_found',
+        candidateMachineIds: [],
+        matchedMachine: null,
+      };
+    }
+
+    return {
+      matchStatus: 'matched',
+      matchConfidence: 1,
+      matchReason: 'canonical_reporting_machine_id_match',
+      candidateMachineIds: [matchedMachine.id],
+      matchedMachine,
     };
   }
 

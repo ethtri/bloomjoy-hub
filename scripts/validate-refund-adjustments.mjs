@@ -107,6 +107,67 @@ assert.equal(exactMatch.matchStatus, 'matched');
 assert.equal(exactMatch.matchConfidence, 1);
 assert.equal(exactMatch.matchedMachine?.id, machines[0].id);
 
+const canonicalMachineInput = extractRefundInput(
+  {
+    source_reporting_machine_id: machines[1].id.toUpperCase(),
+    location_of_purchase: 'North Lobby',
+    refund_date: '2026-04-06',
+    refund_amount_usd: '12.50',
+    status: 'Closed',
+    decision: 'Approve',
+    request_id: 'SANITIZED-CANONICAL-REQ',
+  },
+  'canonical-machine-fixture'
+);
+assert.equal(canonicalMachineInput.hasSourceReportingMachineId, true);
+assert.equal(canonicalMachineInput.sourceReportingMachineId, machines[1].id);
+const canonicalMachineMatch = matchRefundToMachine(canonicalMachineInput, profiles);
+assert.equal(canonicalMachineMatch.matchStatus, 'matched');
+assert.equal(canonicalMachineMatch.matchReason, 'canonical_reporting_machine_id_match');
+assert.equal(canonicalMachineMatch.matchedMachine?.id, machines[1].id);
+assert.deepEqual(canonicalMachineMatch.candidateMachineIds, [machines[1].id]);
+
+const invalidCanonicalMachineInput = extractRefundInput(
+  {
+    source_reporting_machine_id: 'not-a-reporting-machine-id',
+    location_of_purchase: 'North Lobby',
+    refund_date: '2026-04-06',
+    refund_amount_usd: '12.50',
+    status: 'Closed',
+    decision: 'Approve',
+  },
+  'invalid-canonical-machine-fixture'
+);
+const invalidCanonicalMachineMatch = matchRefundToMachine(invalidCanonicalMachineInput, profiles);
+assert.equal(invalidCanonicalMachineMatch.matchStatus, 'needs_review');
+assert.equal(
+  invalidCanonicalMachineMatch.matchReason,
+  'invalid_canonical_reporting_machine_id'
+);
+assert.equal(invalidCanonicalMachineMatch.matchedMachine, null);
+
+const unknownCanonicalMachineInput = extractRefundInput(
+  {
+    source_reporting_machine_id: '99999999-9999-4999-8999-999999999999',
+    location_of_purchase: 'North Lobby',
+    refund_date: '2026-04-06',
+    refund_amount_usd: '12.50',
+    status: 'Closed',
+    decision: 'Approve',
+  },
+  'unknown-canonical-machine-fixture'
+);
+const unknownCanonicalMachineMatch = matchRefundToMachine(
+  unknownCanonicalMachineInput,
+  profiles
+);
+assert.equal(unknownCanonicalMachineMatch.matchStatus, 'needs_review');
+assert.equal(
+  unknownCanonicalMachineMatch.matchReason,
+  'canonical_reporting_machine_id_not_found'
+);
+assert.equal(unknownCanonicalMachineMatch.matchedMachine, null);
+
 const fuzzyMatch = matchRow({
   location: 'North entrance kiosk - manual refund',
   refund_date: '2026-04-07',
@@ -334,6 +395,17 @@ assert.equal(sanitizedPayload.source_row_reference, 'SANITIZED-REQ-2');
 assert.equal(sanitizedPayload.source_location, 'North Lobby');
 assert.equal(sanitizedPayload.amount_cents, 850);
 assert.equal(sanitizedPayload.amount_source, 'refund_amount');
+const canonicalPayload = buildSanitizedRefundPayload({
+  input: canonicalMachineInput,
+  sourceReference: 'sanitized-source',
+  sourceRowHash: makeSourceRowHash(canonicalMachineInput),
+  sourceRowNumber: 3,
+  match: canonicalMachineMatch,
+});
+assert.equal(canonicalPayload.source_reporting_machine_id, machines[1].id);
+assert.equal(canonicalPayload.source_reporting_machine_id_present, true);
+assert.equal(canonicalPayload.source_location, 'North Lobby');
+assert.equal(canonicalPayload.matched_machine_id, machines[1].id);
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'email_address'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'venmo_zelle_payment_id'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(sanitizedPayload, 'last_4_digits_of_your_card'), false);
@@ -495,6 +567,9 @@ console.log(
     status: 'ok',
     fixtures: {
       exactLocationMatch: exactMatch.matchStatus,
+      canonicalMachineIdPreferred: canonicalMachineMatch.matchStatus,
+      invalidCanonicalMachineIdHeldForReview: invalidCanonicalMachineMatch.matchStatus,
+      unknownCanonicalMachineIdHeldForReview: unknownCanonicalMachineMatch.matchStatus,
       fuzzyAliasMatch: fuzzyMatch.matchStatus,
       ambiguousMatch: ambiguousMatch.matchStatus,
       unmatchedRefund: unmatched.matchStatus,

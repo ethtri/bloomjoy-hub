@@ -28,6 +28,8 @@ type ImportRowsOptions = {
 
 type RefundInput = {
   sourceRowReference: string;
+  sourceReportingMachineId: string;
+  hasSourceReportingMachineId: boolean;
   sourceLocation: string;
   normalizedLocation: string;
   refundDate: string;
@@ -131,6 +133,31 @@ const pickNumberValue = (row: RefundAdjustmentRow, keys: string[]) => {
     if (value !== undefined && value !== null && String(value).trim() !== "") return value;
   }
   return "";
+};
+
+const canonicalReportingMachineIdKeys = [
+  "source_reporting_machine_id",
+  "reporting_machine_id",
+  "canonical_reporting_machine_id",
+  "bloomjoy_reporting_machine_id",
+  "canonical_machine_id",
+  "bloomjoy_machine_id",
+  "machine_id",
+];
+
+const normalizeUuid = (value: unknown) => {
+  const text = String(value ?? "").trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(text)
+    ? text
+    : "";
+};
+
+const pickCanonicalReportingMachineId = (row: RefundAdjustmentRow) => {
+  const rawValue = pickText(row, canonicalReportingMachineIdKeys);
+  return {
+    rawPresent: Boolean(rawValue),
+    value: normalizeUuid(rawValue),
+  };
 };
 
 const parseCentAmount = (value: unknown) => {
@@ -342,6 +369,7 @@ const fetchRefundSheetRows = async () => {
 };
 
 const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: string): RefundInput => {
+  const canonicalMachineId = pickCanonicalReportingMachineId(row);
   const sourceLocation = pickText(row, [
     "location",
     "location_of_purchase",
@@ -365,6 +393,8 @@ const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: stri
       "response_id",
       "timestamp",
     ]) || fallbackRowReference,
+    sourceReportingMachineId: canonicalMachineId.value,
+    hasSourceReportingMachineId: canonicalMachineId.rawPresent,
     sourceLocation,
     normalizedLocation: normalizeMatchText(sourceLocation),
     refundDate: normalizeDate(pickText(row, [
@@ -402,8 +432,8 @@ const extractRefundInput = (row: RefundAdjustmentRow, fallbackRowReference: stri
   };
 };
 
-const sourceRowHash = async (input: RefundInput) =>
-  sha256Hex(JSON.stringify({
+const sourceRowHash = async (input: RefundInput) => {
+  const hashPayload: Record<string, unknown> = {
     sourceRowReference: input.sourceRowReference,
     sourceLocation: input.normalizedLocation,
     refundDate: input.refundDate,
@@ -412,7 +442,14 @@ const sourceRowHash = async (input: RefundInput) =>
     sourceStatus: input.normalizedSourceStatus,
     sourceDecision: input.normalizedSourceDecision,
     adjustmentType: input.adjustmentType,
-  }));
+  };
+
+  if (input.hasSourceReportingMachineId) {
+    hashPayload.sourceReportingMachineId = input.sourceReportingMachineId || null;
+  }
+
+  return sha256Hex(JSON.stringify(hashPayload));
+};
 
 const recordRun = async ({
   status,
@@ -525,7 +562,9 @@ const buildMachineProfiles = async (): Promise<MachineProfile[]> => {
 const uniqueIds = (machines: MachineProfile[]) => [...new Set(machines.map((machine) => machine.id))];
 
 const matchRefund = (input: RefundInput, machines: MachineProfile[]) => {
-  if (!input.refundDate || input.amountCents <= 0 || !input.normalizedLocation) {
+  const hasCanonicalMachineId = Boolean(input.hasSourceReportingMachineId);
+
+  if (!input.refundDate || input.amountCents <= 0 || (!input.normalizedLocation && !hasCanonicalMachineId)) {
     return {
       status: "invalid",
       confidence: 0,
@@ -552,6 +591,38 @@ const matchRefund = (input: RefundInput, machines: MachineProfile[]) => {
       reason: input.normalizedSourceDecision ? "source_decision_requires_review" : "missing_source_decision",
       candidateMachineIds: [] as string[],
       matchedMachine: null as MachineProfile | null,
+    };
+  }
+
+  if (hasCanonicalMachineId) {
+    if (!input.sourceReportingMachineId) {
+      return {
+        status: "needs_review",
+        confidence: 0,
+        reason: "invalid_canonical_reporting_machine_id",
+        candidateMachineIds: [] as string[],
+        matchedMachine: null as MachineProfile | null,
+      };
+    }
+
+    const matchedMachine = machines.find((machine) => machine.id === input.sourceReportingMachineId) ?? null;
+
+    if (!matchedMachine) {
+      return {
+        status: "needs_review",
+        confidence: 0,
+        reason: "canonical_reporting_machine_id_not_found",
+        candidateMachineIds: [] as string[],
+        matchedMachine: null as MachineProfile | null,
+      };
+    }
+
+    return {
+      status: "matched",
+      confidence: 1,
+      reason: "canonical_reporting_machine_id_match",
+      candidateMachineIds: [matchedMachine.id],
+      matchedMachine,
     };
   }
 
@@ -634,6 +705,8 @@ const buildSanitizedRefundPayload = ({
   source_row_reference: input.sourceRowReference,
   source_row_hash: sourceRowHash,
   source_row_number: sanitizeText(sourceRowNumber) || null,
+  source_reporting_machine_id: input.sourceReportingMachineId || null,
+  source_reporting_machine_id_present: Boolean(input.hasSourceReportingMachineId),
   source_location: input.sourceLocation || null,
   refund_date: input.refundDate || null,
   original_order_date: input.originalOrderDate || null,
@@ -756,6 +829,7 @@ const importRows = async (
             source_reference: resolvedSourceReference,
             source_row_reference: input.sourceRowReference,
             source_row_hash: hash,
+            source_reporting_machine_id: input.sourceReportingMachineId || null,
             source_location: input.sourceLocation || null,
             refund_date: input.refundDate || null,
             original_order_date: input.originalOrderDate || null,
