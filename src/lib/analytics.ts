@@ -35,6 +35,7 @@ type EventName =
   | 'add_to_cart'
   | 'remove_from_cart'
   | 'view_cart'
+  | 'view_business_playbook_article'
   | 'admin_support_request_updated'
   | 'admin_order_fulfillment_updated'
   | 'admin_machine_inventory_updated'

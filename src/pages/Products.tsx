@@ -87,6 +87,28 @@ export default function ProductsPage() {
         </div>
       </section>
 
+      <section className="border-b border-border bg-background py-6">
+        <div className="container-page">
+          <div className="flex flex-col gap-3 rounded-xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="font-display text-xl font-bold text-foreground">
+                Still choosing the right business model?
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Read the Bloomjoy Business Playbook before you compare machines by price alone.
+              </p>
+            </div>
+            <Link
+              to="/resources/business-playbook/commercial-vending-vs-event-catering"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+            >
+              Compare vending and events
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* Machines */}
       <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
@@ -148,7 +170,7 @@ export default function ProductsPage() {
       <section className="border-y border-border bg-muted/25 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-            <div>
+            <div className="min-w-0">
               <h2 className="font-display text-2xl font-bold text-foreground">
                 Machine buyer comparison
               </h2>
@@ -183,7 +205,7 @@ export default function ProductsPage() {
                 </div>
               </div>
             </div>
-            <aside className="rounded-lg border border-border bg-background p-5">
+            <aside className="min-w-0 rounded-lg border border-border bg-background p-5">
               <h3 className="font-display text-lg font-semibold text-foreground">
                 Quote expectations
               </h3>

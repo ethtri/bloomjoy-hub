@@ -22,7 +22,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Production/preview asset check: JS files referenced by `/admin`, `/admin/access`, `/admin/reporting`, and `/admin/partnerships` return `application/javascript`, and a bogus `/assets/__missing-admin-chunk__.js` returns `404 text/plain` instead of the SPA fallback page
 - [ ] Stale route chunk recovery check: simulate one route-level JS chunk load failure, confirm the app performs one automatic reload, then confirm a repeated failure shows the app-update refresh fallback instead of a blank page
 - [ ] `robots.txt` is reachable and includes a sitemap reference
-- [ ] `sitemap.xml` is reachable, lists core public routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about URLs
+- [ ] `sitemap.xml` is reachable, lists core public routes plus public Business Playbook article routes, includes `lastmod`, and includes image sitemap entries for key machine/supplies/about/playbook URLs
 - [ ] Apex host (`https://bloomjoyusa.com`) redirects to canonical host (`https://www.bloomjoyusa.com/`) with permanent redirect behavior
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
 - [ ] No console errors on home page load
@@ -64,6 +64,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Cart line-item title, quantity controls, price, and remove action stack cleanly on mobile
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads (procedure docs, daily checklists, frequent updates)
+- [ ] Resources page leads with the Bloomjoy Business Playbook, shows visual article cards, and still exposes FAQ and Support Boundaries anchors
+- [ ] `/resources/business-playbook` direct-loads and shows category navigation plus all public playbook guides
+- [ ] Business Playbook article routes direct-load, show a real Bloomjoy image, useful visual blocks (tables/checklists/scorecards/scripts), source links, related articles, and quote/machine CTAs
+- [ ] Business Playbook article routes are readable on mobile widths (`360x800`, `390x844`, `414x896`) with no clipped tables or horizontal page overflow
+- [ ] Commercial, Mini, Micro, Machines listing, Plus, and Contact success states link to relevant Business Playbook guides
 - [ ] `/resources#faq` opens to the FAQ section, shows startup-cost guidance without exact all-in-cost/ROI/profit claims, keeps the quote/contact path clear on desktop and mobile, and `/resources` page source includes matching FAQPage JSON-LD
 - [ ] `/machines`, `/resources`, `/plus`, and `/contact` show primary content without excessive dead space on desktop and mobile
 - [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`
