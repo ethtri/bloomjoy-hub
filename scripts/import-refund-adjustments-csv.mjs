@@ -231,6 +231,7 @@ try {
       source_reference: sourceReference,
       source_row_reference: input.sourceRowReference,
       source_row_hash: sourceRowHash,
+      source_reporting_machine_id: input.sourceReportingMachineId || null,
       source_location: input.sourceLocation || null,
       refund_date: input.refundDate || null,
       original_order_date: input.originalOrderDate || null,

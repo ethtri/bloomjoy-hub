@@ -141,6 +141,7 @@ export type AdminRefundAdjustmentReviewRow = {
   id: string;
   source_reference: string;
   source_row_reference: string;
+  source_reporting_machine_id: string | null;
   source_location: string | null;
   refund_date: string | null;
   amount_cents: number;
@@ -589,7 +590,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     supabaseClient.rpc('admin_get_sunze_machine_mapping_queue'),
     supabaseClient
       .from('refund_adjustment_review_rows')
-      .select('id, source_reference, source_row_reference, source_location, refund_date, amount_cents, source_status, match_status, match_confidence, match_reason, candidate_machine_ids, matched_machine_id, resolution_status, applied_adjustment_id, imported_at, reporting_machines(machine_label)')
+      .select('id, source_reference, source_row_reference, source_reporting_machine_id, source_location, refund_date, amount_cents, source_status, match_status, match_confidence, match_reason, candidate_machine_ids, matched_machine_id, resolution_status, applied_adjustment_id, imported_at, reporting_machines(machine_label)')
       .order('imported_at', { ascending: false })
       .limit(20),
   ]);
