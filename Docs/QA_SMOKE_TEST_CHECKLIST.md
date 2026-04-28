@@ -269,6 +269,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
 - [ ] Admin Access > Scoped Admins can grant `scoped_admin` to an existing user with selected machine scopes and a required reason
 - [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
+- [ ] Scoped Admin users can open `/portal/training*` but do not become Plus members or get Plus billing/commerce benefits
+- [ ] Scoped Admin users can open the partner dashboard for partnerships fully covered by their scoped machines; partially covered partnerships remain hidden/blocked
 - [ ] Scoped Admin users can open `/admin/access?tab=reporting-access`, see only machines inside their scoped grant, and see only Access in admin tools navigation
 - [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/partnerships`, `/admin/reporting`, or `/admin/access?tab=global-roles`
 - [ ] Scoped Admin reporting-access saves affect only manual reporting grants inside the scoped machine set and do not revoke Technician-derived grants

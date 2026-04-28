@@ -184,7 +184,7 @@ const mapWarning = (record: PartnerDashboardWarningRpc): PartnerDashboardWarning
 export const fetchPartnerDashboardPartnerships = async (): Promise<
   PartnerDashboardPartnershipOption[]
 > => {
-  const { data, error } = await supabaseClient.rpc('admin_get_partnership_reporting_setup');
+  const { data, error } = await supabaseClient.rpc('get_partner_dashboard_partnerships');
 
   if (error) {
     throw new Error(error.message || 'Unable to load partner dashboard setup.');
