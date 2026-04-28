@@ -513,6 +513,763 @@ export const buildPartnerReportCsv = ({
   return `${rows.join("\n")}\n`;
 };
 
+type XlsxCell = {
+  value?: string | number;
+  style?: number;
+  type?: "number" | "string";
+};
+
+type XlsxWorksheet = {
+  name: string;
+  rows: XlsxCell[][];
+  widths?: number[];
+};
+
+const XLSX_STYLE = {
+  normal: 0,
+  title: 1,
+  header: 2,
+  label: 3,
+  integer: 4,
+  currency: 5,
+  note: 6,
+  warning: 7,
+} as const;
+
+const xlsxEncoder = new TextEncoder();
+const ZIP_UTF8_FLAG = 0x0800;
+const ZIP_DOS_DATE = 0x5c21;
+const ZIP_DOS_TIME = 0;
+
+const xmlEscape = (value: unknown): string =>
+  toAscii(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+
+const xlsxText = (
+  value: unknown,
+  style: number = XLSX_STYLE.normal,
+): XlsxCell => ({
+  value: toAscii(value),
+  type: "string",
+  style,
+});
+
+const xlsxNumber = (
+  value: unknown,
+  style: number = XLSX_STYLE.normal,
+): XlsxCell => ({
+  value: numberValue(value),
+  type: "number",
+  style,
+});
+
+const centsToDollars = (cents: unknown) =>
+  Math.round(numberValue(cents)) / 100;
+
+const xlsxCurrency = (
+  cents: unknown,
+  { deduction = false }: { deduction?: boolean } = {},
+): XlsxCell => {
+  const dollars = centsToDollars(cents);
+  return xlsxNumber(deduction ? -Math.abs(dollars) : dollars, XLSX_STYLE.currency);
+};
+
+const xlsxInteger = (value: unknown): XlsxCell =>
+  xlsxNumber(Math.round(numberValue(value)), XLSX_STYLE.integer);
+
+const sumCents = <T>(items: T[], read: (item: T) => unknown): number =>
+  items.reduce((total, item) => total + numberValue(read(item)), 0);
+
+const buildWorkbookSummarySheet = (
+  context: PartnerReportExportContext,
+  reportReference: string,
+): XlsxWorksheet => {
+  const {
+    preview,
+    generatedAt,
+    payoutRecipientLabels,
+    feeLabel = "Stick cost deduction",
+    costLabel = "Costs",
+    splitBaseLabel = "Net sales",
+    calculationModelLabel = "Partner share",
+  } = context;
+  const summary = preview.summary ?? {};
+  const taxAndDeductions = numberValue(summary.tax_cents) +
+    numberValue(summary.fee_cents) + numberValue(summary.cost_cents);
+
+  return {
+    name: "Summary",
+    widths: [30, 20, 54],
+    rows: [
+      [xlsxText(getReportTitle(preview), XLSX_STYLE.title)],
+      [xlsxText("Partnership", XLSX_STYLE.label), xlsxText(preview.partnershipName ?? "")],
+      [xlsxText("Selected period", XLSX_STYLE.label), xlsxText(getReportPeriodLabel(preview))],
+      [xlsxText("Generated", XLSX_STYLE.label), xlsxText(formatGeneratedAt(generatedAt))],
+      [xlsxText("Report reference", XLSX_STYLE.label), xlsxText(reportReference)],
+      [
+        xlsxText("Payout recipients", XLSX_STYLE.label),
+        xlsxText(payoutRecipientLabels.join(" + ") || "Partner payout"),
+      ],
+      [xlsxText("Calculation model", XLSX_STYLE.label), xlsxText(calculationModelLabel)],
+      [xlsxText("Payout basis", XLSX_STYLE.label), xlsxText(splitBaseLabel)],
+      [xlsxText("Partner share", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
+      [],
+      [xlsxText("Dashboard Totals", XLSX_STYLE.header), xlsxText("Value", XLSX_STYLE.header)],
+      [xlsxText("Orders", XLSX_STYLE.label), xlsxInteger(summary.order_count)],
+      [xlsxText("Sticks/items", XLSX_STYLE.label), xlsxInteger(summary.item_quantity)],
+      [xlsxText("Gross sales", XLSX_STYLE.label), xlsxCurrency(summary.gross_sales_cents)],
+      [xlsxText("Refund impact", XLSX_STYLE.label), xlsxCurrency(summary.refund_amount_cents, { deduction: true })],
+      [xlsxText("Machine taxes", XLSX_STYLE.label), xlsxCurrency(summary.tax_cents, { deduction: true })],
+      [xlsxText(feeLabel, XLSX_STYLE.label), xlsxCurrency(summary.fee_cents, { deduction: true })],
+      [xlsxText(costLabel, XLSX_STYLE.label), xlsxCurrency(summary.cost_cents, { deduction: true })],
+      [xlsxText("Tax + deductions", XLSX_STYLE.label), xlsxNumber(-Math.abs(centsToDollars(taxAndDeductions)), XLSX_STYLE.currency)],
+      [xlsxText("Net sales", XLSX_STYLE.label), xlsxCurrency(summary.net_sales_cents)],
+      [xlsxText("Payout basis", XLSX_STYLE.label), xlsxCurrency(summary.split_base_cents ?? summary.net_sales_cents)],
+      [
+        xlsxText(getPartnerPayoutLabel(payoutRecipientLabels), XLSX_STYLE.label),
+        xlsxCurrency(getPrimaryPartnerPayoutCents(summary)),
+      ],
+      [xlsxText("Bloomjoy retained", XLSX_STYLE.label), xlsxCurrency(getBloomjoyRetainedCents(summary))],
+    ],
+  };
+};
+
+const buildWorkbookMachineSheet = (
+  context: PartnerReportExportContext,
+): XlsxWorksheet => {
+  const {
+    preview,
+    feeLabel = "Stick cost deduction",
+    costLabel = "Costs",
+    payoutRecipientLabels,
+  } = context;
+  const machines = preview.machines ?? [];
+  const summary = preview.summary ?? {};
+  const header = [
+    "Machine",
+    "Orders",
+    "Sticks/items",
+    "Gross sales",
+    "Refund impact",
+    "Machine taxes",
+    feeLabel,
+    costLabel,
+    "Tax + deductions",
+    "Net sales",
+    "Payout basis",
+    getPartnerPayoutLabel(payoutRecipientLabels),
+    "Bloomjoy retained",
+  ];
+  const machineRows = machines.map((machine) => {
+    const taxAndDeductions = numberValue(machine.tax_cents) +
+      numberValue(machine.fee_cents) + numberValue(machine.cost_cents);
+    return [
+      xlsxText(machine.machine_label ?? "Unnamed machine"),
+      xlsxInteger(machine.order_count),
+      xlsxInteger(machine.item_quantity),
+      xlsxCurrency(machine.gross_sales_cents),
+      xlsxCurrency(machine.refund_amount_cents, { deduction: true }),
+      xlsxCurrency(machine.tax_cents, { deduction: true }),
+      xlsxCurrency(machine.fee_cents, { deduction: true }),
+      xlsxCurrency(machine.cost_cents, { deduction: true }),
+      xlsxNumber(-Math.abs(centsToDollars(taxAndDeductions)), XLSX_STYLE.currency),
+      xlsxCurrency(machine.net_sales_cents),
+      xlsxCurrency(machine.split_base_cents ?? machine.net_sales_cents),
+      xlsxCurrency(getMachinePartnerPayoutCents(machine)),
+      xlsxCurrency(getMachineBloomjoyRetainedCents(machine)),
+    ];
+  });
+  const summaryTaxAndDeductions = numberValue(summary.tax_cents) +
+    numberValue(summary.fee_cents) + numberValue(summary.cost_cents);
+  const totalRow = [
+    xlsxText("Dashboard total", XLSX_STYLE.label),
+    xlsxInteger(summary.order_count),
+    xlsxInteger(summary.item_quantity),
+    xlsxCurrency(summary.gross_sales_cents),
+    xlsxCurrency(summary.refund_amount_cents, { deduction: true }),
+    xlsxCurrency(summary.tax_cents, { deduction: true }),
+    xlsxCurrency(summary.fee_cents, { deduction: true }),
+    xlsxCurrency(summary.cost_cents, { deduction: true }),
+    xlsxNumber(-Math.abs(centsToDollars(summaryTaxAndDeductions)), XLSX_STYLE.currency),
+    xlsxCurrency(summary.net_sales_cents),
+    xlsxCurrency(summary.split_base_cents ?? summary.net_sales_cents),
+    xlsxCurrency(getPrimaryPartnerPayoutCents(summary)),
+    xlsxCurrency(getBloomjoyRetainedCents(summary)),
+  ];
+
+  return {
+    name: "Machine Rollups",
+    widths: [34, 12, 14, 16, 16, 16, 18, 16, 18, 16, 16, 18, 18],
+    rows: [
+      [xlsxText("Machine Rollups", XLSX_STYLE.title)],
+      [
+        xlsxText(
+          "Partner-facing machine rows use the same selected partnership, period, and machine assignment scope as the dashboard and PDF.",
+          XLSX_STYLE.note,
+        ),
+      ],
+      [],
+      header.map((label) => xlsxText(label, XLSX_STYLE.header)),
+      ...(machineRows.length > 0
+        ? machineRows
+        : [[xlsxText("No machine activity is included in this report period.", XLSX_STYLE.note)]]),
+      totalRow,
+    ],
+  };
+};
+
+const buildWorkbookTrendSheet = (
+  context: PartnerReportExportContext,
+): XlsxWorksheet => {
+  const { preview, payoutRecipientLabels } = context;
+  const trendPeriods = getTrendPeriods(preview);
+  const periods = trendPeriods.length > 0
+    ? trendPeriods
+    : [{
+      ...(preview.summary ?? {}),
+      period_start: preview.periodStartDate ?? preview.weekStartDate,
+      period_end: preview.periodEndDate ?? preview.weekEndingDate,
+    }];
+  const rows = periods.map((period) => {
+    const taxAndDeductions = numberValue(period.tax_cents) +
+      numberValue(period.fee_cents) + numberValue(period.cost_cents);
+    return [
+      xlsxText(period.period_start ?? ""),
+      xlsxText(period.period_end ?? ""),
+      xlsxInteger(period.order_count),
+      xlsxInteger(period.item_quantity),
+      xlsxCurrency(period.gross_sales_cents),
+      xlsxCurrency(period.refund_amount_cents, { deduction: true }),
+      xlsxNumber(-Math.abs(centsToDollars(taxAndDeductions)), XLSX_STYLE.currency),
+      xlsxCurrency(period.net_sales_cents),
+      xlsxCurrency(period.split_base_cents ?? period.net_sales_cents),
+      xlsxCurrency(getPrimaryPartnerPayoutCents(period)),
+      xlsxCurrency(getBloomjoyRetainedCents(period)),
+    ];
+  });
+
+  return {
+    name: "Period Trend",
+    widths: [16, 16, 12, 14, 16, 16, 18, 16, 16, 18, 18],
+    rows: [
+      [xlsxText("Period Trend", XLSX_STYLE.title)],
+      [
+        xlsxText(
+          "Trend periods match the report export window used for the PDF trend context when available.",
+          XLSX_STYLE.note,
+        ),
+      ],
+      [],
+      [
+        "Period start",
+        "Period end",
+        "Orders",
+        "Sticks/items",
+        "Gross sales",
+        "Refund impact",
+        "Tax + deductions",
+        "Net sales",
+        "Payout basis",
+        getPartnerPayoutLabel(payoutRecipientLabels),
+        "Bloomjoy retained",
+      ].map((label) => xlsxText(label, XLSX_STYLE.header)),
+      ...rows,
+    ],
+  };
+};
+
+const buildWorkbookAssumptionsSheet = (
+  context: PartnerReportExportContext,
+  reportReference: string,
+): XlsxWorksheet => {
+  const {
+    preview,
+    calculationLabel,
+    generatedAt,
+    feeLabel = "Stick cost deduction",
+    costLabel = "Costs",
+    splitBaseLabel = "Net sales",
+    calculationModelLabel = "Partner share",
+    payoutRecipientLabels,
+    additionalDeductionsNotes,
+  } = context;
+
+  return {
+    name: "Assumptions",
+    widths: [28, 92],
+    rows: [
+      [xlsxText("Assumptions", XLSX_STYLE.title)],
+      [xlsxText("Partnership", XLSX_STYLE.label), xlsxText(preview.partnershipName ?? "")],
+      [xlsxText("Selected period", XLSX_STYLE.label), xlsxText(getReportPeriodLabel(preview))],
+      [xlsxText("Generated", XLSX_STYLE.label), xlsxText(formatGeneratedAt(generatedAt))],
+      [xlsxText("Report reference", XLSX_STYLE.label), xlsxText(reportReference)],
+      [xlsxText("Payout recipients", XLSX_STYLE.label), xlsxText(payoutRecipientLabels.join(" + ") || "Partner payout")],
+      [xlsxText("Calculation model", XLSX_STYLE.label), xlsxText(calculationModelLabel)],
+      [xlsxText("Payout basis", XLSX_STYLE.label), xlsxText(splitBaseLabel)],
+      [xlsxText("Partner share", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
+      [xlsxText("Fee deduction label", XLSX_STYLE.label), xlsxText(feeLabel)],
+      [xlsxText("Cost label", XLSX_STYLE.label), xlsxText(costLabel)],
+      [xlsxText("Calculation note", XLSX_STYLE.label), xlsxText(calculationLabel, XLSX_STYLE.note)],
+      [
+        xlsxText("Additional deduction notes", XLSX_STYLE.label),
+        xlsxText(additionalDeductionsNotes || "None", XLSX_STYLE.note),
+      ],
+      [
+        xlsxText("Data scope", XLSX_STYLE.label),
+        xlsxText(
+          "Includes only partner-reporting data returned by the approved dashboard preview for the selected partnership, selected period, active payout rules, and assigned machine scope.",
+          XLSX_STYLE.note,
+        ),
+      ],
+      [
+        xlsxText("Sensitive-data guardrail", XLSX_STYLE.label),
+        xlsxText(
+          "Workbook excludes raw credentials, payment identifiers, source-order rows, and raw provider workbooks.",
+          XLSX_STYLE.note,
+        ),
+      ],
+      [
+        xlsxText("Blocking warnings", XLSX_STYLE.label),
+        xlsxText(
+          "Blocking report warnings stop export server-side. This workbook includes only warning state returned by the approved preview model.",
+          XLSX_STYLE.note,
+        ),
+      ],
+    ],
+  };
+};
+
+const buildWorkbookWarningsSheet = (
+  context: PartnerReportExportContext,
+): XlsxWorksheet => {
+  const warnings = context.preview.warnings ?? [];
+  const warningRows = warnings.length > 0
+    ? warnings.map((warning) => [
+      xlsxText(warning.severity ?? "warning", XLSX_STYLE.warning),
+      xlsxText(warning.message ?? "Review this reporting issue.", XLSX_STYLE.note),
+    ])
+    : [[
+      xlsxText("Clear", XLSX_STYLE.label),
+      xlsxText("No warning state was returned for this export. Blocking warnings would prevent export.", XLSX_STYLE.note),
+    ]];
+
+  return {
+    name: "Warning State",
+    widths: [18, 92],
+    rows: [
+      [xlsxText("Warning State", XLSX_STYLE.title)],
+      [xlsxText("Severity", XLSX_STYLE.header), xlsxText("Message", XLSX_STYLE.header)],
+      ...warningRows,
+    ],
+  };
+};
+
+const buildWorkbookReconciliationSheet = (
+  context: PartnerReportExportContext,
+): XlsxWorksheet => {
+  const {
+    preview,
+    feeLabel = "Stick cost deduction",
+    costLabel = "Costs",
+    splitBaseLabel = "Net sales",
+    payoutRecipientLabels,
+  } = context;
+  const summary = preview.summary ?? {};
+  const machines = preview.machines ?? [];
+  const machineNetSalesCents = sumCents(machines, (machine) => machine.net_sales_cents);
+  const machinePayoutCents = sumCents(machines, getMachinePartnerPayoutCents);
+  const summaryPayoutCents = numberValue(getPrimaryPartnerPayoutCents(summary));
+  const bridgeRows = [
+    [
+      xlsxText("Gross sales"),
+      xlsxCurrency(summary.gross_sales_cents),
+      xlsxText("Recorded gross sales for assigned machines during the selected period.", XLSX_STYLE.note),
+    ],
+    [
+      xlsxText("Refund impact"),
+      xlsxCurrency(summary.refund_amount_cents, { deduction: true }),
+      xlsxText("Approved refund adjustments applied to this selected period.", XLSX_STYLE.note),
+    ],
+    [
+      xlsxText("Machine taxes"),
+      xlsxCurrency(summary.tax_cents, { deduction: true }),
+      xlsxText("Configured machine tax impact.", XLSX_STYLE.note),
+    ],
+    [
+      xlsxText(feeLabel),
+      xlsxCurrency(summary.fee_cents, { deduction: true }),
+      xlsxText("Contract-specific fee deduction used before payout calculation.", XLSX_STYLE.note),
+    ],
+    [
+      xlsxText(costLabel),
+      xlsxCurrency(summary.cost_cents, { deduction: true }),
+      xlsxText("Additional agreement-specific cost deduction, when configured.", XLSX_STYLE.note),
+    ],
+    [
+      xlsxText("Net sales", XLSX_STYLE.label),
+      xlsxCurrency(summary.net_sales_cents),
+      xlsxText("Gross sales less refund impact, machine taxes, and configured deductions.", XLSX_STYLE.note),
+    ],
+    [
+      xlsxText("Payout basis", XLSX_STYLE.label),
+      xlsxCurrency(summary.split_base_cents ?? summary.net_sales_cents),
+      xlsxText(`Configured agreement basis: ${splitBaseLabel}.`, XLSX_STYLE.note),
+    ],
+    [
+      xlsxText(getPartnerPayoutLabel(payoutRecipientLabels), XLSX_STYLE.label),
+      xlsxCurrency(summaryPayoutCents),
+      xlsxText("Amount owed from the active agreement terms.", XLSX_STYLE.note),
+    ],
+    [
+      xlsxText("Bloomjoy retained"),
+      xlsxCurrency(getBloomjoyRetainedCents(summary)),
+      xlsxText("Bloomjoy retained amount after partner payout.", XLSX_STYLE.note),
+    ],
+  ];
+
+  return {
+    name: "Reconciliation",
+    widths: [30, 18, 82],
+    rows: [
+      [xlsxText("Reconciliation Detail", XLSX_STYLE.title)],
+      [xlsxText("Bridge line", XLSX_STYLE.header), xlsxText("Amount", XLSX_STYLE.header), xlsxText("Notes", XLSX_STYLE.header)],
+      ...bridgeRows,
+      [],
+      [xlsxText("Rollup total checks", XLSX_STYLE.header), xlsxText("Amount", XLSX_STYLE.header), xlsxText("Notes", XLSX_STYLE.header)],
+      [
+        xlsxText("Machine net sales total"),
+        xlsxCurrency(machineNetSalesCents),
+        xlsxText("Sum of machine rollup net sales.", XLSX_STYLE.note),
+      ],
+      [
+        xlsxText("Dashboard/PDF net sales"),
+        xlsxCurrency(summary.net_sales_cents),
+        xlsxText("Dashboard summary net sales.", XLSX_STYLE.note),
+      ],
+      [
+        xlsxText("Net sales difference"),
+        xlsxCurrency(machineNetSalesCents - numberValue(summary.net_sales_cents)),
+        xlsxText("Expected to be $0.00 when machine rows reconcile to the dashboard summary.", XLSX_STYLE.note),
+      ],
+      [
+        xlsxText("Machine amount owed total"),
+        xlsxCurrency(machinePayoutCents),
+        xlsxText("Sum of machine rollup partner payout amounts.", XLSX_STYLE.note),
+      ],
+      [
+        xlsxText("Dashboard/PDF amount owed"),
+        xlsxCurrency(summaryPayoutCents),
+        xlsxText("Dashboard summary amount owed.", XLSX_STYLE.note),
+      ],
+      [
+        xlsxText("Amount owed difference"),
+        xlsxCurrency(machinePayoutCents - summaryPayoutCents),
+        xlsxText("Expected to be $0.00 when machine rows reconcile to the dashboard summary.", XLSX_STYLE.note),
+      ],
+    ],
+  };
+};
+
+const columnName = (index: number): string => {
+  let value = index + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
+};
+
+const worksheetXml = (worksheet: XlsxWorksheet): string => {
+  const maxColumns = Math.max(1, ...worksheet.rows.map((row) => row.length));
+  const maxRows = Math.max(1, worksheet.rows.length);
+  const cols = worksheet.widths?.length
+    ? `<cols>${worksheet.widths.map((width, index) =>
+      `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`
+    ).join("")}</cols>`
+    : "";
+  const rows = worksheet.rows.map((row, rowIndex) => {
+    const rowNumber = rowIndex + 1;
+    const cells = row.map((cell, columnIndex) => {
+      if (typeof cell.value === "undefined") return "";
+      const ref = `${columnName(columnIndex)}${rowNumber}`;
+      const style = typeof cell.style === "number" ? ` s="${cell.style}"` : "";
+      if (cell.type === "number" && typeof cell.value === "number") {
+        const numericValue = Number.isFinite(cell.value) ? cell.value : 0;
+        return `<c r="${ref}"${style}><v>${numericValue}</v></c>`;
+      }
+      return `<c r="${ref}" t="inlineStr"${style}><is><t>${xmlEscape(cell.value)}</t></is></c>`;
+    }).join("");
+    return `<row r="${rowNumber}">${cells}</row>`;
+  }).join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
+    `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+    `<dimension ref="A1:${columnName(maxColumns - 1)}${maxRows}"/>` +
+    `<sheetViews><sheetView workbookViewId="0"/></sheetViews>` +
+    `<sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${rows}</sheetData>` +
+    `<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>` +
+    `</worksheet>`;
+};
+
+const workbookXml = (worksheets: XlsxWorksheet[]): string =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+  `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
+  `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+  `<sheets>${worksheets.map((sheet, index) =>
+    `<sheet name="${xmlEscape(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`
+  ).join("")}</sheets></workbook>`;
+
+const workbookRelationshipsXml = (worksheets: XlsxWorksheet[]): string =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+  `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+  worksheets.map((_, index) =>
+    `<Relationship Id="rId${index + 1}" ` +
+    `Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" ` +
+    `Target="worksheets/sheet${index + 1}.xml"/>`
+  ).join("") +
+  `<Relationship Id="rId${worksheets.length + 1}" ` +
+  `Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" ` +
+  `Target="styles.xml"/></Relationships>`;
+
+const rootRelationshipsXml = () =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+  `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+  `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
+  `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>` +
+  `<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>` +
+  `</Relationships>`;
+
+const contentTypesXml = (worksheets: XlsxWorksheet[]): string =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+  `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+  `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+  `<Default Extension="xml" ContentType="application/xml"/>` +
+  `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+  `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
+  worksheets.map((_, index) =>
+    `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ` +
+    `ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
+  ).join("") +
+  `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>` +
+  `<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>` +
+  `</Types>`;
+
+const stylesXml = () =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+  `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+  `<numFmts count="2">` +
+  `<numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00;[Red]-&quot;$&quot;#,##0.00"/>` +
+  `<numFmt numFmtId="165" formatCode="#,##0"/>` +
+  `</numFmts>` +
+  `<fonts count="3">` +
+  `<font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>` +
+  `<font><b/><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>` +
+  `<font><b/><sz val="15"/><color rgb="FF111827"/><name val="Calibri"/></font>` +
+  `</fonts>` +
+  `<fills count="4">` +
+  `<fill><patternFill patternType="none"/></fill>` +
+  `<fill><patternFill patternType="gray125"/></fill>` +
+  `<fill><patternFill patternType="solid"><fgColor rgb="FFFCE7F3"/><bgColor indexed="64"/></patternFill></fill>` +
+  `<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4DE"/><bgColor indexed="64"/></patternFill></fill>` +
+  `</fills>` +
+  `<borders count="2">` +
+  `<border><left/><right/><top/><bottom/><diagonal/></border>` +
+  `<border><left style="thin"><color rgb="FFE5E7EB"/></left><right style="thin"><color rgb="FFE5E7EB"/></right><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border>` +
+  `</borders>` +
+  `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
+  `<cellXfs count="8">` +
+  `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
+  `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
+  `<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment wrapText="1"/></xf>` +
+  `<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
+  `<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
+  `<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
+  `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"><alignment wrapText="1" vertical="top"/></xf>` +
+  `<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment wrapText="1"/></xf>` +
+  `</cellXfs>` +
+  `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>` +
+  `<dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>` +
+  `</styleSheet>`;
+
+const appPropertiesXml = (worksheets: XlsxWorksheet[]) =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+  `<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" ` +
+  `xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">` +
+  `<Application>Bloomjoy Hub</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>` +
+  `<HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>${worksheets.length}</vt:i4></vt:variant></vt:vector></HeadingPairs>` +
+  `<TitlesOfParts><vt:vector size="${worksheets.length}" baseType="lpstr">${
+    worksheets.map((sheet) => `<vt:lpstr>${xmlEscape(sheet.name)}</vt:lpstr>`).join("")
+  }</vt:vector></TitlesOfParts><Company>Bloomjoy</Company></Properties>`;
+
+const corePropertiesXml = (
+  generatedAt: string,
+  title: string,
+) =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+  `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" ` +
+  `xmlns:dc="http://purl.org/dc/elements/1.1/" ` +
+  `xmlns:dcterms="http://purl.org/dc/terms/" ` +
+  `xmlns:dcmitype="http://purl.org/dc/dcmitype/" ` +
+  `xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">` +
+  `<dc:title>${xmlEscape(title)}</dc:title><dc:creator>Bloomjoy Hub</dc:creator>` +
+  `<cp:lastModifiedBy>Bloomjoy Hub</cp:lastModifiedBy>` +
+  `<dcterms:created xsi:type="dcterms:W3CDTF">${xmlEscape(generatedAt)}</dcterms:created>` +
+  `<dcterms:modified xsi:type="dcterms:W3CDTF">${xmlEscape(generatedAt)}</dcterms:modified>` +
+  `</cp:coreProperties>`;
+
+const le16 = (value: number): Uint8Array =>
+  new Uint8Array([value & 0xff, (value >>> 8) & 0xff]);
+
+const le32 = (value: number): Uint8Array =>
+  new Uint8Array([
+    value & 0xff,
+    (value >>> 8) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 24) & 0xff,
+  ]);
+
+const concatBytes = (parts: Uint8Array[]): Uint8Array => {
+  const length = parts.reduce((total, part) => total + part.byteLength, 0);
+  const output = new Uint8Array(length);
+  let offset = 0;
+  parts.forEach((part) => {
+    output.set(part, offset);
+    offset += part.byteLength;
+  });
+  return output;
+};
+
+const crc32Table = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let value = i;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+    }
+    table[i] = value >>> 0;
+  }
+  return table;
+})();
+
+const crc32 = (bytes: Uint8Array): number => {
+  let crc = 0xffffffff;
+  bytes.forEach((byte) => {
+    crc = crc32Table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  });
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const buildStoredZip = (
+  entries: Array<{ path: string; content: string | Uint8Array }>,
+): Uint8Array => {
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+
+  entries.forEach((entry) => {
+    const nameBytes = xlsxEncoder.encode(entry.path);
+    const contentBytes = typeof entry.content === "string"
+      ? xlsxEncoder.encode(entry.content)
+      : entry.content;
+    const checksum = crc32(contentBytes);
+    const localHeader = concatBytes([
+      le32(0x04034b50),
+      le16(20),
+      le16(ZIP_UTF8_FLAG),
+      le16(0),
+      le16(ZIP_DOS_TIME),
+      le16(ZIP_DOS_DATE),
+      le32(checksum),
+      le32(contentBytes.byteLength),
+      le32(contentBytes.byteLength),
+      le16(nameBytes.byteLength),
+      le16(0),
+      nameBytes,
+    ]);
+    const centralHeader = concatBytes([
+      le32(0x02014b50),
+      le16(20),
+      le16(20),
+      le16(ZIP_UTF8_FLAG),
+      le16(0),
+      le16(ZIP_DOS_TIME),
+      le16(ZIP_DOS_DATE),
+      le32(checksum),
+      le32(contentBytes.byteLength),
+      le32(contentBytes.byteLength),
+      le16(nameBytes.byteLength),
+      le16(0),
+      le16(0),
+      le16(0),
+      le16(0),
+      le32(0),
+      le32(offset),
+      nameBytes,
+    ]);
+
+    localParts.push(localHeader, contentBytes);
+    centralParts.push(centralHeader);
+    offset += localHeader.byteLength + contentBytes.byteLength;
+  });
+
+  const centralOffset = offset;
+  const centralDirectory = concatBytes(centralParts);
+  const endOfCentralDirectory = concatBytes([
+    le32(0x06054b50),
+    le16(0),
+    le16(0),
+    le16(entries.length),
+    le16(entries.length),
+    le32(centralDirectory.byteLength),
+    le32(centralOffset),
+    le16(0),
+  ]);
+
+  return concatBytes([...localParts, centralDirectory, endOfCentralDirectory]);
+};
+
+export const buildPartnerReportXlsx = (
+  context: PartnerReportExportContext,
+): Uint8Array => {
+  const reportReference = buildPartnerReportReference(
+    context.snapshotId,
+    context.preview,
+  );
+  const worksheets = [
+    buildWorkbookSummarySheet(context, reportReference),
+    buildWorkbookMachineSheet(context),
+    buildWorkbookTrendSheet(context),
+    buildWorkbookAssumptionsSheet(context, reportReference),
+    buildWorkbookWarningsSheet(context),
+    buildWorkbookReconciliationSheet(context),
+  ];
+  const entries: Array<{ path: string; content: string | Uint8Array }> = [
+    { path: "[Content_Types].xml", content: contentTypesXml(worksheets) },
+    { path: "_rels/.rels", content: rootRelationshipsXml() },
+    { path: "docProps/app.xml", content: appPropertiesXml(worksheets) },
+    {
+      path: "docProps/core.xml",
+      content: corePropertiesXml(context.generatedAt, getReportTitle(context.preview)),
+    },
+    { path: "xl/workbook.xml", content: workbookXml(worksheets) },
+    { path: "xl/_rels/workbook.xml.rels", content: workbookRelationshipsXml(worksheets) },
+    { path: "xl/styles.xml", content: stylesXml() },
+    ...worksheets.map((worksheet, index) => ({
+      path: `xl/worksheets/sheet${index + 1}.xml`,
+      content: worksheetXml(worksheet),
+    })),
+  ];
+
+  return buildStoredZip(entries);
+};
+
 const drawText = (
   page: PDFPage,
   fonts: PdfFonts,

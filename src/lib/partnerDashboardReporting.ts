@@ -58,7 +58,7 @@ export type PartnerDashboardPeriodPreview = {
   warnings: PartnerDashboardWarning[];
 };
 
-export type PartnerDashboardExportFormat = 'pdf' | 'csv';
+export type PartnerDashboardExportFormat = 'pdf' | 'csv' | 'xlsx';
 
 export type PartnerDashboardExportResponse = {
   error?: string;

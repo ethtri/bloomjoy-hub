@@ -3,7 +3,10 @@ import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
   AlertTriangle,
+  ChevronDown,
   Download,
+  FileSpreadsheet,
+  FileText,
   Info,
   Loader2,
   RefreshCw,
@@ -22,6 +25,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   ChartContainer,
   ChartTooltip,
@@ -1108,6 +1117,20 @@ function PartnerDashboardView() {
   const selectedPeriodSummaryRange = selectedPeriod
     ? `${formatDate(selectedPeriod.dateFrom)} through ${formatDate(selectedPeriod.dateTo)}`
     : selectedPeriodEmptyMessage;
+  const partnerExportDisabled =
+    !preview ||
+    !currentPeriod ||
+    !selectedPeriod ||
+    previewLoading ||
+    previewFetching ||
+    hasBlockingWarnings ||
+    Boolean(exportingPartnerFormat);
+  const partnerExportButtonLabel =
+    exportingPartnerFormat === 'pdf'
+      ? 'Preparing PDF'
+      : exportingPartnerFormat === 'xlsx'
+        ? 'Preparing XLSX'
+        : 'Export';
 
   const refreshPartnerDashboard = async () => {
     await Promise.all([
@@ -1143,10 +1166,10 @@ function PartnerDashboardView() {
         format,
       });
       window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
+      const exportFormatLabel =
+        format === 'pdf' ? 'PDF' : format === 'xlsx' ? 'Excel workbook' : 'CSV';
       toast.success(
-        format === 'pdf'
-          ? `${trendLabel} partner PDF generated for ${exportPeriodLabel}.`
-          : `${trendLabel} partner CSV generated for ${exportPeriodLabel}.`
+        `${trendLabel} partner ${exportFormatLabel} generated for ${exportPeriodLabel}.`
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to export partner report.');
@@ -1278,45 +1301,45 @@ function PartnerDashboardView() {
                 )}
                 Refresh
               </Button>
-              <Button
-                onClick={() => exportPartnerReport('pdf')}
-                disabled={
-                  !preview ||
-                  !currentPeriod ||
-                  !selectedPeriod ||
-                  previewLoading ||
-                  previewFetching ||
-                  hasBlockingWarnings ||
-                  Boolean(exportingPartnerFormat)
-                }
-              >
-                {exportingPartnerFormat === 'pdf' ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Export PDF
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => exportPartnerReport('csv')}
-                disabled={
-                  !preview ||
-                  !currentPeriod ||
-                  !selectedPeriod ||
-                  previewLoading ||
-                  previewFetching ||
-                  hasBlockingWarnings ||
-                  Boolean(exportingPartnerFormat)
-                }
-              >
-                {exportingPartnerFormat === 'csv' ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="mr-2 h-4 w-4" />
-                )}
-                Export CSV
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button disabled={partnerExportDisabled} className="justify-center">
+                    {exportingPartnerFormat ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    {partnerExportButtonLabel}
+                    <ChevronDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72">
+                  <DropdownMenuItem
+                    className="items-start gap-3"
+                    onSelect={() => void exportPartnerReport('pdf')}
+                  >
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block font-medium">Polished PDF report</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Partner-ready settlement packet.
+                      </span>
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="items-start gap-3"
+                    onSelect={() => void exportPartnerReport('xlsx')}
+                  >
+                    <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block font-medium">Detailed Excel workbook (.xlsx)</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Summary, rollups, assumptions, warnings, and reconciliation checks.
+                      </span>
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </CardContent>
         </Card>
