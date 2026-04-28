@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
+  BarChart3,
   ClipboardCheck,
   GraduationCap,
   Headset,
@@ -521,6 +522,23 @@ export default function LoginPage() {
                 Use password, Google, or email-link sign-in to reach orders, account details,
                 training, onboarding, and support without bouncing through the sales shell.
               </p>
+
+              <div className="mt-5 rounded-2xl border border-primary/20 bg-primary/5 p-4 shadow-[var(--shadow-sm)]">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-background text-primary">
+                    <BarChart3 className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">
+                      Reporting is available in the portal
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      Eligible operator accounts can review assigned-machine sales trends and
+                      exports after sign-in.
+                    </p>
+                  </div>
+                </div>
+              </div>
 
               <div className="mt-6 space-y-2.5 sm:space-y-3">
                 {operatorHighlights.map((highlight) => {
