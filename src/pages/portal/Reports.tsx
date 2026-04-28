@@ -1130,7 +1130,9 @@ function PartnerDashboardView() {
       ? 'Preparing PDF'
       : exportingPartnerFormat === 'xlsx'
         ? 'Preparing XLSX'
-        : 'Export';
+        : exportingPartnerFormat === 'csv'
+          ? 'Preparing CSV'
+          : 'Export';
 
   const refreshPartnerDashboard = async () => {
     await Promise.all([
@@ -1335,6 +1337,18 @@ function PartnerDashboardView() {
                       <span className="block font-medium">Detailed Excel workbook (.xlsx)</span>
                       <span className="block text-xs text-muted-foreground">
                         Summary, rollups, assumptions, warnings, and reconciliation checks.
+                      </span>
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="items-start gap-3"
+                    onSelect={() => void exportPartnerReport('csv')}
+                  >
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block font-medium">CSV reconciliation (.csv)</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Existing approved reporting detail.
                       </span>
                     </span>
                   </DropdownMenuItem>
