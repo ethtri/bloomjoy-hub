@@ -60,6 +60,7 @@
    - Live refund sheet ingestion source marker: `supabase/migrations/202604270002_live_refund_sheet_ingestion.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
    - Technician entitlement resolver production repair: `supabase/migrations/202604270006_restore_technician_entitlement_resolution_rpc.sql`
+   - Scoped Admin reporting visibility repair: `supabase/migrations/202604280008_scoped_admin_reporting_visibility.sql`
 2) Seed data (optional for local dev): `supabase/seed/20260122_training_seed.sql`
 3) Populate Vimeo fields after account setup:
    - `provider_video_id`

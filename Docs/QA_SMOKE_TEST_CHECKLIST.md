@@ -268,6 +268,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
 - [ ] Admin Access > Scoped Admins can grant `scoped_admin` to an existing user with selected machine scopes and a required reason
+- [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
 - [ ] Scoped Admin users can open `/admin/access?tab=reporting-access`, see only machines inside their scoped grant, and see only Access in admin tools navigation
 - [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/partnerships`, `/admin/reporting`, or `/admin/access?tab=global-roles`
 - [ ] Scoped Admin reporting-access saves affect only manual reporting grants inside the scoped machine set and do not revoke Technician-derived grants
