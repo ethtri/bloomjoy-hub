@@ -200,6 +200,7 @@
   - Authenticated QA blocker on `2026-03-20`: browser automation reached the login screen at `http://127.0.0.1:8082/portal/training`, but no Plus/admin test session was available in-session, so final authenticated hierarchy confirmation for the task-first library stopped at auth after local build/lint verification.
   - Authenticated agent QA completed on `2026-03-21`: a temporary Plus/super-admin test account is now available for browser automation, quick aids/manuals again resolve into the secondary reference surface instead of leaking into the main task library, and `provider_video_id=1167976486` was corrected in Vimeo + Supabase to `Unlock Machine Door (Physical Service Access)` under `Build / Assembly`.
   - Training card-thumbnail coverage delivered on `2026-03-22`: `/portal/training` now resolves guide/checklist/manual card art through shared thumbnail metadata plus existing source-manual visuals, non-video cards can render intentional images instead of blank gradient placeholders, and no new stock/AI assets were needed for the current visible gaps.
+  - Final issue `#125` polish on `2026-04-28`: the training hub primary action now distinguishes true resume state from a fresh start path, Start Here is a compact sequence instead of another large card wall, job aids are grouped by flow moment near library search, and certificate UI remains secondary below the main library.
 - Verification run on this branch:
   - `npm ci`
   - `npm run build`

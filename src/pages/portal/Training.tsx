@@ -208,15 +208,16 @@ export default function TrainingPage() {
   const issuedCertificate = operatorTrack
     ? certificates.find((certificate) => certificate.trackId === operatorTrack.id)
     : undefined;
-  const continueLearningItem =
+  const inProgressItem =
     operatorTrack?.items.find(
       (item) =>
         item.training &&
         progressByTrainingId.get(item.trainingId)?.startedAt &&
         !progressByTrainingId.get(item.trainingId)?.completedAt
-    )?.training ??
-    operatorTrack?.items.find((item) => item.training && !progressByTrainingId.get(item.trainingId)?.completedAt)
-      ?.training;
+    )?.training;
+  const nextRequiredItem = operatorTrack?.items.find(
+    (item) => item.training && !progressByTrainingId.get(item.trainingId)?.completedAt
+  )?.training;
   const startHereSequence =
     operatorTrack?.items
       .map((item) => item.training)
@@ -226,7 +227,7 @@ export default function TrainingPage() {
       .filter((item) => item.isStartHere)
       .sort(sortTrainingItems)
       .slice(0, 4);
-  const recommendedStartingItem = continueLearningItem ?? startHereSequence[0];
+  const recommendedStartingItem = inProgressItem ?? nextRequiredItem ?? startHereSequence[0];
   const trackDefinitionsForNavigation = getTrainingTrackDefinitions().filter(
     (track) => track.id !== 'start-here'
   );
@@ -273,6 +274,36 @@ export default function TrainingPage() {
     .filter((item) => !item.isStartHere)
     .sort(sortTrainingItems)
     .slice(0, 4);
+  const featuredJobAidItems = [
+    trainingExperience.byId.has('start-up-shutdown-procedure')
+      ? {
+          id: 'safe-power-off-flow-aid',
+          title: 'Safe Power Off and Cooldown',
+          taskCategory: 'Daily Operation',
+          description:
+            'Use from the shutdown task before cleaning, opening panels, or unplugging power.',
+          href: '/portal/training/start-up-shutdown-procedure#written-essentials',
+          label: 'In shutdown task',
+        }
+      : undefined,
+    ...quickAidItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      taskCategory: item.taskCategory,
+      description: item.description,
+      href: `/portal/training/${item.id}`,
+      label: getSurfaceLabel(item),
+      sourceItem: item,
+    })),
+  ].filter((item): item is {
+    id: string;
+    title: string;
+    taskCategory: string;
+    description: string;
+    href: string;
+    label: string;
+    sourceItem?: TrainingExperienceItem;
+  } => Boolean(item));
   const groupedContent = trackDefinitionsForNavigation
     .map((trackDefinition) => ({
       ...trackDefinition,
@@ -283,6 +314,9 @@ export default function TrainingPage() {
     .filter((trackDefinition) => trackDefinition.items.length > 0);
   const selectedTrackDefinition =
     selectedTrack === 'all' ? undefined : getTrainingTrackDefinition(selectedTrack);
+  const walkthroughTaskCount = trainingExperience.tasks.filter(
+    (item) => item.format === 'video' || item.format === 'mixed' || Boolean(item.primaryVideo?.embed.url)
+  ).length;
   const missingModuleCount = library.filter((item) => !item.moduleLabel).length;
   const derivedMappingCount = library.filter((item) => item.catalogSource === 'derived').length;
   const matchingTaskCount = filteredTasks.length;
@@ -445,7 +479,7 @@ export default function TrainingPage() {
                   </span>
                 ) : (
                   <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground">
-                          {surfaceLabel}
+                    {surfaceLabel}
                   </span>
                 )}
                 {content.moduleLabel && (
@@ -518,48 +552,107 @@ export default function TrainingPage() {
     );
   };
 
+  const renderStartHereStep = (content: TrainingExperienceItem, index: number) => {
+    const progressRecord = progressByTrainingId.get(content.id);
+
+    return (
+      <Link
+        key={content.id}
+        to={`/portal/training/${content.id}`}
+        onClick={() => handleOpenItem(content)}
+        className="group flex h-full gap-3 rounded-2xl border border-border bg-background p-4 transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-sm sm:gap-4 sm:p-5"
+      >
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-sm font-semibold text-primary">
+          {index + 1}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <span>{content.taskCategory}</span>
+            <span aria-hidden="true">/</span>
+            <span>{content.duration}</span>
+            {progressRecord?.completedAt && (
+              <>
+                <span aria-hidden="true">/</span>
+                <span className="text-sage">Complete</span>
+              </>
+            )}
+            {!progressRecord?.completedAt && progressRecord?.startedAt && (
+              <>
+                <span aria-hidden="true">/</span>
+                <span className="text-primary">In progress</span>
+              </>
+            )}
+          </div>
+          <h3 className="mt-2 text-base font-semibold text-foreground group-hover:text-primary">
+            {content.title}
+          </h3>
+          <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted-foreground">
+            {content.description}
+          </p>
+        </div>
+        <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+      </Link>
+    );
+  };
+
   return (
     <PortalLayout>
-      <section className="py-10 sm:py-12 lg:py-16">
+      <section className="py-8 sm:py-10 lg:py-12">
         <div className="container-page">
-          <div className="rounded-[32px] border border-primary/10 bg-gradient-to-br from-cream via-background to-primary/5 p-4 sm:p-7 lg:p-8">
-            <div className="grid gap-6 lg:grid-cols-[1.15fr,0.95fr] lg:items-center">
-              <div className="order-2 lg:order-1">
+          <div className="rounded-[28px] border border-primary/10 bg-gradient-to-br from-cream via-background to-primary/5 p-4 sm:p-6 lg:p-7">
+            <div className="grid gap-5 lg:grid-cols-[0.95fr,1.05fr] lg:items-center">
+              <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
                   Training Hub
                 </p>
-                <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                  Find the right training fast.
+                <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl lg:text-5xl">
+                  Start the next operator task.
                 </h1>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                  Start with the operator essentials path, then jump by task or search by symptom
-                  when you need a fast answer on the machine.
+                <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
+                  The hub is organized around one path first. Use the start path for new operators,
+                  then search by task or symptom when the machine needs a fast answer.
                 </p>
-                <div className="mt-5 flex flex-wrap gap-2.5">
-                  <span className="rounded-full border border-primary/10 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                    {trainingExperience.tasks.length} operator tasks
-                  </span>
-                  <span className="rounded-full border border-primary/10 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                    {trainingExperience.tasks.filter((item) => Boolean(item.primaryVideo?.embed.url)).length} walkthrough videos
-                  </span>
-                  <span className="rounded-full border border-primary/10 bg-background/70 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                    {trainingExperience.quickAids.length + trainingExperience.manuals.length} quick aids + manuals
-                  </span>
+                <div className="mt-5 grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
+                  <div className="rounded-2xl border border-primary/10 bg-background/70 px-4 py-3">
+                    <span className="block text-lg font-semibold text-foreground">
+                      {trainingExperience.tasks.length}
+                    </span>
+                    operator tasks
+                  </div>
+                  <div className="rounded-2xl border border-primary/10 bg-background/70 px-4 py-3">
+                    <span className="block text-lg font-semibold text-foreground">
+                      {walkthroughTaskCount}
+                    </span>
+                    walkthrough videos
+                  </div>
+                  <div className="rounded-2xl border border-primary/10 bg-background/70 px-4 py-3">
+                    <span className="block text-lg font-semibold text-foreground">
+                      {trainingExperience.quickAids.length + trainingExperience.manuals.length}
+                    </span>
+                    quick aids + manuals
+                  </div>
                 </div>
               </div>
 
-              <div className="order-1 rounded-[28px] border border-primary/15 bg-background/95 p-5 shadow-md sm:p-6 lg:order-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                  Recommended first move
-                </p>
-                <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
-                  {continueLearningItem ? 'Continue where you left off' : 'Start with operator essentials'}
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {continueLearningItem
-                    ? continueLearningItem.title
-                    : 'Follow the core setup, daily operation, cleaning, and recovery steps before digging into repairs.'}
-                </p>
+              <div className="rounded-[24px] border border-primary/20 bg-background/95 p-5 shadow-md sm:p-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                    <PlayCircle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                      Primary next action
+                    </p>
+                    <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
+                      {inProgressItem ? 'Resume where you left off' : 'Open the start path'}
+                    </h2>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {recommendedStartingItem
+                        ? recommendedStartingItem.title
+                        : 'Follow the core setup, daily operation, cleaning, and recovery steps before digging into repairs.'}
+                    </p>
+                  </div>
+                </div>
                 {recommendedStartingItem && (
                   <p className="mt-3 rounded-2xl bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground">
                     {recommendedStartingItem.summary}
@@ -574,20 +667,21 @@ export default function TrainingPage() {
                 <p className="mt-3 text-sm text-muted-foreground">
                   {completedRequiredCount}/{requiredTrackItems.length} required essentials complete
                 </p>
-                <div className="mt-5 flex flex-col items-start gap-3">
+                <div className="mt-5 flex flex-col gap-3">
                   {recommendedStartingItem && (
-                    <Button asChild className="btn-shadow w-full sm:w-auto">
+                    <Button asChild className="btn-shadow w-full justify-center">
                       <Link to={`/portal/training/${recommendedStartingItem.id}`}>
-                        {continueLearningItem ? 'Resume learning' : 'Open start path'}
+                        {inProgressItem ? 'Resume learning' : 'Open start path'}
+                        <ArrowRight className="ml-2 h-4 w-4" />
                       </Link>
                     </Button>
                   )}
                   <button
                     type="button"
                     onClick={() => focusLibraryExplorer()}
-                    className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80"
+                    className="inline-flex items-center justify-center gap-2 text-sm font-medium text-primary hover:text-primary/80"
                   >
-                    Search tasks and references
+                    Search the library instead
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
@@ -596,18 +690,18 @@ export default function TrainingPage() {
           </div>
 
           {startHereSequence.length > 0 && (
-            <section className="mt-8 sm:mt-10">
+            <section className="mt-7 sm:mt-9">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
                     Start Here
                   </p>
-                  <h2 className="mt-2 font-display text-3xl font-semibold text-foreground">
-                    The quickest path for a new operator
+                  <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
+                    The shortest new-operator sequence
                   </h2>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                    Complete these first to understand setup, safe operation, and the most common
-                    recovery steps.
+                    Work through these in order. The primary action above opens the next unfinished
+                    item, while this sequence shows where the path is headed.
                   </p>
                 </div>
                 <Button
@@ -620,13 +714,13 @@ export default function TrainingPage() {
                 </Button>
               </div>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {startHereSequence.map((item, index) => renderTrainingCard(item, { showStep: index + 1 }))}
+              <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+                {startHereSequence.map((item, index) => renderStartHereStep(item, index))}
               </div>
             </section>
           )}
 
-          <section className="mt-10 sm:mt-12">
+          <section className="mt-8 sm:mt-10">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
@@ -636,8 +730,8 @@ export default function TrainingPage() {
                   Go straight to the type of help you need
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                  Pick a task path to jump directly into that library view, or use search below when
-                  you already know the symptom.
+                  These cards are shortcuts into filtered library views. They stay secondary to the
+                  start path, but useful when an operator already knows the job.
                 </p>
               </div>
               <Button
@@ -649,7 +743,7 @@ export default function TrainingPage() {
               </Button>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-4 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
               {trackDefinitionsForNavigation.map((trackDefinition) => {
                 const TrackIcon = trackIconMap[trackDefinition.id] ?? BookOpen;
                 const trackItems = trainingExperience.tasks.filter(
@@ -662,52 +756,62 @@ export default function TrainingPage() {
                     key={trackDefinition.id}
                     type="button"
                     onClick={() => handleSelectTrack(trackDefinition.id)}
-                    className={`rounded-3xl border p-4 text-left transition-all sm:p-5 ${
+                    className={`rounded-2xl border p-4 text-left transition-all ${
                       isActive
                         ? 'border-primary/30 bg-primary/5 shadow-sm'
                         : 'border-border bg-background hover:border-primary/20 hover:bg-muted/20'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                        <TrackIcon className="h-6 w-6" />
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                        <TrackIcon className="h-5 w-5" />
                       </div>
-                      <span className="rounded-full bg-muted px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                        {trackItems.length} {trackItems.length === 1 ? 'resource' : 'resources'}
-                      </span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold text-foreground">
+                            {trackDefinition.label}
+                          </h3>
+                          <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                            {trackItems.length}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                          {trackDefinition.description}
+                        </p>
+                      </div>
                     </div>
-                    <h3 className="mt-3 text-lg font-semibold text-foreground">{trackDefinition.label}</h3>
-                    <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-                      {trackDefinition.description}
-                    </p>
                   </button>
                 );
               })}
             </div>
           </section>
 
-          {showCuratedSections && quickAidItems.length > 0 && (
-            <section className="mt-10 sm:mt-12">
-              <div className="rounded-[26px] border border-primary/10 bg-primary/5 p-4 sm:p-5">
+          {showCuratedSections && featuredJobAidItems.length > 0 && (
+            <section className="mt-8 sm:mt-10">
+              <div className="rounded-[24px] border border-primary/10 bg-primary/5 p-4 sm:p-5">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Quick Job Aids
+                    Job Aids By Moment
                   </p>
                   <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
-                    Fast references that support the main tasks
+                    Fast references without another library pile
                   </h2>
                   <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">
-                    Use these short references when you already know the moment you are solving. The
-                    main task library stays separate below.
+                    These are intentionally small and tied to the task moment where operators need
+                    them: shutdown, timer setup, cleaning, and consumables.
                   </p>
                 </div>
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  {quickAidItems.map((item) => (
+                  {featuredJobAidItems.map((item) => (
                     <Link
                       key={item.id}
-                      to={`/portal/training/${item.id}`}
-                      onClick={() => handleOpenItem(item)}
+                      to={item.href}
+                      onClick={() => {
+                        if (item.sourceItem) {
+                          handleOpenItem(item.sourceItem);
+                        }
+                      }}
                       className="rounded-2xl border border-primary/10 bg-background/90 p-4 transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-sm"
                     >
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
@@ -719,7 +823,7 @@ export default function TrainingPage() {
                       </p>
                       <div className="mt-4 flex flex-col items-start gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                         <span className="rounded-full bg-muted px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          {getSurfaceLabel(item)}
+                          {item.label}
                         </span>
                         <span className="inline-flex items-center gap-1 font-medium text-primary">
                           Open
@@ -733,20 +837,20 @@ export default function TrainingPage() {
             </section>
           )}
 
-          <section id="training-library-explorer" ref={libraryExplorerRef} className="mt-10 sm:mt-12">
-            <div className="flex flex-col gap-4 rounded-3xl border border-border bg-background p-4 sm:p-6">
+          <section id="training-library-explorer" ref={libraryExplorerRef} className="mt-8 sm:mt-10">
+            <div className="flex flex-col gap-4 rounded-[24px] border border-border bg-background p-4 sm:p-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
                     Training Library
                   </p>
                   <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
-                    {selectedTrackDefinition ? `Search ${selectedTrackDefinition.label}` : 'Search operator tasks first'}
+                    {selectedTrackDefinition ? `Search ${selectedTrackDefinition.label}` : 'Search the task library'}
                   </h2>
                   <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">
                     {selectedTrackDefinition
-                      ? `You are browsing the ${selectedTrackDefinition.label} path. Search within it to find the right task page, then use the quick aids and manuals below only when you need a specific reference.`
-                      : 'Search by symptom, part, topic, or setting to find the right operator task. Matching quick aids and manuals appear below the task results as supporting references.'}
+                      ? `You are browsing the ${selectedTrackDefinition.label} path. Search within it to find the right task page, then use quick aids and manuals only when you need a specific reference.`
+                      : 'Search by symptom, part, topic, or setting. Tasks stay first; matching quick aids and manuals appear as supporting references below.'}
                   </p>
                 </div>
 
@@ -930,7 +1034,7 @@ export default function TrainingPage() {
               </div>
             )}
 
-          <section className="mt-10 sm:mt-12">
+          <section className="mt-8 sm:mt-10">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
@@ -953,7 +1057,7 @@ export default function TrainingPage() {
 
             {!isLoading &&
               groupedContent.map((trackGroup) => (
-                <section key={trackGroup.id} className="mt-7 sm:mt-8">
+                <section key={trackGroup.id} className="mt-6 sm:mt-7">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <h3 className="font-display text-2xl font-semibold text-foreground">
@@ -975,7 +1079,7 @@ export default function TrainingPage() {
               ))}
 
             {!isLoading && !showCuratedSections && filteredReferenceItems.length > 0 && (
-              <section className="mt-7 sm:mt-8">
+              <section className="mt-6 sm:mt-7">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="font-display text-2xl font-semibold text-foreground">
@@ -1020,8 +1124,8 @@ export default function TrainingPage() {
           </section>
 
           {operatorTrack && (
-            <section className="mt-10 grid gap-5 xl:grid-cols-[1.2fr,0.8fr] sm:mt-12">
-              <div className="rounded-3xl border border-border bg-muted/15 p-5 sm:p-6">
+            <section className="mt-8 grid gap-4 xl:grid-cols-[1.2fr,0.8fr] sm:mt-10">
+              <div className="rounded-[24px] border border-border bg-muted/15 p-5 sm:p-6">
                 <div className="flex items-start gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted">
                     <Award className="h-5 w-5 text-muted-foreground" />
@@ -1092,7 +1196,7 @@ export default function TrainingPage() {
                 )}
               </div>
 
-              <div className="rounded-3xl border border-border bg-background p-5 sm:p-6">
+              <div className="rounded-[24px] border border-border bg-background p-5 sm:p-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
                   Need something specific?
                 </p>
