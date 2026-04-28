@@ -149,6 +149,8 @@ supabase functions deploy stripe-plus-checkout --no-verify-jwt
 supabase functions deploy stripe-customer-portal --no-verify-jwt
 supabase functions deploy stripe-webhook --no-verify-jwt
 supabase functions deploy lead-submission-intake --no-verify-jwt
+supabase functions deploy custom-sticks-artwork-upload --no-verify-jwt
+supabase functions deploy custom-sticks-artwork-link --no-verify-jwt
 supabase functions deploy support-request-intake --no-verify-jwt
 supabase functions deploy sales-report-export --no-verify-jwt
 supabase functions deploy sales-report-scheduler --no-verify-jwt

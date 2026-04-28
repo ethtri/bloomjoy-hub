@@ -1,4 +1,5 @@
 import { supabaseClient } from '@/lib/supabaseClient';
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 
 export const CUSTOM_STICKS_ARTWORK_BUCKET = 'custom-sticks-artwork';
 export const CUSTOM_STICKS_ARTWORK_PRIVATE_PREFIX = 'private';
@@ -20,12 +21,11 @@ export type CustomSticksArtworkUpload = {
   storagePath: string;
 };
 
-const sanitizeFileName = (name: string): string =>
-  name
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+type CustomSticksArtworkUploadTokenResponse = CustomSticksArtworkUpload & {
+  error?: string;
+  signedUploadExpiresInSeconds: number;
+  signedUploadToken: string;
+};
 
 export const validateCustomSticksArtwork = (file: File): void => {
   if (!ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES.includes(file.type as (typeof ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES)[number])) {
@@ -42,18 +42,22 @@ export const uploadCustomSticksArtwork = async (
 ): Promise<CustomSticksArtworkUpload> => {
   validateCustomSticksArtwork(file);
 
-  const uniqueId =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const uploadToken = await invokeEdgeFunction<CustomSticksArtworkUploadTokenResponse>(
+    'custom-sticks-artwork-upload',
+    {
+      contentType: file.type,
+      fileName: file.name || 'artwork',
+      sizeBytes: file.size,
+    }
+  );
 
-  const safeName = sanitizeFileName(file.name || 'artwork') || 'artwork';
-  const storagePath = `${CUSTOM_STICKS_ARTWORK_PRIVATE_PREFIX}/${uniqueId}-${safeName}`;
+  if (uploadToken.error) {
+    throw new Error(uploadToken.error);
+  }
 
   const { error: uploadError } = await supabaseClient.storage
-    .from(CUSTOM_STICKS_ARTWORK_BUCKET)
-    .upload(storagePath, file, {
-      upsert: false,
+    .from(uploadToken.bucket)
+    .uploadToSignedUrl(uploadToken.storagePath, uploadToken.signedUploadToken, file, {
       contentType: file.type || undefined,
     });
 
@@ -63,11 +67,11 @@ export const uploadCustomSticksArtwork = async (
 
   return {
     access: 'private',
-    bucket: CUSTOM_STICKS_ARTWORK_BUCKET,
-    contentType: file.type as CustomSticksArtworkUpload['contentType'],
-    fileName: file.name || safeName,
-    signedUrlTtlSeconds: CUSTOM_STICKS_ARTWORK_SIGNED_URL_TTL_SECONDS,
-    sizeBytes: file.size,
-    storagePath,
+    bucket: uploadToken.bucket,
+    contentType: uploadToken.contentType,
+    fileName: uploadToken.fileName,
+    signedUrlTtlSeconds: uploadToken.signedUrlTtlSeconds,
+    sizeBytes: uploadToken.sizeBytes,
+    storagePath: uploadToken.storagePath,
   };
 };

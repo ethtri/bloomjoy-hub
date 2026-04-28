@@ -19,15 +19,6 @@ drop policy if exists "custom_sticks_artwork_read_public" on storage.objects;
 drop policy if exists "custom_sticks_artwork_insert_private_intake" on storage.objects;
 drop policy if exists "custom_sticks_artwork_read_super_admin" on storage.objects;
 
-create policy "custom_sticks_artwork_insert_private_intake"
-on storage.objects
-for insert
-to anon, authenticated
-with check (
-  bucket_id = 'custom-sticks-artwork'
-  and (storage.foldername(name))[1] = 'private'
-);
-
 create policy "custom_sticks_artwork_read_super_admin"
 on storage.objects
 for select

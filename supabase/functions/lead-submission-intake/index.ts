@@ -20,6 +20,16 @@ const allowedCustomSticksArtworkTypes = new Set(["image/png", "image/jpeg", "ima
 const maxLeadMetadataBytes = 4096;
 const maxCustomSticksArtworkSizeBytes = 5 * 1024 * 1024;
 
+type CustomSticksArtworkMetadata = {
+  access: "private";
+  bucket: string;
+  contentType: string;
+  fileName: string;
+  signedUrlTtlSeconds: number;
+  sizeBytes: number;
+  storagePath: string;
+};
+
 if (!supabaseUrl) {
   console.error("Missing SUPABASE_URL");
 }
@@ -43,7 +53,7 @@ class RequestValidationError extends Error {}
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-const normalizeCustomSticksArtworkMetadata = (value: unknown) => {
+const normalizeCustomSticksArtworkMetadata = (value: unknown): CustomSticksArtworkMetadata => {
   if (!isRecord(value)) {
     throw new RequestValidationError("Artwork metadata is invalid.");
   }
@@ -111,6 +121,88 @@ const normalizeLeadMetadata = (value: unknown): Record<string, unknown> => {
   }
 
   return metadata;
+};
+
+const splitStoragePath = (storagePath: string) => {
+  const lastSlashIndex = storagePath.lastIndexOf("/");
+
+  return {
+    folder: storagePath.slice(0, lastSlashIndex),
+    name: storagePath.slice(lastSlashIndex + 1),
+  };
+};
+
+const readStorageMetadataValue = (
+  metadata: Record<string, unknown>,
+  keys: string[]
+): unknown => {
+  for (const key of keys) {
+    if (metadata[key] !== undefined && metadata[key] !== null) {
+      return metadata[key];
+    }
+  }
+
+  return undefined;
+};
+
+const verifyCustomSticksArtworkObject = async (
+  artwork: CustomSticksArtworkMetadata
+): Promise<CustomSticksArtworkMetadata> => {
+  if (!supabase) {
+    throw new Error("Lead intake is not configured.");
+  }
+
+  const { folder, name } = splitStoragePath(artwork.storagePath);
+  const { data, error } = await supabase.storage
+    .from(customSticksArtworkBucket)
+    .list(folder, {
+      limit: 10,
+      search: name,
+    });
+
+  if (error) {
+    throw new RequestValidationError("Uploaded artwork could not be verified.");
+  }
+
+  const storedObject = data?.find((entry) => entry.name === name);
+  if (!storedObject) {
+    throw new RequestValidationError("Uploaded artwork was not found.");
+  }
+
+  const storedMetadata = isRecord(storedObject.metadata) ? storedObject.metadata : {};
+  const storedContentType = sanitizeText(
+    readStorageMetadataValue(storedMetadata, ["mimetype", "contentType"])
+  ).toLowerCase();
+  const storedSizeBytes = Number(
+    readStorageMetadataValue(storedMetadata, ["size", "contentLength"])
+  );
+
+  if (storedContentType && storedContentType !== artwork.contentType) {
+    throw new RequestValidationError("Uploaded artwork content type does not match.");
+  }
+
+  if (Number.isFinite(storedSizeBytes) && storedSizeBytes !== artwork.sizeBytes) {
+    throw new RequestValidationError("Uploaded artwork file size does not match.");
+  }
+
+  return {
+    ...artwork,
+    contentType: storedContentType || artwork.contentType,
+    sizeBytes: Number.isFinite(storedSizeBytes) ? storedSizeBytes : artwork.sizeBytes,
+  };
+};
+
+const verifyLeadMetadata = async (metadata: Record<string, unknown>) => {
+  if (!("customSticksArtwork" in metadata)) {
+    return metadata;
+  }
+
+  return {
+    ...metadata,
+    customSticksArtwork: await verifyCustomSticksArtworkObject(
+      metadata.customSticksArtwork as CustomSticksArtworkMetadata
+    ),
+  };
 };
 
 const claimDispatch = async (
@@ -186,7 +278,7 @@ serve(async (req) => {
     const message = sanitizeText(body?.message);
     const machineInterest = sanitizeText(body?.machineInterest);
     const clientSubmissionId = sanitizeText(body?.clientSubmissionId).toLowerCase();
-    const metadata = normalizeLeadMetadata(body?.metadata);
+    const metadata = await verifyLeadMetadata(normalizeLeadMetadata(body?.metadata));
 
     if (!validSubmissionTypes.has(submissionType)) {
       return new Response(
