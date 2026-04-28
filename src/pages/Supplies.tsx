@@ -21,7 +21,6 @@ import {
   validateCustomSticksArtwork,
 } from '@/lib/customSticksArtwork';
 import { createLeadSubmission } from '@/lib/leadSubmissions';
-import { hasPlusAccess } from '@/lib/membership';
 import { startBlankSticksCheckout } from '@/lib/stripeCheckout';
 import {
   BLANK_STICKS_ADDRESS_TYPE_OPTIONS,
@@ -128,8 +127,8 @@ export default function SuppliesPage() {
   const { addItem, items } = useCart();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedOrderMode = resolveSupplyOrderMode(searchParams.get('order'));
-  const hasPlusMembership = hasPlusAccess(user?.membershipStatus);
-  const sugarPricePerKg = getSugarPricePerKg(hasPlusMembership);
+  const hasMemberSupplyPricing = Boolean(user?.hasSupplyDiscount);
+  const sugarPricePerKg = getSugarPricePerKg(hasMemberSupplyPricing);
   const [targetTotalKg, setTargetTotalKg] = useState(DEFAULT_BULK_SUGAR_KG);
   const [sticksBoxCount, setSticksBoxCount] = useState(1);
   const [stickSize, setStickSize] = useState<SelectedStickSize>('');
@@ -474,9 +473,9 @@ export default function SuppliesPage() {
                       <p className="mt-1 text-xs text-muted-foreground">
                         {isAuthLoading
                           ? 'Checking member pricing…'
-                          : hasPlusMembership
-                            ? 'Plus pricing is active.'
-                            : `Standard pricing. Plus members pay ${formatCurrency(
+                          : hasMemberSupplyPricing
+                            ? 'Member pricing is active.'
+                            : `Standard pricing. Plus Customers and Corporate Partners pay ${formatCurrency(
                                 PLUS_MEMBER_SUGAR_PRICE_PER_KG
                               )}/KG.`}
                       </p>

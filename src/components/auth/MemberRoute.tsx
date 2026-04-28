@@ -57,7 +57,7 @@ export function MemberRoute() {
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       {isReportingRoute
                         ? 'Sales reporting access is granted by account, location, or specific machine. Ask Bloomjoy to add reporting permissions for the machines you should be able to view.'
-                        : 'Training-only operators can use the training hub. Customer account tools, onboarding, support, and billing stay reserved for the account owner or Bloomjoy Plus members.'}
+                        : 'Technicians without assigned machines can use the training hub. Customer account tools, onboarding, support, and billing stay reserved for account owners and eligible partners.'}
                     </p>
                   </div>
                 </div>

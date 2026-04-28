@@ -27,7 +27,7 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
-  const { hasReportingAccess, isAdmin, portalAccessTier } = useAuth();
+  const { hasReportingAccess, isAdmin, isCorporatePartner, portalAccessTier } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const currentDestination = getPortalDestinationByPath(location.pathname);
@@ -42,7 +42,9 @@ export function PortalLayout({ children }: PortalLayoutProps) {
         : true
     );
   const accessStatusLabel =
-    portalAccessTier === 'plus'
+    isCorporatePartner
+      ? 'Corporate Partner'
+      : portalAccessTier === 'plus'
       ? t('portal.plusActive')
       : portalAccessTier === 'training'
         ? t('portal.trainingAccess')

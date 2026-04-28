@@ -97,6 +97,12 @@ const haveSameMachineIds = (left: string[], right: string[]) => {
   return left.every((id) => rightIds.has(id));
 };
 
+const getAccountSelectionKey = (account: {
+  accountId: string;
+  authorityPath?: string;
+  partnerId?: string | null;
+}) => `${account.authorityPath ?? 'account'}:${account.accountId}:${account.partnerId ?? 'none'}`;
+
 export function TechnicianManagementPanel() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -137,7 +143,9 @@ export function TechnicianManagementPanel() {
 
   const accounts = useMemo(() => managementContext?.accounts ?? [], [managementContext?.accounts]);
   const selectedAccount =
-    accounts.find((account) => account.accountId === selectedAccountId) ?? accounts[0] ?? null;
+    accounts.find((account) => getAccountSelectionKey(account) === selectedAccountId) ??
+    accounts[0] ??
+    null;
   const selectedAccountMachineIds = useMemo(
     () => new Set((selectedAccount?.machines ?? []).map((machine) => machine.machineId)),
     [selectedAccount]
@@ -149,7 +157,10 @@ export function TechnicianManagementPanel() {
           (grant) =>
             grant.canManage &&
             !grant.revokedAt &&
-            (!selectedAccount || grant.accountId === selectedAccount.accountId)
+            (!selectedAccount ||
+              (grant.accountId === selectedAccount.accountId &&
+                (selectedAccount.authorityPath !== 'corporate_partner' ||
+                  grant.partnerId === selectedAccount.partnerId)))
         )
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [technicianGrants, selectedAccount]
@@ -177,8 +188,11 @@ export function TechnicianManagementPanel() {
       return;
     }
 
-    if (!selectedAccountId || !accounts.some((account) => account.accountId === selectedAccountId)) {
-      setSelectedAccountId(accounts[0].accountId);
+    if (
+      !selectedAccountId ||
+      !accounts.some((account) => getAccountSelectionKey(account) === selectedAccountId)
+    ) {
+      setSelectedAccountId(getAccountSelectionKey(accounts[0]));
     }
   }, [accounts, selectedAccountId]);
 
@@ -247,12 +261,7 @@ export function TechnicianManagementPanel() {
     }
 
     if (addBlockedByCap) {
-      toast.error('This Plus account is already at the 10 Technician grant cap.');
-      return;
-    }
-
-    if (selectedMachineIds.length === 0) {
-      toast.error('Select at least one machine.');
+      toast.error('This account is already at the 10 Technician grant cap.');
       return;
     }
 
@@ -260,6 +269,8 @@ export function TechnicianManagementPanel() {
       await grantMutation.mutateAsync({
         technicianEmail: normalizedEmail,
         machineIds: selectedMachineIds,
+        accountId: selectedAccount?.accountId,
+        partnerId: selectedAccount?.partnerId,
         reason: grantReason.trim() || DEFAULT_TECHNICIAN_REASON,
       });
     } catch (error) {
@@ -280,11 +291,6 @@ export function TechnicianManagementPanel() {
   };
 
   const handleSaveEdit = async (grant: TechnicianGrant) => {
-    if (editingMachineIds.length === 0) {
-      toast.error('Select at least one machine, or revoke Technician access.');
-      return;
-    }
-
     try {
       await updateMutation.mutateAsync({
         grantId: grant.grantId,
@@ -329,8 +335,9 @@ export function TechnicianManagementPanel() {
               Technician Access
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-              Add staff who need training plus reporting for specific machines. Technicians do not
-              receive billing, Plus discounts, partner settlement, or admin tools.
+              Add staff who need training and optional reporting for specific machines. Technicians
+              expire after one year unless renewed and do not receive billing, supply discounts,
+              partner settlement, or admin tools.
             </p>
           </div>
         </div>
@@ -363,15 +370,23 @@ export function TechnicianManagementPanel() {
                   <div>
                     <Label htmlFor="technician-account">Account</Label>
                     {accounts.length > 1 ? (
-                      <Select value={selectedAccount.accountId} onValueChange={setSelectedAccountId}>
+                      <Select
+                        value={getAccountSelectionKey(selectedAccount)}
+                        onValueChange={setSelectedAccountId}
+                      >
                         <SelectTrigger id="technician-account" className="mt-2">
                           <SelectValue placeholder="Select account" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
                             {accounts.map((account) => (
-                              <SelectItem key={account.accountId} value={account.accountId}>
-                                {account.accountName}
+                              <SelectItem
+                                key={getAccountSelectionKey(account)}
+                                value={getAccountSelectionKey(account)}
+                              >
+                                {account.partnerName
+                                  ? `${account.partnerName} / ${account.accountName}`
+                                  : account.accountName}
                               </SelectItem>
                             ))}
                           </SelectGroup>
@@ -379,7 +394,9 @@ export function TechnicianManagementPanel() {
                       </Select>
                     ) : (
                       <p className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground">
-                        {selectedAccount.accountName}
+                        {selectedAccount.partnerName
+                          ? `${selectedAccount.partnerName} / ${selectedAccount.accountName}`
+                          : selectedAccount.accountName}
                       </p>
                     )}
                   </div>
@@ -415,7 +432,7 @@ export function TechnicianManagementPanel() {
                         onChange={(event) => setTechnicianEmail(event.target.value)}
                         placeholder="technician@example.com"
                         className="mt-2"
-                        disabled={!hasMachines || grantMutation.isPending}
+                        disabled={grantMutation.isPending}
                       />
                       <p className="mt-2 text-xs leading-5 text-muted-foreground">
                         Existing emails are updated instead of consuming another seat.
@@ -428,7 +445,7 @@ export function TechnicianManagementPanel() {
                         value={grantReason}
                         onChange={(event) => setGrantReason(event.target.value)}
                         className="mt-2"
-                        disabled={!hasMachines || grantMutation.isPending}
+                        disabled={grantMutation.isPending}
                       />
                     </div>
                   </div>
@@ -438,7 +455,7 @@ export function TechnicianManagementPanel() {
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>Technician seat cap reached</AlertTitle>
                       <AlertDescription>
-                        This Plus account already has 10 active Technician grants. Paid additional
+                        This account already has 10 active Technician grants. Paid additional
                         seats are planned later and are not available in this flow.
                       </AlertDescription>
                     </Alert>
@@ -449,8 +466,8 @@ export function TechnicianManagementPanel() {
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>No controlled machines available</AlertTitle>
                       <AlertDescription>
-                        Bloomjoy needs to add active reporting machines to this Plus account before
-                        the owner can assign Technician reporting access.
+                        Save without machines to grant training-only Technician access. Assign
+                        machines later when this person should see reporting.
                       </AlertDescription>
                     </Alert>
                   ) : (
@@ -473,7 +490,7 @@ export function TechnicianManagementPanel() {
                         ? `${selectedMachineIds.length} machine${
                             selectedMachineIds.length === 1 ? '' : 's'
                           } selected.`
-                        : 'Select the machines this Technician should report on.'}
+                        : 'No machines selected; this Technician will receive training only.'}
                     </p>
                     <Button
                       className="w-full sm:w-auto"
@@ -481,8 +498,6 @@ export function TechnicianManagementPanel() {
                       disabled={
                         grantMutation.isPending ||
                         addBlockedByCap ||
-                        !hasMachines ||
-                        selectedMachineIds.length === 0 ||
                         !technicianEmail.trim()
                       }
                     >
@@ -502,8 +517,8 @@ export function TechnicianManagementPanel() {
                   <div>
                     <h3 className="font-semibold text-foreground">Current Technicians</h3>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Edit machine assignments or revoke access when a Technician no longer needs
-                      training and assigned-machine reporting.
+                      Edit machine assignments, renew with changes, or revoke access when a
+                      Technician no longer needs training and assigned-machine reporting.
                     </p>
                   </div>
                   <Badge variant="outline">{currentAccountGrants.length} grants</Badge>
@@ -642,7 +657,7 @@ function TechnicianGrantRow({
             </Badge>
           </div>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {activeMachines.length} assigned machine{activeMachines.length === 1 ? '' : 's'} ·
+            {activeMachines.length} assigned machine{activeMachines.length === 1 ? '' : 's'} -
             Updated {formatDateTime(grant.updatedAt)}
           </p>
           {activeMachines.length > 0 && (
@@ -665,7 +680,7 @@ function TechnicianGrantRow({
             className="w-full sm:w-auto"
           >
             <Pencil className="mr-1.5 h-4 w-4" />
-            Edit Machines
+            Edit Access
           </Button>
           <Button
             type="button"
@@ -703,7 +718,7 @@ function TechnicianGrantRow({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs leading-5 text-muted-foreground">
               {editingMachineIds.length === 0
-                ? 'Select at least one machine, or revoke access instead.'
+                ? 'No machines selected; saving will keep this Technician training-only.'
                 : `${editingMachineIds.length} machine${
                     editingMachineIds.length === 1 ? '' : 's'
                   } selected.`}
@@ -715,14 +730,14 @@ function TechnicianGrantRow({
               <Button
                 type="button"
                 onClick={onSaveEdit}
-                disabled={isSaving || editingMachineIds.length === 0 || !hasChanges}
+                disabled={isSaving || !hasChanges}
               >
                 {isSaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                 )}
-                Save Machines
+                Save Access
               </Button>
             </div>
           </div>
@@ -830,7 +845,7 @@ function MachineChecklist({
                       {machine.machineLabel}
                     </span>
                     <span className="mt-1 block text-xs text-muted-foreground">
-                      {machine.machineType} · {machine.status}
+                      {machine.machineType} - {machine.status}
                     </span>
                   </span>
                 </label>

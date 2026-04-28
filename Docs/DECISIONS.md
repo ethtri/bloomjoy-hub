@@ -1,5 +1,33 @@
 # Decisions
 
+## 2026-04-28 - Preset-first Corporate Partner access model
+Access management will use admin-facing presets backed by source-aware capabilities and scopes, not a visible raw permission matrix.
+
+**Canonical access model**
+- Near-term presets are Super Admin, Scoped Admin, Plus Customer, Corporate Partner, and Technician.
+- Corporate Partner is separate from Plus Customer even when both receive similar functional benefits such as training, support, member supply pricing, reporting, and Technician management.
+- Corporate Partner membership is stored as `corporate_partner_memberships` linked to a `reporting_partners` record.
+- Corporate Partner live reporting is derived only from active partnerships where that partner is a participant and `reporting_partnership_parties.portal_access_enabled=true`.
+- Partnership participant metadata, payout recipient status, or legal participation must not grant portal access by itself.
+- Training-only access is represented as a Technician grant with no assigned machines; it is not exposed as a separate primary persona.
+- Reporting User remains a future/internal capability and is not exposed as a primary preset.
+
+**Canonical capabilities**
+- Access checks should move toward explicit helpers for `training.view`, `support.request`, `supplies.member_discount`, `reports.partner.view`, `reports.machine.view`, `technicians.manage`, `admin.access.manage_reporting`, and `admin.global`.
+- Frontend route guards, Edge Functions, reporting RPCs, and admin previews should consume server-side capability helpers over time.
+- Supply discounts are enforced server-side; Plus Customer and Corporate Partner resolve to the same member supply tier, while Technician alone does not.
+- Support intake must enforce `support.request` server-side.
+
+**Canonical admin UX**
+- `/admin/access` should be person-first: search a user/email, preview effective access, then apply presets with a save preview.
+- Corporate Partner grants require partner selection and grant reason, and should preview active portal-enabled partnerships plus derived machines.
+- Granular per-user overrides are deferred until the preset model and effective-access preview are stable.
+
+**Why this choice**
+- Presets keep admin work fast and understandable while capability helpers keep the backend flexible as personas grow.
+- Explicit portal participation avoids accidental partner access through agreement setup or payout metadata.
+- Source-aware Technician, Plus Customer, and Corporate Partner grants make revoke and renewal safer as Bloomjoy adds more access paths.
+
 ## 2026-04-24 - Sales reporting foundation
 Bloomjoy sales reporting will use account/location/machine entitlements that are separate from Plus and training access.
 
@@ -38,7 +66,7 @@ Bloomjoy sales reporting will use account/location/machine entitlements that are
 Admin permission work and partnership financial setup are separate concerns.
 
 **Canonical admin surfaces**
-- `/admin/access` is the single admin place for users, Plus grants, super-admin roles, audit history, and explicit machine-level reporting visibility.
+- `/admin/access` is the single admin place for users, Plus Customer access, Corporate Partner access, super-admin roles, audit history, and explicit machine-level reporting visibility.
 - `/admin/reporting` is for reporting operations: schedules, import/sync status, stale-data warnings, and export archive visibility.
 - `/admin/partner-records` is for reusable external organizations and contacts that can become participants in one or more partnerships.
 - `/admin/machines` is for machine identity, aliases, partner-report inclusion status, and current machine tax rates.
@@ -130,7 +158,7 @@ Bloomjoy now supports a narrow operator access tier for staff who need training 
 
 **Why this choice**
 - Operators often need training materials but should not inherit account-owner commerce, billing, support, or onboarding workflows.
-- Keeping operator training separate from free Plus grants avoids confusing unpaid training seats with customer membership benefits.
+- Keeping operator training separate from unpaid Plus Customer access avoids confusing training seats with customer membership benefits.
 - Email-based grants let the operator sign in later with the same address without requiring a full invitation system in this slice.
 
 ## 2026-04-06 - Emergency commerce remediation: Plus-only sugar pricing, durable order capture, and customer confirmations

@@ -42,6 +42,14 @@ import {
   type ScopedAdminGrantRecord,
 } from '@/lib/adminGovernance';
 import {
+  fetchAdminCorporatePartnerAccessOptions,
+  fetchAdminEffectiveAccessContext,
+  grantCorporatePartnerMembership,
+  revokeCorporatePartnerMembership,
+  setPartnershipPartyPortalAccess,
+  type EffectiveAccessContext,
+} from '@/lib/corporatePartnerAccess';
+import {
   fetchAdminReportingAccessMatrix,
   lookupReportingUserByEmailAdmin,
   setUserMachineReportingAccessAdmin,
@@ -53,7 +61,7 @@ import {
 import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 
-const superAdminTabs = ['users', 'reporting-access', 'scoped-admins', 'global-roles', 'audit'];
+const superAdminTabs = ['presets', 'users', 'reporting-access', 'scoped-admins', 'global-roles', 'audit'];
 const scopedAdminTabs = ['reporting-access'];
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
@@ -101,7 +109,7 @@ const formatAccessSource = (account: AdminAccountSummary) => {
     case 'paid_subscription':
       return 'Paid Plus';
     case 'free_grant':
-      return 'Free Plus grant';
+      return 'Plus Customer access';
     case 'admin':
       return 'Super-admin override';
     default:
@@ -151,9 +159,10 @@ export default function AdminAccessPage() {
   const { isScopedAdmin, isSuperAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const availableTabs = isSuperAdmin ? superAdminTabs : scopedAdminTabs;
+  const defaultTab = isSuperAdmin ? 'presets' : 'reporting-access';
   const activeTab = availableTabs.includes(searchParams.get('tab') ?? '')
     ? (searchParams.get('tab') as string)
-    : 'reporting-access';
+    : defaultTab;
 
   const setActiveTab = (value: string) => {
     setSearchParams({ tab: value }, { replace: true });
@@ -186,6 +195,7 @@ export default function AdminAccessPage() {
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
             <TabsList className="h-auto flex-wrap justify-start">
+              {isSuperAdmin && <TabsTrigger value="presets">Presets</TabsTrigger>}
               {isSuperAdmin && <TabsTrigger value="users">Users</TabsTrigger>}
               <TabsTrigger value="reporting-access">Reporting Access</TabsTrigger>
               {isSuperAdmin && <TabsTrigger value="scoped-admins">Scoped Admins</TabsTrigger>}
@@ -193,6 +203,11 @@ export default function AdminAccessPage() {
               {isSuperAdmin && <TabsTrigger value="audit">Audit</TabsTrigger>}
             </TabsList>
 
+            {isSuperAdmin && (
+              <TabsContent value="presets" className="mt-6">
+                <PresetsTab />
+              </TabsContent>
+            )}
             {isSuperAdmin && (
               <TabsContent value="users" className="mt-6">
                 <UsersTab />
@@ -220,6 +235,457 @@ export default function AdminAccessPage() {
         </div>
       </section>
     </AppLayout>
+  );
+}
+
+function PresetsTab() {
+  const queryClient = useQueryClient();
+  const [personEmail, setPersonEmail] = useState('');
+  const [effectiveAccess, setEffectiveAccess] = useState<EffectiveAccessContext | null>(null);
+  const [isLoadingEffectiveAccess, setIsLoadingEffectiveAccess] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState('');
+  const [grantEmail, setGrantEmail] = useState('');
+  const [grantReason, setGrantReason] = useState('');
+  const [portalReason, setPortalReason] = useState('');
+  const [revokeReasons, setRevokeReasons] = useState<Record<string, string>>({});
+  const [isGrantingCorporatePartner, setIsGrantingCorporatePartner] = useState(false);
+  const [updatingPartyId, setUpdatingPartyId] = useState<string | null>(null);
+  const [revokingMembershipId, setRevokingMembershipId] = useState<string | null>(null);
+
+  const {
+    data: corporateOptions = { partners: [] },
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery({
+    queryKey: ['admin-corporate-partner-access-options'],
+    queryFn: fetchAdminCorporatePartnerAccessOptions,
+    staleTime: 1000 * 30,
+  });
+
+  useEffect(() => {
+    if (!selectedPartnerId && corporateOptions.partners.length > 0) {
+      setSelectedPartnerId(corporateOptions.partners[0].partnerId);
+    }
+  }, [corporateOptions.partners, selectedPartnerId]);
+
+  const selectedPartner =
+    corporateOptions.partners.find((partner) => partner.partnerId === selectedPartnerId) ??
+    corporateOptions.partners[0] ??
+    null;
+  const portalEnabledPartnerships =
+    selectedPartner?.portalPartnerships.filter((partnership) => partnership.portalAccessEnabled) ??
+    [];
+  const derivedMachineIds = new Set(
+    portalEnabledPartnerships.flatMap((partnership) =>
+      partnership.machines.map((machine) => machine.machineId)
+    )
+  );
+
+  const refreshCorporatePartnerOptions = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ['admin-corporate-partner-access-options'],
+    });
+  };
+
+  const loadEffectiveAccess = async () => {
+    if (!personEmail.trim()) {
+      toast.error('Enter an email to preview access.');
+      return;
+    }
+
+    setIsLoadingEffectiveAccess(true);
+    try {
+      setEffectiveAccess(await fetchAdminEffectiveAccessContext(personEmail));
+    } catch (lookupError) {
+      toast.error(
+        lookupError instanceof Error ? lookupError.message : 'Unable to load effective access.'
+      );
+    } finally {
+      setIsLoadingEffectiveAccess(false);
+    }
+  };
+
+  const grantCorporatePartner = async () => {
+    if (!grantEmail.trim()) {
+      toast.error('Enter the Corporate Partner member email.');
+      return;
+    }
+    if (!selectedPartner) {
+      toast.error('Select a partner record.');
+      return;
+    }
+    if (!grantReason.trim()) {
+      toast.error('Grant reason is required.');
+      return;
+    }
+
+    setIsGrantingCorporatePartner(true);
+    try {
+      await grantCorporatePartnerMembership({
+        email: grantEmail,
+        partnerId: selectedPartner.partnerId,
+        reason: grantReason,
+      });
+      toast.success('Corporate Partner access saved.');
+      setGrantEmail('');
+      setGrantReason('');
+      await refreshCorporatePartnerOptions();
+    } catch (grantError) {
+      toast.error(
+        grantError instanceof Error ? grantError.message : 'Unable to grant Corporate Partner access.'
+      );
+    } finally {
+      setIsGrantingCorporatePartner(false);
+    }
+  };
+
+  const updatePortalAccess = async (partyId: string, enabled: boolean) => {
+    if (!portalReason.trim()) {
+      toast.error('Enter a reason before changing portal access.');
+      return;
+    }
+
+    setUpdatingPartyId(partyId);
+    try {
+      await setPartnershipPartyPortalAccess({
+        partyId,
+        enabled,
+        reason: portalReason,
+      });
+      toast.success('Partnership portal access updated.');
+      await refreshCorporatePartnerOptions();
+    } catch (updateError) {
+      toast.error(updateError instanceof Error ? updateError.message : 'Unable to update access.');
+    } finally {
+      setUpdatingPartyId(null);
+    }
+  };
+
+  const revokeCorporatePartner = async (membershipId: string) => {
+    const reason = revokeReasons[membershipId]?.trim() ?? '';
+    if (!reason) {
+      toast.error('Revoke reason is required.');
+      return;
+    }
+
+    setRevokingMembershipId(membershipId);
+    try {
+      await revokeCorporatePartnerMembership({ membershipId, reason });
+      toast.success('Corporate Partner access revoked.');
+      setRevokeReasons((current) => ({ ...current, [membershipId]: '' }));
+      await refreshCorporatePartnerOptions();
+    } catch (revokeError) {
+      toast.error(
+        revokeError instanceof Error ? revokeError.message : 'Unable to revoke Corporate Partner access.'
+      );
+    } finally {
+      setRevokingMembershipId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-[0.42fr_0.58fr]">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <Label htmlFor="effective-access-email">Person</Label>
+              <Input
+                id="effective-access-email"
+                type="email"
+                value={personEmail}
+                onChange={(event) => setPersonEmail(event.target.value)}
+                placeholder="name@example.com"
+                className="mt-2"
+              />
+            </div>
+            <Button onClick={loadEffectiveAccess} disabled={isLoadingEffectiveAccess}>
+              {isLoadingEffectiveAccess ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="mr-2 h-4 w-4" />
+              )}
+              Preview
+            </Button>
+          </div>
+
+          <div className="mt-4 rounded-md border border-border bg-muted/20 p-3">
+            {!effectiveAccess ? (
+              <p className="text-sm text-muted-foreground">
+                Search a user or email to preview presets, capabilities, scopes, expiry, and warnings
+                before granting or revoking access.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {effectiveAccess.email ?? personEmail}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {effectiveAccess.userId ?? 'No auth user yet'}
+                  </p>
+                </div>
+                <AccessBadgeGroup title="Presets" values={effectiveAccess.presets} />
+                <AccessBadgeGroup title="Capabilities" values={effectiveAccess.capabilities} />
+                <div className="grid gap-2 text-sm sm:grid-cols-3">
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Partnerships</p>
+                    <p className="mt-1 text-xl font-semibold">
+                      {effectiveAccess.scopes.partnershipIds?.length ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Machines</p>
+                    <p className="mt-1 text-xl font-semibold">
+                      {effectiveAccess.scopes.machineIds?.length ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Admin machines</p>
+                    <p className="mt-1 text-xl font-semibold">
+                      {effectiveAccess.scopes.scopedAdminMachineIds?.length ?? 0}
+                    </p>
+                  </div>
+                </div>
+                {effectiveAccess.warnings.length > 0 && (
+                  <div className="rounded-md border border-amber/40 bg-amber/10 p-3 text-sm text-foreground">
+                    {effectiveAccess.warnings.join(' ')}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="font-semibold text-foreground">Corporate Partner preset</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Grants training, support, member supply pricing, partner reporting, machine
+                reporting, and Technician management for portal-enabled partnerships.
+              </p>
+            </div>
+            <Button variant="outline" onClick={refreshCorporatePartnerOptions} disabled={isFetching}>
+              {isFetching ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Refresh
+            </Button>
+          </div>
+
+          {error && (
+            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              Unable to load Corporate Partner options.
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[0.45fr_0.55fr]">
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="corporate-partner-select">Partner record</Label>
+                <select
+                  id="corporate-partner-select"
+                  value={selectedPartner?.partnerId ?? ''}
+                  onChange={(event) => setSelectedPartnerId(event.target.value)}
+                  className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  disabled={isLoading || corporateOptions.partners.length === 0}
+                >
+                  {corporateOptions.partners.map((partner) => (
+                    <option key={partner.partnerId} value={partner.partnerId}>
+                      {partner.partnerName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="corporate-partner-email">Member email</Label>
+                <Input
+                  id="corporate-partner-email"
+                  type="email"
+                  value={grantEmail}
+                  onChange={(event) => setGrantEmail(event.target.value)}
+                  placeholder="partner@example.com"
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label htmlFor="corporate-partner-reason">Grant reason</Label>
+                <Input
+                  id="corporate-partner-reason"
+                  value={grantReason}
+                  onChange={(event) => setGrantReason(event.target.value)}
+                  placeholder="Required reason"
+                  className="mt-2"
+                />
+              </div>
+              <Button
+                onClick={grantCorporatePartner}
+                disabled={isGrantingCorporatePartner || !selectedPartner}
+              >
+                {isGrantingCorporatePartner ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                )}
+                Grant Corporate Partner
+              </Button>
+            </div>
+
+            <div className="rounded-md border border-border bg-muted/20 p-3">
+              <h3 className="text-sm font-semibold text-foreground">Save preview</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                This will give access to {portalEnabledPartnerships.length} active
+                portal-enabled partnership{portalEnabledPartnerships.length === 1 ? '' : 's'} and{' '}
+                {derivedMachineIds.size} derived machine{derivedMachineIds.size === 1 ? '' : 's'}.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  'Training',
+                  'Support',
+                  'Member supply pricing',
+                  'Partner reporting',
+                  'Machine reporting',
+                  'Technician management',
+                ].map((capability) => (
+                  <Badge key={capability} variant="outline">
+                    {capability}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {selectedPartner && (
+        <div className="grid gap-6 xl:grid-cols-[0.52fr_0.48fr]">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <h3 className="font-semibold text-foreground">Portal-enabled partnerships</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Corporate Partner reporting uses active partnership parties with portal access enabled.
+            </p>
+            <div className="mt-3">
+              <Label htmlFor="portal-access-reason">Reason for portal-access changes</Label>
+              <Input
+                id="portal-access-reason"
+                value={portalReason}
+                onChange={(event) => setPortalReason(event.target.value)}
+                placeholder="Required before toggling access"
+                className="mt-2"
+              />
+            </div>
+            <div className="mt-4 divide-y divide-border rounded-md border border-border">
+              {selectedPartner.portalPartnerships.length === 0 ? (
+                <p className="p-3 text-sm text-muted-foreground">
+                  No active partnerships are linked to this partner record.
+                </p>
+              ) : (
+                selectedPartner.portalPartnerships.map((partnership) => (
+                  <label
+                    key={partnership.partyId}
+                    className="flex cursor-pointer items-start gap-3 p-3"
+                  >
+                    <Checkbox
+                      checked={partnership.portalAccessEnabled}
+                      disabled={updatingPartyId === partnership.partyId}
+                      onCheckedChange={(checked) =>
+                        void updatePortalAccess(partnership.partyId, checked === true)
+                      }
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium text-foreground">
+                        {partnership.partnershipName}
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {partnership.machineCount} active machine
+                        {partnership.machineCount === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-card p-4">
+            <h3 className="font-semibold text-foreground">Current Corporate Partner members</h3>
+            <div className="mt-4 space-y-3">
+              {selectedPartner.memberships.length === 0 ? (
+                <p className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  No Corporate Partner members have been granted for this partner yet.
+                </p>
+              ) : (
+                selectedPartner.memberships.map((membership) => (
+                  <div key={membership.id} className="rounded-md border border-border p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          {membership.memberEmail}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {membership.isActive ? 'Active' : membership.status} /{' '}
+                          {membership.grantReason}
+                        </p>
+                      </div>
+                      <Badge variant={membership.isActive ? 'default' : 'outline'}>
+                        {membership.status}
+                      </Badge>
+                    </div>
+                    {membership.isActive && (
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <Input
+                          value={revokeReasons[membership.id] ?? ''}
+                          onChange={(event) =>
+                            setRevokeReasons((current) => ({
+                              ...current,
+                              [membership.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="Required revoke reason"
+                        />
+                        <Button
+                          variant="outline"
+                          disabled={revokingMembershipId === membership.id}
+                          onClick={() => void revokeCorporatePartner(membership.id)}
+                        >
+                          {revokingMembershipId === membership.id ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : null}
+                          Revoke
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccessBadgeGroup({ title, values }: { title: string; values: string[] }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {values.length === 0 ? (
+          <Badge variant="outline">None</Badge>
+        ) : (
+          values.map((value) => (
+            <Badge key={value} variant="outline">
+              {value}
+            </Badge>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -354,7 +820,11 @@ function UsersTab() {
         expiresAt: expiry.toISOString(),
         reason: grantReason.trim(),
       });
-      toast.success(selectedAccount.plus_grant_id ? 'Free Plus access updated.' : 'Free Plus access granted.');
+      toast.success(
+        selectedAccount.plus_grant_id
+          ? 'Plus Customer access updated.'
+          : 'Plus Customer access granted.'
+      );
       setGrantReason('');
       await refreshAccounts();
     } catch (grantError) {
@@ -377,7 +847,7 @@ function UsersTab() {
         grantId: selectedAccount.plus_grant_id,
         reason: revokeReason.trim(),
       });
-      toast.success('Free Plus access revoked.');
+      toast.success('Plus Customer access revoked.');
       setRevokeReason('');
       await refreshAccounts();
     } catch (revokeError) {
@@ -493,7 +963,7 @@ function UsersTab() {
               </div>
 
               <div className="rounded-md border border-border p-3">
-                <h3 className="text-sm font-semibold text-foreground">Free Plus Access</h3>
+                <h3 className="text-sm font-semibold text-foreground">Plus Customer Access</h3>
                 {paidSubscriptionBlocksGrant && (
                   <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                     This user has an active paid Stripe subscription.
@@ -533,7 +1003,9 @@ function UsersTab() {
                   ))}
                   <Button onClick={savePlusGrant} disabled={isSavingGrant || paidSubscriptionBlocksGrant}>
                     {isSavingGrant ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {selectedAccount.plus_grant_id ? 'Extend Free Plus' : 'Grant Free Plus'}
+                    {selectedAccount.plus_grant_id
+                      ? 'Extend Plus Customer'
+                      : 'Grant Plus Customer'}
                   </Button>
                 </div>
 

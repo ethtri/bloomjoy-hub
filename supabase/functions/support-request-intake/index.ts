@@ -94,6 +94,26 @@ serve(async (req) => {
       });
     }
 
+    const { data: canRequestSupport, error: supportAccessError } = await supabase.rpc(
+      "can_request_support_for_user",
+      { p_user_id: user.id }
+    );
+
+    if (supportAccessError) {
+      console.error("Failed to resolve support entitlement", supportAccessError);
+      return new Response(JSON.stringify({ error: "Unable to verify support access." }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!canRequestSupport) {
+      return new Response(JSON.stringify({ error: "Support access required." }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body = await req.json();
 
     const requestType = sanitizeText(body?.requestType).toLowerCase();

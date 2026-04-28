@@ -40,7 +40,7 @@
 - The reporting foundation includes account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
 - The portal now has `/portal/reports` for entitled users, with date/grain/machine/payment filters and on-demand PDF export.
 - Admin access and reporting operations are split into clearer surfaces:
-  - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
+  - `/admin/access` is the single admin place for users, Plus Customer access, Corporate Partner access, global roles, audit history, and explicit machine-level reporting access.
   - `/admin/partner-records` is the reusable organization/contact directory for partnership participants.
   - `/admin/machines` is the machine setup area for aliases, read-only external machine IDs, assignment readiness, and current machine tax rates. Location stays as backend reporting structure but is hidden from current admin/reporting UI.
   - `/admin/partnerships` is the guided agreement setup flow for partnership details, role-only participants, bulk machine alignment, payout rules, and weekly preview.
@@ -49,6 +49,7 @@
 - Scoped Admin production entitlement work is tracked in issue `#259`: migration `202604270004_scoped_admin_entitlements.sql` adds explicit machine-scoped internal admin grants, lets super-admins manage those grants from `/admin/access`, limits scoped admins to the reporting-access surface, and bootstraps `adam@bloomjoysweets.com` to active reporting-machine scopes when that auth user exists. `report_manager` remains reporting-only and is not a scoped-admin substitute.
 - Scoped Admin reporting visibility repair adds a forward-only migration so scoped-admin machine scopes count for `/portal/reports` visibility and retries the Adam bootstrap after his auth user exists.
 - Scoped Admin training/partner-dashboard repair keeps scoped admins distinct from Plus members while granting training access and partner dashboard visibility only for partnerships fully covered by their scoped machine set.
+- Corporate Partner access is now a P0 preset direction: `corporate_partner_memberships` links partner members to `reporting_partners`, portal reporting is gated by `reporting_partnership_parties.portal_access_enabled`, `/admin/access?tab=presets` previews effective access and grants Corporate Partner membership, and support/supply checks resolve server-side capabilities. Follow-up P1 access review/renewal reminders are tracked separately.
 - Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
 - Tax rates are configured directly on machines, not on partnerships. The Machines admin page edits current rates inline while the backend keeps effective-dated history for reporting/audit.
 - Reporting tax setup is intentionally simple in the UI: missing initial rates save with a hidden `2026-01-01` effective start, rare tax changes use a compact rate-change action, and tax history is read-only for audit context.

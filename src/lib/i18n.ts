@@ -54,7 +54,7 @@ export const translations = {
     'admin.support': 'Support',
     'admin.supportDescription': 'Support triage, concierge intake, and request routing.',
     'admin.access': 'Access',
-    'admin.accessDescription': 'Users, Plus grants, global roles, reporting access, and audit history.',
+    'admin.accessDescription': 'Users, Plus Customer access, Corporate Partner access, global roles, reporting access, and audit history.',
     'admin.partnerRecords': 'Partner records',
     'admin.partnerRecordsShort': 'Partner Records',
     'admin.partnerRecordsDescription': 'Reusable external organizations and reporting contacts.',
