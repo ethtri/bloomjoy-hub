@@ -61,6 +61,13 @@ Scope: `/portal/training` task-first library and detail pages in `agent/training
 - No confirmed visible card-thumbnail blocker is open after the `2026-03-22` coverage pass.
 - Future polish, if needed, should focus on tighter crops or selectively replacing a low-signal screenshot with a stronger operational visual, not reintroducing placeholder cards.
 
+## Issue #125 hierarchy QA follow-up (2026-04-28)
+- Final polish pass in `agent/training-hub-polish` re-tested `/portal/training` at desktop and mobile widths after the content expansion.
+- Screenshot evidence lives in `Docs/screenshots/issue-125-training-hub-polish/desktop.png` and `Docs/screenshots/issue-125-training-hub-polish/mobile.png`.
+- Verified the hub hierarchy keeps one dominant next action, makes Start Here a compact sequence, moves task paths and job aids ahead of the searchable library entry, and keeps certificate actions secondary below the main library.
+- Verified job-aid flow moments remain discoverable for shutdown, timer setup, daily cleaning, and consumables loading.
+- Browser smoke used a dev-only session with Supabase-shaped mocked responses and UUID row ids to confirm `Data source: Supabase catalog`, the Safe Power Off route-map link, library-search focus, task-path filtering, mobile overflow, and secondary certificate placement. A true live Supabase smoke still requires local `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and a valid Plus/admin test session.
+
 ## Source-manual figure map used in this pass
 - `Software setup.pdf`
   - Admin access / Android menu reveal
