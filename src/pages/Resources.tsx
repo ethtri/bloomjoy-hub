@@ -61,11 +61,17 @@ export default function ResourcesPage() {
       return;
     }
 
-    const frameId = window.requestAnimationFrame(() => {
+    const scrollToTarget = () => {
       document.getElementById(targetId)?.scrollIntoView({ block: 'start' });
-    });
+    };
 
-    return () => window.cancelAnimationFrame(frameId);
+    const frameId = window.requestAnimationFrame(scrollToTarget);
+    const timeoutIds = [100, 300].map((delay) => window.setTimeout(scrollToTarget, delay));
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
   }, [location.hash]);
 
   return (
