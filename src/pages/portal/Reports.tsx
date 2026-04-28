@@ -427,9 +427,10 @@ const groupRows = <TKey extends string>(
 };
 
 export default function ReportsPage() {
-  const { isSuperAdmin } = useAuth();
+  const { isScopedAdmin, isSuperAdmin } = useAuth();
   const { t } = useLanguage();
   const [activeView, setActiveView] = useState<ReportingView>('operator');
+  const canUsePartnerDashboard = isSuperAdmin || isScopedAdmin;
 
   const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
     useQuery({
@@ -439,10 +440,10 @@ export default function ReportsPage() {
   });
 
   useEffect(() => {
-    if (!isSuperAdmin && activeView === 'partner') {
+    if (!canUsePartnerDashboard && activeView === 'partner') {
       setActiveView('operator');
     }
-  }, [activeView, isSuperAdmin]);
+  }, [activeView, canUsePartnerDashboard]);
 
   return (
     <PortalLayout>
@@ -480,7 +481,7 @@ export default function ReportsPage() {
               },
             ]}
             actions={
-              isSuperAdmin ? (
+              canUsePartnerDashboard ? (
                 <ToggleGroup
                   aria-label={t('reports.viewToggleLabel')}
                   type="single"
@@ -502,7 +503,7 @@ export default function ReportsPage() {
           />
 
           <div className="mt-6">
-            {activeView === 'partner' && isSuperAdmin ? (
+            {activeView === 'partner' && canUsePartnerDashboard ? (
               <PartnerDashboardView />
             ) : (
               <OperatorReportingView accessContext={accessContext} />
@@ -937,6 +938,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
 }
 
 function PartnerDashboardView() {
+  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
@@ -1207,7 +1209,8 @@ function PartnerDashboardView() {
         <AlertTriangle className="h-4 w-4" />
         <AlertTitle>Unable to load partner dashboard setup</AlertTitle>
         <AlertDescription>
-          The partner dashboard uses admin-only reporting setup data. Refresh or check the setup RPC.
+          The partner dashboard uses scoped reporting setup data. Refresh or confirm this role has
+          the full machine scope for the selected partnership.
         </AlertDescription>
       </Alert>
     );
@@ -1223,11 +1226,13 @@ function PartnerDashboardView() {
             dashboard can preview settlement math.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Button asChild>
-            <Link to="/admin/partnerships">Open partnership setup</Link>
-          </Button>
-        </CardContent>
+        {isSuperAdmin && (
+          <CardContent>
+            <Button asChild>
+              <Link to="/admin/partnerships">Open partnership setup</Link>
+            </Button>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -1440,7 +1445,7 @@ function PartnerDashboardView() {
                       {nonBlockingWarnings.length - (blockingWarnings.length > 0 ? 2 : 4)} more notes hidden.
                     </div>
                   )}
-                  {blockingWarnings.length > 0 && (
+                  {blockingWarnings.length > 0 && isSuperAdmin && (
                     <Button asChild variant="outline" size="sm" className="w-fit">
                       <Link to="/admin/partnerships">Open admin setup</Link>
                     </Button>
