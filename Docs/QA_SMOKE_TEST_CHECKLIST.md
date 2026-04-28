@@ -181,6 +181,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] User with one reporting machine entitlement can open `/portal/reports` and sees only that machine in filters/results
 - [ ] `/portal/reports` supports date range, daily/weekly/monthly grain, machine, and cash/credit payment filters without exposing location controls or columns
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
+- [ ] On mobile widths (`360x800`, `390x844`, `414x896`), `/portal/reports` period controls, machine/payment filters, KPI cards, charts, machine comparison, report rows, and PDF export action stack without horizontal page scrolling or truncated labels
 - [ ] Portal Reports > Partner Dashboard shows gross sales, refund impact, net sales, split base, and amount owed as separate values when applied refund adjustments exist
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
@@ -309,6 +310,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Portal Reports > Partner Dashboard can switch to Monthly, choose a completed calendar month, and show the selected month in the controls, KPI summary, machine rollups, calculation detail, warning/status notes, and PDF/CSV export metadata
 - [ ] Portal Reports > Partner Dashboard does not offer the current incomplete week/month as a finalized period; empty or blocked completed periods show clear notes and keep blocked exports disabled
 - [ ] Portal Reports > Partner Dashboard machine rollups use partner-facing labels (`Tax + deductions`, `Payout basis` when needed), hide zero-dollar additional costs, and do not show a duplicate payout-basis column when it equals net sales
+- [ ] On mobile widths (`360x800`, `390x844`, `414x896`), Portal Reports > Partner Dashboard keeps partnership/period controls, amount owed, warning notes, chart values, machine rollups, calculation detail, and PDF/CSV actions readable without exposing the view to non-super-admin users
 - [ ] Corporate partner P0: super-admin can create a corporate partner, create a partnership/agreement, assign machines, configure machine tax assumptions, and configure typed revenue-share terms without developer support
 - [ ] Corporate partner P0: super-admin can preview a completed weekly report before generating a PDF and sees any missing tax, missing assignment, missing financial-rule, or stale-data warnings
 - [ ] Corporate partner P0: generated partner PDF includes the Bloomjoy logo, a senior-manager dashboard page, reporting period, trend over time, gross sales, refund impact, tax impact, net sales, payout basis, unit/fee/cost assumptions, split calculation, amount owed, timestamp, and a partner-friendly report reference

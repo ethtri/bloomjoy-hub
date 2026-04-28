@@ -698,7 +698,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               </LabeledControl>
               <LabeledControl label="View">
                 <Select value={grain} onValueChange={(value) => setGrain(value as ReportGrain)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="min-w-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -716,7 +716,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
             <LabeledControl label="Machine">
               <Select value={machineId} onValueChange={setMachineId}>
-                <SelectTrigger>
+                <SelectTrigger className="min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -803,7 +803,10 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
             ) : chartRows.length === 0 ? (
               <EmptyPanel title="No sales found" description="Widen the period or clear filters to check for activity." />
             ) : (
-              <ChartContainer config={operatorChartConfig} className="h-[320px] w-full">
+              <ChartContainer
+                config={operatorChartConfig}
+                className="!aspect-auto h-[260px] w-full max-w-full sm:h-[320px]"
+              >
                 <BarChart data={chartRows}>
                   <CartesianGrid vertical={false} />
                   <XAxis dataKey="period" tickLine={false} axisLine={false} />
@@ -848,7 +851,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
         </Card>
       </div>
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle className="text-xl">Report rows</CardTitle>
           <CardDescription>
@@ -856,38 +859,46 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Period</TableHead>
-                <TableHead>Machine</TableHead>
-                <TableHead>Payment</TableHead>
-                <TableHead className="text-right">Net</TableHead>
-                <TableHead className="text-right">Gross</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {reportRows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                    No rows found for the selected filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                reportRows.map((row) => (
-                  <TableRow key={`${row.periodStart}-${row.machineId}-${row.paymentMethod}`}>
-                    <TableCell>{formatDate(row.periodStart)}</TableCell>
-                    <TableCell className="font-medium">{row.machineLabel}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {paymentMethodLabels[row.paymentMethod]}
-                    </TableCell>
-                    <TableCell className="text-right">{formatCurrency(row.netSalesCents)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(row.grossSalesCents)}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+          {reportRows.length === 0 ? (
+            <EmptyPanel title="No rows found" description="Adjust the period, machine, or payment filters to check for matching rows." />
+          ) : (
+            <>
+              <div className="flex flex-col gap-3 md:hidden">
+                {reportRows.map((row) => (
+                  <OperatorReportRowMobileCard
+                    key={`${row.periodStart}-${row.machineId}-${row.paymentMethod}`}
+                    row={row}
+                  />
+                ))}
+              </div>
+              <div className="hidden overflow-x-auto md:block">
+                <Table className="min-w-[600px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Period</TableHead>
+                      <TableHead>Machine</TableHead>
+                      <TableHead>Payment</TableHead>
+                      <TableHead className="text-right">Net</TableHead>
+                      <TableHead className="text-right">Gross</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {reportRows.map((row) => (
+                      <TableRow key={`${row.periodStart}-${row.machineId}-${row.paymentMethod}`}>
+                        <TableCell>{formatDate(row.periodStart)}</TableCell>
+                        <TableCell className="font-medium">{row.machineLabel}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {paymentMethodLabels[row.paymentMethod]}
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(row.netSalesCents)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(row.grossSalesCents)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -1243,10 +1254,10 @@ function PartnerDashboardView() {
                 </Select>
               </LabeledControl>
 
-              <div className="flex items-end">
+              <div className="flex min-w-0 items-end">
                 <div
                   aria-live="polite"
-                  className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+                  className="w-full min-w-0 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
                 >
                   <span className="font-medium text-foreground">{selectedPeriodSummaryLabel}</span>
                   <span className="block">{selectedPeriodSummaryRange}</span>
@@ -1284,7 +1295,7 @@ function PartnerDashboardView() {
                 ) : (
                   <Download className="mr-2 h-4 w-4" />
                 )}
-                PDF
+                Export PDF
               </Button>
               <Button
                 variant="outline"
@@ -1304,7 +1315,7 @@ function PartnerDashboardView() {
                 ) : (
                   <Download className="mr-2 h-4 w-4" />
                 )}
-                CSV
+                Export CSV
               </Button>
             </div>
           </CardContent>
@@ -1651,7 +1662,10 @@ function PartnerTrendCard({
           <EmptyPanel title="No trend data" description="This period has no imported partner sales yet." />
         ) : (
           <>
-            <ChartContainer config={config} className="h-[320px] w-full">
+            <ChartContainer
+              config={config}
+              className="!aspect-auto h-[260px] w-full max-w-full sm:h-[320px]"
+            >
               <BarChart data={data} margin={{ left: 8, right: 8 }}>
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="period" tickLine={false} axisLine={false} />
@@ -2006,11 +2020,11 @@ function PartnerMachineMobileCard({
 
   return (
     <div className="rounded-lg border border-border bg-background p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
         <div className="min-w-0">
           <div className="font-medium text-foreground">{row.current.machineLabel}</div>
         </div>
-        <div className="shrink-0 text-right">
+        <div className="shrink-0 text-left min-[390px]:text-right">
           <div className="font-semibold text-foreground">
             {formatCurrency(row.current.grossSalesCents)}
           </div>
@@ -2026,7 +2040,7 @@ function PartnerMachineMobileCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+      <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
           label="Volume"
           value={`${numberFormatter.format(periodVolume(row.current))} items`}
@@ -2066,8 +2080,8 @@ function MobileProofItem({
       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      <div className="mt-1 font-medium text-foreground">{value}</div>
-      <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
+      <div className="mt-1 break-words font-medium text-foreground">{value}</div>
+      <div className="mt-1 break-words text-xs text-muted-foreground">{detail}</div>
     </div>
   );
 }
@@ -2177,13 +2191,13 @@ function MetricCard({
   context: string;
 }) {
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardContent className="p-5">
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </div>
-        <div className="mt-2 text-2xl font-semibold text-foreground">{value}</div>
-        <div className="mt-2 text-sm text-muted-foreground">{context}</div>
+        <div className="mt-2 break-words text-2xl font-semibold text-foreground">{value}</div>
+        <div className="mt-2 break-words text-sm text-muted-foreground">{context}</div>
       </CardContent>
     </Card>
   );
@@ -2268,15 +2282,45 @@ function MachineSummaryRow({
 }) {
   return (
     <div className="rounded-lg border border-border bg-background p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <div className="truncate font-medium text-foreground">{label}</div>
+          <div className="break-words font-medium text-foreground">{label}</div>
           <div className="mt-1 text-sm text-muted-foreground">{context}</div>
         </div>
-        <div className="shrink-0 text-right">
+        <div className="shrink-0 text-left sm:text-right">
           <div className="font-semibold text-foreground">{primary}</div>
           <div className="mt-1 text-sm text-muted-foreground">{secondary}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function OperatorReportRowMobileCard({ row }: { row: SalesReportRow }) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-4">
+      <div className="flex flex-col gap-3 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">{formatDate(row.periodStart)}</div>
+          <div className="mt-1 break-words text-sm text-muted-foreground">
+            {row.machineLabel}
+          </div>
+        </div>
+        <Badge variant="secondary" className="w-fit shrink-0">
+          {paymentMethodLabels[row.paymentMethod]}
+        </Badge>
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[390px]:grid-cols-2">
+        <MobileProofItem
+          label="Net sales"
+          value={formatCurrency(row.netSalesCents)}
+          detail={`${numberFormatter.format(row.transactionCount)} transactions`}
+        />
+        <MobileProofItem
+          label="Gross sales"
+          value={formatCurrency(row.grossSalesCents)}
+          detail={`Refund impact ${formatCurrency(row.refundAmountCents, true)}`}
+        />
       </div>
     </div>
   );
@@ -2308,11 +2352,11 @@ function AnswerItem({
           <Badge variant={badgeTone}>{value}</Badge>
         </div>
       ) : (
-        <div className={cn('text-2xl font-semibold text-foreground', emphasis && 'text-sage')}>
+        <div className={cn('break-words text-2xl font-semibold text-foreground', emphasis && 'text-sage')}>
           {value}
         </div>
       )}
-      <div className="text-sm text-muted-foreground">{detail}</div>
+      <div className="break-words text-sm text-muted-foreground">{detail}</div>
     </div>
   );
 }
@@ -2328,10 +2372,10 @@ function CalculationLine({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 text-sm">
-      <div className={cn('text-muted-foreground', emphasis && 'font-medium text-foreground')}>
+      <div className={cn('min-w-0 text-muted-foreground', emphasis && 'font-medium text-foreground')}>
         {label}
       </div>
-      <div className={cn('font-medium text-foreground', emphasis && 'text-lg text-sage')}>
+      <div className={cn('shrink-0 text-right font-medium text-foreground', emphasis && 'text-lg text-sage')}>
         {value}
       </div>
     </div>
