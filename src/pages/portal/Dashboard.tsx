@@ -111,6 +111,7 @@ export default function PortalDashboard() {
     user,
     isMember,
     canAccessTraining,
+    capabilities,
     hasReportingAccess,
     reportingMachineCount,
     reportingLocationCount,
@@ -436,17 +437,31 @@ export default function PortalDashboard() {
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {dashboardActions
-                .filter((action) => action.access !== 'reporting' || hasReportingAccess)
+                .filter((action) =>
+                  action.access !== 'reporting' ||
+                  canAccessPortalLevel(
+                    portalAccessTier,
+                    action.access,
+                    hasReportingAccess,
+                    capabilities
+                  )
+                )
                 .filter((action) =>
                   portalAccessTier === 'training'
-                    ? canAccessPortalLevel(portalAccessTier, action.access, hasReportingAccess)
+                    ? canAccessPortalLevel(
+                        portalAccessTier,
+                        action.access,
+                        hasReportingAccess,
+                        capabilities
+                      )
                     : true
                 )
                 .map((action) => {
                 const locked = !canAccessPortalLevel(
                   portalAccessTier,
                   action.access,
-                  hasReportingAccess
+                  hasReportingAccess,
+                  capabilities
                 );
                 const ActionIcon = action.icon;
 

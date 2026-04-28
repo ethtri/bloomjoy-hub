@@ -730,14 +730,14 @@ function TechnicianGrantRow({
               <Button
                 type="button"
                 onClick={onSaveEdit}
-                disabled={isSaving || !hasChanges}
+                disabled={isSaving}
               >
                 {isSaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                 )}
-                Save Access
+                {hasChanges ? 'Save Access' : 'Renew Access'}
               </Button>
             </div>
           </div>

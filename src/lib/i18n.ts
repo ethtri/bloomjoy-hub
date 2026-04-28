@@ -79,6 +79,7 @@ export const translations = {
     'portal.access.customer': 'Customer',
     'portal.access.training': 'Training',
     'portal.access.plus': 'Plus',
+    'portal.access.support': 'Support',
     'portal.access.reporting': 'Reporting',
     'portal.access.open': 'Open',
 
@@ -641,6 +642,7 @@ export const translations = {
     'portal.access.customer': '客户',
     'portal.access.training': '培训',
     'portal.access.plus': 'Plus',
+    'portal.access.support': '支持',
     'portal.access.reporting': '报表',
     'portal.access.open': '开放',
 

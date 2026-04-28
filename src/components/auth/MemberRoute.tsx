@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 
 export function MemberRoute() {
-  const { hasReportingAccess, loading, portalAccessTier } = useAuth();
+  const { capabilities, hasReportingAccess, loading, portalAccessTier } = useAuth();
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
   const accessLabel = getAccessLevelLabel(lockedDestination.access);
@@ -25,7 +25,14 @@ export function MemberRoute() {
     );
   }
 
-  if (canAccessPortalLevel(portalAccessTier, lockedDestination.access, hasReportingAccess)) {
+  if (
+    canAccessPortalLevel(
+      portalAccessTier,
+      lockedDestination.access,
+      hasReportingAccess,
+      capabilities
+    )
+  ) {
     return <Outlet />;
   }
 

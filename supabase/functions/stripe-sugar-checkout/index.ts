@@ -289,6 +289,7 @@ serve(async (req) => {
     }
 
     const pricingTier = authResult.user?.pricingTier ?? "standard";
+    const orderPricingTier = pricingTier === "member" ? "plus_member" : "standard";
     const unitPriceCents = getUnitPriceCents(pricingTier);
     const sugarPriceId = getStripePriceId(pricingTier);
 
@@ -315,7 +316,7 @@ serve(async (req) => {
       client_reference_id: authResult.user?.id ?? undefined,
       metadata: {
         order_type: "sugar",
-        pricing_tier: pricingTier,
+        pricing_tier: orderPricingTier,
         unit_price_cents: String(unitPriceCents),
         shipping_total_cents: "0",
         sugar_total_kg: String(totalSugarKg),
@@ -324,9 +325,7 @@ serve(async (req) => {
         sugar_orange_kg: String(sugarBreakdown.orange),
         sugar_red_kg: String(sugarBreakdown.red),
         ...(authResult.user?.id ? { user_id: authResult.user.id } : {}),
-        ...(authResult.user?.pricingTier
-          ? { supply_discount_tier: authResult.user.pricingTier }
-          : {}),
+        supply_discount_tier: pricingTier,
       },
     });
 

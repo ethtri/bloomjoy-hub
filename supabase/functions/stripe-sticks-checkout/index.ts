@@ -11,8 +11,7 @@ export const config = {
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 const sticksPriceId = Deno.env.get("STRIPE_STICKS_PRICE_ID");
-const memberSticksPriceId =
-  Deno.env.get("STRIPE_STICKS_MEMBER_PRICE_ID") || sticksPriceId;
+const memberSticksPriceId = Deno.env.get("STRIPE_STICKS_MEMBER_PRICE_ID");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -35,6 +34,10 @@ if (!stripeSecretKey) {
 
 if (!sticksPriceId) {
   console.error("Missing STRIPE_STICKS_PRICE_ID");
+}
+
+if (!memberSticksPriceId) {
+  console.error("Missing STRIPE_STICKS_MEMBER_PRICE_ID");
 }
 
 if (!supabaseUrl) {
@@ -179,6 +182,7 @@ serve(async (req) => {
     const cancelUrl = cancelUrlResult.url;
 
     const pricingTier = authResult.user?.pricingTier ?? "standard";
+    const orderPricingTier = pricingTier === "member" ? "plus_member" : "standard";
     const selectedSticksPriceId = pricingTier === "member"
       ? memberSticksPriceId
       : sticksPriceId;
@@ -270,7 +274,8 @@ serve(async (req) => {
       client_reference_id: authResult.user?.id ?? undefined,
       metadata: {
         order_type: "blank_sticks",
-        pricing_tier: pricingTier,
+        pricing_tier: orderPricingTier,
+        supply_discount_tier: pricingTier,
         sticks_type: "bloomjoy_branded",
         stick_size: stickSize,
         sticks_box_count: String(boxCount),

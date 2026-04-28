@@ -1611,6 +1611,56 @@ as $$
     );
 $$;
 
+create or replace function public.can_manage_corporate_partner_technician_grant(
+  p_user_id uuid,
+  p_technician_grant_id uuid,
+  p_machine_ids uuid[] default null
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with actor_scope as (
+    select
+      public.corporate_partner_ids_for_user(p_user_id) as partner_ids,
+      public.corporate_partner_machine_ids_for_user(p_user_id) as machine_ids
+  ),
+  target_grant as (
+    select grant_row.*
+    from public.technician_grants grant_row
+    cross join actor_scope scope
+    where grant_row.id = p_technician_grant_id
+      and grant_row.revoked_at is null
+      and grant_row.sponsor_type = 'corporate_partner'
+      and grant_row.partner_id = any(scope.partner_ids)
+  )
+  select exists (select 1 from target_grant)
+    and not exists (
+      select 1
+      from target_grant
+      join public.technician_machine_assignments assignment
+        on assignment.technician_grant_id = target_grant.id
+      cross join actor_scope scope
+      where public.technician_assignment_is_active(
+          assignment.starts_at,
+          assignment.expires_at,
+          assignment.revoked_at,
+          assignment.status
+        )
+        and not assignment.machine_id = any(scope.machine_ids)
+    )
+    and not exists (
+      select 1
+      from target_grant
+      cross join actor_scope scope
+      cross join lateral unnest(coalesce(p_machine_ids, '{}'::uuid[])) requested(machine_id)
+      where requested.machine_id is not null
+        and not requested.machine_id = any(scope.machine_ids)
+    );
+$$;
+
 create or replace function public.technician_actor_authority_path(
   p_actor_user_id uuid,
   p_account_id uuid
@@ -1805,6 +1855,53 @@ begin
   where requested.machine_id is not null;
 
   if coalesce(array_length(normalized_machine_ids, 1), 0) > 0 then
+    select count(distinct machine.account_id)::integer
+    into account_count
+    from public.reporting_machines machine
+    where machine.id = any(normalized_machine_ids)
+      and machine.status = 'active';
+
+    if account_count = 1 then
+      select machine.account_id
+      into target_account_id
+      from public.reporting_machines machine
+      where machine.id = any(normalized_machine_ids)
+        and machine.status = 'active'
+      limit 1;
+
+      actor_authority_path := public.technician_actor_authority_path(
+        current_user_id,
+        target_account_id
+      );
+
+      if actor_authority_path = 'corporate_partner' then
+        target_partner_id := public.corporate_partner_partner_id_for_machine(
+          current_user_id,
+          normalized_machine_ids[1]
+        );
+
+        if target_partner_id is null then
+          raise exception 'Corporate Partner machine scope is required';
+        end if;
+
+        if p_partner_id is not null and p_partner_id <> target_partner_id then
+          raise exception 'Corporate Partner machine scope does not match the selected partner';
+        end if;
+
+        select count(*)::integer
+        into invalid_machine_count
+        from unnest(normalized_machine_ids) as requested(machine_id)
+        where public.corporate_partner_partner_id_for_machine(
+          current_user_id,
+          requested.machine_id
+        ) is distinct from target_partner_id;
+
+        if invalid_machine_count > 0 then
+          raise exception 'Select machines from one active portal-enabled Corporate Partner scope';
+        end if;
+      end if;
+    end if;
+
     internal_result := public.grant_technician_access_internal(
       normalized_email,
       normalized_machine_ids,
@@ -1820,21 +1917,26 @@ begin
     where grant_row.id = resolved_grant_id
     limit 1;
 
-    target_partner_id := coalesce(
-      p_partner_id,
-      public.corporate_partner_partner_id_for_machine(current_user_id, normalized_machine_ids[1])
+    actor_authority_path := public.technician_actor_authority_path(
+      current_user_id,
+      after_grant.account_id
     );
+
+    if actor_authority_path = 'corporate_partner' and target_partner_id is null then
+      target_partner_id := public.corporate_partner_partner_id_for_machine(
+        current_user_id,
+        normalized_machine_ids[1]
+      );
+    end if;
 
     update public.technician_grants
     set
-      sponsor_type = case
-        when public.technician_actor_authority_path(current_user_id, account_id) = 'corporate_partner'
-          then 'corporate_partner'
+      sponsor_type = case when actor_authority_path = 'corporate_partner'
+        then 'corporate_partner'
         else 'plus_customer_account'
       end,
-      partner_id = case
-        when public.technician_actor_authority_path(current_user_id, account_id) = 'corporate_partner'
-          then target_partner_id
+      partner_id = case when actor_authority_path = 'corporate_partner'
+        then target_partner_id
         else null
       end,
       expires_at = grant_expiry
@@ -2107,8 +2209,42 @@ set search_path = public, auth
 as $$
 declare
   result jsonb;
+  current_user_id uuid;
+  actor_authority_path text;
+  grant_row public.technician_grants;
   grant_expiry timestamptz := now() + interval '1 year';
 begin
+  current_user_id := auth.uid();
+
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select *
+  into grant_row
+  from public.technician_grants existing_grant
+  where existing_grant.id = p_grant_id
+    and existing_grant.revoked_at is null
+  limit 1;
+
+  if grant_row.id is null then
+    raise exception 'No active Technician grant found';
+  end if;
+
+  actor_authority_path := public.technician_actor_authority_path(
+    current_user_id,
+    grant_row.account_id
+  );
+
+  if actor_authority_path = 'corporate_partner'
+    and not public.can_manage_corporate_partner_technician_grant(
+      current_user_id,
+      p_grant_id,
+      coalesce(p_machine_ids, '{}'::uuid[])
+    ) then
+    raise exception 'Corporate Partner can manage only Technician grants in their partner scope';
+  end if;
+
   result := public.update_technician_machines_internal(
     p_grant_id,
     coalesce(p_machine_ids, '{}'::uuid[]),
@@ -2137,6 +2273,64 @@ $$;
 
 do $$
 begin
+  if to_regprocedure('public.revoke_technician_access(uuid,text)') is not null
+     and to_regprocedure('public.revoke_technician_access_internal(uuid,text)') is null then
+    alter function public.revoke_technician_access(uuid, text)
+      rename to revoke_technician_access_internal;
+  end if;
+end $$;
+
+create or replace function public.revoke_technician_access(
+  p_grant_id uuid,
+  p_reason text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  current_user_id uuid;
+  actor_authority_path text;
+  grant_row public.technician_grants;
+begin
+  current_user_id := auth.uid();
+
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select *
+  into grant_row
+  from public.technician_grants existing_grant
+  where existing_grant.id = p_grant_id
+    and existing_grant.revoked_at is null
+  limit 1;
+
+  if grant_row.id is null then
+    raise exception 'No active Technician grant found';
+  end if;
+
+  actor_authority_path := public.technician_actor_authority_path(
+    current_user_id,
+    grant_row.account_id
+  );
+
+  if actor_authority_path = 'corporate_partner'
+    and not public.can_manage_corporate_partner_technician_grant(
+      current_user_id,
+      p_grant_id,
+      null
+    ) then
+    raise exception 'Corporate Partner can revoke only Technician grants in their partner scope';
+  end if;
+
+  return public.revoke_technician_access_internal(p_grant_id, p_reason);
+end;
+$$;
+
+do $$
+begin
   if to_regprocedure('public.resolve_my_technician_entitlements(text)') is not null
      and to_regprocedure('public.resolve_my_technician_entitlements_internal(text)') is null then
     alter function public.resolve_my_technician_entitlements(text)
@@ -2152,14 +2346,341 @@ language plpgsql
 security definer
 set search_path = public, auth
 as $$
+declare
+  current_user_id uuid;
+  current_user_email text;
+  normalized_email text;
+  normalized_reason text;
+  grant_before public.technician_grants;
+  grant_after public.technician_grants;
+  operator_before public.operator_training_grants;
+  operator_after public.operator_training_grants;
+  active_machine_ids uuid[];
+  grant_changed boolean;
+  operator_changed boolean;
+  entitlement_rows_changed integer;
+  sponsor_is_valid boolean;
+  resolved_grant_count integer := 0;
+  resolved_operator_grant_count integer := 0;
+  upserted_reporting_entitlement_count integer := 0;
+  skipped_grant_count integer := 0;
 begin
+  current_user_id := auth.uid();
+
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  normalized_reason := public.technician_assert_reason(p_reason);
+
+  select auth_user.email
+  into current_user_email
+  from auth.users auth_user
+  where auth_user.id = current_user_id
+  limit 1;
+
+  normalized_email := public.normalize_technician_email(current_user_email);
+
+  if normalized_email = '' then
+    return jsonb_build_object(
+      'technicianEmail', null,
+      'resolvedGrantCount', 0,
+      'resolvedOperatorTrainingGrantCount', 0,
+      'upsertedReportingEntitlementCount', 0,
+      'skippedGrantCount', 0
+    );
+  end if;
+
   perform set_config(
     'app.technician_resolution_scope',
     'include_corporate_partner',
     true
   );
 
-  return public.resolve_my_technician_entitlements_internal(p_reason);
+  for grant_before in
+    select *
+    from public.technician_grants grant_row
+    where public.normalize_technician_email(grant_row.technician_email) = normalized_email
+      and public.technician_grant_is_active(
+        grant_row.starts_at,
+        grant_row.expires_at,
+        grant_row.revoked_at,
+        grant_row.status
+      )
+      and (
+        grant_row.technician_user_id is null
+        or grant_row.technician_user_id = current_user_id
+      )
+    for update
+  loop
+    if grant_before.sponsor_type = 'corporate_partner' then
+      sponsor_is_valid :=
+        grant_before.partner_id is not null
+        and grant_before.partner_id = any(
+          public.corporate_partner_ids_for_user(grant_before.sponsor_user_id)
+        )
+        and grant_before.account_id = any(
+          public.corporate_partner_account_ids_for_user(grant_before.sponsor_user_id)
+        )
+        and not exists (
+          select 1
+          from public.technician_machine_assignments assignment
+          left join public.reporting_machines machine on machine.id = assignment.machine_id
+          where assignment.technician_grant_id = grant_before.id
+            and public.technician_assignment_is_active(
+              assignment.starts_at,
+              assignment.expires_at,
+              assignment.revoked_at,
+              assignment.status
+            )
+            and (
+              machine.id is null
+              or machine.status <> 'active'
+              or machine.account_id <> grant_before.account_id
+              or not assignment.machine_id = any(
+                public.corporate_partner_machine_ids_for_user(grant_before.sponsor_user_id)
+              )
+            )
+        );
+    else
+      sponsor_is_valid :=
+        public.has_plus_access(grant_before.sponsor_user_id)
+        and exists (
+          select 1
+          from public.customer_account_memberships membership
+          where membership.account_id = grant_before.account_id
+            and membership.user_id = grant_before.sponsor_user_id
+            and membership.active
+            and membership.role = 'owner'
+        );
+    end if;
+
+    if not sponsor_is_valid then
+      skipped_grant_count := skipped_grant_count + 1;
+      continue;
+    end if;
+
+    grant_changed :=
+      grant_before.technician_user_id is distinct from current_user_id
+      or grant_before.status = 'pending';
+
+    if grant_changed then
+      update public.technician_grants
+      set
+        technician_user_id = current_user_id,
+        status = 'active'
+      where id = grant_before.id
+      returning * into grant_after;
+
+      resolved_grant_count := resolved_grant_count + 1;
+    else
+      grant_after := grant_before;
+    end if;
+
+    operator_changed := false;
+
+    if grant_after.operator_training_grant_id is not null then
+      select *
+      into operator_before
+      from public.operator_training_grants operator_grant
+      where operator_grant.id = grant_after.operator_training_grant_id
+        and operator_grant.revoked_at is null
+        and operator_grant.sponsor_user_id = grant_after.sponsor_user_id
+        and public.normalize_technician_email(operator_grant.operator_email) = normalized_email
+      limit 1
+      for update;
+
+      if operator_before.id is not null
+        and operator_before.operator_user_id is distinct from current_user_id then
+        update public.operator_training_grants
+        set operator_user_id = current_user_id
+        where id = operator_before.id
+        returning * into operator_after;
+
+        operator_changed := true;
+        resolved_operator_grant_count := resolved_operator_grant_count + 1;
+
+        insert into public.admin_audit_log (
+          actor_user_id,
+          action,
+          entity_type,
+          entity_id,
+          target_user_id,
+          before,
+          after,
+          meta
+        )
+        values (
+          current_user_id,
+          'operator_training.resolved',
+          'operator_training_grant',
+          operator_after.id::text,
+          current_user_id,
+          to_jsonb(operator_before),
+          to_jsonb(operator_after),
+          jsonb_build_object(
+            'automation', true,
+            'reason', normalized_reason,
+            'operator_email', normalized_email,
+            'sponsor_type', grant_after.sponsor_type,
+            'partner_id', grant_after.partner_id,
+            'source_type', 'technician_grant',
+            'source_id', grant_after.id
+          )
+        );
+      end if;
+    end if;
+
+    select coalesce(array_agg(assignment.machine_id order by assignment.machine_id), '{}'::uuid[])
+    into active_machine_ids
+    from public.technician_machine_assignments assignment
+    join public.reporting_machines machine on machine.id = assignment.machine_id
+    where assignment.technician_grant_id = grant_after.id
+      and machine.status = 'active'
+      and machine.account_id = grant_after.account_id
+      and public.technician_assignment_is_active(
+        assignment.starts_at,
+        assignment.expires_at,
+        assignment.revoked_at,
+        assignment.status
+      )
+      and (
+        grant_after.sponsor_type <> 'corporate_partner'
+        or assignment.machine_id = any(
+          public.corporate_partner_machine_ids_for_user(grant_after.sponsor_user_id)
+        )
+      );
+
+    insert into public.reporting_machine_entitlements (
+      user_id,
+      account_id,
+      location_id,
+      machine_id,
+      access_level,
+      starts_at,
+      expires_at,
+      grant_reason,
+      granted_by,
+      revoked_at,
+      revoked_by,
+      revoke_reason,
+      source_type,
+      source_id
+    )
+    select
+      current_user_id,
+      null,
+      null,
+      assignment.machine_id,
+      'viewer',
+      assignment.starts_at,
+      assignment.expires_at,
+      assignment.grant_reason,
+      coalesce(
+        assignment.granted_by_user_id,
+        grant_after.granted_by_user_id,
+        grant_after.sponsor_user_id
+      ),
+      null,
+      null,
+      null,
+      'technician_grant',
+      grant_after.id
+    from public.technician_machine_assignments assignment
+    join public.reporting_machines machine on machine.id = assignment.machine_id
+    where assignment.technician_grant_id = grant_after.id
+      and machine.status = 'active'
+      and machine.account_id = grant_after.account_id
+      and public.technician_assignment_is_active(
+        assignment.starts_at,
+        assignment.expires_at,
+        assignment.revoked_at,
+        assignment.status
+      )
+      and (
+        grant_after.sponsor_type <> 'corporate_partner'
+        or assignment.machine_id = any(
+          public.corporate_partner_machine_ids_for_user(grant_after.sponsor_user_id)
+        )
+      )
+    on conflict (source_type, source_id, machine_id)
+      where source_type = 'technician_grant'
+        and revoked_at is null
+    do update
+    set
+      user_id = excluded.user_id,
+      account_id = null,
+      location_id = null,
+      access_level = 'viewer',
+      starts_at = excluded.starts_at,
+      expires_at = excluded.expires_at,
+      grant_reason = excluded.grant_reason,
+      granted_by = excluded.granted_by,
+      revoked_at = null,
+      revoked_by = null,
+      revoke_reason = null
+    where reporting_machine_entitlements.user_id is distinct from excluded.user_id
+      or reporting_machine_entitlements.account_id is not null
+      or reporting_machine_entitlements.location_id is not null
+      or reporting_machine_entitlements.access_level <> 'viewer'
+      or reporting_machine_entitlements.starts_at is distinct from excluded.starts_at
+      or reporting_machine_entitlements.expires_at is distinct from excluded.expires_at
+      or reporting_machine_entitlements.grant_reason is distinct from excluded.grant_reason
+      or reporting_machine_entitlements.granted_by is distinct from excluded.granted_by
+      or reporting_machine_entitlements.revoked_at is not null
+      or reporting_machine_entitlements.revoked_by is not null
+      or reporting_machine_entitlements.revoke_reason is not null;
+
+    get diagnostics entitlement_rows_changed = row_count;
+    upserted_reporting_entitlement_count :=
+      upserted_reporting_entitlement_count + entitlement_rows_changed;
+
+    if grant_changed or operator_changed or entitlement_rows_changed > 0 then
+      insert into public.admin_audit_log (
+        actor_user_id,
+        action,
+        entity_type,
+        entity_id,
+        target_user_id,
+        before,
+        after,
+        meta
+      )
+      values (
+        current_user_id,
+        'technician_access.resolved',
+        'technician_grant',
+        grant_after.id::text,
+        current_user_id,
+        to_jsonb(grant_before),
+        to_jsonb(grant_after),
+        jsonb_build_object(
+          'automation', true,
+          'reason', normalized_reason,
+          'account_id', grant_after.account_id,
+          'partner_id', grant_after.partner_id,
+          'sponsor_type', grant_after.sponsor_type,
+          'sponsor_user_id', grant_after.sponsor_user_id,
+          'technician_email', normalized_email,
+          'technician_user_id', current_user_id,
+          'operator_training_grant_id', grant_after.operator_training_grant_id,
+          'operator_training_resolved', operator_changed,
+          'reporting_entitlements_upserted', entitlement_rows_changed,
+          'machine_ids', active_machine_ids,
+          'source_type', 'technician_grant',
+          'source_id', grant_after.id
+        )
+      );
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'technicianEmail', normalized_email,
+    'resolvedGrantCount', resolved_grant_count,
+    'resolvedOperatorTrainingGrantCount', resolved_operator_grant_count,
+    'upsertedReportingEntitlementCount', upserted_reporting_entitlement_count,
+    'skippedGrantCount', skipped_grant_count
+  );
 end;
 $$;
 
@@ -2495,9 +3016,19 @@ revoke execute on function public.corporate_partner_account_ids_for_user(uuid)
   from public, anon, authenticated;
 revoke execute on function public.has_user_capability(uuid, text)
   from public, anon, authenticated;
+revoke execute on function public.get_effective_access_context_for_user(uuid, text)
+  from public, anon, authenticated;
 revoke execute on function public.get_plus_access_for_user(uuid)
   from public, anon, authenticated;
+revoke execute on function public.get_user_supply_discount_tier(uuid)
+  from public, anon, authenticated;
+revoke execute on function public.can_request_support_for_user(uuid)
+  from public, anon, authenticated;
+revoke execute on function public.can_access_partner_dashboard(uuid, uuid, date, date)
+  from public, anon, authenticated;
 revoke execute on function public.scoped_admin_machine_ids(uuid)
+  from public, anon, authenticated;
+revoke execute on function public.can_manage_corporate_partner_technician_grant(uuid, uuid, uuid[])
   from public, anon, authenticated;
 revoke execute on function public.admin_preview_partner_period_report_internal(uuid, date, date, text)
   from public, anon, authenticated;
@@ -2505,10 +3036,47 @@ revoke execute on function public.grant_technician_access_internal(text, uuid[],
   from public, anon, authenticated;
 revoke execute on function public.update_technician_machines_internal(uuid, uuid[], text)
   from public, anon, authenticated;
+revoke execute on function public.revoke_technician_access_internal(uuid, text)
+  from public, anon, authenticated;
 revoke execute on function public.resolve_my_technician_entitlements_internal(text)
+  from public, anon, authenticated;
+revoke execute on function public.technician_reuse_or_create_operator_training_grant(uuid, text, uuid, text, uuid)
   from public, anon, authenticated;
 revoke execute on function public.technician_reuse_or_create_operator_training_grant_internal(uuid, text, uuid, text, uuid)
   from public, anon, authenticated;
+
+revoke execute on function public.get_my_portal_access_context()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.get_my_effective_access_context()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.get_my_reporting_access_context()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.get_partner_dashboard_partnerships()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.admin_preview_partner_period_report(uuid, date, date, text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.admin_get_effective_access_context(text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.admin_get_corporate_partner_access_options()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.admin_grant_corporate_partner_membership(text, uuid, text, timestamptz)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.admin_revoke_corporate_partner_membership(uuid, text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.admin_set_partnership_party_portal_access(uuid, boolean, text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.get_my_technician_management_context()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.get_my_technician_grants()
+  from public, anon, authenticated, service_role;
+revoke execute on function public.grant_technician_access(text, uuid[], text, uuid, uuid)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.update_technician_machines(uuid, uuid[], text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.revoke_technician_access(uuid, text)
+  from public, anon, authenticated, service_role;
+revoke execute on function public.resolve_my_technician_entitlements(text)
+  from public, anon, authenticated, service_role;
 
 grant execute on function public.get_my_portal_access_context()
   to authenticated, service_role;
@@ -2536,9 +3104,15 @@ grant execute on function public.admin_revoke_corporate_partner_membership(uuid,
   to authenticated;
 grant execute on function public.admin_set_partnership_party_portal_access(uuid, boolean, text)
   to authenticated;
+grant execute on function public.get_my_technician_management_context()
+  to authenticated, service_role;
+grant execute on function public.get_my_technician_grants()
+  to authenticated, service_role;
 grant execute on function public.grant_technician_access(text, uuid[], text, uuid, uuid)
   to authenticated;
 grant execute on function public.update_technician_machines(uuid, uuid[], text)
+  to authenticated;
+grant execute on function public.revoke_technician_access(uuid, text)
   to authenticated;
 grant execute on function public.resolve_my_technician_entitlements(text)
   to authenticated;

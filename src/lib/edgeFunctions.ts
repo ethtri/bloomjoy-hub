@@ -13,13 +13,18 @@ type InvokeEdgeFunctionOptions = {
   authErrorMessage?: string;
 };
 
-const getAuthenticatedAccessToken = async () => {
+const getAuthenticatedAccessToken = async (throwOnSessionError: boolean) => {
   const {
     data: { session },
     error,
   } = await supabaseClient.auth.getSession();
 
   if (error) {
+    if (!throwOnSessionError) {
+      console.warn('Unable to read optional auth session for Edge Function request.', error);
+      return null;
+    }
+
     throw new Error(error.message);
   }
 
@@ -38,7 +43,7 @@ export const invokeEdgeFunction = async <T extends EdgeFunctionResponse>(
   };
 
   if (options.requireUserAuth || options.includeUserAuth) {
-    const accessToken = await getAuthenticatedAccessToken();
+    const accessToken = await getAuthenticatedAccessToken(Boolean(options.requireUserAuth));
 
     if (!accessToken && options.requireUserAuth) {
       throw new Error(options.authErrorMessage ?? 'Authentication required.');

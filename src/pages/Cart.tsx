@@ -231,9 +231,9 @@ export default function CartPage() {
                 )}
                 {sugarTotalKg > 0 && (
                   <p className="mt-4 text-xs text-muted-foreground">
-                    {hasPlusMembership
-                      ? 'Bloomjoy Plus pricing is applied at $8/KG.'
-                      : 'Standard sugar pricing is applied at $10/KG. Active Bloomjoy Plus members pay $8/KG.'}
+                    {hasMemberSupplyPricing
+                      ? 'Member supply pricing is applied at $8/KG.'
+                      : 'Standard sugar pricing is applied at $10/KG. Plus Customers and Corporate Partners pay $8/KG.'}
                   </p>
                 )}
                 <div className="mt-4 space-y-3 text-sm">

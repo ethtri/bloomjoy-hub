@@ -296,7 +296,9 @@ function PresetsTab() {
 
     setIsLoadingEffectiveAccess(true);
     try {
-      setEffectiveAccess(await fetchAdminEffectiveAccessContext(personEmail));
+      const accessContext = await fetchAdminEffectiveAccessContext(personEmail);
+      setEffectiveAccess(accessContext);
+      setGrantEmail(accessContext.email ?? personEmail.trim());
     } catch (lookupError) {
       toast.error(
         lookupError instanceof Error ? lookupError.message : 'Unable to load effective access.'
@@ -306,8 +308,21 @@ function PresetsTab() {
     }
   };
 
+  const reloadPreviewedEffectiveAccess = async (fallbackEmail?: string) => {
+    const email = effectiveAccess?.email ?? fallbackEmail ?? personEmail.trim();
+    if (!email) return;
+
+    try {
+      setEffectiveAccess(await fetchAdminEffectiveAccessContext(email));
+    } catch {
+      // Keep the grant/revoke result visible even if the preview refresh misses.
+    }
+  };
+
   const grantCorporatePartner = async () => {
-    if (!grantEmail.trim()) {
+    const targetEmail = grantEmail.trim();
+
+    if (!targetEmail) {
       toast.error('Enter the Corporate Partner member email.');
       return;
     }
@@ -323,14 +338,16 @@ function PresetsTab() {
     setIsGrantingCorporatePartner(true);
     try {
       await grantCorporatePartnerMembership({
-        email: grantEmail,
+        email: targetEmail,
         partnerId: selectedPartner.partnerId,
         reason: grantReason,
       });
       toast.success('Corporate Partner access saved.');
-      setGrantEmail('');
+      setPersonEmail(targetEmail);
+      setGrantEmail(targetEmail);
       setGrantReason('');
       await refreshCorporatePartnerOptions();
+      await reloadPreviewedEffectiveAccess(targetEmail);
     } catch (grantError) {
       toast.error(
         grantError instanceof Error ? grantError.message : 'Unable to grant Corporate Partner access.'
@@ -355,6 +372,7 @@ function PresetsTab() {
       });
       toast.success('Partnership portal access updated.');
       await refreshCorporatePartnerOptions();
+      await reloadPreviewedEffectiveAccess();
     } catch (updateError) {
       toast.error(updateError instanceof Error ? updateError.message : 'Unable to update access.');
     } finally {
@@ -375,6 +393,7 @@ function PresetsTab() {
       toast.success('Corporate Partner access revoked.');
       setRevokeReasons((current) => ({ ...current, [membershipId]: '' }));
       await refreshCorporatePartnerOptions();
+      await reloadPreviewedEffectiveAccess();
     } catch (revokeError) {
       toast.error(
         revokeError instanceof Error ? revokeError.message : 'Unable to revoke Corporate Partner access.'

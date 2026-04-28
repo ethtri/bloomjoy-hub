@@ -472,7 +472,7 @@ export default function SuppliesPage() {
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {isAuthLoading
-                          ? 'Checking member pricing…'
+                          ? 'Checking member pricing...'
                           : hasMemberSupplyPricing
                             ? 'Member pricing is active.'
                             : `Standard pricing. Plus Customers and Corporate Partners pay ${formatCurrency(
@@ -731,6 +731,11 @@ export default function SuppliesPage() {
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {formatNumber(STICKS_PIECES_PER_BOX)} pieces per box
+                        {isAuthLoading
+                          ? ' / Checking member pricing...'
+                          : hasMemberSupplyPricing
+                            ? ' / Member pricing applies at checkout.'
+                            : ' / Plus Customers and Corporate Partners receive member pricing when signed in.'}
                       </p>
                     </div>
                   </div>

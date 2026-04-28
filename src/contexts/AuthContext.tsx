@@ -259,10 +259,12 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
         canManageReporting: true,
       }
     : reportingAccess;
+  const isCorporatePartner = Boolean(portalAccessContext?.is_corporate_partner);
   const portalAccessTier = hasFullPlusAccess
     ? 'plus'
-    : normalizePortalAccessTier(portalAccessContext?.access_tier ?? undefined, 'baseline');
-  const isCorporatePartner = Boolean(portalAccessContext?.is_corporate_partner);
+    : isCorporatePartner
+      ? 'corporate_partner'
+      : normalizePortalAccessTier(portalAccessContext?.access_tier ?? undefined, 'baseline');
   const hasSupplyDiscount = Boolean(
     portalAccessContext?.has_supply_discount ?? hasFullPlusAccess
   );
