@@ -26,6 +26,8 @@ jobs:
         run: npm run reporting:validate-provider-parser
       - name: Refund Adjustment Regression Checks
         run: npm run reporting:validate-refund-adjustments
+      - name: Edge URL Allowlist Checks
+        run: npm run edge-url-allowlists:check
       - name: Test
         run: npm test --if-present
       - name: Lint
