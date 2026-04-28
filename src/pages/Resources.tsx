@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { ArrowRight, Download, Lock } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -46,8 +47,32 @@ const resourceGroups = [
 ];
 
 export default function ResourcesPage() {
+  const location = useLocation();
   const currentLocation = typeof window === 'undefined' ? undefined : window.location;
   const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', currentLocation);
+
+  useEffect(() => {
+    if (!location.hash) {
+      return;
+    }
+
+    const targetId = decodeURIComponent(location.hash.slice(1));
+    if (!targetId) {
+      return;
+    }
+
+    const scrollToTarget = () => {
+      document.getElementById(targetId)?.scrollIntoView({ block: 'start' });
+    };
+
+    const frameId = window.requestAnimationFrame(scrollToTarget);
+    const timeoutIds = [100, 300].map((delay) => window.setTimeout(scrollToTarget, delay));
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
+  }, [location.hash]);
 
   return (
     <Layout>
@@ -98,7 +123,18 @@ export default function ResourcesPage() {
               {resourcesFaqs.map((faq, i) => (
                 <AccordionItem key={i} value={`faq-${i}`}>
                   <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
-                  <AccordionContent className="text-muted-foreground">{faq.a}</AccordionContent>
+                  <AccordionContent className="text-muted-foreground">
+                    <p>{faq.a}</p>
+                    {faq.ctaHref && faq.ctaLabel && (
+                      <Link
+                        to={faq.ctaHref}
+                        className="mt-3 inline-flex items-center gap-2 font-semibold text-primary hover:underline"
+                      >
+                        {faq.ctaLabel}
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    )}
+                  </AccordionContent>
                 </AccordionItem>
               ))}
             </Accordion>

@@ -80,6 +80,12 @@ export const machineBuyerFaqs = [
 
 export const resourcesFaqs = [
   {
+    q: "What startup costs should I expect to launch an operation?",
+    a: "Plan for several setup categories rather than one fixed all-in number: the machine purchase, opening consumables like sugar and paper sticks, shipping or freight, optional Bloomjoy Plus membership, venue or site setup needs, payment and operations supplies, and permits, insurance, or other local requirements where applicable. Bloomjoy uses the quote/contact flow to confirm machine fit, delivery assumptions, opening supplies, and support options so you can get a personalized launch estimate before invoicing.",
+    ctaLabel: "Request a personalized quote",
+    ctaHref: "/contact?type=quote&source=%2Fresources%23faq",
+  },
+  {
     q: "What support is included with machine purchase?",
     a: "The manufacturer support team provides 24/7 first-line technical support via WeChat. Bloomjoy provides onboarding guidance and Plus concierge support during US business hours.",
   },
