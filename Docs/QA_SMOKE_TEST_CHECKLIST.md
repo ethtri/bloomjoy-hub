@@ -248,8 +248,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
 - [ ] Non-admin user cannot access `/admin/access`
 - [ ] Super-admin user can access `/admin/access`
-- [ ] `/admin/accounts` redirects to `/admin/access?tab=users`
-- [ ] `/admin/audit` redirects to `/admin/access?tab=audit`
+- [ ] `/admin/accounts` redirects to `/admin/access#people`
+- [ ] `/admin/audit` redirects to `/admin/access#audit`
+- [ ] Admin Access renders as one consolidated access console without redundant permission tabs
 - [ ] Admin Access > People search returns rows by email/user ID and shows membership/order/support summary data
 - [ ] Admin Access > People does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
 - [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
@@ -276,7 +277,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Scoped Admin users see only entitled machines in `/admin/machines`, can edit machine labels/type and reporting tax rates for those machines, and cannot create brand-new manual machines
 - [ ] Scoped Admin users can create/manage partnerships only when every active assigned machine is inside their scoped grant; attempts to assign out-of-scope machines fail server-side
 - [ ] Scoped Admin users can grant, update, and revoke Technician access only for entitled machines from `/admin/access`; global access, reporting-grant, super-admin, scoped-admin, and audit controls remain hidden/blocked
-- [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/orders`, `/admin/support`, `/admin/partner-records`, `/admin/reporting`, or `/admin/access?tab=global-roles`
+- [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/orders`, `/admin/support`, `/admin/partner-records`, `/admin/reporting`, or global role/audit controls in `/admin/access`
 - [ ] Scoped Admin grant, update, revoke, machine, partnership, tax-rate, and Technician changes create `admin_audit_log` entries where applicable
 - [ ] `report_manager` users can open assigned `/portal/reports` views but remain blocked from `/admin`, `/admin/access`, and other admin routes
 - [ ] Adam scoped-admin bootstrap or manual grant creates `scoped_admin` audit entries and does not create or require a `super_admin` grant

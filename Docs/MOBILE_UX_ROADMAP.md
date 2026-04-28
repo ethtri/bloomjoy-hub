@@ -13,7 +13,7 @@ Automated browser audit covered 30 routes across:
 - Portal: `/portal`, `/portal/orders`, `/portal/account`, `/portal/training`, `/portal/support`, `/portal/onboarding`, plus a spot check of `/portal/reports`
 - Admin: `/admin`, `/admin/orders`, `/admin/support`, `/admin/access`, `/admin/partner-records`, `/admin/machines`, `/admin/partnerships`, `/admin/reporting`
 
-Admin audit is currently surfaced through `/admin/access?tab=audit`; `/admin/audit` redirects there. No dedicated `/admin/leads` route exists in this checkout, so lead-related mobile work remains tied to the public contact/procurement flows and server-side submission pipeline rather than a separate admin leads surface.
+Admin audit is currently surfaced in the consolidated `/admin/access` console; `/admin/audit` redirects to `/admin/access#audit`. No dedicated `/admin/leads` route exists in this checkout, so lead-related mobile work remains tied to the public contact/procurement flows and server-side submission pipeline rather than a separate admin leads surface.
 
 Local audit used Vite with client-safe dummy Supabase env values and a mocked local Plus/super-admin session so protected shells could render without production data. Private-route implementation slices still need verification with real Supabase fixtures and role-specific sessions.
 
@@ -66,8 +66,9 @@ Findings:
 
 - Admin top-level shell renders, but the desktop admin tools row relies on horizontal scrolling at tablet/narrow desktop widths. That may be acceptable if intentional, but it needs clearer review in the #227 admin nav pass.
 - `/admin/orders` and `/admin/support` still rely on dense tables on mobile-sized viewports. The overflow is contained, but touch workflow efficiency likely needs route-specific card/drawer/table treatment.
-- `/admin/access` and `/admin/reporting` tab rows measured with small touch heights in tablet/narrow desktop metrics and should be reviewed for touch comfort.
-- Admin audit mobile behavior should be covered through the `/admin/access` audit tab and `/admin/audit` redirect path.
+- `/admin/reporting` tab rows measured with small touch heights in tablet/narrow desktop metrics and should be reviewed for touch comfort.
+- `/admin/access` is now a consolidated access console, so mobile review should focus on section density, person search, and role/action panels rather than tab-row touch targets.
+- Admin audit mobile behavior should be covered through the `/admin/access#audit` section and `/admin/audit` redirect path.
 - `/admin/partnerships` requires real fixture data for a reliable mobile wizard audit; the mocked-data pass was not enough for final conclusions.
 - `/admin/machines` should only receive shared-shell regression checks here because #226 already handled the Machines UX work.
 

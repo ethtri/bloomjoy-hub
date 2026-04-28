@@ -40,7 +40,7 @@
 - The reporting foundation includes account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
 - The portal now has `/portal/reports` for entitled users, with date/grain/machine/payment filters and on-demand PDF export.
 - Admin access and reporting operations are split into clearer surfaces:
-  - `/admin/access` is the single admin place for people, Plus grants, Technician grants, global/scoped roles, audit history, and explicit machine-level reporting access.
+  - `/admin/access` is the single people-first admin console for account access, Plus grants, explicit machine reporting visibility, Technician grants, global/scoped roles, and audit history. These are presented as one console rather than separate permission tabs.
   - `/admin/partner-records` is the reusable organization/contact directory for partnership participants.
   - `/admin/machines` is the machine setup area for aliases, read-only external machine IDs, assignment readiness, and current machine tax rates. Location stays as backend reporting structure but is hidden from current admin/reporting UI.
   - `/admin/partnerships` is the guided agreement setup flow for partnership details, role-only participants, bulk machine alignment, payout rules, and weekly preview.

@@ -38,7 +38,7 @@ Bloomjoy sales reporting will use account/location/machine entitlements that are
 Admin permission work and partnership financial setup are separate concerns.
 
 **Canonical admin surfaces**
-- `/admin/access` is the single admin place for people, Plus grants, Technician grants, super-admin/scoped-admin roles, audit history, and explicit machine-level reporting visibility.
+- `/admin/access` is the single people-first admin console for account access, Plus grants, explicit machine reporting visibility, Technician grants, super-admin/scoped-admin roles, and audit history. Permission work should be grouped by the operator's goal and role scope, not exposed as redundant implementation tabs.
 - `/admin/reporting` is for reporting operations: schedules, import/sync status, stale-data warnings, and export archive visibility.
 - `/admin/partner-records` is for reusable external organizations and contacts that can become participants in one or more partnerships.
 - `/admin/machines` is for machine identity, aliases, partner-report inclusion status, and current machine tax rates.

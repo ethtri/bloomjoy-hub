@@ -210,8 +210,8 @@ Run immediately after deploy:
 - [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
 - [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
 - [ ] `/admin/orders` shows address, pricing tier, receipt URL, order breakdown, and notification status for the test orders.
-- [ ] `/admin/access?tab=users` loads account summaries without a red error state.
-- [ ] `/admin/access?tab=reporting-access` can save machine reporting grants with a required reason.
+- [ ] `/admin/access` loads the consolidated access console and account summaries without a red error state.
+- [ ] `/admin/access#reporting-access` can save machine reporting grants with a required reason.
 - [ ] `/admin/partnerships` loads setup tabs without missing-RPC errors.
 - [ ] Admin/reporting network console does not show `404` or `PGRST202` for `admin_get_account_summaries`, `admin_set_user_machine_reporting_access`, or `admin_get_partnership_reporting_setup`.
 - [ ] `/portal/reports` for an entitled test user shows only the machines granted to that user.

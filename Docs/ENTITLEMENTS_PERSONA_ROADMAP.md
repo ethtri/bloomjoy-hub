@@ -73,7 +73,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 - If a short-term grant is needed before the proper persona is implemented, record the issue link, reason, scope, source, and expected cleanup path.
 
 ## Recommended UX
-- `/admin/access` remains the near-term person-first place for internal entitlement administration; scoped admins see only Technician management and their own scope summary.
+- `/admin/access` remains the near-term person-first place for internal entitlement administration. Super admins see one consolidated console for account access, machine reporting visibility, Technician grants, admin role scope, and audit history; scoped admins see only Technician management and their own scope summary.
 - `/portal/account` remains the current customer place for Technician management.
 - `/portal/reports` remains the operator/reporting surface for assigned machines.
 - Partner Viewer reporting should eventually appear in `/portal/reports` as a permissioned partner-dashboard/report-artifact view.

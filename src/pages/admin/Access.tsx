@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -18,7 +17,6 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -55,14 +53,6 @@ import { fetchPartnershipReportingSetup } from '@/lib/partnershipReporting';
 import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 
-const superAdminTabs = [
-  'users',
-  'technicians',
-  'reporting-access',
-  'scoped-admins',
-  'global-roles',
-  'audit',
-];
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
   { key: 'mini', label: 'Mini' },
@@ -157,15 +147,6 @@ const roleSort = (a: AdminRoleRecord, b: AdminRoleRecord) => {
 
 export default function AdminAccessPage() {
   const { adminAccess, isScopedAdmin, isSuperAdmin } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const availableTabs = superAdminTabs;
-  const activeTab = availableTabs.includes(searchParams.get('tab') ?? '')
-    ? (searchParams.get('tab') as string)
-    : 'users';
-
-  const setActiveTab = (value: string) => {
-    setSearchParams({ tab: value }, { replace: true });
-  };
 
   if (isScopedAdmin && !isSuperAdmin) {
     return <ScopedAdminAccessPage scopedMachineCount={adminAccess.scopedMachineIds.length} />;
@@ -184,9 +165,8 @@ export default function AdminAccessPage() {
                 Access
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                {isSuperAdmin
-                  ? 'Manage people, Plus access, global roles, scoped admins, explicit reporting visibility, and audit history from one place.'
-                  : 'Manage technician access for machines included in your scoped admin grant.'}
+                Manage each person from one console: customer access, reporting visibility,
+                technician delegation, admin role scope, and audit history.
               </p>
               {isScopedAdmin && !isSuperAdmin && (
                 <Badge className="mt-3" variant="secondary">
@@ -196,48 +176,97 @@ export default function AdminAccessPage() {
             </div>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
-            <TabsList className="h-auto flex-wrap justify-start">
-              {isSuperAdmin && <TabsTrigger value="users">People</TabsTrigger>}
-              {isSuperAdmin && <TabsTrigger value="technicians">Technicians</TabsTrigger>}
-              <TabsTrigger value="reporting-access">Reporting Access</TabsTrigger>
-              {isSuperAdmin && <TabsTrigger value="scoped-admins">Scoped Admins</TabsTrigger>}
-              {isSuperAdmin && <TabsTrigger value="global-roles">Global Roles</TabsTrigger>}
-              {isSuperAdmin && <TabsTrigger value="audit">Audit</TabsTrigger>}
-            </TabsList>
-
-            {isSuperAdmin && (
-              <TabsContent value="users" className="mt-6">
-                <UsersTab />
-              </TabsContent>
-            )}
-            {isSuperAdmin && (
-              <TabsContent value="technicians" className="mt-6">
-                <TechnicianManagementPanel />
-              </TabsContent>
-            )}
-            <TabsContent value="reporting-access" className="mt-6">
-              <ReportingAccessTab />
-            </TabsContent>
-            {isSuperAdmin && (
-              <TabsContent value="scoped-admins" className="mt-6">
-                <ScopedAdminsTab />
-              </TabsContent>
-            )}
-            {isSuperAdmin && (
-              <TabsContent value="global-roles" className="mt-6">
-                <GlobalRolesTab />
-              </TabsContent>
-            )}
-            {isSuperAdmin && (
-              <TabsContent value="audit" className="mt-6">
-                <AuditTab />
-              </TabsContent>
-            )}
-          </Tabs>
+          <SuperAdminAccessConsole />
         </div>
       </section>
     </AppLayout>
+  );
+}
+
+function SuperAdminAccessConsole() {
+  return (
+    <div className="mt-6 space-y-10">
+      <AccessConsoleSection
+        id="people"
+        eyebrow="People"
+        title="Account Access"
+        description="Customer account state, Plus grants, and machine inventory context."
+      >
+        <UsersTab />
+      </AccessConsoleSection>
+
+      <AccessConsoleSection
+        id="reporting-access"
+        eyebrow="Machine Visibility"
+        title="Reporting Access"
+        description="Explicit machine-level reporting grants for users who are not admins."
+      >
+        <ReportingAccessTab />
+      </AccessConsoleSection>
+
+      <AccessConsoleSection
+        id="technicians"
+        eyebrow="Delegation"
+        title="Technician Access"
+        description="Training and reporting access for staff assigned to specific machines."
+      >
+        <TechnicianManagementPanel />
+      </AccessConsoleSection>
+
+      <AccessConsoleSection
+        id="scoped-admins"
+        eyebrow="Role Scope"
+        title="Scoped Admins"
+        description="Admin operators with broad admin rights bounded by entitled machines."
+      >
+        <ScopedAdminsTab />
+      </AccessConsoleSection>
+
+      <AccessConsoleSection
+        id="global-roles"
+        eyebrow="Global Roles"
+        title="Super Admins"
+        description="Unrestricted admin role assignment for trusted internal operators."
+      >
+        <GlobalRolesTab />
+      </AccessConsoleSection>
+
+      <AccessConsoleSection
+        id="audit"
+        eyebrow="Governance"
+        title="Audit History"
+        description="Role, access, and entitlement changes made through the console."
+      >
+        <AuditTab />
+      </AccessConsoleSection>
+    </div>
+  );
+}
+
+function AccessConsoleSection({
+  id,
+  eyebrow,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className="scroll-mt-24">
+      <div className="mb-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {eyebrow}
+        </p>
+        <h2 className="mt-1 text-xl font-semibold text-foreground">{title}</h2>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
+      </div>
+      {children}
+    </section>
   );
 }
 

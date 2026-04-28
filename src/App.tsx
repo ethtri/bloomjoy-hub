@@ -159,13 +159,13 @@ export const AppShell = () => (
               <Route path="/admin/machines" element={<AdminMachines />} />
               <Route
                 path="/admin/accounts"
-                element={<Navigate to="/admin/access?tab=users" replace />}
+                element={<Navigate to="/admin/access#people" replace />}
               />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />
               <Route
                 path="/admin/audit"
-                element={<Navigate to="/admin/access?tab=audit" replace />}
+                element={<Navigate to="/admin/access#audit" replace />}
               />
             </Route>
           </Route>
