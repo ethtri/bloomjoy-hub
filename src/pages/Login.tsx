@@ -547,7 +547,7 @@ export default function LoginPage() {
 
                   return (
                     <div
-                      key={highlight.title}
+                      key={highlight.titleKey}
                       className="rounded-[22px] border border-border bg-background/90 p-4 shadow-[var(--shadow-sm)]"
                     >
                       <div className="flex items-start gap-3">

@@ -56,12 +56,6 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     }
 
-    if (typeof document !== 'undefined') {
-      const htmlLanguage =
-        supportedLanguages.find((supportedLanguage) => supportedLanguage.code === language)
-          ?.htmlLang ?? 'en';
-      document.documentElement.lang = htmlLanguage;
-    }
   }, [language]);
 
   useEffect(() => {

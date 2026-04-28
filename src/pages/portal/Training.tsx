@@ -29,6 +29,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { downloadTrainingCertificateSvg } from '@/lib/trainingCertificate';
 import { trackEvent } from '@/lib/analytics';
+import type { TranslationKey } from '@/lib/i18n';
 import {
   getTrainingDisplayTags,
   getTrainingTrackDefinition,
@@ -112,18 +113,6 @@ const getSurfaceLabel = (item: TrainingExperienceItem) => {
   }
 
   return 'Operator task';
-};
-
-const getActionLabel = (item: TrainingExperienceItem) => {
-  if (item.surface === 'manual') {
-    return 'Open manual';
-  }
-
-  if (item.surface === 'quick-aid') {
-    return 'Open quick aid';
-  }
-
-  return item.primaryVideo ? 'Open task' : 'Open task';
 };
 
 const getSearchableText = (content: TrainingExperienceItem) =>
@@ -334,6 +323,56 @@ export default function TrainingPage() {
   const showInternalCatalogQa =
     import.meta.env.DEV &&
     (source !== 'supabase' || derivedMappingCount > 0 || missingModuleCount > 0);
+  const getLocalizedFormatLabel = (label: string) => {
+    switch (label) {
+      case 'Quick aid':
+        return t('training.formatQuickAid');
+      case 'Reference manual':
+        return t('training.formatReferenceManual');
+      case 'Video':
+        return t('training.formatVideo');
+      case 'Checklist':
+        return t('training.formatChecklist');
+      case 'Reference':
+        return t('training.formatReference');
+      case 'Mixed':
+        return t('training.formatMixed');
+      case 'Guide':
+      default:
+        return t('training.formatGuide');
+    }
+  };
+  const getLocalizedSurfaceLabel = (item: TrainingExperienceItem) => {
+    if (item.surface === 'manual') {
+      return t('training.formatReferenceManual');
+    }
+
+    if (item.surface === 'quick-aid') {
+      return t('training.formatQuickAid');
+    }
+
+    if (item.format === 'mixed') {
+      return t('training.taskGuide');
+    }
+
+    return t('training.operatorTask');
+  };
+  const getLocalizedActionLabel = (item: TrainingExperienceItem) => {
+    if (item.surface === 'manual') {
+      return t('training.openManual');
+    }
+
+    if (item.surface === 'quick-aid') {
+      return t('training.openQuickAid');
+    }
+
+    return t('training.openTask');
+  };
+  const getCountLabel = (count: number, singularKey: TranslationKey, pluralKey: TranslationKey) =>
+    t('training.countLabel', {
+      count,
+      label: t(count === 1 ? singularKey : pluralKey),
+    });
 
   useEffect(() => {
     if (!supportsModuleFilter && selectedModule !== 'All modules') {
@@ -379,7 +418,7 @@ export default function TrainingPage() {
     }
 
     if (!finalAcknowledgement) {
-      toast.error('Confirm the safety acknowledgement before unlocking the certificate.');
+      toast.error(t('training.confirmSafetyAcknowledgement'));
       return;
     }
 
@@ -403,10 +442,10 @@ export default function TrainingPage() {
         trackSlug: operatorTrack.slug,
         finalAcknowledgement: true,
       });
-      toast.success('Certificate unlocked.');
+      toast.success(t('training.certificateUnlocked'));
       trackEvent('training_certificate_unlocked', { track: operatorTrack.slug });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to unlock the certificate.';
+      const message = error instanceof Error ? error.message : t('training.unableUnlockCertificate');
       toast.error(message);
     }
   };
@@ -439,7 +478,7 @@ export default function TrainingPage() {
       Boolean(content.thumbnailUrl) &&
       content.thumbnailUrl !== PLACEHOLDER_THUMBNAIL_URL;
     const isQuickAid = content.surface === 'quick-aid';
-    const surfaceLabel = getSurfaceLabel(content);
+    const surfaceLabel = getLocalizedSurfaceLabel(content);
 
     return (
       <Link
@@ -485,7 +524,7 @@ export default function TrainingPage() {
               <div className="flex flex-wrap items-center gap-2">
                 {options?.showStep ? (
                   <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground">
-                    Step {options.showStep}
+                    {t('training.stepNumber', { step: options.showStep })}
                   </span>
                 ) : (
                   <span className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-foreground">
@@ -500,11 +539,11 @@ export default function TrainingPage() {
               </div>
               {progressRecord?.completedAt ? (
                 <span className="rounded-full bg-sage-light px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sage">
-                  Complete
+                  {t('training.complete')}
                 </span>
               ) : progressRecord?.startedAt ? (
                 <span className="rounded-full bg-primary/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
-                  In progress
+                  {t('training.inProgress')}
                 </span>
               ) : null}
             </div>
@@ -554,7 +593,7 @@ export default function TrainingPage() {
           )}
 
           <div className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-primary">
-            {getActionLabel(content)}
+            {getLocalizedActionLabel(content)}
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
@@ -583,13 +622,13 @@ export default function TrainingPage() {
             {progressRecord?.completedAt && (
               <>
                 <span aria-hidden="true">/</span>
-                <span className="text-sage">Complete</span>
+                <span className="text-sage">{t('training.complete')}</span>
               </>
             )}
             {!progressRecord?.completedAt && progressRecord?.startedAt && (
               <>
                 <span aria-hidden="true">/</span>
-                <span className="text-primary">In progress</span>
+                <span className="text-primary">{t('training.inProgress')}</span>
               </>
             )}
           </div>
@@ -854,11 +893,15 @@ export default function TrainingPage() {
                     {t('training.library')}
                   </p>
                   <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
-                    {selectedTrackDefinition ? `Search ${selectedTrackDefinition.label}` : t('training.searchTaskLibrary')}
+                    {selectedTrackDefinition
+                      ? t('training.searchTrackLibrary', { track: selectedTrackDefinition.label })
+                      : t('training.searchTaskLibrary')}
                   </h2>
                   <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">
                     {selectedTrackDefinition
-                      ? `You are browsing the ${selectedTrackDefinition.label} path. Search within it to find the right task page, then use quick aids and manuals only when you need a specific reference.`
+                      ? t('training.searchTrackDescription', {
+                          track: selectedTrackDefinition.label,
+                        })
                       : t('training.searchTaskDescription')}
                   </p>
                 </div>
@@ -896,7 +939,7 @@ export default function TrainingPage() {
                         {supportsModuleFilter && (
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                              Module
+                              {t('training.module')}
                             </p>
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button
@@ -907,7 +950,7 @@ export default function TrainingPage() {
                                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                                 }`}
                               >
-                                All modules
+                                {t('training.allModules')}
                               </button>
                               {moduleFilters.map((moduleLabel) => (
                                 <button
@@ -928,7 +971,7 @@ export default function TrainingPage() {
 
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                            Format
+                            {t('training.format')}
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button
@@ -939,7 +982,7 @@ export default function TrainingPage() {
                                   : 'bg-muted text-muted-foreground hover:bg-muted/80'
                               }`}
                             >
-                              All formats
+                              {t('training.allFormats')}
                             </button>
                             {formatFilters.map((formatLabel) => (
                               <button
@@ -951,7 +994,7 @@ export default function TrainingPage() {
                                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
                                 }`}
                               >
-                                {formatLabel}
+                                {getLocalizedFormatLabel(formatLabel)}
                               </button>
                             ))}
                           </div>
@@ -959,7 +1002,7 @@ export default function TrainingPage() {
 
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                            Topics
+                            {t('training.topics')}
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             {visibleTopicFilters.map((tag) => (
@@ -981,7 +1024,7 @@ export default function TrainingPage() {
 
                       {activeFilterCount > 0 && (
                         <Button variant="ghost" className="mt-4 px-0 text-primary" onClick={resetFilters}>
-                          Reset filters
+                          {t('training.resetFilters')}
                         </Button>
                       )}
                     </CollapsibleContent>
@@ -992,12 +1035,17 @@ export default function TrainingPage() {
               {!isLoading && (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <span>
-                    Showing <span className="font-semibold text-foreground">{matchingTaskCount}</span>{' '}
-                    {matchingTaskCount === 1 ? 'task' : 'tasks'}
+                    {t('training.showing')}{' '}
+                    <span className="font-semibold text-foreground">{matchingTaskCount}</span>{' '}
+                    {t(matchingTaskCount === 1 ? 'training.taskSingular' : 'training.taskPlural')}
                   </span>
                   {!showCuratedSections && matchingReferenceCount > 0 && (
                     <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-                      {matchingReferenceCount} {matchingReferenceCount === 1 ? 'reference' : 'references'}
+                      {getCountLabel(
+                        matchingReferenceCount,
+                        'training.referenceSingular',
+                        'training.referencePlural'
+                      )}
                     </span>
                   )}
                   {selectedTrackDefinition && (
@@ -1007,7 +1055,7 @@ export default function TrainingPage() {
                   )}
                   {search.trim().length > 0 && (
                     <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-                      Search: {search.trim()}
+                      {t('training.searchPill', { query: search.trim() })}
                     </span>
                   )}
                 </div>
@@ -1047,21 +1095,23 @@ export default function TrainingPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Task Library
+                    {t('training.taskLibrary')}
                   </p>
                   <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
-                    {selectedTrackDefinition ? `Browse ${selectedTrackDefinition.label}` : 'Browse operator tasks'}
+                    {selectedTrackDefinition
+                      ? t('training.browseTrack', { track: selectedTrackDefinition.label })
+                      : t('training.browseOperatorTasks')}
                   </h2>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
                     {selectedTrackDefinition
-                      ? `${selectedTrackDefinition.description} Search stays active above if you want to narrow this path further.`
-                      : 'Everything below stays grouped by operator task so the main library is not split into duplicate video and guide cards.'}
+                      ? t('training.selectedTrackBrowseDescription')
+                      : t('training.groupedLibraryDescription')}
                   </p>
                 </div>
               </div>
 
             {isLoading && (
-              <div className="mt-8 text-sm text-muted-foreground">Loading training content...</div>
+              <div className="mt-8 text-sm text-muted-foreground">{t('training.loadingContent')}</div>
             )}
 
             {!isLoading &&
@@ -1077,7 +1127,11 @@ export default function TrainingPage() {
                       </p>
                     </div>
                     <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      {trackGroup.items.length} {trackGroup.items.length === 1 ? 'item' : 'items'}
+                      {getCountLabel(
+                        trackGroup.items.length,
+                        'training.itemSingular',
+                        'training.itemPlural'
+                      )}
                     </span>
                   </div>
 
@@ -1092,15 +1146,18 @@ export default function TrainingPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="font-display text-2xl font-semibold text-foreground">
-                      Quick aids and manuals
+                      {t('training.quickAidsManuals')}
                     </h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      These are supporting references for the task results above, not separate peer lessons.
+                      {t('training.supportingReferencesDescription')}
                     </p>
                   </div>
                   <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    {filteredReferenceItems.length}{' '}
-                    {filteredReferenceItems.length === 1 ? 'item' : 'items'}
+                    {getCountLabel(
+                      filteredReferenceItems.length,
+                      'training.itemSingular',
+                      'training.itemPlural'
+                    )}
                   </span>
                 </div>
 
@@ -1112,10 +1169,9 @@ export default function TrainingPage() {
 
             {!isLoading && matchingTaskCount + matchingReferenceCount === 0 && (
               <div className="mt-8 rounded-3xl border border-border bg-muted/20 px-6 py-10 text-center">
-                <p className="text-lg font-semibold text-foreground">No training matches this view.</p>
+                <p className="text-lg font-semibold text-foreground">{t('training.noMatchesTitle')}</p>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Try a simpler search, switch task paths, or clear the advanced filters to broaden
-                  the results.
+                  {t('training.noMatchesDescription')}
                 </p>
                 <Button
                   variant="outline"
@@ -1126,7 +1182,7 @@ export default function TrainingPage() {
                     resetFilters();
                   }}
                 >
-                  Reset search and filters
+                  {t('training.resetSearchFilters')}
                 </Button>
               </div>
             )}
@@ -1141,14 +1197,13 @@ export default function TrainingPage() {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                      Optional certificate
+                      {t('training.optionalCertificate')}
                     </p>
                     <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
-                      Operator Essentials completion
+                      {t('training.operatorEssentialsCompletion')}
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Certification stays secondary to learning. Use it only after the required
-                      essentials are complete and the safety acknowledgement has been reviewed.
+                      {t('training.certificateDescription')}
                     </p>
                   </div>
                 </div>
@@ -1157,26 +1212,29 @@ export default function TrainingPage() {
                   <div className="mt-6 rounded-2xl border border-sage/20 bg-background p-5">
                     <p className="font-semibold text-foreground">{issuedCertificate.certificateTitle}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Issued on{' '}
-                      {new Date(issuedCertificate.issuedAt).toLocaleDateString(undefined, {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
+                      {t('training.issuedOn', {
+                        date: new Date(issuedCertificate.issuedAt).toLocaleDateString(undefined, {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        }),
                       })}
-                      .
                     </p>
                     <Button variant="outline" className="mt-4 w-full sm:w-auto" onClick={handleDownloadCertificate}>
-                      Download certificate
+                      {t('training.downloadCertificate')}
                     </Button>
                   </div>
                 ) : (
                   <>
                     <div className="mt-6 rounded-2xl border border-border bg-background p-5">
                       <p className="font-semibold text-foreground">
-                        Progress: {completedRequiredCount}/{requiredTrackItems.length} required complete
+                        {t('training.certificateProgress', {
+                          completed: completedRequiredCount,
+                          total: requiredTrackItems.length,
+                        })}
                       </p>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        Finish the required essentials first, then confirm the acknowledgement to unlock the certificate.
+                        {t('training.certificateProgressDetail')}
                       </p>
                     </div>
                     <label className="mt-5 flex items-start gap-3 rounded-2xl border border-border bg-background p-4">
@@ -1186,8 +1244,7 @@ export default function TrainingPage() {
                         className="mt-1"
                       />
                       <span className="text-sm leading-6 text-muted-foreground">
-                        I reviewed the safety, startup, cleaning, and escalation guidance and will
-                        use the documented shutdown and support steps.
+                        {t('training.certificateAcknowledgement')}
                       </span>
                     </label>
                     <Button
@@ -1199,7 +1256,9 @@ export default function TrainingPage() {
                         issueCertificateMutation.isPending
                       }
                     >
-                      {issueCertificateMutation.isPending ? 'Unlocking...' : 'Unlock certificate'}
+                      {issueCertificateMutation.isPending
+                        ? t('training.unlocking')
+                        : t('training.unlockCertificate')}
                     </Button>
                   </>
                 )}
@@ -1207,23 +1266,21 @@ export default function TrainingPage() {
 
               <div className="rounded-[24px] border border-border bg-background p-5 sm:p-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                  Need something specific?
+                  {t('training.needSpecific')}
                 </p>
                 <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
-                  Support and next steps
+                  {t('training.supportNextSteps')}
                 </h2>
                 <div className="mt-5 space-y-4 text-sm leading-6 text-muted-foreground">
                   <p>
-                    If you know the symptom, use search with terms like burner, sensor, payment,
-                    timer, or stick.
+                    {t('training.symptomSearchTip')}
                   </p>
                   <p>
-                    If the resource still is not obvious, go straight to support so the team can
-                    point operators to the right module or guide.
+                    {t('training.goSupportTip')}
                   </p>
                 </div>
                 <Button asChild variant="outline" className="mt-6 w-full sm:w-auto">
-                  <Link to="/portal/support">Go to support</Link>
+                  <Link to="/portal/support">{t('training.goToSupport')}</Link>
                 </Button>
               </div>
             </section>

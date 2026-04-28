@@ -9,6 +9,7 @@ import { trackEvent } from '@/lib/analytics';
 import { createSupportRequest } from '@/lib/supportRequests';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import type { TranslationKey } from '@/lib/i18n';
 import { toast } from 'sonner';
 
 type SupportType = 'concierge' | 'parts' | 'wechat' | 'wechat_onboarding' | null;
@@ -20,72 +21,66 @@ type WeChatBlockedStep =
   | 'friend_referral'
   | 'other';
 
-const deviceLabelMap: Record<WeChatDeviceType, string> = {
-  iphone: 'iPhone',
-  android: 'Android',
-  desktop: 'Desktop',
-  other: 'Other',
+const deviceLabelKeyMap: Record<WeChatDeviceType, TranslationKey> = {
+  iphone: 'support.deviceIphone',
+  android: 'support.deviceAndroid',
+  desktop: 'support.deviceDesktop',
+  other: 'support.deviceOther',
 };
 
-const blockedStepLabelMap: Record<WeChatBlockedStep, string> = {
-  account_creation: 'Account creation',
-  sms_verification: 'SMS/phone verification',
-  login_authentication: 'Login/authentication step',
-  friend_referral: 'Friend referral needed',
-  other: 'Other',
+const blockedStepLabelKeyMap: Record<WeChatBlockedStep, TranslationKey> = {
+  account_creation: 'support.blockedAccountCreation',
+  sms_verification: 'support.blockedSmsVerification',
+  login_authentication: 'support.blockedLoginAuthentication',
+  friend_referral: 'support.blockedFriendReferral',
+  other: 'support.blockedOther',
 };
 
 const wechatSetupSteps = [
   {
-    title: '1. Download WeChat',
-    bullets: [
-      'On iPhone, open the App Store, search for WeChat, and install WeChat by Tencent.',
-      'On Android, open Google Play, search for WeChat, and tap Install.',
+    titleKey: 'support.wechatStep1Title',
+    bulletKeys: ['support.wechatStep1Bullet1', 'support.wechatStep1Bullet2'],
+  },
+  {
+    titleKey: 'support.wechatStep2Title',
+    bulletKeys: [
+      'support.wechatStep2Bullet1',
+      'support.wechatStep2Bullet2',
+      'support.wechatStep2Bullet3',
     ],
   },
   {
-    title: '2. Create or log in to your account',
-    bullets: [
-      'Open WeChat after install and choose Sign Up if you are new to the app.',
-      'Use the phone number you want tied to manufacturer support.',
-      'If you already have a WeChat account, log in with your existing credentials.',
+    titleKey: 'support.wechatStep3Title',
+    bulletKeys: [
+      'support.wechatStep3Bullet1',
+      'support.wechatStep3Bullet2',
+      'support.wechatStep3Bullet3',
     ],
   },
   {
-    title: '3. Complete the verification step',
-    bullets: [
-      'WeChat may require a registered user to scan a QR code before your account is approved.',
-      'That QR code expires in about 2 minutes, so plan the scan with Bloomjoy or your referral contact before you generate it.',
-      'If you get blocked on SMS verification, login, or the referral step, use the onboarding help form on this page.',
+    titleKey: 'support.wechatStep4Title',
+    bulletKeys: [
+      'support.wechatStep4Bullet1',
+      'support.wechatStep4Bullet2',
+      'support.wechatStep4Bullet3',
     ],
   },
-  {
-    title: '4. Add manufacturer contacts and groups',
-    bullets: [
-      'Use Contacts and the + button to add the manufacturer support contact from the QR code, WeChat ID, or phone number provided with your machine.',
-      'Accept any company or support-group invitations so you stay connected to the right threads.',
-      'In your first message, include your machine serial number and a short summary of the issue for faster troubleshooting.',
-    ],
-  },
-] as const;
+] as const satisfies Array<{ titleKey: TranslationKey; bulletKeys: TranslationKey[] }>;
 
 const wechatQuickActions = [
   {
-    title: 'Translate messages',
-    description:
-      'Long-press a message, then tap Translate to read support messages in your preferred language.',
+    titleKey: 'support.quickTranslateTitle',
+    descriptionKey: 'support.quickTranslateDescription',
   },
   {
-    title: 'Send photos or videos',
-    description:
-      'Tap the + button, choose Camera, tap once to take a photo, or hold the button to record a video.',
+    titleKey: 'support.quickMediaTitle',
+    descriptionKey: 'support.quickMediaDescription',
   },
   {
-    title: 'Start a group call',
-    description:
-      'Tap the + button, choose Group Call, select the people you need, and tap OK.',
+    titleKey: 'support.quickCallTitle',
+    descriptionKey: 'support.quickCallDescription',
   },
-] as const;
+] as const satisfies Array<{ titleKey: TranslationKey; descriptionKey: TranslationKey }>;
 
 const showLegacyWeChatGuide = false;
 
@@ -95,7 +90,7 @@ export default function SupportPage() {
   const [activeForm, setActiveForm] = useState<SupportType>(null);
   const [formData, setFormData] = useState({ subject: '', message: '' });
   const [wechatOnboardingData, setWechatOnboardingData] = useState({
-    subject: 'Need help onboarding to WeChat',
+    subject: '',
     phoneRegion: '+1',
     phoneNumber: '',
     deviceType: 'iphone' as WeChatDeviceType,
@@ -106,9 +101,17 @@ export default function SupportPage() {
   });
   const [loading, setLoading] = useState(false);
 
+  const openWeChatOnboardingForm = () => {
+    setWechatOnboardingData((prev) => ({
+      ...prev,
+      subject: prev.subject || t('support.defaultWechatSubject'),
+    }));
+    setActiveForm('wechat_onboarding');
+  };
+
   const handleSubmit = async (type: 'concierge' | 'parts' | 'wechat_onboarding') => {
     if (!user?.id || !user?.email) {
-      toast.error('Log in to submit a support request.');
+      toast.error(t('support.loginRequired'));
       return;
     }
 
@@ -121,11 +124,11 @@ export default function SupportPage() {
       });
 
       trackEvent(`submit_support_request_${type}`, { subject: formData.subject });
-      toast.success('Support request submitted! We\'ll get back to you soon.');
+      toast.success(t('support.submitSuccess'));
       setActiveForm(null);
       setFormData({ subject: '', message: '' });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to submit support request.';
+      const message = error instanceof Error ? error.message : t('support.unableSubmit');
       toast.error(message);
     } finally {
       setLoading(false);
@@ -134,7 +137,7 @@ export default function SupportPage() {
 
   const handleWeChatOnboardingSubmit = async () => {
     if (!user?.id || !user?.email) {
-      toast.error('Log in to submit a support request.');
+      toast.error(t('support.loginRequired'));
       return;
     }
 
@@ -145,7 +148,7 @@ export default function SupportPage() {
     const normalizedWeChatId = wechatOnboardingData.wechatId.trim();
 
     if (!normalizedSubject || !normalizedPhoneRegion || !normalizedPhoneNumber) {
-      toast.error('Please provide subject, phone region, and phone number.');
+      toast.error(t('support.validationRequired'));
       return;
     }
 
@@ -159,8 +162,8 @@ export default function SupportPage() {
     const message = [
       'WeChat onboarding help request',
       '',
-      `Blocked Step: ${blockedStepLabelMap[wechatOnboardingData.blockedStep]}`,
-      `Device: ${deviceLabelMap[wechatOnboardingData.deviceType]}`,
+      `Blocked Step: ${t(blockedStepLabelKeyMap[wechatOnboardingData.blockedStep])}`,
+      `Device: ${t(deviceLabelKeyMap[wechatOnboardingData.deviceType])}`,
       `Phone: ${normalizedPhoneRegion} ${normalizedPhoneNumber}`,
       `Referral help needed: ${
         referralNeeded === null ? 'Not sure yet' : referralNeeded ? 'Yes' : 'No'
@@ -191,7 +194,7 @@ export default function SupportPage() {
         blocked_step: wechatOnboardingData.blockedStep,
         device_type: wechatOnboardingData.deviceType,
       });
-      toast.success('WeChat onboarding request submitted. Ops will reach out soon.');
+      toast.success(t('support.onboardingSuccess'));
       setActiveForm(null);
       setWechatOnboardingData((prev) => ({
         ...prev,
@@ -200,7 +203,7 @@ export default function SupportPage() {
         details: '',
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to submit support request.';
+      const message = error instanceof Error ? error.message : t('support.unableSubmit');
       toast.error(message);
     } finally {
       setLoading(false);
@@ -253,7 +256,7 @@ export default function SupportPage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 {t('support.wechatHelpDescription')}
               </p>
-              <Button className="mt-4 w-full" onClick={() => setActiveForm('wechat_onboarding')}>
+              <Button className="mt-4 w-full" onClick={openWeChatOnboardingForm}>
                 {t('support.requestOnboarding')}
               </Button>
             </div>
@@ -295,25 +298,24 @@ export default function SupportPage() {
           {activeForm === 'wechat' && (
             <div className="mt-8 card-elevated p-5 sm:p-6">
               <h2 className="font-display text-xl font-semibold text-foreground">
-                WeChat Setup Guide
+                {t('support.wechatSetupGuideTitle')}
               </h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Use this guide to get connected with the manufacturer support team, then keep it
-                handy for translation, photos, videos, and group-call troubleshooting.
+                {t('support.wechatSetupGuideDescription')}
               </p>
 
               <div className="mt-6 grid gap-4 xl:grid-cols-2">
                 {wechatSetupSteps.map((section) => (
                   <section
-                    key={section.title}
+                    key={section.titleKey}
                     className="rounded-2xl border border-border/70 bg-background/80 p-4"
                   >
-                    <h3 className="font-semibold text-foreground">{section.title}</h3>
+                    <h3 className="font-semibold text-foreground">{t(section.titleKey)}</h3>
                     <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                      {section.bullets.map((bullet) => (
-                        <li key={bullet} className="flex gap-2">
+                      {section.bulletKeys.map((bulletKey) => (
+                        <li key={bulletKey} className="flex gap-2">
                           <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                          <span>{bullet}</span>
+                          <span>{t(bulletKey)}</span>
                         </li>
                       ))}
                     </ul>
@@ -322,24 +324,22 @@ export default function SupportPage() {
               </div>
 
               <div className="mt-6 rounded-2xl border border-sage/20 bg-sage-light p-4">
-                <p className="text-sm font-medium text-sage">Timing tip</p>
+                <p className="text-sm font-medium text-sage">{t('support.timingTip')}</p>
                 <p className="mt-2 text-sm text-sage">
-                  If WeChat asks for a QR-code verification scan, message Bloomjoy first so the
-                  registered user is ready before you generate the code. The approval window is
-                  short.
+                  {t('support.timingTipDescription')}
                 </p>
               </div>
 
               <div className="mt-6">
-                <h3 className="font-semibold text-foreground">Quick actions we use most</h3>
+                <h3 className="font-semibold text-foreground">{t('support.quickActionsTitle')}</h3>
                 <div className="mt-3 grid gap-4 md:grid-cols-3">
                   {wechatQuickActions.map((action) => (
                     <section
-                      key={action.title}
+                      key={action.titleKey}
                       className="rounded-2xl border border-border/70 bg-muted/20 p-4"
                     >
-                      <h4 className="text-sm font-semibold text-foreground">{action.title}</h4>
-                      <p className="mt-2 text-sm text-muted-foreground">{action.description}</p>
+                      <h4 className="text-sm font-semibold text-foreground">{t(action.titleKey)}</h4>
+                      <p className="mt-2 text-sm text-muted-foreground">{t(action.descriptionKey)}</p>
                     </section>
                   ))}
                 </div>
@@ -347,9 +347,7 @@ export default function SupportPage() {
 
               <div className="mt-6 rounded-2xl border border-primary/15 bg-primary/5 p-4">
                 <p className="text-sm text-muted-foreground">
-                  The manufacturer support team provides 24/7 first-line technical support for
-                  machine diagnostics, troubleshooting, and warranty issues. Bloomjoy can help you
-                  get through setup blockers and referral steps during US business hours.
+                  {t('support.manufacturerTeamDescription')}
                 </p>
               </div>
               {showLegacyWeChatGuide && (
@@ -379,13 +377,13 @@ export default function SupportPage() {
                   className="w-full sm:w-auto"
                   onClick={() => setActiveForm(null)}
                 >
-                  Close
+                  {t('support.close')}
                 </Button>
                 <Button
                   className="w-full sm:w-auto"
-                  onClick={() => setActiveForm('wechat_onboarding')}
+                  onClick={openWeChatOnboardingForm}
                 >
-                  Need onboarding help
+                  {t('support.needOnboardingHelp')}
                 </Button>
               </div>
             </div>
@@ -395,11 +393,10 @@ export default function SupportPage() {
           {activeForm === 'wechat_onboarding' && (
             <div className="mt-8 card-elevated p-5 sm:p-6">
               <h2 className="font-display text-xl font-semibold text-foreground">
-                WeChat Onboarding Concierge
+                {t('support.onboardingConciergeTitle')}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Share your blocker and ops will help you get unblocked, including referral help if
-                needed.
+                {t('support.onboardingConciergeDescription')}
               </p>
               <form
                 onSubmit={(e) => {
@@ -409,13 +406,13 @@ export default function SupportPage() {
                 className="mt-6 space-y-4"
               >
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Subject</label>
+                  <label className="block text-sm font-medium text-foreground">{t('support.subject')}</label>
                   <Input
                     value={wechatOnboardingData.subject}
                     onChange={(e) =>
                       setWechatOnboardingData({ ...wechatOnboardingData, subject: e.target.value })
                     }
-                    placeholder="Short summary of your WeChat onboarding issue"
+                    placeholder={t('support.wechatSubjectPlaceholder')}
                     required
                     className="mt-1"
                   />
@@ -423,7 +420,7 @@ export default function SupportPage() {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Phone Region</label>
+                    <label className="block text-sm font-medium text-foreground">{t('support.phoneRegion')}</label>
                     <Input
                       value={wechatOnboardingData.phoneRegion}
                       onChange={(e) =>
@@ -438,7 +435,7 @@ export default function SupportPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Phone Number</label>
+                    <label className="block text-sm font-medium text-foreground">{t('support.phoneNumber')}</label>
                     <Input
                       value={wechatOnboardingData.phoneNumber}
                       onChange={(e) =>
@@ -447,7 +444,7 @@ export default function SupportPage() {
                           phoneNumber: e.target.value,
                         })
                       }
-                      placeholder="Number used for WeChat signup"
+                      placeholder={t('support.phoneNumberPlaceholder')}
                       required
                       className="mt-1"
                     />
@@ -456,7 +453,7 @@ export default function SupportPage() {
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Device</label>
+                    <label className="block text-sm font-medium text-foreground">{t('support.device')}</label>
                     <select
                       value={wechatOnboardingData.deviceType}
                       onChange={(e) =>
@@ -467,15 +464,15 @@ export default function SupportPage() {
                       }
                       className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
-                      {Object.entries(deviceLabelMap).map(([value, label]) => (
+                      {(Object.keys(deviceLabelKeyMap) as WeChatDeviceType[]).map((value) => (
                         <option key={value} value={value}>
-                          {label}
+                          {t(deviceLabelKeyMap[value])}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Blocked Step</label>
+                    <label className="block text-sm font-medium text-foreground">{t('support.blockedStep')}</label>
                     <select
                       value={wechatOnboardingData.blockedStep}
                       onChange={(e) =>
@@ -486,16 +483,16 @@ export default function SupportPage() {
                       }
                       className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
-                      {Object.entries(blockedStepLabelMap).map(([value, label]) => (
+                      {(Object.keys(blockedStepLabelKeyMap) as WeChatBlockedStep[]).map((value) => (
                         <option key={value} value={value}>
-                          {label}
+                          {t(blockedStepLabelKeyMap[value])}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-foreground">
-                      Referral Needed
+                      {t('support.referralNeeded')}
                     </label>
                     <select
                       value={wechatOnboardingData.referralNeeded}
@@ -507,16 +504,16 @@ export default function SupportPage() {
                       }
                       className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
-                      <option value="unsure">Not sure</option>
+                      <option value="yes">{t('support.yes')}</option>
+                      <option value="no">{t('support.no')}</option>
+                      <option value="unsure">{t('support.notSure')}</option>
                     </select>
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-foreground">
-                    WeChat ID (optional)
+                    {t('support.wechatIdOptional')}
                   </label>
                   <Input
                     value={wechatOnboardingData.wechatId}
@@ -526,13 +523,13 @@ export default function SupportPage() {
                         wechatId: e.target.value,
                       })
                     }
-                    placeholder="If you already have a WeChat ID"
+                    placeholder={t('support.wechatIdPlaceholder')}
                     className="mt-1"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Details</label>
+                  <label className="block text-sm font-medium text-foreground">{t('support.details')}</label>
                   <Textarea
                     value={wechatOnboardingData.details}
                     onChange={(e) =>
@@ -541,7 +538,7 @@ export default function SupportPage() {
                         details: e.target.value,
                       })
                     }
-                    placeholder="Paste error text, describe where you are blocked, and mention if a referral prompt appears."
+                    placeholder={t('support.detailsPlaceholder')}
                     rows={5}
                     className="mt-1"
                   />
@@ -549,7 +546,7 @@ export default function SupportPage() {
 
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
-                    {loading ? 'Submitting...' : 'Submit Onboarding Request'}
+                    {loading ? t('support.submitting') : t('support.submitOnboarding')}
                   </Button>
                   <Button
                     type="button"
@@ -557,7 +554,7 @@ export default function SupportPage() {
                     className="w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
                   >
-                    Cancel
+                    {t('support.cancel')}
                   </Button>
                 </div>
               </form>
@@ -568,10 +565,10 @@ export default function SupportPage() {
           {activeForm === 'concierge' && (
             <div className="mt-8 card-elevated p-5 sm:p-6">
               <h2 className="font-display text-xl font-semibold text-foreground">
-                Request Concierge Help
+                {t('support.requestConciergeTitle')}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Our team will respond during US business hours (Mon–Fri, 9am–5pm EST).
+                {t('support.requestConciergeDescription')}
               </p>
               <form
                 onSubmit={(e) => {
@@ -581,21 +578,21 @@ export default function SupportPage() {
                 className="mt-6 space-y-4"
               >
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Subject</label>
+                  <label className="block text-sm font-medium text-foreground">{t('support.subject')}</label>
                   <Input
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                    placeholder="Brief description of your request"
+                    placeholder={t('support.subjectPlaceholder')}
                     required
                     className="mt-1"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Message</label>
+                  <label className="block text-sm font-medium text-foreground">{t('support.message')}</label>
                   <Textarea
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                    placeholder="Provide details about what you need help with..."
+                    placeholder={t('support.messagePlaceholder')}
                     rows={4}
                     required
                     className="mt-1"
@@ -603,7 +600,7 @@ export default function SupportPage() {
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
-                    {loading ? 'Submitting...' : 'Submit Request'}
+                    {loading ? t('support.submitting') : t('support.submitRequest')}
                   </Button>
                   <Button
                     type="button"
@@ -611,7 +608,7 @@ export default function SupportPage() {
                     className="w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
                   >
-                    Cancel
+                    {t('support.cancel')}
                   </Button>
                 </div>
               </form>
@@ -622,10 +619,10 @@ export default function SupportPage() {
           {activeForm === 'parts' && (
             <div className="mt-8 card-elevated p-5 sm:p-6">
               <h2 className="font-display text-xl font-semibold text-foreground">
-                Parts Assistance Request
+                {t('support.partsRequestTitle')}
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Describe the part you need. We'll help source it for you.
+                {t('support.partsRequestDescription')}
               </p>
               <form
                 onSubmit={(e) => {
@@ -635,28 +632,28 @@ export default function SupportPage() {
                 className="mt-6 space-y-4"
               >
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Part Name/Description</label>
+                  <label className="block text-sm font-medium text-foreground">{t('support.partNameDescription')}</label>
                   <Input
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                    placeholder="e.g., Heating element, Sugar bowl, etc."
+                    placeholder={t('support.partNamePlaceholder')}
                     required
                     className="mt-1"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-foreground">Additional Details</label>
+                  <label className="block text-sm font-medium text-foreground">{t('support.additionalDetails')}</label>
                   <Textarea
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                    placeholder="Machine serial number, urgency, any other details..."
+                    placeholder={t('support.additionalDetailsPlaceholder')}
                     rows={4}
                     className="mt-1"
                   />
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
-                    {loading ? 'Submitting...' : 'Submit Request'}
+                    {loading ? t('support.submitting') : t('support.submitRequest')}
                   </Button>
                   <Button
                     type="button"
@@ -664,7 +661,7 @@ export default function SupportPage() {
                     className="w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
                   >
-                    Cancel
+                    {t('support.cancel')}
                   </Button>
                 </div>
               </form>

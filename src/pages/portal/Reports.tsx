@@ -117,10 +117,6 @@ const paymentMethodLabelKeys: Record<PaymentMethod, TranslationKey> = {
   unknown: 'reports.unknown',
 };
 
-const operatorChartConfig = {
-  netSales: { label: 'Net sales', color: 'hsl(var(--primary))' },
-} satisfies ChartConfig;
-
 const partnerNetSalesChartConfig = {
   netSales: { label: 'Net sales', color: 'hsl(var(--sage))' },
 } satisfies ChartConfig;
@@ -521,6 +517,13 @@ export default function ReportsPage() {
 function OperatorReportingView({ accessContext }: { accessContext: ReportingAccessContext }) {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
+  const operatorChartConfig = useMemo(
+    () =>
+      ({
+        netSales: { label: t('reports.netSales'), color: 'hsl(var(--primary))' },
+      }) satisfies ChartConfig,
+    [t]
+  );
   const defaultRange = useMemo(() => getOperatorPresetRange('last_30_days'), []);
   const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>('last_30_days');
   const [dateFrom, setDateFrom] = useState(defaultRange.dateFrom);
@@ -864,7 +867,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                     label={row.label}
                     context={`${row.transactionCount.toLocaleString()} ${t('reports.transactions').toLowerCase()}`}
                     primary={formatCurrency(row.netSalesCents)}
-                    secondary={`Gross ${formatCurrency(row.grossSalesCents)}`}
+                    secondary={`${t('reports.grossSales')} ${formatCurrency(row.grossSalesCents)}`}
                   />
                 ))}
               </div>

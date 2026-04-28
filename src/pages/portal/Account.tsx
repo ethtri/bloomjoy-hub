@@ -420,7 +420,7 @@ export default function AccountPage() {
                     <Input
                       value={profileForm.fullName}
                       onChange={(event) => updateProfileField('fullName', event.target.value)}
-                      placeholder="Your name"
+                      placeholder={t('account.namePlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
@@ -430,7 +430,7 @@ export default function AccountPage() {
                     <Input
                       value={profileForm.companyName}
                       onChange={(event) => updateProfileField('companyName', event.target.value)}
-                      placeholder="Company name (optional)"
+                      placeholder={t('account.companyPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
@@ -440,7 +440,7 @@ export default function AccountPage() {
                     <Input
                       value={profileForm.phone}
                       onChange={(event) => updateProfileField('phone', event.target.value)}
-                      placeholder="Phone number"
+                      placeholder={t('account.phonePlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
@@ -467,65 +467,65 @@ export default function AccountPage() {
                 </div>
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-foreground">Street Address</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.streetAddress')}</label>
                     <Input
                       value={profileForm.shippingStreet1}
                       onChange={(event) => updateProfileField('shippingStreet1', event.target.value)}
-                      placeholder="123 Main St"
+                      placeholder={t('account.streetPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-sm font-medium text-foreground">
-                      Apartment/Suite
+                      {t('account.apartmentSuite')}
                     </label>
                     <Input
                       value={profileForm.shippingStreet2}
                       onChange={(event) => updateProfileField('shippingStreet2', event.target.value)}
-                      placeholder="Suite 100 (optional)"
+                      placeholder={t('account.apartmentPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">City</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.city')}</label>
                     <Input
                       value={profileForm.shippingCity}
                       onChange={(event) => updateProfileField('shippingCity', event.target.value)}
-                      placeholder="City"
+                      placeholder={t('account.cityPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">State</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.state')}</label>
                     <Input
                       value={profileForm.shippingState}
                       onChange={(event) => updateProfileField('shippingState', event.target.value)}
-                      placeholder="State"
+                      placeholder={t('account.statePlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">ZIP Code</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.zipCode')}</label>
                     <Input
                       value={profileForm.shippingPostalCode}
                       onChange={(event) =>
                         updateProfileField('shippingPostalCode', event.target.value)
                       }
-                      placeholder="12345"
+                      placeholder={t('account.zipPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Country</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.country')}</label>
                     <Input
                       value={profileForm.shippingCountry}
                       onChange={(event) => updateProfileField('shippingCountry', event.target.value)}
-                      placeholder="US"
+                      placeholder={t('account.countryPlaceholder')}
                       className="mt-1"
                       disabled={isProfileLoading}
                     />
