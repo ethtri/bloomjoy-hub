@@ -94,6 +94,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
 - [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
+- [ ] DB/RPC security smoke for issue `#290`: as a non-admin authenticated session, direct calls fail with permission denied for legacy actor RPCs (`create_customer_account_invite_as_actor`, `record_customer_account_invite_delivery_as_actor`, `revoke_customer_account_access_as_actor`) and arbitrary-user helper RPCs (`get_portal_access_context_for_user`, `get_active_customer_account_id`, `get_active_customer_account_role`, `get_portal_access_tier_for_user`, `can_manage_customer_account_operators_for_user`, `can_access_plus_portal_for_user`, `has_active_customer_account_membership`, `is_partner_on_customer_account`) when passing any caller-supplied actor/user UUID; `get_my_portal_access_context` still returns only the current session context.
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
