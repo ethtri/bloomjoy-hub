@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CalendarClock,
@@ -30,6 +30,7 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
@@ -41,6 +42,7 @@ import {
   type ReportingMachineTaxRate,
 } from '@/lib/partnershipReporting';
 import { type ReportingMachineType, upsertReportingMachineAdmin } from '@/lib/reporting';
+import { cn } from '@/lib/utils';
 import {
   formatLabel,
   formatDate,
@@ -56,6 +58,14 @@ import {
 type MachineTaxFilter = 'all' | TaxStatus;
 type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
 type MachineSort = 'status' | 'machine' | 'latest_sale';
+type MachineSetupRowViewModel = {
+  machine: PartnershipSetupMachine;
+  taxRate: ReportingMachineTaxRate | undefined;
+  taxStatus: TaxStatus;
+  activeAssignments: PartnershipReportingSetup['assignments'];
+  machineWarnings: PartnershipReportingSetup['warnings'];
+  draftValue: string;
+};
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
 const initialReportingTaxStartDate = '2026-01-01';
@@ -118,6 +128,7 @@ export default function AdminMachinesPage() {
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
 
   const highlightedMachineId = searchParams.get('machineId');
+  const isMachineEditorRequested = searchParams.get('edit') === 'machine';
   const pendingSourceMachineId =
     searchParams.get('externalMachineId') ?? searchParams.get('sunzeMachineId');
 
@@ -133,6 +144,15 @@ export default function AdminMachinesPage() {
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: setupQueryKey });
+
+  const selectedMachineForEditor =
+    editingMachine ??
+    (highlightedMachineId
+      ? setup.machines.find((machine) => machine.id === highlightedMachineId) ?? null
+      : null);
+  const isMachineEditorOpen =
+    isMachineDialogOpen ||
+    (isMachineEditorRequested && (!highlightedMachineId || Boolean(selectedMachineForEditor)));
 
   useEffect(() => {
     setTaxFilter(parseTaxFilter(searchParams.get('tax')));
@@ -240,6 +260,7 @@ export default function AdminMachinesPage() {
     nextParams.delete('sunzeMachineName');
     nextParams.delete('externalMachineId');
     nextParams.delete('externalMachineName');
+    nextParams.set('edit', 'machine');
     setSearchParams(nextParams, { replace: true });
     setIsMachineDialogOpen(true);
   };
@@ -252,6 +273,7 @@ export default function AdminMachinesPage() {
     nextParams.delete('sunzeMachineName');
     nextParams.delete('externalMachineId');
     nextParams.delete('externalMachineName');
+    nextParams.set('edit', 'machine');
     setSearchParams(nextParams, { replace: true });
     setIsMachineDialogOpen(true);
   };
@@ -259,12 +281,14 @@ export default function AdminMachinesPage() {
   const closeMachineDialog = (open: boolean) => {
     setIsMachineDialogOpen(open);
     if (!open) {
+      setEditingMachine(null);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete('machineId');
       nextParams.delete('sunzeMachineId');
       nextParams.delete('sunzeMachineName');
       nextParams.delete('externalMachineId');
       nextParams.delete('externalMachineName');
+      nextParams.delete('edit');
       setSearchParams(nextParams, { replace: true });
     }
   };
@@ -506,139 +530,40 @@ export default function AdminMachinesPage() {
             ) : machineRows.length === 0 ? (
               <div className="p-6 text-sm text-muted-foreground">No machines match this filter.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-[960px] w-full divide-y divide-border text-sm">
-                  <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-semibold">Machine label / alias</th>
-                      <th className="px-4 py-3 text-left font-semibold">Type</th>
-                      <th className="px-4 py-3 text-left font-semibold">External machine ID</th>
-                      <th className="px-4 py-3 text-left font-semibold">Assignment</th>
-                      <th className="px-4 py-3 text-left font-semibold">Tax status</th>
-                      <th className="px-4 py-3 text-left font-semibold">Reporting tax %</th>
-                      <th className="px-4 py-3 text-left font-semibold">Latest sale</th>
-                      <th className="px-4 py-3 text-right font-semibold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border bg-background">
-                    {machineRows.map(({ machine, taxRate, taxStatus, activeAssignments, machineWarnings, draftValue }) => {
-                      const machineTaxHistory = setup.taxRates.filter((rate) => rate.machine_id === machine.id);
-                      const isHighlighted = highlightedMachineId === machine.id;
-                      const hasMissingRequiredTax =
-                        activeAssignments.length > 0 && taxStatus === 'missing';
-                      const hasAssignmentOverlap = machineWarnings.some(
-                        (warning) => warning.warningType === 'overlapping_partnership_assignments'
-                      );
-                      const hasActionableWarning = hasMissingRequiredTax || hasAssignmentOverlap;
-                      const taxStatusLabel =
-                        activeAssignments.length === 0 && taxStatus === 'missing'
-                          ? 'Not required'
-                          : getTaxStatusLabel(taxStatus);
-
-                      return (
-                        <tr key={machine.id} className={isHighlighted ? 'bg-primary/5' : ''}>
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-foreground">{machine.machine_label}</div>
-                            {hasActionableWarning && (
-                              <div className="mt-1 flex items-center gap-1 text-xs text-amber-700">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                Needs setup
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">{formatLabel(machine.machine_type)}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{machine.sunze_machine_id ?? 'n/a'}</td>
-                          <td className="px-4 py-3">
-                            {activeAssignments.length === 0 ? (
-                              <Badge variant="outline">Not in partner reports</Badge>
-                            ) : (
-                              <div className="grid gap-1">
-                                {activeAssignments.map((assignment) => (
-                                  <Badge key={assignment.id} variant="secondary" className="w-fit">
-                                    {assignment.partnership_name}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge
-                              variant={
-                                activeAssignments.length === 0 && taxStatus === 'missing'
-                                  ? 'outline'
-                                  : taxStatus === 'missing'
-                                  ? 'destructive'
-                                  : taxStatus === 'no_tax'
-                                    ? 'secondary'
-                                    : 'default'
-                              }
-                            >
-                              {taxStatusLabel}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3">
-                            <Input
-                              aria-label={`${machine.machine_label} reporting tax rate percent`}
-                              type="number"
-                              step="0.01"
-                              min={0}
-                              max={100}
-                              value={draftValue}
-                              onChange={(event) =>
-                                setTaxDrafts((current) => ({
-                                  ...current,
-                                  [machine.id]: event.target.value,
-                                }))
-                              }
-                              placeholder={activeAssignments.length === 0 ? 'Optional' : 'Missing'}
-                              className="w-28"
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">{machine.latest_sale_date ?? 'n/a'}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditMachine(machine)}
-                              >
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Edit
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setHistoryMachine(machine)}
-                                disabled={machineTaxHistory.length === 0}
-                              >
-                                <History className="mr-2 h-4 w-4" />
-                                History
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openTaxChangeDialog(machine, taxRate)}
-                              >
-                                <CalendarClock className="mr-2 h-4 w-4" />
-                                Rate Change
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => saveTaxRate(machine, taxRate, draftValue)}
-                                disabled={savingTaxMachineId === machine.id}
-                              >
-                                {savingTaxMachineId === machine.id && (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                )}
-                                Save Tax
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div role="table" aria-label="Machine setup">
+                <div
+                  role="row"
+                  className="hidden border-b border-border bg-muted/40 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:grid xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,0.75fr)_minmax(0,1.05fr)] xl:gap-4"
+                >
+                  <div role="columnheader">Machine</div>
+                  <div role="columnheader">Partner reports</div>
+                  <div role="columnheader">Reporting tax</div>
+                  <div role="columnheader">Activity</div>
+                  <div role="columnheader" className="text-right">Actions</div>
+                </div>
+                <div role="rowgroup" className="divide-y divide-border bg-background">
+                  {machineRows.map((row) => (
+                    <MachineSetupRow
+                      key={row.machine.id}
+                      row={row}
+                      taxHistoryCount={
+                        setup.taxRates.filter((rate) => rate.machine_id === row.machine.id).length
+                      }
+                      isHighlighted={highlightedMachineId === row.machine.id}
+                      isSavingTax={savingTaxMachineId === row.machine.id}
+                      onEdit={openEditMachine}
+                      onShowHistory={setHistoryMachine}
+                      onOpenTaxChange={openTaxChangeDialog}
+                      onSaveTax={saveTaxRate}
+                      onTaxDraftChange={(machineId, value) =>
+                        setTaxDrafts((current) => ({
+                          ...current,
+                          [machineId]: value,
+                        }))
+                      }
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -646,9 +571,9 @@ export default function AdminMachinesPage() {
       </section>
 
       <MachineDialog
-        open={isMachineDialogOpen}
+        open={isMachineEditorOpen}
         onOpenChange={closeMachineDialog}
-        machine={editingMachine}
+        machine={selectedMachineForEditor}
         machines={setup.machines}
         onSaved={refresh}
       />
@@ -702,6 +627,195 @@ export default function AdminMachinesPage() {
         </SheetContent>
       </Sheet>
     </AppLayout>
+  );
+}
+
+function MachineSetupRow({
+  row,
+  taxHistoryCount,
+  isHighlighted,
+  isSavingTax,
+  onEdit,
+  onShowHistory,
+  onOpenTaxChange,
+  onSaveTax,
+  onTaxDraftChange,
+}: {
+  row: MachineSetupRowViewModel;
+  taxHistoryCount: number;
+  isHighlighted: boolean;
+  isSavingTax: boolean;
+  onEdit: (machine: PartnershipSetupMachine) => void;
+  onShowHistory: (machine: PartnershipSetupMachine) => void;
+  onOpenTaxChange: (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => void;
+  onSaveTax: (
+    machine: PartnershipSetupMachine,
+    taxRate: ReportingMachineTaxRate | undefined,
+    draftValue: string
+  ) => void;
+  onTaxDraftChange: (machineId: string, value: string) => void;
+}) {
+  const { machine, taxRate, taxStatus, activeAssignments, machineWarnings, draftValue } = row;
+  const hasMissingRequiredTax = activeAssignments.length > 0 && taxStatus === 'missing';
+  const hasAssignmentOverlap = machineWarnings.some(
+    (warning) => warning.warningType === 'overlapping_partnership_assignments'
+  );
+  const hasActionableWarning = hasMissingRequiredTax || hasAssignmentOverlap;
+  const taxStatusLabel =
+    activeAssignments.length === 0 && taxStatus === 'missing'
+      ? 'Not required'
+      : getTaxStatusLabel(taxStatus);
+  const taxBadgeVariant =
+    activeAssignments.length === 0 && taxStatus === 'missing'
+      ? 'outline'
+      : taxStatus === 'missing'
+        ? 'destructive'
+        : taxStatus === 'no_tax'
+          ? 'secondary'
+          : 'default';
+
+  return (
+    <div
+      role="row"
+      className={cn(
+        'grid gap-4 p-4 text-sm md:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,0.75fr)_minmax(0,1.05fr)]',
+        isHighlighted ? 'bg-primary/5' : 'bg-background'
+      )}
+    >
+      <div role="cell" className="min-w-0">
+        <CellLabel>Machine</CellLabel>
+        <div className="font-medium leading-5 text-foreground">{machine.machine_label}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <Badge variant="outline">{formatLabel(machine.machine_type)}</Badge>
+          {hasActionableWarning && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Needs setup
+            </span>
+          )}
+        </div>
+        <dl className="mt-3 grid gap-1.5 text-xs text-muted-foreground">
+          <div className="grid gap-0.5 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+            <dt className="font-medium text-foreground/70">External ID</dt>
+            <dd className="min-w-0 break-all">{machine.sunze_machine_id ?? 'Not mapped'}</dd>
+          </div>
+          <div className="grid gap-0.5 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+            <dt className="font-medium text-foreground/70">Account</dt>
+            <dd className="min-w-0 break-words">{machine.account_name || 'n/a'}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div role="cell" className="min-w-0">
+        <CellLabel>Partner reports</CellLabel>
+        {activeAssignments.length === 0 ? (
+          <Badge variant="outline" className="whitespace-normal text-left">
+            Not in partner reports
+          </Badge>
+        ) : (
+          <div className="grid gap-1.5">
+            {activeAssignments.map((assignment) => (
+              <Badge
+                key={assignment.id}
+                variant="secondary"
+                className="w-fit max-w-full whitespace-normal text-left"
+              >
+                {assignment.partnership_name}
+              </Badge>
+            ))}
+          </div>
+        )}
+        {hasAssignmentOverlap && (
+          <p className="mt-2 text-xs text-amber-700">
+            Assigned to overlapping active report windows.
+          </p>
+        )}
+      </div>
+
+      <div role="cell" className="min-w-0">
+        <CellLabel>Reporting tax</CellLabel>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={taxBadgeVariant}>{taxStatusLabel}</Badge>
+          {taxRate && (
+            <span className="text-xs text-muted-foreground">
+              Current {Number(taxRate.tax_rate_percent).toFixed(2)}%
+            </span>
+          )}
+        </div>
+        <div className="mt-2 flex max-w-xs items-center gap-2">
+          <Input
+            aria-label={`${machine.machine_label} reporting tax rate percent`}
+            type="number"
+            step="0.01"
+            min={0}
+            max={100}
+            value={draftValue}
+            onChange={(event) => onTaxDraftChange(machine.id, event.target.value)}
+            placeholder={activeAssignments.length === 0 ? 'Optional' : 'Missing'}
+            className="h-9 w-24"
+          />
+          <Button
+            size="sm"
+            onClick={() => onSaveTax(machine, taxRate, draftValue)}
+            disabled={isSavingTax}
+            className="shrink-0"
+          >
+            {isSavingTax && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save
+          </Button>
+        </div>
+      </div>
+
+      <div role="cell" className="min-w-0">
+        <CellLabel>Activity</CellLabel>
+        <div className="text-sm text-foreground">{machine.latest_sale_date ?? 'No sales yet'}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          Status {formatLabel(machine.status || 'unknown')}
+        </div>
+      </div>
+
+      <div role="cell" className="min-w-0">
+        <CellLabel className="xl:text-right">Actions</CellLabel>
+        <div className="flex flex-wrap gap-2 xl:justify-end">
+          <Button variant="outline" size="sm" onClick={() => onEdit(machine)}>
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onShowHistory(machine)}
+            disabled={taxHistoryCount === 0}
+          >
+            <History className="mr-2 h-4 w-4" />
+            History
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => onOpenTaxChange(machine, taxRate)}>
+            <CalendarClock className="mr-2 h-4 w-4" />
+            Rate Change
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CellLabel({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground xl:sr-only',
+        className
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -889,22 +1003,31 @@ function MachineDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{form.machineId ? 'Edit Machine' : 'New Manual Machine'}</DialogTitle>
-          <DialogDescription>
-            Manage the machine identity only. Report membership is assigned from Partnerships, and
-            imported machines with queued sales are set up from Reporting Operations.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle>{form.machineId ? 'Edit Machine' : 'New Manual Machine'}</SheetTitle>
+          <SheetDescription>
+            Manage machine identity and reporting account. Report membership is assigned from
+            Partnerships, and imported machines with queued sales are set up from Reporting
+            Operations.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="machine-label">Machine label / alias</Label>
             <Input
               id="machine-label"
               value={form.machineLabel}
               onChange={(event) => setForm({ ...form, machineLabel: event.target.value })}
+            />
+          </div>
+          <div>
+            <Label htmlFor="machine-account">Reporting account</Label>
+            <Input
+              id="machine-account"
+              value={form.accountName}
+              onChange={(event) => setForm({ ...form, accountName: event.target.value })}
             />
           </div>
           <div>
@@ -932,7 +1055,7 @@ function MachineDialog({
             />
           </div>
         </div>
-        <DialogFooter>
+        <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -940,8 +1063,8 @@ function MachineDialog({
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Machine
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -288,8 +288,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships > Participants includes an `Add new partner record` dropdown option that opens a modal, saves minimum viable partner fields, and selects the new record
 - [ ] Admin Partnerships > Machines supports bulk searchable check/uncheck machine alignment and archives unchecked active assignments without exposing dates, status, role, or notes
 - [ ] Admin Partnerships > Machines shows when selected machines are already assigned to another active partnership and requires confirmation before saving an overlap
+- [ ] Admin Machines shows machine identity/source, partner report assignment, tax status/input, latest sale, and row actions without horizontal scrolling at desktop, narrower laptop, and mobile widths
 - [ ] Admin Machines can edit machine label/alias, account, and machine type while hiding location and showing external machine ID as read-only system metadata
-- [ ] Admin Machines shows a sortable/filterable table with assignment readiness, assignment state filters, latest sale, and current tax states: Missing, No tax, Configured
+- [ ] Admin Machines shows a sortable/filterable machine setup list with assignment readiness, assignment state filters, latest sale, and current tax states: Missing, No tax, Configured
 - [ ] Admin Machines can save `0%` as intentional no-tax without exposing effective date fields in the normal edit flow, and newly documented rates apply from `2026-01-01`
 - [ ] Admin Machines can record a reporting tax rate change with only `New reporting tax %` and `Applies from`, and the previous active rate closes without overlap
 - [ ] Admin Machines exposes read-only reporting tax history for a machine without making normal admins manage tax status, end date, or notes
