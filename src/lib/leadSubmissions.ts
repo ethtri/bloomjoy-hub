@@ -7,6 +7,7 @@ type CreateLeadSubmissionInput = {
   name: string;
   email: string;
   message: string;
+  metadata?: Record<string, unknown>;
   machineInterest?: string;
   sourcePage?: string;
 };
@@ -16,6 +17,7 @@ export const createLeadSubmission = async ({
   name,
   email,
   message,
+  metadata,
   machineInterest,
   sourcePage = '/contact',
 }: CreateLeadSubmissionInput) => {
@@ -26,6 +28,7 @@ export const createLeadSubmission = async ({
       name,
       email,
       message,
+      metadata,
       machineInterest,
       sourcePage,
       clientSubmissionId: crypto.randomUUID(),

@@ -16,6 +16,12 @@ verify_jwt = false
 [functions.lead-submission-intake]
 verify_jwt = false
 
+[functions.custom-sticks-artwork-upload]
+verify_jwt = false
+
+[functions.custom-sticks-artwork-link]
+verify_jwt = false
+
 [functions.support-request-intake]
 verify_jwt = false
 

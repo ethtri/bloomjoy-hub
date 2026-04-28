@@ -57,7 +57,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Bloomjoy branded sticks flow requires machine size selection and delivery location type selection before request/checkout
 - [ ] Bloomjoy branded sticks orders under 5 boxes submit a procurement lead with box count, size, address type, and estimated shipping summary
 - [ ] Bloomjoy branded sticks orders of 5+ boxes launch direct Stripe checkout with free shipping and do not use the shared cart
-- [ ] Custom sticks flow on `/supplies?order=custom` accepts logo/image upload and submits a procurement lead with artwork URL, requested box count, selected size, and `$750` first-order plate-fee note
+- [ ] Custom sticks flow on `/supplies?order=custom` accepts logo/image upload through a signed upload token and submits a procurement lead with private artwork storage metadata/path, requested box count, selected size, and `$750` first-order plate-fee note; no public artwork URL is stored in the lead message
+- [ ] Super-admin artwork access can generate a signed URL for a submitted `custom-sticks-artwork` object and the link expires after the configured short window
 - [ ] Shared cart remains sugar-only and legacy stick items do not block checkout
 - [ ] Cart remains sugar-only and has no horizontal overflow on mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] Cart line-item title, quantity controls, price, and remove action stack cleanly on mobile
