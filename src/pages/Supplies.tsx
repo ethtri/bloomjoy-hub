@@ -15,6 +15,7 @@ import { trackEvent } from '@/lib/analytics';
 import { useCart } from '@/lib/cart';
 import {
   ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES,
+  CUSTOM_STICKS_ARTWORK_SIGNED_URL_TTL_SECONDS,
   MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES,
   uploadCustomSticksArtwork,
   validateCustomSticksArtwork,
@@ -351,12 +352,15 @@ export default function SuppliesPage() {
     }
     setSubmittingSticksRequest(true);
     try {
-      const { publicUrl } = await uploadCustomSticksArtwork(customArtworkFile);
+      const artworkUpload = await uploadCustomSticksArtwork(customArtworkFile);
       await createLeadSubmission({
         submissionType: 'procurement',
         name: sticksContactName.trim(),
         email: sticksContactEmail.trim().toLowerCase(),
         sourcePage: '/supplies',
+        metadata: {
+          customSticksArtwork: artworkUpload,
+        },
         message: [
           'Custom Paper Sticks Request',
           `Requested boxes: ${normalizedStickBoxCount}`,
@@ -365,8 +369,12 @@ export default function SuppliesPage() {
           `Per-box price: $${STICKS_PRICE_PER_BOX}`,
           `First custom order plate fee: $${CUSTOM_STICKS_FIRST_ORDER_PLATE_FEE}`,
           `Shipping note: 1-4 boxes estimate at $35/box business or $40/box residential; ${BLANK_STICKS_FREE_SHIPPING_BOX_THRESHOLD}+ boxes ship free`,
-          `Artwork URL: ${publicUrl}`,
-          `Artwork file: ${customArtworkFile.name}`,
+          `Artwork storage bucket: ${artworkUpload.bucket}`,
+          `Artwork storage path: ${artworkUpload.storagePath}`,
+          `Artwork file: ${artworkUpload.fileName}`,
+          `Artwork content type: ${artworkUpload.contentType}`,
+          `Artwork size: ${Math.ceil(artworkUpload.sizeBytes / 1024)} KB`,
+          `Artwork access: private; admins can generate a signed URL that expires in ${Math.floor(CUSTOM_STICKS_ARTWORK_SIGNED_URL_TTL_SECONDS / 60)} minutes.`,
           `Notes: ${sticksRequestNotes.trim() || 'None'}`,
         ].join('\n'),
       });

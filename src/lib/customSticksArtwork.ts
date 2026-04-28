@@ -1,12 +1,24 @@
 import { supabaseClient } from '@/lib/supabaseClient';
 
 export const CUSTOM_STICKS_ARTWORK_BUCKET = 'custom-sticks-artwork';
+export const CUSTOM_STICKS_ARTWORK_PRIVATE_PREFIX = 'private';
+export const CUSTOM_STICKS_ARTWORK_SIGNED_URL_TTL_SECONDS = 15 * 60;
 export const MAX_CUSTOM_STICKS_ARTWORK_SIZE_BYTES = 5 * 1024 * 1024;
 export const ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES = [
   'image/png',
   'image/jpeg',
   'image/webp',
 ] as const;
+
+export type CustomSticksArtworkUpload = {
+  access: 'private';
+  bucket: typeof CUSTOM_STICKS_ARTWORK_BUCKET;
+  contentType: (typeof ALLOWED_CUSTOM_STICKS_ARTWORK_TYPES)[number];
+  fileName: string;
+  signedUrlTtlSeconds: typeof CUSTOM_STICKS_ARTWORK_SIGNED_URL_TTL_SECONDS;
+  sizeBytes: number;
+  storagePath: string;
+};
 
 const sanitizeFileName = (name: string): string =>
   name
@@ -27,7 +39,7 @@ export const validateCustomSticksArtwork = (file: File): void => {
 
 export const uploadCustomSticksArtwork = async (
   file: File
-): Promise<{ publicUrl: string; storagePath: string }> => {
+): Promise<CustomSticksArtworkUpload> => {
   validateCustomSticksArtwork(file);
 
   const uniqueId =
@@ -35,8 +47,8 @@ export const uploadCustomSticksArtwork = async (
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
-  const safeName = sanitizeFileName(file.name || 'artwork');
-  const storagePath = `public/${uniqueId}-${safeName}`;
+  const safeName = sanitizeFileName(file.name || 'artwork') || 'artwork';
+  const storagePath = `${CUSTOM_STICKS_ARTWORK_PRIVATE_PREFIX}/${uniqueId}-${safeName}`;
 
   const { error: uploadError } = await supabaseClient.storage
     .from(CUSTOM_STICKS_ARTWORK_BUCKET)
@@ -49,16 +61,13 @@ export const uploadCustomSticksArtwork = async (
     throw new Error(uploadError.message || 'Unable to upload artwork.');
   }
 
-  const { data } = supabaseClient.storage
-    .from(CUSTOM_STICKS_ARTWORK_BUCKET)
-    .getPublicUrl(storagePath);
-
-  if (!data?.publicUrl) {
-    throw new Error('Artwork uploaded but no public URL was returned.');
-  }
-
   return {
-    publicUrl: data.publicUrl,
+    access: 'private',
+    bucket: CUSTOM_STICKS_ARTWORK_BUCKET,
+    contentType: file.type as CustomSticksArtworkUpload['contentType'],
+    fileName: file.name || safeName,
+    signedUrlTtlSeconds: CUSTOM_STICKS_ARTWORK_SIGNED_URL_TTL_SECONDS,
+    sizeBytes: file.size,
     storagePath,
   };
 };

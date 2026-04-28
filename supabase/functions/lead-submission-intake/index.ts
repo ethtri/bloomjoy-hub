@@ -14,6 +14,11 @@ const validSubmissionTypes = new Set(["quote", "demo", "procurement", "general"]
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const customSticksArtworkBucket = "custom-sticks-artwork";
+const customSticksArtworkPathPattern = /^private\/[a-z0-9][a-z0-9._/-]{0,240}$/;
+const allowedCustomSticksArtworkTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+const maxLeadMetadataBytes = 4096;
+const maxCustomSticksArtworkSizeBytes = 5 * 1024 * 1024;
 
 if (!supabaseUrl) {
   console.error("Missing SUPABASE_URL");
@@ -32,6 +37,81 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
   : null;
 
 const sanitizeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+class RequestValidationError extends Error {}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const normalizeCustomSticksArtworkMetadata = (value: unknown) => {
+  if (!isRecord(value)) {
+    throw new RequestValidationError("Artwork metadata is invalid.");
+  }
+
+  const bucket = sanitizeText(value.bucket);
+  const storagePath = sanitizeText(value.storagePath);
+  const fileName = sanitizeText(value.fileName) || "artwork";
+  const contentType = sanitizeText(value.contentType).toLowerCase();
+  const rawSizeBytes = Number(value.sizeBytes);
+
+  if (bucket !== customSticksArtworkBucket) {
+    throw new RequestValidationError("Artwork bucket is invalid.");
+  }
+
+  if (
+    !customSticksArtworkPathPattern.test(storagePath) ||
+    storagePath.includes("..") ||
+    storagePath.includes("//")
+  ) {
+    throw new RequestValidationError("Artwork storage path is invalid.");
+  }
+
+  if (!allowedCustomSticksArtworkTypes.has(contentType)) {
+    throw new RequestValidationError("Artwork content type is invalid.");
+  }
+
+  if (
+    !Number.isFinite(rawSizeBytes) ||
+    rawSizeBytes <= 0 ||
+    rawSizeBytes > maxCustomSticksArtworkSizeBytes
+  ) {
+    throw new RequestValidationError("Artwork file size is invalid.");
+  }
+
+  return {
+    access: "private",
+    bucket: customSticksArtworkBucket,
+    contentType,
+    fileName: fileName.slice(0, 160),
+    signedUrlTtlSeconds: 15 * 60,
+    sizeBytes: Math.round(rawSizeBytes),
+    storagePath,
+  };
+};
+
+const normalizeLeadMetadata = (value: unknown): Record<string, unknown> => {
+  if (value === undefined || value === null) {
+    return {};
+  }
+
+  if (!isRecord(value)) {
+    throw new RequestValidationError("Submission metadata is invalid.");
+  }
+
+  const metadata: Record<string, unknown> = {};
+
+  if ("customSticksArtwork" in value) {
+    metadata.customSticksArtwork = normalizeCustomSticksArtworkMetadata(
+      value.customSticksArtwork
+    );
+  }
+
+  if (JSON.stringify(metadata).length > maxLeadMetadataBytes) {
+    throw new RequestValidationError("Submission metadata is too large.");
+  }
+
+  return metadata;
+};
 
 const claimDispatch = async (
   eventKey: string,
@@ -106,6 +186,7 @@ serve(async (req) => {
     const message = sanitizeText(body?.message);
     const machineInterest = sanitizeText(body?.machineInterest);
     const clientSubmissionId = sanitizeText(body?.clientSubmissionId).toLowerCase();
+    const metadata = normalizeLeadMetadata(body?.metadata);
 
     if (!validSubmissionTypes.has(submissionType)) {
       return new Response(
@@ -153,7 +234,7 @@ serve(async (req) => {
         : message;
 
     const selectedColumns =
-      "id, submission_type, name, email, source_page, message, created_at, internal_notification_sent_at";
+      "id, submission_type, name, email, source_page, message, metadata, created_at, internal_notification_sent_at";
 
     const { data: insertedLead, error: insertError } = await supabase
       .from("lead_submissions")
@@ -162,6 +243,7 @@ serve(async (req) => {
         name,
         email,
         message: normalizedMessage,
+        metadata,
         source_page: sourcePage,
         client_submission_id: clientSubmissionId,
       })
@@ -263,6 +345,13 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("lead-submission-intake error", error);
+    if (error instanceof RequestValidationError) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     return new Response(
       JSON.stringify({ error: "Unable to submit contact request." }),
       {
