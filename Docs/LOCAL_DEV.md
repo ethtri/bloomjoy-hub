@@ -282,6 +282,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set STRIPE_SUGAR_NON_MEMBER_PRICE_ID=...`
    - Optional migration bridge only: `supabase secrets set STRIPE_SUGAR_PRICE_ID=...`
    - `supabase secrets set STRIPE_STICKS_PRICE_ID=...`
+   - `supabase secrets set STRIPE_STICKS_MEMBER_PRICE_ID=...`
    - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
    - Optional local/dev only: `supabase secrets set BLOOMJOY_ALLOW_LOCAL_REDIRECT_URLS=true` when serving commerce/invite functions locally against a non-local `SUPABASE_URL`
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`

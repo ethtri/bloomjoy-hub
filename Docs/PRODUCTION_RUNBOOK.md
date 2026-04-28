@@ -23,6 +23,7 @@ Set the following values before launch.
 | `STRIPE_SUGAR_NON_MEMBER_PRICE_ID` | Server-only | `stripe-sugar-checkout` | Stripe public sugar price (`$10/kg`) | Billing owner |
 | `STRIPE_SUGAR_PRICE_ID` | Server-only (legacy bridge only) | `stripe-sugar-checkout` fallback | Legacy member sugar price during rollout | Billing owner |
 | `STRIPE_STICKS_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe product/price config | Billing owner |
+| `STRIPE_STICKS_MEMBER_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe member sticks price config | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake` | Resend API key | Technical owner |
@@ -65,7 +66,7 @@ Security rule:
 - [ ] `npm run db:validate-migrations` passes before any production Supabase migration push.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref>` passes
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
-- [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
+- [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
   - [ ] `https://www.bloomjoyusa.com`
   - [ ] `https://app.bloomjoyusa.com`
@@ -106,6 +107,7 @@ supabase secrets set STRIPE_SUGAR_NON_MEMBER_PRICE_ID=...
 # Optional migration bridge only:
 supabase secrets set STRIPE_SUGAR_PRICE_ID=...
 supabase secrets set STRIPE_STICKS_PRICE_ID=...
+supabase secrets set STRIPE_STICKS_MEMBER_PRICE_ID=...
 supabase secrets set STRIPE_PLUS_PRICE_ID=...
 supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
