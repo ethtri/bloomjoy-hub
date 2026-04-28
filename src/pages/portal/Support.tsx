@@ -8,6 +8,7 @@ import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { trackEvent } from '@/lib/analytics';
 import { createSupportRequest } from '@/lib/supportRequests';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { toast } from 'sonner';
 
 type SupportType = 'concierge' | 'parts' | 'wechat' | 'wechat_onboarding' | null;
@@ -90,6 +91,7 @@ const showLegacyWeChatGuide = false;
 
 export default function SupportPage() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [activeForm, setActiveForm] = useState<SupportType>(null);
   const [formData, setFormData] = useState({ subject: '', message: '' });
   const [wechatOnboardingData, setWechatOnboardingData] = useState({
@@ -210,11 +212,11 @@ export default function SupportPage() {
       <section className="portal-section">
         <div className="container-page">
           <PortalPageIntro
-            title="Support"
-            description="Get to the right support path faster, whether you need manufacturer help, guided WeChat onboarding, concierge guidance, or replacement parts assistance."
+            title={t('support.title')}
+            description={t('support.description')}
             badges={[
-              { label: 'Plus member support', tone: 'success' },
-              { label: 'Choose the right lane first', tone: 'muted' },
+              { label: t('support.plusSupport'), tone: 'success' },
+              { label: t('support.chooseLane'), tone: 'muted' },
             ]}
           />
 
@@ -225,17 +227,17 @@ export default function SupportPage() {
                 <MessageSquare className="h-6 w-6 text-sage" />
               </div>
               <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
-                Get Manufacturer Support
+                {t('support.manufacturerTitle')}
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                24/7 technical support directly from the manufacturer via WeChat.
+                {t('support.manufacturerDescription')}
               </p>
               <Button
                 variant="outline"
                 className="mt-4 w-full"
                 onClick={() => setActiveForm('wechat')}
               >
-                View Setup Guide
+                {t('support.viewSetupGuide')}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
@@ -246,13 +248,13 @@ export default function SupportPage() {
                 <UserCheck className="h-6 w-6 text-sky-700" />
               </div>
               <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
-                WeChat Onboarding Help
+                {t('support.wechatHelpTitle')}
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Stuck on signup, verification, or friend-referral steps? Request guided setup.
+                {t('support.wechatHelpDescription')}
               </p>
               <Button className="mt-4 w-full" onClick={() => setActiveForm('wechat_onboarding')}>
-                Request Onboarding Help
+                {t('support.requestOnboarding')}
               </Button>
             </div>
 
@@ -262,13 +264,13 @@ export default function SupportPage() {
                 <Wrench className="h-6 w-6 text-primary" />
               </div>
               <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
-                Request Concierge Help
+                {t('support.conciergeTitle')}
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Guidance, best practices, and escalation support.
+                {t('support.conciergeDescription')}
               </p>
               <Button className="mt-4 w-full" onClick={() => setActiveForm('concierge')}>
-                Submit Request
+                {t('support.submitRequest')}
               </Button>
             </div>
 
@@ -278,13 +280,13 @@ export default function SupportPage() {
                 <Package className="h-6 w-6 text-amber" />
               </div>
               <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
-                Parts Assistance
+                {t('support.partsTitle')}
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Help sourcing replacement parts for your machine.
+                {t('support.partsDescription')}
               </p>
               <Button variant="outline" className="mt-4 w-full" onClick={() => setActiveForm('parts')}>
-                Request Parts Help
+                {t('support.requestParts')}
               </Button>
             </div>
           </div>

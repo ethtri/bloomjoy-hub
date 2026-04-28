@@ -9,25 +9,31 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 import type { PortalAccessTier } from '@/lib/membership';
+import type { TranslationKey } from '@/lib/i18n';
 
 export type PortalAccessLevel = 'all' | 'baseline' | 'training' | 'plus' | 'reporting';
 
 export interface PortalDestination {
   href: string;
   label: string;
+  labelKey: TranslationKey;
   description: string;
+  descriptionKey: TranslationKey;
   icon: LucideIcon;
   access: PortalAccessLevel;
   mobileOrder: number;
   end?: boolean;
   upsellCopy?: string;
+  upsellCopyKey?: TranslationKey;
 }
 
 export const portalDestinations: PortalDestination[] = [
   {
     href: '/portal',
     label: 'Dashboard',
+    labelKey: 'portal.nav.dashboard',
     description: 'Your next actions, progress, and account status.',
+    descriptionKey: 'portal.nav.dashboardDescription',
     icon: LayoutDashboard,
     access: 'all',
     mobileOrder: 1,
@@ -36,7 +42,9 @@ export const portalDestinations: PortalDestination[] = [
   {
     href: '/portal/orders',
     label: 'Orders',
+    labelKey: 'portal.nav.orders',
     description: 'Receipts, totals, and shipment tracking.',
+    descriptionKey: 'portal.nav.ordersDescription',
     icon: ShoppingBag,
     access: 'baseline',
     mobileOrder: 2,
@@ -44,7 +52,9 @@ export const portalDestinations: PortalDestination[] = [
   {
     href: '/portal/account',
     label: 'Account',
+    labelKey: 'portal.nav.account',
     description: 'Billing, profile, and shipping details.',
+    descriptionKey: 'portal.nav.accountDescription',
     icon: Settings,
     access: 'baseline',
     mobileOrder: 3,
@@ -52,38 +62,50 @@ export const portalDestinations: PortalDestination[] = [
   {
     href: '/portal/reports',
     label: 'Reporting',
+    labelKey: 'portal.nav.reporting',
     description: 'Machine sales, location rollups, and available reporting views.',
+    descriptionKey: 'portal.nav.reportingDescription',
     icon: BarChart3,
     access: 'reporting',
     mobileOrder: 4,
     upsellCopy: 'Sales reporting is available only for machines Bloomjoy has granted to this account.',
+    upsellCopyKey: 'portal.nav.reportingUpsell',
   },
   {
     href: '/portal/training',
     label: 'Training',
+    labelKey: 'portal.nav.training',
     description: 'Task-first videos, quick aids, and operator guides.',
+    descriptionKey: 'portal.nav.trainingDescription',
     icon: BookOpen,
     access: 'training',
     mobileOrder: 5,
     upsellCopy: 'Unlock the operator hub, quick aids, and certificate path.',
+    upsellCopyKey: 'portal.nav.trainingUpsell',
   },
   {
     href: '/portal/onboarding',
     label: 'Onboarding',
+    labelKey: 'portal.nav.onboarding',
     description: 'Guided setup milestones for your first successful runs.',
+    descriptionKey: 'portal.nav.onboardingDescription',
     icon: ListChecks,
     access: 'plus',
     mobileOrder: 6,
     upsellCopy: 'Unlock guided setup steps and first-spin milestones.',
+    upsellCopyKey: 'portal.nav.onboardingUpsell',
   },
   {
     href: '/portal/support',
     label: 'Support',
+    labelKey: 'portal.nav.support',
     description: 'Concierge help, WeChat onboarding, and parts assistance.',
+    descriptionKey: 'portal.nav.supportDescription',
     icon: HeadphonesIcon,
     access: 'plus',
     mobileOrder: 7,
     upsellCopy: 'Unlock guided support requests and concierge escalation.',
+    upsellCopyKey: 'portal.nav.supportUpsell',
   },
 ];
 
@@ -128,5 +150,21 @@ export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
     case 'all':
     default:
       return 'Open';
+  }
+};
+
+export const getAccessLevelLabelKey = (accessLevel: PortalAccessLevel): TranslationKey => {
+  switch (accessLevel) {
+    case 'baseline':
+      return 'portal.access.customer';
+    case 'training':
+      return 'portal.access.training';
+    case 'plus':
+      return 'portal.access.plus';
+    case 'reporting':
+      return 'portal.access.reporting';
+    case 'all':
+    default:
+      return 'portal.access.open';
   }
 };

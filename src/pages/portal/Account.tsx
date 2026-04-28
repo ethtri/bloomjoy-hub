@@ -16,7 +16,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { TechnicianManagementPanel } from '@/components/portal/TechnicianManagementPanel';
+import { LanguagePreferenceControl } from '@/components/i18n/LanguagePreferenceControl';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { openCustomerPortal } from '@/lib/stripeCheckout';
 import { hasPlusAccess } from '@/lib/membership';
 import {
@@ -63,6 +65,7 @@ const parseOperatorEmails = (value: string): string[] =>
 
 export default function AccountPage() {
   const { user, canManageOperatorTraining } = useAuth();
+  const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -363,8 +366,8 @@ export default function AccountPage() {
       <section className="portal-section overflow-x-clip">
         <div className="container-page">
           <PortalPageIntro
-            title="Account Settings"
-            description="Manage the billing details, profile information, and shipping address that keep future orders and support handoffs running smoothly."
+            title={t('account.title')}
+            description={t('account.description')}
             badges={[
               { label: membershipStatusLabel, tone: isMember ? 'success' : 'accent' },
               ...(nextBillingLabel
@@ -403,15 +406,17 @@ export default function AccountPage() {
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <User className="h-5 w-5 text-primary" />
                   </div>
-                  <h2 className="font-display text-lg font-semibold text-foreground">Profile</h2>
+                  <h2 className="font-display text-lg font-semibold text-foreground">
+                    {t('account.profile')}
+                  </h2>
                 </div>
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Email</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.email')}</label>
                     <Input value={user?.email || ''} disabled className="mt-1" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Name</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.name')}</label>
                     <Input
                       value={profileForm.fullName}
                       onChange={(event) => updateProfileField('fullName', event.target.value)}
@@ -421,7 +426,7 @@ export default function AccountPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Company</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.company')}</label>
                     <Input
                       value={profileForm.companyName}
                       onChange={(event) => updateProfileField('companyName', event.target.value)}
@@ -431,7 +436,7 @@ export default function AccountPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-foreground">Phone</label>
+                    <label className="block text-sm font-medium text-foreground">{t('account.phone')}</label>
                     <Input
                       value={profileForm.phone}
                       onChange={(event) => updateProfileField('phone', event.target.value)}
@@ -446,7 +451,7 @@ export default function AccountPage() {
                   onClick={saveProfileSection}
                   disabled={saveProfileMutation.isPending || isProfileLoading}
                 >
-                  {saveProfileMutation.isPending ? 'Saving...' : 'Save Changes'}
+                  {saveProfileMutation.isPending ? t('account.saving') : t('account.saveChanges')}
                 </Button>
               </div>
 
@@ -457,7 +462,7 @@ export default function AccountPage() {
                     <MapPin className="h-5 w-5 text-primary" />
                   </div>
                   <h2 className="font-display text-lg font-semibold text-foreground">
-                    Shipping Address
+                    {t('account.shippingAddress')}
                   </h2>
                 </div>
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -531,13 +536,17 @@ export default function AccountPage() {
                   onClick={saveShippingSection}
                   disabled={saveProfileMutation.isPending || isProfileLoading}
                 >
-                  {saveProfileMutation.isPending ? 'Saving...' : 'Update Address'}
+                  {saveProfileMutation.isPending ? t('account.saving') : t('account.updateAddress')}
                 </Button>
               </div>
             </div>
 
             {/* Billing */}
             <div className="min-w-0">
+              <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
+                <LanguagePreferenceControl showText fullWidth />
+              </div>
+
               <div className="card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">

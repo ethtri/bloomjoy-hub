@@ -19,7 +19,9 @@ import {
   type PortalAccessLevel,
 } from '@/components/portal/portalNavigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { trackEvent } from '@/lib/analytics';
+import type { TranslationKey } from '@/lib/i18n';
 import { getOnboardingProgress } from '@/lib/onboardingChecklist';
 import {
   bindTracksToTrainingExperience,
@@ -33,12 +35,12 @@ import type { TrainingExperienceItem } from '@/lib/trainingTypes';
 import { cn } from '@/lib/utils';
 
 interface DashboardAction {
-  title: string;
-  description: string;
+  titleKey: TranslationKey;
+  descriptionKey: TranslationKey;
   href: string;
   icon: LucideIcon;
   access: PortalAccessLevel;
-  upsellCopy?: string;
+  upsellCopyKey?: TranslationKey;
 }
 
 const sortTrainingItems = (left: TrainingExperienceItem, right: TrainingExperienceItem) => {
@@ -59,8 +61,8 @@ const sortTrainingItems = (left: TrainingExperienceItem, right: TrainingExperien
 
 const dashboardActions: DashboardAction[] = [
   {
-    title: 'Reorder Supplies',
-    description: 'Jump into the current supply checkout without using the sales navigation.',
+    titleKey: 'dashboard.reorderSupplies',
+    descriptionKey: 'dashboard.reorderSuppliesDescription',
     href: '/supplies',
     icon: Package,
     access: 'baseline',
@@ -68,12 +70,12 @@ const dashboardActions: DashboardAction[] = [
   ...portalDestinations
     .filter((destination) => destination.href !== '/portal')
     .map((destination) => ({
-      title: destination.label,
-      description: destination.description,
+      titleKey: destination.labelKey,
+      descriptionKey: destination.descriptionKey,
       href: destination.href,
       icon: destination.icon,
       access: destination.access,
-      upsellCopy: destination.upsellCopy,
+      upsellCopyKey: destination.upsellCopyKey,
     })),
 ];
 
@@ -81,6 +83,7 @@ const formatCountLabel = (count: number, singular: string, plural: string) =>
   `${count} ${count === 1 ? singular : plural}`;
 
 export default function PortalDashboard() {
+  const { t } = useLanguage();
   const {
     user,
     isMember,
@@ -149,14 +152,14 @@ export default function PortalDashboard() {
 
   const primaryAction = hasReportingAccess && !isMember
     ? {
-        label: 'Open Reporting',
+        label: t('dashboard.openReporting'),
         href: '/portal/reports',
         description: 'Review assigned machine sales, trends, and reporting exports.',
         helper: reportingScopeDescription,
       }
     : !canAccessTraining
     ? {
-        label: 'Reorder Supplies',
+        label: t('dashboard.reorderSupplies'),
         href: '/supplies',
         description: 'Jump into the current supply checkout without using the public sales nav.',
         helper: 'Baseline access starts with reorders, account details, and order history.',
@@ -164,7 +167,7 @@ export default function PortalDashboard() {
     : !isMember
       ? continueLearningItem
         ? {
-            label: 'Resume Training',
+            label: t('dashboard.resumeTraining'),
             href: `/portal/training/${continueLearningItem.id}`,
             description:
               continueLearningItem.description ||
@@ -172,14 +175,14 @@ export default function PortalDashboard() {
             helper: 'Training access is focused on operator tasks, quick aids, and manuals.',
           }
         : {
-            label: 'Open Training Hub',
+            label: t('dashboard.openTrainingHub'),
             href: '/portal/training',
             description: 'Browse the operator hub of videos, quick aids, and manuals.',
             helper: 'Training-only access keeps the portal focused on operator readiness.',
           }
       : !onboardingComplete
       ? {
-          label: 'Continue Setup',
+          label: t('dashboard.continueSetup'),
           href: '/portal/onboarding',
           description: 'Finish the remaining onboarding milestones before your next shift.',
           helper:
@@ -189,7 +192,7 @@ export default function PortalDashboard() {
         }
       : continueLearningItem
         ? {
-            label: 'Resume Training',
+            label: t('dashboard.resumeTraining'),
             href: `/portal/training/${continueLearningItem.id}`,
             description:
               continueLearningItem.description ||
@@ -197,7 +200,7 @@ export default function PortalDashboard() {
             helper: 'Your setup is complete. The next best move is to keep training momentum.',
           }
         : {
-            label: 'Open Training Hub',
+            label: t('dashboard.openTrainingHub'),
             href: '/portal/training',
             description: 'Browse the full operator hub of videos, quick aids, and manuals.',
             helper: 'Training recommendations are ready whenever you want to jump back in.',
@@ -205,21 +208,21 @@ export default function PortalDashboard() {
 
   const secondaryAction = !canAccessTraining
     ? {
-        label: 'View Orders',
+        label: t('dashboard.viewOrders'),
         href: '/portal/orders',
       }
     : !isMember
       ? {
-          label: 'Open Training Hub',
-          href: '/portal/training',
-        }
+          label: t('dashboard.openTrainingHub'),
+        href: '/portal/training',
+      }
     : !onboardingComplete
       ? {
-          label: 'Open Training Hub',
-          href: '/portal/training',
-        }
+          label: t('dashboard.openTrainingHub'),
+        href: '/portal/training',
+      }
       : {
-          label: 'Manage Account',
+          label: t('dashboard.manageAccount'),
           href: '/portal/account',
         };
 
@@ -237,35 +240,38 @@ export default function PortalDashboard() {
       <section className="portal-section">
         <div className="container-page portal-stack">
           <PortalPageIntro
-            title="Welcome back"
-            description="Your portal is now organized around the next task that matters most, with training, onboarding, support, orders, and account actions all within a tighter workflow."
+            title={t('dashboard.welcome')}
+            description={t('dashboard.description')}
             badges={[
               {
                 label: isMember
-                  ? 'Plus Basic Active'
+                  ? t('dashboard.plusActive')
                   : canAccessTraining
-                    ? 'Training Access'
-                    : 'Baseline Access',
+                    ? t('dashboard.trainingAccess')
+                    : t('dashboard.baselineAccess'),
                 tone: isMember ? 'success' : canAccessTraining ? 'accent' : 'accent',
                 icon: CheckCircle2,
               },
               {
                 label: canAccessTraining
-                  ? `${completedRequiredCount}/${requiredTrackItems.length || 0} core training tasks complete`
-                  : 'Orders and account are available today',
+                  ? t('dashboard.coreTrainingComplete', {
+                      completed: completedRequiredCount,
+                      total: requiredTrackItems.length || 0,
+                    })
+                  : t('dashboard.ordersAccountAvailable'),
                 tone: 'muted',
               },
             ]}
             actions={
               <Button variant="outline" size="sm" onClick={() => signOut()}>
-                Sign Out
+                {t('dashboard.signOut')}
               </Button>
             }
           >
             <div className="grid gap-4 xl:grid-cols-[1.35fr,0.95fr]">
               <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)] sm:p-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                  Primary next step
+                  {t('dashboard.primaryNextStep')}
                 </p>
                 <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
                   {primaryAction.label}
@@ -292,10 +298,10 @@ export default function PortalDashboard() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                          Reporting access
+                          {t('dashboard.reportingAccess')}
                         </p>
                         <p className="mt-2 font-display text-xl font-semibold text-foreground">
-                          Machine reporting is ready
+                          {t('dashboard.reportingReady')}
                         </p>
                       </div>
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -306,21 +312,21 @@ export default function PortalDashboard() {
                       {reportingScopeDescription}
                     </p>
                     <Button asChild variant="outline" className="mt-5 w-full sm:w-auto">
-                      <Link to="/portal/reports">Open reporting</Link>
+                      <Link to="/portal/reports">{t('dashboard.openReporting')}</Link>
                     </Button>
                   </div>
                 )}
 
                 <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    Portal access
+                    {t('dashboard.portalAccess')}
                   </p>
                   <p className="mt-2 font-display text-xl font-semibold text-foreground">
                     {isMember
-                      ? 'Everything is unlocked'
+                      ? t('dashboard.everythingUnlocked')
                       : canAccessTraining
-                        ? 'Training is unlocked'
-                        : 'Start with baseline essentials'}
+                        ? t('dashboard.trainingUnlocked')
+                        : t('dashboard.baselineEssentials')}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     {isMember
@@ -334,7 +340,7 @@ export default function PortalDashboard() {
                 {canAccessTraining ? (
                   <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      {isMember ? 'Setup progress' : 'Training progress'}
+                      {isMember ? t('dashboard.setupProgress') : t('dashboard.trainingProgress')}
                     </p>
                     {isMember ? (
                       <>
@@ -374,10 +380,10 @@ export default function PortalDashboard() {
                 ) : (
                   <div className="rounded-[24px] border border-primary/20 bg-primary/5 p-5 shadow-[var(--shadow-sm)]">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                      Unlock Bloomjoy Plus
+                      {t('dashboard.unlockPlus')}
                     </p>
                     <p className="mt-2 font-display text-xl font-semibold text-foreground">
-                      Training, onboarding, and support live behind Plus
+                      {t('dashboard.plusUnlocks')}
                     </p>
                     <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
                       <li>Guided operator setup and first-spin milestones</li>
@@ -385,7 +391,7 @@ export default function PortalDashboard() {
                       <li>Concierge support, WeChat help, and parts assistance</li>
                     </ul>
                     <Button asChild className="mt-5">
-                      <Link to="/plus">View Plus Membership</Link>
+                      <Link to="/plus">{t('dashboard.viewPlus')}</Link>
                     </Button>
                   </div>
                 )}
@@ -397,14 +403,13 @@ export default function PortalDashboard() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  Jump back in
+                  {t('dashboard.jumpBackIn')}
                 </p>
                 <h2 className="mt-1 font-display text-2xl font-semibold text-foreground">
-                  Quick actions
+                  {t('dashboard.quickActions')}
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  The most common portal destinations stay visible, with access cues based on your
-                  account role.
+                  {t('dashboard.quickActionsDescription')}
                 </p>
               </div>
             </div>
@@ -453,13 +458,15 @@ export default function PortalDashboard() {
                       )}
                     </div>
                     <h3 className="mt-4 font-display text-lg font-semibold text-foreground group-hover:text-primary">
-                      {action.title}
+                      {t(action.titleKey)}
                     </h3>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {locked ? action.upsellCopy : action.description}
+                      {locked
+                        ? t(action.upsellCopyKey ?? action.descriptionKey)
+                        : t(action.descriptionKey)}
                     </p>
                     <div className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary">
-                      <span>{locked ? 'See access details' : 'Open now'}</span>
+                      <span>{locked ? t('dashboard.seeAccessDetails') : t('dashboard.openNow')}</span>
                       <ArrowRight className="h-4 w-4" />
                     </div>
                   </Link>

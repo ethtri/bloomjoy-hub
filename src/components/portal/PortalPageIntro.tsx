@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 
 type PortalPageIntroBadgeTone = 'default' | 'accent' | 'success' | 'muted' | 'warning';
@@ -29,7 +30,7 @@ const badgeToneClasses: Record<PortalPageIntroBadgeTone, string> = {
 };
 
 export function PortalPageIntro({
-  eyebrow = 'Member Portal',
+  eyebrow,
   title,
   description,
   badges = [],
@@ -37,6 +38,8 @@ export function PortalPageIntro({
   children,
   className,
 }: PortalPageIntroProps) {
+  const { t } = useLanguage();
+
   return (
     <div
       className={cn(
@@ -45,7 +48,7 @@ export function PortalPageIntro({
       )}
     >
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-        {eyebrow}
+        {eyebrow ?? t('portal.memberPortal')}
       </p>
       <div className="mt-3 flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">

@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/collapsible';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { downloadTrainingCertificateSvg } from '@/lib/trainingCertificate';
 import { trackEvent } from '@/lib/analytics';
 import {
@@ -164,6 +165,7 @@ const sortTrainingItems = (left: TrainingExperienceItem, right: TrainingExperien
 
 export default function TrainingPage() {
   const { user, canAccessTraining } = useAuth();
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const [selectedTrack, setSelectedTrack] = useState('all');
   const [selectedTopicTags, setSelectedTopicTags] = useState<string[]>([]);
@@ -611,33 +613,32 @@ export default function TrainingPage() {
             <div className="grid gap-5 lg:grid-cols-[0.95fr,1.05fr] lg:items-center">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-                  Training Hub
+                  {t('training.hub')}
                 </p>
                 <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl lg:text-5xl">
-                  Start the next operator task.
+                  {t('training.heroTitle')}
                 </h1>
                 <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
-                  The hub is organized around one path first. Use the start path for new operators,
-                  then search by task or symptom when the machine needs a fast answer.
+                  {t('training.heroDescription')}
                 </p>
                 <div className="mt-5 grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
                   <div className="rounded-2xl border border-primary/10 bg-background/70 px-4 py-3">
                     <span className="block text-lg font-semibold text-foreground">
                       {trainingExperience.tasks.length}
                     </span>
-                    operator tasks
+                    {t('training.operatorTasks')}
                   </div>
                   <div className="rounded-2xl border border-primary/10 bg-background/70 px-4 py-3">
                     <span className="block text-lg font-semibold text-foreground">
                       {walkthroughTaskCount}
                     </span>
-                    walkthrough videos
+                    {t('training.walkthroughVideos')}
                   </div>
                   <div className="rounded-2xl border border-primary/10 bg-background/70 px-4 py-3">
                     <span className="block text-lg font-semibold text-foreground">
                       {trainingExperience.quickAids.length + trainingExperience.manuals.length}
                     </span>
-                    quick aids + manuals
+                    {t('training.quickAidsManuals')}
                   </div>
                 </div>
               </div>
@@ -649,10 +650,10 @@ export default function TrainingPage() {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                      Primary next action
+                      {t('training.primaryNextAction')}
                     </p>
                     <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
-                      {inProgressItem ? 'Resume where you left off' : 'Open the start path'}
+                      {inProgressItem ? t('training.resumeWhereLeftOff') : t('training.openStartPath')}
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       {recommendedStartingItem
@@ -673,13 +674,16 @@ export default function TrainingPage() {
                   />
                 </div>
                 <p className="mt-3 text-sm text-muted-foreground">
-                  {completedRequiredCount}/{requiredTrackItems.length} required essentials complete
+                  {t('training.requiredComplete', {
+                    completed: completedRequiredCount,
+                    total: requiredTrackItems.length,
+                  })}
                 </p>
                 <div className="mt-5 flex flex-col gap-3">
                   {recommendedStartingItem && (
                     <Button asChild className="btn-shadow w-full justify-center">
                       <Link to={`/portal/training/${recommendedStartingItem.id}`}>
-                        {inProgressItem ? 'Resume learning' : 'Open start path'}
+                        {inProgressItem ? t('training.resumeLearning') : t('training.openStartPath')}
                         <ArrowRight className="ml-2 h-4 w-4" />
                       </Link>
                     </Button>
@@ -689,7 +693,7 @@ export default function TrainingPage() {
                     onClick={() => focusLibraryExplorer()}
                     className="inline-flex items-center justify-center gap-2 text-sm font-medium text-primary hover:text-primary/80"
                   >
-                    Search the library instead
+                    {t('training.searchInstead')}
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
@@ -702,14 +706,13 @@ export default function TrainingPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Start Here
+                    {t('training.startHere')}
                   </p>
                   <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
-                    The shortest new-operator sequence
+                    {t('training.shortestSequence')}
                   </h2>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                    Work through these in order. The primary action above opens the next unfinished
-                    item, while this sequence shows where the path is headed.
+                    {t('training.shortestSequenceDescription')}
                   </p>
                 </div>
                 <Button
@@ -717,7 +720,7 @@ export default function TrainingPage() {
                   className="w-full justify-start px-0 text-primary hover:bg-transparent sm:w-fit"
                   onClick={() => focusLibraryExplorer()}
                 >
-                  Explore the full library
+                  {t('training.exploreFullLibrary')}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
@@ -732,14 +735,13 @@ export default function TrainingPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                  Jump By Task
+                  {t('training.jumpByTask')}
                 </p>
                 <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
-                  Go straight to the type of help you need
+                  {t('training.helpType')}
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                  These cards are shortcuts into filtered library views. They stay secondary to the
-                  start path, but useful when an operator already knows the job.
+                  {t('training.helpTypeDescription')}
                 </p>
               </div>
               <Button
@@ -747,7 +749,7 @@ export default function TrainingPage() {
                 className="w-full sm:w-auto"
                 onClick={() => focusLibraryExplorer()}
               >
-                View all resources
+                {t('training.viewAllResources')}
               </Button>
             </div>
 
@@ -799,14 +801,13 @@ export default function TrainingPage() {
               <div className="rounded-[24px] border border-primary/10 bg-primary/5 p-4 sm:p-5">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Job Aids By Moment
+                    {t('training.jobAids')}
                   </p>
                   <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">
-                    Fast references without another library pile
+                    {t('training.fastReferences')}
                   </h2>
                   <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">
-                    These are intentionally small and tied to the task moment where operators need
-                    them: shutdown, timer setup, cleaning, and consumables.
+                    {t('training.fastReferencesDescription')}
                   </p>
                 </div>
 
@@ -834,7 +835,7 @@ export default function TrainingPage() {
                           {item.label}
                         </span>
                         <span className="inline-flex items-center gap-1 font-medium text-primary">
-                          Open
+                          {t('training.open')}
                           <ArrowRight className="h-4 w-4" />
                         </span>
                       </div>
@@ -850,15 +851,15 @@ export default function TrainingPage() {
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-                    Training Library
+                    {t('training.library')}
                   </p>
                   <h2 className="mt-2 font-display text-2xl font-semibold text-foreground sm:text-3xl">
-                    {selectedTrackDefinition ? `Search ${selectedTrackDefinition.label}` : 'Search the task library'}
+                    {selectedTrackDefinition ? `Search ${selectedTrackDefinition.label}` : t('training.searchTaskLibrary')}
                   </h2>
                   <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">
                     {selectedTrackDefinition
                       ? `You are browsing the ${selectedTrackDefinition.label} path. Search within it to find the right task page, then use quick aids and manuals only when you need a specific reference.`
-                      : 'Search by symptom, part, topic, or setting. Tasks stay first; matching quick aids and manuals appear as supporting references below.'}
+                      : t('training.searchTaskDescription')}
                   </p>
                 </div>
 
@@ -866,7 +867,7 @@ export default function TrainingPage() {
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     ref={librarySearchRef}
-                    placeholder="Search by topic, symptom, part, or setting..."
+                    placeholder={t('training.searchPlaceholder')}
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                     className="pl-10"
@@ -877,7 +878,7 @@ export default function TrainingPage() {
                   <Collapsible open={advancedFiltersOpen} onOpenChange={setAdvancedFiltersOpen}>
                     <CollapsibleTrigger asChild>
                       <Button variant="outline" className="w-full sm:w-auto">
-                        More filters
+                        {t('training.moreFilters')}
                         {activeFilterCount > 0 && (
                           <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
                             {activeFilterCount}
