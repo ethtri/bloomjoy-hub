@@ -38,6 +38,7 @@ import {
   bindTracksToTrainingExperience,
   buildTrainingExperience,
   getTrainingProgressWriteIds,
+  getTrainingRouteId,
   mapTrainingProgressToCanonical,
   useIssueTrainingCertificate,
   useSaveTrainingProgress,
@@ -274,15 +275,22 @@ export default function TrainingPage() {
     .filter((item) => !item.isStartHere)
     .sort(sortTrainingItems)
     .slice(0, 4);
+  const safePowerOffRouteId = getTrainingRouteId(
+    trainingExperience,
+    'start-up-shutdown-procedure'
+  );
+  const safePowerOffTask = safePowerOffRouteId
+    ? trainingExperience.byId.get(safePowerOffRouteId)
+    : undefined;
   const featuredJobAidItems = [
-    trainingExperience.byId.has('start-up-shutdown-procedure')
+    safePowerOffTask
       ? {
           id: 'safe-power-off-flow-aid',
           title: 'Safe Power Off and Cooldown',
           taskCategory: 'Daily Operation',
           description:
             'Use from the shutdown task before cleaning, opening panels, or unplugging power.',
-          href: '/portal/training/start-up-shutdown-procedure#written-essentials',
+          href: `/portal/training/${safePowerOffRouteId}#written-essentials`,
           label: 'In shutdown task',
         }
       : undefined,

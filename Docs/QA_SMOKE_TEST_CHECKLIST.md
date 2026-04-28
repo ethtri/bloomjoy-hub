@@ -132,7 +132,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `Explore the full library` scrolls to the searchable library section and focuses the search field instead of appearing dead when `All` is already selected
 - [ ] Training hub shows an operator-first `Start Here` sequence plus task-based jump cards for `Daily Operation`, `Cleaning & Maintenance`, `Software & Payments`, `Troubleshooting & Repair`, `Build / Assembly`, and `Reference`
 - [ ] Selecting a task-path card scrolls into the searchable library with that path active instead of only changing above-the-fold state
-- [ ] Training hub surfaces compact job aids by flow moment near the library entry (`Safe Power Off and Cooldown`, `Timer Control Reference`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`), with the main task library clearly separated below
+- [ ] Training hub surfaces compact job aids by flow moment near the library entry (`Safe Power Off and Cooldown`, `Timer Control Reference`, `Daily Cleaning Hotspots`, `Consumables Loading Reference`), with the main task library clearly separated below; Supabase-backed UUID rows still resolve the Safe Power Off moment through the canonical shutdown task route
 - [ ] Main task-library browse cards show canonical operator tasks only; duplicate sibling video/checklist rows are collapsed for shutdown, cleaning, troubleshooting, and consumables
 - [ ] When live Supabase training rows load, the hub hero shows non-zero quick-aid/manual counts and those same quick aids do not reappear as peer cards in the main task library
 - [ ] Training hub keeps advanced filters hidden behind `More filters` by default and does not expose an `Unassigned` section anywhere in the library
