@@ -9,6 +9,7 @@ import {
   buildPartnerReportCsv,
   buildPartnerReportPdf,
   buildPartnerReportReference,
+  buildPartnerReportXlsx,
   type PartnerReportPreview,
 } from "../_shared/partner-report-export.ts";
 
@@ -19,10 +20,11 @@ const exportBucket = "sales-report-exports";
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-const validFormats = new Set(["pdf", "csv"]);
+const validFormats = new Set(["pdf", "csv", "xlsx"]);
 const validPeriodGrains = new Set(["reporting_week", "calendar_month"]);
 
 type PartnerReportPeriodGrain = "reporting_week" | "calendar_month";
+type PartnerReportExportFormat = "pdf" | "csv" | "xlsx";
 
 type PartnerPeriodPreviewRpc = {
   partnership_id?: string;
@@ -38,7 +40,7 @@ type PartnerPeriodPreviewRpc = {
 
 type ExportRequest = {
   partnershipId: string;
-  format: string;
+  format: PartnerReportExportFormat;
   periodGrain: PartnerReportPeriodGrain;
   periodStartDate: string;
   periodEndDate: string;
@@ -142,7 +144,7 @@ const resolveExportRequest = (
   }
 
   if (!validFormats.has(format)) {
-    return { error: "format must be pdf or csv." };
+    return { error: "format must be pdf, csv, or xlsx." };
   }
 
   if (!validPeriodGrains.has(periodGrain)) {
@@ -166,7 +168,7 @@ const resolveExportRequest = (
     return {
       request: {
         partnershipId,
-        format,
+        format: format as PartnerReportExportFormat,
         periodGrain: periodGrain as PartnerReportPeriodGrain,
         periodStartDate,
         periodEndDate,
@@ -191,7 +193,7 @@ const resolveExportRequest = (
   return {
     request: {
       partnershipId,
-      format,
+      format: format as PartnerReportExportFormat,
       periodGrain: "reporting_week",
       periodStartDate,
       periodEndDate: weekEndingDate,
@@ -670,7 +672,7 @@ serve(async (req) => {
         request.periodStartDate,
         request.periodEndDate,
       ),
-      request.format === "pdf"
+      request.format === "pdf" || request.format === "xlsx"
         ? loadTrendPeriods({ userSupabase, request })
         : Promise.resolve([]),
     ]);
@@ -715,9 +717,13 @@ serve(async (req) => {
     };
     const fileBytes = request.format === "pdf"
       ? await buildPartnerReportPdf(context)
+      : request.format === "xlsx"
+      ? buildPartnerReportXlsx(context)
       : encoder.encode(buildPartnerReportCsv(context));
     const contentType = request.format === "pdf"
       ? "application/pdf"
+      : request.format === "xlsx"
+      ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       : "text/csv";
     const periodSlug = request.periodGrain === "calendar_month"
       ? request.periodStartDate.slice(0, 7)
@@ -741,11 +747,13 @@ serve(async (req) => {
 
     if (uploadError) {
       if (
-        request.format === "csv" &&
+        (request.format === "csv" || request.format === "xlsx") &&
         uploadError.message?.toLowerCase().includes("mime")
       ) {
         throw new Error(
-          "CSV export storage is not configured for text/csv. Apply the latest reporting export migration and retry.",
+          request.format === "xlsx"
+            ? "XLSX export storage is not configured. Apply the latest reporting export migration and retry."
+            : "CSV export storage is not configured for text/csv. Apply the latest reporting export migration and retry.",
         );
       }
       throw new Error(
