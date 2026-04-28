@@ -13,6 +13,8 @@ Bloomjoy already has two related reporting paths:
 
 The scheduled partner delivery feature should extend the partner report export path, not the older generic machine-sales scheduler. The current generic schedule tables can inform naming and UI placement, but they do not have enough partner-specific scope, run records, idempotency, warning gates, recipient audit history, or retry state for settlement delivery.
 
+Live implementation is gated on acceptance of the reviewed corporate partner PDF reporting milestone in [#169](https://github.com/ethtri/bloomjoy-hub/issues/169). The scheduler should not be enabled for real partner delivery until the reviewed PDF flow is trusted, because scheduled email must not become a path around manual report acceptance.
+
 ## Design Principles
 
 - PDF-first for automated partner delivery. XLSX and CSV remain manual reconciliation exports unless a separate approval expands automated delivery.
@@ -47,6 +49,11 @@ Recommended fields:
 | `sender_profile_key` | Server-configured profile, for example `partner_reports`. The DB stores a key, not a raw secret or arbitrary from address. |
 | `reply_to_profile_key` | Optional server-configured reply-to profile. |
 | `delivery_mode` | `secure_link` for V1. `pdf_attachment` is reserved and disabled unless a future decision approves it. |
+| `configuration_version` | Monotonic integer incremented when scope, cadence, timing, delivery mode, sender profile, or active recipients change. |
+| `configuration_hash` | Stable hash of the current send-affecting configuration, including active recipient emails. |
+| `last_validated_configuration_hash` | Hash from the latest successful dry run or test send. |
+| `last_validation_run_id` | FK to the run that validated the current configuration. |
+| `last_validated_at` | Timestamp for the latest successful validation of the current configuration. |
 | `created_by`, `created_at`, `updated_at` | Admin audit context. |
 | `paused_at`, `paused_by`, `pause_reason` | Pause audit context. |
 | `last_run_at`, `last_success_at`, `last_status` | Denormalized list-state fields copied from run records for fast admin views. |
@@ -55,7 +62,7 @@ Validation:
 
 - Only super-admins can create, edit, pause, resume, archive, test, or retry schedules in V1.
 - Active schedules require at least one active recipient.
-- Active schedules require a successful dry run or test send after the latest recipient/cadence/scope change.
+- Active schedules require a successful dry run or test send whose validation hash matches the current `configuration_hash`.
 - `cadence` and `period_grain` must agree: `weekly` uses `reporting_week`; `monthly` uses `calendar_month`.
 - Schedules must not target draft or archived partnerships unless the schedule itself is paused.
 
@@ -95,14 +102,17 @@ Recommended fields:
 | `period_grain`, `period_start_date`, `period_end_date`, `period_label` | Exact report period. |
 | `trigger_type` | `scheduled`, `dry_run`, `test_send`, `manual_retry`, or `manual_send`. |
 | `idempotency_key` | Stable key for the schedule, period, and real-delivery intent. |
+| `configuration_version`, `configuration_hash` | Schedule configuration captured at run time. |
 | `status` | `queued`, `checking_warnings`, `blocked`, `generating`, `artifact_ready`, `sending`, `sent`, `failed`, or `cancelled`. |
 | `warning_gate_status` | `passed`, `blocked`, or `not_checked`. |
 | `warnings_json` | Structured preview warnings with severity, type, machine label, and message. |
 | `snapshot_id` | FK to `partner_report_snapshots` when an artifact is generated. |
 | `artifact_storage_path` | Private storage object path, not a public URL. |
 | `artifact_format` | `pdf` for V1 automated delivery. |
+| `artifact_generated_at` | Timestamp when the PDF artifact was created. |
 | `recipient_snapshot_json` | The explicit active recipients captured at run time. |
 | `attempt_count` | Email attempt count for the run. |
+| `claimed_at`, `lease_expires_at` | Worker claim fields so interrupted nonterminal runs can be recovered safely. |
 | `error_code`, `error_message` | Last failure summary. |
 | `created_at`, `started_at`, `finished_at` | Timing. |
 | `created_by` | Admin user for manual actions, null/system for scheduled runs. |
@@ -111,7 +121,10 @@ Recommended fields:
 Idempotency:
 
 - For real automated sends, use a unique key shaped like `partner-report:schedule:{schedule_id}:period:{period_grain}:{period_start}:{period_end}:delivery`.
-- Scheduler re-entry inserts or claims by this key. If an existing run is `sent`, `sending`, `artifact_ready`, or `generating`, the scheduler must skip it.
+- Scheduler re-entry inserts or claims by this key. If an existing run is `sent`, skip it. If an existing run is `generating` or `sending` with an unexpired lease, skip until the lease expires.
+- If an existing `generating` or `sending` run has an expired lease, reclaim it and resume from the last durable state.
+- `artifact_ready` is not terminal and must not be skipped permanently. A re-entered scheduler should resume email delivery from the stored artifact path or mark the run `failed` if the artifact cannot be validated.
+- `blocked` and non-retryable `failed` runs should not auto-send on scheduler re-entry. They require admin retry after the underlying issue is fixed.
 - `dry_run` and `test_send` use separate idempotency keys so admins can test without blocking future real delivery.
 - Manual duplicate-send after a `sent` run requires an explicit confirmation reason and creates a new `manual_send` run linked to the original run.
 
@@ -126,6 +139,9 @@ Recommended fields:
 | `attempt_number` | 1-based send attempt. |
 | `status` | `pending`, `sent`, or `failed`. |
 | `recipient_emails` | Array of normalized recipients used for this attempt. |
+| `subject` | Subject line sent to the provider, without storing the full body. |
+| `template_version` | Email template identifier/version used for the attempt. |
+| `signed_url_expires_at` | Expiry timestamp for the signed link included in this attempt. |
 | `provider` | `resend` for current server-side email provider. |
 | `provider_message_id` | Provider response ID when available. |
 | `error_code`, `error_message` | Provider or validation failure. |
@@ -146,6 +162,8 @@ The scheduled runner must use the same warning source as manual partner exports:
 
 The admin UI should surface blocked runs as action-required items with the same warning copy used by the partner dashboard. Retrying a blocked run is allowed only after an admin fixes setup/data issues and clicks retry; the retry must re-run the warning gate before generating anything.
 
+Implementation note: the current manual `partner-report-export` function depends on a user access token, and `admin_preview_partner_period_report` is guarded by `auth.uid()` super-admin checks. The scheduler must not fake a browser user token or expose a privileged token to the client. Follow-up implementation should add a scheduler-safe server-side preview/artifact helper, such as a service-role Edge Function guarded by `REPORT_SCHEDULER_SECRET` or a narrow security-definer RPC for scheduler execution, while keeping manual user-triggered preview/export paths super-admin-only.
+
 ## Artifact And Email Delivery
 
 V1 should email a secure artifact link, not attach the PDF.
@@ -163,6 +181,7 @@ Delivery behavior:
 - Upload to the private `sales-report-exports` bucket under a partner schedule path, for example `partner-reports/{partnership_id}/{period_grain}/{snapshot_id}/{file_name}` or `partner-report-schedules/{schedule_id}/{run_id}/{file_name}`.
 - Create signed URLs server-side at send time. Default expiry should be 7 days to match current export behavior.
 - Store the private path and expiry timestamp, not the signed URL itself.
+- Record the email subject, template version, and signed URL expiry on the email attempt record.
 - Email subject should include partnership name and period, for example `Bloomjoy partner report: {Partnership} - week ending 2026-04-26`.
 - Email body should include period, report reference, recipient-safe summary, and the secure download link.
 - Use server-side sender configuration. Prefer `PARTNER_REPORT_EMAIL_FROM` / `PARTNER_REPORT_REPLY_TO` or a named sender profile, with fallback only if intentionally configured. Do not expose provider keys or sender secrets in `VITE_` variables.
@@ -250,16 +269,17 @@ Implementation issues created from this design:
 
 1. [#309: P1: Add partner report schedule and run-record data model](https://github.com/ethtri/bloomjoy-hub/issues/309)
    - Adds partner-specific schedule, recipient, run, and email-attempt tables/RPCs.
-   - Adds RLS, admin audit actions, idempotency constraints, and migration validation.
+   - Adds RLS, admin audit actions, idempotency constraints, configuration hashes, worker leases, and migration validation.
 2. [#310: P1: Refactor partner report export for scheduled PDF generation](https://github.com/ethtri/bloomjoy-hub/issues/310)
    - Extracts reusable partner artifact generation so manual exports and scheduler runs share warning gates, PDF rendering, snapshot updates, and private storage behavior.
+   - Adds the scheduler-safe server-side preview/artifact path needed because the existing manual export path requires user auth.
    - Keeps XLSX/CSV manual-only for automated delivery V1.
 3. [#311: P1: Build admin UX for scheduled partner delivery](https://github.com/ethtri/bloomjoy-hub/issues/311)
    - Adds create/edit/list, pause/resume, dry-run/test-send, run history, warning-blocked states, and retry controls in `/admin/reporting`.
 4. [#312: P1: Implement secure email delivery and retry handling for scheduled partner reports](https://github.com/ethtri/bloomjoy-hub/issues/312)
-   - Sends server-side Resend emails with secure signed PDF links, sender/reply-to profiles, recipient snapshots, retry attempts, and audit logs.
+   - Sends server-side Resend emails with secure signed PDF links, sender/reply-to profiles, recipient snapshots, template/subject/link-expiry audit fields, retry attempts, and audit logs.
 5. [#313: P1: Add scheduled partner report workflow, monitoring, and UAT coverage](https://github.com/ethtri/bloomjoy-hub/issues/313)
-   - Adds the recurring worker trigger, idempotency smoke coverage, warning-blocked smoke coverage, and admin UAT checklist updates.
+   - Adds the recurring worker trigger, recoverable nonterminal run handling, idempotency smoke coverage, warning-blocked smoke coverage, and admin UAT checklist updates.
 
 ## Verification For This Design Slice
 
