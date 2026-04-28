@@ -385,7 +385,6 @@ export function AppLayout({ children }: AppLayoutProps) {
 
             <div className="hidden items-center gap-3 md:flex">
               {isAuthenticated && <nav className="flex items-center gap-2">{renderWorkspaceLinks()}</nav>}
-              <LanguagePreferenceControl />
 
               <a
                 href={marketingHomeUrl}
