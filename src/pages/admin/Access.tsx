@@ -12,6 +12,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { TechnicianManagementPanel } from '@/components/portal/TechnicianManagementPanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -50,11 +51,18 @@ import {
   type AdminReportingAccessPerson,
   type ReportingAccessLevel,
 } from '@/lib/reporting';
+import { fetchPartnershipReportingSetup } from '@/lib/partnershipReporting';
 import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 
-const superAdminTabs = ['users', 'reporting-access', 'scoped-admins', 'global-roles', 'audit'];
-const scopedAdminTabs = ['reporting-access'];
+const superAdminTabs = [
+  'users',
+  'technicians',
+  'reporting-access',
+  'scoped-admins',
+  'global-roles',
+  'audit',
+];
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
   { key: 'mini', label: 'Mini' },
@@ -148,16 +156,20 @@ const roleSort = (a: AdminRoleRecord, b: AdminRoleRecord) => {
 };
 
 export default function AdminAccessPage() {
-  const { isScopedAdmin, isSuperAdmin } = useAuth();
+  const { adminAccess, isScopedAdmin, isSuperAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const availableTabs = isSuperAdmin ? superAdminTabs : scopedAdminTabs;
+  const availableTabs = superAdminTabs;
   const activeTab = availableTabs.includes(searchParams.get('tab') ?? '')
     ? (searchParams.get('tab') as string)
-    : 'reporting-access';
+    : 'users';
 
   const setActiveTab = (value: string) => {
     setSearchParams({ tab: value }, { replace: true });
   };
+
+  if (isScopedAdmin && !isSuperAdmin) {
+    return <ScopedAdminAccessPage scopedMachineCount={adminAccess.scopedMachineIds.length} />;
+  }
 
   return (
     <AppLayout>
@@ -173,8 +185,8 @@ export default function AdminAccessPage() {
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 {isSuperAdmin
-                  ? 'Manage users, Plus access, global roles, scoped admins, and explicit machine-level reporting visibility from one place.'
-                  : 'Manage reporting visibility for the machines included in your scoped admin grant.'}
+                  ? 'Manage people, Plus access, global roles, scoped admins, explicit reporting visibility, and audit history from one place.'
+                  : 'Manage technician access for machines included in your scoped admin grant.'}
               </p>
               {isScopedAdmin && !isSuperAdmin && (
                 <Badge className="mt-3" variant="secondary">
@@ -186,7 +198,8 @@ export default function AdminAccessPage() {
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
             <TabsList className="h-auto flex-wrap justify-start">
-              {isSuperAdmin && <TabsTrigger value="users">Users</TabsTrigger>}
+              {isSuperAdmin && <TabsTrigger value="users">People</TabsTrigger>}
+              {isSuperAdmin && <TabsTrigger value="technicians">Technicians</TabsTrigger>}
               <TabsTrigger value="reporting-access">Reporting Access</TabsTrigger>
               {isSuperAdmin && <TabsTrigger value="scoped-admins">Scoped Admins</TabsTrigger>}
               {isSuperAdmin && <TabsTrigger value="global-roles">Global Roles</TabsTrigger>}
@@ -196,6 +209,11 @@ export default function AdminAccessPage() {
             {isSuperAdmin && (
               <TabsContent value="users" className="mt-6">
                 <UsersTab />
+              </TabsContent>
+            )}
+            {isSuperAdmin && (
+              <TabsContent value="technicians" className="mt-6">
+                <TechnicianManagementPanel />
               </TabsContent>
             )}
             <TabsContent value="reporting-access" className="mt-6">
@@ -217,6 +235,92 @@ export default function AdminAccessPage() {
               </TabsContent>
             )}
           </Tabs>
+        </div>
+      </section>
+    </AppLayout>
+  );
+}
+
+function ScopedAdminAccessPage({ scopedMachineCount }: { scopedMachineCount: number }) {
+  const {
+    data: setup,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ['scoped-admin-access-scope-summary'],
+    queryFn: fetchPartnershipReportingSetup,
+    staleTime: 1000 * 30,
+  });
+
+  const machines = setup?.machines ?? [];
+  const partnerships = setup?.partnerships ?? [];
+
+  return (
+    <AppLayout>
+      <section className="section-padding">
+        <div className="container-page">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                Admin
+              </p>
+              <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
+                Access
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                Scoped admins can manage technician access for entitled machines. Global access,
+                admin roles, scoped-admin roles, reporting grants, and audit history remain limited
+                to super admins.
+              </p>
+              <Badge className="mt-3" variant="secondary">
+                Scoped Admin
+              </Badge>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Entitled Machines
+              </div>
+              <div className="mt-2 text-2xl font-bold text-foreground">
+                {isLoading ? '...' : machines.length || scopedMachineCount}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Machine metadata and technician grants are limited to this scope.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Partnerships
+              </div>
+              <div className="mt-2 text-2xl font-bold text-foreground">
+                {isLoading ? '...' : partnerships.length}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Only partnerships fully covered by entitled machines are visible.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Allowed Access Work
+              </div>
+              <div className="mt-2 text-2xl font-bold text-foreground">Technicians</div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Other user, reporting, and admin-role permissions are locked.
+              </p>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              Unable to load scoped access summary.
+            </div>
+          )}
+
+          <div className="mt-6">
+            <TechnicianManagementPanel />
+          </div>
         </div>
       </section>
     </AppLayout>

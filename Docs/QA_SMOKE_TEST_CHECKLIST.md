@@ -250,17 +250,18 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/access`
 - [ ] `/admin/accounts` redirects to `/admin/access?tab=users`
 - [ ] `/admin/audit` redirects to `/admin/access?tab=audit`
-- [ ] Admin Access > Users search returns rows by email/user ID and shows membership/order/support summary data
-- [ ] Admin Access > Users does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
+- [ ] Admin Access > People search returns rows by email/user ID and shows membership/order/support summary data
+- [ ] Admin Access > People does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
 - [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
-- [ ] Admin Access > Users shows paid subscription status separately from free Plus grant status
+- [ ] Admin Access > People shows paid subscription status separately from free Plus grant status
 - [ ] Super-admin cannot grant free Plus access without a future expiry date and grant reason
 - [ ] Super-admin cannot grant free Plus access while the account has an active paid Stripe subscription that is not scheduled to cancel
 - [ ] Super-admin can grant or extend free Plus access and the customer can reach Plus-only portal pages without a paid Stripe subscription
 - [ ] Super-admin can revoke free Plus access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
 - [ ] Free Plus grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
 - [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
-- [ ] Admin Access > Users machine count edits require update reason and persist in `customer_machine_inventory`
+- [ ] Admin Access > People machine count edits require update reason and persist in `customer_machine_inventory`
+- [ ] Admin Access > Technicians lets a super-admin view accounts/machines and grant, update, or revoke Technician access without missing-RPC errors
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
 - [ ] Admin Access > Reporting Access uses a people-first explicit machine access matrix
 - [ ] Admin Access > Reporting Access can look up an existing user by email, select multiple machines, save with a reason, and update that person's machine grants in one transactional save
@@ -271,10 +272,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
 - [ ] Scoped Admin users can open `/portal/training*` but do not become Plus members or get Plus billing/commerce benefits
 - [ ] Scoped Admin users can open the partner dashboard for partnerships fully covered by their scoped machines; partially covered partnerships remain hidden/blocked
-- [ ] Scoped Admin users can open `/admin/access?tab=reporting-access`, see only machines inside their scoped grant, and see only Access in admin tools navigation
-- [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/partnerships`, `/admin/reporting`, or `/admin/access?tab=global-roles`
-- [ ] Scoped Admin reporting-access saves affect only manual reporting grants inside the scoped machine set and do not revoke Technician-derived grants
-- [ ] Scoped Admin grant, update, revoke, and reporting-access changes create `admin_audit_log` entries
+- [ ] Scoped Admin users can open `/admin`, `/admin/access`, `/admin/machines`, and `/admin/partnerships`; desktop/mobile admin tools navigation shows only Admin Home, Access, Machines, and Partnerships
+- [ ] Scoped Admin users see only entitled machines in `/admin/machines`, can edit machine labels/type and reporting tax rates for those machines, and cannot create brand-new manual machines
+- [ ] Scoped Admin users can create/manage partnerships only when every active assigned machine is inside their scoped grant; attempts to assign out-of-scope machines fail server-side
+- [ ] Scoped Admin users can grant, update, and revoke Technician access only for entitled machines from `/admin/access`; global access, reporting-grant, super-admin, scoped-admin, and audit controls remain hidden/blocked
+- [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/orders`, `/admin/support`, `/admin/partner-records`, `/admin/reporting`, or `/admin/access?tab=global-roles`
+- [ ] Scoped Admin grant, update, revoke, machine, partnership, tax-rate, and Technician changes create `admin_audit_log` entries where applicable
 - [ ] `report_manager` users can open assigned `/portal/reports` views but remain blocked from `/admin`, `/admin/access`, and other admin routes
 - [ ] Adam scoped-admin bootstrap or manual grant creates `scoped_admin` audit entries and does not create or require a `super_admin` grant
 - [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
@@ -286,6 +289,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mobile admin routes show the same super-admin destinations in the operator menu: Admin Home, Orders, Support, Access, Partner Records, Machines, Partnerships, and Reporting
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
+- [ ] Scoped Admin user can access `/admin/machines` and `/admin/partnerships`, but cannot access `/admin/partner-records`
 - [ ] Admin Partner Records can search, create, and edit reusable partner records with separate display name and legal name fields, without exposing "party" terminology
 - [ ] Admin Partnerships setup loads without missing-RPC errors for `admin_get_partnership_reporting_setup`
 - [ ] Admin Partnerships opens as a guided setup flow with Details, Participants, Machines, Payout Rules, and Weekly Preview steps

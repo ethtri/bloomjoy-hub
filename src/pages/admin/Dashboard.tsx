@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { BarChart3, Handshake, ShieldCheck, ShoppingBag, LifeBuoy, Users, Building2, MonitorCog } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import { hasAdminSurface } from '@/lib/adminAccess';
 
 const adminModules = [
   {
@@ -9,46 +11,64 @@ const adminModules = [
     description: 'Search and manage operational order workflows.',
     icon: ShoppingBag,
     href: '/admin/orders',
+    surface: 'orders',
+    requiresSuperAdmin: true,
   },
   {
     title: 'Support Queue',
     description: 'Triage concierge and parts-assistance requests.',
     icon: LifeBuoy,
     href: '/admin/support',
+    surface: 'support',
+    requiresSuperAdmin: true,
   },
   {
     title: 'Access',
-    description: 'Manage users, Plus grants, global roles, machine reporting access, and audit.',
+    description: 'Manage people, Technician grants, roles, machine reporting access, and audit.',
     icon: Users,
     href: '/admin/access',
+    surface: 'access',
   },
   {
     title: 'Partner Records',
     description: 'Manage reusable organizations and contacts used in partnership setup.',
     icon: Building2,
     href: '/admin/partner-records',
+    surface: 'partner_records',
+    requiresSuperAdmin: true,
   },
   {
     title: 'Machines',
     description: 'Manage machine aliases, external machine IDs, tax status, and assignment readiness.',
     icon: MonitorCog,
     href: '/admin/machines',
+    surface: 'machines',
   },
   {
     title: 'Partnerships',
     description: 'Configure guided agreement setup, participants, assigned machines, split terms, and preview.',
     icon: Handshake,
     href: '/admin/partnerships',
+    surface: 'partnerships',
   },
   {
     title: 'Reporting',
     description: 'Monitor schedules, report exports, and sales sync status.',
     icon: BarChart3,
     href: '/admin/reporting',
+    surface: 'reporting',
+    requiresSuperAdmin: true,
   },
 ];
 
 export default function AdminDashboardPage() {
+  const { adminAccess, isSuperAdmin } = useAuth();
+  const visibleModules = adminModules.filter(
+    (module) =>
+      isSuperAdmin ||
+      (!module.requiresSuperAdmin && hasAdminSurface(adminAccess.allowedSurfaces, module.surface))
+  );
+
   return (
     <AppLayout>
       <section className="border-b border-border bg-muted/20">
@@ -71,12 +91,11 @@ export default function AdminDashboardPage() {
       <section className="section-padding">
         <div className="container-page">
           <div className="rounded-xl border border-sage/30 bg-sage-light px-4 py-3 text-sm text-sage">
-            Admin workspace is active. Use the modules below for orders, support, access,
-            partner records, machines, partnerships, and reporting operations.
+            Admin workspace is active. The modules below reflect your current admin grant.
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {adminModules.map((module) => (
+            {visibleModules.map((module) => (
               <div key={module.title} className="card-elevated p-5">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                   <module.icon className="h-5 w-5 text-primary" />
@@ -94,7 +113,8 @@ export default function AdminDashboardPage() {
 
           <div className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">
             <ShieldCheck className="h-4 w-4 text-sage" />
-            Access enforced by `admin_roles` + `is_super_admin` policy checks.
+            Access enforced by admin roles, scoped machine entitlements, and backend capability
+            checks.
           </div>
         </div>
       </section>

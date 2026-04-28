@@ -38,11 +38,12 @@ Bloomjoy sales reporting will use account/location/machine entitlements that are
 Admin permission work and partnership financial setup are separate concerns.
 
 **Canonical admin surfaces**
-- `/admin/access` is the single admin place for users, Plus grants, super-admin roles, audit history, and explicit machine-level reporting visibility.
+- `/admin/access` is the single admin place for people, Plus grants, Technician grants, super-admin/scoped-admin roles, audit history, and explicit machine-level reporting visibility.
 - `/admin/reporting` is for reporting operations: schedules, import/sync status, stale-data warnings, and export archive visibility.
 - `/admin/partner-records` is for reusable external organizations and contacts that can become participants in one or more partnerships.
 - `/admin/machines` is for machine identity, aliases, partner-report inclusion status, and current machine tax rates.
 - `/admin/partnerships` is for guided agreement setup: partnership details, participants, assigned machines, payout rules, and weekly preview.
+- Scoped Admin is a constrained internal admin role, not a reporting role workaround. Scoped admins inherit default admin capabilities for entitled machines only: machine metadata/tax edits, covered partnership setup, covered partner dashboard visibility, training access, and Technician grants. They cannot grant admin/scoped-admin roles, manage global access outside Technician grants, see global orders, or see/manage unentitled machines.
 
 **Canonical partnership model**
 - Reporting visibility remains machine-level only for V1. Partnerships do not grant inherited user access yet.
@@ -101,7 +102,7 @@ The next P0 reporting milestone is a trusted corporate partner report that Bloom
 **Canonical dashboard direction**
 - The reporting tab should default to an operator-style view for the user's assigned machines.
 - A partner dashboard view should appear only when the access context grants partner-dashboard visibility.
-- V1 partner dashboard visibility defaults to super-admins only until explicit partner-viewer permissions are implemented.
+- V1 partner dashboard visibility is available to super-admins and to scoped admins only when every active partnership machine is inside the scoped admin's entitled machine set. Partner Viewer remains a separate future persona.
 - The browser dashboard should emphasize smooth period controls, summary KPIs, machine-level rollups, warning states, and calculation transparency; the PDF remains the formal settlement artifact.
 
 **Canonical rule approach**

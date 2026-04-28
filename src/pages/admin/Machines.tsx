@@ -41,6 +41,7 @@ import {
   type PartnershipSetupMachine,
   type ReportingMachineTaxRate,
 } from '@/lib/partnershipReporting';
+import { useAuth } from '@/contexts/AuthContext';
 import { type ReportingMachineType, upsertReportingMachineAdmin } from '@/lib/reporting';
 import { cn } from '@/lib/utils';
 import {
@@ -111,6 +112,7 @@ const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter =>
 const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
 export default function AdminMachinesPage() {
+  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
@@ -417,10 +419,12 @@ export default function AdminMachinesPage() {
                 {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh
               </Button>
-              <Button onClick={openCreateMachine}>
-                <Plus className="mr-2 h-4 w-4" />
-                New Manual Machine
-              </Button>
+              {isSuperAdmin && (
+                <Button onClick={openCreateMachine}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Manual Machine
+                </Button>
+              )}
             </div>
           </div>
 

@@ -33,6 +33,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { hasAdminSurface } from '@/lib/adminAccess';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import type { TranslationKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -55,6 +56,7 @@ type AdminDestination = {
   description: string;
   descriptionKey: TranslationKey;
   icon: LucideIcon;
+  surface: string;
   requiresSuperAdmin?: boolean;
 };
 
@@ -68,7 +70,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Operations modules, queue visibility, and internal governance tools.',
     descriptionKey: 'admin.homeDescription',
     icon: LayoutDashboard,
-    requiresSuperAdmin: true,
+    surface: 'admin',
   },
   {
     href: '/admin/orders',
@@ -79,6 +81,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Fulfillment updates, tracking links, and order operations.',
     descriptionKey: 'admin.ordersDescription',
     icon: ShoppingBag,
+    surface: 'orders',
     requiresSuperAdmin: true,
   },
   {
@@ -90,6 +93,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Support triage, concierge intake, and request routing.',
     descriptionKey: 'admin.supportDescription',
     icon: LifeBuoy,
+    surface: 'support',
     requiresSuperAdmin: true,
   },
   {
@@ -98,9 +102,10 @@ const adminDestinations: AdminDestination[] = [
     labelKey: 'admin.access',
     shortLabel: 'Access',
     shortLabelKey: 'admin.access',
-    description: 'Users, Plus grants, global roles, reporting access, and audit history.',
+    description: 'People, Technician grants, roles, reporting access, and audit history.',
     descriptionKey: 'admin.accessDescription',
     icon: Users,
+    surface: 'access',
   },
   {
     href: '/admin/partner-records',
@@ -111,6 +116,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Reusable external organizations and reporting contacts.',
     descriptionKey: 'admin.partnerRecordsDescription',
     icon: Building2,
+    surface: 'partner_records',
     requiresSuperAdmin: true,
   },
   {
@@ -122,7 +128,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Machine aliases, external machine IDs, assignment readiness, and tax rates.',
     descriptionKey: 'admin.machinesDescription',
     icon: MonitorCog,
-    requiresSuperAdmin: true,
+    surface: 'machines',
   },
   {
     href: '/admin/partnerships',
@@ -133,7 +139,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Guided agreement setup, participants, assigned machines, split terms, and preview.',
     descriptionKey: 'admin.partnershipsDescription',
     icon: Handshake,
-    requiresSuperAdmin: true,
+    surface: 'partnerships',
   },
   {
     href: '/admin/reporting',
@@ -144,6 +150,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Report schedules, exports, and sync status.',
     descriptionKey: 'admin.reportingDescription',
     icon: BarChart3,
+    surface: 'reporting',
     requiresSuperAdmin: true,
   },
 ];
@@ -216,7 +223,8 @@ const isActiveAdminDestination = (pathname: string, destination: AdminDestinatio
     : pathname === destination.href || pathname.startsWith(`${destination.href}/`);
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const { isAdmin, isAuthenticated, isSuperAdmin, portalAccessTier, signOut, user } = useAuth();
+  const { adminAccess, isAdmin, isAuthenticated, isSuperAdmin, portalAccessTier, signOut, user } =
+    useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
@@ -228,7 +236,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const homeUrl = isAuthenticated ? '/portal' : '/login';
   const isAdminPath = location.pathname.startsWith('/admin');
   const visibleAdminDestinations = adminDestinations.filter(
-    (item) => isSuperAdmin || !item.requiresSuperAdmin
+    (item) =>
+      isSuperAdmin ||
+      (!item.requiresSuperAdmin && hasAdminSurface(adminAccess.allowedSurfaces, item.surface))
   );
 
   const handleSignOut = async () => {

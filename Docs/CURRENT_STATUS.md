@@ -40,15 +40,15 @@
 - The reporting foundation includes account/location/machine reporting entitlements, normalized sales facts, refund adjustment facts, import run audit records, export snapshots, partner schedules, and private PDF export storage.
 - The portal now has `/portal/reports` for entitled users, with date/grain/machine/payment filters and on-demand PDF export.
 - Admin access and reporting operations are split into clearer surfaces:
-  - `/admin/access` is the single admin place for users, Plus grants, global roles, audit history, and explicit machine-level reporting access.
+  - `/admin/access` is the single admin place for people, Plus grants, Technician grants, global/scoped roles, audit history, and explicit machine-level reporting access.
   - `/admin/partner-records` is the reusable organization/contact directory for partnership participants.
   - `/admin/machines` is the machine setup area for aliases, read-only external machine IDs, assignment readiness, and current machine tax rates. Location stays as backend reporting structure but is hidden from current admin/reporting UI.
   - `/admin/partnerships` is the guided agreement setup flow for partnership details, role-only participants, bulk machine alignment, payout rules, and weekly preview.
   - `/admin/reporting` is focused on report schedules, import/sync status, freshness, and export archive visibility.
 - Production RPC repair is complete: migration `202604260004_reporting_admin_rpc_repair.sql` reapplied missing admin reporting/partnership RPCs, restored PostgREST schema visibility, and production migration history is aligned through `202604260006`.
-- Scoped Admin production entitlement work is tracked in issue `#259`: migration `202604270004_scoped_admin_entitlements.sql` adds explicit machine-scoped internal admin grants, lets super-admins manage those grants from `/admin/access`, limits scoped admins to the reporting-access surface, and bootstraps `adam@bloomjoysweets.com` to active reporting-machine scopes when that auth user exists. `report_manager` remains reporting-only and is not a scoped-admin substitute.
-- Scoped Admin reporting visibility repair adds a forward-only migration so scoped-admin machine scopes count for `/portal/reports` visibility and retries the Adam bootstrap after his auth user exists.
-- Scoped Admin training/partner-dashboard repair keeps scoped admins distinct from Plus members while granting training access and partner dashboard visibility only for partnerships fully covered by their scoped machine set.
+- Scoped Admin production entitlement work is tracked in issue `#259`: explicit machine-scoped internal admin grants remain the source of truth, and `report_manager` remains reporting-only rather than a scoped-admin substitute.
+- Scoped Admin capability expansion adds named admin capabilities and treats scoped admins as constrained admin operators: they can open Admin Home, Access, Machines, and Partnerships; view/edit only entitled machines; edit machine tax/metadata; manage partnerships fully covered by entitled machines; view training and partner-dashboard data for covered scope; and grant Technician access for entitled machines only.
+- Scoped Admins still cannot add super-admins or scoped admins, manage global access outside Technician grants, see unrelated machines, see global orders, or use global support/reporting/import/audit surfaces.
 - Reporting visibility remains machine-level only for V1. Partnerships are for financial reporting and grouping, not permission inheritance.
 - Tax rates are configured directly on machines, not on partnerships. The Machines admin page edits current rates inline while the backend keeps effective-dated history for reporting/audit.
 - Reporting tax setup is intentionally simple in the UI: missing initial rates save with a hidden `2026-01-01` effective start, rare tax changes use a compact rate-change action, and tax history is read-only for audit context.

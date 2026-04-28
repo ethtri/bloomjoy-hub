@@ -45,6 +45,7 @@ import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   fetchPartnershipReportingSetup,
   exportPartnerWeeklyReportAdmin,
@@ -454,6 +455,7 @@ const applyPayoutModelPreset = (
 };
 
 export default function AdminPartnershipsPage() {
+  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedPartnershipId = searchParams.get('partnershipId') ?? '';
@@ -612,9 +614,11 @@ export default function AdminPartnershipsPage() {
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
                   <div className="font-medium text-foreground">Related setup</div>
                   <div className="mt-3 grid gap-2">
-                    <Button asChild variant="outline" size="sm" className="justify-start">
-                      <Link to="/admin/partner-records">Open Partner Records</Link>
-                    </Button>
+                    {isSuperAdmin && (
+                      <Button asChild variant="outline" size="sm" className="justify-start">
+                        <Link to="/admin/partner-records">Open Partner Records</Link>
+                      </Button>
+                    )}
                     <Button asChild variant="outline" size="sm" className="justify-start">
                       <Link to="/admin/machines">Open Machines</Link>
                     </Button>
@@ -650,6 +654,7 @@ export default function AdminPartnershipsPage() {
                     <ParticipantsSection
                       setup={setup}
                       selectedPartnership={selectedPartnership}
+                      canOpenPartnerRecords={isSuperAdmin}
                       onRefresh={refresh}
                     />
                   )}
@@ -1211,10 +1216,12 @@ function PartnershipDetailsSection({
 function ParticipantsSection({
   setup,
   selectedPartnership,
+  canOpenPartnerRecords,
   onRefresh,
 }: {
   setup: PartnershipReportingSetup;
   selectedPartnership: ReportingPartnership;
+  canOpenPartnerRecords: boolean;
   onRefresh: () => Promise<unknown>;
 }) {
   const participants = useMemo(
@@ -1306,9 +1313,11 @@ function ParticipantsSection({
               Rules.
             </p>
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/admin/partner-records">Manage Partner Records</Link>
-          </Button>
+          {canOpenPartnerRecords && (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/admin/partner-records">Manage Partner Records</Link>
+            </Button>
+          )}
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">

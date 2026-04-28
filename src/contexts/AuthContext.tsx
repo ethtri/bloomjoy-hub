@@ -73,6 +73,7 @@ type AdminAccessContext = {
   isScopedAdmin: boolean;
   canAccessAdmin: boolean;
   allowedSurfaces: string[];
+  capabilities: string[];
   scopedMachineIds: string[];
 };
 
@@ -81,6 +82,7 @@ type AdminAccessContextRpc = {
   isScopedAdmin?: boolean | null;
   canAccessAdmin?: boolean | null;
   allowedSurfaces?: string[] | null;
+  capabilities?: string[] | null;
   scopedMachineIds?: string[] | null;
 };
 
@@ -122,6 +124,7 @@ const emptyAdminAccessContext: AdminAccessContext = {
   isScopedAdmin: false,
   canAccessAdmin: false,
   allowedSurfaces: [],
+  capabilities: [],
   scopedMachineIds: [],
 };
 
@@ -154,6 +157,7 @@ const mapAdminAccessContext = (
     isScopedAdmin,
     canAccessAdmin: Boolean(record?.canAccessAdmin ?? (isSuperAdmin || isScopedAdmin)),
     allowedSurfaces: Array.isArray(record?.allowedSurfaces) ? record.allowedSurfaces : [],
+    capabilities: Array.isArray(record?.capabilities) ? record.capabilities : [],
     scopedMachineIds: Array.isArray(record?.scopedMachineIds) ? record.scopedMachineIds : [],
   };
 };
@@ -230,6 +234,7 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
         isSuperAdmin: true,
         canAccessAdmin: true,
         allowedSurfaces: ['*'],
+        capabilities: ['*'],
       }
     : dbAdminAccess;
   const isAdmin = adminAccess.canAccessAdmin;
