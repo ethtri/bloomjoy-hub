@@ -61,6 +61,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Cart line-item title, quantity controls, price, and remove action stack cleanly on mobile
 - [ ] Plus page: pricing and boundaries are visible and clear
 - [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads (procedure docs, daily checklists, frequent updates)
+- [ ] `/resources#faq` opens to the FAQ section, shows startup-cost guidance without exact all-in-cost/ROI/profit claims, and keeps the quote/contact path clear on desktop and mobile
 - [ ] `/machines`, `/resources`, `/plus`, and `/contact` show primary content without excessive dead space on desktop and mobile
 - [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`
 - [ ] Footer support links navigate to valid Resources anchors (`/resources#faq` and `/resources#support-boundaries`)
