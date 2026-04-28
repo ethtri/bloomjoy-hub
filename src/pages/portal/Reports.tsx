@@ -1219,8 +1219,8 @@ function PartnerDashboardView() {
     <>
       <div className="flex flex-col gap-6 print:hidden">
         <Card>
-          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(240px,0.8fr)_minmax(180px,0.45fr)_minmax(220px,0.65fr)_1fr]">
+          <CardContent className="grid gap-4 p-4">
+            <div className="grid gap-4 lg:grid-cols-[minmax(240px,1fr)_minmax(180px,0.55fr)_minmax(220px,0.75fr)_auto] lg:items-end">
               <LabeledControl label="Partnership" htmlFor="partner-dashboard-partnership">
                 <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
                   <SelectTrigger id="partner-dashboard-partnership">
@@ -1279,81 +1279,79 @@ function PartnerDashboardView() {
                 </Select>
               </LabeledControl>
 
-              <div className="flex min-w-0 items-end">
-                <div
-                  aria-live="polite"
-                  className="w-full min-w-0 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+              <div className="flex flex-col gap-2 sm:flex-row lg:justify-end">
+                <Button
+                  variant="outline"
+                  onClick={refreshPartnerDashboard}
+                  disabled={previewFetching}
                 >
-                  <span className="font-medium text-foreground">{selectedPeriodSummaryLabel}</span>
-                  <span className="block">{selectedPeriodSummaryRange}</span>
-                </div>
+                  {previewFetching ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Refresh
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button disabled={partnerExportDisabled} className="justify-center">
+                      {exportingPartnerFormat ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="mr-2 h-4 w-4" />
+                      )}
+                      {partnerExportButtonLabel}
+                      <ChevronDown className="ml-2 h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-72">
+                    <DropdownMenuItem
+                      className="items-start gap-3"
+                      onSelect={() => void exportPartnerReport('pdf')}
+                    >
+                      <FileText className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block font-medium">Polished PDF report</span>
+                        <span className="block text-xs text-muted-foreground">
+                          Partner-ready settlement packet.
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="items-start gap-3"
+                      onSelect={() => void exportPartnerReport('xlsx')}
+                    >
+                      <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block font-medium">Detailed Excel workbook (.xlsx)</span>
+                        <span className="block text-xs text-muted-foreground">
+                          Summary, rollups, assumptions, warnings, and reconciliation checks.
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="items-start gap-3"
+                      onSelect={() => void exportPartnerReport('csv')}
+                    >
+                      <FileText className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block font-medium">CSV reconciliation (.csv)</span>
+                        <span className="block text-xs text-muted-foreground">
+                          Existing approved reporting detail.
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button
-                variant="outline"
-                onClick={refreshPartnerDashboard}
-                disabled={previewFetching}
-              >
-                {previewFetching ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Refresh
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button disabled={partnerExportDisabled} className="justify-center">
-                    {exportingPartnerFormat ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="mr-2 h-4 w-4" />
-                    )}
-                    {partnerExportButtonLabel}
-                    <ChevronDown className="ml-2 h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-72">
-                  <DropdownMenuItem
-                    className="items-start gap-3"
-                    onSelect={() => void exportPartnerReport('pdf')}
-                  >
-                    <FileText className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block font-medium">Polished PDF report</span>
-                      <span className="block text-xs text-muted-foreground">
-                        Partner-ready settlement packet.
-                      </span>
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="items-start gap-3"
-                    onSelect={() => void exportPartnerReport('xlsx')}
-                  >
-                    <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block font-medium">Detailed Excel workbook (.xlsx)</span>
-                      <span className="block text-xs text-muted-foreground">
-                        Summary, rollups, assumptions, warnings, and reconciliation checks.
-                      </span>
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="items-start gap-3"
-                    onSelect={() => void exportPartnerReport('csv')}
-                  >
-                    <FileText className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block font-medium">CSV reconciliation (.csv)</span>
-                      <span className="block text-xs text-muted-foreground">
-                        Existing approved reporting detail.
-                      </span>
-                    </span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <div
+              aria-live="polite"
+              className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:flex sm:items-center sm:justify-between sm:gap-4"
+            >
+              <span className="font-medium text-foreground">{selectedPeriodSummaryLabel}</span>
+              <span className="block sm:text-right">{selectedPeriodSummaryRange}</span>
             </div>
           </CardContent>
         </Card>
