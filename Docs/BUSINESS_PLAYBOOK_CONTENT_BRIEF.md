@@ -5,6 +5,8 @@ The Bloomjoy Business Playbook is the public resource hub for people exploring c
 
 The content should help a serious buyer make a better business decision before they request a quote. It should feel practical, visual, operator-led, and enjoyable to read.
 
+Internal sales/support enablement for these articles lives in `Docs/BUSINESS_PLAYBOOK_SALES_ENABLEMENT.md`.
+
 ## Editorial Standard
 - Be useful first. Every article needs specific examples, checklists, tables, scripts, scorecards, or decision frameworks.
 - Keep the voice practical, confident, clear, and lightly playful where natural.
