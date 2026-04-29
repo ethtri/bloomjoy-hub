@@ -298,7 +298,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Manual reporting access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
 - [ ] Manual reporting access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
-- [ ] Technician source card is read-only in Admin Access and clearly points Technician grant/change/revoke work to Portal > Settings > Technician Access (`/portal/account`)
+- [ ] Technician source card in Admin Access lets Super Admin grant or update a Technician as training-only or exactly one reporting machine, with plain-English impact preview and required reason
+- [ ] Technician source card can edit scope, renew current access, and revoke active Technician grants with required reasons
+- [ ] Admin Technician scope changes revoke only Technician-sourced reporting entitlements; unrelated manual reporting grants remain intact
 - [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with selected machine scopes, save preview, and required reason
 - [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
 - [ ] Scoped Admin users can open `/portal/training*` but do not become Plus members or get Plus billing/commerce benefits
