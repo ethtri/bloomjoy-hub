@@ -1427,7 +1427,7 @@ function PartnerDashboardView() {
           <CardTitle>No active partnerships yet</CardTitle>
           <CardDescription>
             Add an active partnership, assign machines, and configure financial rules before the
-            dashboard can preview settlement math.
+            dashboard can preview revenue share math.
           </CardDescription>
         </CardHeader>
         {isSuperAdmin && (
@@ -1561,7 +1561,7 @@ function PartnerDashboardView() {
                       <span className="min-w-0">
                         <span className="block font-medium">Polished PDF report</span>
                         <span className="block text-xs text-muted-foreground">
-                          Partner-ready settlement packet.
+                          Partner-ready revenue share report.
                         </span>
                       </span>
                     </DropdownMenuItem>
@@ -2153,7 +2153,7 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">{modeLabel} sales trend</h2>
             <p className="text-sm text-muted-foreground">
-              Gross sales, refund impact, net sales, volume, and partner revenue share across the selected period.
+              Gross sales, refund impact, net sales, volume, and Partner Revenue Share across the selected period.
             </p>
           </div>
           <table className="w-full border-collapse text-sm">
@@ -2272,13 +2272,13 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">Calculation summary</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Gross sales uses the imported order amount for partner settlement. Machine tax,
+              Gross sales uses the imported order amount for partner reporting. Machine tax,
               approved refund adjustments, and configured deductions are deducted once to create
               net sales.
               {currentUsesNetSalesAsPayoutBasis
                 ? ' Net sales is the payout basis for this period.'
                 : ' The active rule then adjusts net sales into the payout basis.'}
-              {' '}The partner share is applied to the payout basis to calculate partner revenue share.
+              {' '}The configured share is applied to the payout basis to calculate Partner Revenue Share.
             </p>
           </div>
           <div className="flex flex-col gap-2 text-sm">
@@ -2429,7 +2429,7 @@ function PartnerCalculationCard({
         <CardTitle className="text-xl">Calculation</CardTitle>
         <CardDescription>
           {selectedMachineLabel ? `${selectedMachineLabel} - ` : ''}
-          {periodLabel} settlement calculation.
+          {periodLabel} revenue share calculation.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -2456,13 +2456,13 @@ function PartnerCalculationCard({
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="font-medium text-foreground">How this is calculated</div>
           <p className="mt-2">
-            Gross sales uses the imported order amount for partner settlement. Machine tax,
+            Gross sales uses the imported order amount for partner reporting. Machine tax,
             approved refund adjustments, and configured deductions are deducted once to create net
             sales.
             {summaryUsesNetSalesAsPayoutBasis
               ? ' Net sales is the payout basis for this period.'
               : ' The active rule then adjusts net sales into the payout basis.'}
-            {' '}The partner share is applied to the payout basis to calculate partner revenue share.
+            {' '}The configured share is applied to the payout basis to calculate Partner Revenue Share.
           </p>
         </div>
       </CardContent>

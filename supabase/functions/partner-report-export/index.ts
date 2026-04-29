@@ -423,7 +423,7 @@ const formatSharePercent = (basisPoints: unknown) => {
 
 const formatCalculationLabel = (rule: Record<string, unknown> | null) => {
   if (!rule) {
-    return "No active payout rule covered this selected period.";
+    return "No active revenue-share rule covered this selected period.";
   }
 
   const feeAmount = Number(rule.fee_amount_cents ?? 0);
@@ -450,9 +450,9 @@ const formatCalculationLabel = (rule: Record<string, unknown> | null) => {
     ? `Gross sales are reduced by approved refunds, machine taxes, ${feeText}, and configured contribution costs before the payout basis.`
     : `Gross sales are reduced by approved refunds, machine taxes, and ${feeText} before the payout basis.`;
 
-  return `${calculationModelLabel}: partner share is calculated from ${splitBaseLabel.toLowerCase()}. ${deductionText} No-pay transactions count in volume and contribute $0.${
+  return `${calculationModelLabel}: Partner Revenue Share is calculated from ${splitBaseLabel.toLowerCase()}. ${deductionText} No-pay transactions count in volume and contribute $0.${
     additionalNotes ? ` Additional notes: ${additionalNotes}` : ""
-  } Approved refund adjustments reduce net sales and the active split base.`;
+  } Approved refund adjustments reduce net sales and the selected revenue-share basis.`;
 };
 
 const getRuleExportLabels = (
@@ -538,7 +538,7 @@ const getActiveFinancialRule = async (
     .maybeSingle();
 
   if (error) {
-    throw new Error(error.message || "Unable to load payout rule.");
+    throw new Error(error.message || "Unable to load revenue-share rule.");
   }
 
   return data ?? null;

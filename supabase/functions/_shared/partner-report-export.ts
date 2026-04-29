@@ -637,7 +637,7 @@ const buildWorkbookSummarySheet = (
     feeLabel = "Stick cost deduction",
     costLabel = "Costs",
     splitBaseLabel = "Net sales",
-    calculationModelLabel = "Partner share",
+    calculationModelLabel = "Revenue share",
   } = context;
   const summary = preview.summary ?? {};
   const taxAndDeductions = numberValue(summary.tax_cents) +
@@ -657,12 +657,12 @@ const buildWorkbookSummarySheet = (
       [xlsxText("Generated", XLSX_STYLE.label), xlsxText(formatGeneratedAt(generatedAt))],
       [xlsxText("Report reference", XLSX_STYLE.label), xlsxText(reportReference)],
       [
-        xlsxText("Payout recipients", XLSX_STYLE.label),
+        xlsxText("Partner Revenue Share recipients", XLSX_STYLE.label),
         xlsxText(payoutRecipientLabels.join(" + ") || "Partner Revenue Share recipient"),
       ],
       [xlsxText("Calculation model", XLSX_STYLE.label), xlsxText(calculationModelLabel)],
       [xlsxText("Payout basis", XLSX_STYLE.label), xlsxText(splitBaseLabel)],
-      [xlsxText("Partner share", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
+      [xlsxText("Revenue share rate", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
       [],
       [xlsxText("Dashboard Totals", XLSX_STYLE.header), xlsxText("Value", XLSX_STYLE.header)],
       [xlsxText("Orders", XLSX_STYLE.label), xlsxInteger(summary.order_count)],
@@ -839,7 +839,7 @@ const buildWorkbookAssumptionsSheet = (
     feeLabel = "Stick cost deduction",
     costLabel = "Costs",
     splitBaseLabel = "Net sales",
-    calculationModelLabel = "Partner share",
+    calculationModelLabel = "Revenue share",
     payoutRecipientLabels,
     additionalDeductionsNotes,
   } = context;
@@ -857,10 +857,10 @@ const buildWorkbookAssumptionsSheet = (
         : []),
       [xlsxText("Generated", XLSX_STYLE.label), xlsxText(formatGeneratedAt(generatedAt))],
       [xlsxText("Report reference", XLSX_STYLE.label), xlsxText(reportReference)],
-      [xlsxText("Payout recipients", XLSX_STYLE.label), xlsxText(payoutRecipientLabels.join(" + ") || "Partner Revenue Share recipient")],
+      [xlsxText("Partner Revenue Share recipients", XLSX_STYLE.label), xlsxText(payoutRecipientLabels.join(" + ") || "Partner Revenue Share recipient")],
       [xlsxText("Calculation model", XLSX_STYLE.label), xlsxText(calculationModelLabel)],
       [xlsxText("Payout basis", XLSX_STYLE.label), xlsxText(splitBaseLabel)],
-      [xlsxText("Partner share", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
+      [xlsxText("Revenue share rate", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
       [xlsxText("Fee deduction label", XLSX_STYLE.label), xlsxText(feeLabel)],
       [xlsxText("Cost label", XLSX_STYLE.label), xlsxText(costLabel)],
       [xlsxText("Calculation note", XLSX_STYLE.label), xlsxText(calculationLabel, XLSX_STYLE.note)],
@@ -871,7 +871,7 @@ const buildWorkbookAssumptionsSheet = (
       [
         xlsxText("Data scope", XLSX_STYLE.label),
         xlsxText(
-          "Includes only partner-reporting data returned by the approved dashboard preview for the selected partnership, selected period, active payout rules, and assigned machine scope.",
+          "Includes only partner-reporting data returned by the approved dashboard preview for the selected partnership, selected period, active revenue-share rules, and assigned machine scope.",
           XLSX_STYLE.note,
         ),
       ],
@@ -952,7 +952,7 @@ const buildWorkbookReconciliationSheet = (
     [
       xlsxText(feeLabel),
       xlsxCurrency(summary.fee_cents, { deduction: true }),
-      xlsxText("Contract-specific fee deduction used before payout calculation.", XLSX_STYLE.note),
+      xlsxText("Contract-specific fee deduction used before revenue share calculation.", XLSX_STYLE.note),
     ],
     [
       xlsxText(costLabel),
@@ -1900,7 +1900,7 @@ const drawDashboardPage = (
 
   drawTrendPanel(page, fonts, preview, { x: 42, y: 246, width: 528, height: 116 });
 
-  drawText(page, fonts, "Sales-to-payout bridge", {
+  drawText(page, fonts, "Sales-to-revenue share bridge", {
     x: 42,
     y: 208,
     size: 13,
@@ -1908,7 +1908,7 @@ const drawDashboardPage = (
   });
   drawText(page, fonts, splitBaseKind === "gross"
     ? "The selected period's sales, refund impact, agreement payout basis, and Partner Revenue Share."
-    : "The selected period's settlement math, from recorded sales to Partner Revenue Share.", {
+    : "The selected period's revenue share calculation, from recorded sales to Partner Revenue Share.", {
     x: 42,
     y: 192,
     size: 8.5,
@@ -2052,7 +2052,7 @@ const drawDetailPage = (
     feeLabel = "Stick cost deduction",
     costLabel = "Costs",
     splitBaseLabel = "Net sales",
-    calculationModelLabel = "Partner share",
+    calculationModelLabel = "Revenue share",
     additionalDeductionsNotes,
   } = context;
   const summary = preview.summary ?? {};
@@ -2068,7 +2068,7 @@ const drawDetailPage = (
 
   drawHeader(page, fonts, assets, {
     title: "Calculation support",
-    partnerName: "How the settlement was calculated",
+    partnerName: "How Partner Revenue Share was calculated",
     periodLabel: `${getPeriodKindLabel(preview)}: ${periodLabel}${
       machineScopeLabel ? ` - ${machineScopeLabel}` : ""
     }`,
@@ -2076,7 +2076,7 @@ const drawDetailPage = (
     generatedAt: formatPreparedAt(generatedAt),
   });
 
-  drawText(page, fonts, "Settlement math", {
+  drawText(page, fonts, "Revenue share calculation", {
     x: 42,
     y: 620,
     size: 13,
