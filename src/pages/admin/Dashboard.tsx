@@ -18,7 +18,7 @@ const adminModules = [
   },
   {
     title: 'Access',
-    description: 'Manage users, Plus grants, global roles, machine reporting access, and audit.',
+    description: 'Manage users, Plus Customer access, Corporate Partner access, global roles, machine reporting access, and audit.',
     icon: Users,
     href: '/admin/access',
   },

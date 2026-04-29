@@ -2,7 +2,7 @@
 
 Issue: [#284](https://github.com/ethtri/bloomjoy-hub/issues/284)
 
-Status: design/spec only. This slice does not implement the scheduler, send email, add Partner Viewer access, or automate sends for reports with blocking warnings.
+Status: design/spec only. This slice does not implement the scheduler, send email, add Corporate Partner portal access, or automate sends for reports with blocking warnings.
 
 ## Context
 

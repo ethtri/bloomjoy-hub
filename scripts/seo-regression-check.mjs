@@ -49,7 +49,8 @@ const expectedH1TextByRoute = {
   "/machines/micro": "Bloomjoy Sweets Micro Machine",
   "/supplies": "Cotton Candy Machine Sugar and Paper Sticks",
   "/plus": "Onboarding + Playbooks + Concierge",
-  "/resources": "Resources",
+  "/resources": "Guides, FAQs, and operator playbooks for starting smart",
+  "/resources/business-playbook": "Practical startup guides for cotton candy operators",
   "/contact": "Contact Us",
   "/about": "About Bloomjoy",
   "/privacy": "Privacy Policy",
@@ -169,6 +170,37 @@ const validatePublicRouteHtml = async (route, seoRoutes) => {
     assertIncludes(html, `"@type":"Offer"`, "Supplies route is missing Offer JSON-LD");
     assertIncludes(html, `"price":"10.00"`, "Supplies route is missing sugar price Offer");
     assertIncludes(html, `"price":"130.00"`, "Supplies route is missing sticks price Offer");
+  }
+
+  if (route.path === "/resources/business-playbook") {
+    assertIncludes(
+      html,
+      `"@type":"CollectionPage"`,
+      "Business Playbook index is missing CollectionPage JSON-LD"
+    );
+    assertIncludes(
+      html,
+      "Bloomjoy Business Playbook",
+      "Business Playbook index is missing visible playbook branding"
+    );
+  }
+
+  if (route.path.startsWith("/resources/business-playbook/")) {
+    assertIncludes(
+      html,
+      `"@type":"Article"`,
+      `Business Playbook article ${route.path} is missing Article JSON-LD`
+    );
+    assertIncludes(
+      html,
+      `"@type":"BreadcrumbList"`,
+      `Business Playbook article ${route.path} is missing BreadcrumbList JSON-LD`
+    );
+    assertIncludes(
+      html,
+      "What you will take away",
+      `Business Playbook article ${route.path} is missing prerendered article body`
+    );
   }
 
   if (route.path === "/machines/mini") {
@@ -357,7 +389,7 @@ const hasAppToWwwRedirectRules = (routes) => {
 
   const groupedRedirect = routes.some(
     (route) =>
-      route?.src === "/(machines(?:/.*)?|products(?:/.*)?|supplies|plus|resources|about|contact|privacy|terms|billing-cancellation|cart)" &&
+      route?.src === "/(machines(?:/.*)?|products(?:/.*)?|supplies|plus|resources(?:/.*)?|about|contact|privacy|terms|billing-cancellation|cart)" &&
       route?.status === 308 &&
       route?.headers?.Location === "https://www.bloomjoyusa.com/$1" &&
       Array.isArray(route?.has) &&
@@ -382,6 +414,18 @@ const hasStaticPrerenderRewriteRules = (routes) => {
       route?.dest === "/$1.html"
   );
 
+  const playbookIndexRewrite = routes.some(
+    (route) =>
+      route?.src === "/resources/business-playbook/?" &&
+      route?.dest === "/resources/business-playbook.html"
+  );
+
+  const playbookArticleRewrite = routes.some(
+    (route) =>
+      route?.src === "/resources/business-playbook/([^/]+)/?" &&
+      route?.dest === "/resources/business-playbook/$1.html"
+  );
+
   const authPrivateRewrite = routes.some(
     (route) =>
       route?.src === "/(cart|login(?:/operator)?|reset-password)/?" &&
@@ -402,6 +446,8 @@ const hasStaticPrerenderRewriteRules = (routes) => {
 
   return (
     machineDetailRewrite &&
+    playbookIndexRewrite &&
+    playbookArticleRewrite &&
     publicRewrite &&
     authPrivateRewrite &&
     portalCatchAllRewrite &&

@@ -80,7 +80,7 @@ Guidelines:
 ## P1 - Reporting UX/CX follow-ups
 21. **Partner dashboard UX/CX and reporting tab design** (`#172`)
    - Status: delivered for V1 via the reporting tab, super-admin-only Partner Dashboard, weekly/monthly period controls, machine rollups, calculation transparency, exports, and the `#239` machine-rollup label clarification.
-   - Remaining follow-ups are separate issues: explicit Partner Viewer access in `#128`, optional XLSX reconciliation export in `#205`, and operator dashboards in `#171` after partner reporting acceptance.
+   - Remaining follow-ups are separate issues: explicit Corporate Partner portal access in `#128`, optional XLSX reconciliation export in `#205`, and operator dashboards in `#171` after partner reporting acceptance.
 
 22. **Operator performance dashboards** (`#171`)
    - Add operator dashboards only after corporate partner reporting reaches acceptance.

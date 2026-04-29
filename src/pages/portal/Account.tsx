@@ -64,7 +64,7 @@ const parseOperatorEmails = (value: string): string[] =>
   );
 
 export default function AccountPage() {
-  const { user, canManageOperatorTraining } = useAuth();
+  const { user, canManageOperatorTraining, isCorporatePartner } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
@@ -252,6 +252,8 @@ export default function AccountPage() {
   const hasSummaryPlusAccess =
     membershipSummary?.hasPlusAccess ?? user?.plusAccess.hasPlusAccess ?? false;
   const isMember = hasSummaryPlusAccess || hasPlusAccess(effectiveMembershipStatus);
+  const isCorporatePartnerOnly =
+    isCorporatePartner && !hasSummaryPlusAccess && !user?.plusAccess.hasPlusAccess && !user?.isSuperAdmin;
   const hasPaidBilling =
     membershipSummary?.paidSubscriptionActive ??
     user?.plusAccess.paidSubscriptionActive ??
@@ -271,6 +273,10 @@ export default function AccountPage() {
       })
     : null;
   const membershipStatusLabel = useMemo(() => {
+    if (isCorporatePartnerOnly) {
+      return 'Corporate Partner';
+    }
+
     if (accessSource === 'free_grant' && freeGrantExpiryLabel) {
       return `Waived until ${freeGrantExpiryLabel}`;
     }
@@ -284,7 +290,12 @@ export default function AccountPage() {
     }
 
     return formatMembershipStatus(effectiveMembershipStatus);
-  }, [accessSource, effectiveMembershipStatus, freeGrantExpiryLabel]);
+  }, [accessSource, effectiveMembershipStatus, freeGrantExpiryLabel, isCorporatePartnerOnly]);
+  const accountAccessLabel = isCorporatePartnerOnly
+    ? 'Corporate Partner'
+    : isMember
+      ? 'Plus Basic'
+      : 'Baseline';
   const nextBillingLabel =
     hasPaidBilling && currentPeriodEnd
       ? new Date(currentPeriodEnd).toLocaleDateString(undefined, {
@@ -375,7 +386,7 @@ export default function AccountPage() {
                 : []),
             ]}
             actions={
-              hasPaidBilling ? (
+              isCorporatePartnerOnly ? undefined : hasPaidBilling ? (
                 <Button
                   variant="outline"
                   onClick={handleManageBilling}
@@ -391,7 +402,7 @@ export default function AccountPage() {
             }
           />
 
-          {accessSource === 'free_grant' && freeGrantExpiryLabel && (
+          {!isCorporatePartnerOnly && accessSource === 'free_grant' && freeGrantExpiryLabel && (
             <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
               Plus access is waived through {freeGrantExpiryLabel}. No subscription fee is being
               billed for this grant.
@@ -547,8 +558,9 @@ export default function AccountPage() {
                 <LanguagePreferenceControl showText fullWidth />
               </div>
 
-              <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
-                <div className="flex items-center gap-3">
+              {!isCorporatePartnerOnly && (
+                <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
+                  <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                     <CreditCard className="h-5 w-5 text-primary" />
                   </div>
@@ -583,14 +595,15 @@ export default function AccountPage() {
                   </Link>
                   .
                 </p>
-              </div>
+                </div>
+              )}
 
               <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
                 <h3 className="font-semibold text-foreground">Membership</h3>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">Plan</span>
                   <span className="font-semibold text-foreground">
-                    {isMember ? 'Plus Basic' : 'Baseline'}
+                    {accountAccessLabel}
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">

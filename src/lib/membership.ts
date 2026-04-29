@@ -6,7 +6,7 @@ export type MembershipStatus =
   | 'inactive'
   | 'none';
 
-export type PortalAccessTier = 'baseline' | 'training' | 'plus';
+export type PortalAccessTier = 'baseline' | 'training' | 'plus' | 'corporate_partner';
 
 export type PlusAccessSource = 'paid_subscription' | 'free_grant' | 'admin' | 'none';
 
@@ -63,6 +63,7 @@ export const normalizePortalAccessTier = (
     case 'baseline':
     case 'training':
     case 'plus':
+    case 'corporate_partner':
       return tier;
     default:
       return fallback;
@@ -70,10 +71,10 @@ export const normalizePortalAccessTier = (
 };
 
 export const hasTrainingAccess = (tier: PortalAccessTier | undefined): boolean =>
-  tier === 'training' || tier === 'plus';
+  tier === 'training' || tier === 'plus' || tier === 'corporate_partner';
 
 export const hasCustomerPortalAccess = (tier: PortalAccessTier | undefined): boolean =>
-  tier === 'baseline' || tier === 'plus';
+  tier === 'baseline' || tier === 'plus' || tier === 'corporate_partner';
 
 export const emptyPlusAccessSummary: PlusAccessSummary = {
   hasPlusAccess: false,

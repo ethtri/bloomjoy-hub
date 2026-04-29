@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ArrowRight, AlertCircle } from 'lucide-react';
+import { Check, ArrowRight, AlertCircle, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -157,6 +157,22 @@ export default function CommercialRoboticPage() {
                 <p className="text-center text-sm text-muted-foreground">
                   Custom wrap artwork is finalized offline with the Bloomjoy design team.
                 </p>
+              </div>
+
+              <div className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                <div className="flex items-start gap-3">
+                  <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <div>
+                    <p className="font-semibold text-foreground">Planning a location?</p>
+                    <Link
+                      to="/resources/business-playbook/best-locations-for-cotton-candy-vending-machines"
+                      className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                    >
+                      Read the Commercial location guide
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </div>
               </div>
 
               {/* Features */}

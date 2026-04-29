@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ArrowRight, AlertCircle } from 'lucide-react';
+import { Check, ArrowRight, AlertCircle, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
@@ -93,6 +93,22 @@ export default function MiniPage() {
                   Mini orders are handled through our quote flow so we can confirm fit, shipping,
                   and operator handoff details before invoicing.
                 </p>
+              </div>
+
+              <div className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                <div className="flex items-start gap-3">
+                  <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <div>
+                    <p className="font-semibold text-foreground">Thinking events or catering?</p>
+                    <Link
+                      to="/resources/business-playbook/mini-micro-event-catering-business-guide"
+                      className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                    >
+                      Read the Mini event business guide
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-10">

@@ -1,55 +1,76 @@
-import { useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { ArrowRight, Download, Lock } from 'lucide-react';
-import { Layout } from '@/components/layout/Layout';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Button } from '@/components/ui/button';
-import { getCanonicalUrlForSurface } from '@/lib/appSurface';
-import { resourcesFaqs } from '@/lib/seoRoutes';
+import { useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
+import {
+  ArrowRight,
+  BarChart3,
+  BookOpen,
+  ClipboardCheck,
+  Download,
+  Lock,
+  MapPinned,
+  Sparkles,
+} from "lucide-react";
+import { Layout } from "@/components/layout/Layout";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
+import { getCanonicalUrlForSurface } from "@/lib/appSurface";
+import { resourcesFaqs } from "@/lib/seoRoutes";
+import {
+  businessPlaybookArticles,
+  featuredBusinessPlaybookArticles,
+  getPlaybookCategory,
+  playbookCategories,
+} from "@/data/businessPlaybook";
+import landingHeroImage from "@/assets/real/landing-hero.jpg";
 
 const plusTeasers = [
   {
-    title: 'Operator Guides',
+    title: "Operator Guides",
     description:
-      'Task-first setup, pricing, timer, and payment guides so operators can find answers fast.',
+      "Task-first setup, pricing, timer, and payment guides so operators can find answers fast.",
+    metaLabel: "Plus download",
+    MetaIcon: Download,
   },
   {
-    title: 'Maintenance Checklists',
+    title: "Maintenance Checklists",
     description:
-      'Cleaning, hygiene, and function-check references pulled from Bloomjoy training materials.',
+      "Cleaning, hygiene, and function-check references pulled from Bloomjoy training materials.",
+    metaLabel: "Plus download",
+    MetaIcon: Download,
   },
   {
-    title: 'Operator Certificate',
+    title: "Reporting Dashboard",
     description:
-      'Plus members can complete the Operator Essentials path and unlock a lightweight completion certificate.',
+      "Assigned-machine sales, trends, and exports for accounts with reporting access.",
+    metaLabel: "Portal feature",
+    MetaIcon: BarChart3,
+  },
+  {
+    title: "Operator Certificate",
+    description:
+      "Plus members can complete the Operator Essentials path and unlock a lightweight completion certificate.",
+    metaLabel: "Plus download",
+    MetaIcon: Download,
   },
 ];
 
-const resourceGroups = [
-  {
-    title: 'Machine Buyers',
-    description:
-      'Compare the Commercial, Mini, and Micro machines by venue fit, footprint, pattern capability, and quote expectations.',
-    href: '/machines',
-  },
-  {
-    title: 'Supplies Planning',
-    description:
-      'Review sugar, Bloomjoy branded paper sticks, custom sticks, pricing, and order paths before launch.',
-    href: '/supplies',
-  },
-  {
-    title: 'Support Boundaries',
-    description:
-      'Understand manufacturer first-line support, Bloomjoy concierge guidance, and Plus training resources.',
-    href: '#support-boundaries',
-  },
-];
+const categoryIcons = {
+  start: BookOpen,
+  locations: MapPinned,
+  budget: ClipboardCheck,
+  events: Sparkles,
+  setup: ClipboardCheck,
+};
 
 export default function ResourcesPage() {
   const location = useLocation();
-  const currentLocation = typeof window === 'undefined' ? undefined : window.location;
-  const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', currentLocation);
+  const currentLocation = typeof window === "undefined" ? undefined : window.location;
+  const operatorLoginUrl = getCanonicalUrlForSurface("app", "/login", "", "", currentLocation);
 
   useEffect(() => {
     if (!location.hash) {
@@ -62,7 +83,7 @@ export default function ResourcesPage() {
     }
 
     const scrollToTarget = () => {
-      document.getElementById(targetId)?.scrollIntoView({ block: 'start' });
+      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
     };
 
     const frameId = window.requestAnimationFrame(scrollToTarget);
@@ -76,52 +97,165 @@ export default function ResourcesPage() {
 
   return (
     <Layout>
-      <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
-        <div className="container-page text-center">
-          <h1 className="font-display text-4xl font-bold text-foreground">Resources</h1>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground">
-            Practical FAQs for robotic cotton candy machine buyers, venue operators, supplies,
-            maintenance, support, and Bloomjoy Plus.
-          </p>
-        </div>
-      </section>
-      <section className="border-b border-border bg-background py-10 sm:py-12 lg:py-16">
+      <section className="border-b border-border bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
         <div className="container-page">
-          <div className="grid gap-4 md:grid-cols-3">
-            {resourceGroups.map((group) => (
-              <Link
-                key={group.title}
-                to={group.href}
-                className="rounded-lg border border-border bg-muted/10 p-5 transition-colors hover:border-primary/60"
-              >
-                <h2 className="font-display text-xl font-semibold text-foreground">
-                  {group.title}
-                </h2>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  {group.description}
-                </p>
-                <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary">
-                  Open resource
-                  <ArrowRight className="h-4 w-4" />
-                </span>
-              </Link>
-            ))}
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.82fr)] lg:items-center">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.14em] text-primary">
+                Resources
+              </p>
+              <h1 className="mt-4 max-w-4xl font-display text-4xl font-bold leading-tight text-foreground sm:text-5xl">
+                Guides, FAQs, and operator playbooks for starting smart
+              </h1>
+              <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
+                The Bloomjoy Business Playbook turns common buyer questions into practical,
+                visual guides for vending locations, event service, budgeting, business setup,
+                supplies, support, and machine fit.
+              </p>
+              <div className="mt-7 flex flex-wrap gap-3">
+                <Button asChild size="lg">
+                  <Link to="/resources/business-playbook">
+                    Open Business Playbook
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="lg">
+                  <Link to="#faq">Read FAQs</Link>
+                </Button>
+              </div>
+            </div>
+
+            <figure className="overflow-hidden rounded-2xl border border-border bg-background shadow-elevated">
+              <img
+                src={landingHeroImage}
+                alt="Bloomjoy robotic cotton candy machine creating a colorful product moment"
+                width={720}
+                height={520}
+                loading="eager"
+                decoding="async"
+                className="aspect-[4/3] w-full object-cover"
+              />
+              <figcaption className="border-t border-border px-5 py-4 text-sm text-muted-foreground">
+                Operator-led guidance for turning machine interest into a real launch plan.
+              </figcaption>
+            </figure>
           </div>
         </div>
       </section>
+
+      <section className="border-b border-border bg-background py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="font-display text-3xl font-bold text-foreground">
+                Bloomjoy Business Playbook
+              </h2>
+              <p className="mt-2 max-w-3xl text-muted-foreground">
+                Useful, well-researched, easy-to-read guides for people evaluating a cotton
+                candy vending, event, or catering business.
+              </p>
+            </div>
+            <Button asChild variant="outline">
+              <Link to="/resources/business-playbook">
+                View all guides
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+
+          <div className="mt-8 grid gap-5 lg:grid-cols-3">
+            {featuredBusinessPlaybookArticles.map((article) => {
+              const category = getPlaybookCategory(article.category);
+              return (
+                <Link
+                  key={article.slug}
+                  to={`/resources/business-playbook/${article.slug}`}
+                  className="group overflow-hidden rounded-xl border border-border bg-background transition-[box-shadow,transform,border-color] duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-elevated"
+                >
+                  <div className="aspect-[16/10] overflow-hidden bg-muted">
+                    <img
+                      src={article.heroImage}
+                      alt={article.heroImageAlt}
+                      width={640}
+                      height={400}
+                      loading="lazy"
+                      decoding="async"
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  </div>
+                  <div className="p-5">
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+                      {category && (
+                        <span className={`rounded-full px-2.5 py-1 ${category.colorClass}`}>
+                          {category.title}
+                        </span>
+                      )}
+                      <span className="text-muted-foreground">{article.readingTime}</span>
+                    </div>
+                    <h3 className="mt-3 font-display text-xl font-bold leading-tight text-foreground group-hover:text-primary">
+                      {article.shortTitle}
+                    </h3>
+                    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                      {article.description}
+                    </p>
+                    <div className="mt-4 flex items-center text-sm font-semibold text-primary">
+                      Read guide
+                      <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="mt-8 grid gap-4 md:grid-cols-5">
+            {playbookCategories.map((category) => {
+              const Icon = categoryIcons[category.id];
+              const count = businessPlaybookArticles.filter(
+                (article) => article.category === category.id
+              ).length;
+
+              return (
+                <Link
+                  key={category.id}
+                  to={`/resources/business-playbook#${category.id}`}
+                  className="rounded-lg border border-border bg-muted/10 p-4 transition-colors hover:border-primary/60"
+                >
+                  <span
+                    className={`flex h-10 w-10 items-center justify-center rounded-lg ${category.colorClass}`}
+                  >
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <h3 className="mt-4 font-display text-lg font-semibold text-foreground">
+                    {category.title}
+                  </h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {count} guide{count === 1 ? "" : "s"}
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
       <section id="faq" className="scroll-mt-24 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
-          <div className="mx-auto max-w-2xl">
+          <div className="mx-auto max-w-3xl">
             <h2 className="font-display text-2xl font-bold text-foreground">
               Robotic cotton candy machine FAQs
             </h2>
+            <p className="mt-2 text-muted-foreground">
+              Fast answers for buyers who need support boundaries, machine fit, supplies, and
+              quote prep before a deeper playbook read.
+            </p>
             <Accordion
               type="multiple"
               defaultValue={resourcesFaqs.map((_, index) => `faq-${index}`)}
               className="mt-6"
             >
               {resourcesFaqs.map((faq, i) => (
-                <AccordionItem key={i} value={`faq-${i}`}>
+                <AccordionItem key={faq.q} value={`faq-${i}`}>
                   <AccordionTrigger className="text-left font-medium">{faq.q}</AccordionTrigger>
                   <AccordionContent className="text-muted-foreground">
                     <p>{faq.a}</p>
@@ -141,9 +275,10 @@ export default function ResourcesPage() {
           </div>
         </div>
       </section>
+
       <section className="border-y border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
-          <div className="mx-auto max-w-4xl">
+          <div className="mx-auto max-w-6xl">
             <div className="flex flex-col gap-3 text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
                 Bloomjoy Plus Preview
@@ -152,27 +287,34 @@ export default function ResourcesPage() {
                 Premium resources unlocked with Plus
               </h2>
               <p className="text-muted-foreground">
-                Plus includes task-based operator guides, maintenance checklists, troubleshooting references,
-                and the Bloomjoy Operator Essentials certificate path.
+                Public playbooks help you plan. Plus adds the operator layer: task-based
+                guides, maintenance checklists, eligible reporting access, troubleshooting
+                references, and the Bloomjoy Operator Essentials certificate path.
               </p>
             </div>
 
-            <div className="mt-8 grid gap-4 md:grid-cols-3">
-              {plusTeasers.map((item) => (
-                <div key={item.title} className="rounded-xl border border-border bg-background p-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-display text-lg font-semibold text-foreground">{item.title}</h3>
-                    <Lock className="h-4 w-4 text-muted-foreground" />
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {plusTeasers.map((item) => {
+                const MetaIcon = item.MetaIcon;
+
+                return (
+                  <div key={item.title} className="rounded-xl border border-border bg-background p-5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-display text-lg font-semibold text-foreground">
+                        {item.title}
+                      </h3>
+                      <Lock className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                      {item.description}
+                    </p>
+                    <div className="mt-4 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <MetaIcon className="h-3.5 w-3.5" />
+                      {item.metaLabel}
+                    </div>
                   </div>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {item.description}
-                  </p>
-                  <div className="mt-4 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    <Download className="h-3.5 w-3.5" />
-                    Plus download
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="mt-8 flex flex-wrap justify-center gap-3">
@@ -189,9 +331,10 @@ export default function ResourcesPage() {
           </div>
         </div>
       </section>
-      <section id="support-boundaries" className="pb-16 scroll-mt-24">
+
+      <section id="support-boundaries" className="scroll-mt-24 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
-          <div className="mx-auto max-w-2xl rounded-lg border border-border bg-muted/30 p-6">
+          <div className="mx-auto max-w-3xl rounded-xl border border-border bg-background p-6 shadow-sm">
             <h2 className="font-display text-2xl font-bold text-foreground">Support Boundaries</h2>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               The manufacturer support team provides 24/7 first-line technical support via WeChat

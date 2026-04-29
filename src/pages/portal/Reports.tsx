@@ -555,10 +555,10 @@ const groupRows = <TKey extends string>(
 };
 
 export default function ReportsPage() {
-  const { isScopedAdmin, isSuperAdmin } = useAuth();
+  const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
   const { t } = useLanguage();
   const [activeView, setActiveView] = useState<ReportingView>('operator');
-  const canUsePartnerDashboard = isSuperAdmin || isScopedAdmin;
+  const canUsePartnerDashboard = isSuperAdmin || isScopedAdmin || isCorporatePartner;
 
   const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
     useQuery({
@@ -604,8 +604,10 @@ export default function ReportsPage() {
                   ? t('reports.refreshing')
                   : isSuperAdmin
                     ? t('reports.superAdminReporting')
+                    : isCorporatePartner
+                      ? 'Corporate Partner reporting'
                     : t('reports.operatorReporting'),
-                tone: isSuperAdmin ? 'accent' : 'default',
+                tone: isSuperAdmin || isCorporatePartner ? 'accent' : 'default',
               },
             ]}
             actions={
@@ -1444,7 +1446,7 @@ function PartnerDashboardView() {
       <div className="flex flex-col gap-6 print:hidden">
         <Card>
           <CardContent className="grid gap-4 p-4">
-            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(250px,0.85fr)_minmax(220px,0.8fr)_minmax(220px,0.85fr)_auto] xl:items-end">
+            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(300px,0.95fr)_minmax(220px,0.8fr)_minmax(220px,0.85fr)_auto] xl:items-end">
               <LabeledControl label="Partnership" htmlFor="partner-dashboard-partnership">
                 <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
                   <SelectTrigger id="partner-dashboard-partnership">
@@ -1479,13 +1481,13 @@ function PartnerDashboardView() {
                   }}
                   className="grid grid-cols-3 rounded-lg border border-border bg-background p-1"
                 >
-                  <ToggleGroupItem value="weekly" className="h-9 rounded-md text-xs">
+                  <ToggleGroupItem value="weekly" className="h-auto min-h-9 rounded-md px-3 py-2 text-center text-xs leading-tight">
                     Weekly
                   </ToggleGroupItem>
-                  <ToggleGroupItem value="month_to_date" className="h-9 rounded-md text-xs">
+                  <ToggleGroupItem value="month_to_date" className="h-auto min-h-9 rounded-md px-3 py-2 text-center text-xs leading-tight">
                     Month to date
                   </ToggleGroupItem>
-                  <ToggleGroupItem value="completed_month" className="h-9 rounded-md text-xs">
+                  <ToggleGroupItem value="completed_month" className="h-auto min-h-9 rounded-md px-3 py-2 text-center text-xs leading-tight">
                     Completed month
                   </ToggleGroupItem>
                 </ToggleGroup>

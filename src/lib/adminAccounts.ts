@@ -129,7 +129,7 @@ export const grantPlusAccessAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to grant free Plus access.');
+    throw new Error(error?.message || 'Unable to grant Plus Customer access.');
   }
 
   return data as PlusAccessGrantRecord;
@@ -145,7 +145,7 @@ export const revokePlusAccessAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to revoke free Plus access.');
+    throw new Error(error?.message || 'Unable to revoke Plus Customer access.');
   }
 
   return data as PlusAccessGrantRecord;

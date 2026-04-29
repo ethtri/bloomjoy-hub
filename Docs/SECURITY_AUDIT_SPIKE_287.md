@@ -29,7 +29,7 @@ No destructive testing, production load testing, secret rotation, raw customer d
 ## Already-Covered or Non-Duplicated Items
 - Production auth email/OAuth/custom-domain hardening remains tracked in #77.
 - WeCom reliability and production owner-controlled WeCom policy remain tracked in #110.
-- Longer-term account/role/entitlement consolidation remains tracked in #150, with Partner Viewer boundaries in #128.
+- Longer-term account/role/entitlement consolidation remains tracked in #150, with Corporate Partner boundaries in #128.
 - Refund canonical machine identity remains tracked in #243.
 - No repo-committed secrets or client-exposed `VITE_` server secrets were found in the audited files.
 - Supabase tables created in migrations were found to have RLS enabled; this spike did not run live database introspection against production.

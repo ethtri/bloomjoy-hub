@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 
 export function MemberRoute() {
-  const { hasReportingAccess, loading, portalAccessTier } = useAuth();
+  const { capabilities, hasReportingAccess, loading, portalAccessTier } = useAuth();
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
   const accessLabel = getAccessLevelLabel(lockedDestination.access);
@@ -25,7 +25,14 @@ export function MemberRoute() {
     );
   }
 
-  if (canAccessPortalLevel(portalAccessTier, lockedDestination.access, hasReportingAccess)) {
+  if (
+    canAccessPortalLevel(
+      portalAccessTier,
+      lockedDestination.access,
+      hasReportingAccess,
+      capabilities
+    )
+  ) {
     return <Outlet />;
   }
 
@@ -57,7 +64,7 @@ export function MemberRoute() {
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       {isReportingRoute
                         ? 'Sales reporting access is granted by account, location, or specific machine. Ask Bloomjoy to add reporting permissions for the machines you should be able to view.'
-                        : 'Training-only operators can use the training hub. Customer account tools, onboarding, support, and billing stay reserved for the account owner or Bloomjoy Plus members.'}
+                        : 'Technicians without assigned machines can use the training hub. Customer account tools, onboarding, support, and billing stay reserved for account owners and eligible partners.'}
                     </p>
                   </div>
                 </div>

@@ -7,6 +7,14 @@ import { sendWeComAlertSafe } from "../_shared/wecom-alert.ts";
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const validRequestTypes = new Set(["concierge", "parts", "wechat_onboarding"]);
+const validWeChatDeviceTypes = new Set(["iphone", "android", "desktop", "other"]);
+const validWeChatBlockedSteps = new Set([
+  "account_creation",
+  "sms_verification",
+  "login_authentication",
+  "friend_referral",
+  "other",
+]);
 
 if (!supabaseUrl) {
   console.error("Missing SUPABASE_URL");
@@ -54,6 +62,44 @@ const sanitizeIntakeMeta = (value: unknown): Record<string, unknown> => {
   return sanitized;
 };
 
+const validateIntakePayload = (
+  requestType: string,
+  subject: string,
+  message: string,
+  intakeMeta: Record<string, unknown>
+) => {
+  if (!subject) {
+    return "Subject is required.";
+  }
+
+  if (requestType === "concierge" && !message) {
+    return "Message is required.";
+  }
+
+  if (requestType !== "wechat_onboarding") {
+    return null;
+  }
+
+  const phoneRegion = sanitizeText(intakeMeta.phone_region);
+  const phoneNumber = sanitizeText(intakeMeta.phone_number);
+  const deviceType = sanitizeText(intakeMeta.device_type);
+  const blockedStep = sanitizeText(intakeMeta.blocked_step);
+
+  if (!phoneRegion || !phoneNumber) {
+    return "Phone region and phone number are required for WeChat onboarding.";
+  }
+
+  if (!validWeChatDeviceTypes.has(deviceType)) {
+    return "Invalid WeChat device type.";
+  }
+
+  if (!validWeChatBlockedSteps.has(blockedStep)) {
+    return "Invalid WeChat blocked step.";
+  }
+
+  return null;
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -94,6 +140,26 @@ serve(async (req) => {
       });
     }
 
+    const { data: canRequestSupport, error: supportAccessError } = await supabase.rpc(
+      "can_request_support_for_user",
+      { p_user_id: user.id }
+    );
+
+    if (supportAccessError) {
+      console.error("Failed to resolve support entitlement", supportAccessError);
+      return new Response(JSON.stringify({ error: "Unable to verify support access." }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!canRequestSupport) {
+      return new Response(JSON.stringify({ error: "Support access required." }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body = await req.json();
 
     const requestType = sanitizeText(body?.requestType).toLowerCase();
@@ -116,8 +182,9 @@ serve(async (req) => {
       });
     }
 
-    if (!subject) {
-      return new Response(JSON.stringify({ error: "Subject is required." }), {
+    const validationError = validateIntakePayload(requestType, subject, message, intakeMeta);
+    if (validationError) {
+      return new Response(JSON.stringify({ error: validationError }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

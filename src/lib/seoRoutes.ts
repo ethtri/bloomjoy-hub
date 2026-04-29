@@ -1,4 +1,5 @@
 import type { AppSurface } from "@/lib/appSurface";
+import { businessPlaybookArticles } from "@/data/businessPlaybook";
 
 export type RouteSeo = {
   path: string;
@@ -15,7 +16,12 @@ export type RouteSeo = {
     title: string;
   }>;
   lastmod: string;
-  structuredDataKind?: "machine-product" | "supplies" | "faq";
+  structuredDataKind?:
+    | "machine-product"
+    | "supplies"
+    | "faq"
+    | "business-playbook-index"
+    | "business-playbook-article";
 };
 
 export type PrivateRouteSeo = RouteSeo & {
@@ -38,7 +44,7 @@ export const PUBLIC_ROBOTS =
   "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 export const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
 
-const LASTMOD = "2026-04-17";
+const LASTMOD = "2026-04-29";
 
 export const commercialMachineFaqs = [
   {
@@ -109,6 +115,42 @@ export const resourcesFaqs = [
     q: "Which sugar and stick supplies are available?",
     a: "Bloomjoy sells bulk cotton candy sugar in core colors, Bloomjoy branded paper sticks by box, and custom stick requests with artwork proofing.",
   },
+];
+
+const businessPlaybookSeoRoutes: RouteSeo[] = [
+  {
+    path: "/resources/business-playbook",
+    title: "Bloomjoy Business Playbook | Cotton Candy Business Guides",
+    description:
+      "Read practical Bloomjoy guides for starting a cotton candy vending, event, or catering business with operator-led tips, visuals, budget planning, and location strategy.",
+    robots: PUBLIC_ROBOTS,
+    surface: "marketing",
+    ogType: "website",
+    ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
+    ogImageAlt: "Bloomjoy Business Playbook for cotton candy machine operators",
+    lastmod: LASTMOD,
+    structuredDataKind: "business-playbook-index",
+  },
+  ...businessPlaybookArticles.map(
+    (article): RouteSeo => ({
+      path: `/resources/business-playbook/${article.slug}`,
+      title: `${article.title} | Bloomjoy Business Playbook`,
+      description: article.description,
+      robots: PUBLIC_ROBOTS,
+      surface: "marketing",
+      ogType: "article",
+      ogImagePath: article.seoImagePath,
+      ogImageAlt: article.heroImageAlt,
+      sitemapImages: [
+        {
+          loc: `${MARKETING_ORIGIN}${article.seoImagePath}`,
+          title: article.title,
+        },
+      ],
+      lastmod: article.updatedAt,
+      structuredDataKind: "business-playbook-article",
+    })
+  ),
 ];
 
 export const publicRoutes: RouteSeo[] = [
@@ -233,9 +275,9 @@ export const publicRoutes: RouteSeo[] = [
   },
   {
     path: "/resources",
-    title: "Robotic Cotton Candy Machine FAQs and Resources | Bloomjoy",
+    title: "Business Playbook and Robotic Cotton Candy Machine Resources | Bloomjoy",
     description:
-      "Get practical answers about Bloomjoy robotic cotton candy machines, supplies, training, support boundaries, maintenance, and quote preparation.",
+      "Explore the Bloomjoy Business Playbook, FAQs, operator resources, supplies guidance, support boundaries, and machine quote preparation.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
@@ -243,6 +285,7 @@ export const publicRoutes: RouteSeo[] = [
     lastmod: LASTMOD,
     structuredDataKind: "faq",
   },
+  ...businessPlaybookSeoRoutes,
   {
     path: "/contact",
     title: "Request a Robotic Cotton Candy Machine Quote | Bloomjoy",
@@ -430,6 +473,11 @@ const getRouteFaqs = (route: RouteSeo) => {
   return [];
 };
 
+const getBusinessPlaybookArticleByPath = (path: string) => {
+  const slug = path.replace("/resources/business-playbook/", "");
+  return businessPlaybookArticles.find((article) => article.slug === slug);
+};
+
 const machineProductDataByPath: Record<string, Record<string, unknown>> = {
   "/machines/commercial-robotic-machine": {
     "@type": "Product",
@@ -563,6 +611,81 @@ export const buildStructuredData = ({
         },
       ],
     });
+  }
+
+  if (route.path === "/resources/business-playbook") {
+    graph.push({
+      "@type": "CollectionPage",
+      "@id": `${canonicalUrl}#collection`,
+      name: "Bloomjoy Business Playbook",
+      description: route.description,
+      url: canonicalUrl,
+      isPartOf: {
+        "@id": `${MARKETING_ORIGIN}/#website`,
+      },
+      mainEntity: {
+        "@type": "ItemList",
+        itemListElement: businessPlaybookArticles.map((article, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          name: article.title,
+          url: `${MARKETING_ORIGIN}/resources/business-playbook/${article.slug}`,
+        })),
+      },
+    });
+  }
+
+  if (route.structuredDataKind === "business-playbook-article") {
+    const article = getBusinessPlaybookArticleByPath(route.path);
+
+    if (article) {
+      graph.push(
+        {
+          "@type": "BreadcrumbList",
+          "@id": `${canonicalUrl}#breadcrumb`,
+          itemListElement: [
+            {
+              "@type": "ListItem",
+              position: 1,
+              name: "Resources",
+              item: `${MARKETING_ORIGIN}/resources`,
+            },
+            {
+              "@type": "ListItem",
+              position: 2,
+              name: "Business Playbook",
+              item: `${MARKETING_ORIGIN}/resources/business-playbook`,
+            },
+            {
+              "@type": "ListItem",
+              position: 3,
+              name: article.title,
+              item: canonicalUrl,
+            },
+          ],
+        },
+        {
+          "@type": "Article",
+          "@id": `${canonicalUrl}#article`,
+          headline: article.title,
+          description: article.description,
+          image: `${MARKETING_ORIGIN}${article.seoImagePath}`,
+          datePublished: article.updatedAt,
+          dateModified: article.updatedAt,
+          author: {
+            "@id": `${MARKETING_ORIGIN}/#organization`,
+          },
+          publisher: {
+            "@id": `${MARKETING_ORIGIN}/#organization`,
+          },
+          mainEntityOfPage: {
+            "@id": `${canonicalUrl}#webpage`,
+          },
+          about: article.keyTakeaways,
+          citation: article.citations.map((citation) => citation.url),
+        }
+      );
+    }
   }
 
   if (route.structuredDataKind === "machine-product" && machineProductDataByPath[route.path]) {

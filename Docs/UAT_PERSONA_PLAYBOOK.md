@@ -28,7 +28,7 @@ Do not put real passwords, secret keys, service-role tokens, Stripe secrets, sal
 | Small non-user-facing cleanup | Yes | No | No |
 | Public site layout, copy, CTAs, SEO, cart UX, supplies UX | AI verifies build/lint and route behavior | Yes | Only when launch-critical |
 | Portal dashboard, training, support, onboarding, account UX | AI verifies route behavior and screenshots | Yes | When it changes customer promises or access |
-| Technician, Partner Viewer, reporting, admin access, or entitlement boundaries | AI verifies tests, RLS/RPC behavior, and screenshots | Yes | Yes for high-risk permission changes |
+| Technician, Corporate Partner, reporting, admin access, or entitlement boundaries | AI verifies tests, RLS/RPC behavior, and screenshots | Yes | Yes for high-risk permission changes |
 | Stripe/payments, auth, production redirects, Edge Functions, migrations, reporting math, production data paths | AI verifies locally and records evidence | Yes | Yes before production rollout |
 | Pure implementation refactor with unchanged behavior | AI verifies regression tests and build | Optional | No, unless risk is high |
 
@@ -125,8 +125,8 @@ Owner UAT focus:
 - Reporting setup, machine mapping, partner setup, and access management are understandable.
 - Internal-only workflows stay under `/admin`.
 
-### Partner Or Report Viewer
-Use this persona only when partner/report-viewer flows are explicitly enabled.
+### Corporate Partner
+Use this persona for Merlin/Bubble Planet-style partner users with explicit Corporate Partner membership.
 
 Expected route direction:
 
@@ -135,8 +135,9 @@ Expected route direction:
 
 Owner UAT focus:
 
-- Partner Viewer sees only approved partner/reporting information.
-- Partner Viewer does not get Plus benefits, billing, technician management, imports, tax/rule editing, schedules, warning ledgers, or `/admin`.
+- Corporate Partner sees only active, portal-enabled partnership reporting and derived machine reporting.
+- Corporate Partner can access training, support, supply discounts, and Technician management for their derived machines.
+- Corporate Partner cannot access billing, imports, tax/rule editing, schedules, warning ledgers, machine metadata editing, or `/admin`.
 - Partnership setup alone does not create partner portal access.
 
 ## UAT Packet Template
@@ -177,12 +178,12 @@ Agents can paste this into a PR comment or status update:
 | Cart/supplies/Stripe checkout | Public Buyer, Plus Account Owner when discounts apply |
 | Login/reset/Google auth | Public Buyer for entry, Plus Account Owner, Technician, Super Admin as applicable |
 | Portal dashboard/account/orders | Plus Account Owner |
-| Training | Plus Account Owner, Technician, training-only operator when relevant |
-| Technician management | Plus Account Owner, Technician, Super Admin when override exists |
+| Training | Plus Account Owner, Corporate Partner, Technician |
+| Technician management | Plus Account Owner, Corporate Partner, Technician, Super Admin when override exists |
 | Customer reporting | Plus Account Owner, Technician |
-| Partner reporting | Partner Viewer, Super Admin |
+| Partner reporting | Corporate Partner, Super Admin |
 | Admin support/orders/access/audit | Super Admin |
-| Partnership setup, machine mapping, partner PDFs | Super Admin, Partner Viewer only for approved output views |
+| Partnership setup, machine mapping, partner PDFs | Super Admin, Corporate Partner only for approved output views |
 
 ## Final Check Before Asking The Owner
 Before asking for UAT, confirm:

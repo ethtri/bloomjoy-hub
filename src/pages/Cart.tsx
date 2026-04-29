@@ -14,14 +14,13 @@ import {
   isSugarSku,
 } from '@/lib/sugar';
 import { useAuth } from '@/contexts/AuthContext';
-import { hasPlusAccess } from '@/lib/membership';
 import { toast } from 'sonner';
 
 export default function CartPage() {
   const { user } = useAuth();
   const { items, updateQuantity, removeItem, clearCart } = useCart();
-  const hasPlusMembership = hasPlusAccess(user?.membershipStatus);
-  const sugarPricePerKg = getSugarPricePerKg(hasPlusMembership);
+  const hasMemberSupplyPricing = Boolean(user?.hasSupplyDiscount);
+  const sugarPricePerKg = getSugarPricePerKg(hasMemberSupplyPricing);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const sugarBreakdown = getSugarColorBreakdown(items);
   const sugarTotalKg = Object.values(sugarBreakdown).reduce((sum, quantity) => sum + quantity, 0);
@@ -232,9 +231,9 @@ export default function CartPage() {
                 )}
                 {sugarTotalKg > 0 && (
                   <p className="mt-4 text-xs text-muted-foreground">
-                    {hasPlusMembership
-                      ? 'Bloomjoy Plus pricing is applied at $8/KG.'
-                      : 'Standard sugar pricing is applied at $10/KG. Active Bloomjoy Plus members pay $8/KG.'}
+                    {hasMemberSupplyPricing
+                      ? 'Member supply pricing is applied at $8/KG.'
+                      : 'Standard sugar pricing is applied at $10/KG. Plus Customers and Corporate Partners pay $8/KG.'}
                   </p>
                 )}
                 <div className="mt-4 space-y-3 text-sm">
