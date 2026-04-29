@@ -26,6 +26,9 @@ type PartnerReportSummary = {
 };
 
 type PartnerReportMachine = {
+  reporting_machine_id?: string;
+  period_start?: string;
+  period_end?: string;
   machine_label?: string;
   order_count?: number;
   item_quantity?: number;
@@ -48,15 +51,18 @@ type PartnerReportPeriod = PartnerReportSummary & {
 type PartnerReportWarning = {
   message?: string;
   severity?: string;
+  machine_id?: string | null;
 };
 
 export type PartnerReportPreview = {
   partnershipId?: string;
   partnershipName?: string;
   periodGrain?: "reporting_week" | "calendar_month";
+  periodMode?: "weekly" | "month_to_date" | "completed_month";
   periodStartDate?: string;
   periodEndDate?: string;
   periodLabel?: string;
+  machineScopeLabel?: string;
   weekStartDate?: string;
   weekEndingDate?: string;
   summary?: PartnerReportSummary;
@@ -127,6 +133,7 @@ const BLOOMJOY_LOGO_SAFE_PNG_BASE64 =
 
 const BLOOMJOY_LOGO_ASSET_BASE64 =
   BLOOMJOY_LOGO_SAFE_PNG_BASE64 || BLOOMJOY_LOGO_PNG_BASE64;
+const PARTNER_REVENUE_SHARE_LABEL = "Partner Revenue Share";
 
 const decodeBase64 = (value: string): Uint8Array =>
   Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
@@ -168,6 +175,12 @@ const formatCurrency = (cents: unknown): string =>
       maximumFractionDigits: 2,
     })
   }`;
+
+const formatDeductionCurrency = (cents: unknown): string => {
+  const roundedCents = Math.round(Math.abs(numberValue(cents)));
+  if (roundedCents === 0) return "$0.00";
+  return `-${formatCurrency(roundedCents)}`;
+};
 
 const formatCompactCurrency = (cents: unknown): string => {
   const dollars = Math.round(numberValue(cents)) / 100;
@@ -227,17 +240,28 @@ const formatDateShort = (value: unknown): string => {
   }).format(date));
 };
 
-const getPartnerPayoutLabel = (labels: string[]) =>
-  labels[0] ?? "Partner payout";
+const getPartnerPayoutLabel = (_labels: string[]) => PARTNER_REVENUE_SHARE_LABEL;
+
+const isMonthToDateReport = (preview: PartnerReportPreview) =>
+  preview.periodMode === "month_to_date";
+
+const getMachineScopeLabel = (preview: PartnerReportPreview) =>
+  preview.machineScopeLabel && preview.machineScopeLabel.trim()
+    ? preview.machineScopeLabel.trim()
+    : undefined;
 
 const getReportTitle = (preview: PartnerReportPreview) =>
-  preview.periodGrain === "calendar_month"
+  isMonthToDateReport(preview)
+    ? "Bloomjoy Partner Month-to-Date Report"
+    : preview.periodGrain === "calendar_month"
     ? "Bloomjoy Partner Monthly Report"
     : "Bloomjoy Partner Weekly Report";
 
 const getPeriodKindLabel = (preview: PartnerReportPreview) =>
-  preview.periodGrain === "calendar_month"
-    ? "Selected reporting month"
+  isMonthToDateReport(preview)
+    ? "Current month to date"
+    : preview.periodGrain === "calendar_month"
+    ? "Selected completed month"
     : "Selected reporting week";
 
 const getReportPeriodLabel = (preview: PartnerReportPreview) =>
@@ -251,6 +275,12 @@ const getReportPeriodLabel = (preview: PartnerReportPreview) =>
 const getFriendlyPeriodLabel = (preview: PartnerReportPreview) => {
   if (!preview.periodStartDate || !preview.periodEndDate) {
     return getReportPeriodLabel(preview);
+  }
+
+  if (isMonthToDateReport(preview)) {
+    return `${formatDateLong(preview.periodStartDate)} - ${
+      formatDateLong(preview.periodEndDate)
+    }`;
   }
 
   if (
@@ -415,7 +445,11 @@ export const buildPartnerReportReference = (
   snapshotId: string,
   preview: PartnerReportPreview,
 ) => {
-  const periodPrefix = preview.periodGrain === "calendar_month" ? "M" : "W";
+  const periodPrefix = isMonthToDateReport(preview)
+    ? "MTD"
+    : preview.periodGrain === "calendar_month"
+    ? "M"
+    : "W";
   const periodEnd = toAscii(preview.periodEndDate ?? preview.weekEndingDate)
     .replaceAll("-", "")
     .slice(0, 8) || "PERIOD";
@@ -439,10 +473,12 @@ export const buildPartnerReportCsv = ({
   const generatedAtLabel = formatGeneratedAt(generatedAt);
   const reportTitle = getReportTitle(preview);
   const periodLabel = getReportPeriodLabel(preview);
+  const machineScopeLabel = getMachineScopeLabel(preview);
   const rows = [
     csvRow([reportTitle]),
     csvRow(["Partnership", preview.partnershipName ?? ""]),
     csvRow(["Period", periodLabel]),
+    ...(machineScopeLabel ? [csvRow(["Machine scope", machineScopeLabel])] : []),
     csvRow(["Generated", generatedAtLabel]),
     csvRow(["Snapshot ID", snapshotId]),
     csvRow(["Calculation", calculationLabel]),
@@ -455,10 +491,10 @@ export const buildPartnerReportCsv = ({
     csvRow(["Orders", formatInteger(summary.order_count)]),
     csvRow(["Sticks/items", formatInteger(summary.item_quantity)]),
     csvRow(["Gross sales", formatCurrency(summary.gross_sales_cents)]),
-    csvRow(["Refund impact", `-${formatCurrency(summary.refund_amount_cents)}`]),
-    csvRow(["Machine taxes", formatCurrency(summary.tax_cents)]),
-    csvRow([feeLabel, formatCurrency(summary.fee_cents)]),
-    csvRow([costLabel, formatCurrency(summary.cost_cents)]),
+    csvRow(["Refund impact", formatDeductionCurrency(summary.refund_amount_cents)]),
+    csvRow(["Machine taxes", formatDeductionCurrency(summary.tax_cents)]),
+    csvRow([feeLabel, formatDeductionCurrency(summary.fee_cents)]),
+    csvRow([costLabel, formatDeductionCurrency(summary.cost_cents)]),
     csvRow(["Net sales", formatCurrency(summary.net_sales_cents)]),
     csvRow([
       getPartnerPayoutLabel(payoutRecipientLabels),
@@ -488,6 +524,9 @@ export const buildPartnerReportCsv = ({
       feeLabel,
       costLabel,
       "Net sales",
+      "Payout basis",
+      getPartnerPayoutLabel(payoutRecipientLabels),
+      "Bloomjoy retained",
     ]),
     ...((preview.machines ?? []).map((machine) =>
       csvRow([
@@ -500,6 +539,9 @@ export const buildPartnerReportCsv = ({
         formatCurrency(machine.fee_cents),
         formatCurrency(machine.cost_cents),
         formatCurrency(machine.net_sales_cents),
+        formatCurrency(machine.split_base_cents ?? machine.net_sales_cents),
+        formatCurrency(getMachinePartnerPayoutCents(machine)),
+        formatCurrency(getMachineBloomjoyRetainedCents(machine)),
       ])
     )),
   ];
@@ -595,11 +637,12 @@ const buildWorkbookSummarySheet = (
     feeLabel = "Stick cost deduction",
     costLabel = "Costs",
     splitBaseLabel = "Net sales",
-    calculationModelLabel = "Partner share",
+    calculationModelLabel = "Revenue share",
   } = context;
   const summary = preview.summary ?? {};
   const taxAndDeductions = numberValue(summary.tax_cents) +
     numberValue(summary.fee_cents) + numberValue(summary.cost_cents);
+  const machineScopeLabel = getMachineScopeLabel(preview);
 
   return {
     name: "Summary",
@@ -608,15 +651,18 @@ const buildWorkbookSummarySheet = (
       [xlsxText(getReportTitle(preview), XLSX_STYLE.title)],
       [xlsxText("Partnership", XLSX_STYLE.label), xlsxText(preview.partnershipName ?? "")],
       [xlsxText("Selected period", XLSX_STYLE.label), xlsxText(getReportPeriodLabel(preview))],
+      ...(machineScopeLabel
+        ? [[xlsxText("Machine scope", XLSX_STYLE.label), xlsxText(machineScopeLabel)]]
+        : []),
       [xlsxText("Generated", XLSX_STYLE.label), xlsxText(formatGeneratedAt(generatedAt))],
       [xlsxText("Report reference", XLSX_STYLE.label), xlsxText(reportReference)],
       [
-        xlsxText("Payout recipients", XLSX_STYLE.label),
-        xlsxText(payoutRecipientLabels.join(" + ") || "Partner payout"),
+        xlsxText("Partner Revenue Share recipients", XLSX_STYLE.label),
+        xlsxText(payoutRecipientLabels.join(" + ") || "Partner Revenue Share recipient"),
       ],
       [xlsxText("Calculation model", XLSX_STYLE.label), xlsxText(calculationModelLabel)],
       [xlsxText("Payout basis", XLSX_STYLE.label), xlsxText(splitBaseLabel)],
-      [xlsxText("Partner share", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
+      [xlsxText("Revenue share rate", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
       [],
       [xlsxText("Dashboard Totals", XLSX_STYLE.header), xlsxText("Value", XLSX_STYLE.header)],
       [xlsxText("Orders", XLSX_STYLE.label), xlsxInteger(summary.order_count)],
@@ -793,10 +839,11 @@ const buildWorkbookAssumptionsSheet = (
     feeLabel = "Stick cost deduction",
     costLabel = "Costs",
     splitBaseLabel = "Net sales",
-    calculationModelLabel = "Partner share",
+    calculationModelLabel = "Revenue share",
     payoutRecipientLabels,
     additionalDeductionsNotes,
   } = context;
+  const machineScopeLabel = getMachineScopeLabel(preview);
 
   return {
     name: "Assumptions",
@@ -805,12 +852,15 @@ const buildWorkbookAssumptionsSheet = (
       [xlsxText("Assumptions", XLSX_STYLE.title)],
       [xlsxText("Partnership", XLSX_STYLE.label), xlsxText(preview.partnershipName ?? "")],
       [xlsxText("Selected period", XLSX_STYLE.label), xlsxText(getReportPeriodLabel(preview))],
+      ...(machineScopeLabel
+        ? [[xlsxText("Machine scope", XLSX_STYLE.label), xlsxText(machineScopeLabel)]]
+        : []),
       [xlsxText("Generated", XLSX_STYLE.label), xlsxText(formatGeneratedAt(generatedAt))],
       [xlsxText("Report reference", XLSX_STYLE.label), xlsxText(reportReference)],
-      [xlsxText("Payout recipients", XLSX_STYLE.label), xlsxText(payoutRecipientLabels.join(" + ") || "Partner payout")],
+      [xlsxText("Partner Revenue Share recipients", XLSX_STYLE.label), xlsxText(payoutRecipientLabels.join(" + ") || "Partner Revenue Share recipient")],
       [xlsxText("Calculation model", XLSX_STYLE.label), xlsxText(calculationModelLabel)],
       [xlsxText("Payout basis", XLSX_STYLE.label), xlsxText(splitBaseLabel)],
-      [xlsxText("Partner share", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
+      [xlsxText("Revenue share rate", XLSX_STYLE.label), xlsxText(getPartnerShareLabel(context) || "Active agreement terms")],
       [xlsxText("Fee deduction label", XLSX_STYLE.label), xlsxText(feeLabel)],
       [xlsxText("Cost label", XLSX_STYLE.label), xlsxText(costLabel)],
       [xlsxText("Calculation note", XLSX_STYLE.label), xlsxText(calculationLabel, XLSX_STYLE.note)],
@@ -821,7 +871,7 @@ const buildWorkbookAssumptionsSheet = (
       [
         xlsxText("Data scope", XLSX_STYLE.label),
         xlsxText(
-          "Includes only partner-reporting data returned by the approved dashboard preview for the selected partnership, selected period, active payout rules, and assigned machine scope.",
+          "Includes only partner-reporting data returned by the approved dashboard preview for the selected partnership, selected period, active revenue-share rules, and assigned machine scope.",
           XLSX_STYLE.note,
         ),
       ],
@@ -902,7 +952,7 @@ const buildWorkbookReconciliationSheet = (
     [
       xlsxText(feeLabel),
       xlsxCurrency(summary.fee_cents, { deduction: true }),
-      xlsxText("Contract-specific fee deduction used before payout calculation.", XLSX_STYLE.note),
+      xlsxText("Contract-specific fee deduction used before revenue share calculation.", XLSX_STYLE.note),
     ],
     [
       xlsxText(costLabel),
@@ -922,12 +972,12 @@ const buildWorkbookReconciliationSheet = (
     [
       xlsxText(getPartnerPayoutLabel(payoutRecipientLabels), XLSX_STYLE.label),
       xlsxCurrency(summaryPayoutCents),
-      xlsxText("Amount owed from the active agreement terms.", XLSX_STYLE.note),
+      xlsxText("Partner Revenue Share from the active agreement terms.", XLSX_STYLE.note),
     ],
     [
       xlsxText("Bloomjoy retained"),
       xlsxCurrency(getBloomjoyRetainedCents(summary)),
-      xlsxText("Bloomjoy retained amount after partner payout.", XLSX_STYLE.note),
+      xlsxText("Bloomjoy retained amount after Partner Revenue Share.", XLSX_STYLE.note),
     ],
   ];
 
@@ -956,17 +1006,17 @@ const buildWorkbookReconciliationSheet = (
         xlsxText("Expected to be $0.00 when machine rows reconcile to the dashboard summary.", XLSX_STYLE.note),
       ],
       [
-        xlsxText("Machine amount owed total"),
+        xlsxText("Machine Partner Revenue Share total"),
         xlsxCurrency(machinePayoutCents),
-        xlsxText("Sum of machine rollup partner payout amounts.", XLSX_STYLE.note),
+        xlsxText("Sum of machine rollup Partner Revenue Share amounts.", XLSX_STYLE.note),
       ],
       [
-        xlsxText("Dashboard/PDF amount owed"),
+        xlsxText("Dashboard/PDF Partner Revenue Share"),
         xlsxCurrency(summaryPayoutCents),
-        xlsxText("Dashboard summary amount owed.", XLSX_STYLE.note),
+        xlsxText("Dashboard summary Partner Revenue Share.", XLSX_STYLE.note),
       ],
       [
-        xlsxText("Amount owed difference"),
+        xlsxText("Partner Revenue Share difference"),
         xlsxCurrency(machinePayoutCents - summaryPayoutCents),
         xlsxText("Expected to be $0.00 when machine rows reconcile to the dashboard summary.", XLSX_STYLE.note),
       ],
@@ -1728,7 +1778,12 @@ const drawDashboardPage = (
   } = context;
   const summary = preview.summary ?? {};
   const page = pdfDoc.addPage([612, 792]);
-  const partnerName = toAscii(preview.partnershipName ?? "Partner report");
+  const machineScopeLabel = getMachineScopeLabel(preview);
+  const partnerName = toAscii(
+    machineScopeLabel
+      ? `${preview.partnershipName ?? "Partner report"} - ${machineScopeLabel}`
+      : preview.partnershipName ?? "Partner report",
+  );
   const periodLabel = getFriendlyPeriodLabel(preview);
   const generatedAtLabel = formatPreparedAt(generatedAt);
   const netSalesCents = numberValue(summary.net_sales_cents);
@@ -1780,7 +1835,7 @@ const drawDashboardPage = (
     maxWidth: 178,
     lineHeight: 10,
   });
-  drawText(page, fonts, "Amount owed", {
+  drawText(page, fonts, PARTNER_REVENUE_SHARE_LABEL, {
     x: 328,
     y: 624,
     size: 10,
@@ -1845,15 +1900,15 @@ const drawDashboardPage = (
 
   drawTrendPanel(page, fonts, preview, { x: 42, y: 246, width: 528, height: 116 });
 
-  drawText(page, fonts, "Sales-to-payout bridge", {
+  drawText(page, fonts, "Sales-to-revenue share bridge", {
     x: 42,
     y: 208,
     size: 13,
     font: fonts.bold,
   });
   drawText(page, fonts, splitBaseKind === "gross"
-    ? "The selected period's sales, refund impact, agreement payout basis, and partner payout."
-    : "The selected period's settlement math, from recorded sales to partner payout.", {
+    ? "The selected period's sales, refund impact, agreement payout basis, and Partner Revenue Share."
+    : "The selected period's revenue share calculation, from recorded sales to Partner Revenue Share.", {
     x: 42,
     y: 192,
     size: 8.5,
@@ -1896,7 +1951,7 @@ const drawDashboardPage = (
       color: COLORS.slateSoft,
     },
     {
-      label: "Amount owed",
+      label: PARTNER_REVENUE_SHARE_LABEL,
       value: formatCurrency(payoutCents),
       cents: payoutCents,
       color: COLORS.coral,
@@ -1997,12 +2052,13 @@ const drawDetailPage = (
     feeLabel = "Stick cost deduction",
     costLabel = "Costs",
     splitBaseLabel = "Net sales",
-    calculationModelLabel = "Partner share",
+    calculationModelLabel = "Revenue share",
     additionalDeductionsNotes,
   } = context;
   const summary = preview.summary ?? {};
   const page = pdfDoc.addPage([612, 792]);
   const periodLabel = getFriendlyPeriodLabel(preview);
+  const machineScopeLabel = getMachineScopeLabel(preview);
   const partnerLabel = getPartnerPayoutLabel(payoutRecipientLabels);
   const payoutCents = getPrimaryPartnerPayoutCents(summary);
   const partnerShare = getPartnerShareLabel(context);
@@ -2012,13 +2068,15 @@ const drawDetailPage = (
 
   drawHeader(page, fonts, assets, {
     title: "Calculation support",
-    partnerName: "How the settlement was calculated",
-    periodLabel: `${getPeriodKindLabel(preview)}: ${periodLabel}`,
+    partnerName: "How Partner Revenue Share was calculated",
+    periodLabel: `${getPeriodKindLabel(preview)}: ${periodLabel}${
+      machineScopeLabel ? ` - ${machineScopeLabel}` : ""
+    }`,
     reportReference,
     generatedAt: formatPreparedAt(generatedAt),
   });
 
-  drawText(page, fonts, "Settlement math", {
+  drawText(page, fonts, "Revenue share calculation", {
     x: 42,
     y: 620,
     size: 13,
@@ -2092,7 +2150,7 @@ const drawDetailPage = (
     },
     {
       label: "Bloomjoy retained",
-      formula: "Bloomjoy share retained after the partner payout.",
+      formula: "Bloomjoy share retained after Partner Revenue Share.",
       value: formatCurrency(getBloomjoyRetainedCents(summary)),
     },
   ];
@@ -2121,7 +2179,7 @@ const drawDetailPage = (
   const assumptions = [
     `${getPeriodKindLabel(preview)} uses ${periodLabel}.`,
     partnerShare
-      ? `Agreement basis: ${splitBaseLabel}; amount owed is ${partnerShare} of that basis.`
+      ? `Agreement basis: ${splitBaseLabel}; Partner Revenue Share is ${partnerShare} of that basis.`
       : `Agreement basis: ${splitBaseLabel} (${calculationModelLabel}).`,
     "No-pay transactions are counted in operating volume and contribute $0 to sales.",
     "Refund impact includes approved adjustments applied to this selected period.",
@@ -2254,7 +2312,10 @@ const drawMachineAppendix = (
   reportReference: string,
 ) => {
   const { preview, generatedAt, feeLabel = "Deductions" } = context;
-  const periodLabel = `${getPeriodKindLabel(preview)}: ${getFriendlyPeriodLabel(preview)}`;
+  const machineScopeLabel = getMachineScopeLabel(preview);
+  const periodLabel = `${getPeriodKindLabel(preview)}: ${getFriendlyPeriodLabel(preview)}${
+    machineScopeLabel ? ` - ${machineScopeLabel}` : ""
+  }`;
   const generatedAtLabel = formatPreparedAt(generatedAt);
   const machines = preview.machines ?? [];
   const columns = [
@@ -2266,8 +2327,8 @@ const drawMachineAppendix = (
     { label: "Tax + deductions", x: 394, width: 72, align: "right" as const },
     { label: "Net sales", x: 474, width: 60, align: "right" as const },
     { label: "Payout basis", x: 542, width: 60, align: "right" as const },
-    { label: "Amount owed", x: 608, width: 62, align: "right" as const },
-    { label: "Bloomjoy retained", x: 676, width: 82, align: "right" as const },
+    { label: PARTNER_REVENUE_SHARE_LABEL, x: 606, width: 72, align: "right" as const },
+    { label: "Bloomjoy retained", x: 686, width: 72, align: "right" as const },
   ];
 
   let page = drawAppendixPage(pdfDoc, fonts, assets, periodLabel, reportReference, generatedAtLabel);

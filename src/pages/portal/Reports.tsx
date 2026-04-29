@@ -9,11 +9,10 @@ import {
   FileText,
   Info,
   Loader2,
-  RefreshCw,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -80,6 +79,7 @@ import {
   fetchPartnerDashboardPeriodPreview,
   type PartnerDashboardExportFormat,
   type PartnerDashboardMachinePeriod,
+  type PartnerDashboardPeriodMode,
   type PartnerDashboardPartnershipOption,
   type PartnerDashboardPeriod,
   type PartnerDashboardPeriodGrain,
@@ -92,7 +92,7 @@ import { cn } from '@/lib/utils';
 
 type ReportingView = 'operator' | 'partner';
 type OperatorPeriodPreset = 'this_week' | 'last_week' | 'last_30_days' | 'month_to_date' | 'custom';
-type PartnerPeriodMode = 'weekly' | 'monthly';
+type PartnerPeriodMode = PartnerDashboardPeriodMode;
 type PartnerPeriodOption = {
   key: string;
   mode: PartnerPeriodMode;
@@ -100,11 +100,15 @@ type PartnerPeriodOption = {
   dateFrom: string;
   dateTo: string;
   periodGrain: PartnerDashboardPeriodGrain;
+  isInProgress: boolean;
 };
 type PartnerMachineComparisonRow = {
   current: PartnerDashboardMachinePeriod;
   previous?: PartnerDashboardMachinePeriod;
 };
+
+const ALL_PARTNER_MACHINES = 'all';
+const PARTNER_REVENUE_SHARE_LABEL = 'Partner Revenue Share';
 
 const isReportingTabWarning = (warning: PartnerDashboardWarning) =>
   warning.severity === 'blocking';
@@ -232,10 +236,11 @@ const getLastCompletedWeekEnd = (weekEndDay: number, timezone?: string) => {
 };
 
 const getPartnerPeriodKey = (
+  mode: PartnerPeriodMode,
   periodGrain: PartnerDashboardPeriodGrain,
   dateFrom: string,
   dateTo: string
-) => `${periodGrain}:${dateFrom}:${dateTo}`;
+) => `${mode}:${periodGrain}:${dateFrom}:${dateTo}`;
 
 const getPartnerPeriodOptions = (
   partnership: PartnerDashboardPartnershipOption | undefined,
@@ -257,17 +262,36 @@ const getPartnerPeriodOptions = (
       const periodGrain = 'reporting_week' as PartnerDashboardPeriodGrain;
 
       return {
-        key: getPartnerPeriodKey(periodGrain, dateFrom, dateTo),
+        key: getPartnerPeriodKey(mode, periodGrain, dateFrom, dateTo),
         mode,
         label: formatPartnerPeriod({ periodStart: dateFrom, periodEnd: dateTo }, mode),
         dateFrom,
         dateTo,
         periodGrain,
+        isInProgress: false,
       };
     });
   }
 
-  const currentMonthStart = startOfMonth(getTodayForTimezone(partnership.timezone));
+  const today = getTodayForTimezone(partnership.timezone);
+  const currentMonthStart = startOfMonth(today);
+
+  if (mode === 'month_to_date') {
+    const dateFrom = toDateInput(currentMonthStart);
+    const dateTo = toDateInput(today);
+    const periodGrain = 'calendar_month' as PartnerDashboardPeriodGrain;
+
+    return [{
+      key: getPartnerPeriodKey(mode, periodGrain, dateFrom, dateTo),
+      mode,
+      label: formatPartnerPeriod({ periodStart: dateFrom, periodEnd: dateTo }, mode),
+      dateFrom,
+      dateTo,
+      periodGrain,
+      isInProgress: true,
+    }];
+  }
+
   const lastCompletedMonthEnd = addDays(currentMonthStart, -1);
   const lastCompletedMonthStart = startOfMonth(lastCompletedMonthEnd);
 
@@ -279,12 +303,13 @@ const getPartnerPeriodOptions = (
     const periodGrain = 'calendar_month' as PartnerDashboardPeriodGrain;
 
     return {
-      key: getPartnerPeriodKey(periodGrain, dateFrom, dateTo),
+      key: getPartnerPeriodKey(mode, periodGrain, dateFrom, dateTo),
       mode,
       label: formatPartnerPeriod({ periodStart: dateFrom, periodEnd: dateTo }, mode),
       dateFrom,
       dateTo,
       periodGrain,
+      isInProgress: false,
     };
   });
 };
@@ -294,9 +319,9 @@ const getPartnerTrendRange = (period: PartnerPeriodOption | undefined) => {
 
   const selectedStart = parseDateInput(period.dateFrom);
   const trendStart =
-    period.mode === 'monthly'
-      ? startOfMonth(addMonths(selectedStart, -5))
-      : addDays(selectedStart, -49);
+    period.mode === 'weekly'
+      ? addDays(selectedStart, -49)
+      : startOfMonth(addMonths(selectedStart, -5));
 
   return {
     dateFrom: toDateInput(trendStart),
@@ -304,6 +329,111 @@ const getPartnerTrendRange = (period: PartnerPeriodOption | undefined) => {
     periodGrain: period.periodGrain,
   };
 };
+
+const emptyPartnerTotals = (): PartnerDashboardTotals => ({
+  orderCount: 0,
+  itemQuantity: 0,
+  grossSalesCents: 0,
+  refundAmountCents: 0,
+  taxCents: 0,
+  feeCents: 0,
+  costCents: 0,
+  netSalesCents: 0,
+  splitBaseCents: 0,
+  amountOwedCents: 0,
+  bloomjoyRetainedCents: 0,
+});
+
+const sumPartnerTotals = (
+  totals: PartnerDashboardTotals,
+  period: PartnerDashboardTotals
+): PartnerDashboardTotals => ({
+  orderCount: totals.orderCount + period.orderCount,
+  itemQuantity: totals.itemQuantity + period.itemQuantity,
+  grossSalesCents: totals.grossSalesCents + period.grossSalesCents,
+  refundAmountCents: totals.refundAmountCents + period.refundAmountCents,
+  taxCents: totals.taxCents + period.taxCents,
+  feeCents: totals.feeCents + period.feeCents,
+  costCents: totals.costCents + period.costCents,
+  netSalesCents: totals.netSalesCents + period.netSalesCents,
+  splitBaseCents: totals.splitBaseCents + period.splitBaseCents,
+  amountOwedCents: totals.amountOwedCents + period.amountOwedCents,
+  bloomjoyRetainedCents: totals.bloomjoyRetainedCents + period.bloomjoyRetainedCents,
+});
+
+const periodMatchesOption = (
+  period: Pick<PartnerDashboardPeriod, 'periodStart' | 'periodEnd'>,
+  option: PartnerPeriodOption | undefined
+) => {
+  if (!option) return false;
+  if (option.mode === 'month_to_date') return period.periodStart === option.dateFrom;
+  return period.periodStart === option.dateFrom && period.periodEnd === option.dateTo;
+};
+
+const aggregateMachinePeriods = ({
+  machinePeriods,
+  periodStart,
+  periodEnd,
+  machineId,
+}: {
+  machinePeriods: PartnerDashboardMachinePeriod[];
+  periodStart: string;
+  periodEnd: string;
+  machineId: string;
+}): PartnerDashboardPeriod => {
+  const summary = machinePeriods
+    .filter((period) => period.reportingMachineId === machineId)
+    .reduce(sumPartnerTotals, emptyPartnerTotals());
+
+  return {
+    periodStart,
+    periodEnd,
+    ...summary,
+  };
+};
+
+const normalizePeriodForOption = (
+  period: PartnerDashboardPeriod | undefined,
+  option: PartnerPeriodOption | undefined
+): PartnerDashboardPeriod | undefined => {
+  if (!period || !option) return period;
+
+  return {
+    ...period,
+    periodStart: option.dateFrom,
+    periodEnd: option.dateTo,
+  };
+};
+
+const getPartnerModeLabel = (periodMode: PartnerPeriodMode) => {
+  if (periodMode === 'weekly') return 'Weekly';
+  if (periodMode === 'month_to_date') return 'Month to date';
+  return 'Completed month';
+};
+
+const getPartnerPeriodSelectLabel = (periodMode: PartnerPeriodMode) =>
+  periodMode === 'month_to_date' ? 'Current period' : 'Completed period';
+
+const getPartnerPeriodPlaceholder = (periodMode: PartnerPeriodMode) => {
+  if (periodMode === 'weekly') return 'Select week';
+  if (periodMode === 'month_to_date') return 'Current month to date';
+  return 'Select month';
+};
+
+const getPartnerExportPeriodLabel = (period: PartnerPeriodOption | undefined) => {
+  if (!period) return '';
+  if (period.mode === 'month_to_date') {
+    return `Month to date: ${formatDate(period.dateFrom)} through ${formatDate(period.dateTo)}`;
+  }
+
+  return formatPartnerPeriod({ periodStart: period.dateFrom, periodEnd: period.dateTo }, period.mode);
+};
+
+const getPartnerComparisonNoun = (periodMode: PartnerPeriodMode) =>
+  periodMode === 'weekly' ? 'week' : 'month';
+
+const getPartnerPeriodNoun = (periodMode: PartnerPeriodMode) =>
+  periodMode === 'weekly' ? 'week' : 'month';
 
 const formatCurrency = (cents: number, exact = false) =>
   (exact ? exactMoneyFormatter : moneyFormatter).format(cents / 100);
@@ -329,13 +459,11 @@ const formatDateRange = (start: string | undefined, end: string | undefined) =>
 const formatPartnerPeriod = (
   period: Pick<PartnerDashboardPeriod, 'periodStart' | 'periodEnd'>,
   periodMode: PartnerPeriodMode
-) =>
-  periodMode === 'weekly'
-    ? formatDateRange(period.periodStart, period.periodEnd)
-    : formatMonth(period.periodStart);
-
-const getPartnerPeriodNoun = (periodMode: PartnerPeriodMode) =>
-  periodMode === 'weekly' ? 'week' : 'month';
+) => {
+  if (periodMode === 'weekly') return formatDateRange(period.periodStart, period.periodEnd);
+  if (periodMode === 'month_to_date') return `${formatDateRange(period.periodStart, period.periodEnd)} MTD`;
+  return formatMonth(period.periodStart);
+};
 
 const formatDateTime = (value: string | null | undefined) =>
   value
@@ -519,7 +647,6 @@ export default function ReportsPage() {
 
 function OperatorReportingView({ accessContext }: { accessContext: ReportingAccessContext }) {
   const { t } = useLanguage();
-  const queryClient = useQueryClient();
   const operatorChartConfig = useMemo(
     () =>
       ({
@@ -606,14 +733,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
     setGrain(nextRange.grain);
   };
 
-  const refreshReport = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['sales-report'] }),
-      queryClient.invalidateQueries({ queryKey: ['reporting-dimensions'] }),
-      queryClient.invalidateQueries({ queryKey: ['reporting-access-context'] }),
-    ]);
-  };
-
   const exportPdf = async () => {
     setIsExporting(true);
     try {
@@ -654,14 +773,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button variant="outline" onClick={refreshReport} disabled={isFetching}>
-                {isFetching ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                {t('reports.refresh')}
-              </Button>
               <Button onClick={exportPdf} disabled={isExporting || reportRows.length === 0}>
                 {isExporting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -941,10 +1052,10 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
 
 function PartnerDashboardView() {
   const { isSuperAdmin } = useAuth();
-  const queryClient = useQueryClient();
   const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
   const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
+  const [selectedMachineId, setSelectedMachineId] = useState(ALL_PARTNER_MACHINES);
   const [exportingPartnerFormat, setExportingPartnerFormat] =
     useState<PartnerDashboardExportFormat | null>(null);
 
@@ -967,6 +1078,10 @@ function PartnerDashboardView() {
   const selectedPartnership = partnerships.find(
     (partnership) => partnership.id === selectedPartnershipId
   );
+
+  useEffect(() => {
+    setSelectedMachineId(ALL_PARTNER_MACHINES);
+  }, [selectedPartnershipId]);
 
   const periodOptions = useMemo(
     () => getPartnerPeriodOptions(selectedPartnership, periodMode),
@@ -1050,12 +1165,12 @@ function PartnerDashboardView() {
 
   const selectedPreviewPeriod = useMemo(
     () =>
-      preview?.periods.find(
-        (period) =>
-          period.periodStart === selectedPeriod?.dateFrom &&
-          period.periodEnd === selectedPeriod?.dateTo
-      ) ?? preview?.periods[0],
-    [preview?.periods, selectedPeriod?.dateFrom, selectedPeriod?.dateTo]
+      normalizePeriodForOption(
+        preview?.periods.find((period) => periodMatchesOption(period, selectedPeriod)) ??
+          preview?.periods[0],
+        selectedPeriod
+      ),
+    [preview?.periods, selectedPeriod]
   );
 
   const trendPeriods = useMemo(
@@ -1065,24 +1180,108 @@ function PartnerDashboardView() {
       ),
     [trendPreview?.periods]
   );
-  const currentPeriod = selectedPreviewPeriod;
-  const previousPeriod = useMemo(() => {
+
+  const machineOptions = useMemo(() => {
+    const optionsById = new Map<string, string>();
+    (preview?.machinePeriods ?? []).forEach((machine) => {
+      if (machine.reportingMachineId) {
+        optionsById.set(machine.reportingMachineId, machine.machineLabel);
+      }
+    });
+
+    return [...optionsById.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [preview?.machinePeriods]);
+
+  useEffect(() => {
+    if (previewLoading || selectedPreviewFetching || !preview) return;
+
+    if (
+      selectedMachineId !== ALL_PARTNER_MACHINES &&
+      !machineOptions.some((machine) => machine.id === selectedMachineId)
+    ) {
+      setSelectedMachineId(ALL_PARTNER_MACHINES);
+    }
+  }, [
+    machineOptions,
+    preview,
+    previewLoading,
+    selectedMachineId,
+    selectedPreviewFetching,
+  ]);
+
+  const selectedMachine = machineOptions.find((machine) => machine.id === selectedMachineId);
+  const selectedMachineLabel = selectedMachine?.label;
+  const scopedMachineIds =
+    selectedMachineId === ALL_PARTNER_MACHINES ? [] : [selectedMachineId];
+
+  const currentPeriod = useMemo(() => {
+    if (!selectedPeriod) return selectedPreviewPeriod;
+    if (selectedMachineId === ALL_PARTNER_MACHINES) return selectedPreviewPeriod;
+
+    return aggregateMachinePeriods({
+      machinePeriods: (preview?.machinePeriods ?? []).filter((period) =>
+        periodMatchesOption(period, selectedPeriod)
+      ),
+      periodStart: selectedPeriod.dateFrom,
+      periodEnd: selectedPeriod.dateTo,
+      machineId: selectedMachineId,
+    });
+  }, [
+    preview?.machinePeriods,
+    selectedMachineId,
+    selectedPeriod,
+    selectedPreviewPeriod,
+  ]);
+
+  const previousPeriodWindow = useMemo(() => {
     if (!selectedPeriod) return undefined;
     const priorPeriods = trendPeriods.filter(
-      (period) => period.periodEnd < selectedPeriod.dateTo
+      (period) => period.periodStart < selectedPeriod.dateFrom
     );
     return priorPeriods[priorPeriods.length - 1];
   }, [selectedPeriod, trendPeriods]);
+
+  const previousPeriod = useMemo(() => {
+    if (!previousPeriodWindow) return undefined;
+    if (selectedMachineId === ALL_PARTNER_MACHINES) return previousPeriodWindow;
+
+    return aggregateMachinePeriods({
+      machinePeriods: (trendPreview?.machinePeriods ?? []).filter(
+        (period) => period.periodStart === previousPeriodWindow.periodStart
+      ),
+      periodStart: previousPeriodWindow.periodStart,
+      periodEnd: previousPeriodWindow.periodEnd,
+      machineId: selectedMachineId,
+    });
+  }, [previousPeriodWindow, selectedMachineId, trendPreview?.machinePeriods]);
+
   const displayPeriods = useMemo(
     () => {
-      if (!currentPeriod) return trendPeriods;
-      if (trendPeriods.length === 0) return [currentPeriod];
+      const periodRows =
+        selectedMachineId === ALL_PARTNER_MACHINES
+          ? trendPeriods
+          : trendPeriods.map((period) =>
+              aggregateMachinePeriods({
+                machinePeriods: (trendPreview?.machinePeriods ?? []).filter(
+                  (machinePeriod) => machinePeriod.periodStart === period.periodStart
+                ),
+                periodStart: period.periodStart,
+                periodEnd: period.periodEnd,
+                machineId: selectedMachineId,
+              })
+            );
+
+      if (!currentPeriod) return periodRows;
+      if (periodRows.length === 0) return [currentPeriod];
 
       let includesSelectedPeriod = false;
-      const periods = trendPeriods.map((period) => {
-        const isSelectedPeriod =
-          period.periodStart === currentPeriod.periodStart &&
-          period.periodEnd === currentPeriod.periodEnd;
+      const periods = periodRows.map((period) => {
+        const isSelectedPeriod = selectedPeriod
+          ? periodMatchesOption(period, selectedPeriod)
+          : period.periodStart === currentPeriod.periodStart &&
+            period.periodEnd === currentPeriod.periodEnd;
         if (isSelectedPeriod) {
           includesSelectedPeriod = true;
           return currentPeriod;
@@ -1096,7 +1295,7 @@ function PartnerDashboardView() {
         left.periodStart.localeCompare(right.periodStart)
       );
     },
-    [currentPeriod, trendPeriods]
+    [currentPeriod, selectedMachineId, selectedPeriod, trendPeriods, trendPreview?.machinePeriods]
   );
 
   const machineRows = useMemo(
@@ -1115,29 +1314,35 @@ function PartnerDashboardView() {
   );
 
   const blockingWarnings = useMemo(
-    () => preview?.warnings.filter(isReportingTabWarning) ?? [],
-    [preview?.warnings]
+    () =>
+      (preview?.warnings ?? [])
+        .filter(
+          (warning) =>
+            selectedMachineId === ALL_PARTNER_MACHINES ||
+            !warning.machineId ||
+            warning.machineId === selectedMachineId
+        )
+        .filter(isReportingTabWarning),
+    [preview?.warnings, selectedMachineId]
   );
   const nonBlockingWarnings = useMemo(
-    () => preview?.warnings.filter((warning) => !isReportingTabWarning(warning)) ?? [],
-    [preview?.warnings]
+    () =>
+      (preview?.warnings ?? [])
+        .filter(
+          (warning) =>
+            selectedMachineId === ALL_PARTNER_MACHINES ||
+            !warning.machineId ||
+            warning.machineId === selectedMachineId
+        )
+        .filter((warning) => !isReportingTabWarning(warning)),
+    [preview?.warnings, selectedMachineId]
   );
   const hasBlockingWarnings = blockingWarnings.length > 0;
   const previewFetching = selectedPreviewFetching || trendPreviewFetching;
-  const trendLabel = periodMode === 'weekly' ? 'Weekly' : 'Monthly';
-  const selectedPeriodSummaryLabel = selectedPeriod
-    ? periodMode === 'weekly'
-      ? `Selected week ending ${formatDate(selectedPeriod.dateTo)}`
-      : `Selected month ${formatMonth(selectedPeriod.dateFrom)}`
-    : 'No completed period';
-  const selectedPeriodEmptyMessage = !selectedPartnershipId
-    ? 'Select a partnership'
-    : periodOptions.length === 0
-      ? `No completed ${getPartnerPeriodNoun(periodMode)}s available`
-      : 'Select a completed period';
-  const selectedPeriodSummaryRange = selectedPeriod
-    ? `${formatDate(selectedPeriod.dateFrom)} through ${formatDate(selectedPeriod.dateTo)}`
-    : selectedPeriodEmptyMessage;
+  const trendLabel = getPartnerModeLabel(periodMode);
+  const inProgressPeriodLabel = selectedPeriod?.isInProgress
+    ? `Data through ${formatDate(selectedPeriod.dateTo)}`
+    : '';
   const partnerExportDisabled =
     !preview ||
     !currentPeriod ||
@@ -1150,17 +1355,10 @@ function PartnerDashboardView() {
     exportingPartnerFormat === 'pdf'
       ? 'Preparing PDF'
       : exportingPartnerFormat === 'xlsx'
-        ? 'Preparing XLSX'
+      ? 'Preparing XLSX'
         : exportingPartnerFormat === 'csv'
           ? 'Preparing CSV'
           : 'Export';
-
-  const refreshPartnerDashboard = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['partner-dashboard-partnerships'] }),
-      queryClient.invalidateQueries({ queryKey: ['partner-dashboard-period-preview'] }),
-    ]);
-  };
 
   const exportPartnerReport = async (format: PartnerDashboardExportFormat) => {
     if (!preview || !currentPeriod) {
@@ -1184,15 +1382,19 @@ function PartnerDashboardView() {
       const exportResult = await exportPartnerDashboardReport({
         partnershipId: preview.partnershipId,
         periodGrain: selectedPeriod?.periodGrain ?? preview.periodGrain,
-        dateFrom: currentPeriod.periodStart,
-        dateTo: currentPeriod.periodEnd,
+        periodMode,
+        periodLabel: getPartnerExportPeriodLabel(selectedPeriod),
+        dateFrom: selectedPeriod?.dateFrom ?? currentPeriod.periodStart,
+        dateTo: selectedPeriod?.dateTo ?? currentPeriod.periodEnd,
         format,
+        machineIds: scopedMachineIds,
       });
       window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
       const exportFormatLabel =
         format === 'pdf' ? 'PDF' : format === 'xlsx' ? 'Excel workbook' : 'CSV';
+      const machineScopeLabel = selectedMachineLabel ? ` for ${selectedMachineLabel}` : '';
       toast.success(
-        `${trendLabel} partner ${exportFormatLabel} generated for ${exportPeriodLabel}.`
+        `${trendLabel} partner ${exportFormatLabel} generated${machineScopeLabel} for ${exportPeriodLabel}.`
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to export partner report.');
@@ -1225,7 +1427,7 @@ function PartnerDashboardView() {
           <CardTitle>No active partnerships yet</CardTitle>
           <CardDescription>
             Add an active partnership, assign machines, and configure financial rules before the
-            dashboard can preview settlement math.
+            dashboard can preview revenue share math.
           </CardDescription>
         </CardHeader>
         {isSuperAdmin && (
@@ -1244,7 +1446,7 @@ function PartnerDashboardView() {
       <div className="flex flex-col gap-6 print:hidden">
         <Card>
           <CardContent className="grid gap-4 p-4">
-            <div className="grid gap-4 lg:grid-cols-[minmax(240px,1fr)_minmax(180px,0.55fr)_minmax(220px,0.75fr)_auto] lg:items-end">
+            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(300px,0.95fr)_minmax(220px,0.8fr)_minmax(220px,0.85fr)_auto] xl:items-end">
               <LabeledControl label="Partnership" htmlFor="partner-dashboard-partnership">
                 <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
                   <SelectTrigger id="partner-dashboard-partnership">
@@ -1269,27 +1471,39 @@ function PartnerDashboardView() {
                   type="single"
                   value={periodMode}
                   onValueChange={(value) => {
-                    if (value === 'weekly' || value === 'monthly') setPeriodMode(value);
+                    if (
+                      value === 'weekly' ||
+                      value === 'month_to_date' ||
+                      value === 'completed_month'
+                    ) {
+                      setPeriodMode(value);
+                    }
                   }}
-                  className="grid grid-cols-2 rounded-lg border border-border bg-background p-1"
+                  className="grid grid-cols-3 rounded-lg border border-border bg-background p-1"
                 >
-                  <ToggleGroupItem value="weekly" className="h-9 rounded-md text-sm">
+                  <ToggleGroupItem value="weekly" className="h-auto min-h-9 rounded-md px-3 py-2 text-center text-xs leading-tight">
                     Weekly
                   </ToggleGroupItem>
-                  <ToggleGroupItem value="monthly" className="h-9 rounded-md text-sm">
-                    Monthly
+                  <ToggleGroupItem value="month_to_date" className="h-auto min-h-9 rounded-md px-3 py-2 text-center text-xs leading-tight">
+                    Month to date
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="completed_month" className="h-auto min-h-9 rounded-md px-3 py-2 text-center text-xs leading-tight">
+                    Completed month
                   </ToggleGroupItem>
                 </ToggleGroup>
               </div>
 
-              <LabeledControl label="Completed period" htmlFor="partner-dashboard-period">
+              <LabeledControl
+                label={getPartnerPeriodSelectLabel(periodMode)}
+                htmlFor="partner-dashboard-period"
+              >
                 <Select
                   value={selectedPeriod?.key ?? ''}
                   onValueChange={setSelectedPeriodKey}
                   disabled={periodOptions.length === 0}
                 >
                   <SelectTrigger id="partner-dashboard-period">
-                    <SelectValue placeholder={`Select ${periodMode === 'weekly' ? 'week' : 'month'}`} />
+                    <SelectValue placeholder={getPartnerPeriodPlaceholder(periodMode)} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
@@ -1303,22 +1517,32 @@ function PartnerDashboardView() {
                 </Select>
               </LabeledControl>
 
-              <div className="flex flex-col gap-2 sm:flex-row lg:justify-end">
-                <Button
-                  variant="outline"
-                  onClick={refreshPartnerDashboard}
-                  disabled={previewFetching}
+              <LabeledControl label="Machine" htmlFor="partner-dashboard-machine">
+                <Select
+                  value={selectedMachineId}
+                  onValueChange={setSelectedMachineId}
+                  disabled={machineOptions.length === 0}
                 >
-                  {previewFetching ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  Refresh
-                </Button>
+                  <SelectTrigger id="partner-dashboard-machine">
+                    <SelectValue placeholder="All machines" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value={ALL_PARTNER_MACHINES}>All machines</SelectItem>
+                      {machineOptions.map((machine) => (
+                        <SelectItem key={machine.id} value={machine.id}>
+                          {machine.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </LabeledControl>
+
+              <div className="flex flex-col gap-2 sm:flex-row lg:col-span-2 lg:justify-end xl:col-span-1">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button disabled={partnerExportDisabled} className="justify-center">
+                    <Button disabled={partnerExportDisabled} className="w-full justify-center sm:w-auto">
                       {exportingPartnerFormat ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
@@ -1337,7 +1561,7 @@ function PartnerDashboardView() {
                       <span className="min-w-0">
                         <span className="block font-medium">Polished PDF report</span>
                         <span className="block text-xs text-muted-foreground">
-                          Partner-ready settlement packet.
+                          Partner-ready revenue share report.
                         </span>
                       </span>
                     </DropdownMenuItem>
@@ -1370,13 +1594,23 @@ function PartnerDashboardView() {
               </div>
             </div>
 
-            <div
-              aria-live="polite"
-              className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:flex sm:items-center sm:justify-between sm:gap-4"
-            >
-              <span className="font-medium text-foreground">{selectedPeriodSummaryLabel}</span>
-              <span className="block sm:text-right">{selectedPeriodSummaryRange}</span>
-            </div>
+            {selectedPeriod?.isInProgress && (
+              <div
+                aria-live="polite"
+                className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:flex sm:items-center sm:justify-between sm:gap-4"
+              >
+                <span className="font-medium text-foreground">
+                  Month-to-date reporting
+                  <Badge variant="secondary" className="ml-2 align-middle">
+                    In progress
+                  </Badge>
+                </span>
+                <span className="block sm:text-right">
+                  {selectedMachineLabel ? `${selectedMachineLabel} - ` : ''}
+                  {inProgressPeriodLabel}
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1412,6 +1646,8 @@ function PartnerDashboardView() {
             previousPeriod={previousPeriod}
             trendLabel={trendLabel}
             periodMode={periodMode}
+            selectedMachineLabel={selectedMachineLabel}
+            isInProgressPeriod={Boolean(selectedPeriod?.isInProgress)}
           />
 
           {(blockingWarnings.length > 0 || nonBlockingWarnings.length > 0) && (
@@ -1460,7 +1696,7 @@ function PartnerDashboardView() {
           <div className="grid min-w-0 gap-6">
             <PartnerTrendCard
               title="Net sales trend"
-              description={`${trendLabel} net sales across the selected partnership.`}
+              description={`${trendLabel} net sales for ${selectedMachineLabel ?? 'all selected partnership machines'}.`}
               data={netSalesTrendData}
               config={partnerNetSalesChartConfig}
               dataKey="netSales"
@@ -1480,7 +1716,8 @@ function PartnerDashboardView() {
               <CardHeader>
                 <CardTitle className="text-xl">Machine rollups</CardTitle>
                 <CardDescription>
-                  Selected {getPartnerPeriodNoun(periodMode)} compared with the previous period.
+                  All assigned machines for the selected {getPartnerPeriodNoun(periodMode)}, compared with the previous period.
+                  {selectedMachineLabel ? ` ${selectedMachineLabel} is highlighted.` : ''}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1490,7 +1727,11 @@ function PartnerDashboardView() {
                   <>
                     <div className="flex flex-col gap-3 md:hidden">
                       {machineRows.map((row) => (
-                        <PartnerMachineMobileCard key={row.current.reportingMachineId} row={row} />
+                        <PartnerMachineMobileCard
+                          key={row.current.reportingMachineId}
+                          row={row}
+                          isSelected={row.current.reportingMachineId === selectedMachineId}
+                        />
                       ))}
                     </div>
                     <div className="hidden md:block">
@@ -1506,7 +1747,7 @@ function PartnerDashboardView() {
                             {showPayoutBasisColumn && (
                               <TableHead className="text-right">Payout basis</TableHead>
                             )}
-                            <TableHead className="text-right">Amount owed</TableHead>
+                            <TableHead className="text-right">{PARTNER_REVENUE_SHARE_LABEL}</TableHead>
                             <TableHead className="text-right">Change</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -1514,7 +1755,12 @@ function PartnerDashboardView() {
                           {machineRows.map((row) => {
                             const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
                             return (
-                              <TableRow key={row.current.reportingMachineId}>
+                              <TableRow
+                                key={row.current.reportingMachineId}
+                                className={cn(
+                                  row.current.reportingMachineId === selectedMachineId && 'bg-muted/40'
+                                )}
+                              >
                                 <TableCell>
                                   <div className="font-medium">{row.current.machineLabel}</div>
                                 </TableCell>
@@ -1592,6 +1838,7 @@ function PartnerDashboardView() {
                   ? formatPartnerPeriod(currentPeriod, periodMode)
                   : `${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`
               }
+              selectedMachineLabel={selectedMachineLabel}
             />
           </div>
         </>
@@ -1607,6 +1854,8 @@ function PartnerDashboardView() {
           currentPeriod={currentPeriod}
           previousPeriod={previousPeriod}
           periodMode={periodMode}
+          selectedMachineLabel={selectedMachineLabel}
+          isInProgressPeriod={Boolean(selectedPeriod?.isInProgress)}
         />
       )}
     </>
@@ -1619,31 +1868,34 @@ function PartnerAnswerBand({
   previousPeriod,
   trendLabel,
   periodMode,
+  selectedMachineLabel,
+  isInProgressPeriod,
 }: {
   preview: PartnerDashboardPeriodPreview;
   currentPeriod: PartnerDashboardPeriod | undefined;
   previousPeriod: PartnerDashboardPeriod | undefined;
   trendLabel: string;
   periodMode: PartnerPeriodMode;
+  selectedMachineLabel?: string;
+  isInProgressPeriod: boolean;
 }) {
   const current = currentPeriod ?? preview.summary;
   const previous = previousPeriod;
-  const periodLabel = currentPeriod
-    ? formatPartnerPeriod(currentPeriod, periodMode)
-    : `${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`;
-  const periodNoun = getPartnerPeriodNoun(periodMode);
+  const periodNoun = getPartnerComparisonNoun(periodMode);
+  const scopeLabel = selectedMachineLabel ?? 'All machines';
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-xl">Partner performance summary</CardTitle>
         <CardDescription>
-          {preview.partnershipName} - {periodLabel} - {trendLabel} view
+          {preview.partnershipName} - {scopeLabel} - {trendLabel} view
+          {isInProgressPeriod ? ' - in progress' : ''}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5 p-5 pt-0 md:grid-cols-2 xl:grid-cols-5">
         <AnswerItem
-          label="Amount owed"
+          label={PARTNER_REVENUE_SHARE_LABEL}
           value={formatCurrency(current.amountOwedCents, true)}
           detail={`${formatPercentChange(current.amountOwedCents, previous?.amountOwedCents ?? 0)} vs previous ${periodNoun}`}
           emphasis
@@ -1785,6 +2037,8 @@ function PartnerPrintableReport({
   currentPeriod,
   previousPeriod,
   periodMode,
+  selectedMachineLabel,
+  isInProgressPeriod,
 }: {
   preview: PartnerDashboardPeriodPreview;
   periods: PartnerDashboardPeriod[];
@@ -1792,6 +2046,8 @@ function PartnerPrintableReport({
   currentPeriod: PartnerDashboardPeriod | undefined;
   previousPeriod: PartnerDashboardPeriod | undefined;
   periodMode: PartnerPeriodMode;
+  selectedMachineLabel?: string;
+  isInProgressPeriod: boolean;
 }) {
   const current = currentPeriod ?? preview.summary;
   const currentHasAdditionalCosts = hasAdditionalCosts(current);
@@ -1806,7 +2062,8 @@ function PartnerPrintableReport({
     hour: 'numeric',
     minute: '2-digit',
   });
-  const modeLabel = periodMode === 'weekly' ? 'Weekly' : 'Monthly';
+  const modeLabel = getPartnerModeLabel(periodMode);
+  const scopeLabel = selectedMachineLabel ?? 'All machines';
 
   return (
     <section className="hidden print:block">
@@ -1849,11 +2106,13 @@ function PartnerPrintableReport({
               Partner performance report
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              {preview.partnershipName} - {periodLabel}
+              {preview.partnershipName} - {scopeLabel} - {periodLabel}
             </p>
           </div>
           <div className="text-right text-sm text-muted-foreground">
-            <div className="font-medium text-foreground">{modeLabel} report</div>
+            <div className="font-medium text-foreground">
+              {modeLabel} report{isInProgressPeriod ? ' (in progress)' : ''}
+            </div>
             <div>Generated {generatedAt}</div>
             <div>
               Data range {formatDate(preview.dateFrom)} - {formatDate(preview.dateTo)}
@@ -1863,7 +2122,7 @@ function PartnerPrintableReport({
 
         <section className="grid grid-cols-5 gap-3">
           <PrintableMetric
-            label="Amount owed"
+            label={PARTNER_REVENUE_SHARE_LABEL}
             value={formatCurrency(current.amountOwedCents, true)}
             detail={`${formatPercentChange(current.amountOwedCents, previousPeriod?.amountOwedCents ?? 0)} vs prior`}
             emphasis
@@ -1894,7 +2153,7 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">{modeLabel} sales trend</h2>
             <p className="text-sm text-muted-foreground">
-              Gross sales, refund impact, net sales, volume, and amount owed across the selected period.
+              Gross sales, refund impact, net sales, volume, and Partner Revenue Share across the selected period.
             </p>
           </div>
           <table className="w-full border-collapse text-sm">
@@ -1906,7 +2165,7 @@ function PartnerPrintableReport({
                 <th className="px-3 py-2 text-right font-medium">Net sales</th>
                 <th className="px-3 py-2 text-right font-medium">Transactions</th>
                 <th className="px-3 py-2 text-right font-medium">Items</th>
-                <th className="py-2 pl-3 text-right font-medium">Amount owed</th>
+                <th className="py-2 pl-3 text-right font-medium">{PARTNER_REVENUE_SHARE_LABEL}</th>
               </tr>
             </thead>
             <tbody>
@@ -1954,7 +2213,7 @@ function PartnerPrintableReport({
                 <th className="px-3 py-2 text-right font-medium">Refunds</th>
                 <th className="px-3 py-2 text-right font-medium">Volume</th>
                 <th className="px-3 py-2 text-right font-medium">Net sales</th>
-                <th className="px-3 py-2 text-right font-medium">Amount owed</th>
+                <th className="px-3 py-2 text-right font-medium">{PARTNER_REVENUE_SHARE_LABEL}</th>
                 <th className="py-2 pl-3 text-right font-medium">Change</th>
               </tr>
             </thead>
@@ -2013,13 +2272,13 @@ function PartnerPrintableReport({
           <div>
             <h2 className="text-lg font-semibold text-foreground">Calculation summary</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Gross sales uses the imported order amount for partner settlement. Machine tax,
+              Gross sales uses the imported order amount for partner reporting. Machine tax,
               approved refund adjustments, and configured deductions are deducted once to create
               net sales.
               {currentUsesNetSalesAsPayoutBasis
                 ? ' Net sales is the payout basis for this period.'
                 : ' The active rule then adjusts net sales into the payout basis.'}
-              {' '}The partner share is applied to the payout basis to calculate amount owed.
+              {' '}The configured share is applied to the payout basis to calculate Partner Revenue Share.
             </p>
           </div>
           <div className="flex flex-col gap-2 text-sm">
@@ -2035,7 +2294,7 @@ function PartnerPrintableReport({
               <CalculationLine label="Payout basis" value={formatCurrency(current.splitBaseCents, true)} />
             )}
             <CalculationLine
-              label="Amount owed"
+              label={PARTNER_REVENUE_SHARE_LABEL}
               value={formatCurrency(current.amountOwedCents, true)}
               emphasis
             />
@@ -2072,13 +2331,20 @@ function PrintableMetric({
 
 function PartnerMachineMobileCard({
   row,
+  isSelected = false,
 }: {
   row: PartnerMachineComparisonRow;
+  isSelected?: boolean;
 }) {
   const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
 
   return (
-    <div className="rounded-lg border border-border bg-background p-4">
+    <div
+      className={cn(
+        'rounded-lg border border-border bg-background p-4',
+        isSelected && 'bg-muted/40'
+      )}
+    >
       <div className="flex flex-col gap-3 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
         <div className="min-w-0">
           <div className="font-medium text-foreground">{row.current.machineLabel}</div>
@@ -2106,7 +2372,7 @@ function PartnerMachineMobileCard({
           detail={`${numberFormatter.format(row.current.orderCount)} transactions`}
         />
         <MobileProofItem
-          label="Amount owed"
+          label={PARTNER_REVENUE_SHARE_LABEL}
           value={formatCurrency(row.current.amountOwedCents, true)}
           detail={`Volume ${formatPercentChange(periodVolume(row.current), periodVolume(row.previous))}`}
         />
@@ -2148,9 +2414,11 @@ function MobileProofItem({
 function PartnerCalculationCard({
   summary,
   periodLabel,
+  selectedMachineLabel,
 }: {
   summary: PartnerDashboardTotals;
   periodLabel: string;
+  selectedMachineLabel?: string;
 }) {
   const summaryHasAdditionalCosts = hasAdditionalCosts(summary);
   const summaryUsesNetSalesAsPayoutBasis = usesNetSalesAsPayoutBasis(summary);
@@ -2159,7 +2427,10 @@ function PartnerCalculationCard({
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle className="text-xl">Calculation</CardTitle>
-        <CardDescription>{periodLabel} settlement calculation.</CardDescription>
+        <CardDescription>
+          {selectedMachineLabel ? `${selectedMachineLabel} - ` : ''}
+          {periodLabel} revenue share calculation.
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <CalculationLine label="Gross sales" value={formatCurrency(summary.grossSalesCents, true)} />
@@ -2174,7 +2445,7 @@ function PartnerCalculationCard({
           <CalculationLine label="Payout basis" value={formatCurrency(summary.splitBaseCents, true)} />
         )}
         <CalculationLine
-          label="Amount owed"
+          label={PARTNER_REVENUE_SHARE_LABEL}
           value={formatCurrency(summary.amountOwedCents, true)}
           emphasis
         />
@@ -2185,13 +2456,13 @@ function PartnerCalculationCard({
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="font-medium text-foreground">How this is calculated</div>
           <p className="mt-2">
-            Gross sales uses the imported order amount for partner settlement. Machine tax,
+            Gross sales uses the imported order amount for partner reporting. Machine tax,
             approved refund adjustments, and configured deductions are deducted once to create net
             sales.
             {summaryUsesNetSalesAsPayoutBasis
               ? ' Net sales is the payout basis for this period.'
               : ' The active rule then adjusts net sales into the payout basis.'}
-            {' '}The partner share is applied to the payout basis to calculate amount owed.
+            {' '}The configured share is applied to the payout basis to calculate Partner Revenue Share.
           </p>
         </div>
       </CardContent>
