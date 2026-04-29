@@ -98,7 +98,7 @@ const adminDestinations: AdminDestination[] = [
     labelKey: 'admin.access',
     shortLabel: 'Access',
     shortLabelKey: 'admin.access',
-    description: 'Users, Plus grants, global roles, reporting access, and audit history.',
+    description: 'Users, Plus Customer access, Corporate Partner access, global roles, reporting access, and audit history.',
     descriptionKey: 'admin.accessDescription',
     icon: Users,
   },

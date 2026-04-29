@@ -117,10 +117,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Active Plus member or super-admin can add multiple operator emails from `/portal/account` under Operator Training Access
 - [ ] Adding operator training access sends the operator an invite email with a login link
 - [ ] Operator Training Access shows a simple list of people with training access and a clear setup message when the database rollout is missing
-- [ ] Training-only operator login can access `/portal` and `/portal/training*`
-- [ ] Training-only operator login cannot access `/portal/orders`, `/portal/account`, `/portal/onboarding`, or `/portal/support`
-- [ ] Training-only operator portal navigation stays focused on dashboard and training, without customer billing/order links
-- [ ] Training-only operator does not receive Plus commerce benefits such as `$8/kg` sugar pricing
+- [ ] Technician with no assigned machines can access `/portal` and `/portal/training*`
+- [ ] Technician with no assigned machines cannot access `/portal/reports`, Plus/Corporate Partner supply discounts, billing, account-owner tools, partner settlement, or `/admin`
 - [ ] Revoking operator training access removes `/portal/training*` access on the next session refresh/re-login
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
@@ -131,12 +129,15 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Plus Account Owner can add a Technician with one or more owned machines, then edit that Technician's machine assignments
 - [ ] Pending Technician invite resolves on first login so the Technician gets training plus assigned-machine reporting without admin repair
 - [ ] Authenticated `/portal` and `/admin` route loads do not show `404` or `PGRST202` for `resolve_my_technician_entitlements` in the browser network log or console
-- [ ] Plus Account Owner cannot assign Technician access when the account has no active controlled reporting machines
+- [ ] Plus Account Owner can save a Technician with no machines as training-only access
 - [ ] Plus Account Owner sees a clear no-paid-seats message when the default 10 Technician grant cap is reached
 - [ ] Plus Account Owner can revoke Technician access only after entering a revoke reason
-- [ ] Baseline, training-only, Technician, Partner Viewer, and non-owner reporting users do not see Technician management controls
+- [ ] Corporate Partner can grant, update, renew, and revoke Technician access only for machines derived from active portal-enabled partnerships
+- [ ] Corporate Partner can save a Technician with no machines as training-only access
+- [ ] Baseline, Technician, Reporting User, and non-owner reporting users do not see Technician management controls
 - [ ] Technician login can open `/portal/training*` and `/portal/reports`, and reporting filters/results include only assigned machines
 - [ ] Technician login cannot access Plus discounts, billing, account-owner tools, partner settlement, or `/admin`
+- [ ] Technician access expires after one year unless renewed
 - [ ] Onboarding checklist progress updates when steps are toggled
 - [ ] Onboarding progress persists for the same user after page refresh/re-login
 - [ ] Training catalog visible to logged-in users
@@ -185,6 +186,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Private training documents are not publicly reachable by direct URL when using Supabase-backed document assets
 - [ ] Source-PDF download actions for document-first guides resolve through signed `training-documents` URLs rather than public bucket links
 - [ ] Support request forms submit and show success state
+- [ ] Direct support intake Edge Function calls are rejected unless `support.request` resolves server-side
 - [ ] Submitted support request appears in `support_requests` table with correct `request_type`, `status=new`, and customer identity
 - [ ] Submitted support request triggers a WeCom alert with request type, customer email, and subject
 - [ ] `/portal/support` -> `View Setup Guide` includes install steps, QR verification timing, contact/group setup, and quick-use actions for translation, photo/video sharing, and group calls
@@ -196,6 +198,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/reports` shows net sales, refund adjustments, gross sales, transaction count, sales by period, and sales by machine without mobile overflow
 - [ ] On mobile widths (`360x800`, `390x844`, `414x896`), `/portal/reports` period controls, machine/payment filters, KPI cards, charts, machine comparison, report rows, and PDF export action stack without horizontal page scrolling or truncated labels
 - [ ] Portal Reports > Partner Dashboard shows gross sales, refund impact, net sales, split base, and amount owed as separate values when applied refund adjustments exist
+- [ ] Corporate Partner can access `/portal/reports` partner dashboard for active portal-enabled partnerships only
+- [ ] Corporate Partner sees machine reporting only for machines derived from current partnership assignments
+- [ ] Corporate Partner cannot access `/admin`, tax/rule editing, machine metadata editing, imports, schedules, global reporting, or internal warning ledgers
+- [ ] Inactive partnership status stops Corporate Partner live reporting access
+- [ ] Revoked Corporate Partner membership removes portal reporting access after refresh/re-login
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
 - [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate/idempotent, same-content different-request, invalid-row, `Closed + Approve`, approved `Request Amount` fallback, `Open`, `Deny`, missing-decision, current customer-service export header, live sheet-shaped rows, sanitized-payload, and partner-settlement fixtures
@@ -205,7 +212,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Payments (test mode)
 - [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout
-- [ ] Bloomjoy Plus sugar checkout uses `$8/kg` in the cart summary and Stripe Checkout
+- [ ] Bloomjoy Plus Customer and Corporate Partner sugar checkout use `$8/kg` in the cart summary and Stripe Checkout
+- [ ] Direct sugar and sticks Edge Function calls cannot receive member pricing unless `supplies.member_discount` resolves server-side
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
 - [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
 - [ ] Sugar checkout writes an `orders` row with customer email/name/phone, billing address, shipping address, pricing tier, unit price, shipping total, receipt URL, and sugar color mix
@@ -258,12 +266,17 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Access > Users search returns rows by email/user ID and shows membership/order/support summary data
 - [ ] Admin Access > Users does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
 - [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
-- [ ] Admin Access > Users shows paid subscription status separately from free Plus grant status
-- [ ] Super-admin cannot grant free Plus access without a future expiry date and grant reason
-- [ ] Super-admin cannot grant free Plus access while the account has an active paid Stripe subscription that is not scheduled to cancel
-- [ ] Super-admin can grant or extend free Plus access and the customer can reach Plus-only portal pages without a paid Stripe subscription
-- [ ] Super-admin can revoke free Plus access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
-- [ ] Free Plus grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
+- [ ] Admin Access > Presets can search by user/email and show effective presets, capabilities, scopes, expiry, and warnings
+- [ ] Admin Access > Presets effective access preview shows all reporting machines and source breakdowns for Corporate Partner, Technician, and Scoped Admin machine scope
+- [ ] Admin Access > Presets can grant Corporate Partner access with user/email, partner record, save preview, and required reason
+- [ ] Admin Access > Presets can toggle partner-party portal access with a required reason
+- [ ] Admin Access > Presets Corporate Partner grants create `admin_audit_log` entries with `entity_type=corporate_partner_membership`
+- [ ] Admin Access > Users shows paid subscription status separately from Plus Customer access status
+- [ ] Super-admin cannot grant Plus Customer access without a future expiry date and grant reason
+- [ ] Super-admin cannot grant Plus Customer access while the account has an active paid Stripe subscription that is not scheduled to cancel
+- [ ] Super-admin can grant or extend Plus Customer access and the customer can reach Plus-only portal pages without a paid Stripe subscription
+- [ ] Super-admin can revoke Plus Customer access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
+- [ ] Plus Customer access grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
 - [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
 - [ ] Admin Access > Users machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`

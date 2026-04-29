@@ -4,14 +4,14 @@
 This is a docs-only implementation spec for GitHub issue `#183`: Define machine-scoped technician reporting entitlements.
 
 Source and coordination notes:
-- `Docs/ENTITLEMENTS_PERSONA_ROADMAP.md` is the source of truth for the broader Super Admin, Scoped Admin, Plus Account Owner, Technician, and Partner Viewer persona boundaries.
+- `Docs/ENTITLEMENTS_PERSONA_ROADMAP.md` is the source of truth for the broader Super Admin, Scoped Admin, Plus Account Owner, Corporate Partner, and Technician persona boundaries.
 - This document is the detailed companion spec for the Technician portion of that roadmap.
 - PR `#182` is actively changing `/portal/reports`, partner dashboard UI, `src/lib/partnerDashboardReporting.ts`, and reporting preview migrations. This spec does not edit or require changes in those files.
 
 ## Scope
 Define how a future Technician persona should combine existing training-only operator access with machine-scoped reporting access.
 
-This spec does not implement partner viewer UI, partner dashboard permissions, PDF export behavior, billing behavior, dependency upgrades, or any route/code changes.
+This spec does not implement Corporate Partner UI, partner dashboard permissions, PDF export behavior, billing behavior, dependency upgrades, or any route/code changes.
 
 ## Current Foundations
 Current access foundations should be preserved instead of replaced:
@@ -24,7 +24,7 @@ Current access foundations should be preserved instead of replaced:
 - Reporting access is separate from Plus and training access.
 - Machine reporting access is stored through `reporting_machine_entitlements` and evaluated by `has_reporting_machine_access`.
 - Reporting visibility can currently be scoped by account, location, or machine, with `viewer` and `report_manager` access levels.
-- V1 reporting visibility remains machine-level for customer and technician use. Partnerships must not create inherited portal access.
+- V1 reporting visibility remains machine-level for customer and technician use. Partnerships must not create inherited portal access unless explicit Corporate Partner membership and portal-enabled partnership participation are present.
 
 ## Target Persona
 Technician is customer staff responsible for operating or monitoring assigned machines.
@@ -34,7 +34,7 @@ Technician access is a composition of:
 1. Training access, using the existing operator training grant model.
 2. Reporting access, limited to explicitly assigned machines.
 
-A Technician is not a Plus Account Owner, Partner Viewer, report manager, billing manager, scoped admin, or super-admin.
+A Technician is not a Plus Account Owner, Corporate Partner member, report manager, billing manager, scoped admin, or super-admin.
 
 ## Entitlement Composition Rules
 
@@ -46,8 +46,8 @@ Future Technician access should build on the training grant model rather than re
 - An active `operator_training_grants` row grants training access only.
 - A Technician grant adds one or more assigned reporting machines to that training relationship.
 - Existing training-only operators with no machine assignments stay training-only.
-- If a Plus Account Owner assigns machines to an email that already has an active training grant from that owner/account, the later RPC should reuse/update that relationship instead of creating a duplicate seat.
-- If a Plus Account Owner assigns machines to a new email, the later RPC should create or update the training grant and then create machine assignments.
+- If a Plus Account Owner or Corporate Partner assigns machines to an email that already has an active training grant from that sponsor context, the later RPC should reuse/update that relationship instead of creating a duplicate seat.
+- If a Plus Account Owner or Corporate Partner assigns machines to a new email, the later RPC should create or update the training grant and then create machine assignments.
 
 ### Reporting Relationship
 Technician reporting should compose with the existing reporting entitlement model, but only at machine scope.
@@ -69,12 +69,12 @@ Effective Technician report visibility should be the active assigned-machine set
 V1 grant authority:
 
 - Plus Account Owner: can grant, update, and revoke Technician access for their own Plus account.
+- Corporate Partner: can grant, update, renew, and revoke Technician access for machines derived from their active portal-enabled partnerships.
 - Super Admin: can grant, update, and revoke Technician access for any account with a required audit reason.
 
 Not V1 grant authority:
 
 - Technician.
-- Partner Viewer.
 - Training-only operator.
 - Reporting `viewer`.
 - Reporting `report_manager`, unless a later decision explicitly expands this role.
@@ -137,7 +137,7 @@ Technician cannot see or use:
 
 | Edge case | Expected behavior |
 | --- | --- |
-| Plus sponsor loses access | Training access already stops because active operator training grants depend on sponsor Plus access. Future Technician reporting must also suspend or revoke derived machine reporting entitlements when the Plus Account Owner no longer has active Plus access or active ownership of the account. Automated suspension should write audit metadata with the reason. |
+| Sponsor loses access | Training access already stops because active operator training grants depend on sponsor access. Future Technician reporting must also suspend or revoke derived machine reporting entitlements when the Plus Account Owner no longer has active Plus access, the Corporate Partner membership is revoked, or the underlying partnership is no longer active and portal-enabled. Automated suspension should write audit metadata with the reason. |
 | Machine removed from owner | The Technician's assignment for that machine must be revoked or suspended. The derived `reporting_machine_entitlements` row for that machine must no longer confer access. Other assigned machines remain active if still controlled by the owner. |
 | Technician reassigned | Updating the assigned machine set should add newly assigned machine entitlements and revoke removed machine entitlements in one audited transaction. The training grant remains active unless the user is removed entirely. |
 | Grant cap exceeded | The RPC rejects the new grant before creating an invite, training grant, machine assignment, or reporting entitlement. Existing active grants can still be updated without consuming an extra seat. |
@@ -156,7 +156,7 @@ Every grant, update, revoke, and machine-assignment change should be auditable.
 Minimum audit fields:
 
 - actor user ID and actor email when available.
-- actor authority path: Plus Account Owner or Super Admin.
+- actor authority path: Plus Account Owner, Corporate Partner, or Super Admin.
 - target technician email and user ID when available.
 - customer account ID.
 - machine IDs added and removed.
@@ -195,7 +195,7 @@ Add customer-safe RPCs for the owner flow:
 RPC requirements:
 
 - Authenticate the actor.
-- Confirm actor is a Plus Account Owner for the account.
+- Confirm actor is a Plus Account Owner for the account or a Corporate Partner for the partner/machine scope.
 - Confirm actor controls every requested machine.
 - Enforce the 10-grant cap.
 - Normalize duplicate emails.
@@ -219,14 +219,14 @@ V1 UX should show:
 - Clear message when the owner has no controlled machines.
 - Clear cap-exceeded message with no Stripe or paid-seat flow.
 
-Do not add partner dashboard UI, partner viewer UI, PDF/report export behavior, or `/admin` customer team management.
+Do not add broader partner dashboard UI, PDF/report export behavior, or `/admin` customer team management.
 
 ### 4. Portal Reporting Integration
 Keep `/portal/reports` behavior machine-scoped.
 
 The reporting route should continue to rely on effective machine access, but future Technician implementation should ensure effective access excludes unassigned machines and suspended source grants. If source-aware entitlement filtering requires a helper change, make that change in a narrow PR with targeted tests.
 
-Do not edit partner dashboard behavior for this Technician slice.
+Do not expand partner dashboard behavior beyond explicit Corporate Partner permissions for this Technician slice.
 
 ### 5. QA And Smoke Tests
 Add smoke checklist items when implementation begins, not in this docs-only PR.

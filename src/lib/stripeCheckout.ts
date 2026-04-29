@@ -80,13 +80,19 @@ export async function startBlankSticksCheckout(
   { boxCount, stickSize, addressType }: BlankSticksCheckoutInput,
   origin: string
 ) {
-  const data = await invokeEdgeFunction<CheckoutResponse>('stripe-sticks-checkout', {
-    boxCount,
-    stickSize,
-    addressType,
-    successUrl: `${origin}/supplies?sticksCheckout=success`,
-    cancelUrl: `${origin}/supplies?sticksCheckout=cancel`,
-  });
+  const data = await invokeEdgeFunction<CheckoutResponse>(
+    'stripe-sticks-checkout',
+    {
+      boxCount,
+      stickSize,
+      addressType,
+      successUrl: `${origin}/supplies?sticksCheckout=success`,
+      cancelUrl: `${origin}/supplies?sticksCheckout=cancel`,
+    },
+    {
+      includeUserAuth: true,
+    }
+  );
 
   if (!data?.url) {
     throw new Error(data?.error || 'Checkout URL missing.');

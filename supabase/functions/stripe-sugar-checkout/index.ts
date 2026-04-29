@@ -20,7 +20,6 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const maxSugarKgPerCheckout = 200000;
-const plusStatuses = new Set(["active", "trialing"]);
 const allowedSugarSkus = new Set([
   "sugar-1kg",
   "sugar-white-1kg",
@@ -29,12 +28,11 @@ const allowedSugarSkus = new Set([
   "sugar-red-1kg",
 ]);
 
-type SugarPricingTier = "plus_member" | "standard";
+type SugarPricingTier = "member" | "standard";
 
 type ResolvedCheckoutUser = {
   id: string;
   email: string | null;
-  membershipStatus: string | null;
   pricingTier: SugarPricingTier;
 };
 
@@ -68,16 +66,11 @@ const stripe = stripeSecretKey
     })
   : null;
 
-const getSugarPricingTier = (
-  membershipStatus: string | null | undefined
-): SugarPricingTier =>
-  membershipStatus && plusStatuses.has(membershipStatus) ? "plus_member" : "standard";
-
 const getUnitPriceCents = (pricingTier: SugarPricingTier): number =>
-  pricingTier === "plus_member" ? 800 : 1000;
+  pricingTier === "member" ? 800 : 1000;
 
 const getStripePriceId = (pricingTier: SugarPricingTier): string | null =>
-  pricingTier === "plus_member"
+  pricingTier === "member"
     ? memberSugarPriceId ?? null
     : nonMemberSugarPriceId ?? null;
 
@@ -124,26 +117,21 @@ const resolveOptionalCheckoutUser = async (
     },
   });
 
-  const { data: subscription, error: subscriptionError } = await adminClient
-    .from("subscriptions")
-    .select("status")
-    .eq("user_id", authData.user.id)
-    .in("status", Array.from(plusStatuses))
-    .limit(1)
-    .maybeSingle();
+  const { data: discountTier, error: discountError } = await adminClient.rpc(
+    "get_user_supply_discount_tier",
+    { p_user_id: authData.user.id }
+  );
 
-  if (subscriptionError) {
-    console.error("Failed to resolve membership pricing tier", subscriptionError);
+  if (discountError) {
+    console.error("Failed to resolve supply discount tier", discountError);
     return {
-      error: "Unable to verify Bloomjoy Plus pricing right now.",
+      error: "Unable to verify Bloomjoy member pricing right now.",
       status: 500,
       user: null,
     };
   }
 
-  const membershipStatus =
-    typeof subscription?.status === "string" ? subscription.status : "none";
-  const pricingTier = getSugarPricingTier(membershipStatus);
+  const pricingTier: SugarPricingTier = discountTier === "member" ? "member" : "standard";
 
   return {
     error: null,
@@ -151,7 +139,6 @@ const resolveOptionalCheckoutUser = async (
     user: {
       id: authData.user.id,
       email: authData.user.email ?? null,
-      membershipStatus,
       pricingTier,
     },
   };
@@ -302,6 +289,7 @@ serve(async (req) => {
     }
 
     const pricingTier = authResult.user?.pricingTier ?? "standard";
+    const orderPricingTier = pricingTier === "member" ? "plus_member" : "standard";
     const unitPriceCents = getUnitPriceCents(pricingTier);
     const sugarPriceId = getStripePriceId(pricingTier);
 
@@ -328,7 +316,7 @@ serve(async (req) => {
       client_reference_id: authResult.user?.id ?? undefined,
       metadata: {
         order_type: "sugar",
-        pricing_tier: pricingTier,
+        pricing_tier: orderPricingTier,
         unit_price_cents: String(unitPriceCents),
         shipping_total_cents: "0",
         sugar_total_kg: String(totalSugarKg),
@@ -337,9 +325,7 @@ serve(async (req) => {
         sugar_orange_kg: String(sugarBreakdown.orange),
         sugar_red_kg: String(sugarBreakdown.red),
         ...(authResult.user?.id ? { user_id: authResult.user.id } : {}),
-        ...(authResult.user?.membershipStatus
-          ? { membership_status: authResult.user.membershipStatus }
-          : {}),
+        supply_discount_tier: pricingTier,
       },
     });
 

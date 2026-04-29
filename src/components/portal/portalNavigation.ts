@@ -11,7 +11,13 @@ import {
 import type { PortalAccessTier } from '@/lib/membership';
 import type { TranslationKey } from '@/lib/i18n';
 
-export type PortalAccessLevel = 'all' | 'baseline' | 'training' | 'plus' | 'reporting';
+export type PortalAccessLevel =
+  | 'all'
+  | 'baseline'
+  | 'training'
+  | 'plus'
+  | 'support'
+  | 'reporting';
 
 export interface PortalDestination {
   href: string;
@@ -102,7 +108,7 @@ export const portalDestinations: PortalDestination[] = [
     description: 'Concierge help, WeChat onboarding, and parts assistance.',
     descriptionKey: 'portal.nav.supportDescription',
     icon: HeadphonesIcon,
-    access: 'plus',
+    access: 'support',
     mobileOrder: 7,
     upsellCopy: 'Unlock guided support requests and concierge escalation.',
     upsellCopyKey: 'portal.nav.supportUpsell',
@@ -119,19 +125,33 @@ export const getPortalDestinationByPath = (pathname: string) =>
 export const canAccessPortalLevel = (
   accessTier: PortalAccessTier,
   accessLevel: PortalAccessLevel,
-  hasReportingAccess = false
+  hasReportingAccess = false,
+  capabilities: string[] = []
 ): boolean => {
+  const hasCapability = (capability: string) => capabilities.includes(capability);
+
   switch (accessLevel) {
     case 'all':
       return true;
     case 'baseline':
-      return accessTier === 'baseline' || accessTier === 'plus';
+      return (
+        accessTier === 'baseline' ||
+        accessTier === 'plus' ||
+        accessTier === 'corporate_partner'
+      );
     case 'training':
-      return accessTier === 'training' || accessTier === 'plus';
+      return (
+        accessTier === 'training' ||
+        accessTier === 'plus' ||
+        accessTier === 'corporate_partner' ||
+        hasCapability('training.view')
+      );
     case 'plus':
       return accessTier === 'plus';
+    case 'support':
+      return accessTier === 'plus' || hasCapability('support.request');
     case 'reporting':
-      return hasReportingAccess;
+      return hasReportingAccess || hasCapability('reports.partner.view');
     default:
       return false;
   }
@@ -145,6 +165,8 @@ export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
       return 'Training';
     case 'plus':
       return 'Plus';
+    case 'support':
+      return 'Support';
     case 'reporting':
       return 'Reporting';
     case 'all':
@@ -161,6 +183,8 @@ export const getAccessLevelLabelKey = (accessLevel: PortalAccessLevel): Translat
       return 'portal.access.training';
     case 'plus':
       return 'portal.access.plus';
+    case 'support':
+      return 'portal.access.support';
     case 'reporting':
       return 'portal.access.reporting';
     case 'all':

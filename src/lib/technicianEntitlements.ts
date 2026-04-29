@@ -15,6 +15,9 @@ export type TechnicianManagementAccount = {
   accountId: string;
   accountName: string;
   accountStatus: string;
+  authorityPath: string;
+  partnerId: string | null;
+  partnerName: string | null;
   seatCap: number;
   activeSeatCount: number;
   machineCount: number;
@@ -45,6 +48,9 @@ export type TechnicianGrant = {
   grantId: string;
   accountId: string;
   sponsorUserId: string;
+  sponsorType: string;
+  partnerId: string | null;
+  partnerName: string | null;
   technicianEmail: string;
   technicianUserId: string | null;
   operatorTrainingGrantId: string | null;
@@ -68,6 +74,8 @@ export type TechnicianGrant = {
 export type TechnicianMutationResult = {
   grantId: string;
   accountId: string;
+  partnerId: string | null;
+  sponsorType: string;
   technicianEmail: string;
   technicianUserId: string | null;
   status: TechnicianGrantStatus;
@@ -134,15 +142,18 @@ const getTechnicianErrorMessage = (
   }
 
   if (rawMessage.includes('Technician grant cap exceeded')) {
-    return 'This Plus account already has 10 active Technician grants. Paid additional seats are not enabled yet.';
+    return 'This account already has 10 active Technician grants. Paid additional seats are not enabled yet.';
   }
 
   if (rawMessage.includes('outside your control')) {
-    return 'One or more selected machines are outside this Plus account owner boundary.';
+    return 'One or more selected machines are outside your Technician management boundary.';
   }
 
-  if (rawMessage.includes('At least one reporting machine is required')) {
-    return 'Select at least one reporting machine for this Technician.';
+  if (
+    rawMessage.includes('Select an account before saving training-only Technician access') ||
+    rawMessage.includes('At least one reporting machine is required')
+  ) {
+    return 'Select an account before saving Technician access.';
   }
 
   if (rawMessage.includes('Use a different email')) {
@@ -172,6 +183,9 @@ const mapManagementAccount = (item: unknown): TechnicianManagementAccount => {
     accountId: asString(record.accountId),
     accountName: asString(record.accountName, 'Bloomjoy account'),
     accountStatus: asString(record.accountStatus, 'active'),
+    authorityPath: asString(record.authorityPath, 'plus_customer_account'),
+    partnerId: asNullableString(record.partnerId),
+    partnerName: asNullableString(record.partnerName),
     seatCap: asNumber(record.seatCap, 10),
     activeSeatCount: asNumber(record.activeSeatCount),
     machineCount: asNumber(record.machineCount),
@@ -204,6 +218,9 @@ const mapTechnicianGrant = (item: unknown): TechnicianGrant => {
     grantId: asString(record.grantId),
     accountId: asString(record.accountId),
     sponsorUserId: asString(record.sponsorUserId),
+    sponsorType: asString(record.sponsorType, 'plus_customer_account'),
+    partnerId: asNullableString(record.partnerId),
+    partnerName: asNullableString(record.partnerName),
     technicianEmail: asString(record.technicianEmail),
     technicianUserId: asNullableString(record.technicianUserId),
     operatorTrainingGrantId: asNullableString(record.operatorTrainingGrantId),
@@ -233,6 +250,8 @@ const mapMutationResult = (value: unknown): TechnicianMutationResult => {
   return {
     grantId: asString(record.grantId),
     accountId: asString(record.accountId),
+    partnerId: asNullableString(record.partnerId),
+    sponsorType: asString(record.sponsorType, 'plus_customer_account'),
     technicianEmail: asString(record.technicianEmail),
     technicianUserId: asNullableString(record.technicianUserId),
     status: normalizeStatus(record.status),
@@ -303,12 +322,16 @@ export const fetchMyTechnicianGrants = async (): Promise<TechnicianGrant[]> => {
 export const grantTechnicianAccess = async (input: {
   technicianEmail: string;
   machineIds: string[];
+  accountId?: string;
+  partnerId?: string | null;
   reason?: string;
 }): Promise<TechnicianMutationResult> => {
   const { data, error } = await supabaseClient.rpc('grant_technician_access', {
     p_technician_email: input.technicianEmail.trim(),
     p_machine_ids: input.machineIds,
     p_reason: input.reason?.trim() || 'Technician access',
+    p_account_id: input.accountId || null,
+    p_partner_id: input.partnerId || null,
   });
 
   if (error || !data) {

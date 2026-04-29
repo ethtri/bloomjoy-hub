@@ -27,22 +27,27 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
-  const { hasReportingAccess, isAdmin, portalAccessTier } = useAuth();
+  const { capabilities, hasReportingAccess, isAdmin, isCorporatePartner, portalAccessTier } =
+    useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const currentDestination = getPortalDestinationByPath(location.pathname);
   const sortedDestinations = [...portalDestinations].sort(
     (left, right) => left.mobileOrder - right.mobileOrder
   );
+  const canAccessDestination = (access: (typeof portalDestinations)[number]['access']) =>
+    canAccessPortalLevel(portalAccessTier, access, hasReportingAccess, capabilities);
   const visibleDestinations = sortedDestinations
-    .filter((destination) => destination.access !== 'reporting' || hasReportingAccess)
+    .filter((destination) => destination.access !== 'reporting' || canAccessDestination(destination.access))
     .filter((destination) =>
       portalAccessTier === 'training'
-        ? canAccessPortalLevel(portalAccessTier, destination.access, hasReportingAccess)
+        ? canAccessDestination(destination.access)
         : true
     );
   const accessStatusLabel =
-    portalAccessTier === 'plus'
+    isCorporatePartner
+      ? 'Corporate Partner'
+      : portalAccessTier === 'plus'
       ? t('portal.plusActive')
       : portalAccessTier === 'training'
         ? t('portal.trainingAccess')
@@ -95,11 +100,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                         </span>
                       </span>
                       <span className="ml-3 flex items-center gap-2">
-                        {!canAccessPortalLevel(
-                          portalAccessTier,
-                          currentDestination.access,
-                          hasReportingAccess
-                        ) && (
+                        {!canAccessDestination(currentDestination.access) && (
                           <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
                             {t(getAccessLevelLabelKey(currentDestination.access))}
                           </span>
@@ -120,11 +121,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                     </SheetHeader>
                     <div className="mt-6 space-y-2">
                       {visibleDestinations.map((destination) => {
-                        const locked = !canAccessPortalLevel(
-                          portalAccessTier,
-                          destination.access,
-                          hasReportingAccess
-                        );
+                        const locked = !canAccessDestination(destination.access);
 
                         return (
                           <SheetClose asChild key={destination.href}>
@@ -197,11 +194,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
 
             <nav className="hidden flex-wrap gap-2 md:flex">
               {visibleDestinations.map((destination) => {
-                const locked = !canAccessPortalLevel(
-                  portalAccessTier,
-                  destination.access,
-                  hasReportingAccess
-                );
+                const locked = !canAccessDestination(destination.access);
 
                 return (
                   <NavLink

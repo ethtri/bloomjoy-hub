@@ -54,7 +54,7 @@ export const translations = {
     'admin.support': 'Support',
     'admin.supportDescription': 'Support triage, concierge intake, and request routing.',
     'admin.access': 'Access',
-    'admin.accessDescription': 'Users, Plus grants, global roles, reporting access, and audit history.',
+    'admin.accessDescription': 'Users, Plus Customer access, Corporate Partner access, global roles, reporting access, and audit history.',
     'admin.partnerRecords': 'Partner records',
     'admin.partnerRecordsShort': 'Partner Records',
     'admin.partnerRecordsDescription': 'Reusable external organizations and reporting contacts.',
@@ -79,6 +79,7 @@ export const translations = {
     'portal.access.customer': 'Customer',
     'portal.access.training': 'Training',
     'portal.access.plus': 'Plus',
+    'portal.access.support': 'Support',
     'portal.access.reporting': 'Reporting',
     'portal.access.open': 'Open',
 
@@ -641,6 +642,7 @@ export const translations = {
     'portal.access.customer': '客户',
     'portal.access.training': '培训',
     'portal.access.plus': 'Plus',
+    'portal.access.support': '支持',
     'portal.access.reporting': '报表',
     'portal.access.open': '开放',
 

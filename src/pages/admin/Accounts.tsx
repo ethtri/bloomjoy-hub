@@ -87,7 +87,7 @@ const formatAccessSource = (account: AdminAccountSummary) => {
     case 'paid_subscription':
       return 'Paid Plus';
     case 'free_grant':
-      return 'Free Plus grant';
+      return 'Plus Customer access';
     case 'admin':
       return 'Super-admin override';
     default:
@@ -278,12 +278,16 @@ export default function AdminAccountsPage() {
         user_id: selectedAccount.user_id,
         expires_at: expiry.toISOString(),
       });
-      toast.success(selectedAccount.plus_grant_id ? 'Free Plus access updated.' : 'Free Plus access granted.');
+      toast.success(
+        selectedAccount.plus_grant_id
+          ? 'Plus Customer access updated.'
+          : 'Plus Customer access granted.'
+      );
       setGrantReason('');
       await refreshAccounts();
     } catch (grantError) {
       const message =
-        grantError instanceof Error ? grantError.message : 'Unable to grant free Plus access.';
+        grantError instanceof Error ? grantError.message : 'Unable to grant Plus Customer access.';
       toast.error(message);
     } finally {
       setIsGrantSaving(false);
@@ -311,12 +315,12 @@ export default function AdminAccountsPage() {
         user_id: selectedAccount.user_id,
         grant_id: selectedAccount.plus_grant_id,
       });
-      toast.success('Free Plus access revoked.');
+      toast.success('Plus Customer access revoked.');
       setRevokeReason('');
       await refreshAccounts();
     } catch (revokeError) {
       const message =
-        revokeError instanceof Error ? revokeError.message : 'Unable to revoke free Plus access.';
+        revokeError instanceof Error ? revokeError.message : 'Unable to revoke Plus Customer access.';
       toast.error(message);
     } finally {
       setIsRevokingGrant(false);
@@ -473,7 +477,7 @@ export default function AdminAccountsPage() {
                       </div>
                     )}
                     <div className="mt-1 flex items-center justify-between gap-3">
-                      <span className="text-muted-foreground">Free Plus grant</span>
+                      <span className="text-muted-foreground">Plus Customer access</span>
                       <span className="text-foreground">{formatFreeGrant(selectedAccount)}</span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-3">
@@ -499,7 +503,7 @@ export default function AdminAccountsPage() {
                   </div>
 
                   <div className="rounded-md border border-border bg-background p-3">
-                    <h3 className="text-sm font-semibold text-foreground">Free Plus access</h3>
+                    <h3 className="text-sm font-semibold text-foreground">Plus Customer access</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Grants unlock Plus-only portal access without creating or changing a Stripe
                       subscription.
@@ -559,9 +563,9 @@ export default function AdminAccountsPage() {
                           Saving...
                         </>
                       ) : selectedAccount.plus_grant_id ? (
-                        'Extend Free Plus'
+                        'Extend Plus Customer'
                       ) : (
-                        'Grant Free Plus'
+                        'Grant Plus Customer'
                       )}
                     </Button>
 
@@ -587,7 +591,7 @@ export default function AdminAccountsPage() {
                               Revoking...
                             </>
                           ) : (
-                            'Revoke Free Plus'
+                            'Revoke Plus Customer'
                           )}
                         </Button>
                       </div>

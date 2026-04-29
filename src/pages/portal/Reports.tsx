@@ -427,10 +427,10 @@ const groupRows = <TKey extends string>(
 };
 
 export default function ReportsPage() {
-  const { isScopedAdmin, isSuperAdmin } = useAuth();
+  const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
   const { t } = useLanguage();
   const [activeView, setActiveView] = useState<ReportingView>('operator');
-  const canUsePartnerDashboard = isSuperAdmin || isScopedAdmin;
+  const canUsePartnerDashboard = isSuperAdmin || isScopedAdmin || isCorporatePartner;
 
   const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
     useQuery({
@@ -476,8 +476,10 @@ export default function ReportsPage() {
                   ? t('reports.refreshing')
                   : isSuperAdmin
                     ? t('reports.superAdminReporting')
+                    : isCorporatePartner
+                      ? 'Corporate Partner reporting'
                     : t('reports.operatorReporting'),
-                tone: isSuperAdmin ? 'accent' : 'default',
+                tone: isSuperAdmin || isCorporatePartner ? 'accent' : 'default',
               },
             ]}
             actions={

@@ -28,6 +28,12 @@ interface User {
   portalAccessTier: PortalAccessTier;
   isTrainingOperator: boolean;
   canManageOperatorTraining: boolean;
+  isCorporatePartner: boolean;
+  hasSupplyDiscount: boolean;
+  canRequestSupport: boolean;
+  canManageTechnicians: boolean;
+  capabilities: string[];
+  effectivePresets: string[];
   plusAccess: PlusAccessSummary;
   reportingAccess: ReportingAccessContext;
   isAdmin: boolean;
@@ -54,6 +60,12 @@ interface AuthContextType {
   canAccessTraining: boolean;
   isTrainingOperator: boolean;
   canManageOperatorTraining: boolean;
+  isCorporatePartner: boolean;
+  hasSupplyDiscount: boolean;
+  canRequestSupport: boolean;
+  canManageTechnicians: boolean;
+  capabilities: string[];
+  effectivePresets: string[];
   hasReportingAccess: boolean;
   reportingMachineCount: number;
   reportingLocationCount: number;
@@ -90,6 +102,12 @@ type PortalAccessContextRecord = {
   is_training_operator: boolean | null;
   is_admin: boolean | null;
   can_manage_operator_training: boolean | null;
+  is_corporate_partner?: boolean | null;
+  has_supply_discount?: boolean | null;
+  can_request_support?: boolean | null;
+  can_manage_technicians?: boolean | null;
+  capabilities?: string[] | null;
+  effective_presets?: string[] | null;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -241,20 +259,40 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
         canManageReporting: true,
       }
     : reportingAccess;
+  const isCorporatePartner = Boolean(portalAccessContext?.is_corporate_partner);
   const portalAccessTier = hasFullPlusAccess
     ? 'plus'
-    : normalizePortalAccessTier(portalAccessContext?.access_tier ?? undefined, 'baseline');
+    : isCorporatePartner
+      ? 'corporate_partner'
+      : normalizePortalAccessTier(portalAccessContext?.access_tier ?? undefined, 'baseline');
+  const hasSupplyDiscount = Boolean(
+    portalAccessContext?.has_supply_discount ?? hasFullPlusAccess
+  );
+  const canRequestSupport = Boolean(
+    portalAccessContext?.can_request_support ?? hasFullPlusAccess
+  );
+  const canManageTechnicians = Boolean(portalAccessContext?.can_manage_technicians);
 
   return {
     id: supabaseUser.id,
     email,
     membershipStatus: plusAccess.membershipStatus,
-    membershipPlan: hasFullPlusAccess ? 'Plus Basic' : undefined,
+    membershipPlan: hasFullPlusAccess ? 'Plus Basic' : isCorporatePartner ? 'Corporate Partner' : undefined,
     portalAccessTier,
     isTrainingOperator:
       portalAccessTier === 'training' || Boolean(portalAccessContext?.is_training_operator),
     canManageOperatorTraining:
       hasFullPlusAccess || Boolean(portalAccessContext?.can_manage_operator_training),
+    isCorporatePartner,
+    hasSupplyDiscount,
+    canRequestSupport,
+    canManageTechnicians,
+    capabilities: Array.isArray(portalAccessContext?.capabilities)
+      ? portalAccessContext.capabilities
+      : [],
+    effectivePresets: Array.isArray(portalAccessContext?.effective_presets)
+      ? portalAccessContext.effective_presets
+      : [],
     plusAccess,
     reportingAccess: effectiveReportingAccess,
     isAdmin,
@@ -450,11 +488,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         isAuthenticated: !!user,
-        isMember: user?.portalAccessTier === 'plus',
+        isMember: user?.plusAccess.hasPlusAccess ?? false,
         portalAccessTier: user?.portalAccessTier ?? 'baseline',
         canAccessTraining: hasTrainingAccess(user?.portalAccessTier),
         isTrainingOperator: user?.isTrainingOperator ?? false,
         canManageOperatorTraining: user?.canManageOperatorTraining ?? false,
+        isCorporatePartner: user?.isCorporatePartner ?? false,
+        hasSupplyDiscount: user?.hasSupplyDiscount ?? false,
+        canRequestSupport: user?.canRequestSupport ?? false,
+        canManageTechnicians: user?.canManageTechnicians ?? false,
+        capabilities: user?.capabilities ?? [],
+        effectivePresets: user?.effectivePresets ?? [],
         hasReportingAccess: user?.reportingAccess.hasReportingAccess ?? false,
         reportingMachineCount: user?.reportingAccess.accessibleMachineCount ?? 0,
         reportingLocationCount: user?.reportingAccess.accessibleLocationCount ?? 0,
