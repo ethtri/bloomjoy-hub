@@ -778,22 +778,45 @@ const fillVisibleDateInputs = async (page, startDate, endDate) => {
 };
 
 const selectCustomDateRange = async (page, startDate, endDate) => {
-  await clickDateFilter(page);
-  let openedCustomRange =
+  let openedCustomRange = false;
+
+  await openMoreFilters(page).catch(() => {});
+  openedCustomRange =
     (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
-    (await clickVisibleTextIfPresent(page, /^Custom$/i));
+    (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
+    (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
   await page.waitForTimeout(750);
 
-  if (!openedCustomRange) {
-    await openMoreFilters(page);
+  let filled = await fillVisibleDateInputs(page, startDate, endDate);
+
+  if (!filled) {
+    await clickDateFilter(page);
+    openedCustomRange =
+      (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+      (await clickVisibleTextIfPresent(page, /^Custom$/i));
+    await page.waitForTimeout(750);
+
+    if (!openedCustomRange) {
+      await openMoreFilters(page);
+      openedCustomRange =
+        (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+        (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
+        (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
+      await page.waitForTimeout(750);
+    }
+
+    filled = await fillVisibleDateInputs(page, startDate, endDate);
+  }
+
+  if (!filled && openedCustomRange) {
     openedCustomRange =
       (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
       (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
       (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
     await page.waitForTimeout(750);
+    filled = await fillVisibleDateInputs(page, startDate, endDate);
   }
 
-  const filled = await fillVisibleDateInputs(page, startDate, endDate);
   if (!filled) {
     const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
     throw new Error(
