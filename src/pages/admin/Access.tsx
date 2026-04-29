@@ -447,7 +447,7 @@ function PresetsTab() {
                 </div>
                 <AccessBadgeGroup title="Presets" values={effectiveAccess.presets} />
                 <AccessBadgeGroup title="Capabilities" values={effectiveAccess.capabilities} />
-                <div className="grid gap-2 text-sm sm:grid-cols-3">
+                <div className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-5">
                   <div className="rounded-md border border-border bg-background p-3">
                     <p className="text-xs text-muted-foreground">Partnerships</p>
                     <p className="mt-1 text-xl font-semibold">
@@ -458,6 +458,18 @@ function PresetsTab() {
                     <p className="text-xs text-muted-foreground">Machines</p>
                     <p className="mt-1 text-xl font-semibold">
                       {effectiveAccess.scopes.machineIds?.length ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Partner machines</p>
+                    <p className="mt-1 text-xl font-semibold">
+                      {effectiveAccess.scopes.corporatePartnerMachineIds?.length ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <p className="text-xs text-muted-foreground">Technician machines</p>
+                    <p className="mt-1 text-xl font-semibold">
+                      {effectiveAccess.scopes.technicianMachineIds?.length ?? 0}
                     </p>
                   </div>
                   <div className="rounded-md border border-border bg-background p-3">

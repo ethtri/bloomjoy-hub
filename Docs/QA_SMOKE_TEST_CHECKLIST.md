@@ -262,6 +262,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Access > Users does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
 - [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
 - [ ] Admin Access > Presets can search by user/email and show effective presets, capabilities, scopes, expiry, and warnings
+- [ ] Admin Access > Presets effective access preview shows all reporting machines and source breakdowns for Corporate Partner, Technician, and Scoped Admin machine scope
 - [ ] Admin Access > Presets can grant Corporate Partner access with user/email, partner record, save preview, and required reason
 - [ ] Admin Access > Presets can toggle partner-party portal access with a required reason
 - [ ] Admin Access > Presets Corporate Partner grants create `admin_audit_log` entries with `entity_type=corporate_partner_membership`

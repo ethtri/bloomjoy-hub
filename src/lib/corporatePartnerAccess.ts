@@ -10,6 +10,8 @@ export type EffectiveAccessContext = {
     partnerIds?: string[];
     partnershipIds?: string[];
     machineIds?: string[];
+    corporatePartnerMachineIds?: string[];
+    technicianMachineIds?: string[];
     scopedAdminMachineIds?: string[];
   };
   warnings: string[];
@@ -178,6 +180,12 @@ export const fetchAdminEffectiveAccessContext = async (
         ? scopes.partnershipIds.map(String)
         : [],
       machineIds: Array.isArray(scopes.machineIds) ? scopes.machineIds.map(String) : [],
+      corporatePartnerMachineIds: Array.isArray(scopes.corporatePartnerMachineIds)
+        ? scopes.corporatePartnerMachineIds.map(String)
+        : [],
+      technicianMachineIds: Array.isArray(scopes.technicianMachineIds)
+        ? scopes.technicianMachineIds.map(String)
+        : [],
       scopedAdminMachineIds: Array.isArray(scopes.scopedAdminMachineIds)
         ? scopes.scopedAdminMachineIds.map(String)
         : [],
