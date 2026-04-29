@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-04-29 - Business Playbook Plus tools access model
+Business Playbook public articles stay indexable. Plus-ready worksheets and operator templates may be previewed publicly, but downloadable files should live behind Plus/member access when download plumbing is implemented.
+
+**Canonical choices**
+- Do not add public static file downloads for Plus tools in this slice.
+- Do not add email capture gates to public Business Playbook articles or tool previews.
+- Public pages may show tool previews and link to related public articles, `/plus`, and operator login.
+- The repo-managed source brief for these tools is `Docs/BUSINESS_PLAYBOOK_PLUS_TOOLS.md`.
+- The UI source of truth for public preview metadata is `src/data/businessPlaybookPlusTools.ts`.
+
+**Why this choice**
+- Public articles remain useful and indexable without lead-form friction.
+- Operator-only tools can stay aligned with Plus, training, reporting, and support boundaries.
+- Avoiding public file URLs prevents static assets from becoming stale or bypassing member access later.
+
 ## 2026-04-28 - Preset-first Corporate Partner access model
 Access management will use admin-facing presets backed by source-aware capabilities and scopes, not a visible raw permission matrix.
 

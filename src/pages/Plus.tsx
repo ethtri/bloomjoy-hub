@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Check, ArrowRight, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
+import { PlusToolsPreview } from '@/components/resources/PlusToolsPreview';
 import { trackEvent } from '@/lib/analytics';
 import { trackBusinessPlaybookCtaClick } from '@/lib/businessPlaybookAnalytics';
 import { startPlusCheckout } from '@/lib/stripeCheckout';
@@ -23,8 +24,8 @@ const benefits = [
     description: 'Complete the Operator Essentials path and unlock a lightweight Bloomjoy completion certificate.',
   },
   {
-    title: 'Reporting Access',
-    description: 'Review assigned-machine sales, trends, and exports when reporting is connected to your account.',
+    title: 'Connected Reporting',
+    description: 'Review assigned-machine sales, trends, and exports when reporting has been enabled for your account.',
   },
   {
     title: 'Concierge Support',
@@ -168,6 +169,18 @@ export default function PlusPage() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="border-y border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
+        <div className="container-page">
+          <PlusToolsPreview
+            surface="plus_page"
+            introLabel="Operator tool library"
+            heading="Plus-ready worksheets for the operator layer"
+            description="Plus is where the public Playbook turns into member-access operating tools: budget worksheets, pitch scripts, launch checklists, daily job aids, venue scorecards, connected reporting where enabled, and training references."
+            showCtas={false}
+          />
         </div>
       </section>
 

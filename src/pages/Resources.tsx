@@ -2,15 +2,13 @@ import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ArrowRight,
-  BarChart3,
   BookOpen,
   ClipboardCheck,
-  Download,
-  Lock,
   MapPinned,
   Sparkles,
 } from "lucide-react";
 import { Layout } from "@/components/layout/Layout";
+import { PlusToolsPreview } from "@/components/resources/PlusToolsPreview";
 import {
   Accordion,
   AccordionContent,
@@ -18,10 +16,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import {
-  trackPlusPreviewResourceClick,
-  trackResourcesPlaybookCardClick,
-} from "@/lib/businessPlaybookAnalytics";
+import { trackResourcesPlaybookCardClick } from "@/lib/businessPlaybookAnalytics";
 import { getCanonicalUrlForSurface } from "@/lib/appSurface";
 import { resourcesFaqs } from "@/lib/seoRoutes";
 import {
@@ -31,37 +26,6 @@ import {
   playbookCategories,
 } from "@/data/businessPlaybook";
 import landingHeroImage from "@/assets/real/landing-hero.jpg";
-
-const plusTeasers = [
-  {
-    title: "Operator Guides",
-    description:
-      "Task-first setup, pricing, timer, and payment guides so operators can find answers fast.",
-    metaLabel: "Plus download",
-    MetaIcon: Download,
-  },
-  {
-    title: "Maintenance Checklists",
-    description:
-      "Cleaning, hygiene, and function-check references pulled from Bloomjoy training materials.",
-    metaLabel: "Plus download",
-    MetaIcon: Download,
-  },
-  {
-    title: "Reporting Dashboard",
-    description:
-      "Assigned-machine sales, trends, and exports for accounts with reporting access.",
-    metaLabel: "Portal feature",
-    MetaIcon: BarChart3,
-  },
-  {
-    title: "Operator Certificate",
-    description:
-      "Plus members can complete the Operator Essentials path and unlock a lightweight completion certificate.",
-    metaLabel: "Plus download",
-    MetaIcon: Download,
-  },
-];
 
 const categoryIcons = {
   start: BookOpen,
@@ -290,7 +254,7 @@ export default function ResourcesPage() {
             </p>
             <Accordion
               type="multiple"
-              defaultValue={resourcesFaqs.map((_, index) => `faq-${index}`)}
+              defaultValue={["faq-0"]}
               className="mt-6"
             >
               {resourcesFaqs.map((faq, i) => (
@@ -317,77 +281,10 @@ export default function ResourcesPage() {
 
       <section className="border-y border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
-          <div className="mx-auto max-w-6xl">
-            <div className="flex flex-col gap-3 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-                Bloomjoy Plus Preview
-              </p>
-              <h2 className="font-display text-2xl font-bold text-foreground">
-                Premium resources unlocked with Plus
-              </h2>
-              <p className="text-muted-foreground">
-                Public playbooks help you plan. Plus adds the operator layer: task-based
-                guides, maintenance checklists, eligible reporting access, troubleshooting
-                references, and the Bloomjoy Operator Essentials certificate path.
-              </p>
-            </div>
-
-            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {plusTeasers.map((item) => {
-                const MetaIcon = item.MetaIcon;
-
-                return (
-                  <div key={item.title} className="rounded-xl border border-border bg-background p-5">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-display text-lg font-semibold text-foreground">
-                        {item.title}
-                      </h3>
-                      <Lock className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                      {item.description}
-                    </p>
-                    <div className="mt-4 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                      <MetaIcon className="h-3.5 w-3.5" />
-                      {item.metaLabel}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Button asChild>
-                <Link
-                  to="/plus"
-                  onClick={() =>
-                    trackPlusPreviewResourceClick({
-                      surface: "resources_plus_preview",
-                      cta: "explore_bloomjoy_plus",
-                      href: "/plus",
-                    })
-                  }
-                >
-                  Explore Bloomjoy Plus
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <a
-                  href={operatorLoginUrl}
-                  onClick={() =>
-                    trackPlusPreviewResourceClick({
-                      surface: "resources_plus_preview",
-                      cta: "operator_login",
-                      href: operatorLoginUrl,
-                    })
-                  }
-                >
-                  Operator Login
-                </a>
-              </Button>
-            </div>
-          </div>
+          <PlusToolsPreview
+            surface="resources_plus_preview"
+            operatorLoginUrl={operatorLoginUrl}
+          />
         </div>
       </section>
 
