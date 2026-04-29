@@ -17,7 +17,6 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -60,9 +59,8 @@ import {
 } from '@/lib/reporting';
 import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
+import { AdminPersonAccessConsole } from './accessPersonConsole';
 
-const superAdminTabs = ['presets', 'users', 'reporting-access', 'scoped-admins', 'global-roles', 'audit'];
-const scopedAdminTabs = ['reporting-access'];
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
   { key: 'mini', label: 'Mini' },
@@ -157,16 +155,8 @@ const roleSort = (a: AdminRoleRecord, b: AdminRoleRecord) => {
 
 export default function AdminAccessPage() {
   const { isScopedAdmin, isSuperAdmin } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const availableTabs = isSuperAdmin ? superAdminTabs : scopedAdminTabs;
-  const defaultTab = isSuperAdmin ? 'presets' : 'reporting-access';
-  const activeTab = availableTabs.includes(searchParams.get('tab') ?? '')
-    ? (searchParams.get('tab') as string)
-    : defaultTab;
-
-  const setActiveTab = (value: string) => {
-    setSearchParams({ tab: value }, { replace: true });
-  };
+  const [searchParams] = useSearchParams();
+  const initialShowActivity = searchParams.get('tab') === 'audit';
 
   return (
     <AppLayout>
@@ -182,7 +172,7 @@ export default function AdminAccessPage() {
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 {isSuperAdmin
-                  ? 'Manage users, Plus access, global roles, scoped admins, and explicit machine-level reporting visibility from one place.'
+                  ? 'Find a person, review their effective access, then grant, change, or revoke source-specific access with a required reason.'
                   : 'Manage reporting visibility for the machines included in your scoped admin grant.'}
               </p>
               {isScopedAdmin && !isSuperAdmin && (
@@ -193,45 +183,19 @@ export default function AdminAccessPage() {
             </div>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
-            <TabsList className="h-auto flex-wrap justify-start">
-              {isSuperAdmin && <TabsTrigger value="presets">Presets</TabsTrigger>}
-              {isSuperAdmin && <TabsTrigger value="users">Users</TabsTrigger>}
-              <TabsTrigger value="reporting-access">Reporting Access</TabsTrigger>
-              {isSuperAdmin && <TabsTrigger value="scoped-admins">Scoped Admins</TabsTrigger>}
-              {isSuperAdmin && <TabsTrigger value="global-roles">Global Roles</TabsTrigger>}
-              {isSuperAdmin && <TabsTrigger value="audit">Audit</TabsTrigger>}
-            </TabsList>
-
-            {isSuperAdmin && (
-              <TabsContent value="presets" className="mt-6">
-                <PresetsTab />
-              </TabsContent>
+          <div className="mt-6">
+            {isSuperAdmin ? (
+              <AdminPersonAccessConsole initialShowActivity={initialShowActivity} />
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                  Your scoped admin grant limits this workspace to assigned machines. Saving changes
+                  only affects manual reporting grants inside that scope.
+                </div>
+                <ReportingAccessTab />
+              </div>
             )}
-            {isSuperAdmin && (
-              <TabsContent value="users" className="mt-6">
-                <UsersTab />
-              </TabsContent>
-            )}
-            <TabsContent value="reporting-access" className="mt-6">
-              <ReportingAccessTab />
-            </TabsContent>
-            {isSuperAdmin && (
-              <TabsContent value="scoped-admins" className="mt-6">
-                <ScopedAdminsTab />
-              </TabsContent>
-            )}
-            {isSuperAdmin && (
-              <TabsContent value="global-roles" className="mt-6">
-                <GlobalRolesTab />
-              </TabsContent>
-            )}
-            {isSuperAdmin && (
-              <TabsContent value="audit" className="mt-6">
-                <AuditTab />
-              </TabsContent>
-            )}
-          </Tabs>
+          </div>
         </div>
       </section>
     </AppLayout>

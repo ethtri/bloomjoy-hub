@@ -261,31 +261,34 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
 - [ ] Non-admin user cannot access `/admin/access`
 - [ ] Super-admin user can access `/admin/access`
-- [ ] `/admin/accounts` redirects to `/admin/access?tab=users`
-- [ ] `/admin/audit` redirects to `/admin/access?tab=audit`
-- [ ] Admin Access > Users search returns rows by email/user ID and shows membership/order/support summary data
-- [ ] Admin Access > Users does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
-- [ ] Admin account search can find an existing Supabase Auth user by email even if they do not have orders yet
-- [ ] Admin Access > Presets can search by user/email and show effective presets, capabilities, scopes, expiry, and warnings
-- [ ] Admin Access > Presets effective access preview shows all reporting machines and source breakdowns for Corporate Partner, Technician, and Scoped Admin machine scope
-- [ ] Admin Access > Presets can grant Corporate Partner access with user/email, partner record, save preview, and required reason
-- [ ] Admin Access > Presets can toggle partner-party portal access with a required reason
-- [ ] Admin Access > Presets Corporate Partner grants create `admin_audit_log` entries with `entity_type=corporate_partner_membership`
-- [ ] Admin Access > Users shows paid subscription status separately from Plus Customer access status
+- [ ] `/admin/access` defaults to the person-first `Find a person` view, not grant-type tabs
+- [ ] `/admin/accounts` redirects to `/admin/access?tab=users` and still lands on the person-first console
+- [ ] `/admin/audit` redirects to `/admin/access?tab=audit` and opens the secondary global activity view
+- [ ] Admin Access person search returns rows by email/user ID and shows membership/order/support summary data without forcing a grant-type tab choice
+- [ ] Admin Access person search does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
+- [ ] Admin Access person search can find an existing Supabase Auth user by email even if they do not have orders yet
+- [ ] Selecting a person shows one consolidated workspace with Who/What/Where/Why/When summary, effective presets, capabilities, warnings, and source cards
+- [ ] Effective access summary shows all reporting machines and source breakdowns for Corporate Partner, Technician, Scoped Admin, and manual reporting machine scope
+- [ ] Plus Customer source card shows paid subscription separately from admin-granted Plus Customer access, with grant/extend/revoke previews and required reasons
+- [ ] Corporate Partner source card can grant Corporate Partner access with selected partner record, plain-English save preview, and required reason
+- [ ] Corporate Partner source card can revoke an active membership with a plain-English impact preview and required reason
+- [ ] Partner-level portal-access toggles remain available inside the Corporate Partner card, clearly labeled as partner-level, and require a reason
+- [ ] Corporate Partner grants create `admin_audit_log` entries with `entity_type=corporate_partner_membership`
 - [ ] Super-admin cannot grant Plus Customer access without a future expiry date and grant reason
 - [ ] Super-admin cannot grant Plus Customer access while the account has an active paid Stripe subscription that is not scheduled to cancel
 - [ ] Super-admin can grant or extend Plus Customer access and the customer can reach Plus-only portal pages without a paid Stripe subscription
 - [ ] Super-admin can revoke Plus Customer access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
 - [ ] Plus Customer access grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
 - [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
-- [ ] Admin Access > Users machine count edits require update reason and persist in `customer_machine_inventory`
+- [ ] Admin Access customer context card machine count edits require update reason and persist in `customer_machine_inventory`
 - [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
-- [ ] Admin Access > Reporting Access uses a people-first explicit machine access matrix
-- [ ] Admin Access > Reporting Access can look up an existing user by email, select multiple machines, save with a reason, and update that person's machine grants in one transactional save
-- [ ] Admin Access > Reporting Access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
-- [ ] Admin Access > Reporting Access can revoke one user's machine access without removing other viewers from the same machine
+- [ ] Manual reporting access source card uses a contextual machine-scope editor, not a raw permission matrix
+- [ ] Manual reporting access source card can select multiple machines, save with a reason, and update that person's machine grants in one transactional save
+- [ ] Manual reporting access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
+- [ ] Manual reporting access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
-- [ ] Admin Access > Scoped Admins can grant `scoped_admin` to an existing user with selected machine scopes and a required reason
+- [ ] Technician source card is read-only in Admin Access and clearly points Technician grant/change/revoke work to `/portal/account`
+- [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with selected machine scopes, save preview, and required reason
 - [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
 - [ ] Scoped Admin users can open `/portal/training*` but do not become Plus members or get Plus billing/commerce benefits
 - [ ] Scoped Admin users can open the partner dashboard for partnerships fully covered by their scoped machines; partially covered partnerships remain hidden/blocked
@@ -295,8 +298,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Scoped Admin grant, update, revoke, and reporting-access changes create `admin_audit_log` entries
 - [ ] `report_manager` users can open assigned `/portal/reports` views but remain blocked from `/admin`, `/admin/access`, and other admin routes
 - [ ] Adam scoped-admin bootstrap or manual grant creates `scoped_admin` audit entries and does not create or require a `super_admin` grant
-- [ ] Admin Access > Global Roles can grant and revoke super-admin role with required reason metadata
-- [ ] Admin Access > Audit supports filtering and shows role + operational actions
+- [ ] Super Admin source card is visually de-emphasized as a rare global-risk action and can grant/revoke super-admin role with required reason metadata
+- [ ] Admin Access secondary Activity view supports filtering and shows role + operational actions
+- [ ] On desktop and mobile widths (`390x844` plus desktop), the selected-person workspace stacks source cards without horizontal scrolling or clipped controls
 - [ ] Non-admin user cannot access `/admin/partnerships`
 - [ ] Super-admin user can access `/admin/partnerships`
 - [ ] Admin dashboard and app nav expose separate Partner Records, Machines, Partnerships, and Reporting modules
