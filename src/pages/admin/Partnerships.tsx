@@ -2209,7 +2209,7 @@ function getPreviewPayoutMetrics(
   if (typeof summary.amount_owed_cents !== 'undefined') {
     const payoutLabel = payoutParticipants.length
       ? payoutParticipants.map(getPartyReportName).join(' + ')
-      : 'Amount owed';
+      : 'Partner Revenue Share';
     metrics.push({
       label: payoutLabel,
       value: formatMoney(summary.amount_owed_cents),
