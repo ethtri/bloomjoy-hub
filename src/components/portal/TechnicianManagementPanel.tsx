@@ -13,7 +13,6 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -24,6 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
   SelectContent,
@@ -45,6 +45,11 @@ import {
   type TechnicianGrantStatus,
   type TechnicianManagementMachine,
 } from '@/lib/technicianEntitlements';
+import {
+  fetchMyOperatorTrainingGrants,
+  revokeOperatorTrainingAccess,
+  type OperatorTrainingGrant,
+} from '@/lib/operatorTrainingAccess';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_TECHNICIAN_REASON = 'Technician access';
@@ -82,13 +87,7 @@ const getStatusBadgeVariant = (status: TechnicianGrantStatus) => {
   return 'destructive';
 };
 
-const toggleMachineId = (currentIds: string[], machineId: string, checked: boolean) => {
-  if (checked) {
-    return currentIds.includes(machineId) ? currentIds : [...currentIds, machineId];
-  }
-
-  return currentIds.filter((id) => id !== machineId);
-};
+const selectSingleMachineId = (machineId: string | null) => (machineId ? [machineId] : []);
 
 const haveSameMachineIds = (left: string[], right: string[]) => {
   if (left.length !== right.length) return false;
@@ -104,7 +103,7 @@ const getAccountSelectionKey = (account: {
 }) => `${account.authorityPath ?? 'account'}:${account.accountId}:${account.partnerId ?? 'none'}`;
 
 export function TechnicianManagementPanel() {
-  const { user } = useAuth();
+  const { user, canManageOperatorTraining } = useAuth();
   const queryClient = useQueryClient();
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [technicianEmail, setTechnicianEmail] = useState('');
@@ -141,6 +140,17 @@ export function TechnicianManagementPanel() {
     staleTime: 1000 * 30,
   });
 
+  const {
+    data: legacyTrainingGrants = [],
+    isLoading: legacyTrainingLoading,
+    error: legacyTrainingError,
+  } = useQuery({
+    queryKey: ['operator-training-grants', user?.id],
+    queryFn: fetchMyOperatorTrainingGrants,
+    enabled: Boolean(user?.id && canManageOperatorTraining && managementContext?.canManage),
+    staleTime: 1000 * 30,
+  });
+
   const accounts = useMemo(() => managementContext?.accounts ?? [], [managementContext?.accounts]);
   const selectedAccount =
     accounts.find((account) => getAccountSelectionKey(account) === selectedAccountId) ??
@@ -165,6 +175,22 @@ export function TechnicianManagementPanel() {
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [technicianGrants, selectedAccount]
   );
+  const linkedTrainingGrantIds = useMemo(
+    () =>
+      new Set(
+        technicianGrants
+          .map((grant) => grant.operatorTrainingGrantId)
+          .filter((grantId): grantId is string => Boolean(grantId))
+      ),
+    [technicianGrants]
+  );
+  const visibleLegacyTrainingGrants = useMemo(
+    () =>
+      legacyTrainingGrants
+        .filter((grant) => grant.isActive && !linkedTrainingGrantIds.has(grant.id))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    [legacyTrainingGrants, linkedTrainingGrantIds]
+  );
   const activeSeatCount =
     selectedAccount?.activeSeatCount ??
     currentAccountGrants.filter((grant) => grant.isActive).length;
@@ -181,6 +207,8 @@ export function TechnicianManagementPanel() {
   const managementErrorMessage =
     managementError instanceof Error ? managementError.message : null;
   const grantsErrorMessage = grantsError instanceof Error ? grantsError.message : null;
+  const legacyTrainingErrorMessage =
+    legacyTrainingError instanceof Error ? legacyTrainingError.message : null;
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -244,6 +272,14 @@ export function TechnicianManagementPanel() {
     },
   });
 
+  const revokeLegacyTrainingMutation = useMutation({
+    mutationFn: revokeOperatorTrainingAccess,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['operator-training-grants', user?.id] });
+      toast.success('Legacy training-only Technician access revoked.');
+    },
+  });
+
   if (managementLoading && !managementErrorMessage) {
     return null;
   }
@@ -268,7 +304,7 @@ export function TechnicianManagementPanel() {
     try {
       await grantMutation.mutateAsync({
         technicianEmail: normalizedEmail,
-        machineIds: selectedMachineIds,
+        machineIds: selectedMachineIds.slice(0, 1),
         accountId: selectedAccount?.accountId,
         partnerId: selectedAccount?.partnerId,
         reason: grantReason.trim() || DEFAULT_TECHNICIAN_REASON,
@@ -286,6 +322,7 @@ export function TechnicianManagementPanel() {
         .filter((machine) => machine.isActive)
         .map((machine) => machine.machineId)
         .filter((machineId) => selectedAccountMachineIds.has(machineId))
+        .slice(0, 1)
     );
     setEditReason(DEFAULT_UPDATE_REASON);
   };
@@ -294,12 +331,24 @@ export function TechnicianManagementPanel() {
     try {
       await updateMutation.mutateAsync({
         grantId: grant.grantId,
-        machineIds: editingMachineIds,
+        machineIds: editingMachineIds.slice(0, 1),
         reason: editReason.trim() || DEFAULT_UPDATE_REASON,
       });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unable to update Technician machines.';
+      toast.error(message);
+    }
+  };
+
+  const handleRevokeLegacyTraining = async (grantId: string) => {
+    try {
+      await revokeLegacyTrainingMutation.mutateAsync(grantId);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unable to revoke legacy training-only Technician access.';
       toast.error(message);
     }
   };
@@ -335,9 +384,8 @@ export function TechnicianManagementPanel() {
               Technician Access
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-              Add staff who need training and optional reporting for specific machines. Technicians
-              expire after one year unless renewed and do not receive billing, supply discounts,
-              partner settlement, or admin tools.
+              Add staff who need training and, when needed, assigned machine reporting. A
+              Technician can be training-only or assigned to one machine.
             </p>
           </div>
         </div>
@@ -360,6 +408,14 @@ export function TechnicianManagementPanel() {
               <AlertDescription>
                 {managementErrorMessage ?? grantsErrorMessage}
               </AlertDescription>
+            </Alert>
+          )}
+
+          {legacyTrainingErrorMessage && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Some training-only staff could not be loaded</AlertTitle>
+              <AlertDescription>{legacyTrainingErrorMessage}</AlertDescription>
             </Alert>
           )}
 
@@ -471,15 +527,11 @@ export function TechnicianManagementPanel() {
                       </AlertDescription>
                     </Alert>
                   ) : (
-                    <MachineChecklist
-                      idPrefix="add-technician"
+                    <MachineAssignmentPicker
+                      name="add-technician-machine"
                       machines={selectedAccount.machines}
                       selectedIds={selectedMachineIds}
-                      onToggle={(machineId, checked) =>
-                        setSelectedMachineIds((currentIds) =>
-                          toggleMachineId(currentIds, machineId, checked)
-                        )
-                      }
+                      onSelect={(machineId) => setSelectedMachineIds(selectSingleMachineId(machineId))}
                       disabled={addBlockedByCap || grantMutation.isPending}
                     />
                   )}
@@ -487,9 +539,7 @@ export function TechnicianManagementPanel() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-xs leading-5 text-muted-foreground">
                       {selectedMachineIds.length > 0
-                        ? `${selectedMachineIds.length} machine${
-                            selectedMachineIds.length === 1 ? '' : 's'
-                          } selected.`
+                        ? 'One assigned machine selected.'
                         : 'No machines selected; this Technician will receive training only.'}
                     </p>
                     <Button
@@ -521,10 +571,20 @@ export function TechnicianManagementPanel() {
                       Technician no longer needs training and assigned-machine reporting.
                     </p>
                   </div>
-                  <Badge variant="outline">{currentAccountGrants.length} grants</Badge>
+                  <Badge variant="outline">
+                    {currentAccountGrants.length + visibleLegacyTrainingGrants.length} staff
+                  </Badge>
                 </div>
 
-                {currentAccountGrants.length === 0 ? (
+                {legacyTrainingLoading && (
+                  <p className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                    Loading training-only staff...
+                  </p>
+                )}
+
+                {currentAccountGrants.length === 0 &&
+                visibleLegacyTrainingGrants.length === 0 &&
+                !legacyTrainingLoading ? (
                   <p className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
                     No Technician access has been added for this account yet.
                   </p>
@@ -544,10 +604,8 @@ export function TechnicianManagementPanel() {
                         setEditingMachineIds([]);
                         setEditReason(DEFAULT_UPDATE_REASON);
                       }}
-                      onToggleEditMachine={(machineId, checked) =>
-                        setEditingMachineIds((currentIds) =>
-                          toggleMachineId(currentIds, machineId, checked)
-                        )
+                      onSelectEditMachine={(machineId) =>
+                        setEditingMachineIds(selectSingleMachineId(machineId))
                       }
                       onChangeEditReason={setEditReason}
                       onSaveEdit={() => handleSaveEdit(grant)}
@@ -558,6 +616,15 @@ export function TechnicianManagementPanel() {
                     />
                   ))
                 )}
+
+                {visibleLegacyTrainingGrants.map((grant) => (
+                  <LegacyTrainingGrantRow
+                    key={grant.id}
+                    grant={grant}
+                    isRevoking={revokeLegacyTrainingMutation.isPending}
+                    onRevoke={() => handleRevokeLegacyTraining(grant.id)}
+                  />
+                ))}
               </div>
             </>
           )}
@@ -622,7 +689,7 @@ function TechnicianGrantRow({
   isSaving,
   onStartEdit,
   onCancelEdit,
-  onToggleEditMachine,
+  onSelectEditMachine,
   onChangeEditReason,
   onSaveEdit,
   onRevoke,
@@ -635,7 +702,7 @@ function TechnicianGrantRow({
   isSaving: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
-  onToggleEditMachine: (machineId: string, checked: boolean) => void;
+  onSelectEditMachine: (machineId: string | null) => void;
   onChangeEditReason: (value: string) => void;
   onSaveEdit: () => void;
   onRevoke: () => void;
@@ -698,11 +765,11 @@ function TechnicianGrantRow({
 
       {isEditing && (
         <div className="mt-4 flex flex-col gap-4 rounded-md border border-border bg-background p-4">
-          <MachineChecklist
-            idPrefix={`edit-technician-${grant.grantId}`}
+          <MachineAssignmentPicker
+            name={`edit-technician-${grant.grantId}-machine`}
             machines={machines}
             selectedIds={editingMachineIds}
-            onToggle={onToggleEditMachine}
+            onSelect={onSelectEditMachine}
             disabled={isSaving}
           />
           <div>
@@ -719,9 +786,7 @@ function TechnicianGrantRow({
             <p className="text-xs leading-5 text-muted-foreground">
               {editingMachineIds.length === 0
                 ? 'No machines selected; saving will keep this Technician training-only.'
-                : `${editingMachineIds.length} machine${
-                    editingMachineIds.length === 1 ? '' : 's'
-                  } selected.`}
+                : 'One assigned machine selected.'}
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="button" variant="outline" onClick={onCancelEdit} disabled={isSaving}>
@@ -747,20 +812,59 @@ function TechnicianGrantRow({
   );
 }
 
-function MachineChecklist({
-  idPrefix,
+function LegacyTrainingGrantRow({
+  grant,
+  isRevoking,
+  onRevoke,
+}: {
+  grant: OperatorTrainingGrant;
+  isRevoking: boolean;
+  onRevoke: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="break-words text-sm font-semibold text-foreground">
+              {grant.operatorEmail}
+            </p>
+            <Badge variant="secondary">Legacy training-only</Badge>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Training-only Technician - Updated {formatDateTime(grant.updatedAt)}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onRevoke}
+          disabled={isRevoking}
+          className="w-full sm:w-auto lg:shrink-0"
+        >
+          <UserMinus className="mr-1.5 h-4 w-4" />
+          Revoke
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function MachineAssignmentPicker({
+  name,
   machines,
   selectedIds,
-  onToggle,
+  onSelect,
   disabled = false,
 }: {
-  idPrefix: string;
+  name: string;
   machines: TechnicianManagementMachine[];
   selectedIds: string[];
-  onToggle: (machineId: string, checked: boolean) => void;
+  onSelect: (machineId: string | null) => void;
   disabled?: boolean;
 }) {
-  const selectedMachineIds = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedMachineId = selectedIds[0] ?? 'training-only';
   const groupedMachines = useMemo(() => {
     const groups = new Map<string, { key: string; locationName: string; machines: TechnicianManagementMachine[] }>();
 
@@ -794,50 +898,57 @@ function MachineChecklist({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Label>Assigned machines</Label>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => machines.forEach((machine) => onToggle(machine.machineId, true))}
-            disabled={disabled || selectedIds.length === machines.length}
-          >
-            Select All
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => selectedIds.forEach((machineId) => onToggle(machineId, false))}
-            disabled={disabled || selectedIds.length === 0}
-          >
-            Clear
-          </Button>
-        </div>
+        <Label>Machine reporting</Label>
+        <span className="text-xs text-muted-foreground">Choose training-only or one machine.</span>
       </div>
-      <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+      <RadioGroup
+        name={name}
+        value={selectedMachineId}
+        onValueChange={(value) => onSelect(value === 'training-only' ? null : value)}
+        className="max-h-72 overflow-y-auto rounded-md border border-border"
+        disabled={disabled}
+      >
+        <label
+          htmlFor={`${name}-training-only`}
+          className={cn(
+            'flex cursor-pointer items-start gap-3 border-b border-border/60 p-3',
+            disabled && 'cursor-not-allowed opacity-70'
+          )}
+        >
+          <RadioGroupItem
+            id={`${name}-training-only`}
+            value="training-only"
+            disabled={disabled}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-sm font-medium text-foreground">
+              Training-only
+            </span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              No assigned machine reporting.
+            </span>
+          </span>
+        </label>
         {groupedMachines.map((group) => (
           <div key={group.key} className="border-b border-border last:border-b-0">
             <div className="bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {group.locationName}
             </div>
             {group.machines.map((machine) => {
-              const checkboxId = `${idPrefix}-${machine.machineId}`;
+              const radioId = `${name}-${machine.machineId}`;
 
               return (
                 <label
                   key={machine.machineId}
-                  htmlFor={checkboxId}
+                  htmlFor={radioId}
                   className={cn(
                     'flex cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
                     disabled && 'cursor-not-allowed opacity-70'
                   )}
                 >
-                  <Checkbox
-                    id={checkboxId}
-                    checked={selectedMachineIds.has(machine.machineId)}
-                    onCheckedChange={(checked) => onToggle(machine.machineId, checked === true)}
+                  <RadioGroupItem
+                    id={radioId}
+                    value={machine.machineId}
                     disabled={disabled}
                   />
                   <span className="min-w-0 flex-1">
@@ -853,7 +964,7 @@ function MachineChecklist({
             })}
           </div>
         ))}
-      </div>
+      </RadioGroup>
     </div>
   );
 }
