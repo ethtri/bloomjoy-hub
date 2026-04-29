@@ -1503,7 +1503,7 @@ function TechnicianAccessCard({ effectiveAccess }: { effectiveAccess: EffectiveA
       icon={Wrench}
       title="Technician"
       status={activeGrants.length > 0 ? 'Active' : 'Inactive'}
-      description="Shows customer-managed Technician access. The customer-facing grant/change/revoke flow stays in Portal Account."
+      description="Shows customer-managed Technician access. The customer-facing grant/change/revoke flow stays in Portal Settings."
     >
       {grants.length === 0 ? (
         <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
@@ -1535,7 +1535,7 @@ function TechnicianAccessCard({ effectiveAccess }: { effectiveAccess: EffectiveA
       <PreviewBox>
         Technician access is source-aware and customer-managed. Admins can review why it exists here,
         but Plus Customers and Corporate Partners manage Technician grant, renewal, scope, and revoke
-        actions from `/portal/account`.
+        actions from Portal &gt; Settings &gt; Technician Access (`/portal/account`).
       </PreviewBox>
     </SourceCard>
   );

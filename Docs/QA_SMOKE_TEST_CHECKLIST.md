@@ -121,9 +121,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
 - [ ] Non-Plus login still sees Plus/training gated destinations in portal navigation and dashboard action cards with clear locked/access-tier treatment; Reporting stays hidden unless reporting access is granted
-- [ ] Active Plus member or super-admin can add multiple operator emails from `/portal/account` under Operator Training Access
+- [ ] Active Plus member or super-admin can add multiple operator emails from Settings (`/portal/account`) under Operator Training Access
 - [ ] Adding operator training access sends the operator an invite email with a login link
 - [ ] Operator Training Access shows a simple list of people with training access and a clear setup message when the database rollout is missing
+- [ ] Operator Training Access is treated as transitional UX; new training-only access should be represented as a Technician with no assigned machines in a future Settings IA follow-up
 - [ ] Technician with no assigned machines can access `/portal` and `/portal/training*`
 - [ ] Technician with no assigned machines cannot access `/portal/reports`, Plus/Corporate Partner supply discounts, billing, account-owner tools, partner settlement, or `/admin`
 - [ ] Revoking operator training access removes `/portal/training*` access on the next session refresh/re-login
@@ -132,7 +133,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
 - [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
 - [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
-- [ ] Plus Account Owner sees Technician Access on `/portal/account` with seat usage, owned machines, and current Technician grants
+- [ ] Plus Account Owner sees Technician Access in Settings (`/portal/account`) with seat usage, owned machines, and current Technician grants
 - [ ] Plus Account Owner can add a Technician with one or more owned machines, then edit that Technician's machine assignments
 - [ ] Pending Technician invite resolves on first login so the Technician gets training plus assigned-machine reporting without admin repair
 - [ ] Authenticated `/portal` and `/admin` route loads do not show `404` or `PGRST202` for `resolve_my_technician_entitlements` in the browser network log or console
@@ -297,7 +298,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Manual reporting access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
 - [ ] Manual reporting access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
-- [ ] Technician source card is read-only in Admin Access and clearly points Technician grant/change/revoke work to `/portal/account`
+- [ ] Technician source card is read-only in Admin Access and clearly points Technician grant/change/revoke work to Portal > Settings > Technician Access (`/portal/account`)
 - [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with selected machine scopes, save preview, and required reason
 - [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
 - [ ] Scoped Admin users can open `/portal/training*` but do not become Plus members or get Plus billing/commerce benefits
