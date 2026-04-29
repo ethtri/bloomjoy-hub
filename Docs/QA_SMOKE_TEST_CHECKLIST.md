@@ -258,6 +258,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `npm run seo:check` passes
 
 ## Admin (super-admin)
+- [ ] P0 access recovery `#368`: follow `Docs/ACCESS_MANAGEMENT_RECOVERY_UAT.md` as the acceptance matrix for Super Admin, Plus Customer, Corporate Partner, Technician, Scoped Admin, Reporting User, and non-admin workflows; `#367` remains secondary/review-reminder-only until the core rescue lands.
+- [ ] Access-management PR verification is recorded: `npm ci`, `npm run build`, `npm test --if-present`, `npm run lint --if-present`; DB-touching work also records `npm run db:validate-migrations`, `supabase db push --dry-run` when linked, and direct RPC checks for no `404`/`PGRST202`.
+- [ ] Access-management PR includes desktop and mobile screenshots for affected flows, including desktop selected-person workspace and mobile `390x844` source-card layout with no horizontal scrolling or clipped controls.
 - [ ] Non-admin user cannot access `/admin/support`
 - [ ] Super-admin user can access `/admin/support`
 - [ ] Admin can search/filter support queue and update status/priority/assignment/notes
