@@ -9,9 +9,15 @@ on:
   workflow_dispatch:
     inputs:
       date_preset:
-        description: 'Provider date preset to export'
+        description: 'Provider date preset to export when date_start/date_end are not set'
         required: false
         default: 'Last 7 Days'
+      date_start:
+        description: 'Optional custom export start date, YYYY-MM-DD'
+        required: false
+      date_end:
+        description: 'Optional custom export end date, YYYY-MM-DD'
+        required: false
       dry_run:
         description: 'Parse the export without sending rows to Supabase'
         required: false
@@ -41,6 +47,8 @@ jobs:
       REPORTING_INGEST_URL: ${{ secrets.REPORTING_INGEST_URL }}
       REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
       DATE_PRESET: ${{ inputs.date_preset || '' }}
+      DATE_START: ${{ inputs.date_start || '' }}
+      DATE_END: ${{ inputs.date_end || '' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
       GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
       SUMMARY_MACHINE_CODES: ${{ inputs.summary_machine_codes || '' }}
@@ -72,15 +80,24 @@ jobs:
       - name: Sync sales orders
         shell: bash
         run: |
-          date_preset="$DATE_PRESET"
-          if [[ -z "$date_preset" ]]; then
-            if [[ "$GITHUB_EVENT_SCHEDULE" == "45 14 1 * *" ]]; then
-              date_preset="Last Month"
-            else
-              date_preset="Last 7 Days"
+          args=()
+          if [[ -n "$DATE_START" || -n "$DATE_END" ]]; then
+            if [[ -z "$DATE_START" || -z "$DATE_END" ]]; then
+              echo "date_start and date_end must be provided together." >&2
+              exit 1
             fi
+            args+=(--date-start "$DATE_START" --date-end "$DATE_END")
+          else
+            date_preset="$DATE_PRESET"
+            if [[ -z "$date_preset" ]]; then
+              if [[ "$GITHUB_EVENT_SCHEDULE" == "45 14 1 * *" ]]; then
+                date_preset="Last Month"
+              else
+                date_preset="Last 7 Days"
+              fi
+            fi
+            args+=(--date-preset "$date_preset")
           fi
-          args=(--date-preset "$date_preset")
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
           fi

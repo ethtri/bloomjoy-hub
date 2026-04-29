@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, extname, join } from 'node:path';
+import { unzipSync } from 'fflate';
 import { readSheet } from 'read-excel-file/node';
 
 export const SUNZE_ORDER_SHEET = 'Order';
@@ -30,6 +34,8 @@ const normalizeHeader = (value) => toText(value).replace(/\s+/g, ' ');
 const normalizeSourceLabel = (value) => toText(value).replace(/\s+/g, ' ');
 
 const pad2 = (value) => String(value).padStart(2, '0');
+
+const workbookExtensions = new Set(['.xlsx', '.xlsm']);
 
 const buildDateString = (year, month, day) =>
   `${String(year).padStart(4, '0')}-${pad2(month)}-${pad2(day)}`;
@@ -240,9 +246,105 @@ export const parseSunzeOrderRows = (rows) => {
     });
 };
 
-export const parseSunzeOrderWorkbook = async (filePath) => {
+const parseSunzeOrderWorkbookFile = async (filePath) => {
   const rows = await readSheet(filePath, SUNZE_ORDER_SHEET);
   return parseSunzeOrderRows(rows);
+};
+
+const safeTempWorkbookName = (entryName, index) => {
+  const fileName = basename(entryName).replace(/[^A-Za-z0-9._-]/g, '_') || `orders-${index}.xlsx`;
+  const extension = extname(fileName).toLowerCase();
+  return workbookExtensions.has(extension) ? `${index}-${fileName}` : `${index}-${fileName}.xlsx`;
+};
+
+const parseSunzeOrderZip = async (filePath) => {
+  const source = await readFile(filePath);
+  let entries;
+
+  try {
+    entries = unzipSync(new Uint8Array(source));
+  } catch (error) {
+    throw new SunzeOrderParseError('Provider order zip is invalid.', {
+      fileName: basename(filePath),
+      cause: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const workbookEntries = Object.entries(entries)
+    .filter(([entryName]) => {
+      const name = entryName.replace(/\\/g, '/');
+      const fileName = basename(name);
+      return workbookExtensions.has(extname(fileName).toLowerCase()) && !fileName.startsWith('~$');
+    })
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  if (workbookEntries.length === 0) {
+    throw new SunzeOrderParseError('Provider order zip contains no workbook files.', {
+      fileName: basename(filePath),
+    });
+  }
+
+  const tempRoot = await mkdtemp(join(tmpdir(), 'sunze-order-zip-'));
+  const rows = [];
+
+  try {
+    for (let index = 0; index < workbookEntries.length; index += 1) {
+      const [entryName, bytes] = workbookEntries[index];
+      const tempPath = join(tempRoot, safeTempWorkbookName(entryName, index + 1));
+
+      await writeFile(tempPath, bytes);
+
+      try {
+        rows.push(...(await parseSunzeOrderWorkbookFile(tempPath)));
+      } catch (error) {
+        if (error instanceof SunzeOrderParseError) {
+          throw new SunzeOrderParseError(`${error.message} Zip entry: ${entryName}.`, {
+            ...error.details,
+            zipEntry: entryName,
+          });
+        }
+        throw error;
+      }
+    }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+
+  if (rows.length === 0) {
+    throw new SunzeOrderParseError('Provider order zip contains no order rows.', {
+      fileName: basename(filePath),
+      workbookCount: workbookEntries.length,
+    });
+  }
+
+  return rows;
+};
+
+export const parseSunzeOrderWorkbook = async (filePath) => {
+  if (extname(filePath).toLowerCase() === '.zip') {
+    return parseSunzeOrderZip(filePath);
+  }
+
+  return parseSunzeOrderWorkbookFile(filePath);
+};
+
+export const assertSunzeOrderRowsWithinWindow = (rows, { windowStart, windowEnd } = {}) => {
+  if (!windowStart || !windowEnd) return rows;
+
+  const outsideRow = rows.find(
+    (row) => row.saleDate && (row.saleDate < windowStart || row.saleDate > windowEnd)
+  );
+
+  if (outsideRow) {
+    throw new SunzeOrderParseError('Provider order export includes rows outside the selected date window.', {
+      windowStart,
+      windowEnd,
+      observedSaleDate: outsideRow.saleDate,
+      machineCode: outsideRow.machineCode,
+    });
+  }
+
+  return rows;
 };
 
 export const summarizeSunzeOrderRows = (rows) => {

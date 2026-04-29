@@ -96,15 +96,16 @@ Use these after the sales reporting migration has been applied.
    - `npm run reporting:validate-provider-parser`
    - `npm run reporting:validate-refund-adjustments`
 6) Dry-run the Sunze browser export locally:
-   - `npm run reporting:sunze-sync -- --env-file path/to/local.env --dry-run`
-   - Historical backfill dry run with a supported Sunze preset:
-     `npm run reporting:sunze-sync -- --env-file path/to/local.env --date-preset "Last Month" --dry-run`
+   - `npm run reporting:provider-sync -- --env-file path/to/local.env --dry-run`
+   - Historical monthly backfill dry run with the repaired Sunze custom range flow:
+     `npm run reporting:provider-sync -- --env-file path/to/local.env --date-start 2026-01-01 --date-end 2026-01-31 --dry-run`
    - Add `--summary-machine-codes <comma-separated-sunze-ids>` when you need date-level counts for specific machines without logging raw order rows.
-   - Do not use Sunze `Custom Range` for automated backfills; it has produced corrupted workbooks. Use `Last 7 Days`, `Last Month`, or `Last 3 Months`, then verify the parsed `windowStart`/`windowEnd` before running without `--dry-run`.
-   - Large exports are posted to ingest in chunks so historical presets stay below the locked endpoint row limit.
+   - Daily automation remains on `Last 7 Days`. Historical backfills should use explicit monthly `--date-start` / `--date-end` chunks, then verify parsed `windowStart`/`windowEnd` before running without `--dry-run`.
+   - Sunze export now completes through Export Task List. The worker confirms the export, downloads the newest completed task created after the request time, parses `.xlsx` or `.zip` files, and deletes raw downloads after parsing.
+   - Large exports are posted to ingest in chunks so historical date ranges stay below the locked endpoint row limit.
    - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.
 6) Run the Sunze import freshness check without touching Sunze:
-   - `npm run reporting:sunze-health -- --event freshness_check --stale-hours 30`
+   - `npm run reporting:provider-health -- --event freshness_check --stale-hours 30`
 7) In production, run the scheduled GitHub Action with encrypted repository secrets:
    - `SUNZE_LOGIN_URL`
    - `SUNZE_REPORTING_EMAIL`

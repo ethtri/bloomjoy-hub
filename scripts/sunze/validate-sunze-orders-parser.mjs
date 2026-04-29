@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zipSync, strToU8 } from 'fflate';
 import {
+  assertSunzeOrderRowsWithinWindow,
   parseSunzeOrderRows,
   parseSunzeOrderWorkbook,
   summarizeSunzeOrderRows,
@@ -85,7 +86,16 @@ const buildWorkbook = (rows) =>
 const fixturePath = new URL('./sample-sunze-orders.json', import.meta.url);
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
 const rows = [fixture.headers, ...fixture.rows];
-const tempPath = join(tmpdir(), `sunze-orders-parser-${Date.now()}.xlsx`);
+const tempPaths = [];
+const createTempPath = (extension) => {
+  const tempPath = join(
+    tmpdir(),
+    `sunze-orders-parser-${Date.now()}-${tempPaths.length + 1}.${extension}`
+  );
+  tempPaths.push(tempPath);
+  return tempPath;
+};
+const tempPath = createTempPath('xlsx');
 
 const assertParseError = (testRows, expectedMessage) => {
   assert.throws(
@@ -124,6 +134,74 @@ try {
   assert.equal(summary.orderAmountCents, 1800);
   assert.equal(summary.windowStart, '2026-04-22');
   assert.equal(summary.windowEnd, '2026-04-23');
+  assert.equal(assertSunzeOrderRowsWithinWindow(parsed, {
+    windowStart: '2026-04-22',
+    windowEnd: '2026-04-23',
+  }), parsed);
+  assert.throws(
+    () =>
+      assertSunzeOrderRowsWithinWindow(parsed, {
+        windowStart: '2026-04-23',
+        windowEnd: '2026-04-23',
+      }),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('outside the selected date window')
+  );
+
+  const zipPath = createTempPath('zip');
+  await writeFile(
+    zipPath,
+    zipSync({
+      '2026-04.xlsx': buildWorkbook(rows),
+      'nested/2026-05.xlsx': buildWorkbook([
+        SUNZE_ORDER_HEADERS,
+        withCell(fixture.rows[0], 'Payment time', '2026/05/01 10:15:00'),
+      ]),
+    })
+  );
+  const zippedParsed = await parseSunzeOrderWorkbook(zipPath);
+  const zippedSummary = summarizeSunzeOrderRows(zippedParsed);
+  assert.equal(zippedParsed.length, 4);
+  assert.equal(zippedSummary.windowStart, '2026-04-22');
+  assert.equal(zippedSummary.windowEnd, '2026-05-01');
+
+  const emptyZipPath = createTempPath('zip');
+  await writeFile(emptyZipPath, zipSync({}));
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(emptyZipPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('contains no workbook files')
+  );
+
+  const nonWorkbookZipPath = createTempPath('zip');
+  await writeFile(nonWorkbookZipPath, zipSync({ 'notes.txt': strToU8('not an order export') }));
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(nonWorkbookZipPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('contains no workbook files')
+  );
+
+  const badWorkbookZipPath = createTempPath('zip');
+  await writeFile(
+    badWorkbookZipPath,
+    zipSync({
+      'bad.xlsx': buildWorkbook([[...SUNZE_ORDER_HEADERS.filter((header) => header !== 'Status')], fixture.rows[0]]),
+    })
+  );
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(badWorkbookZipPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('headers changed') &&
+      error.message.includes('Zip entry: bad.xlsx')
+  );
 
   const duplicateUpdateRows = [
     SUNZE_ORDER_HEADERS,
@@ -177,6 +255,11 @@ try {
           'trade item quantity parsing',
           'duplicate order preservation',
           'midnight date boundary',
+          'zip export parsing',
+          'empty zip rejection',
+          'non-workbook zip rejection',
+          'zipped workbook header rejection',
+          'selected date window rejection',
         ],
       },
       null,
@@ -184,5 +267,5 @@ try {
     )
   );
 } finally {
-  await rm(tempPath, { force: true });
+  await Promise.all(tempPaths.map((path) => rm(path, { force: true })));
 }

@@ -4,7 +4,11 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { parseSunzeOrderWorkbook, summarizeSunzeOrderRows } from './sunze-orders.mjs';
+import {
+  assertSunzeOrderRowsWithinWindow,
+  parseSunzeOrderWorkbook,
+  summarizeSunzeOrderRows,
+} from './sunze-orders.mjs';
 
 const args = process.argv.slice(2);
 
@@ -45,6 +49,8 @@ const dryRun = hasFlag('--dry-run');
 const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
 const datePreset = getArg('--date-preset', 'Last 7 Days');
+const dateStartArg = getArg('--date-start');
+const dateEndArg = getArg('--date-end');
 const downloadDirArg = getArg('--download-dir');
 const summaryMachineCodesArg =
   getArg('--summary-machine-codes') ||
@@ -63,6 +69,14 @@ const ingestChunkSize = Math.min(
     process.env.PROVIDER_INGEST_CHUNK_SIZE ?? process.env.SUNZE_INGEST_CHUNK_SIZE,
     DEFAULT_INGEST_CHUNK_SIZE
   )
+);
+const exportTaskTimeoutMs = parsePositiveInteger(
+  process.env.PROVIDER_EXPORT_TASK_TIMEOUT_MS ?? process.env.SUNZE_EXPORT_TASK_TIMEOUT_MS,
+  5 * 60 * 1000
+);
+const exportDownloadTimeoutMs = parsePositiveInteger(
+  process.env.PROVIDER_EXPORT_DOWNLOAD_TIMEOUT_MS ?? process.env.SUNZE_EXPORT_DOWNLOAD_TIMEOUT_MS,
+  2 * 60 * 1000
 );
 const supportedDatePresets = new Set([
   'Today',
@@ -135,11 +149,33 @@ const addDays = (dateKey, days) => {
   return date.toISOString().slice(0, 10);
 };
 
-if (!supportedDatePresets.has(datePreset)) {
+const customDateStart = dateStartArg ? normalizeDate(dateStartArg) : null;
+const customDateEnd = dateEndArg ? normalizeDate(dateEndArg) : null;
+const hasCustomDateRange = Boolean(customDateStart || customDateEnd);
+
+if (dateStartArg && !customDateStart) {
+  throw new Error(`Invalid provider custom date start: ${dateStartArg}. Expected YYYY-MM-DD.`);
+}
+
+if (dateEndArg && !customDateEnd) {
+  throw new Error(`Invalid provider custom date end: ${dateEndArg}. Expected YYYY-MM-DD.`);
+}
+
+if (Boolean(customDateStart) !== Boolean(customDateEnd)) {
+  throw new Error('Provider custom date exports require both --date-start and --date-end.');
+}
+
+if (customDateStart && customDateEnd && customDateStart > customDateEnd) {
+  throw new Error(`Provider custom date start must be before or equal to date end: ${customDateStart} > ${customDateEnd}.`);
+}
+
+if (!hasCustomDateRange && !supportedDatePresets.has(datePreset)) {
   throw new Error(
-    `Unsupported provider date preset: ${datePreset}. Supported presets: ${[...supportedDatePresets].join(', ')}. Provider Custom Range exports are not used because they have produced corrupted workbooks.`
+    `Unsupported provider date preset: ${datePreset}. Supported presets: ${[...supportedDatePresets].join(', ')}. Use --date-start and --date-end for approved custom-range exports.`
   );
 }
+
+const exportDateLabel = hasCustomDateRange ? `Custom Range:${customDateStart}:${customDateEnd}` : datePreset;
 
 const deriveWindowFromPreset = (preset) => {
   const normalizedPreset = String(preset ?? '').trim().toLowerCase();
@@ -197,6 +233,16 @@ const deriveWindowFromPreset = (preset) => {
 
   return null;
 };
+
+const deriveSelectedWindow = () =>
+  hasCustomDateRange
+    ? {
+        uiWindowStart: customDateStart,
+        uiWindowEnd: customDateEnd,
+        uiWindowSource: 'custom_range',
+        selectedPreset: 'Custom Range',
+      }
+    : deriveWindowFromPreset(datePreset);
 
 const parseRevenueCandidateCents = (value) => {
   const text = String(value ?? '').replace(/\s+/g, ' ');
@@ -342,7 +388,7 @@ const readOrdersUiSummary = async (page) => {
     .filter(Boolean);
   const visibleTexts = await collectVisibleTexts(page);
   const combinedText = [...visibleTexts, bodyText].join('\n');
-  const selectedWindow = extractSelectedWindow(visibleTexts) ?? deriveWindowFromPreset(datePreset);
+  const selectedWindow = extractSelectedWindow(visibleTexts) ?? deriveSelectedWindow();
   const uiRevenueCandidatesCents = extractRevenueCandidatesCents(lines);
   const uiRevenueCents = uiRevenueCandidatesCents.length > 0 ? Math.max(...uiRevenueCandidatesCents) : null;
   const uiRecordCount = extractRecordCount(combinedText);
@@ -593,7 +639,7 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
 
 const assertAllowedSunzeRoute = (page) => {
   const url = new URL(page.url());
-  const allowedHashes = ['#/login', '#/home', '#/orderCenter', '#/device'];
+  const allowedHashes = ['#/login', '#/home', '#/orderCenter', '#/taskExportList', '#/device'];
   const isAllowed = allowedHashes.some((hash) => url.hash.startsWith(hash));
 
   if (!isAllowed) {
@@ -644,6 +690,241 @@ const selectDatePreset = async (page, preset) => {
   await page.waitForTimeout(1500);
 };
 
+const formatProviderDate = (dateKey) => dateKey.replace(/-/g, '/');
+
+const clickFirstVisibleText = async (page, textPattern) => {
+  const locator = page.getByText(textPattern).first();
+  await locator.waitFor({ state: 'visible', timeout: 10000 });
+  await locator.click();
+};
+
+const clickDateFilter = async (page) => {
+  await page.getByText('Today').first().click().catch(async () => {
+    await clickFirstVisibleText(page, /Today|Yesterday|Last \d+ Days|Last Month|Custom Range/i);
+  });
+  await page.waitForTimeout(500);
+};
+
+const clickOptionalDateConfirm = async (page) => {
+  const labels = [/^Confirm$/i, /^OK$/i, /^Apply$/i, /^Done$/i];
+
+  for (const label of labels) {
+    const button = page.getByRole('button', { name: label }).first();
+    if ((await button.count()) > 0 && (await button.isVisible().catch(() => false))) {
+      await button.click();
+      return true;
+    }
+  }
+
+  for (const label of labels) {
+    const text = page.getByText(label).first();
+    if ((await text.count()) > 0 && (await text.isVisible().catch(() => false))) {
+      await text.click();
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const fillVisibleDateInputs = async (page, startDate, endDate) => {
+  const formattedStart = formatProviderDate(startDate);
+  const formattedEnd = formatProviderDate(endDate);
+  const inputGroups = [page.locator('.ant-picker input:visible'), page.locator('input:visible')];
+
+  for (const inputs of inputGroups) {
+    const count = await inputs.count();
+    if (count < 2) continue;
+
+    await inputs.nth(0).fill(formattedStart);
+    await inputs.nth(1).fill(formattedEnd);
+    await inputs.nth(1).press('Enter').catch(() => {});
+    return true;
+  }
+
+  return false;
+};
+
+const selectCustomDateRange = async (page, startDate, endDate) => {
+  await clickDateFilter(page);
+  await page.getByText('Custom Range', { exact: true }).click();
+  await page.waitForTimeout(750);
+
+  const filled = await fillVisibleDateInputs(page, startDate, endDate);
+  if (!filled) {
+    const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+    throw new Error(
+      diagnostic
+        ? `Unable to fill provider custom date range. Visible date controls: ${diagnostic}`
+        : 'Unable to fill provider custom date range.'
+    );
+  }
+
+  await clickOptionalDateConfirm(page);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+};
+
+const selectOrdersDateFilter = async (page) => {
+  if (hasCustomDateRange) {
+    await selectCustomDateRange(page, customDateStart, customDateEnd);
+    return;
+  }
+
+  await selectDatePreset(page, datePreset);
+};
+
+const requestExportTask = async (page) => {
+  await page.getByText('Export', { exact: true }).click();
+  await page
+    .getByText(/Confirm to export selected orders|Please go to Export Center/i)
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(async () => {
+      const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+      throw new Error(
+        diagnostic
+          ? `Provider export confirmation did not appear. Visible controls: ${diagnostic}`
+          : 'Provider export confirmation did not appear.'
+      );
+    });
+
+  const requestedAtMs = await page.evaluate(() => Date.now());
+  await page.getByText('Confirm', { exact: true }).click();
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+
+  return requestedAtMs;
+};
+
+const markNewestCompletedExportTask = async (page, requestedAtMs) =>
+  page.evaluate(
+    ({ minCreatedAtMs, toleranceMs }) => {
+      const timestampPattern = /20\d{2}[/-]\d{1,2}[/-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}/g;
+      const sanitize = (value) =>
+        String(value ?? '')
+          .replace(/[A-Fa-f0-9]{16,}/g, '[id]')
+          .replace(/\b\d{6,}\b/g, '[number]')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 240);
+      const parseTimestamp = (value) => {
+        const match = String(value ?? '').match(
+          /(20\d{2})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})/
+        );
+        if (!match) return null;
+
+        const [, year, month, day, hour, minute, second] = match.map(Number);
+        const parsed = new Date(year, month - 1, day, hour, minute, second).getTime();
+        return Number.isFinite(parsed) ? parsed : null;
+      };
+      const extractCreatedAt = (text) => {
+        const lines = String(text ?? '')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+        for (const line of lines) {
+          if (/Expiry Time/i.test(line)) continue;
+          const match = line.match(timestampPattern);
+          if (match?.[0]) return parseTimestamp(match[0]);
+        }
+
+        const withoutExpiry = String(text ?? '').replace(
+          /Expiry Time\s*:?\s*20\d{2}[/-]\d{1,2}[/-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}/gi,
+          ''
+        );
+        const fallback = withoutExpiry.match(timestampPattern);
+        return fallback?.[0] ? parseTimestamp(fallback[0]) : null;
+      };
+
+      document
+        .querySelectorAll('[data-bloomjoy-download-candidate]')
+        .forEach((element) => element.removeAttribute('data-bloomjoy-download-candidate'));
+
+      const clickableElements = Array.from(
+        document.querySelectorAll('button, a, [role="button"], .ant-btn, div')
+      ).filter((element) => (element.textContent || '').trim() === 'Download');
+      const candidates = [];
+      const diagnostics = [];
+
+      for (const element of clickableElements) {
+        let current = element;
+        for (let depth = 0; depth < 10 && current; depth += 1) {
+          const text = current.innerText || current.textContent || '';
+          if (/Completed/i.test(text) && /Task No/i.test(text)) {
+            const createdAtMs = extractCreatedAt(text);
+            const candidate = {
+              createdAtMs,
+              text: sanitize(text),
+              element,
+            };
+            diagnostics.push(candidate);
+            if (Number.isFinite(createdAtMs) && createdAtMs >= minCreatedAtMs - toleranceMs) {
+              candidates.push(candidate);
+            }
+            break;
+          }
+          current = current.parentElement;
+        }
+      }
+
+      candidates.sort((left, right) => right.createdAtMs - left.createdAtMs);
+      const match = candidates[0] ?? null;
+
+      if (match) {
+        match.element.setAttribute('data-bloomjoy-download-candidate', 'true');
+      }
+
+      return {
+        matched: Boolean(match),
+        createdAtMs: match?.createdAtMs ?? null,
+        taskText: match?.text ?? null,
+        visibleCompletedTasks: diagnostics
+          .sort((left, right) => (right.createdAtMs ?? 0) - (left.createdAtMs ?? 0))
+          .slice(0, 5)
+          .map(({ createdAtMs, text }) => ({ createdAtMs, text })),
+      };
+    },
+    {
+      minCreatedAtMs: requestedAtMs,
+      toleranceMs: 2 * 60 * 1000,
+    }
+  );
+
+const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs) => {
+  const taskListUrl = `${baseUrl}#/taskExportList`;
+  const deadline = Date.now() + exportTaskTimeoutMs;
+  let lastTaskDiagnostic = null;
+
+  while (Date.now() < deadline) {
+    await page.goto(taskListUrl, { waitUntil: 'domcontentloaded' });
+    assertAllowedSunzeRoute(page);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(1500);
+
+    const task = await markNewestCompletedExportTask(page, requestedAtMs);
+    lastTaskDiagnostic = task;
+
+    if (task.matched) {
+      const downloadPromise = page.waitForEvent('download', { timeout: exportDownloadTimeoutMs });
+      await page.locator('[data-bloomjoy-download-candidate="true"]').first().click();
+      return {
+        download: await downloadPromise,
+        task,
+      };
+    }
+
+    await page.waitForTimeout(5000);
+  }
+
+  const visibleTasks = lastTaskDiagnostic?.visibleCompletedTasks?.map((task) => task.text).join(' | ');
+  throw new Error(
+    visibleTasks
+      ? `Provider export task did not complete within ${exportTaskTimeoutMs}ms. Recent completed tasks: ${visibleTasks}`
+      : `Provider export task did not complete within ${exportTaskTimeoutMs}ms.`
+  );
+};
+
 const exportOrdersWorkbook = async () => {
   const downloadRoot = downloadDirArg
     ? resolve(downloadDirArg)
@@ -651,7 +932,7 @@ const exportOrdersWorkbook = async () => {
   await mkdir(downloadRoot, { recursive: true });
 
   const browser = await chromium.launch({ headless: !headful });
-  const context = await browser.newContext({ acceptDownloads: true });
+  const context = await browser.newContext({ acceptDownloads: true, timezoneId: reportingTimezone });
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
   let succeeded = false;
@@ -659,24 +940,23 @@ const exportOrdersWorkbook = async () => {
 
   try {
     const baseUrl = await openOrdersPage(page);
-    await selectDatePreset(page, datePreset);
+    await selectOrdersDateFilter(page);
     const preExportUiSummary = await readOrdersUiSummary(page);
 
-    const downloadPromise = page.waitForEvent('download');
-    await page.getByText('Export', { exact: true }).click();
-    const download = await downloadPromise;
+    const exportRequestedAtMs = await requestExportTask(page);
+    const { download, task } = await downloadCompletedExportTask(page, baseUrl, exportRequestedAtMs);
     const filename = basename(await download.suggestedFilename());
     const filePath = join(downloadRoot, filename);
     await download.saveAs(filePath);
     downloadedFilePath = filePath;
-    const postExportUiSummary = await readOrdersUiSummary(page);
     const visibleSunzeMachineCodes = await readVisibleSunzeMachineCodes(page, baseUrl);
     succeeded = true;
 
     return {
       filePath,
-      uiSummaries: [preExportUiSummary, postExportUiSummary],
+      uiSummaries: [preExportUiSummary],
       visibleSunzeMachineCodes,
+      exportTaskCreatedAtMs: task.createdAtMs,
       cleanupPath: downloadDirArg ? filePath : downloadRoot,
       cleanupMode: downloadDirArg ? 'file' : 'directory',
     };
@@ -803,8 +1083,17 @@ const isRetryableWorkbookError = (error) => {
   const message = error instanceof Error ? error.message : String(error ?? '');
   return (
     /Sheet "Order" not found/i.test(message) ||
-    /end of central directory|invalid zip|corrupt|unexpected end/i.test(message)
+    /end of central directory|invalid zip|corrupt|unexpected end|contains no workbook files/i.test(message)
   );
+};
+
+const parseOrdersSourceRows = async (source) => {
+  const rows = await parseSunzeOrderWorkbook(source.filePath);
+  assertSunzeOrderRowsWithinWindow(rows, {
+    windowStart: deriveSelectedWindow()?.uiWindowStart,
+    windowEnd: deriveSelectedWindow()?.uiWindowEnd,
+  });
+  return rows;
 };
 
 const loadOrdersSource = async () => {
@@ -818,7 +1107,7 @@ const loadOrdersSource = async () => {
     };
     return {
       source,
-      rows: await parseSunzeOrderWorkbook(source.filePath),
+      rows: await parseOrdersSourceRows(source),
     };
   }
 
@@ -828,7 +1117,7 @@ const loadOrdersSource = async () => {
     try {
       return {
         source,
-        rows: await parseSunzeOrderWorkbook(source.filePath),
+        rows: await parseOrdersSourceRows(source),
       };
     } catch (error) {
       await cleanupExportSource(source);
@@ -860,8 +1149,10 @@ try {
 
   const payload = {
     source: 'sunze_browser',
-    sourceReference: `sunze-orders:${datePreset}:${new Date().toISOString()}`,
-    datePreset,
+    sourceReference: `sunze-orders:${exportDateLabel}:${new Date().toISOString()}`,
+    datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+    dateStart: customDateStart,
+    dateEnd: customDateEnd,
     windowStart: summary.windowStart,
     windowEnd: summary.windowEnd,
     generatedAt: new Date().toISOString(),
@@ -872,7 +1163,10 @@ try {
       githubWorkflow: process.env.GITHUB_WORKFLOW ?? null,
       githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
       parseFileMode: Boolean(parseFilePath),
-      datePreset,
+      datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+      dateStart: customDateStart,
+      dateEnd: customDateEnd,
+      exportTaskCreatedAtMs: source.exportTaskCreatedAtMs ?? null,
       selectedWindowStart: matchedUiSummary?.uiWindowStart ?? null,
       selectedWindowEnd: matchedUiSummary?.uiWindowEnd ?? null,
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
@@ -921,7 +1215,9 @@ try {
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
       ignoredUnmappedMachineCount: ingestValidation?.ignoredUnmappedMachineCount ?? null,
       newlyPendingUnmappedMachineCount: ingestValidation?.newlyPendingUnmappedMachineCount ?? null,
-      datePreset,
+      datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+      dateStart: customDateStart,
+      dateEnd: customDateEnd,
     });
   } else {
     const result = await postIngestPayloadInChunks(payload);
@@ -947,6 +1243,9 @@ try {
       rowsQuarantined: result.rowsQuarantined ?? null,
       rowsIgnored: result.rowsIgnored ?? null,
       pendingUnmappedMachineCount: result.pendingUnmappedMachineCount ?? null,
+      datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+      dateStart: customDateStart,
+      dateEnd: customDateEnd,
     });
   }
 } finally {
