@@ -153,7 +153,7 @@ Important metric notes:
 4. It navigates directly to `#/orderCenter`.
 5. It selects the safe `Last 7 Days` daily preset, `Last Month` for the monthly catch-up schedule, or an explicit monthly custom range for backfills.
 6. It keeps the machine selector on `All Machines`.
-7. It clicks `Export`, confirms the export dialog, navigates to `#/taskExportList`, polls for the newest completed task created after the request, and downloads it.
+7. It clicks `Export`, confirms the export dialog, navigates to `#/taskExportList`, pins the requested task created after the request timestamp, fails immediately on a terminal failed task, and downloads only after completion.
 8. It validates the workbook sheet and required headers across `.xlsx` files or `.zip` bundles; optional merchant/name metadata may be absent from Export Task workbooks.
 9. It normalizes rows into payment method, sale date, machine code, net sales cents, tax cents, and source status.
 10. It deletes raw workbook or zip files after parsing.

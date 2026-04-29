@@ -80,7 +80,7 @@ const exportDownloadTimeoutMs = parsePositiveInteger(
 );
 const exportTaskClockSkewToleranceMs = parsePositiveInteger(
   process.env.PROVIDER_EXPORT_TASK_CLOCK_SKEW_MS ?? process.env.SUNZE_EXPORT_TASK_CLOCK_SKEW_MS,
-  2 * 60 * 1000
+  0
 );
 const supportedDatePresets = new Set([
   'Today',
@@ -130,6 +130,17 @@ const normalizeDate = (value) => {
   const month = Number(parts.month);
   const day = Number(parts.day);
   if (!Number.isInteger(month) || !Number.isInteger(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  const year = Number(parts.year);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
     return null;
   }
 
@@ -381,6 +392,8 @@ const collectVisibleTexts = async (page) =>
 const sanitizeDiagnosticText = (value) =>
   String(value ?? '')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+    .replace(/Task\s*No\.?\s*:?\s*[A-Za-z0-9-]{4,}/gi, 'Task No.:[id]')
+    .replace(/\b[A-Za-z0-9][A-Za-z0-9-]{15,}\b/g, '[id]')
     .replace(/\b\d{6,}\b/g, '[number]')
     .slice(0, 120);
 
@@ -401,19 +414,45 @@ const buildUiSummaryDiagnostic = (texts) =>
     .join(' | ');
 
 const extractSelectedWindow = (texts) => {
+  const allDates = [];
+
   for (const text of texts) {
     const dates = Array.from(text.matchAll(dateTokenPattern))
       .map((match) => normalizeDate(match[0]))
       .filter(Boolean);
 
-    if (dates.length >= 1) {
+    allDates.push(...dates);
+
+    if (!hasCustomDateRange && dates.length >= 2) {
       return {
         uiWindowStart: dates[0],
-        uiWindowEnd: dates[1] ?? dates[0],
+        uiWindowEnd: dates[1],
         uiWindowSource: 'visible_dates',
         selectedPreset: null,
       };
     }
+  }
+
+  if (hasCustomDateRange) {
+    const visibleDateSet = new Set(allDates);
+
+    return visibleDateSet.has(customDateStart) && visibleDateSet.has(customDateEnd)
+      ? {
+          uiWindowStart: customDateStart,
+          uiWindowEnd: customDateEnd,
+          uiWindowSource: 'visible_custom_dates',
+          selectedPreset: 'Custom Range',
+        }
+      : null;
+  }
+
+  if (allDates.length >= 1) {
+    return {
+      uiWindowStart: allDates[0],
+      uiWindowEnd: allDates[1] ?? allDates[0],
+      uiWindowSource: 'visible_dates',
+      selectedPreset: null,
+    };
   }
 
   return null;
@@ -426,7 +465,7 @@ const readOrdersUiSummary = async (page) => {
     .map((line) => line.trim())
     .filter(Boolean);
   const visibleTexts = await collectVisibleTexts(page);
-  const selectedWindow = extractSelectedWindow(visibleTexts) ?? deriveSelectedWindow();
+  const selectedWindow = extractSelectedWindow(visibleTexts) ?? (!hasCustomDateRange ? deriveSelectedWindow() : null);
   const uiRevenueCandidatesCents = extractRevenueCandidatesCents(lines);
   const uiRevenueCents = uiRevenueCandidatesCents.length > 0 ? Math.max(...uiRevenueCandidatesCents) : null;
   const uiRecordCount = extractRecordCount([...lines, ...visibleTexts]);
@@ -676,10 +715,19 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
   return machineCodes;
 };
 
-const assertAllowedSunzeRoute = (page) => {
+const routeBaseMatches = (url, expectedBaseUrl) => {
+  const expected = new URL(expectedBaseUrl);
+  const expectedPath = expected.pathname.endsWith('/') ? expected.pathname : `${expected.pathname}/`;
+  const actualPath = url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/`;
+
+  return url.origin === expected.origin && actualPath.startsWith(expectedPath);
+};
+
+const assertAllowedSunzeRoute = (page, expectedBaseUrl = required(loginUrl, 'PROVIDER_LOGIN_URL').split('#')[0]) => {
   const url = new URL(page.url());
   const allowedHashes = ['#/login', '#/home', '#/orderCenter', '#/taskExportList', '#/device'];
-  const isAllowed = allowedHashes.some((hash) => url.hash.startsWith(hash));
+  const isAllowed =
+    routeBaseMatches(url, expectedBaseUrl) && allowedHashes.some((hash) => url.hash.startsWith(hash));
 
   if (!isAllowed) {
     throw new Error(`Unexpected provider route during reporting sync: ${url.origin}${url.pathname}${url.hash}`);
@@ -690,7 +738,7 @@ const openOrdersPage = async (page) => {
   const baseUrl = required(loginUrl, 'PROVIDER_LOGIN_URL').split('#')[0];
 
   await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
-  assertAllowedSunzeRoute(page);
+  assertAllowedSunzeRoute(page, baseUrl);
   await page.getByText(/Password/i).first().click().catch(() => {});
   await page
     .getByPlaceholder(/Username|Email/i)
@@ -714,7 +762,7 @@ const openOrdersPage = async (page) => {
   await page.waitForTimeout(2500);
 
   await page.goto(`${baseUrl}#/orderCenter`, { waitUntil: 'domcontentloaded' });
-  assertAllowedSunzeRoute(page);
+  assertAllowedSunzeRoute(page, baseUrl);
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(2500);
 
@@ -1181,7 +1229,7 @@ const requestExportTask = async (page) => {
       );
     });
 
-  const requestedAtMs = await page.evaluate(() => Date.now());
+  const requestedAtMs = await page.evaluate(() => Math.floor(Date.now() / 1000) * 1000);
   await page.getByText('Confirm', { exact: true }).click();
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(1500);
@@ -1215,6 +1263,8 @@ const markRequestedExportTaskForDownload = async (
       const sanitize = (value) =>
         String(value ?? '')
           .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+          .replace(/Task\s*No\.?\s*:?\s*[A-Za-z0-9-]{4,}/gi, 'Task No.:[id]')
+          .replace(/\b[A-Za-z0-9][A-Za-z0-9-]{15,}\b/g, '[id]')
           .replace(/[A-Fa-f0-9]{16,}/g, '[id]')
           .replace(/\b\d{6,}\b/g, '[number]')
           .replace(/\s+/g, ' ')
@@ -1324,17 +1374,19 @@ const markRequestedExportTaskForDownload = async (
       const targetRow = targetTaskNoArg
         ? rows.find((row) => row.taskNo === targetTaskNoArg) ?? null
         : null;
-      const claimedRow =
-        targetRow ??
-        rows
-          .filter(
-            (row) =>
-              !ignoredTaskNos.has(row.taskNo) &&
-              Number.isFinite(row.createdAtMs) &&
-              row.createdAtMs >= minCreatedAtMs - toleranceMs
-          )
-          .sort((left, right) => left.createdAtMs - right.createdAtMs)[0] ??
-        null;
+      const candidateRows = rows
+        .filter(
+          (row) =>
+            !ignoredTaskNos.has(row.taskNo) &&
+            Number.isFinite(row.createdAtMs) &&
+            row.createdAtMs >= minCreatedAtMs - toleranceMs
+        )
+        .sort((left, right) => {
+          const leftDistance = Math.abs(left.createdAtMs - minCreatedAtMs);
+          const rightDistance = Math.abs(right.createdAtMs - minCreatedAtMs);
+          return leftDistance - rightDistance || left.createdAtMs - right.createdAtMs;
+        });
+      const claimedRow = targetRow ?? candidateRows[0] ?? null;
       const match = claimedRow?.isCompleted ? claimedRow : null;
 
       if (match) {
@@ -1350,7 +1402,7 @@ const markRequestedExportTaskForDownload = async (
         taskText: claimedRow?.text ?? null,
         visibleTasks: rows
           .slice(0, 5)
-          .map(({ createdAtMs, status, taskNoMasked, text }) => ({ createdAtMs, status, taskNoMasked, text })),
+          .map(({ createdAtMs, status, taskNoMasked }) => ({ createdAtMs, status, taskNoMasked })),
       };
     },
     {
@@ -1437,11 +1489,19 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignored
       );
     }
 
+    if (targetTaskNo && task.status === 'Failed') {
+      throw new Error(
+        `Provider export task ${task.taskNoMasked || '[id]'} failed after request at ${new Date(
+          task.createdAtMs
+        ).toISOString()}.`
+      );
+    }
+
     if (task.matched) {
       console.warn(
-        `Matched provider export task ${task.taskNoMasked || '[id]'} for download: ${
-          task.taskText || 'sanitized task unavailable'
-        }.`
+        `Matched provider export task ${task.taskNoMasked || '[id]'} for download with status ${
+          task.status || 'Unknown'
+        } and createdAt ${new Date(task.createdAtMs).toISOString()}.`
       );
       const downloadWaiter = waitForDownloadFromAnyPage(page.context(), exportDownloadTimeoutMs);
       try {
@@ -1461,7 +1521,12 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignored
   }
 
   const visibleTasks = lastTaskDiagnostic?.visibleTasks
-    ?.map((task) => `${task.taskNoMasked || '[id]'} ${task.status || 'Unknown'} ${task.text}`)
+    ?.map(
+      (task) =>
+        `${task.taskNoMasked || '[id]'} ${task.status || 'Unknown'} ${
+          task.createdAtMs ? new Date(task.createdAtMs).toISOString() : 'unknown-created-at'
+        }`
+    )
     .join(' | ');
   throw new Error(
     visibleTasks

@@ -103,7 +103,8 @@ Use these after the sales reporting migration has been applied.
      `npm run reporting:provider-sync -- --env-file path/to/local.env --parse-file path/to/sunze-2026-01.zip --date-start 2026-01-01 --date-end 2026-01-31 --dry-run`
    - Add `--summary-machine-codes <comma-separated-sunze-ids>` when you need date-level counts for specific machines without logging raw order rows.
    - Daily automation remains on `Last 7 Days`. Historical backfills should use explicit monthly `--date-start` / `--date-end` chunks, then verify parsed `windowStart`/`windowEnd` before running without `--dry-run`.
-   - Sunze export now completes through Export Task List. The worker confirms the export, downloads the newest completed task created after the request time, parses `.xlsx` or `.zip` files, and deletes raw downloads after parsing.
+   - The GitHub `Sales Import Sync` manual dispatch defaults to `dry_run=true`; manual live imports require `dry_run=false` and `confirm_live=true`.
+   - Sunze export now completes through Export Task List. The worker confirms the export, pins the requested task after the request timestamp, downloads it after completion, parses `.xlsx` or `.zip` files, and deletes raw downloads after parsing.
    - If a manual provider file is used for backfill, keep it outside the repo/CI artifacts and delete it after the dry-run/live ingest checks are complete.
    - Large exports are posted to ingest in chunks so historical date ranges stay below the locked endpoint row limit.
    - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.

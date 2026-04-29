@@ -80,6 +80,12 @@ const throwInvalidPaymentTime = (rowNumber) => {
   });
 };
 
+const normalizeTimezoneOffset = (value) => {
+  const source = String(value ?? '');
+  if (source.toUpperCase() === 'Z') return 'Z';
+  return source.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+};
+
 export const parseTradeItemQuantity = (value) => {
   const source = normalizeSourceLabel(value);
 
@@ -169,8 +175,48 @@ const parsePaymentTime = (value, rowNumber) => {
   }
 
   const source = toText(value);
+  const timezoneDateMatch = source.match(
+    /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/i
+  );
+
+  if (timezoneDateMatch) {
+    const [
+      ,
+      yearRaw,
+      monthRaw,
+      dayRaw,
+      hourRaw,
+      minuteRaw,
+      secondRaw = '0',
+      fractionRaw = '',
+      timezoneRaw,
+    ] = timezoneDateMatch;
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    const second = Number(secondRaw);
+
+    if (isValidUtcDateTimeParts({ year, month, day, hour, minute, second })) {
+      const normalizedSource = `${buildDateString(year, month, day)}T${pad2(hour)}:${pad2(
+        minute
+      )}:${pad2(second)}${fractionRaw}${normalizeTimezoneOffset(timezoneRaw)}`;
+      const parsed = new Date(normalizedSource);
+
+      if (Number.isFinite(parsed.getTime())) {
+        return {
+          paymentTimeIso: parsed.toISOString(),
+          saleDate: buildDateString(year, month, day),
+        };
+      }
+    }
+
+    throwInvalidPaymentTime(rowNumber);
+  }
+
   const localDateMatch = source.match(
-    /(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+    /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
   );
 
   if (localDateMatch) {
@@ -190,6 +236,10 @@ const parsePaymentTime = (value, rowNumber) => {
       };
     }
 
+    throwInvalidPaymentTime(rowNumber);
+  }
+
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(source)) {
     throwInvalidPaymentTime(rowNumber);
   }
 
@@ -277,14 +327,27 @@ export const parseSunzeOrderRows = (rows) => {
 const isMissingOrderSheetError = (error) =>
   error instanceof Error && /Sheet "Order" not found/i.test(error.message);
 
+const wrapWorkbookReadError = (error, filePath) =>
+  new SunzeOrderParseError('Provider order workbook could not be read.', {
+    fileName: basename(filePath),
+    cause: error instanceof Error ? error.message : String(error),
+  });
+
 const parseSunzeOrderWorkbookFile = async (filePath) => {
   let rows;
 
   try {
     rows = await readSheet(filePath, SUNZE_ORDER_SHEET);
   } catch (error) {
-    if (!isMissingOrderSheetError(error)) throw error;
-    rows = await readSheet(filePath, 1);
+    if (!isMissingOrderSheetError(error)) {
+      throw wrapWorkbookReadError(error, filePath);
+    }
+
+    try {
+      rows = await readSheet(filePath, 1);
+    } catch (fallbackError) {
+      throw wrapWorkbookReadError(fallbackError, filePath);
+    }
   }
 
   return parseSunzeOrderRows(rows);

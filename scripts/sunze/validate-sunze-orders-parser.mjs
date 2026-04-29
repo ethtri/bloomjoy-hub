@@ -217,6 +217,32 @@ try {
       error.message.includes('Zip entry: bad.xlsx')
   );
 
+  const malformedWorkbookPath = createTempPath('xlsx');
+  await writeFile(malformedWorkbookPath, 'not an xlsx workbook');
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(malformedWorkbookPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('could not be read')
+  );
+
+  const malformedWorkbookZipPath = createTempPath('zip');
+  await writeFile(
+    malformedWorkbookZipPath,
+    zipSync({
+      'broken.xlsx': strToU8('not an xlsx workbook'),
+    })
+  );
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(malformedWorkbookZipPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('could not be read') &&
+      error.message.includes('Zip entry: broken.xlsx')
+  );
+
   const duplicateUpdateRows = [
     SUNZE_ORDER_HEADERS,
     fixture.rows[0],
@@ -233,6 +259,13 @@ try {
   ]);
   assert.equal(midnightParsed[0].saleDate, '2026-04-24');
   assert.equal(midnightParsed[0].paymentTimeIso, '2026-04-24T00:00:03.000Z');
+
+  const timezoneParsed = parseSunzeOrderRows([
+    SUNZE_ORDER_HEADERS,
+    withCell(fixture.rows[0], 'Payment time', '2026-04-24T00:30:00+08:00'),
+  ]);
+  assert.equal(timezoneParsed[0].saleDate, '2026-04-24');
+  assert.equal(timezoneParsed[0].paymentTimeIso, '2026-04-23T16:30:00.000Z');
 
   assertParseError(
     [[...SUNZE_ORDER_HEADERS.filter((header) => header !== 'Status')], fixture.rows[0]],
@@ -252,6 +285,10 @@ try {
   );
   assertParseError(
     [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment time', '2026/02/31 10:00:00')],
+    'Invalid payment time'
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment time', '2026-04-24 00:30:00 trailing')],
     'Invalid payment time'
   );
 
@@ -279,8 +316,12 @@ try {
           'empty zip rejection',
           'non-workbook zip rejection',
           'zipped workbook header rejection',
+          'malformed workbook rejection',
+          'malformed zipped workbook rejection',
           'fallback first-sheet parsing',
           'selected date window rejection',
+          'timezone payment time parsing',
+          'partial timestamp rejection',
         ],
       },
       null,
