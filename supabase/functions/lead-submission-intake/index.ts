@@ -2,6 +2,19 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
+import {
+  buildPublicIntakeDedupeKey,
+  buildPublicIntakeKeyHashes,
+  checkPublicIntakeRateLimits,
+  getPublicIntakeClientIp,
+  getPublicIntakeWindowStart,
+  PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
+  PUBLIC_INTAKE_MAX_REQUEST_BYTES,
+  PUBLIC_INTAKE_NOTIFICATION_LIMITS,
+  PUBLIC_INTAKE_SUBMISSION_LIMITS,
+  type PublicIntakeAbuseSupabaseClient,
+  sanitizePublicIntakeSourcePage,
+} from "../_shared/public-intake-abuse-controls.ts";
 import { sendWeComAlertSafe } from "../_shared/wecom-alert.ts";
 
 export const config = {
@@ -10,7 +23,12 @@ export const config = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const validSubmissionTypes = new Set(["quote", "demo", "procurement", "general"]);
+const validSubmissionTypes = new Set([
+  "quote",
+  "demo",
+  "procurement",
+  "general",
+]);
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -40,13 +58,81 @@ if (!supabaseServiceRoleKey) {
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        persistSession: false,
-      },
-    })
+    auth: {
+      persistSession: false,
+    },
+  })
   : null;
 
-const sanitizeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+const sanitizeText = (
+  value: unknown,
+) => (typeof value === "string" ? value.trim() : "");
+const sanitizeBoundedText = (value: unknown, maxLength: number) =>
+  sanitizeText(value).slice(0, maxLength);
+
+const getAbuseControlSalt = () =>
+  Deno.env.get("PUBLIC_INTAKE_ABUSE_HASH_SALT") ||
+  supabaseServiceRoleKey ||
+  "bloomjoy-public-intake";
+
+const readJsonBody = async (
+  req: Request,
+): Promise<
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; status: number; error: string }
+> => {
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (contentLength > PUBLIC_INTAKE_MAX_REQUEST_BYTES) {
+    return {
+      ok: false,
+      status: 413,
+      error: "Unable to submit contact request.",
+    };
+  }
+
+  const reader = req.body?.getReader();
+  if (!reader) {
+    return { ok: false, status: 400, error: "Invalid request body." };
+  }
+
+  const chunks: Uint8Array[] = [];
+  let receivedBytes = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+
+    receivedBytes += value.byteLength;
+    if (receivedBytes > PUBLIC_INTAKE_MAX_REQUEST_BYTES) {
+      await reader.cancel();
+      return {
+        ok: false,
+        status: 413,
+        error: "Unable to submit contact request.",
+      };
+    }
+
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(receivedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, status: 400, error: "Invalid request body." };
+    }
+    return { ok: true, body: parsed as Record<string, unknown> };
+  } catch {
+    return { ok: false, status: 400, error: "Invalid request body." };
+  }
+};
 
 class RequestValidationError extends Error {}
 
@@ -207,17 +293,18 @@ const verifyLeadMetadata = async (metadata: Record<string, unknown>) => {
 
 const claimDispatch = async (
   eventKey: string,
-  dispatchType: "lead_quote",
-  sourceId: string
+  dispatchType: "lead_submission",
+  sourceId: string,
 ): Promise<boolean> => {
   if (!supabase) return false;
 
-  const { error } = await supabase.from("internal_notification_dispatches").insert({
-    event_key: eventKey,
-    dispatch_type: dispatchType,
-    source_table: "lead_submissions",
-    source_id: sourceId,
-  });
+  const { error } = await supabase.from("internal_notification_dispatches")
+    .insert({
+      event_key: eventKey,
+      dispatch_type: dispatchType,
+      source_table: "lead_submissions",
+      source_id: sourceId,
+    });
 
   if (!error) {
     return true;
@@ -232,7 +319,7 @@ const claimDispatch = async (
   if (error.code === "42501" || error.code === "42P01") {
     console.warn(
       "Dispatch claim fallback: proceeding without dedupe bookkeeping.",
-      error
+      { errorCode: error.code, errorMessage: error.message },
     );
     return true;
   }
@@ -242,14 +329,31 @@ const claimDispatch = async (
 
 const releaseDispatch = async (eventKey: string) => {
   if (!supabase) return;
-  await supabase.from("internal_notification_dispatches").delete().eq("event_key", eventKey);
+  await supabase.from("internal_notification_dispatches").delete().eq(
+    "event_key",
+    eventKey,
+  );
 };
 
-const markDispatchSent = async (eventKey: string, meta: Record<string, unknown>) => {
+const markDispatchSent = async (
+  eventKey: string,
+  meta: Record<string, unknown>,
+) => {
   if (!supabase) return;
   await supabase
     .from("internal_notification_dispatches")
     .update({ sent_at: new Date().toISOString(), meta })
+    .eq("event_key", eventKey);
+};
+
+const markDispatchSkipped = async (
+  eventKey: string,
+  meta: Record<string, unknown>,
+) => {
+  if (!supabase) return;
+  await supabase
+    .from("internal_notification_dispatches")
+    .update({ meta })
     .eq("event_key", eventKey);
 };
 
@@ -259,26 +363,44 @@ serve(async (req) => {
   }
 
   try {
+    if (req.method !== "POST") {
+      return new Response(JSON.stringify({ error: "Method not allowed." }), {
+        status: 405,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!supabase) {
       return new Response(
         JSON.stringify({ error: "Lead intake is not configured." }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
-    const body = await req.json();
+    const parsedBody = await readJsonBody(req);
+    if (!parsedBody.ok) {
+      return new Response(JSON.stringify({ error: parsedBody.error }), {
+        status: parsedBody.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const body = parsedBody.body;
 
-    const submissionType = sanitizeText(body?.submissionType).toLowerCase();
-    const name = sanitizeText(body?.name);
-    const email = sanitizeText(body?.email).toLowerCase();
-    const sourcePage = sanitizeText(body?.sourcePage) || "/contact";
-    const message = sanitizeText(body?.message);
-    const machineInterest = sanitizeText(body?.machineInterest);
-    const clientSubmissionId = sanitizeText(body?.clientSubmissionId).toLowerCase();
-    const metadata = await verifyLeadMetadata(normalizeLeadMetadata(body?.metadata));
+    const submissionType = sanitizeBoundedText(body?.submissionType, 32)
+      .toLowerCase();
+    const name = sanitizeBoundedText(body?.name, 120);
+    const email = sanitizeBoundedText(body?.email, 254).toLowerCase();
+    const sourcePage = sanitizePublicIntakeSourcePage(
+      sanitizeBoundedText(body?.sourcePage, 300) || "/contact",
+    );
+    const message = sanitizeBoundedText(body?.message, 4000);
+    const machineInterest = sanitizeBoundedText(body?.machineInterest, 120);
+    const clientSubmissionId = sanitizeText(body?.clientSubmissionId)
+      .toLowerCase();
+    const normalizedMetadata = normalizeLeadMetadata(body?.metadata);
 
     if (!validSubmissionTypes.has(submissionType)) {
       return new Response(
@@ -286,7 +408,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -296,7 +418,7 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
@@ -306,24 +428,71 @@ serve(async (req) => {
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
     if (!clientSubmissionId || !uuidPattern.test(clientSubmissionId)) {
       return new Response(
-        JSON.stringify({ error: "Missing submission token. Refresh and try again." }),
+        JSON.stringify({
+          error: "Missing submission token. Refresh and try again.",
+        }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
     }
 
-    const normalizedMessage =
-      submissionType === "quote" && machineInterest
-        ? `Machine of interest: ${machineInterest}\n\n${message}`
-        : message;
+    const normalizedMessage = submissionType === "quote" && machineInterest
+      ? `Machine of interest: ${machineInterest}\n\n${message}`
+      : message;
+
+    const abuseControlSalt = getAbuseControlSalt();
+    const abuseSupabase =
+      supabase as unknown as PublicIntakeAbuseSupabaseClient;
+    const keyHashes = await buildPublicIntakeKeyHashes({
+      salt: abuseControlSalt,
+      ip: getPublicIntakeClientIp(req),
+      email,
+      sourcePage,
+    });
+    const submissionLimitResult = await checkPublicIntakeRateLimits({
+      supabase: abuseSupabase,
+      keyHashes,
+      rules: PUBLIC_INTAKE_SUBMISSION_LIMITS,
+    });
+
+    if (!submissionLimitResult.allowed) {
+      console.warn(
+        "Public lead intake throttled.",
+        submissionLimitResult.reason,
+      );
+      return new Response(
+        JSON.stringify({
+          error: "Too many submissions. Please wait and try again.",
+        }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const metadata = await verifyLeadMetadata(normalizedMetadata);
+
+    const serverDedupeWindowStartedAt = getPublicIntakeWindowStart(
+      new Date(),
+      PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
+    );
+    const serverDedupeKey = await buildPublicIntakeDedupeKey({
+      salt: abuseControlSalt,
+      submissionType,
+      email,
+      sourcePage,
+      message: normalizedMessage,
+      windowStartedAt: serverDedupeWindowStartedAt,
+    });
 
     const selectedColumns =
       "id, submission_type, name, email, source_page, message, metadata, created_at, internal_notification_sent_at";
@@ -338,6 +507,9 @@ serve(async (req) => {
         metadata,
         source_page: sourcePage,
         client_submission_id: clientSubmissionId,
+        server_dedupe_key: serverDedupeKey,
+        server_dedupe_window_started_at: serverDedupeWindowStartedAt
+          .toISOString(),
       })
       .select(selectedColumns)
       .single();
@@ -346,25 +518,40 @@ serve(async (req) => {
 
     if (insertError) {
       if (insertError.code !== "23505") {
-        throw new Error(insertError.message || "Unable to submit contact request.");
+        throw new Error(
+          insertError.message || "Unable to submit contact request.",
+        );
       }
 
-      const { data: existingLead, error: existingLeadError } = await supabase
-        .from("lead_submissions")
-        .select(selectedColumns)
-        .eq("client_submission_id", clientSubmissionId)
-        .maybeSingle();
+      const { data: clientTokenLead, error: clientTokenLeadError } =
+        await supabase
+          .from("lead_submissions")
+          .select(selectedColumns)
+          .eq("client_submission_id", clientSubmissionId)
+          .maybeSingle();
 
-      if (existingLeadError || !existingLead) {
+      if (clientTokenLeadError) {
         throw new Error("Unable to submit contact request.");
       }
 
-      leadSubmission = existingLead;
+      const { data: dedupedLead, error: dedupedLeadError } = clientTokenLead
+        ? { data: null, error: null }
+        : await supabase
+          .from("lead_submissions")
+          .select(selectedColumns)
+          .eq("server_dedupe_key", serverDedupeKey)
+          .maybeSingle();
+
+      if (dedupedLeadError || (!clientTokenLead && !dedupedLead)) {
+        throw new Error("Unable to submit contact request.");
+      }
+
+      leadSubmission = clientTokenLead || dedupedLead;
     }
 
     if (
-      submissionType !== "quote" ||
       !leadSubmission ||
+      leadSubmission.submission_type !== "quote" ||
       leadSubmission.internal_notification_sent_at
     ) {
       return new Response(JSON.stringify({ ok: true }), {
@@ -372,10 +559,37 @@ serve(async (req) => {
       });
     }
 
-    const eventKey = `lead_quote:${leadSubmission.id}`;
-    const dispatchClaimed = await claimDispatch(eventKey, "lead_quote", leadSubmission.id);
+    const eventKey = `lead_submission:${leadSubmission.id}`;
+    const dispatchClaimed = await claimDispatch(
+      eventKey,
+      "lead_submission",
+      leadSubmission.id,
+    );
 
     if (!dispatchClaimed) {
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const notificationLimitResult = await checkPublicIntakeRateLimits({
+      supabase: abuseSupabase,
+      keyHashes,
+      rules: PUBLIC_INTAKE_NOTIFICATION_LIMITS,
+    });
+
+    if (!notificationLimitResult.allowed) {
+      console.warn(
+        "Public lead intake notification suppressed.",
+        notificationLimitResult.reason,
+      );
+      await markDispatchSkipped(eventKey, {
+        submission_type: leadSubmission.submission_type,
+        source_page: leadSubmission.source_page,
+        skipped_reason: "public_intake_notification_quota",
+        quota_scope: notificationLimitResult.reason?.eventScope,
+        quota_key_type: notificationLimitResult.reason?.keyType,
+      });
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -436,20 +650,24 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("lead-submission-intake error", error);
     if (error instanceof RequestValidationError) {
+      console.error("lead-submission-intake validation error", error.message);
       return new Response(JSON.stringify({ error: error.message }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    console.error(
+      "lead-submission-intake error",
+      error instanceof Error ? error.message : "Unknown intake error.",
+    );
     return new Response(
       JSON.stringify({ error: "Unable to submit contact request." }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 });

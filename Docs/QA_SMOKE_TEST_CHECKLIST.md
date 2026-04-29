@@ -85,6 +85,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
 - [ ] Quote submissions send internal notification email with full request summary (name/email/source/type/message)
 - [ ] Quote submissions send a WeCom internal alert to configured `WECOM_ALERT_TO_USERIDS` recipients
+- [ ] Public intake anti-abuse: repeated direct POSTs with the same IP/email are throttled, repeated identical payloads dedupe server-side, and quote notifications stop after the configured quota while normal Contact and procurement requests still return success
 - [ ] `/machines/mini` SEO/meta copy no longer references waitlist or upcoming launch language
 
 ## Auth / portal

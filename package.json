@@ -8,6 +8,7 @@
     "build": "vite build && node scripts/prerender-public-routes.mjs",
     "build:dev": "vite build --mode development && node scripts/prerender-public-routes.mjs",
     "seo:check": "node scripts/seo-regression-check.mjs",
+    "security:validate-public-intake": "node scripts/validate-public-intake-anti-abuse.mjs",
     "auth:preflight": "node scripts/auth-preflight.mjs",
     "commerce:preflight": "node scripts/commerce-preflight.mjs",
     "edge-url-allowlists:check": "node scripts/validate-edge-url-allowlists.mjs",
