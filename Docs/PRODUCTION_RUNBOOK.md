@@ -144,6 +144,8 @@ Refund source note:
 ### Step C: Deploy Supabase Edge Functions
 Deploy all current checkout, submission, and reporting functions:
 
+Before deploying reporting functions, confirm Step A has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
+
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt
 supabase functions deploy stripe-sticks-checkout --no-verify-jwt
