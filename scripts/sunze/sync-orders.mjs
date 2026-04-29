@@ -841,9 +841,26 @@ const markNewestCompletedExportTask = async (page, requestedAtMs) =>
         .querySelectorAll('[data-bloomjoy-download-candidate]')
         .forEach((element) => element.removeAttribute('data-bloomjoy-download-candidate'));
 
-      const clickableElements = Array.from(
-        document.querySelectorAll('button, a, [role="button"], .ant-btn, div')
-      ).filter((element) => (element.textContent || '').trim() === 'Download');
+      const findClickableDownloadElement = (element) => {
+        if (!(element instanceof HTMLElement)) return null;
+        const clickable =
+          element.closest(
+            'button, a, [role="button"], .ant-btn, .nut-button, [class*="button"], [class*="Button"]'
+          ) || element;
+        return clickable instanceof HTMLElement ? clickable : null;
+      };
+      const clickableElements = [
+        ...new Set(
+          Array.from(
+            document.querySelectorAll(
+              'button, a, [role="button"], .ant-btn, .nut-button, [class*="button"], [class*="Button"], span'
+            )
+          )
+            .filter((element) => (element.textContent || '').trim() === 'Download')
+            .map(findClickableDownloadElement)
+            .filter(Boolean)
+        ),
+      ];
       const candidates = [];
       const diagnostics = [];
 
@@ -891,6 +908,39 @@ const markNewestCompletedExportTask = async (page, requestedAtMs) =>
     }
   );
 
+const waitForDownloadFromAnyPage = (context, timeoutMs) =>
+  new Promise((resolve, reject) => {
+    const pageListeners = new Map();
+    let timer = null;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      context.off('page', watchPage);
+      for (const [watchedPage, listener] of pageListeners.entries()) {
+        watchedPage.off('download', listener);
+      }
+    };
+
+    const settle = (callback, value) => {
+      cleanup();
+      callback(value);
+    };
+
+    function watchPage(watchedPage) {
+      if (!watchedPage || pageListeners.has(watchedPage)) return;
+      const listener = (download) => settle(resolve, download);
+      pageListeners.set(watchedPage, listener);
+      watchedPage.on('download', listener);
+    }
+
+    context.pages().forEach(watchPage);
+    context.on('page', watchPage);
+    timer = setTimeout(
+      () => settle(reject, new Error(`Provider export task download did not start within ${timeoutMs}ms.`)),
+      timeoutMs
+    );
+  });
+
 const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs) => {
   const taskListUrl = `${baseUrl}#/taskExportList`;
   const deadline = Date.now() + exportTaskTimeoutMs;
@@ -906,7 +956,8 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs) => {
     lastTaskDiagnostic = task;
 
     if (task.matched) {
-      const downloadPromise = page.waitForEvent('download', { timeout: exportDownloadTimeoutMs });
+      console.warn(`Matched provider export task for download: ${task.taskText || 'sanitized task unavailable'}.`);
+      const downloadPromise = waitForDownloadFromAnyPage(page.context(), exportDownloadTimeoutMs);
       await page.locator('[data-bloomjoy-download-candidate="true"]').first().click();
       return {
         download: await downloadPromise,
