@@ -9,11 +9,10 @@ import {
   FileText,
   Info,
   Loader2,
-  RefreshCw,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -646,7 +645,6 @@ export default function ReportsPage() {
 
 function OperatorReportingView({ accessContext }: { accessContext: ReportingAccessContext }) {
   const { t } = useLanguage();
-  const queryClient = useQueryClient();
   const operatorChartConfig = useMemo(
     () =>
       ({
@@ -733,14 +731,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
     setGrain(nextRange.grain);
   };
 
-  const refreshReport = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['sales-report'] }),
-      queryClient.invalidateQueries({ queryKey: ['reporting-dimensions'] }),
-      queryClient.invalidateQueries({ queryKey: ['reporting-access-context'] }),
-    ]);
-  };
-
   const exportPdf = async () => {
     setIsExporting(true);
     try {
@@ -781,14 +771,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button variant="outline" onClick={refreshReport} disabled={isFetching}>
-                {isFetching ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                {t('reports.refresh')}
-              </Button>
               <Button onClick={exportPdf} disabled={isExporting || reportRows.length === 0}>
                 {isExporting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
