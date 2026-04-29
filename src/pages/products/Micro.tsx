@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
+import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import microMain from '@/assets/real/micro-main.webp';
 import microGallery1 from '@/assets/real/micro-gallery-1.webp';
@@ -89,7 +90,7 @@ export default function MicroPage() {
                 </Button>
                 <Button asChild variant="hero-outline" size="lg" className="w-full">
                   <Link to="/supplies">
-                    Reorder Sugar
+                    Shop Supplies
                   </Link>
                 </Button>
               </div>
@@ -101,6 +102,14 @@ export default function MicroPage() {
                     <p className="font-semibold text-foreground">Starting small?</p>
                     <Link
                       to="/resources/business-playbook/commercial-vending-vs-event-catering"
+                      onClick={() =>
+                        trackBuyerFlowPlaybookLinkClick({
+                          surface: 'micro_machine_page',
+                          cta: 'compare_vending_events_micro_fit',
+                          href: '/resources/business-playbook/commercial-vending-vs-event-catering',
+                          machine: MACHINE_NAMES.micro,
+                        })
+                      }
                       className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
                     >
                       Compare vending, events, and Micro fit

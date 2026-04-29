@@ -4,6 +4,7 @@ import { ArrowRight } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { trackEvent } from '@/lib/analytics';
+import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { machineBuyerFaqs } from '@/lib/seoRoutes';
 import commercialMain from '@/assets/real/commercial-main.jpg';
@@ -100,6 +101,14 @@ export default function ProductsPage() {
             </div>
             <Link
               to="/resources/business-playbook/commercial-vending-vs-event-catering"
+              onClick={() =>
+                trackBuyerFlowPlaybookLinkClick({
+                  surface: 'machine_listing',
+                  cta: 'compare_vending_and_events',
+                  href: '/resources/business-playbook/commercial-vending-vs-event-catering',
+                  machine: 'all',
+                })
+              }
               className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
             >
               Compare vending and events

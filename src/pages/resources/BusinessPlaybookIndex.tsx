@@ -3,6 +3,10 @@ import { ArrowRight, BookOpen, ClipboardCheck, MapPinned, Sparkles } from "lucid
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/Layout";
 import {
+  trackBusinessPlaybookCtaClick,
+  trackResourcesPlaybookCardClick,
+} from "@/lib/businessPlaybookAnalytics";
+import {
   businessPlaybookArticles,
   featuredBusinessPlaybookArticles,
   getPlaybookCategory,
@@ -37,13 +41,33 @@ export default function BusinessPlaybookIndexPage() {
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Button asChild size="lg">
-                  <Link to="/resources/business-playbook/how-to-start-cotton-candy-vending-business">
+                  <Link
+                    to="/resources/business-playbook/how-to-start-cotton-candy-vending-business"
+                    onClick={() =>
+                      trackBusinessPlaybookCtaClick({
+                        surface: "playbook_index_hero",
+                        cta: "start_with_launch_guide",
+                        href: "/resources/business-playbook/how-to-start-cotton-candy-vending-business",
+                      })
+                    }
+                  >
                     Start with the launch guide
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="lg">
-                  <Link to="/machines">Compare machines</Link>
+                  <Link
+                    to="/machines"
+                    onClick={() =>
+                      trackBusinessPlaybookCtaClick({
+                        surface: "playbook_index_hero",
+                        cta: "compare_machines",
+                        href: "/machines",
+                      })
+                    }
+                  >
+                    Compare machines
+                  </Link>
                 </Button>
               </div>
             </div>
@@ -54,6 +78,15 @@ export default function BusinessPlaybookIndexPage() {
                   <Link
                     key={article.slug}
                     to={`/resources/business-playbook/${article.slug}`}
+                    onClick={() =>
+                      trackResourcesPlaybookCardClick({
+                        surface: "playbook_index_featured",
+                        cta: article.shortTitle,
+                        href: `/resources/business-playbook/${article.slug}`,
+                        slug: article.slug,
+                        category: article.category,
+                      })
+                    }
                     className={
                       index === 0
                         ? "group col-span-2 grid min-h-[16rem] overflow-hidden sm:grid-cols-[1fr_0.9fr]"
@@ -99,6 +132,14 @@ export default function BusinessPlaybookIndexPage() {
                 <a
                   key={category.id}
                   href={`#${category.id}`}
+                  onClick={() =>
+                    trackResourcesPlaybookCardClick({
+                      surface: "playbook_index_category",
+                      cta: category.title,
+                      href: `/resources/business-playbook#${category.id}`,
+                      category: category.id,
+                    })
+                  }
                   className="rounded-lg border border-border bg-muted/10 p-4 transition-colors hover:border-primary/60"
                 >
                   <div
@@ -155,6 +196,15 @@ export default function BusinessPlaybookIndexPage() {
                         <Link
                           key={article.slug}
                           to={`/resources/business-playbook/${article.slug}`}
+                          onClick={() =>
+                            trackResourcesPlaybookCardClick({
+                              surface: "playbook_index_article_list",
+                              cta: article.title,
+                              href: `/resources/business-playbook/${article.slug}`,
+                              slug: article.slug,
+                              category: article.category,
+                            })
+                          }
                           className="group overflow-hidden rounded-xl border border-border bg-background transition-[box-shadow,transform,border-color] duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-elevated"
                         >
                           <div className="aspect-[16/10] overflow-hidden bg-muted">
