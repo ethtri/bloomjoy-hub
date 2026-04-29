@@ -154,16 +154,16 @@ const sbaLicensesPermits: PlaybookCitation = {
   url: "https://www.sba.gov/business-guide/launch-your-business/apply-licenses-and-permits",
 };
 
+const sbaStartupCosts: PlaybookCitation = {
+  label: "Calculate your startup costs",
+  source: "U.S. Small Business Administration",
+  url: "https://www.sba.gov/business-guide/plan-your-business/calculate-your-startup-costs",
+};
+
 const irsEin: PlaybookCitation = {
   label: "Employer Identification Number guidance",
   source: "Internal Revenue Service",
   url: "https://www.irs.gov/businesses/employer-identification-number",
-};
-
-const googleHelpfulContent: PlaybookCitation = {
-  label: "Creating helpful, reliable, people-first content",
-  source: "Google Search Central",
-  url: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content",
 };
 
 export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
@@ -371,7 +371,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         ],
       },
     ],
-    citations: [sbaStartup, sbaStructure, sbaLicensesPermits, irsEin, googleHelpfulContent],
+    citations: [sbaStartup, sbaStructure, sbaLicensesPermits, sbaStartupCosts, irsEin],
     relatedSlugs: [
       "startup-budget-checklist-cotton-candy-machine-business",
       "best-locations-for-cotton-candy-vending-machines",
@@ -748,6 +748,10 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
             ],
           ],
         },
+        callout: {
+          title: "Filled example: 90-minute birthday pop-up",
+          body: "Example only: 25 invited kids, plan for 35-45 servings after siblings and parents, one staffed Mini setup, 90 minutes of service, 30-45 minutes for arrival/setup, local travel radius, one power outlet, simple color menu, deposit before the date, and a weather or indoor-backup policy. Use Micro only if basic shapes and lower volume are acceptable.",
+        },
       },
       {
         heading: "Plan serving counts like an operator",
@@ -902,26 +906,40 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         heading: "The machine price is not the full launch price",
         body: [
           "The fastest way to under-budget is to stop at the machine number. A realistic budget includes everything required to open, operate, restock, and stay compliant.",
-          "Your exact numbers depend on machine model, shipping, location, venue terms, supplies, local requirements, and whether you are fixed-location or event-based.",
-          "Think about the first 90 days, not just purchase day. You may need opening supplies, a second supply order, travel, storage, signage, payment setup, venue paperwork, insurance documentation, and a reserve for normal early surprises.",
+          "Your exact numbers depend on machine model, quote terms, shipping, tariffs or import duties if they are not included, location, venue terms, accessories, supplies, local requirements, and whether you are fixed-location or event-based.",
+          "Think about the first 90 days, not just purchase day. You may need opening sugar and sticks, a second supply order, card-reader or payment hardware, travel, storage, signage, venue paperwork, insurance documentation, and a reserve for normal early surprises.",
         ],
+        callout: {
+          title: "Field note: site walks change budgets",
+          body: "A location can look perfect in photos and still change the budget once you walk it. A tight delivery path, limited power access, after-hours restock rules, import or delivery terms, or a venue request for extra insurance paperwork can all add real work. That is why a good budget has an 'unknowns' line before launch, not after the first surprise.",
+        },
         table: {
           caption: "Use this as a planning worksheet, then replace estimates with real quotes.",
           columns: ["Category", "What to include", "Planning note"],
           rows: [
             [
               "Machine",
-              "Machine price, add-ons, wrap choices, payment hardware if applicable",
+              "Machine price, configuration, add-ons, wrap choices",
               "Quote-led so final configuration is confirmed before invoicing",
             ],
             [
-              "Freight and setup",
-              "Shipping, delivery access, liftgate or install assumptions",
-              "Ask early if the venue has access constraints",
+              "Freight, duties, and import fees",
+              "Shipping from China if applicable, tariffs, customs duties, brokerage, landed-cost terms",
+              "Ask whether these are included in the quote or paid separately",
+            ],
+            [
+              "Accessories and payment hardware",
+              "Card readers, mounts, signage, extension cords, bins, cases, event table gear",
+              "Small items can add up fast if you buy them after launch",
+            ],
+            [
+              "Delivery and setup",
+              "Local delivery access, liftgate, transport, install assumptions, site prep",
+              "Ask early if the venue has access or power constraints",
             ],
             [
               "Opening supplies",
-              "Sugar, paper sticks, cleaning basics, backup consumables",
+              "Sugar, paper sticks, bags or cones if used, cleaning basics, backup consumables",
               "Order enough for launch plus buffer",
             ],
             [
@@ -1065,7 +1083,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         },
       },
     ],
-    citations: [sbaStartup, sbaStructure, sbaLicensesPermits],
+    citations: [sbaStartup, sbaStructure, sbaLicensesPermits, sbaStartupCosts],
     relatedSlugs: [
       "how-to-start-cotton-candy-vending-business",
       "business-setup-basics-llc-ein-insurance-permits",
@@ -1229,6 +1247,49 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
             [
               "How do we make money?",
               "Revenue share, rent, or amenity logic stated simply",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Put the pilot terms on one page",
+        body: [
+          "A pilot should feel simple, but it should not be vague. The owner needs to know what you are testing, what you need from the venue, and how both sides can decide whether the placement deserves to continue.",
+          "Use this as a starter term sheet for the conversation. It is not a legal template; it is a plain-language checklist for the business points that should not live only in someone's memory.",
+        ],
+        table: {
+          caption: "Starter pilot term sheet to adapt before a site walk.",
+          columns: ["Term", "Example language", "Why it matters"],
+          rows: [
+            [
+              "Pilot length",
+              "Run a 30- or 60-day test with a review date on the calendar",
+              "Prevents the placement from drifting without a decision",
+            ],
+            [
+              "Placement and access",
+              "Agree on exact location, power outlet, service access, and after-hours rules",
+              "Avoids surprises once the machine is live",
+            ],
+            [
+              "Service owner",
+              "Operator handles refill, cleaning, support path, and routine owner updates",
+              "Shows the venue this will not become a staff chore",
+            ],
+            [
+              "Commercial model",
+              "State whether the pilot uses rent, revenue share, or amenity logic",
+              "Keeps money expectations clear before launch",
+            ],
+            [
+              "Reporting cadence",
+              "Send a short weekly note with guest response, service notes, and next adjustment",
+              "Turns the pilot into a managed experiment",
+            ],
+            [
+              "Success metric and exit",
+              "Define what would make both sides continue, adjust, or remove the machine",
+              "Makes a no or a yes easier to handle professionally",
             ],
           ],
         },

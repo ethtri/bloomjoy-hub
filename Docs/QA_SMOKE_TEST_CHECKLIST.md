@@ -67,6 +67,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Plus page shows the Business Playbook worksheet/tool preview library and keeps actual downloads positioned as Plus/operator assets rather than public static files
 - [ ] Resources page leads with the Bloomjoy Business Playbook, shows visual article cards, and still exposes FAQ and Support Boundaries anchors
 - [ ] `/resources/business-playbook` direct-loads and shows category navigation plus all public playbook guides
+- [ ] `/resources/business-playbook/planner` direct-loads and shows the Machine Fit + Startup Budget Planner with no login, no data collection, and no ROI/profit claims
+- [ ] Business Playbook planner interaction updates the recommended Commercial/Mini/Micro fit, budget scenario, planning total, related guide link, and quote CTA on desktop and mobile without horizontal overflow
 - [ ] Business Playbook article routes direct-load, show a real Bloomjoy image, useful visual blocks (tables/checklists/scorecards/scripts), source links, related articles, and quote/machine CTAs
 - [ ] Business Playbook article routes are readable on mobile widths (`360x800`, `390x844`, `414x896`) with no clipped tables or horizontal page overflow
 - [ ] Commercial, Mini, Micro, Machines listing, Plus, and Contact success states link to relevant Business Playbook guides

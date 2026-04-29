@@ -131,6 +131,18 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     lastmod: LASTMOD,
     structuredDataKind: "business-playbook-index",
   },
+  {
+    path: "/resources/business-playbook/planner",
+    title: "Machine Fit and Startup Budget Planner | Bloomjoy Business Playbook",
+    description:
+      "Use Bloomjoy's interactive cotton candy machine fit and startup budget planner to compare Commercial, Mini, and Micro paths before a quote call.",
+    robots: PUBLIC_ROBOTS,
+    surface: "marketing",
+    ogType: "website",
+    ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
+    ogImageAlt: "Bloomjoy Business Playbook machine fit and startup budget planner",
+    lastmod: LASTMOD,
+  },
   ...businessPlaybookArticles.map(
     (article): RouteSeo => ({
       path: `/resources/business-playbook/${article.slug}`,

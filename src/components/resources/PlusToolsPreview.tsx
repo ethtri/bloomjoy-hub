@@ -109,6 +109,14 @@ export function PlusToolsPreview({
                     </li>
                   ))}
                 </ul>
+                <div className="mt-3 rounded-md border border-border bg-background/70 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">
+                    Sample
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    {tool.samplePreview}
+                  </p>
+                </div>
               </div>
 
               <p className="mt-4 text-xs leading-relaxed text-muted-foreground">

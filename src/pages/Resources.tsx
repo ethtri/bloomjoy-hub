@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import {
   ArrowRight,
   BookOpen,
+  Calculator,
   ClipboardCheck,
   MapPinned,
   Sparkles,
@@ -97,7 +98,18 @@ export default function ResourcesPage() {
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="lg">
-                  <Link to="#faq">Read FAQs</Link>
+                  <Link
+                    to="/resources/business-playbook/planner"
+                    onClick={() =>
+                      trackResourcesPlaybookCardClick({
+                        surface: "resources_planner_promo",
+                        cta: "try_startup_planner",
+                        href: "/resources/business-playbook/planner",
+                      })
+                    }
+                  >
+                    Try startup planner
+                  </Link>
                 </Button>
               </div>
             </div>
@@ -201,6 +213,38 @@ export default function ResourcesPage() {
                 </Link>
               );
             })}
+          </div>
+
+          <div className="mt-8 rounded-xl border border-primary/20 bg-primary/5 p-5">
+            <div className="grid gap-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-background text-primary shadow-sm">
+                <Calculator className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="font-display text-xl font-bold text-foreground">
+                  Not sure where to start?
+                </h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Use the Machine Fit + Startup Budget Planner to compare paths and collect the
+                  questions worth clarifying before you spend.
+                </p>
+              </div>
+              <Button asChild variant="outline">
+                <Link
+                  to="/resources/business-playbook/planner"
+                  onClick={() =>
+                    trackResourcesPlaybookCardClick({
+                      surface: "resources_planner_promo",
+                      cta: "open_planner_band",
+                      href: "/resources/business-playbook/planner",
+                    })
+                  }
+                >
+                  Open planner
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-5">
