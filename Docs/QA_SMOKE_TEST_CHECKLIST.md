@@ -121,20 +121,20 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
 - [ ] Non-Plus login still sees Plus/training gated destinations in portal navigation and dashboard action cards with clear locked/access-tier treatment; Reporting stays hidden unless reporting access is granted
-- [ ] Active Plus member or super-admin can add multiple operator emails from Settings (`/portal/account`) under Operator Training Access
-- [ ] Adding operator training access sends the operator an invite email with a login link
-- [ ] Operator Training Access shows a simple list of people with training access and a clear setup message when the database rollout is missing
-- [ ] Operator Training Access is treated as transitional UX; new training-only access should be represented as a Technician with no assigned machines in a future Settings IA follow-up
+- [ ] Active Plus member sees Technician Access as the customer team-management surface in Settings (`/portal/account`) with no separate Operator Training Access panel
+- [ ] Adding training-only Technician access sends the Technician an invite email with a login link
+- [ ] Technician Access shows active, pending, and legacy training-only people in one list with a clear setup message when the database rollout is missing
+- [ ] Training-only access is represented as a Technician with no assigned machines
 - [ ] Technician with no assigned machines can access `/portal` and `/portal/training*`
 - [ ] Technician with no assigned machines cannot access `/portal/reports`, Plus/Corporate Partner supply discounts, billing, account-owner tools, partner settlement, or `/admin`
-- [ ] Revoking operator training access removes `/portal/training*` access on the next session refresh/re-login
+- [ ] Revoking Technician access removes `/portal/training*` access on the next session refresh/re-login when no other training source remains
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
 - [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
 - [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
 - [ ] Plus Account Owner sees Technician Access in Settings (`/portal/account`) with seat usage, owned machines, and current Technician grants
-- [ ] Plus Account Owner can add a Technician with one or more owned machines, then edit that Technician's machine assignments
+- [ ] Plus Account Owner can add a Technician with either training-only access or exactly one owned machine, then edit that Technician's machine assignment
 - [ ] Pending Technician invite resolves on first login so the Technician gets training plus assigned-machine reporting without admin repair
 - [ ] Authenticated `/portal` and `/admin` route loads do not show `404` or `PGRST202` for `resolve_my_technician_entitlements` in the browser network log or console
 - [ ] Plus Account Owner can save a Technician with no machines as training-only access
