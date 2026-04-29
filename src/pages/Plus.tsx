@@ -177,7 +177,7 @@ export default function PlusPage() {
           <PlusToolsPreview
             surface="plus_page"
             introLabel="Operator tool library"
-            heading="Plus-ready worksheets for the operator layer"
+            heading="Working sheets for the operator side"
             description="Plus is where the public Playbook turns into member-access operating tools: budget worksheets, pitch scripts, launch checklists, daily job aids, venue scorecards, connected reporting where enabled, and training references."
             showCtas={false}
           />

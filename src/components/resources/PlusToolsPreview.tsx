@@ -47,8 +47,8 @@ const extraIcons: Record<PlusOperatorExtra["icon"], typeof ClipboardCheck> = {
 export function PlusToolsPreview({
   surface,
   introLabel = "Bloomjoy Plus Preview",
-  heading = "Plus-ready worksheet previews for serious operators",
-  description = "Public playbooks help you plan. Plus adds the operator layer: worksheet previews, daily job aids, maintenance references, connected reporting where enabled, and the Operator Essentials path.",
+  heading = "Tools we would hand to an operator before launch",
+  description = "Public playbooks help you think it through. Plus adds the working sheets: budget rows, pitch language, daily checks, maintenance references, connected reporting where enabled, and the Operator Essentials path.",
   showCtas = true,
   operatorLoginUrl,
 }: PlusToolsPreviewProps) {
@@ -109,6 +109,14 @@ export function PlusToolsPreview({
                     </li>
                   ))}
                 </ul>
+                <div className="mt-3 rounded-md border border-border bg-background/70 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">
+                    Sample
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    {tool.samplePreview}
+                  </p>
+                </div>
               </div>
 
               <p className="mt-4 text-xs leading-relaxed text-muted-foreground">

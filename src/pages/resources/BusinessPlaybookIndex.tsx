@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, BookOpen, ClipboardCheck, MapPinned, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, Calculator, ClipboardCheck, MapPinned, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/Layout";
 import {
@@ -32,12 +32,12 @@ export default function BusinessPlaybookIndexPage() {
                 Bloomjoy Business Playbook
               </p>
               <h1 className="mt-4 max-w-3xl font-display text-4xl font-bold leading-tight text-foreground sm:text-5xl">
-                Practical startup guides for cotton candy operators
+                Real startup notes for cotton candy operators
               </h1>
               <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-                Useful, visual, operator-minded articles for planning a vending placement,
-                pitching locations, budgeting launch costs, and deciding whether commercial
-                vending or event service is the better path.
+                Start with the questions operators actually run into: where the machine goes,
+                who checks it, what the first supply order costs, and whether you are building
+                a location business or an event business.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Button asChild size="lg">
@@ -57,16 +57,16 @@ export default function BusinessPlaybookIndexPage() {
                 </Button>
                 <Button asChild variant="outline" size="lg">
                   <Link
-                    to="/machines"
+                    to="/resources/business-playbook/planner"
                     onClick={() =>
                       trackBusinessPlaybookCtaClick({
                         surface: "playbook_index_hero",
-                        cta: "compare_machines",
-                        href: "/machines",
+                        cta: "try_startup_planner",
+                        href: "/resources/business-playbook/planner",
                       })
                     }
                   >
-                    Compare machines
+                    Try startup planner
                   </Link>
                 </Button>
               </div>
@@ -118,6 +118,45 @@ export default function BusinessPlaybookIndexPage() {
                   </Link>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-border bg-muted/20 py-8">
+        <div className="container-page">
+          <div className="rounded-xl border border-primary/20 bg-background p-5 shadow-sm">
+            <div className="grid gap-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Calculator className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">
+                  Interactive tool
+                </p>
+                <h2 className="mt-1 font-display text-xl font-bold text-foreground">
+                  Machine Fit + Startup Budget Planner
+                </h2>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Compare Commercial, Mini, and Micro fit, then sketch a cost-only launch budget
+                  focused on numbers you can verify.
+                </p>
+              </div>
+              <Button asChild>
+                <Link
+                  to="/resources/business-playbook/planner"
+                  onClick={() =>
+                    trackBusinessPlaybookCtaClick({
+                      surface: "playbook_index_planner_promo",
+                      cta: "open_planner_band",
+                      href: "/resources/business-playbook/planner",
+                    })
+                  }
+                >
+                  Open planner
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
             </div>
           </div>
         </div>

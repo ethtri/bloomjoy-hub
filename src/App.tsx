@@ -32,6 +32,9 @@ const Resources = lazyRoute(() => import("./pages/Resources"));
 const BusinessPlaybookIndex = lazyRoute(
   () => import("./pages/resources/BusinessPlaybookIndex")
 );
+const BusinessPlaybookPlanner = lazyRoute(
+  () => import("./pages/resources/BusinessPlaybookPlanner")
+);
 const BusinessPlaybookArticle = lazyRoute(
   () => import("./pages/resources/BusinessPlaybookArticle")
 );
@@ -139,6 +142,7 @@ export const AppShell = () => (
           <Route path="/about" element={<About />} />
           <Route path="/resources" element={<Resources />} />
           <Route path="/resources/business-playbook" element={<BusinessPlaybookIndex />} />
+          <Route path="/resources/business-playbook/planner" element={<BusinessPlaybookPlanner />} />
           <Route
             path="/resources/business-playbook/:slug"
             element={<BusinessPlaybookArticle />}
