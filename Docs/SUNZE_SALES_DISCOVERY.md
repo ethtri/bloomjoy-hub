@@ -73,6 +73,7 @@ No credentials, raw workbook files, order numbers, row-level customer/order valu
   - `Custom Range`
 - `Last 7 Days` is the daily catch-up preset so each run has rolling overlap for missed or late rows. `Last Month` remains the monthly safety-sweep preset.
 - `Custom Range` is approved for historical backfills only through the new Export Task flow, and should be run in monthly chunks with parsed dates verified before ingesting.
+- If Sunze's custom date selector is unavailable, manually downloaded Export Task `.zip`/`.xlsx` files may be backfilled with `--parse-file` plus explicit monthly `--date-start` / `--date-end`; the same workbook header and row-date validation still applies before ingest.
 - The page displays filtered totals:
   - `Revenue`
   - `Volume`

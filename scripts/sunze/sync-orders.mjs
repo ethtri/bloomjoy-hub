@@ -149,6 +149,14 @@ const addDays = (dateKey, days) => {
   return date.toISOString().slice(0, 10);
 };
 
+const daysBetweenInclusive = (startDateKey, endDateKey) => {
+  const [startYear, startMonth, startDay] = startDateKey.split('-').map(Number);
+  const [endYear, endMonth, endDay] = endDateKey.split('-').map(Number);
+  const startDate = Date.UTC(startYear, startMonth - 1, startDay);
+  const endDate = Date.UTC(endYear, endMonth - 1, endDay);
+  return Math.floor((endDate - startDate) / 86400000) + 1;
+};
+
 const customDateStart = dateStartArg ? normalizeDate(dateStartArg) : null;
 const customDateEnd = dateEndArg ? normalizeDate(dateEndArg) : null;
 const hasCustomDateRange = Boolean(customDateStart || customDateEnd);
@@ -167,6 +175,12 @@ if (Boolean(customDateStart) !== Boolean(customDateEnd)) {
 
 if (customDateStart && customDateEnd && customDateStart > customDateEnd) {
   throw new Error(`Provider custom date start must be before or equal to date end: ${customDateStart} > ${customDateEnd}.`);
+}
+
+if (customDateStart && customDateEnd && daysBetweenInclusive(customDateStart, customDateEnd) > 31) {
+  throw new Error(
+    `Provider custom date exports must be requested in monthly chunks of 31 days or less: ${customDateStart} to ${customDateEnd}.`
+  );
 }
 
 if (!hasCustomDateRange && !supportedDatePresets.has(datePreset)) {
@@ -319,6 +333,9 @@ const collectVisibleTexts = async (page) =>
       '.ant-select-selection-placeholder',
       '.ant-statistic',
       '.ant-pagination-total-text',
+      '.custom-date-trigger',
+      '.van-picker',
+      '.van-calendar',
     ];
     return Array.from(document.querySelectorAll(selectors.join(',')))
       .flatMap((element) => {
@@ -710,9 +727,16 @@ const clickVisibleTextIfPresent = async (page, textPattern, timeout = 2000) => {
 };
 
 const clickDateFilter = async (page) => {
-  await page.getByText('Today').first().click().catch(async () => {
-    await clickFirstVisibleText(page, /Today|Yesterday|Last \d+ Days|Last Month|Custom Range/i);
-  });
+  const activeDateChip = page.locator('.filter-chip.active').first();
+
+  if ((await activeDateChip.count()) > 0 && (await activeDateChip.isVisible().catch(() => false))) {
+    await activeDateChip.click();
+  } else {
+    await page.getByText('Today').first().click().catch(async () => {
+      await clickFirstVisibleText(page, /Today|Yesterday|Last \d+ Days|Last Month|Custom Range/i);
+    });
+  }
+
   await page.waitForTimeout(500);
 };
 
@@ -812,7 +836,221 @@ const fillVisibleDateInputs = async (page, startDate, endDate) => {
   return false;
 };
 
+const isVantCalendarVisible = async (page) =>
+  page
+    .locator('.van-calendar:visible')
+    .first()
+    .waitFor({ state: 'visible', timeout: 1000 })
+    .then(() => true)
+    .catch(() => false);
+
+const openCustomRangeCalendar = async (page) => {
+  await clickDateFilter(page);
+
+  const customTrigger = page.locator('.custom-date-trigger:visible').first();
+  let openedCustomFlow = false;
+
+  if ((await customTrigger.count()) > 0 && (await customTrigger.isVisible().catch(() => false))) {
+    await customTrigger.click();
+    openedCustomFlow = true;
+  } else {
+    openedCustomFlow =
+      (await clickVisibleTextIfPresent(page, /Custom Date Range/i, 2000)) ||
+      (await clickVisibleTextIfPresent(page, /^Custom Range$/i, 2000)) ||
+      (await clickVisibleTextIfPresent(page, /^Custom$/i, 2000)) ||
+      (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i, 2000));
+  }
+
+  if (!openedCustomFlow) {
+    const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+    throw new Error(
+      diagnostic
+        ? `Unable to open provider custom date control. Visible controls: ${diagnostic}`
+        : 'Unable to open provider custom date control.'
+    );
+  }
+
+  await page.waitForTimeout(500);
+
+  if (!(await isVantCalendarVisible(page))) {
+    await page
+      .locator('.van-picker:visible')
+      .getByText(/Day|Daily|By Day/i)
+      .first()
+      .click({ timeout: 1000 })
+      .catch(() => {});
+    await clickOptionalDateConfirm(page);
+  }
+
+  await page.locator('.van-calendar:visible').first().waitFor({ state: 'visible', timeout: 10000 });
+};
+
+const clickVantCalendarDate = async (page, dateKey) => {
+  const result = await page.evaluate(async (targetDateKey) => {
+    const [year, month, day] = targetDateKey.split('-').map(Number);
+    const delay = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
+    const normalizeText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+    const isVisible = (element) => {
+      if (!(element instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    };
+    const calendar = Array.from(document.querySelectorAll('.van-calendar')).find(isVisible);
+
+    if (!calendar) {
+      return { ok: false, reason: 'calendar_not_visible' };
+    }
+
+    const body =
+      calendar.querySelector('.van-calendar__body') ||
+      calendar.querySelector('[class*="calendar__body"]') ||
+      calendar;
+    const paddedMonth = String(month).padStart(2, '0');
+    const targetMonthIndex = (year - 2022) * 12 + (month - 1);
+    const current = new Date();
+    const approximateMonthCount = Math.max(1, (current.getFullYear() - 2022) * 12 + current.getMonth() + 1);
+    const monthMatches = (text) => {
+      const normalized = normalizeText(text);
+      return (
+        new RegExp(`${year}\\D+0?${month}(?:\\D|$)`).test(normalized) ||
+        normalized.includes(`${year}/${paddedMonth}`) ||
+        normalized.includes(`${year}-${paddedMonth}`) ||
+        normalized.includes(`${year}.${paddedMonth}`)
+      );
+    };
+    const getMonths = () =>
+      Array.from(calendar.querySelectorAll('.van-calendar-month, [class*="calendar-month"]')).filter(
+        (element) =>
+          element instanceof HTMLElement &&
+          (element.matches('.van-calendar-month') ||
+            element.querySelector('[role="grid"], .van-calendar-day, [class*="calendar-day"]'))
+      );
+    const getMonthTitle = (monthElement) =>
+      normalizeText(
+        (
+          monthElement.querySelector(
+            '.van-calendar-month__month-title, [class*="calendar-month"][class*="month-title"], [class*="month-title"]'
+          ) || monthElement
+        ).textContent
+      );
+    const findMonth = () => getMonths().find((monthElement) => monthMatches(getMonthTitle(monthElement)));
+
+    let monthElement = findMonth();
+
+    if (!monthElement && body instanceof HTMLElement) {
+      const monthCount = Math.max(getMonths().length, approximateMonthCount);
+      const scrollIndexes = [
+        targetMonthIndex,
+        targetMonthIndex - 1,
+        targetMonthIndex + 1,
+        targetMonthIndex - 2,
+        targetMonthIndex + 2,
+      ].filter((index) => index >= 0 && index < monthCount);
+
+      for (const index of scrollIndexes) {
+        body.scrollTop = Math.max(0, Math.min(body.scrollHeight, (body.scrollHeight / monthCount) * index));
+        body.dispatchEvent(new Event('scroll', { bubbles: true }));
+        await delay(250);
+        monthElement = findMonth();
+        if (monthElement) break;
+      }
+    }
+
+    if (!monthElement) {
+      const visibleTitles = getMonths().map(getMonthTitle).filter(Boolean).slice(-12);
+      return {
+        ok: false,
+        reason: 'month_not_found',
+        target: `${year}/${paddedMonth}`,
+        visibleTitles,
+      };
+    }
+
+    monthElement.scrollIntoView({ block: 'center', inline: 'nearest' });
+    if (body instanceof HTMLElement) {
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }
+    await delay(250);
+
+    const dayElements = Array.from(
+      monthElement.querySelectorAll('[role="gridcell"], .van-calendar-day, [class*="calendar-day"]')
+    ).filter((element) => element instanceof HTMLElement && !/\bdisabled\b/i.test(element.className));
+    const dayElement = dayElements.find((element) => {
+      const text = normalizeText(element.textContent)
+        .replace(/\b(Start|End)\b/gi, ' ')
+        .trim();
+      const match = text.match(/\d{1,2}/);
+      return match && Number(match[0]) === day;
+    });
+
+    if (!dayElement) {
+      return {
+        ok: false,
+        reason: 'day_not_found',
+        target: `${year}/${paddedMonth}/${String(day).padStart(2, '0')}`,
+        monthTitle: getMonthTitle(monthElement),
+        dayTexts: dayElements.map((element) => normalizeText(element.textContent)).slice(0, 40),
+      };
+    }
+
+    dayElement.scrollIntoView({ block: 'center', inline: 'center' });
+    await delay(100);
+    dayElement.click();
+
+    return {
+      ok: true,
+      monthTitle: getMonthTitle(monthElement),
+      dayText: normalizeText(dayElement.textContent).slice(0, 60),
+    };
+  }, dateKey);
+
+  if (!result?.ok) {
+    throw new Error(
+      `Unable to select provider calendar date ${dateKey}: ${result?.reason || 'unknown'} ${JSON.stringify(result ?? {})}`
+    );
+  }
+
+  return result;
+};
+
+const waitForVantCalendarToClose = async (page) =>
+  page
+    .waitForFunction(
+      () =>
+        !Array.from(document.querySelectorAll('.van-calendar')).some((element) => {
+          if (!(element instanceof HTMLElement)) return false;
+          const style = window.getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        }),
+      null,
+      { timeout: 10000 }
+    )
+    .catch(() => {});
+
+const selectCustomDateRangeWithCalendar = async (page, startDate, endDate) => {
+  await openCustomRangeCalendar(page);
+  await clickVantCalendarDate(page, startDate);
+  await page.waitForTimeout(300);
+  await clickVantCalendarDate(page, endDate);
+  await waitForVantCalendarToClose(page);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+};
+
 const selectCustomDateRange = async (page, startDate, endDate) => {
+  let calendarError = null;
+
+  try {
+    await selectCustomDateRangeWithCalendar(page, startDate, endDate);
+    return;
+  } catch (error) {
+    calendarError = error;
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
+  }
+
   let openedCustomRange = false;
 
   await openMoreFilters(page).catch(() => {});
@@ -863,10 +1101,11 @@ const selectCustomDateRange = async (page, startDate, endDate) => {
 
   if (!filled) {
     const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+    const calendarMessage = calendarError instanceof Error ? calendarError.message : null;
     throw new Error(
       diagnostic
-        ? `Unable to fill provider custom date range. Visible date controls: ${diagnostic}`
-        : 'Unable to fill provider custom date range.'
+        ? `Unable to fill provider custom date range. Visible date controls: ${diagnostic}${calendarMessage ? ` Calendar error: ${calendarMessage}` : ''}`
+        : `Unable to fill provider custom date range.${calendarMessage ? ` Calendar error: ${calendarMessage}` : ''}`
     );
   }
 

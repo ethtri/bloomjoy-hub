@@ -209,6 +209,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Refund Adjustment Sync GitHub Action can be run manually with `dry_run=true`, pages through the source rows, and returns aggregate counts only, with no customer names, emails, payment IDs, card digits, or free-text incident descriptions in logs
 - [ ] `npm run reporting:provider-sync -- --dry-run` requests the provider Orders export, confirms it, downloads the newest completed Export Task file, parses `.xlsx` or `.zip` exports, reconciles parsed row count/revenue against the provider UI, checks top-level machine discovery, deletes raw downloads, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
 - [ ] `npm run reporting:provider-sync -- --date-start YYYY-MM-DD --date-end YYYY-MM-DD --dry-run` succeeds for one monthly custom-range backfill window and rejects exports with rows outside that selected window
+- [ ] `npm run reporting:provider-sync -- --parse-file path/to/month.zip --date-start YYYY-MM-DD --date-end YYYY-MM-DD --dry-run` parses a manually supplied Export Task file, validates the selected monthly window, and logs only aggregate counts/metadata
 - [ ] `npm run reporting:provider-health -- --event freshness_check --stale-hours 30` reports the latest completed sales import or sends a stale-data ops alert
 
 ## Payments (test mode)
