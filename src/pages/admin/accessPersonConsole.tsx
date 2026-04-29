@@ -500,6 +500,7 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
+                aria-label="Search by email or user ID"
                 value={searchDraft}
                 onChange={(event) => setSearchDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -2434,10 +2435,12 @@ function ScopeBreakdownCard({
 }
 
 function GlobalActivityPanel() {
-  const [auditSearch, setAuditSearch] = useState('');
+  const [auditSearchDraft, setAuditSearchDraft] = useState('');
+  const [submittedAuditSearch, setSubmittedAuditSearch] = useState('');
   const [auditActionFilter, setAuditActionFilter] = useState('all');
   const [auditEntityFilter, setAuditEntityFilter] = useState('all');
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
+  const auditSearch = submittedAuditSearch.trim();
 
   const {
     data: auditLog = emptyAuditLog,
@@ -2462,6 +2465,9 @@ function GlobalActivityPanel() {
     () => uniqueValues(auditLog.map((entry) => entry.entity_type)),
     [auditLog]
   );
+  const handleAuditSearchSubmit = () => {
+    setSubmittedAuditSearch(auditSearchDraft.trim());
+  };
 
   return (
     <section className="rounded-lg border border-border bg-card p-4 sm:p-5">
@@ -2473,13 +2479,18 @@ function GlobalActivityPanel() {
         </p>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(140px,0.55fr)_minmax(140px,0.55fr)_auto]">
         <Input
-          value={auditSearch}
-          onChange={(event) => setAuditSearch(event.target.value)}
+          aria-label="Search audit log"
+          value={auditSearchDraft}
+          onChange={(event) => setAuditSearchDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') handleAuditSearchSubmit();
+          }}
           placeholder="Search audit log"
         />
         <select
+          aria-label="Filter audit log by action"
           value={auditActionFilter}
           onChange={(event) => setAuditActionFilter(event.target.value)}
           className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -2492,6 +2503,7 @@ function GlobalActivityPanel() {
           ))}
         </select>
         <select
+          aria-label="Filter audit log by entity"
           value={auditEntityFilter}
           onChange={(event) => setAuditEntityFilter(event.target.value)}
           className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -2503,6 +2515,10 @@ function GlobalActivityPanel() {
             </option>
           ))}
         </select>
+        <Button type="button" variant="outline" onClick={handleAuditSearchSubmit}>
+          <Search className="mr-2 h-4 w-4" />
+          Search
+        </Button>
       </div>
 
       {isFetching && <div className="mt-2 text-xs text-muted-foreground">Refreshing activity...</div>}
