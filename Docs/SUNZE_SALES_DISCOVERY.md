@@ -109,7 +109,7 @@ No credentials, raw workbook files, order numbers, row-level customer/order valu
 
 ## Export Data Contract
 
-The Orders export workbook contains one worksheet named `Order`. Large custom-range exports may download as a `.zip`; each workbook inside the zip is parsed with the same `Order` sheet contract.
+The Orders export workbook usually contains one worksheet named `Order`. Export Task zip workbooks have also been observed with the first worksheet named `0`; the parser accepts that sheet name only if the required order headers validate.
 
 Observed headers:
 
@@ -117,9 +117,9 @@ Observed headers:
 | --- | --- |
 | `Order number` | Stable source order identifier; treat as sensitive. |
 | `Trade name` | Product/pattern text; can include multiple comma-separated items. |
-| `Affiliated merchant` | Merchant/account identifier; treat as sensitive. |
+| `Affiliated merchant` | Optional merchant/account identifier; treat as sensitive. |
 | `Machine code` | Sunze machine identifier from the order export. |
-| `Machine name` | Human-readable machine name. |
+| `Machine name` | Optional human-readable machine name. |
 | `Order amount` | Numeric order amount. |
 | `Tax` | Numeric tax field; nullable in some rows. |
 | `Payment method` | Source payment label. |
@@ -153,7 +153,7 @@ Important metric notes:
 5. It selects the safe `Last 7 Days` daily preset, `Last Month` for the monthly catch-up schedule, or an explicit monthly custom range for backfills.
 6. It keeps the machine selector on `All Machines`.
 7. It clicks `Export`, confirms the export dialog, navigates to `#/taskExportList`, polls for the newest completed task created after the request, and downloads it.
-8. It validates the workbook sheet and exact headers across `.xlsx` files or `.zip` bundles.
+8. It validates the workbook sheet and required headers across `.xlsx` files or `.zip` bundles; optional merchant/name metadata may be absent from Export Task workbooks.
 9. It normalizes rows into payment method, sale date, machine code, net sales cents, tax cents, and source status.
 10. It deletes raw workbook or zip files after parsing.
 11. It sends normalized rows to `sunze-sales-ingest` with `REPORTING_INGEST_TOKEN`.

@@ -19,6 +19,8 @@ export const SUNZE_ORDER_HEADERS = [
   'Status',
 ];
 
+const optionalOrderHeaders = new Set(['Affiliated merchant', 'Machine name']);
+
 export class SunzeOrderParseError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -182,12 +184,15 @@ const parsePaymentTime = (value, rowNumber) => {
 
 const validateHeaders = (headers) => {
   const normalized = headers.map(normalizeHeader);
-  const missing = SUNZE_ORDER_HEADERS.filter((header) => !normalized.includes(header));
+  const requiredHeaders = SUNZE_ORDER_HEADERS.filter((header) => !optionalOrderHeaders.has(header));
+  const missing = requiredHeaders.filter((header) => !normalized.includes(header));
   const unexpected = normalized.filter((header) => header && !SUNZE_ORDER_HEADERS.includes(header));
 
   if (missing.length || unexpected.length) {
     throw new SunzeOrderParseError('Provider order export headers changed.', {
       expectedHeaders: SUNZE_ORDER_HEADERS,
+      requiredHeaders,
+      optionalHeaders: [...optionalOrderHeaders],
       observedHeaders: normalized,
       missingHeaders: missing,
       unexpectedHeaders: unexpected,

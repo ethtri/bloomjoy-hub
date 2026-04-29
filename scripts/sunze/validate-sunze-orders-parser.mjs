@@ -113,6 +113,11 @@ const withCell = (sourceRow, headerName, value) => {
   return row;
 };
 
+const projectRowsToHeaders = (headers, sourceRows) => [
+  headers,
+  ...sourceRows.map((row) => headers.map((header) => row[SUNZE_ORDER_HEADERS.indexOf(header)])),
+];
+
 try {
   await writeFile(tempPath, buildWorkbook(rows));
   const parsed = await parseSunzeOrderWorkbook(tempPath);
@@ -134,6 +139,12 @@ try {
   assert.equal(summary.orderAmountCents, 1800);
   assert.equal(summary.windowStart, '2026-04-22');
   assert.equal(summary.windowEnd, '2026-04-23');
+  const compactHeaders = SUNZE_ORDER_HEADERS.filter(
+    (header) => !['Affiliated merchant', 'Machine name'].includes(header)
+  );
+  const compactParsed = parseSunzeOrderRows(projectRowsToHeaders(compactHeaders, fixture.rows));
+  assert.equal(compactParsed.length, 3);
+  assert.equal(compactParsed[0].machineName, '');
   assert.equal(assertSunzeOrderRowsWithinWindow(parsed, {
     windowStart: '2026-04-22',
     windowEnd: '2026-04-23',
@@ -259,6 +270,7 @@ try {
           'duplicate order preservation',
           'midnight date boundary',
           'zip export parsing',
+          'optional metadata header handling',
           'empty zip rejection',
           'non-workbook zip rejection',
           'zipped workbook header rejection',
