@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
+import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import miniMain from '@/assets/real/mini-main.webp';
 import miniGallery1 from '@/assets/real/mini-gallery-1.webp';
@@ -102,6 +103,14 @@ export default function MiniPage() {
                     <p className="font-semibold text-foreground">Thinking events or catering?</p>
                     <Link
                       to="/resources/business-playbook/mini-micro-event-catering-business-guide"
+                      onClick={() =>
+                        trackBuyerFlowPlaybookLinkClick({
+                          surface: 'mini_machine_page',
+                          cta: 'mini_event_business_guide',
+                          href: '/resources/business-playbook/mini-micro-event-catering-business-guide',
+                          machine: MACHINE_NAMES.mini,
+                        })
+                      }
                       className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
                     >
                       Read the Mini event business guide

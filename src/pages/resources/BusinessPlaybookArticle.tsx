@@ -12,6 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/Layout";
 import { trackEvent } from "@/lib/analytics";
 import {
+  trackBusinessPlaybookCtaClick,
+  trackResourcesPlaybookCardClick,
+} from "@/lib/businessPlaybookAnalytics";
+import {
   type BusinessPlaybookArticle,
   type PlaybookSection,
   getBusinessPlaybookArticle,
@@ -231,14 +235,38 @@ const ArticleBody = ({ article }: { article: BusinessPlaybookArticle }) => (
         </p>
         <div className="mt-4 grid gap-2">
           <Button asChild>
-            <Link to={article.primaryCta.href}>
+            <Link
+              to={article.primaryCta.href}
+              onClick={() =>
+                trackBusinessPlaybookCtaClick({
+                  surface: "playbook_article_sidebar",
+                  cta: article.primaryCta.label,
+                  href: article.primaryCta.href,
+                  slug: article.slug,
+                  category: article.category,
+                })
+              }
+            >
               {article.primaryCta.label}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
           {article.secondaryCta && (
             <Button asChild variant="outline">
-              <Link to={article.secondaryCta.href}>{article.secondaryCta.label}</Link>
+              <Link
+                to={article.secondaryCta.href}
+                onClick={() =>
+                  trackBusinessPlaybookCtaClick({
+                    surface: "playbook_article_sidebar",
+                    cta: article.secondaryCta.label,
+                    href: article.secondaryCta.href,
+                    slug: article.slug,
+                    category: article.category,
+                  })
+                }
+              >
+                {article.secondaryCta.label}
+              </Link>
             </Button>
           )}
         </div>
@@ -392,7 +420,20 @@ export default function BusinessPlaybookArticlePage() {
                 </p>
               </div>
               <Button asChild variant="outline">
-                <Link to="/resources/business-playbook">View all guides</Link>
+                <Link
+                  to="/resources/business-playbook"
+                  onClick={() =>
+                    trackBusinessPlaybookCtaClick({
+                      surface: "playbook_article_related",
+                      cta: "view_all_guides",
+                      href: "/resources/business-playbook",
+                      slug: article.slug,
+                      category: article.category,
+                    })
+                  }
+                >
+                  View all guides
+                </Link>
               </Button>
             </div>
 
@@ -401,6 +442,15 @@ export default function BusinessPlaybookArticlePage() {
                 <Link
                   key={related.slug}
                   to={`/resources/business-playbook/${related.slug}`}
+                  onClick={() =>
+                    trackResourcesPlaybookCardClick({
+                      surface: "playbook_article_related",
+                      cta: related.shortTitle,
+                      href: `/resources/business-playbook/${related.slug}`,
+                      slug: related.slug,
+                      category: related.category,
+                    })
+                  }
                   className="group overflow-hidden rounded-xl border border-border bg-background transition-[box-shadow,transform,border-color] duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-elevated"
                 >
                   <div className="aspect-[16/10] overflow-hidden bg-muted">

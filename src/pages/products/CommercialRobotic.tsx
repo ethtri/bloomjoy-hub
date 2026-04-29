@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
 import { trackEvent } from '@/lib/analytics';
+import { trackBuyerFlowPlaybookLinkClick } from '@/lib/businessPlaybookAnalytics';
 import { MACHINE_NAMES } from '@/lib/machineNames';
 import { commercialMachineFaqs } from '@/lib/seoRoutes';
 import commercialMain from '@/assets/real/commercial-main.jpg';
@@ -166,6 +167,14 @@ export default function CommercialRoboticPage() {
                     <p className="font-semibold text-foreground">Planning a location?</p>
                     <Link
                       to="/resources/business-playbook/best-locations-for-cotton-candy-vending-machines"
+                      onClick={() =>
+                        trackBuyerFlowPlaybookLinkClick({
+                          surface: 'commercial_machine_page',
+                          cta: 'commercial_location_guide',
+                          href: '/resources/business-playbook/best-locations-for-cotton-candy-vending-machines',
+                          machine: MACHINE_NAMES.commercial,
+                        })
+                      }
                       className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
                     >
                       Read the Commercial location guide

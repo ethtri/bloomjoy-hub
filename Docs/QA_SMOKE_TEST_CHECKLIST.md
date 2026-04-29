@@ -69,6 +69,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Business Playbook article routes direct-load, show a real Bloomjoy image, useful visual blocks (tables/checklists/scorecards/scripts), source links, related articles, and quote/machine CTAs
 - [ ] Business Playbook article routes are readable on mobile widths (`360x800`, `390x844`, `414x896`) with no clipped tables or horizontal page overflow
 - [ ] Commercial, Mini, Micro, Machines listing, Plus, and Contact success states link to relevant Business Playbook guides
+- [ ] Business Playbook funnel clicks emit expected local `[Analytics]` events without PII: `click_resources_playbook_card`, `click_business_playbook_cta`, `click_plus_preview_resource`, `click_buyer_flow_playbook_link`, and Playbook-originated contact submissions emit `submit_contact_from_playbook`
 - [ ] `/resources#faq` opens to the FAQ section, shows startup-cost guidance without exact all-in-cost/ROI/profit claims, keeps the quote/contact path clear on desktop and mobile, and `/resources` page source includes matching FAQPage JSON-LD
 - [ ] `/machines`, `/resources`, `/plus`, and `/contact` show primary content without excessive dead space on desktop and mobile
 - [ ] Footer legal links open `/privacy`, `/terms`, and `/billing-cancellation`

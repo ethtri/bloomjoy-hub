@@ -6,6 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Layout } from '@/components/layout/Layout';
 import { toast } from 'sonner';
+import {
+  trackBuyerFlowPlaybookLinkClick,
+  trackContactSubmitFromPlaybook,
+} from '@/lib/businessPlaybookAnalytics';
 import { createLeadSubmission } from '@/lib/leadSubmissions';
 import { MACHINE_INTEREST_OPTIONS, normalizeMachineInterest } from '@/lib/machineNames';
 
@@ -61,6 +65,7 @@ export default function ContactPage() {
   const querySource = searchParams.get('source');
   const initialType = queryType && validInquiryTypes.has(queryType) ? queryType : 'quote';
   const initialInterest = normalizeMachineInterest(searchParams.get('interest'));
+  const sourcePage = querySource?.trim() || '/contact';
 
   const [formData, setFormData] = useState({
     name: '',
@@ -99,8 +104,15 @@ export default function ContactPage() {
         email: formData.email.trim().toLowerCase(),
         message: cleanedMessage,
         machineInterest: formData.type === 'quote' ? formData.interest.trim() : undefined,
-        sourcePage: querySource?.trim() || '/contact',
+        sourcePage,
       });
+      if (sourcePage.startsWith('/resources/business-playbook')) {
+        trackContactSubmitFromPlaybook({
+          sourcePage,
+          inquiryType: formData.type,
+          machineInterest: formData.type === 'quote' ? formData.interest.trim() : undefined,
+        });
+      }
       setLastSubmittedInterest(formData.interest || 'Not sure yet');
       toast.success('Message sent! We\'ll be in touch soon.');
       setFormData({
@@ -156,6 +168,14 @@ export default function ContactPage() {
                         <Link
                           key={link.href}
                           to={link.href}
+                          onClick={() =>
+                            trackBuyerFlowPlaybookLinkClick({
+                              surface: 'contact_success',
+                              cta: link.label,
+                              href: link.href,
+                              machine: lastSubmittedInterest,
+                            })
+                          }
                           className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
                         >
                           {link.label}

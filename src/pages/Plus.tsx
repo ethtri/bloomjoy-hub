@@ -4,6 +4,7 @@ import { Check, ArrowRight, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
+import { trackBusinessPlaybookCtaClick } from '@/lib/businessPlaybookAnalytics';
 import { startPlusCheckout } from '@/lib/stripeCheckout';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -187,6 +188,13 @@ export default function PlusPage() {
             </div>
             <Link
               to="/resources/business-playbook"
+              onClick={() =>
+                trackBusinessPlaybookCtaClick({
+                  surface: 'plus_page',
+                  cta: 'open_playbook',
+                  href: '/resources/business-playbook',
+                })
+              }
               className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
             >
               Open Playbook

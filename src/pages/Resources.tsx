@@ -18,6 +18,10 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import {
+  trackPlusPreviewResourceClick,
+  trackResourcesPlaybookCardClick,
+} from "@/lib/businessPlaybookAnalytics";
 import { getCanonicalUrlForSurface } from "@/lib/appSurface";
 import { resourcesFaqs } from "@/lib/seoRoutes";
 import {
@@ -114,7 +118,16 @@ export default function ResourcesPage() {
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Button asChild size="lg">
-                  <Link to="/resources/business-playbook">
+                  <Link
+                    to="/resources/business-playbook"
+                    onClick={() =>
+                      trackResourcesPlaybookCardClick({
+                        surface: "resources_hero",
+                        cta: "open_business_playbook",
+                        href: "/resources/business-playbook",
+                      })
+                    }
+                  >
                     Open Business Playbook
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
@@ -156,7 +169,16 @@ export default function ResourcesPage() {
               </p>
             </div>
             <Button asChild variant="outline">
-              <Link to="/resources/business-playbook">
+              <Link
+                to="/resources/business-playbook"
+                onClick={() =>
+                  trackResourcesPlaybookCardClick({
+                    surface: "resources_hero",
+                    cta: "view_all_guides",
+                    href: "/resources/business-playbook",
+                  })
+                }
+              >
                 View all guides
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
@@ -170,6 +192,15 @@ export default function ResourcesPage() {
                 <Link
                   key={article.slug}
                   to={`/resources/business-playbook/${article.slug}`}
+                  onClick={() =>
+                    trackResourcesPlaybookCardClick({
+                      surface: "resources_featured_article",
+                      cta: article.shortTitle,
+                      href: `/resources/business-playbook/${article.slug}`,
+                      slug: article.slug,
+                      category: article.category,
+                    })
+                  }
                   className="group overflow-hidden rounded-xl border border-border bg-background transition-[box-shadow,transform,border-color] duration-200 hover:-translate-y-1 hover:border-primary/50 hover:shadow-elevated"
                 >
                   <div className="aspect-[16/10] overflow-hidden bg-muted">
@@ -219,6 +250,14 @@ export default function ResourcesPage() {
                 <Link
                   key={category.id}
                   to={`/resources/business-playbook#${category.id}`}
+                  onClick={() =>
+                    trackResourcesPlaybookCardClick({
+                      surface: "resources_category",
+                      cta: category.title,
+                      href: `/resources/business-playbook#${category.id}`,
+                      category: category.id,
+                    })
+                  }
                   className="rounded-lg border border-border bg-muted/10 p-4 transition-colors hover:border-primary/60"
                 >
                   <span
@@ -319,13 +358,33 @@ export default function ResourcesPage() {
 
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               <Button asChild>
-                <Link to="/plus">
+                <Link
+                  to="/plus"
+                  onClick={() =>
+                    trackPlusPreviewResourceClick({
+                      surface: "resources_plus_preview",
+                      cta: "explore_bloomjoy_plus",
+                      href: "/plus",
+                    })
+                  }
+                >
                   Explore Bloomjoy Plus
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
               <Button asChild variant="outline">
-                <a href={operatorLoginUrl}>Operator Login</a>
+                <a
+                  href={operatorLoginUrl}
+                  onClick={() =>
+                    trackPlusPreviewResourceClick({
+                      surface: "resources_plus_preview",
+                      cta: "operator_login",
+                      href: operatorLoginUrl,
+                    })
+                  }
+                >
+                  Operator Login
+                </a>
               </Button>
             </div>
           </div>
