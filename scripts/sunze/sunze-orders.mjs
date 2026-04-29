@@ -246,8 +246,19 @@ export const parseSunzeOrderRows = (rows) => {
     });
 };
 
+const isMissingOrderSheetError = (error) =>
+  error instanceof Error && /Sheet "Order" not found/i.test(error.message);
+
 const parseSunzeOrderWorkbookFile = async (filePath) => {
-  const rows = await readSheet(filePath, SUNZE_ORDER_SHEET);
+  let rows;
+
+  try {
+    rows = await readSheet(filePath, SUNZE_ORDER_SHEET);
+  } catch (error) {
+    if (!isMissingOrderSheetError(error)) throw error;
+    rows = await readSheet(filePath, 1);
+  }
+
   return parseSunzeOrderRows(rows);
 };
 

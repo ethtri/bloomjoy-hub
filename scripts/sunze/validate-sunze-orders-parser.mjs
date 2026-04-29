@@ -57,7 +57,7 @@ const worksheetXml = (rows) => `<?xml version="1.0" encoding="UTF-8" standalone=
   </sheetData>
 </worksheet>`;
 
-const buildWorkbook = (rows) =>
+const buildWorkbook = (rows, { sheetName = 'Order' } = {}) =>
   zipSync({
     '[Content_Types].xml': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -73,7 +73,7 @@ const buildWorkbook = (rows) =>
     'xl/workbook.xml': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>
-    <sheet name="Order" sheetId="1" r:id="rId1"/>
+    <sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/>
   </sheets>
 </workbook>`),
     'xl/_rels/workbook.xml.rels': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -155,10 +155,13 @@ try {
     zipPath,
     zipSync({
       '2026-04.xlsx': buildWorkbook(rows),
-      'nested/2026-05.xlsx': buildWorkbook([
-        SUNZE_ORDER_HEADERS,
-        withCell(fixture.rows[0], 'Payment time', '2026/05/01 10:15:00'),
-      ]),
+      'nested/2026-05.xlsx': buildWorkbook(
+        [
+          SUNZE_ORDER_HEADERS,
+          withCell(fixture.rows[0], 'Payment time', '2026/05/01 10:15:00'),
+        ],
+        { sheetName: '0' }
+      ),
     })
   );
   const zippedParsed = await parseSunzeOrderWorkbook(zipPath);
@@ -259,6 +262,7 @@ try {
           'empty zip rejection',
           'non-workbook zip rejection',
           'zipped workbook header rejection',
+          'fallback first-sheet parsing',
           'selected date window rejection',
         ],
       },
