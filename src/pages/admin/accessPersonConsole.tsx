@@ -187,6 +187,8 @@ const normalizeSearch = (value: string) => value.trim().toLowerCase();
 const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const hasEmailShape = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
 const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message.trim() ? error.message : fallback;
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -391,6 +393,8 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
   const [submittedSearch, setSubmittedSearch] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<SelectedAccessPerson | null>(null);
   const [showActivity, setShowActivity] = useState(initialShowActivity);
+  const normalizedSubmittedSearch = submittedSearch.trim();
+  const submittedSearchIsEmail = hasEmailShape(normalizedSubmittedSearch);
 
   const {
     data: searchResults = emptyAccountSummaries,
@@ -399,7 +403,7 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
   } = useQuery({
     queryKey: ['admin-person-access-search', submittedSearch],
     queryFn: () => fetchAdminAccountSummaries(submittedSearch),
-    enabled: submittedSearch.trim().length > 0,
+    enabled: normalizedSubmittedSearch.length > 0,
     staleTime: 1000 * 30,
   });
 
@@ -407,6 +411,7 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
   const {
     data: selectedAccountResults = emptyAccountSummaries,
     isFetching: isLoadingSelectedAccount,
+    error: selectedAccountError,
   } = useQuery({
     queryKey: ['admin-person-selected-account', accountSearchKey],
     queryFn: () => fetchAdminAccountSummaries(accountSearchKey),
@@ -476,14 +481,21 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
     });
   };
 
-  const handlePreviewEmail = () => {
-    const value = searchDraft.trim();
+  const handlePreviewEmail = (value: string) => {
     if (!hasEmailShape(value)) {
       toast.error('Enter a valid email to open an email-based access workspace.');
       return;
     }
     setSelectedPerson({ email: value, userId: null, label: value });
   };
+
+  const searchFailed = Boolean(searchError);
+  const canShowSearchResults = normalizedSubmittedSearch.length > 0 && !isSearching && !searchFailed;
+  const searchErrorMessage = getErrorMessage(searchError, 'Unable to search people.');
+  const selectedAccountErrorMessage = getErrorMessage(
+    selectedAccountError,
+    'Unable to refresh the selected account summary.'
+  );
 
   return (
     <div className="space-y-6">
@@ -523,12 +535,6 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
           </div>
         </div>
 
-        {searchError && (
-          <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            Unable to search people.
-          </div>
-        )}
-
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {!submittedSearch && !selectedPerson && (
             <div className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">
@@ -537,21 +543,40 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
             </div>
           )}
 
-          {submittedSearch && !isSearching && searchResults.length === 0 && (
+          {normalizedSubmittedSearch && isSearching && (
+            <div className="rounded-md border border-border bg-muted/20 p-4 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">
+              Searching people...
+            </div>
+          )}
+
+          {normalizedSubmittedSearch && !isSearching && searchFailed && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 md:col-span-2 xl:col-span-3">
+              <p className="text-sm font-medium text-destructive">Unable to search people.</p>
+              <p className="mt-1 break-words text-sm text-destructive/90">{searchErrorMessage}</p>
+            </div>
+          )}
+
+          {canShowSearchResults && searchResults.length === 0 && (
             <div className="rounded-md border border-border bg-muted/20 p-4 md:col-span-2 xl:col-span-3">
               <p className="text-sm font-medium text-foreground">No matching auth user was found.</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Email-based Corporate Partner grants can still be created before first sign-in.
+                {submittedSearchIsEmail
+                  ? 'Email-based Corporate Partner grants can still be created before first sign-in.'
+                  : 'Try a full email address or Supabase Auth user ID.'}
               </p>
-              {hasEmailShape(searchDraft) && (
-                <Button className="mt-3" variant="outline" onClick={handlePreviewEmail}>
+              {submittedSearchIsEmail && (
+                <Button
+                  className="mt-3"
+                  variant="outline"
+                  onClick={() => handlePreviewEmail(normalizedSubmittedSearch)}
+                >
                   Open email workspace
                 </Button>
               )}
             </div>
           )}
 
-          {searchResults.slice(0, 9).map((account) => (
+          {canShowSearchResults && searchResults.slice(0, 9).map((account) => (
             <button
               key={account.user_id}
               type="button"
@@ -579,14 +604,14 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
             </button>
           ))}
 
-          {submittedSearch && hasEmailShape(searchDraft) && searchResults.length > 0 && (
+          {canShowSearchResults && submittedSearchIsEmail && searchResults.length > 0 && (
             <button
               type="button"
-              onClick={handlePreviewEmail}
+              onClick={() => handlePreviewEmail(normalizedSubmittedSearch)}
               className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-left transition hover:bg-muted/40"
             >
               <p className="text-sm font-medium text-foreground">Use typed email instead</p>
-              <p className="mt-1 text-sm text-muted-foreground">{searchDraft.trim()}</p>
+              <p className="mt-1 break-all text-sm text-muted-foreground">{normalizedSubmittedSearch}</p>
             </button>
           )}
         </div>
@@ -625,7 +650,13 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
 
           {effectiveAccessError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              Unable to load the effective access preview.
+              {getErrorMessage(effectiveAccessError, 'Unable to load the effective access preview.')}
+            </div>
+          )}
+
+          {selectedAccountError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {selectedAccountErrorMessage}
             </div>
           )}
 
