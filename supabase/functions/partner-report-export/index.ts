@@ -22,8 +22,14 @@ const uuidPattern =
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const validFormats = new Set(["pdf", "csv", "xlsx"]);
 const validPeriodGrains = new Set(["reporting_week", "calendar_month"]);
+const validPeriodModes = new Set([
+  "weekly",
+  "month_to_date",
+  "completed_month",
+]);
 
 type PartnerReportPeriodGrain = "reporting_week" | "calendar_month";
+type PartnerReportPeriodMode = "weekly" | "month_to_date" | "completed_month";
 type PartnerReportExportFormat = "pdf" | "csv" | "xlsx";
 
 type PartnerPeriodPreviewRpc = {
@@ -35,20 +41,24 @@ type PartnerPeriodPreviewRpc = {
   summary?: Record<string, unknown>;
   periods?: Array<Record<string, unknown>>;
   machine_periods?: Array<Record<string, unknown>>;
-  warnings?: Array<{ message?: string; severity?: string }>;
+  warnings?: Array<{ message?: string; severity?: string; machine_id?: string | null }>;
 };
 
 type ExportRequest = {
   partnershipId: string;
   format: PartnerReportExportFormat;
   periodGrain: PartnerReportPeriodGrain;
+  periodMode: PartnerReportPeriodMode;
   periodStartDate: string;
   periodEndDate: string;
   periodLabel: string;
+  machineIds: string[];
+  machineScopeKey: string;
   useLegacyWeeklyPreview: boolean;
 };
 
 type PartnerReportPeriod = NonNullable<PartnerReportPreview["periods"]>[number];
+type PartnerReportMachine = NonNullable<PartnerReportPreview["machines"]>[number];
 
 const serviceSupabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -100,11 +110,32 @@ const formatMonthLabel = (dateInput: string) => {
   }).format(date);
 };
 
+const formatDateLabel = (dateInput: string) => {
+  const date = new Date(`${dateInput}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return dateInput;
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+};
+
 const formatPeriodLabel = (
   periodGrain: PartnerReportPeriodGrain,
   periodStartDate: string,
   periodEndDate: string,
+  periodMode: PartnerReportPeriodMode = periodGrain === "calendar_month"
+    ? "completed_month"
+    : "weekly",
 ) => {
+  if (periodMode === "month_to_date") {
+    return `Month to date: ${formatDateLabel(periodStartDate)} through ${
+      formatDateLabel(periodEndDate)
+    }`;
+  }
+
   if (
     periodGrain === "calendar_month" &&
     periodStartDate.slice(0, 7) === periodEndDate.slice(0, 7)
@@ -130,6 +161,34 @@ const getTrendRange = (request: ExportRequest) => {
   };
 };
 
+const normalizeUuidArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+
+  return [...new Set(
+    value
+      .map((entry) => String(entry).trim())
+      .filter((entry) => uuidPattern.test(entry)),
+  )].sort();
+};
+
+const getDefaultPeriodMode = (
+  periodGrain: PartnerReportPeriodGrain,
+): PartnerReportPeriodMode =>
+  periodGrain === "calendar_month" ? "completed_month" : "weekly";
+
+const normalizePeriodMode = (
+  value: unknown,
+  periodGrain: PartnerReportPeriodGrain,
+): PartnerReportPeriodMode => {
+  const mode = String(value ?? "").trim().toLowerCase();
+  return validPeriodModes.has(mode)
+    ? (mode as PartnerReportPeriodMode)
+    : getDefaultPeriodMode(periodGrain);
+};
+
+const getMachineScopeKey = (machineIds: string[]) =>
+  machineIds.length > 0 ? `machines:${machineIds.join(",")}` : "all";
+
 const resolveExportRequest = (
   raw: Record<string, unknown>,
 ): { request?: ExportRequest; error?: string } => {
@@ -138,6 +197,7 @@ const resolveExportRequest = (
   const rawPeriodGrain = String(raw.periodGrain ?? "").trim();
   const hasExplicitPeriod = rawPeriodGrain.length > 0;
   const periodGrain = hasExplicitPeriod ? rawPeriodGrain : "reporting_week";
+  const machineIds = normalizeUuidArray(raw.machineIds);
 
   if (!uuidPattern.test(partnershipId)) {
     return { error: "Valid partnershipId is required." };
@@ -165,18 +225,41 @@ const resolveExportRequest = (
       return { error: "dateFrom must be on or before dateTo." };
     }
 
+    const normalizedPeriodGrain = periodGrain as PartnerReportPeriodGrain;
+    const periodMode = normalizePeriodMode(raw.periodMode, normalizedPeriodGrain);
+    const explicitPeriodLabel = String(raw.periodLabel ?? "").trim();
+
+    if (periodMode === "weekly" && normalizedPeriodGrain !== "reporting_week") {
+      return { error: "weekly periodMode requires reporting_week periodGrain." };
+    }
+
+    if (
+      (periodMode === "month_to_date" || periodMode === "completed_month") &&
+      normalizedPeriodGrain !== "calendar_month"
+    ) {
+      return {
+        error:
+          "month_to_date and completed_month periodMode require calendar_month periodGrain.",
+      };
+    }
+
     return {
       request: {
         partnershipId,
         format: format as PartnerReportExportFormat,
-        periodGrain: periodGrain as PartnerReportPeriodGrain,
+        periodGrain: normalizedPeriodGrain,
+        periodMode,
         periodStartDate,
         periodEndDate,
-        periodLabel: formatPeriodLabel(
-          periodGrain as PartnerReportPeriodGrain,
-          periodStartDate,
-          periodEndDate,
-        ),
+        periodLabel: explicitPeriodLabel ||
+          formatPeriodLabel(
+            normalizedPeriodGrain,
+            periodStartDate,
+            periodEndDate,
+            periodMode,
+          ),
+        machineIds,
+        machineScopeKey: getMachineScopeKey(machineIds),
         useLegacyWeeklyPreview: false,
       },
     };
@@ -195,6 +278,7 @@ const resolveExportRequest = (
       partnershipId,
       format: format as PartnerReportExportFormat,
       periodGrain: "reporting_week",
+      periodMode: "weekly",
       periodStartDate,
       periodEndDate: weekEndingDate,
       periodLabel: formatPeriodLabel(
@@ -202,6 +286,8 @@ const resolveExportRequest = (
         periodStartDate,
         weekEndingDate,
       ),
+      machineIds: [],
+      machineScopeKey: "all",
       useLegacyWeeklyPreview: true,
     },
   };
@@ -372,6 +458,10 @@ const getActiveFinancialRule = async (
   return data ?? null;
 };
 
+class MachineScopeError extends Error {
+  status = 400;
+}
+
 const mapReportPeriod = (period: Record<string, unknown>): PartnerReportPeriod => ({
   period_start: String(period.period_start ?? ""),
   period_end: String(period.period_end ?? ""),
@@ -395,29 +485,184 @@ const mapReportPeriods = (
     .map(mapReportPeriod)
     .filter((period) => period.period_start && period.period_end);
 
+const mapReportMachine = (machine: Record<string, unknown>): PartnerReportMachine => ({
+  reporting_machine_id: String(machine.reporting_machine_id ?? ""),
+  period_start: String(machine.period_start ?? ""),
+  period_end: String(machine.period_end ?? ""),
+  machine_label: String(machine.machine_label ?? "Unnamed machine"),
+  order_count: Number(machine.order_count ?? 0),
+  item_quantity: Number(machine.item_quantity ?? 0),
+  gross_sales_cents: Number(machine.gross_sales_cents ?? 0),
+  refund_amount_cents: Number(machine.refund_amount_cents ?? 0),
+  tax_cents: Number(machine.tax_cents ?? 0),
+  fee_cents: Number(machine.fee_cents ?? 0),
+  cost_cents: Number(machine.cost_cents ?? 0),
+  net_sales_cents: Number(machine.net_sales_cents ?? 0),
+  split_base_cents: Number(machine.split_base_cents ?? 0),
+  amount_owed_cents: Number(machine.amount_owed_cents ?? 0),
+  bloomjoy_retained_cents: Number(machine.bloomjoy_retained_cents ?? 0),
+});
+
+const mapReportMachines = (
+  data: PartnerPeriodPreviewRpc | null,
+): PartnerReportMachine[] =>
+  (Array.isArray(data?.machine_periods) ? data.machine_periods : [])
+    .map(mapReportMachine)
+    .filter((machine) =>
+      machine.reporting_machine_id && machine.period_start && machine.period_end
+    );
+
+const totalKeys = [
+  "order_count",
+  "item_quantity",
+  "gross_sales_cents",
+  "refund_amount_cents",
+  "tax_cents",
+  "fee_cents",
+  "cost_cents",
+  "net_sales_cents",
+  "split_base_cents",
+  "amount_owed_cents",
+  "bloomjoy_retained_cents",
+] as const;
+
+const sumReportTotals = (
+  records: Array<PartnerReportMachine | PartnerReportPeriod>,
+): PartnerReportPeriod => {
+  const totals = Object.fromEntries(totalKeys.map((key) => [key, 0])) as Record<
+    typeof totalKeys[number],
+    number
+  >;
+
+  records.forEach((record) => {
+    totalKeys.forEach((key) => {
+      totals[key] += Number(record[key] ?? 0);
+    });
+  });
+
+  return totals;
+};
+
+const periodMatchesRequest = (
+  period: Pick<PartnerReportPeriod, "period_start" | "period_end">,
+  request: ExportRequest,
+) => {
+  if (request.periodMode === "month_to_date") {
+    return period.period_start === request.periodStartDate;
+  }
+
+  return period.period_start === request.periodStartDate &&
+    period.period_end === request.periodEndDate;
+};
+
+const normalizePeriodForRequest = <T extends PartnerReportPeriod | PartnerReportMachine>(
+  period: T,
+  request: ExportRequest,
+): T => {
+  if (
+    request.periodMode !== "month_to_date" ||
+    period.period_start !== request.periodStartDate
+  ) {
+    return period;
+  }
+
+  return {
+    ...period,
+    period_end: request.periodEndDate,
+  };
+};
+
+const aggregateMachinePeriods = (
+  machinePeriods: PartnerReportMachine[],
+  machineIds: string[],
+  request: ExportRequest,
+): PartnerReportPeriod[] => {
+  const scopedMachineIds = new Set(machineIds);
+  const periodsByWindow = new Map<string, PartnerReportMachine[]>();
+
+  machinePeriods
+    .filter((period) => scopedMachineIds.has(period.reporting_machine_id ?? ""))
+    .forEach((period) => {
+      const normalized = normalizePeriodForRequest(period, request);
+      const key = `${normalized.period_start ?? ""}:${normalized.period_end ?? ""}`;
+      const periods = periodsByWindow.get(key) ?? [];
+      periods.push(normalized);
+      periodsByWindow.set(key, periods);
+    });
+
+  return [...periodsByWindow.values()]
+    .map((periods) => ({
+      period_start: periods[0]?.period_start ?? "",
+      period_end: periods[0]?.period_end ?? "",
+      ...sumReportTotals(periods),
+    }))
+    .filter((period) => period.period_start && period.period_end)
+    .sort((left, right) =>
+      String(left.period_start).localeCompare(String(right.period_start))
+    );
+};
+
+const getMachineScopeLabel = (machines: PartnerReportMachine[]) => {
+  const labels = [...new Set(
+    machines
+      .map((machine) => String(machine.machine_label ?? "").trim())
+      .filter(Boolean),
+  )].sort((left, right) => left.localeCompare(right));
+
+  return labels.join(" + ");
+};
+
+const filterWarningsForMachineScope = (
+  warnings: PartnerPeriodPreviewRpc["warnings"],
+  machineIds: string[],
+) => {
+  if (!machineIds.length) return warnings ?? [];
+
+  const scopedMachineIds = new Set(machineIds);
+  return (warnings ?? []).filter((warning) =>
+    !warning.machine_id || scopedMachineIds.has(String(warning.machine_id))
+  );
+};
+
 const mapPeriodPreviewToPartnerReportPreview = (
   data: PartnerPeriodPreviewRpc | null,
   request: ExportRequest,
 ): PartnerReportPreview => {
   const summary = data?.summary ?? {};
-  const machinePeriods = Array.isArray(data?.machine_periods)
-    ? data.machine_periods
-    : [];
+  const reportMachinePeriods = mapReportMachines(data);
+  const currentMachinePeriods = reportMachinePeriods
+    .filter((period) => periodMatchesRequest(period, request))
+    .map((period) => normalizePeriodForRequest(period, request));
+  const requestedMachineIds = new Set(request.machineIds);
 
-  return {
-    partnershipId: String(data?.partnership_id ?? request.partnershipId),
-    partnershipName: data?.partnership_name,
-    periodGrain: request.periodGrain,
-    periodStartDate: request.periodStartDate,
-    periodEndDate: request.periodEndDate,
-    periodLabel: request.periodLabel,
-    weekStartDate: request.periodGrain === "reporting_week"
-      ? request.periodStartDate
-      : undefined,
-    weekEndingDate: request.periodGrain === "reporting_week"
-      ? request.periodEndDate
-      : undefined,
-    summary: {
+  if (request.machineIds.length > 0) {
+    const availableMachineIds = new Set(
+      currentMachinePeriods.map((period) => period.reporting_machine_id),
+    );
+    const missingMachineIds = request.machineIds.filter((machineId) =>
+      !availableMachineIds.has(machineId)
+    );
+
+    if (missingMachineIds.length > 0) {
+      throw new MachineScopeError(
+        "Requested machine is not available for this partnership, period, or admin scope.",
+      );
+    }
+  }
+
+  const scopedMachinePeriods = request.machineIds.length > 0
+    ? currentMachinePeriods.filter((period) =>
+      requestedMachineIds.has(period.reporting_machine_id ?? "")
+    )
+    : currentMachinePeriods;
+  const scopedPeriods = request.machineIds.length > 0
+    ? aggregateMachinePeriods(reportMachinePeriods, request.machineIds, request)
+    : mapReportPeriods(data).map((period) =>
+      normalizePeriodForRequest(period, request)
+    );
+  const scopedSummary = request.machineIds.length > 0
+    ? sumReportTotals(scopedMachinePeriods)
+    : {
       order_count: Number(summary.order_count ?? 0),
       item_quantity: Number(summary.item_quantity ?? 0),
       gross_sales_cents: Number(summary.gross_sales_cents ?? 0),
@@ -429,25 +674,32 @@ const mapPeriodPreviewToPartnerReportPreview = (
       split_base_cents: Number(summary.split_base_cents ?? 0),
       amount_owed_cents: Number(summary.amount_owed_cents ?? 0),
       bloomjoy_retained_cents: Number(summary.bloomjoy_retained_cents ?? 0),
-    },
-    periods: mapReportPeriods(data),
-    machines: machinePeriods.map((machine) => ({
-      machine_label: String(machine.machine_label ?? "Unnamed machine"),
-      order_count: Number(machine.order_count ?? 0),
-      item_quantity: Number(machine.item_quantity ?? 0),
-      gross_sales_cents: Number(machine.gross_sales_cents ?? 0),
-      refund_amount_cents: Number(machine.refund_amount_cents ?? 0),
-      tax_cents: Number(machine.tax_cents ?? 0),
-      fee_cents: Number(machine.fee_cents ?? 0),
-      cost_cents: Number(machine.cost_cents ?? 0),
-      net_sales_cents: Number(machine.net_sales_cents ?? 0),
-      split_base_cents: Number(machine.split_base_cents ?? 0),
-      amount_owed_cents: Number(machine.amount_owed_cents ?? 0),
-      bloomjoy_retained_cents: Number(machine.bloomjoy_retained_cents ?? 0),
-    })),
-    warnings: (data?.warnings ?? []).map((warning) => ({
+    };
+
+  return {
+    partnershipId: String(data?.partnership_id ?? request.partnershipId),
+    partnershipName: data?.partnership_name,
+    periodGrain: request.periodGrain,
+    periodMode: request.periodMode,
+    periodStartDate: request.periodStartDate,
+    periodEndDate: request.periodEndDate,
+    periodLabel: request.periodLabel,
+    machineScopeLabel: request.machineIds.length > 0
+      ? getMachineScopeLabel(scopedMachinePeriods) || "Selected machine"
+      : undefined,
+    weekStartDate: request.periodGrain === "reporting_week"
+      ? request.periodStartDate
+      : undefined,
+    weekEndingDate: request.periodGrain === "reporting_week"
+      ? request.periodEndDate
+      : undefined,
+    summary: scopedSummary,
+    periods: scopedPeriods,
+    machines: scopedMachinePeriods,
+    warnings: filterWarningsForMachineScope(data?.warnings, request.machineIds).map((warning) => ({
       message: warning.message,
       severity: warning.severity,
+      machine_id: warning.machine_id ?? null,
     })),
   };
 };
@@ -475,8 +727,19 @@ const loadTrendPeriods = async ({
     return [];
   }
 
+  const previewData = (data ?? {}) as PartnerPeriodPreviewRpc;
   const expectedCount = request.periodGrain === "calendar_month" ? 6 : 8;
-  return mapReportPeriods((data ?? {}) as PartnerPeriodPreviewRpc)
+  const periods = request.machineIds.length > 0
+    ? aggregateMachinePeriods(
+      mapReportMachines(previewData),
+      request.machineIds,
+      request,
+    )
+    : mapReportPeriods(previewData).map((period) =>
+      normalizePeriodForRequest(period, request)
+    );
+
+  return periods
     .filter((period) => period.period_end && period.period_end <= request.periodEndDate)
     .slice(-expectedCount);
 };
@@ -486,6 +749,7 @@ const getOrCreateSnapshot = async ({
   periodGrain,
   periodStartDate,
   periodEndDate,
+  machineScopeKey,
   userId,
   summaryJson,
 }: {
@@ -493,6 +757,7 @@ const getOrCreateSnapshot = async ({
   periodGrain: PartnerReportPeriodGrain;
   periodStartDate: string;
   periodEndDate: string;
+  machineScopeKey: string;
   userId: string;
   summaryJson: Record<string, unknown>;
 }) => {
@@ -507,6 +772,7 @@ const getOrCreateSnapshot = async ({
     .eq("period_grain", periodGrain)
     .eq("period_start_date", periodStartDate)
     .eq("period_end_date", periodEndDate)
+    .eq("machine_scope_key", machineScopeKey)
     .eq("status", "draft")
     .maybeSingle();
 
@@ -526,6 +792,7 @@ const getOrCreateSnapshot = async ({
         period_grain: periodGrain,
         period_start_date: periodStartDate,
         period_end_date: periodEndDate,
+        machine_scope_key: machineScopeKey,
         summary_json: {
           ...((existing.summary_json as Record<string, unknown> | null) ?? {}),
           ...summaryJson,
@@ -552,6 +819,7 @@ const getOrCreateSnapshot = async ({
       period_grain: periodGrain,
       period_start_date: periodStartDate,
       period_end_date: periodEndDate,
+      machine_scope_key: machineScopeKey,
       status: "draft",
       generated_by: userId,
       summary_json: summaryJson,
@@ -648,6 +916,7 @@ serve(async (req) => {
       ? ({
         ...((previewData ?? {}) as PartnerReportPreview),
         periodGrain: "reporting_week",
+        periodMode: request.periodMode,
         periodStartDate: request.periodStartDate,
         periodEndDate: request.periodEndDate,
         periodLabel: request.periodLabel,
@@ -693,6 +962,7 @@ serve(async (req) => {
       periodGrain: request.periodGrain,
       periodStartDate: request.periodStartDate,
       periodEndDate: request.periodEndDate,
+      machineScopeKey: request.machineScopeKey,
       userId: user.id,
       summaryJson: {
         preview: exportPreview,
@@ -704,6 +974,10 @@ serve(async (req) => {
         periodStartDate: request.periodStartDate,
         periodEndDate: request.periodEndDate,
         periodLabel: request.periodLabel,
+        periodMode: request.periodMode,
+        machineScopeKey: request.machineScopeKey,
+        machineIds: request.machineIds,
+        machineScopeLabel: exportPreview.machineScopeLabel,
       },
     });
     const reportReference = buildPartnerReportReference(snapshot.id, exportPreview);
@@ -726,11 +1000,21 @@ serve(async (req) => {
       ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       : "text/csv";
     const periodSlug = request.periodGrain === "calendar_month"
-      ? request.periodStartDate.slice(0, 7)
+      ? request.periodMode === "month_to_date"
+        ? `${request.periodStartDate}-to-${request.periodEndDate}`
+        : request.periodStartDate.slice(0, 7)
       : request.periodEndDate;
+    const modeSlug = request.periodMode === "month_to_date"
+      ? "month-to-date"
+      : request.periodGrain === "calendar_month"
+      ? "monthly"
+      : "weekly";
+    const machineSlug = request.machineIds.length > 0
+      ? `-${slugify(exportPreview.machineScopeLabel ?? "selected-machine")}`
+      : "";
     const fileName = `${slugify(exportPreview.partnershipName ?? "partner-report")}-${
-      request.periodGrain === "calendar_month" ? "monthly" : "weekly"
-    }-${periodSlug}.${request.format}`;
+      modeSlug
+    }-${periodSlug}${machineSlug}.${request.format}`;
     const storagePath =
       `partner-reports/${request.partnershipId}/${request.periodGrain}/${snapshot.id}/${fileName}`;
 
@@ -773,6 +1057,10 @@ serve(async (req) => {
       periodStartDate: request.periodStartDate,
       periodEndDate: request.periodEndDate,
       periodLabel: request.periodLabel,
+      periodMode: request.periodMode,
+      machineScopeKey: request.machineScopeKey,
+      machineIds: request.machineIds,
+      machineScopeLabel: exportPreview.machineScopeLabel,
       exports: {
         ...(((snapshot.summary_json as Record<string, unknown> | null)
           ?.exports as Record<string, unknown> | undefined) ?? {}),
@@ -792,6 +1080,7 @@ serve(async (req) => {
         period_grain: request.periodGrain,
         period_start_date: request.periodStartDate,
         period_end_date: request.periodEndDate,
+        machine_scope_key: request.machineScopeKey,
         summary_json: nextSummaryJson,
         generated_at: generatedAt,
       })
@@ -822,8 +1111,10 @@ serve(async (req) => {
       format: request.format,
       fileName,
       periodGrain: request.periodGrain,
+      periodMode: request.periodMode,
       periodStartDate: request.periodStartDate,
       periodEndDate: request.periodEndDate,
+      machineScopeLabel: exportPreview.machineScopeLabel,
     });
   } catch (error) {
     console.error("partner-report-export error", error);
@@ -833,7 +1124,7 @@ serve(async (req) => {
           ? error.message
           : "Unable to export partner report.",
       },
-      500,
+      error instanceof MachineScopeError ? error.status : 500,
     );
   }
 });

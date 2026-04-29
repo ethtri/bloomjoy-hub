@@ -2,6 +2,7 @@ import { supabaseClient } from '@/lib/supabaseClient';
 import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 
 export type PartnerDashboardPeriodGrain = 'reporting_week' | 'calendar_month';
+export type PartnerDashboardPeriodMode = 'weekly' | 'month_to_date' | 'completed_month';
 
 export type PartnerDashboardPartnershipOption = {
   id: string;
@@ -68,8 +69,10 @@ export type PartnerDashboardExportResponse = {
   format: PartnerDashboardExportFormat;
   fileName: string;
   periodGrain: PartnerDashboardPeriodGrain;
+  periodMode?: PartnerDashboardPeriodMode;
   periodStartDate: string;
   periodEndDate: string;
+  machineScopeLabel?: string;
 };
 
 type PartnershipSetupRpc = {
@@ -244,24 +247,33 @@ export const fetchPartnerDashboardPeriodPreview = async ({
 export const exportPartnerDashboardReport = async ({
   partnershipId,
   periodGrain,
+  periodMode,
+  periodLabel,
   dateFrom,
   dateTo,
   format,
+  machineIds = [],
 }: {
   partnershipId: string;
   periodGrain: PartnerDashboardPeriodGrain;
+  periodMode: PartnerDashboardPeriodMode;
+  periodLabel: string;
   dateFrom: string;
   dateTo: string;
   format: PartnerDashboardExportFormat;
+  machineIds?: string[];
 }): Promise<PartnerDashboardExportResponse> => {
   return invokeEdgeFunction<PartnerDashboardExportResponse>(
     'partner-report-export',
     {
       partnershipId,
       periodGrain,
+      periodMode,
+      periodLabel,
       dateFrom,
       dateTo,
       format,
+      machineIds,
     },
     {
       requireUserAuth: true,
