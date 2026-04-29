@@ -5,8 +5,13 @@ const requiredClientEnvKeys = [
 
 type RequiredClientEnvKey = (typeof requiredClientEnvKeys)[number];
 
+const requiredClientEnv: Record<RequiredClientEnvKey, string | undefined> = {
+  VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
+  VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
+};
+
 const readRequiredClientEnv = (key: RequiredClientEnvKey): string => {
-  const value = import.meta.env[key];
+  const value = requiredClientEnv[key];
 
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(
