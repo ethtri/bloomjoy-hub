@@ -28,6 +28,25 @@ Access management will use admin-facing presets backed by source-aware capabilit
 - Explicit portal participation avoids accidental partner access through agreement setup or payout metadata.
 - Source-aware Technician, Plus Customer, and Corporate Partner grants make revoke and renewal safer as Bloomjoy adds more access paths.
 
+## 2026-04-29 - Admin Access person-first redesign priority
+`/admin/access` is the canonical place for internal access management, but the current tab-heavy page is a functional foundation, not the final UX.
+
+**Canonical redesign direction**
+- The page should default to finding a person, not choosing an access-model tab.
+- A selected person should have one workspace that combines effective access, active access sources, scopes, warnings, and actions.
+- Access actions should be organized as preset choices and source cards, not as separate peer tabs for Users, Presets, Reporting Access, Scoped Admins, Global Roles, and Audit.
+- Grant, renew, scope-change, and revoke flows should show a plain-English save preview and require an audit reason.
+- Audit/activity should stay available but should not compete with the primary access-management workflow.
+
+**Sequencing**
+- Issue `#227` owns the immediate UX/CX redesign of `/admin/access`.
+- Issue `#331` follows with review, renewal, expiry, and richer revoke-impact workflows.
+- Issue `#150` remains the longer-term entitlement-scale umbrella for granular overrides and deeper capability model hardening.
+
+**Why this choice**
+- Admins think in terms of people and outcomes, not database tables or backend grant sources.
+- Consolidating access sources into one person workspace reduces accidental misuse and makes permissions easier to audit as access models grow.
+
 ## 2026-04-24 - Sales reporting foundation
 Bloomjoy sales reporting will use account/location/machine entitlements that are separate from Plus and training access.
 

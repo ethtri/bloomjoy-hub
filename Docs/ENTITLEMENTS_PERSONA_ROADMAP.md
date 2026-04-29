@@ -47,6 +47,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 - Corporate Partner access is implemented through `corporate_partner_memberships`, portal-enabled `reporting_partnership_parties`, server capability helpers, and `/admin/access?tab=presets`.
 
 ## Gaps
+- `/admin/access` is functionally capable but still needs a UX/CX redesign. Issue `#227` is the immediate next access-management UX priority and should replace the current tab-heavy experience with a person-first workspace.
 - Scoped Admin has a minimal P0 implementation path in `#259`: explicit machine-scoped internal admin grants managed from `/admin/access`. Broader account-scope delegation and a custom entitlement-builder UI remain future work.
 - Reporting User remains a future/internal capability and should not be exposed as a primary admin preset yet.
 - The scalable entitlement model remains an umbrella concern in `#150`.
@@ -58,7 +59,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 | Super Admin | `admin_roles.role = 'super_admin'` | Global | View, configure, grant, revoke, approve, export, and audit all current admin/reporting surfaces | Bypass production safeguards or audit requirements | Implemented; keep as the only global role |
 | Scoped Admin | Manual scoped-admin grant | Machine scope in the P0 implementation; account scope remains future | Manage manual reporting access inside assigned machine scope from `/admin/access` | No global admin, unrelated accounts, partnership setup, user/global role management, ungranted reports, or Technician-derived grant revocation | P0 minimal implementation; `#259` |
 | Plus Customer | Active Plus access plus owner account membership | Owned customer account and controlled machines | Manage Technician grants for controlled machines; access Plus portal benefits, member supply pricing, support, and assigned reporting | No internal admin setup, unrelated customer accounts, partner settlement, global reporting, or role management | Implemented; customer/team direction from `#123` |
-| Corporate Partner | `corporate_partner_memberships` plus portal-enabled partnership participation | Partner record, active portal-enabled partnerships, derived machines | Access training, support, member supply pricing, partner reporting, machine reporting, and Technician management for derived machines | No `/admin`, tax/rule editing, machine metadata editing, imports, schedules, internal warning ledgers, billing, or global reporting | P0; `#128`, `#328`, `#329`, `#330` |
+| Corporate Partner | `corporate_partner_memberships` plus portal-enabled partnership participation | Partner record, active portal-enabled partnerships, derived machines | Access training, support, member supply pricing, partner reporting, machine reporting, and Technician management for derived machines | No `/admin`, tax/rule editing, machine metadata editing, imports, schedules, internal warning ledgers, billing, or global reporting | Implemented by `#332`; trace issues `#128`, `#328`, `#329`, `#330` |
 | Technician | Technician grant plus optional Technician-sourced reporting entitlement | Explicit assigned machines; no-machine grant means training only | Access training and read-only reports for assigned machines; expires after one year unless renewed | No Plus/Corporate Partner supply discounts, billing, account-owner tools, partner settlement, admin operations, machine setup, or global reporting | Implemented; production caveat `#214`; spec reference `#183` |
 | Reporting User | Manual reporting entitlement or account membership | Machine; account/location only when explicitly allowed | View assigned machine reporting; `report_manager` may manage reporting-only workflows only when explicitly supported | No `/admin`, no partner settlement setup, no global import/schedule/config authority unless separately granted | Implemented for machine reporting; not a primary preset |
 
@@ -72,6 +73,8 @@ Use this model for new entitlement design, issue writing, and implementation rev
 
 ## Recommended UX
 - `/admin/access` remains the near-term person-first place for internal entitlement administration.
+- The target `/admin/access` workflow is: find a person, review effective access, manage access source cards, preview impact, then save with a reason.
+- Avoid adding more peer tabs for individual access sources. Consolidate Plus Customer, Corporate Partner, Technician, Scoped Admin, Super Admin, and manual reporting access into one selected-person workspace.
 - `/portal/account` remains the current customer place for Technician management.
 - `/portal/reports` remains the operator/reporting surface for assigned machines.
 - Corporate Partner reporting appears in `/portal/reports` as a permissioned partner-dashboard view.
@@ -81,12 +84,12 @@ Use this model for new entitlement design, issue writing, and implementation rev
 | Issue | Entitlement Area | Roadmap Role |
 | --- | --- | --- |
 | `#266` | Entitlement roadmap alignment | P0 docs alignment issue for keeping this roadmap consistent with the implemented role model. |
-| `#128` | Corporate Partner access preset and portal permissions | P0 explicit Corporate Partner access with no inherited Plus or admin powers. |
+| `#128` | Corporate Partner access preset and portal permissions | Completed by `#332`; explicit Corporate Partner access with no inherited Plus or admin powers. |
 | `#150` | Scalable account roles and entitlement model | Umbrella for capability-model hardening and future entitlement-builder work. |
-| `#227` | Person-first Admin Access console | Admin UX for effective-access previews and preset grants. |
-| `#328` | Corporate Partner data model and effective access context | Corporate Partner membership source, portal access flag, and capability context. |
-| `#329` | Corporate Partner Technician management | Corporate Partner-sponsored Technician grants, machine scoping, and one-year expiry. |
-| `#330` | Server-side support and supply entitlement enforcement | Capability-backed support and supply discount checks. |
+| `#227` | Admin Access person-first redesign | Immediate UX/CX redesign for replacing redundant tabs with one person workspace. |
+| `#328` | Corporate Partner data model and effective access context | Completed by `#332`; Corporate Partner membership source, portal access flag, and capability context. |
+| `#329` | Corporate Partner Technician management | Completed by `#332`; Corporate Partner-sponsored Technician grants, machine scoping, and one-year expiry. |
+| `#330` | Server-side support and supply entitlement enforcement | Completed by `#332`; capability-backed support and supply discount checks. |
 | `#331` | Access review, renewal, and expiry reminders | P1 renewal/review automation. |
 | `#259` | Admin UI access management for scoped admin roles | Minimal Scoped Admin implementation and `/admin/access` improvements. |
 | `#214` | Technician entitlement resolution in production | Production verification/restoration for Technician invite resolution. |
