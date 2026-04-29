@@ -63,7 +63,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Cart remains sugar-only and has no horizontal overflow on mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] Cart line-item title, quantity controls, price, and remove action stack cleanly on mobile
 - [ ] Plus page: pricing and boundaries are visible and clear
-- [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads (procedure docs, daily checklists, frequent updates)
+- [ ] Resources page shows Bloomjoy Plus teaser content for locked downloads, including Plus-ready worksheet/tool previews and reporting access where available
+- [ ] Plus page shows the Business Playbook worksheet/tool preview library and keeps actual downloads positioned as Plus/operator assets rather than public static files
 - [ ] Resources page leads with the Bloomjoy Business Playbook, shows visual article cards, and still exposes FAQ and Support Boundaries anchors
 - [ ] `/resources/business-playbook` direct-loads and shows category navigation plus all public playbook guides
 - [ ] Business Playbook article routes direct-load, show a real Bloomjoy image, useful visual blocks (tables/checklists/scorecards/scripts), source links, related articles, and quote/machine CTAs
