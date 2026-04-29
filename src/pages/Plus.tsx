@@ -22,6 +22,10 @@ const benefits = [
     description: 'Complete the Operator Essentials path and unlock a lightweight Bloomjoy completion certificate.',
   },
   {
+    title: 'Reporting Access',
+    description: 'Review assigned-machine sales, trends, and exports when reporting is connected to your account.',
+  },
+  {
     title: 'Concierge Support',
     description: 'Triage assistance, best-practice guidance, and translation/escalation with manufacturer support.',
   },
@@ -204,7 +208,8 @@ export default function PlusPage() {
             </p>
             <div className="mt-6 rounded-xl border border-border bg-background p-5 text-sm text-muted-foreground">
               Plus training now focuses on operator outcomes: quick-start setup, software and payment settings,
-              daily operation, cleaning and hygiene, troubleshooting, and a lightweight completion certificate path.
+              daily operation, cleaning and hygiene, reporting access where available, troubleshooting,
+              and a lightweight completion certificate path.
             </div>
             <div className="mt-10 grid gap-6 md:grid-cols-2">
               <div className="rounded-xl border border-border bg-background p-6">

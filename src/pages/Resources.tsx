@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ArrowRight,
+  BarChart3,
   BookOpen,
   ClipboardCheck,
   Download,
@@ -32,16 +33,29 @@ const plusTeasers = [
     title: "Operator Guides",
     description:
       "Task-first setup, pricing, timer, and payment guides so operators can find answers fast.",
+    metaLabel: "Plus download",
+    MetaIcon: Download,
   },
   {
     title: "Maintenance Checklists",
     description:
       "Cleaning, hygiene, and function-check references pulled from Bloomjoy training materials.",
+    metaLabel: "Plus download",
+    MetaIcon: Download,
+  },
+  {
+    title: "Reporting Dashboard",
+    description:
+      "Assigned-machine sales, trends, and exports for accounts with reporting access.",
+    metaLabel: "Portal feature",
+    MetaIcon: BarChart3,
   },
   {
     title: "Operator Certificate",
     description:
       "Plus members can complete the Operator Essentials path and unlock a lightweight completion certificate.",
+    metaLabel: "Plus download",
+    MetaIcon: Download,
   },
 ];
 
@@ -264,7 +278,7 @@ export default function ResourcesPage() {
 
       <section className="border-y border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
-          <div className="mx-auto max-w-4xl">
+          <div className="mx-auto max-w-6xl">
             <div className="flex flex-col gap-3 text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
                 Bloomjoy Plus Preview
@@ -274,29 +288,33 @@ export default function ResourcesPage() {
               </h2>
               <p className="text-muted-foreground">
                 Public playbooks help you plan. Plus adds the operator layer: task-based
-                guides, maintenance checklists, troubleshooting references, and the Bloomjoy
-                Operator Essentials certificate path.
+                guides, maintenance checklists, eligible reporting access, troubleshooting
+                references, and the Bloomjoy Operator Essentials certificate path.
               </p>
             </div>
 
-            <div className="mt-8 grid gap-4 md:grid-cols-3">
-              {plusTeasers.map((item) => (
-                <div key={item.title} className="rounded-xl border border-border bg-background p-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-display text-lg font-semibold text-foreground">
-                      {item.title}
-                    </h3>
-                    <Lock className="h-4 w-4 text-muted-foreground" />
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {plusTeasers.map((item) => {
+                const MetaIcon = item.MetaIcon;
+
+                return (
+                  <div key={item.title} className="rounded-xl border border-border bg-background p-5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-display text-lg font-semibold text-foreground">
+                        {item.title}
+                      </h3>
+                      <Lock className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                      {item.description}
+                    </p>
+                    <div className="mt-4 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <MetaIcon className="h-3.5 w-3.5" />
+                      {item.metaLabel}
+                    </div>
                   </div>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {item.description}
-                  </p>
-                  <div className="mt-4 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    <Download className="h-3.5 w-3.5" />
-                    Plus download
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="mt-8 flex flex-wrap justify-center gap-3">
