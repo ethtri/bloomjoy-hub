@@ -7,6 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Layout } from '@/components/layout/Layout';
 import { toast } from 'sonner';
 import {
+  getNormalizedBusinessPlaybookSourcePage,
+  getNormalizedInternalSourcePage,
   trackBuyerFlowPlaybookLinkClick,
   trackContactSubmitFromPlaybook,
 } from '@/lib/businessPlaybookAnalytics';
@@ -65,7 +67,8 @@ export default function ContactPage() {
   const querySource = searchParams.get('source');
   const initialType = queryType && validInquiryTypes.has(queryType) ? queryType : 'quote';
   const initialInterest = normalizeMachineInterest(searchParams.get('interest'));
-  const sourcePage = querySource?.trim() || '/contact';
+  const sourcePage = getNormalizedInternalSourcePage(querySource) ?? '/contact';
+  const playbookSourcePage = getNormalizedBusinessPlaybookSourcePage(querySource);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -97,23 +100,25 @@ export default function ContactPage() {
     setSubmitting(true);
     try {
       const cleanedMessage = formData.message.trim();
+      const submittedMachineInterest =
+        formData.type === 'quote' ? formData.interest.trim() : '';
 
       await createLeadSubmission({
         submissionType: formData.type as 'quote' | 'demo' | 'procurement' | 'general',
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
         message: cleanedMessage,
-        machineInterest: formData.type === 'quote' ? formData.interest.trim() : undefined,
+        machineInterest: submittedMachineInterest || undefined,
         sourcePage,
       });
-      if (sourcePage.startsWith('/resources/business-playbook')) {
+      if (playbookSourcePage) {
         trackContactSubmitFromPlaybook({
-          sourcePage,
+          sourcePage: playbookSourcePage,
           inquiryType: formData.type,
-          machineInterest: formData.type === 'quote' ? formData.interest.trim() : undefined,
+          machineInterest: submittedMachineInterest || undefined,
         });
       }
-      setLastSubmittedInterest(formData.interest || 'Not sure yet');
+      setLastSubmittedInterest(submittedMachineInterest || 'Not sure yet');
       toast.success('Message sent! We\'ll be in touch soon.');
       setFormData({
         name: '',

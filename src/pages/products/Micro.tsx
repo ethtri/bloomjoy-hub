@@ -90,7 +90,7 @@ export default function MicroPage() {
                 </Button>
                 <Button asChild variant="hero-outline" size="lg" className="w-full">
                   <Link to="/supplies">
-                    Reorder Sugar
+                    Shop Supplies
                   </Link>
                 </Button>
               </div>

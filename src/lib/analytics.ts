@@ -11,6 +11,7 @@ type EventName =
   | 'click_buy_sticks'
   | 'click_request_quote_commercial'
   | 'click_request_quote_mini'
+  | 'click_quote_micro'
   | 'click_buy_micro'
   | 'start_checkout'
   | 'purchase_completed'

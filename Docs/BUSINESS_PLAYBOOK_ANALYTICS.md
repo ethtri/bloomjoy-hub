@@ -21,7 +21,7 @@ This tracking is intentionally light. Events should explain content performance 
 - `slug`: Business Playbook article slug when applicable.
 - `category`: Business Playbook category when applicable.
 - `machine`: Machine context when applicable.
-- `source_page`: Playbook source path for successful contact submissions.
+- `source_page`: Normalized Playbook source path for successful contact submissions. Query strings, hashes, unknown slugs, and external URLs must not be sent.
 - `inquiry_type`: Contact inquiry type for successful Playbook-originated submissions.
 - `machine_interest`: Machine interest selected on a Playbook-originated quote request.
 
@@ -39,6 +39,7 @@ Do not add contact names, emails, free-form messages, phone numbers, addresses, 
 - `/contact`: Playbook-originated successful submissions and post-submit Playbook links.
 
 ## Review Cadence
+- Owner: Marketing/CMO owns the review; Sales and Operations should bring qualitative buyer questions and customer-success notes into the discussion.
 - First 30 days after launch: review weekly by article and surface.
 - After baseline is established: review monthly with sales feedback.
 - Watch for content that earns reads but not downstream intent; those articles likely need clearer examples, stronger CTAs, or better placement.

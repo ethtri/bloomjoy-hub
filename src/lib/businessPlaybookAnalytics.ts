@@ -13,6 +13,7 @@ type PlaybookSurface =
   | "playbook_index_featured"
   | "playbook_index_category"
   | "playbook_index_article_list"
+  | "playbook_article_inline"
   | "playbook_article_sidebar"
   | "playbook_article_related"
   | "machine_listing"
@@ -33,8 +34,37 @@ type PlaybookClickProps = {
 };
 
 const playbookArticlePrefix = "/resources/business-playbook/";
+const marketingOrigin = "https://www.bloomjoyusa.com";
 
 const stripQueryAndHash = (href: string) => href.split("?")[0]?.split("#")[0] ?? href;
+
+const getSafeInternalPath = (href?: string | null) => {
+  const trimmed = href?.trim();
+
+  if (!trimmed || trimmed.startsWith("//")) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(trimmed, marketingOrigin);
+    const isAbsoluteHttpUrl = /^https?:\/\//i.test(trimmed);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return undefined;
+    }
+
+    if (isAbsoluteHttpUrl && url.origin !== marketingOrigin) {
+      return undefined;
+    }
+
+    return url.pathname;
+  } catch {
+    return trimmed.startsWith("/") ? stripQueryAndHash(trimmed) : undefined;
+  }
+};
+
+export const getNormalizedInternalSourcePage = (sourcePage?: string | null) =>
+  getSafeInternalPath(sourcePage);
 
 const getDestinationType = (href: string) => {
   if (href === "/resources/business-playbook" || href.startsWith("/resources/business-playbook#")) {
@@ -65,7 +95,7 @@ const getDestinationType = (href: string) => {
 };
 
 export const getPlaybookArticleSlugFromHref = (href: string) => {
-  const path = stripQueryAndHash(href);
+  const path = getSafeInternalPath(href) ?? stripQueryAndHash(href);
 
   if (!path.startsWith(playbookArticlePrefix)) {
     return undefined;
@@ -85,6 +115,21 @@ export const getPlaybookArticleTrackingProps = (href: string) => {
     category: article?.category,
     destination_type: getDestinationType(href),
   };
+};
+
+export const getNormalizedBusinessPlaybookSourcePage = (sourcePage?: string | null) => {
+  const path = getSafeInternalPath(sourcePage);
+
+  if (path === "/resources/business-playbook") {
+    return path;
+  }
+
+  const slug = path ? getPlaybookArticleSlugFromHref(path) : undefined;
+  const article = slug
+    ? businessPlaybookArticles.find((candidate) => candidate.slug === slug)
+    : undefined;
+
+  return article ? `${playbookArticlePrefix}${article.slug}` : undefined;
 };
 
 const withDestinationMetadata = (props: PlaybookClickProps) => ({
@@ -118,10 +163,16 @@ export const trackContactSubmitFromPlaybook = ({
   inquiryType: string;
   machineInterest?: string;
 }) => {
-  const { slug, category } = getPlaybookArticleTrackingProps(sourcePage);
+  const normalizedSourcePage = getNormalizedBusinessPlaybookSourcePage(sourcePage);
+
+  if (!normalizedSourcePage) {
+    return;
+  }
+
+  const { slug, category } = getPlaybookArticleTrackingProps(normalizedSourcePage);
 
   trackEvent("submit_contact_from_playbook", {
-    source_page: sourcePage,
+    source_page: normalizedSourcePage,
     slug,
     category,
     inquiry_type: inquiryType,
