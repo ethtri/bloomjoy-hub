@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   Building2,
+  ChevronDown,
   ExternalLink,
   Handshake,
   KeyRound,
@@ -31,6 +32,14 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
@@ -227,6 +236,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const showAccountLink = portalAccessTier !== 'training';
   const homeUrl = isAuthenticated ? '/portal' : '/login';
   const isAdminPath = location.pathname.startsWith('/admin');
+  const signedInEmail = user?.email ?? '';
+  const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
   const visibleAdminDestinations = adminDestinations.filter(
     (item) => isSuperAdmin || !item.requiresSuperAdmin
   );
@@ -356,6 +367,55 @@ export function AppLayout({ children }: AppLayoutProps) {
     );
   };
 
+  const renderProfileMenu = () => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="max-w-[15rem] gap-2"
+          aria-label={t('app.openProfileMenu')}
+        >
+          <User className="h-4 w-4 shrink-0" />
+          <span className="max-w-[9rem] truncate">{profileMenuLabel}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel className="space-y-1">
+          <span className="block text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            {t('app.signedInAs')}
+          </span>
+          <span className="block truncate text-sm font-semibold text-foreground">
+            {signedInEmail || profileMenuLabel}
+          </span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {showAccountLink && (
+          <>
+            <DropdownMenuItem asChild>
+              <Link to={accountUrl} className="cursor-pointer gap-2">
+                <Settings className="h-4 w-4" />
+                {t('app.account')}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuItem
+          className="cursor-pointer gap-2"
+          onSelect={(event) => {
+            event.preventDefault();
+            void handleSignOut();
+          }}
+        >
+          <LogOut className="h-4 w-4" />
+          {t('app.signOut')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-muted/20">
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
@@ -395,20 +455,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               </a>
 
               {isAuthenticated ? (
-                <>
-                  {showAccountLink && (
-                    <Link to={accountUrl}>
-                      <Button variant="outline" size="sm">
-                        <Settings className="mr-2 h-4 w-4" />
-                        {t('app.account')}
-                      </Button>
-                    </Link>
-                  )}
-                  <Button variant="outline" size="sm" onClick={handleSignOut}>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    {t('app.signOut')}
-                  </Button>
-                </>
+                renderProfileMenu()
               ) : (
                 <a href={marketingHomeUrl}>
                   <Button variant="outline" size="sm">

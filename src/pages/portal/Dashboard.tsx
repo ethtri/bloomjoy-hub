@@ -116,7 +116,6 @@ export default function PortalDashboard() {
     reportingMachineCount,
     reportingLocationCount,
     portalAccessTier,
-    signOut,
   } = useAuth();
   const onboardingProgress = getOnboardingProgress(user?.email);
   const { data: library = [] } = useTrainingLibrary(canAccessTraining);
@@ -283,11 +282,6 @@ export default function PortalDashboard() {
                 tone: 'muted',
               },
             ]}
-            actions={
-              <Button variant="outline" size="sm" onClick={() => signOut()}>
-                {t('dashboard.signOut')}
-              </Button>
-            }
           >
             <div className="grid gap-4 xl:grid-cols-[1.35fr,0.95fr]">
               <div className="rounded-[24px] border border-border bg-background p-5 shadow-[var(--shadow-sm)] sm:p-6">

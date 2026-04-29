@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ChevronDown, Shield } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NavLink } from '@/components/NavLink';
 import {
@@ -27,7 +27,7 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
-  const { capabilities, hasReportingAccess, isAdmin, isCorporatePartner, portalAccessTier } =
+  const { capabilities, hasReportingAccess, isCorporatePartner, portalAccessTier } =
     useAuth();
   const { t } = useLanguage();
   const location = useLocation();
@@ -167,25 +167,6 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                           </SheetClose>
                         );
                       })}
-                      {isAdmin && (
-                        <SheetClose asChild>
-                          <NavLink
-                            to="/admin"
-                            className="flex w-full items-start gap-3 rounded-2xl border border-border bg-background px-4 py-4 transition-colors hover:bg-muted/40"
-                            activeClassName="border-primary/20 bg-primary/10"
-                          >
-                            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                              <Shield className="h-5 w-5" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="font-semibold text-foreground">{t('app.admin')}</span>
-                              <span className="mt-1 block text-sm text-muted-foreground">
-                                {t('portal.adminDescription')}
-                              </span>
-                            </span>
-                          </NavLink>
-                        </SheetClose>
-                      )}
                     </div>
                   </SheetContent>
                 </Sheet>
@@ -219,18 +200,6 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                   </NavLink>
                 );
               })}
-              {isAdmin && (
-                <NavLink
-                  to="/admin"
-                  className="rounded-full border border-transparent bg-background px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  activeClassName="border-primary/20 bg-primary/10 text-primary"
-                >
-                  <span className="flex items-center gap-2">
-                    <Shield className="h-4 w-4" />
-                    <span>{t('app.admin')}</span>
-                  </span>
-                </NavLink>
-              )}
             </nav>
           </div>
         </div>
