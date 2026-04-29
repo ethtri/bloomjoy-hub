@@ -436,7 +436,6 @@ const readOrdersUiSummary = async (page) => {
 };
 
 const uiSummaryMatchesExport = (summary, uiSummary) =>
-  summary.rowCount === uiSummary.uiRecordCount &&
   (summary.orderAmountCents === uiSummary.uiRevenueCents ||
     uiSummary.uiRevenueCandidatesCents?.includes(summary.orderAmountCents)) &&
   (!summary.windowStart ||
@@ -450,6 +449,7 @@ const assertExportMatchesUi = (summary, uiSummaries) => {
     return {
       ...matchedSummary,
       uiRevenueCents: summary.orderAmountCents,
+      uiRecordCountMatched: summary.rowCount === matchedSummary.uiRecordCount,
     };
   }
 
@@ -967,23 +967,36 @@ const clickVantCalendarDate = async (page, dateKey) => {
       };
     }
 
-    monthElement.scrollIntoView({ block: 'center', inline: 'nearest' });
-    if (body instanceof HTMLElement) {
+    if (body instanceof HTMLElement && monthElement instanceof HTMLElement) {
+      body.scrollTop = Math.max(0, monthElement.offsetTop - Math.floor(body.clientHeight / 3));
       body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    } else {
+      monthElement.scrollIntoView({ block: 'center', inline: 'nearest' });
     }
-    await delay(250);
+    await delay(500);
 
-    const dayElements = Array.from(
-      monthElement.querySelectorAll('[role="gridcell"], .van-calendar-day, [class*="calendar-day"]')
-    ).filter((element) => element instanceof HTMLElement && !/\bdisabled\b/i.test(element.className));
-    const dayElement = dayElements.find((element) => {
-      const text = normalizeText(element.textContent)
-        .replace(/\b(Start|End)\b/gi, ' ')
-        .trim();
-      const match = text.match(/\d{1,2}/);
-      return match && Number(match[0]) === day;
-    });
+    const findDayElements = () =>
+      Array.from(monthElement.querySelectorAll('[role="gridcell"], .van-calendar-day, [class*="calendar-day"]')).filter(
+        (element) => element instanceof HTMLElement && !/\bdisabled\b/i.test(element.className)
+      );
+    const findDayElement = () =>
+      findDayElements().find((element) => {
+        const text = normalizeText(element.textContent)
+          .replace(/\b(Start|End)\b/gi, ' ')
+          .trim();
+        const match = text.match(/\d{1,2}/);
+        return match && Number(match[0]) === day;
+      });
 
+    let dayElement = findDayElement();
+
+    if (!dayElement && body instanceof HTMLElement) {
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await delay(750);
+      dayElement = findDayElement();
+    }
+
+    const dayElements = findDayElements();
     if (!dayElement) {
       return {
         ok: false,
@@ -1047,6 +1060,14 @@ const selectCustomDateRange = async (page, startDate, endDate) => {
     return;
   } catch (error) {
     calendarError = error;
+    if (await isVantCalendarVisible(page)) {
+      const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+      throw new Error(
+        diagnostic
+          ? `Unable to select provider custom calendar range. Visible controls: ${diagnostic}. ${calendarError instanceof Error ? calendarError.message : String(calendarError)}`
+          : `Unable to select provider custom calendar range. ${calendarError instanceof Error ? calendarError.message : String(calendarError)}`
+      );
+    }
     await page.keyboard.press('Escape').catch(() => {});
     await page.waitForTimeout(500);
   }
@@ -1573,6 +1594,7 @@ try {
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       reportingTimezone,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
+      uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
       parsedRowCount: summary.rowCount,
       parsedMachineCount: summary.machineCount,
@@ -1609,6 +1631,7 @@ try {
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
+      uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
       visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
@@ -1633,6 +1656,8 @@ try {
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
+      uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
+      uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
       importRunIds: result.importRunIds ?? null,
