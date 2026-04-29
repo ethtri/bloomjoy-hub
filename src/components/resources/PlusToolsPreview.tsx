@@ -4,10 +4,10 @@ import {
   BarChart3,
   CalendarCheck2,
   ClipboardCheck,
-  Download,
   FileCheck2,
   FileText,
   Lock,
+  LogIn,
   MapPinned,
   MessageSquareText,
   Wrench,
@@ -47,8 +47,8 @@ const extraIcons: Record<PlusOperatorExtra["icon"], typeof ClipboardCheck> = {
 export function PlusToolsPreview({
   surface,
   introLabel = "Bloomjoy Plus Preview",
-  heading = "Plus-ready worksheets for serious operators",
-  description = "Public playbooks help you plan. Plus adds the operator layer: downloadable worksheets, daily job aids, maintenance references, eligible reporting access, and the Operator Essentials path.",
+  heading = "Plus-ready worksheet previews for serious operators",
+  description = "Public playbooks help you plan. Plus adds the operator layer: worksheet previews, daily job aids, maintenance references, connected reporting where enabled, and the Operator Essentials path.",
   showCtas = true,
   operatorLoginUrl,
 }: PlusToolsPreviewProps) {
@@ -188,7 +188,7 @@ export function PlusToolsPreview({
                   })
                 }
               >
-                <Download className="mr-2 h-4 w-4" />
+                <LogIn className="mr-2 h-4 w-4" />
                 Operator Login
               </a>
             </Button>

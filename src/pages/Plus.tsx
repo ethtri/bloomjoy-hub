@@ -24,8 +24,8 @@ const benefits = [
     description: 'Complete the Operator Essentials path and unlock a lightweight Bloomjoy completion certificate.',
   },
   {
-    title: 'Reporting Access',
-    description: 'Review assigned-machine sales, trends, and exports when reporting is connected to your account.',
+    title: 'Connected Reporting',
+    description: 'Review assigned-machine sales, trends, and exports when reporting has been enabled for your account.',
   },
   {
     title: 'Concierge Support',
@@ -177,8 +177,8 @@ export default function PlusPage() {
           <PlusToolsPreview
             surface="plus_page"
             introLabel="Operator tool library"
-            heading="Downloadable worksheets for the operator layer"
-            description="Plus is where the public Playbook turns into reusable operating tools: budget worksheets, pitch scripts, launch checklists, daily job aids, venue scorecards, reporting access where available, and training references."
+            heading="Plus-ready worksheets for the operator layer"
+            description="Plus is where the public Playbook turns into member-access operating tools: budget worksheets, pitch scripts, launch checklists, daily job aids, venue scorecards, connected reporting where enabled, and training references."
             showCtas={false}
           />
         </div>

@@ -254,7 +254,7 @@ export default function ResourcesPage() {
             </p>
             <Accordion
               type="multiple"
-              defaultValue={resourcesFaqs.map((_, index) => `faq-${index}`)}
+              defaultValue={["faq-0"]}
               className="mt-6"
             >
               {resourcesFaqs.map((faq, i) => (

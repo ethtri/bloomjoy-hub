@@ -123,9 +123,9 @@ export const businessPlaybookPlusTools: BusinessPlaybookPlusTool[] = [
 
 export const plusOperatorExtras: PlusOperatorExtra[] = [
   {
-    title: "Reporting Dashboard",
+    title: "Connected Reporting Views",
     description:
-      "Assigned-machine sales, trends, and exports when reporting access is connected to the account.",
+      "Assigned-machine sales, trends, and exports when reporting has been enabled for the account.",
     icon: "reporting",
   },
   {
