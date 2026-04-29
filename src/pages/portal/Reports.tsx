@@ -1338,23 +1338,9 @@ function PartnerDashboardView() {
   const hasBlockingWarnings = blockingWarnings.length > 0;
   const previewFetching = selectedPreviewFetching || trendPreviewFetching;
   const trendLabel = getPartnerModeLabel(periodMode);
-  const selectedPeriodSummaryLabel = selectedPeriod
-    ? periodMode === 'weekly'
-      ? `Selected week ending ${formatDate(selectedPeriod.dateTo)}`
-      : periodMode === 'month_to_date'
-        ? `Month to date through ${formatDate(selectedPeriod.dateTo)}`
-        : `Completed month ${formatMonth(selectedPeriod.dateFrom)}`
-    : 'No completed period';
-  const selectedPeriodEmptyMessage = !selectedPartnershipId
-    ? 'Select a partnership'
-    : periodOptions.length === 0
-      ? periodMode === 'month_to_date'
-        ? 'Month-to-date reporting is unavailable'
-        : `No completed ${getPartnerPeriodNoun(periodMode)}s available`
-      : 'Select a completed period';
-  const selectedPeriodSummaryRange = selectedPeriod
-    ? `${formatDate(selectedPeriod.dateFrom)} through ${formatDate(selectedPeriod.dateTo)}`
-    : selectedPeriodEmptyMessage;
+  const inProgressPeriodLabel = selectedPeriod?.isInProgress
+    ? `Data through ${formatDate(selectedPeriod.dateTo)}`
+    : '';
   const partnerExportDisabled =
     !preview ||
     !currentPeriod ||
@@ -1606,23 +1592,23 @@ function PartnerDashboardView() {
               </div>
             </div>
 
-            <div
-              aria-live="polite"
-              className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:flex sm:items-center sm:justify-between sm:gap-4"
-            >
-              <span className="font-medium text-foreground">
-                {selectedPeriodSummaryLabel}
-                {selectedPeriod?.isInProgress && (
+            {selectedPeriod?.isInProgress && (
+              <div
+                aria-live="polite"
+                className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground sm:flex sm:items-center sm:justify-between sm:gap-4"
+              >
+                <span className="font-medium text-foreground">
+                  Month-to-date reporting
                   <Badge variant="secondary" className="ml-2 align-middle">
                     In progress
                   </Badge>
-                )}
-              </span>
-              <span className="block sm:text-right">
-                {selectedMachineLabel ? `${selectedMachineLabel} - ` : ''}
-                {selectedPeriodSummaryRange}
-              </span>
-            </div>
+                </span>
+                <span className="block sm:text-right">
+                  {selectedMachineLabel ? `${selectedMachineLabel} - ` : ''}
+                  {inProgressPeriodLabel}
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1893,9 +1879,6 @@ function PartnerAnswerBand({
 }) {
   const current = currentPeriod ?? preview.summary;
   const previous = previousPeriod;
-  const periodLabel = currentPeriod
-    ? formatPartnerPeriod(currentPeriod, periodMode)
-    : `${formatDate(preview.dateFrom)} - ${formatDate(preview.dateTo)}`;
   const periodNoun = getPartnerComparisonNoun(periodMode);
   const scopeLabel = selectedMachineLabel ?? 'All machines';
 
@@ -1904,7 +1887,7 @@ function PartnerAnswerBand({
       <CardHeader className="pb-3">
         <CardTitle className="text-xl">Partner performance summary</CardTitle>
         <CardDescription>
-          {preview.partnershipName} - {scopeLabel} - {periodLabel} - {trendLabel} view
+          {preview.partnershipName} - {scopeLabel} - {trendLabel} view
           {isInProgressPeriod ? ' - in progress' : ''}
         </CardDescription>
       </CardHeader>
