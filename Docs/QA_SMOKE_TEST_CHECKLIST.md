@@ -108,6 +108,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
+- [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
+- [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
+- [ ] Portal section navigation labels `/portal/account` as Settings and does not show a separate Admin link for admin users
+- [ ] Mobile app navigation keeps Account Settings and Sign Out as session utilities without duplicate session or admin actions in the same sheet
 - [ ] Signed-in `/portal/account` language preference switches core portal navigation, dashboard/reporting/training/support/account entry labels, then persists after refresh
 - [ ] On mobile (`390x844`), Chinese app-shell and portal navigation labels fit without horizontal page overflow
 - [ ] User with reporting access sees Reporting in portal navigation, quick actions, and the above-the-fold dashboard reporting card linking to `/portal/reports`
