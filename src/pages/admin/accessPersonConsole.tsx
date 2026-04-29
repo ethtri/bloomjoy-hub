@@ -23,6 +23,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  fetchAdminAccessReviewQueue,
+  type AdminAccessReviewItem,
+} from '@/lib/adminAccessReview';
+import {
   fetchAdminAccountSummaries,
   fetchMachineInventoryForAccount,
   grantPlusAccessAdmin,
@@ -456,6 +460,7 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
       queryClient.invalidateQueries({ queryKey: ['admin-governance-roles'] }),
       queryClient.invalidateQueries({ queryKey: ['admin-corporate-partner-access-options'] }),
       queryClient.invalidateQueries({ queryKey: ['admin-person-audit'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-access-review-queue'] }),
     ]);
   };
 
@@ -483,6 +488,25 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
       return;
     }
     setSelectedPerson({ email: value, userId: null, label: value });
+  };
+
+  const handleSelectReviewItem = (item: AdminAccessReviewItem) => {
+    const label = item.personEmail ?? item.userId ?? item.sourceLabel;
+    const searchValue = item.workspaceSearch ?? item.personEmail ?? item.userId ?? '';
+
+    if (!item.personEmail && !item.userId) {
+      toast.error('This review item is missing a person identifier.');
+      return;
+    }
+
+    setSearchDraft(searchValue);
+    setSubmittedSearch('');
+    setSelectedPerson({
+      email: item.personEmail,
+      userId: item.userId,
+      label,
+    });
+    setShowActivity(false);
   };
 
   return (
@@ -592,6 +616,8 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
         </div>
       </section>
 
+      {!selectedPerson && <AccessReviewQueuePanel onSelectItem={handleSelectReviewItem} />}
+
       {!selectedPerson && showActivity && <GlobalActivityPanel />}
 
       {selectedPerson && identity ? (
@@ -670,6 +696,168 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
       ) : null}
     </div>
   );
+}
+
+function AccessReviewQueuePanel({
+  onSelectItem,
+}: {
+  onSelectItem: (item: AdminAccessReviewItem) => void;
+}) {
+  const [activeFilter, setActiveFilter] = useState<'all' | AdminAccessReviewItem['severity']>('all');
+  const {
+    data: queue,
+    isFetching,
+    error,
+  } = useQuery({
+    queryKey: ['admin-access-review-queue', 30],
+    queryFn: () => fetchAdminAccessReviewQueue({ windowDays: 30, limit: 100 }),
+    staleTime: 1000 * 60,
+  });
+
+  const items = queue?.items ?? [];
+  const filteredItems =
+    activeFilter === 'all' ? items : items.filter((item) => item.severity === activeFilter);
+  const urgentCount = items.filter((item) => item.severity === 'urgent').length;
+  const soonCount = items.filter((item) => item.severity === 'soon').length;
+  const reviewCount = items.filter((item) => item.severity === 'review').length;
+  const filters: Array<{ key: 'all' | AdminAccessReviewItem['severity']; label: string; count: number }> = [
+    { key: 'all', label: 'All', count: items.length },
+    { key: 'urgent', label: 'Urgent', count: urgentCount },
+    { key: 'soon', label: 'Soon', count: soonCount },
+    { key: 'review', label: 'Review', count: reviewCount },
+  ];
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 sm:p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">Secondary</Badge>
+            {isFetching ? <Badge variant="outline">Refreshing</Badge> : null}
+          </div>
+          <h2 className="mt-2 font-display text-xl font-semibold text-foreground">
+            Access needing review
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            Reminders for expiring access, inactive Corporate Partner sources, and broad admin
+            grants. Choose a person to review the source card before changing anything.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          {filters.map((filter) => (
+            <Button
+              key={filter.key}
+              type="button"
+              variant={activeFilter === filter.key ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setActiveFilter(filter.key)}
+              className="justify-between gap-2"
+            >
+              <span>{filter.label}</span>
+              <span>{filter.count}</span>
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          Unable to load access review reminders.
+        </div>
+      )}
+
+      {!error && items.length === 0 && !isFetching ? (
+        <div className="mt-4 rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+          No expiring or high-risk access is currently inside the {queue?.windowDays ?? 30}-day
+          review window.
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {filteredItems.slice(0, 12).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onSelectItem(item)}
+            className="rounded-md border border-border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-muted/30"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={item.severity === 'urgent' ? 'destructive' : 'outline'}>
+                    {formatReviewSeverity(item)}
+                  </Badge>
+                  <Badge variant="secondary">{formatReviewKind(item.kind)}</Badge>
+                </div>
+                <p className="mt-2 break-words text-sm font-semibold text-foreground">
+                  {item.personEmail ?? item.userId ?? 'Unknown person'}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{item.sourceLabel}</p>
+              </div>
+              <Clock3 className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <SummaryMetric label="When" value={formatReviewWhen(item)} />
+              <SummaryMetric label="Where" value={item.scopeLabel} />
+            </div>
+
+            <div className="mt-3 rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">{item.actionLabel}</p>
+              {item.reason ? <p className="mt-1">Reason: {item.reason}</p> : null}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {filteredItems.length > 12 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Showing the first 12 of {filteredItems.length} matching review reminders.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function formatReviewKind(kind: string) {
+  switch (kind) {
+    case 'technician_expired':
+      return 'Technician expired';
+    case 'technician_expiring':
+      return 'Technician expires';
+    case 'corporate_partner_expired':
+      return 'Partner expired';
+    case 'corporate_partner_expiring':
+      return 'Partner expires';
+    case 'corporate_partner_inactive':
+      return 'Inactive partner';
+    case 'plus_grant_expired':
+      return 'Plus expired';
+    case 'plus_grant_expiring':
+      return 'Plus expires';
+    case 'global_admin_review':
+      return 'Global admin';
+    case 'scoped_admin_review':
+      return 'Scoped admin';
+    default:
+      return 'Access review';
+  }
+}
+
+function formatReviewSeverity(item: AdminAccessReviewItem) {
+  if (item.severity === 'urgent') return item.daysUntilDue !== null && item.daysUntilDue < 0 ? 'Expired' : 'Urgent';
+  if (item.severity === 'soon') return 'Soon';
+  return 'Review';
+}
+
+function formatReviewWhen(item: AdminAccessReviewItem) {
+  const dueDate = item.expiresAt ?? item.reviewBy;
+  if (!dueDate) return 'No expiry; periodic review';
+  if (item.daysUntilDue === null) return formatDate(dueDate);
+  if (item.daysUntilDue < 0) return `${formatDate(dueDate)} (${Math.abs(item.daysUntilDue)} days overdue)`;
+  if (item.daysUntilDue === 0) return `${formatDate(dueDate)} (today)`;
+  return `${formatDate(dueDate)} (${item.daysUntilDue} days)`;
 }
 
 function EffectiveAccessSummary({
@@ -866,6 +1054,38 @@ function SummaryMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function getExpiryReviewState(value: string | null) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+
+  const daysUntilExpiry = Math.ceil((timestamp - Date.now()) / (1000 * 60 * 60 * 24));
+  if (daysUntilExpiry < 0) {
+    return { label: `${Math.abs(daysUntilExpiry)} days overdue`, urgent: true };
+  }
+  if (daysUntilExpiry === 0) {
+    return { label: 'Expires today', urgent: true };
+  }
+  if (daysUntilExpiry <= 7) {
+    return { label: `Expires in ${daysUntilExpiry} days`, urgent: true };
+  }
+  if (daysUntilExpiry <= 30) {
+    return { label: `Review in ${daysUntilExpiry} days`, urgent: false };
+  }
+  return null;
+}
+
+function ExpiryReviewBadge({ value }: { value: string | null }) {
+  const state = getExpiryReviewState(value);
+  if (!state) return null;
+
+  return (
+    <Badge className="w-fit" variant={state.urgent ? 'destructive' : 'outline'}>
+      {state.label}
+    </Badge>
+  );
+}
+
 function SourceCard({
   icon: Icon,
   title,
@@ -940,6 +1160,8 @@ function PlusCustomerAccessCard({
     account?.paid_subscription_active && !account.membership_cancel_at_period_end
   );
   const freeGrantId = account?.plus_grant_id ?? plusSource.freeGrantId;
+  const plusGrantExpiry = account?.plus_grant_expires_at ?? plusSource.freeGrantExpiresAt;
+  const plusGrantReviewState = getExpiryReviewState(plusGrantExpiry);
   const isActive = Boolean(account?.has_plus_access ?? plusSource.hasPlusAccess);
 
   useEffect(() => {
@@ -1022,9 +1244,15 @@ function PlusCustomerAccessCard({
         />
         <SummaryMetric
           label="Admin grant expiry"
-          value={formatDate(account?.plus_grant_expires_at ?? plusSource.freeGrantExpiresAt)}
+          value={formatDate(plusGrantExpiry)}
         />
       </div>
+
+      {plusGrantReviewState && (
+        <div className="mt-3">
+          <ExpiryReviewBadge value={plusGrantExpiry} />
+        </div>
+      )}
 
       {paidSubscriptionBlocksGrant && (
         <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -1281,9 +1509,12 @@ function CorporatePartnerAccessCard({
                     Reason: {membership.grantReason} / expires {formatDate(membership.expiresAt)}
                   </p>
                 </div>
-                <Badge className="w-fit" variant={membership.isActive ? 'default' : 'outline'}>
-                  {membership.status}
-                </Badge>
+                <div className="flex flex-wrap gap-2">
+                  <ExpiryReviewBadge value={membership.expiresAt} />
+                  <Badge className="w-fit" variant={membership.isActive ? 'default' : 'outline'}>
+                    {membership.status}
+                  </Badge>
+                </div>
               </div>
               {membership.isActive && (
                 <div className="mt-3 space-y-2">
@@ -1520,9 +1751,12 @@ function TechnicianAccessCard({ effectiveAccess }: { effectiveAccess: EffectiveA
                     Sponsor: {grant.partnerName ?? grant.sponsorType} / expires {formatDate(grant.expiresAt)}
                   </p>
                 </div>
-                <Badge className="w-fit" variant={grant.isActive ? 'default' : 'outline'}>
-                  {grant.status}
-                </Badge>
+                <div className="flex flex-wrap gap-2">
+                  <ExpiryReviewBadge value={grant.expiresAt} />
+                  <Badge className="w-fit" variant={grant.isActive ? 'default' : 'outline'}>
+                    {grant.status}
+                  </Badge>
+                </div>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <SummaryMetric label="Machine scope" value={pluralize(grant.machineIds.length, 'machine')} />
@@ -1942,9 +2176,12 @@ function ScopedAdminAccessCard({
                     {pluralize(grant.scopes.filter((scope) => scope.active).length, 'machine scope')} / reason: {grant.grantReason}
                   </p>
                 </div>
-                <Badge className="w-fit" variant={grant.active ? 'default' : 'outline'}>
-                  {grant.active ? 'active' : 'revoked'}
-                </Badge>
+                <div className="flex flex-wrap gap-2">
+                  <ExpiryReviewBadge value={grant.expiresAt} />
+                  <Badge className="w-fit" variant={grant.active ? 'default' : 'outline'}>
+                    {grant.active ? 'active' : 'revoked'}
+                  </Badge>
+                </div>
               </div>
               {grant.active && (
                 <div className="mt-3 space-y-2">
