@@ -78,6 +78,10 @@ const exportDownloadTimeoutMs = parsePositiveInteger(
   process.env.PROVIDER_EXPORT_DOWNLOAD_TIMEOUT_MS ?? process.env.SUNZE_EXPORT_DOWNLOAD_TIMEOUT_MS,
   2 * 60 * 1000
 );
+const exportTaskClockSkewToleranceMs = parsePositiveInteger(
+  process.env.PROVIDER_EXPORT_TASK_CLOCK_SKEW_MS ?? process.env.SUNZE_EXPORT_TASK_CLOCK_SKEW_MS,
+  2 * 60 * 1000
+);
 const supportedDatePresets = new Set([
   'Today',
   'Yesterday',
@@ -301,20 +305,20 @@ const extractRevenueCandidatesCents = (lines) => {
 
 const extractRecordCount = (text) => {
   const patterns = [
-    /\bshowing\s+[0-9,]+\s*(?:-|\u2013)\s*[0-9,]+\s+of\s+([0-9,]+)\b/i,
-    /\btotal\D{0,20}([0-9,]+)\D{0,20}(?:items?|records?|orders?)\b/i,
-    /\b([0-9,]+)\s*(?:items?|records?|orders?)\b/i,
+    /\bshowing\s+[0-9,]+\s*(?:-|\u2013)\s*[0-9,]+\s+of\s+([0-9,]+)\b/gi,
+    /\btotal\D{0,20}([0-9,]+)\D{0,20}(?:items?|records?|orders?)\b/gi,
+    /\b([0-9,]+)\s*(?:items?|records?|orders?)\b/gi,
   ];
+  const candidates = [];
 
   for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
+    for (const match of String(text ?? '').matchAll(pattern)) {
       const parsed = parseInteger(match[1]);
-      if (parsed !== null) return parsed;
+      if (parsed !== null) candidates.push(parsed);
     }
   }
 
-  return null;
+  return candidates.length > 0 ? Math.max(...candidates) : null;
 };
 
 const collectVisibleTexts = async (page) =>
@@ -436,6 +440,7 @@ const readOrdersUiSummary = async (page) => {
 };
 
 const uiSummaryMatchesExport = (summary, uiSummary) =>
+  summary.rowCount === uiSummary.uiRecordCount &&
   (summary.orderAmountCents === uiSummary.uiRevenueCents ||
     uiSummary.uiRevenueCandidatesCents?.includes(summary.orderAmountCents)) &&
   (!summary.windowStart ||
@@ -449,7 +454,7 @@ const assertExportMatchesUi = (summary, uiSummaries) => {
     return {
       ...matchedSummary,
       uiRevenueCents: summary.orderAmountCents,
-      uiRecordCountMatched: summary.rowCount === matchedSummary.uiRecordCount,
+      uiRecordCountMatched: true,
     };
   }
 
@@ -1167,17 +1172,43 @@ const requestExportTask = async (page) => {
   return requestedAtMs;
 };
 
-const markNewestCompletedExportTask = async (page, requestedAtMs) =>
+const readVisibleExportTaskNos = async (page, baseUrl) => {
+  await page.goto(`${baseUrl}#/taskExportList`, { waitUntil: 'domcontentloaded' });
+  assertAllowedSunzeRoute(page);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+
+  return page.evaluate(() => {
+    const taskNos = new Set();
+    const text = document.body?.innerText || '';
+    for (const match of text.matchAll(/Task\s*No\.?\s*:?\s*([A-Za-z0-9-]{8,})/gi)) {
+      taskNos.add(match[1]);
+    }
+    return [...taskNos];
+  });
+};
+
+const markRequestedExportTaskForDownload = async (
+  page,
+  { requestedAtMs, ignoredTaskNos = [], targetTaskNo = null }
+) =>
   page.evaluate(
-    ({ minCreatedAtMs, toleranceMs }) => {
+    ({ minCreatedAtMs, toleranceMs, ignoredTaskNos: ignoredTaskNosArg, targetTaskNo: targetTaskNoArg }) => {
       const timestampPattern = /20\d{2}[/-]\d{1,2}[/-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}/g;
       const sanitize = (value) =>
         String(value ?? '')
+          .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
           .replace(/[A-Fa-f0-9]{16,}/g, '[id]')
           .replace(/\b\d{6,}\b/g, '[number]')
           .replace(/\s+/g, ' ')
           .trim()
           .slice(0, 240);
+      const maskTaskNo = (value) => {
+        const text = String(value ?? '');
+        return text ? `${text.slice(0, 4)}...[id]` : null;
+      };
+      const extractTaskNo = (text) =>
+        String(text ?? '').match(/Task\s*No\.?\s*:?\s*([A-Za-z0-9-]{8,})/i)?.[1] ?? null;
       const parseTimestamp = (value) => {
         const match = String(value ?? '').match(
           /(20\d{2})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})/
@@ -1207,6 +1238,12 @@ const markNewestCompletedExportTask = async (page, requestedAtMs) =>
         const fallback = withoutExpiry.match(timestampPattern);
         return fallback?.[0] ? parseTimestamp(fallback[0]) : null;
       };
+      const normalizeStatus = (text) => {
+        if (/Completed/i.test(text)) return 'Completed';
+        if (/Fail(?:ed|ure)?/i.test(text)) return 'Failed';
+        if (/Processing|Progress|Pending|Waiting|Running/i.test(text)) return 'Pending';
+        return 'Unknown';
+      };
 
       document
         .querySelectorAll('[data-bloomjoy-download-candidate]')
@@ -1220,44 +1257,68 @@ const markNewestCompletedExportTask = async (page, requestedAtMs) =>
           ) || element;
         return clickable instanceof HTMLElement ? clickable : null;
       };
-      const clickableElements = [
-        ...new Set(
-          Array.from(
-            document.querySelectorAll(
-              'button, a, [role="button"], .ant-btn, .nut-button, [class*="button"], [class*="Button"], span'
-            )
-          )
-            .filter((element) => (element.textContent || '').trim() === 'Download')
-            .map(findClickableDownloadElement)
-            .filter(Boolean)
-        ),
-      ];
-      const candidates = [];
-      const diagnostics = [];
+      const findDownloadElement = (root) => {
+        const elements = [
+          root,
+          ...root.querySelectorAll(
+            'button, a, [role="button"], .ant-btn, .nut-button, [class*="button"], [class*="Button"], span'
+          ),
+        ];
 
-      for (const element of clickableElements) {
-        let current = element;
-        for (let depth = 0; depth < 10 && current; depth += 1) {
-          const text = current.innerText || current.textContent || '';
-          if (/Completed/i.test(text) && /Task No/i.test(text)) {
-            const createdAtMs = extractCreatedAt(text);
-            const candidate = {
-              createdAtMs,
-              text: sanitize(text),
-              element,
-            };
-            diagnostics.push(candidate);
-            if (Number.isFinite(createdAtMs) && createdAtMs >= minCreatedAtMs - toleranceMs) {
-              candidates.push(candidate);
-            }
-            break;
-          }
-          current = current.parentElement;
+        return elements
+          .filter((element) => (element.textContent || '').trim() === 'Download')
+          .map(findClickableDownloadElement)
+          .find(Boolean);
+      };
+      const ignoredTaskNos = new Set(ignoredTaskNosArg);
+      const rowsByTaskNo = new Map();
+
+      for (const element of document.querySelectorAll('body *')) {
+        if (!(element instanceof HTMLElement)) continue;
+        const text = element.innerText || element.textContent || '';
+        if (!/Task\s*No/i.test(text) || text.length > 4000) continue;
+
+        const taskNo = extractTaskNo(text);
+        const createdAtMs = extractCreatedAt(text);
+        if (!taskNo || !Number.isFinite(createdAtMs)) continue;
+
+        const downloadElement = findDownloadElement(element);
+        const status = normalizeStatus(text);
+        const isCompleted = status === 'Completed' && Boolean(downloadElement);
+        const score = text.length - (isCompleted ? 2000 : 0) - (downloadElement ? 500 : 0);
+        const row = {
+          taskNo,
+          taskNoMasked: maskTaskNo(taskNo),
+          createdAtMs,
+          status,
+          isCompleted,
+          text: sanitize(text),
+          element: downloadElement,
+          score,
+        };
+        const existing = rowsByTaskNo.get(taskNo);
+
+        if (!existing || row.score < existing.score) {
+          rowsByTaskNo.set(taskNo, row);
         }
       }
 
-      candidates.sort((left, right) => right.createdAtMs - left.createdAtMs);
-      const match = candidates[0] ?? null;
+      const rows = [...rowsByTaskNo.values()].sort((left, right) => right.createdAtMs - left.createdAtMs);
+      const targetRow = targetTaskNoArg
+        ? rows.find((row) => row.taskNo === targetTaskNoArg) ?? null
+        : null;
+      const claimedRow =
+        targetRow ??
+        rows
+          .filter(
+            (row) =>
+              !ignoredTaskNos.has(row.taskNo) &&
+              Number.isFinite(row.createdAtMs) &&
+              row.createdAtMs >= minCreatedAtMs - toleranceMs
+          )
+          .sort((left, right) => left.createdAtMs - right.createdAtMs)[0] ??
+        null;
+      const match = claimedRow?.isCompleted ? claimedRow : null;
 
       if (match) {
         match.element.setAttribute('data-bloomjoy-download-candidate', 'true');
@@ -1265,26 +1326,33 @@ const markNewestCompletedExportTask = async (page, requestedAtMs) =>
 
       return {
         matched: Boolean(match),
-        createdAtMs: match?.createdAtMs ?? null,
-        taskText: match?.text ?? null,
-        visibleCompletedTasks: diagnostics
-          .sort((left, right) => (right.createdAtMs ?? 0) - (left.createdAtMs ?? 0))
+        taskNo: claimedRow?.taskNo ?? null,
+        taskNoMasked: claimedRow?.taskNoMasked ?? null,
+        createdAtMs: claimedRow?.createdAtMs ?? null,
+        status: claimedRow?.status ?? null,
+        taskText: claimedRow?.text ?? null,
+        visibleTasks: rows
           .slice(0, 5)
-          .map(({ createdAtMs, text }) => ({ createdAtMs, text })),
+          .map(({ createdAtMs, status, taskNoMasked, text }) => ({ createdAtMs, status, taskNoMasked, text })),
       };
     },
     {
       minCreatedAtMs: requestedAtMs,
-      toleranceMs: 2 * 60 * 1000,
+      toleranceMs: exportTaskClockSkewToleranceMs,
+      ignoredTaskNos,
+      targetTaskNo,
     }
   );
 
-const waitForDownloadFromAnyPage = (context, timeoutMs) =>
-  new Promise((resolve, reject) => {
+const waitForDownloadFromAnyPage = (context, timeoutMs) => {
+  let cleanup = () => {};
+  let settled = false;
+
+  const promise = new Promise((resolve, reject) => {
     const pageListeners = new Map();
     let timer = null;
 
-    const cleanup = () => {
+    cleanup = () => {
       if (timer) clearTimeout(timer);
       context.off('page', watchPage);
       for (const [watchedPage, listener] of pageListeners.entries()) {
@@ -1293,6 +1361,8 @@ const waitForDownloadFromAnyPage = (context, timeoutMs) =>
     };
 
     const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
       cleanup();
       callback(value);
     };
@@ -1312,10 +1382,21 @@ const waitForDownloadFromAnyPage = (context, timeoutMs) =>
     );
   });
 
-const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs) => {
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+    },
+  };
+};
+
+const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignoredTaskNos) => {
   const taskListUrl = `${baseUrl}#/taskExportList`;
   const deadline = Date.now() + exportTaskTimeoutMs;
   let lastTaskDiagnostic = null;
+  let targetTaskNo = null;
 
   while (Date.now() < deadline) {
     await page.goto(taskListUrl, { waitUntil: 'domcontentloaded' });
@@ -1323,15 +1404,38 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs) => {
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(1500);
 
-    const task = await markNewestCompletedExportTask(page, requestedAtMs);
+    const task = await markRequestedExportTaskForDownload(page, {
+      requestedAtMs,
+      ignoredTaskNos,
+      targetTaskNo,
+    });
     lastTaskDiagnostic = task;
 
+    if (!targetTaskNo && task.taskNo) {
+      targetTaskNo = task.taskNo;
+      console.warn(
+        `Pinned provider export task ${task.taskNoMasked || '[id]'} created at ${new Date(
+          task.createdAtMs
+        ).toISOString()} with status ${task.status || 'Unknown'}.`
+      );
+    }
+
     if (task.matched) {
-      console.warn(`Matched provider export task for download: ${task.taskText || 'sanitized task unavailable'}.`);
-      const downloadPromise = waitForDownloadFromAnyPage(page.context(), exportDownloadTimeoutMs);
-      await page.locator('[data-bloomjoy-download-candidate="true"]').first().click();
+      console.warn(
+        `Matched provider export task ${task.taskNoMasked || '[id]'} for download: ${
+          task.taskText || 'sanitized task unavailable'
+        }.`
+      );
+      const downloadWaiter = waitForDownloadFromAnyPage(page.context(), exportDownloadTimeoutMs);
+      try {
+        await page.locator('[data-bloomjoy-download-candidate="true"]').first().click();
+      } catch (error) {
+        downloadWaiter.cancel();
+        throw error;
+      }
+
       return {
-        download: await downloadPromise,
+        download: await downloadWaiter.promise,
         task,
       };
     }
@@ -1339,10 +1443,12 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs) => {
     await page.waitForTimeout(5000);
   }
 
-  const visibleTasks = lastTaskDiagnostic?.visibleCompletedTasks?.map((task) => task.text).join(' | ');
+  const visibleTasks = lastTaskDiagnostic?.visibleTasks
+    ?.map((task) => `${task.taskNoMasked || '[id]'} ${task.status || 'Unknown'} ${task.text}`)
+    .join(' | ');
   throw new Error(
     visibleTasks
-      ? `Provider export task did not complete within ${exportTaskTimeoutMs}ms. Recent completed tasks: ${visibleTasks}`
+      ? `Provider export task did not complete within ${exportTaskTimeoutMs}ms. Recent task diagnostics: ${visibleTasks}`
       : `Provider export task did not complete within ${exportTaskTimeoutMs}ms.`
   );
 };
@@ -1362,11 +1468,21 @@ const exportOrdersWorkbook = async () => {
 
   try {
     const baseUrl = await openOrdersPage(page);
+    const preExistingExportTaskNos = await readVisibleExportTaskNos(page, baseUrl);
+    await page.goto(`${baseUrl}#/orderCenter`, { waitUntil: 'domcontentloaded' });
+    assertAllowedSunzeRoute(page);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(2500);
     await selectOrdersDateFilter(page);
     const preExportUiSummary = await readOrdersUiSummary(page);
 
     const exportRequestedAtMs = await requestExportTask(page);
-    const { download, task } = await downloadCompletedExportTask(page, baseUrl, exportRequestedAtMs);
+    const { download, task } = await downloadCompletedExportTask(
+      page,
+      baseUrl,
+      exportRequestedAtMs,
+      preExistingExportTaskNos
+    );
     const filename = basename(await download.suggestedFilename());
     const filePath = join(downloadRoot, filename);
     await download.saveAs(filePath);

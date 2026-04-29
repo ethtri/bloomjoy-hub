@@ -45,6 +45,41 @@ const buildDateString = (year, month, day) =>
 const buildUtcIso = ({ year, month, day, hour = 0, minute = 0, second = 0 }) =>
   `${buildDateString(year, month, day)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}.000Z`;
 
+const isValidUtcDateTimeParts = ({ year, month, day, hour, minute, second }) => {
+  if (
+    ![year, month, day, hour, minute, second].every(Number.isFinite) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59 ||
+    second < 0 ||
+    second > 59
+  ) {
+    return false;
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day &&
+    parsed.getUTCHours() === hour &&
+    parsed.getUTCMinutes() === minute &&
+    parsed.getUTCSeconds() === second
+  );
+};
+
+const throwInvalidPaymentTime = (rowNumber) => {
+  throw new SunzeOrderParseError(`Invalid payment time at row ${rowNumber}.`, {
+    rowNumber,
+  });
+};
+
 export const parseTradeItemQuantity = (value) => {
   const source = normalizeSourceLabel(value);
 
@@ -148,32 +183,20 @@ const parsePaymentTime = (value, rowNumber) => {
     const minute = Number(minuteRaw);
     const second = Number(secondRaw);
 
-    if (
-      [year, month, day, hour, minute, second].every(Number.isFinite) &&
-      month >= 1 &&
-      month <= 12 &&
-      day >= 1 &&
-      day <= 31 &&
-      hour >= 0 &&
-      hour <= 23 &&
-      minute >= 0 &&
-      minute <= 59 &&
-      second >= 0 &&
-      second <= 59
-    ) {
+    if (isValidUtcDateTimeParts({ year, month, day, hour, minute, second })) {
       return {
         paymentTimeIso: buildUtcIso({ year, month, day, hour, minute, second }),
         saleDate: buildDateString(year, month, day),
       };
     }
+
+    throwInvalidPaymentTime(rowNumber);
   }
 
   const parsed = new Date(source);
 
   if (!source || !Number.isFinite(parsed.getTime())) {
-    throw new SunzeOrderParseError(`Invalid payment time at row ${rowNumber}.`, {
-      rowNumber,
-    });
+    throwInvalidPaymentTime(rowNumber);
   }
 
   return {

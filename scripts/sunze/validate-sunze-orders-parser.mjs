@@ -250,6 +250,10 @@ try {
     [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Order amount', -1)],
     'Invalid Order amount'
   );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment time', '2026/02/31 10:00:00')],
+    'Invalid payment time'
+  );
 
   console.log(
     JSON.stringify(
@@ -265,6 +269,7 @@ try {
           'unknown payment rejection',
           'unknown status rejection',
           'negative amount rejection',
+          'impossible payment date rejection',
           'zero no-pay normalization',
           'trade item quantity parsing',
           'duplicate order preservation',
