@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowRight, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,6 +15,45 @@ const machineInterestOptions = [
   ...MACHINE_INTEREST_OPTIONS,
   'Not sure yet',
 ];
+
+const getPostSubmitPlaybookLinks = (interest: string) => {
+  if (interest === 'Commercial Machine') {
+    return [
+      {
+        label: 'Read the Commercial location guide',
+        href: '/resources/business-playbook/best-locations-for-cotton-candy-vending-machines',
+      },
+      {
+        label: 'Prep your location-owner pitch',
+        href: '/resources/business-playbook/how-to-pitch-location-owners',
+      },
+    ];
+  }
+
+  if (interest === 'Mini Machine' || interest === 'Micro Machine') {
+    return [
+      {
+        label: 'Read the event business guide',
+        href: '/resources/business-playbook/mini-micro-event-catering-business-guide',
+      },
+      {
+        label: 'Compare vending vs. events',
+        href: '/resources/business-playbook/commercial-vending-vs-event-catering',
+      },
+    ];
+  }
+
+  return [
+    {
+      label: 'Start with the business launch guide',
+      href: '/resources/business-playbook/how-to-start-cotton-candy-vending-business',
+    },
+    {
+      label: 'Review the startup budget checklist',
+      href: '/resources/business-playbook/startup-budget-checklist-cotton-candy-machine-business',
+    },
+  ];
+};
 
 export default function ContactPage() {
   const [searchParams] = useSearchParams();
@@ -31,6 +71,7 @@ export default function ContactPage() {
     website: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [lastSubmittedInterest, setLastSubmittedInterest] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,6 +101,7 @@ export default function ContactPage() {
         machineInterest: formData.type === 'quote' ? formData.interest.trim() : undefined,
         sourcePage: querySource?.trim() || '/contact',
       });
+      setLastSubmittedInterest(formData.interest || 'Not sure yet');
       toast.success('Message sent! We\'ll be in touch soon.');
       setFormData({
         name: '',
@@ -77,6 +119,10 @@ export default function ContactPage() {
     }
   };
 
+  const postSubmitPlaybookLinks = lastSubmittedInterest
+    ? getPostSubmitPlaybookLinks(lastSubmittedInterest)
+    : [];
+
   return (
     <Layout>
       <section className="bg-gradient-to-b from-cream to-background py-12 sm:py-14 lg:py-16">
@@ -93,6 +139,34 @@ export default function ContactPage() {
       <section className="py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
+            {postSubmitPlaybookLinks.length > 0 && (
+              <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-5">
+                <div className="flex items-start gap-3">
+                  <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <div>
+                    <h2 className="font-display text-xl font-bold text-foreground">
+                      While we review your request
+                    </h2>
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                      These playbook guides can help you tighten your launch plan before the
+                      quote conversation.
+                    </p>
+                    <div className="mt-4 grid gap-2">
+                      {postSubmitPlaybookLinks.map((link) => (
+                        <Link
+                          key={link.href}
+                          to={link.href}
+                          className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                        >
+                          {link.label}
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="card-elevated p-8">
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="hidden" aria-hidden="true">
@@ -207,7 +281,7 @@ export default function ContactPage() {
                   />
                 </div>
                 <Button type="submit" variant="hero" size="lg" className="w-full" disabled={submitting}>
-                  {submitting ? 'Sending…' : 'Send Message'}
+                  {submitting ? 'Sending...' : 'Send Message'}
                 </Button>
               </form>
             </div>

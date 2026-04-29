@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowRight, Check } from 'lucide-react';
+import { AlertCircle, ArrowRight, BookOpen, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { ProductImageGallery } from '@/components/products/ProductImageGallery';
@@ -92,6 +92,22 @@ export default function MicroPage() {
                     Reorder Sugar
                   </Link>
                 </Button>
+              </div>
+
+              <div className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                <div className="flex items-start gap-3">
+                  <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                  <div>
+                    <p className="font-semibold text-foreground">Starting small?</p>
+                    <Link
+                      to="/resources/business-playbook/commercial-vending-vs-event-catering"
+                      className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                    >
+                      Compare vending, events, and Micro fit
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </div>
               </div>
 
               {/* Features */}

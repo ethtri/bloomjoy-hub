@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Check, ArrowRight } from 'lucide-react';
+import { Check, ArrowRight, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Layout } from '@/components/layout/Layout';
 import { trackEvent } from '@/lib/analytics';
@@ -20,6 +20,10 @@ const benefits = [
   {
     title: 'Operator Certificate',
     description: 'Complete the Operator Essentials path and unlock a lightweight Bloomjoy completion certificate.',
+  },
+  {
+    title: 'Reporting Access',
+    description: 'Review assigned-machine sales, trends, and exports when reporting is connected to your account.',
   },
   {
     title: 'Concierge Support',
@@ -142,7 +146,7 @@ export default function PlusPage() {
                   disabled={isStartingCheckout}
                 >
                   {isStartingCheckout
-                    ? 'Redirecting…'
+                    ? 'Redirecting...'
                     : user
                       ? 'Start Membership'
                       : 'Log In to Start Membership'}
@@ -166,6 +170,32 @@ export default function PlusPage() {
         </div>
       </section>
 
+      <section className="border-y border-border bg-background py-8">
+        <div className="container-page">
+          <div className="mx-auto flex max-w-4xl flex-col gap-4 rounded-xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+              <div>
+                <h2 className="font-display text-xl font-bold text-foreground">
+                  Planning before you join Plus?
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  The public Business Playbook covers startup budgeting, locations, pitches,
+                  and business setup. Plus adds the operator training layer after launch.
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/resources/business-playbook"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+            >
+              Open Playbook
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* Support Boundaries */}
       <section className="bg-muted/50 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
@@ -178,7 +208,8 @@ export default function PlusPage() {
             </p>
             <div className="mt-6 rounded-xl border border-border bg-background p-5 text-sm text-muted-foreground">
               Plus training now focuses on operator outcomes: quick-start setup, software and payment settings,
-              daily operation, cleaning and hygiene, troubleshooting, and a lightweight completion certificate path.
+              daily operation, cleaning and hygiene, reporting access where available, troubleshooting,
+              and a lightweight completion certificate path.
             </div>
             <div className="mt-10 grid gap-6 md:grid-cols-2">
               <div className="rounded-xl border border-border bg-background p-6">
@@ -200,7 +231,7 @@ export default function PlusPage() {
                   </li>
                   <li className="flex items-start gap-2">
                     <Check className="mt-0.5 h-4 w-4 shrink-0 text-sage" />
-                    US business hours (Mon–Fri, 9am–5pm EST)
+                    US business hours (Mon-Fri, 9am-5pm EST)
                   </li>
                 </ul>
                 <p className="mt-4 rounded-lg bg-amber/10 p-3 text-xs text-amber">

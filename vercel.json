@@ -53,7 +53,7 @@
       "status": 308
     },
     {
-      "src": "/(machines(?:/.*)?|products(?:/.*)?|supplies|plus|resources|about|contact|privacy|terms|billing-cancellation|cart)",
+      "src": "/(machines(?:/.*)?|products(?:/.*)?|supplies|plus|resources(?:/.*)?|about|contact|privacy|terms|billing-cancellation|cart)",
       "has": [
         {
           "type": "host",
@@ -98,6 +98,14 @@
     {
       "src": "/machines/(commercial-robotic-machine|mini|micro)/?",
       "dest": "/machines/$1.html"
+    },
+    {
+      "src": "/resources/business-playbook/?",
+      "dest": "/resources/business-playbook.html"
+    },
+    {
+      "src": "/resources/business-playbook/([^/]+)/?",
+      "dest": "/resources/business-playbook/$1.html"
     },
     {
       "src": "/(machines|supplies|plus|resources|about|contact|privacy|terms|billing-cancellation)/?",

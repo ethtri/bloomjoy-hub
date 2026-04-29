@@ -200,6 +200,7 @@ export default function HomePage() {
                 {[
                   'Onboarding checklist & WeChat setup assistance',
                   'Training library access with video guides',
+                  'Assigned-machine reporting when connected',
                   'Member community access',
                   'Concierge support (triage, best-practices, escalation)',
                 ].map((benefit) => (

@@ -29,6 +29,12 @@ const Plus = lazyRoute(() => import("./pages/Plus"));
 const Contact = lazyRoute(() => import("./pages/Contact"));
 const About = lazyRoute(() => import("./pages/About"));
 const Resources = lazyRoute(() => import("./pages/Resources"));
+const BusinessPlaybookIndex = lazyRoute(
+  () => import("./pages/resources/BusinessPlaybookIndex")
+);
+const BusinessPlaybookArticle = lazyRoute(
+  () => import("./pages/resources/BusinessPlaybookArticle")
+);
 const Privacy = lazyRoute(() => import("./pages/Privacy"));
 const Terms = lazyRoute(() => import("./pages/Terms"));
 const BillingCancellation = lazyRoute(() => import("./pages/BillingCancellation"));
@@ -132,6 +138,11 @@ export const AppShell = () => (
           <Route path="/contact" element={<Contact />} />
           <Route path="/about" element={<About />} />
           <Route path="/resources" element={<Resources />} />
+          <Route path="/resources/business-playbook" element={<BusinessPlaybookIndex />} />
+          <Route
+            path="/resources/business-playbook/:slug"
+            element={<BusinessPlaybookArticle />}
+          />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/billing-cancellation" element={<BillingCancellation />} />
