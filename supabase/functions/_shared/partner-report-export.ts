@@ -176,6 +176,12 @@ const formatCurrency = (cents: unknown): string =>
     })
   }`;
 
+const formatDeductionCurrency = (cents: unknown): string => {
+  const roundedCents = Math.round(Math.abs(numberValue(cents)));
+  if (roundedCents === 0) return "$0.00";
+  return `-${formatCurrency(roundedCents)}`;
+};
+
 const formatCompactCurrency = (cents: unknown): string => {
   const dollars = Math.round(numberValue(cents)) / 100;
   const absolute = Math.abs(dollars);
@@ -485,10 +491,10 @@ export const buildPartnerReportCsv = ({
     csvRow(["Orders", formatInteger(summary.order_count)]),
     csvRow(["Sticks/items", formatInteger(summary.item_quantity)]),
     csvRow(["Gross sales", formatCurrency(summary.gross_sales_cents)]),
-    csvRow(["Refund impact", `-${formatCurrency(summary.refund_amount_cents)}`]),
-    csvRow(["Machine taxes", formatCurrency(summary.tax_cents)]),
-    csvRow([feeLabel, formatCurrency(summary.fee_cents)]),
-    csvRow([costLabel, formatCurrency(summary.cost_cents)]),
+    csvRow(["Refund impact", formatDeductionCurrency(summary.refund_amount_cents)]),
+    csvRow(["Machine taxes", formatDeductionCurrency(summary.tax_cents)]),
+    csvRow([feeLabel, formatDeductionCurrency(summary.fee_cents)]),
+    csvRow([costLabel, formatDeductionCurrency(summary.cost_cents)]),
     csvRow(["Net sales", formatCurrency(summary.net_sales_cents)]),
     csvRow([
       getPartnerPayoutLabel(payoutRecipientLabels),

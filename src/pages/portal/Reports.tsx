@@ -1212,13 +1212,21 @@ function PartnerDashboardView() {
   }, [preview?.machinePeriods]);
 
   useEffect(() => {
+    if (previewLoading || selectedPreviewFetching || !preview) return;
+
     if (
       selectedMachineId !== ALL_PARTNER_MACHINES &&
       !machineOptions.some((machine) => machine.id === selectedMachineId)
     ) {
       setSelectedMachineId(ALL_PARTNER_MACHINES);
     }
-  }, [machineOptions, selectedMachineId]);
+  }, [
+    machineOptions,
+    preview,
+    previewLoading,
+    selectedMachineId,
+    selectedPreviewFetching,
+  ]);
 
   const selectedMachine = machineOptions.find((machine) => machine.id === selectedMachineId);
   const selectedMachineLabel = selectedMachine?.label;
@@ -1359,7 +1367,9 @@ function PartnerDashboardView() {
   const selectedPeriodEmptyMessage = !selectedPartnershipId
     ? 'Select a partnership'
     : periodOptions.length === 0
-      ? `No completed ${getPartnerPeriodNoun(periodMode)}s available`
+      ? periodMode === 'month_to_date'
+        ? 'Month-to-date reporting is unavailable'
+        : `No completed ${getPartnerPeriodNoun(periodMode)}s available`
       : 'Select a completed period';
   const selectedPeriodSummaryRange = selectedPeriod
     ? `${formatDate(selectedPeriod.dateFrom)} through ${formatDate(selectedPeriod.dateTo)}`

@@ -131,7 +131,7 @@ const formatPeriodLabel = (
     : "weekly",
 ) => {
   if (periodMode === "month_to_date") {
-    return `Month to date: ${formatDateLabel(periodStartDate)} through ${
+    return `Month-to-date: ${formatDateLabel(periodStartDate)} through ${
       formatDateLabel(periodEndDate)
     }`;
   }
@@ -161,14 +161,58 @@ const getTrendRange = (request: ExportRequest) => {
   };
 };
 
-const normalizeUuidArray = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
+const isValidDateInput = (value: string) => {
+  if (!datePattern.test(value)) return false;
 
-  return [...new Set(
-    value
-      .map((entry) => String(entry).trim())
-      .filter((entry) => uuidPattern.test(entry)),
-  )].sort();
+  const date = dateFromInput(value);
+  return !Number.isNaN(date.getTime()) && dateInputFromDate(date) === value;
+};
+
+const isFirstDayOfMonth = (value: string) => value.endsWith("-01");
+
+const isSameCalendarMonth = (left: string, right: string) =>
+  left.slice(0, 7) === right.slice(0, 7);
+
+const getMonthEndDate = (value: string) => {
+  const date = dateFromInput(value);
+  return dateInputFromDate(
+    new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)),
+  );
+};
+
+const normalizeUuidArray = (
+  value: unknown,
+): { machineIds: string[]; error?: string } => {
+  if (value === undefined || value === null) return { machineIds: [] };
+
+  if (!Array.isArray(value)) {
+    return {
+      machineIds: [],
+      error: "machineIds must be an array of machine UUIDs.",
+    };
+  }
+
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      return {
+        machineIds: [],
+        error: "machineIds must contain only machine UUID strings.",
+      };
+    }
+
+    const machineId = entry.trim();
+    if (!uuidPattern.test(machineId)) {
+      return {
+        machineIds: [],
+        error: "machineIds must contain only valid machine UUIDs.",
+      };
+    }
+
+    normalized.push(machineId);
+  }
+
+  return { machineIds: [...new Set(normalized)].sort() };
 };
 
 const getDefaultPeriodMode = (
@@ -179,11 +223,17 @@ const getDefaultPeriodMode = (
 const normalizePeriodMode = (
   value: unknown,
   periodGrain: PartnerReportPeriodGrain,
-): PartnerReportPeriodMode => {
+): { periodMode: PartnerReportPeriodMode; error?: string } => {
   const mode = String(value ?? "").trim().toLowerCase();
-  return validPeriodModes.has(mode)
-    ? (mode as PartnerReportPeriodMode)
-    : getDefaultPeriodMode(periodGrain);
+  if (!mode) return { periodMode: getDefaultPeriodMode(periodGrain) };
+  if (!validPeriodModes.has(mode)) {
+    return {
+      periodMode: getDefaultPeriodMode(periodGrain),
+      error: "periodMode must be weekly, month_to_date, or completed_month.",
+    };
+  }
+
+  return { periodMode: mode as PartnerReportPeriodMode };
 };
 
 const getMachineScopeKey = (machineIds: string[]) =>
@@ -197,7 +247,9 @@ const resolveExportRequest = (
   const rawPeriodGrain = String(raw.periodGrain ?? "").trim();
   const hasExplicitPeriod = rawPeriodGrain.length > 0;
   const periodGrain = hasExplicitPeriod ? rawPeriodGrain : "reporting_week";
-  const machineIds = normalizeUuidArray(raw.machineIds);
+  const { machineIds, error: machineIdsError } = normalizeUuidArray(
+    raw.machineIds,
+  );
 
   if (!uuidPattern.test(partnershipId)) {
     return { error: "Valid partnershipId is required." };
@@ -205,6 +257,10 @@ const resolveExportRequest = (
 
   if (!validFormats.has(format)) {
     return { error: "format must be pdf, csv, or xlsx." };
+  }
+
+  if (machineIdsError) {
+    return { error: machineIdsError };
   }
 
   if (!validPeriodGrains.has(periodGrain)) {
@@ -216,7 +272,7 @@ const resolveExportRequest = (
     const periodEndDate = String(raw.dateTo ?? "").trim();
 
     if (
-      !datePattern.test(periodStartDate) || !datePattern.test(periodEndDate)
+      !isValidDateInput(periodStartDate) || !isValidDateInput(periodEndDate)
     ) {
       return { error: "Valid dateFrom and dateTo are required." };
     }
@@ -226,8 +282,14 @@ const resolveExportRequest = (
     }
 
     const normalizedPeriodGrain = periodGrain as PartnerReportPeriodGrain;
-    const periodMode = normalizePeriodMode(raw.periodMode, normalizedPeriodGrain);
-    const explicitPeriodLabel = String(raw.periodLabel ?? "").trim();
+    const { periodMode, error: periodModeError } = normalizePeriodMode(
+      raw.periodMode,
+      normalizedPeriodGrain,
+    );
+
+    if (periodModeError) {
+      return { error: periodModeError };
+    }
 
     if (periodMode === "weekly" && normalizedPeriodGrain !== "reporting_week") {
       return { error: "weekly periodMode requires reporting_week periodGrain." };
@@ -243,6 +305,31 @@ const resolveExportRequest = (
       };
     }
 
+    if (periodMode === "month_to_date") {
+      if (
+        !isFirstDayOfMonth(periodStartDate) ||
+        !isSameCalendarMonth(periodStartDate, periodEndDate)
+      ) {
+        return {
+          error:
+            "month_to_date periodMode requires dateFrom to be the first day of dateTo's month.",
+        };
+      }
+    }
+
+    if (periodMode === "completed_month") {
+      if (
+        !isFirstDayOfMonth(periodStartDate) ||
+        !isSameCalendarMonth(periodStartDate, periodEndDate) ||
+        periodEndDate !== getMonthEndDate(periodStartDate)
+      ) {
+        return {
+          error:
+            "completed_month periodMode requires dateFrom and dateTo to cover one full calendar month.",
+        };
+      }
+    }
+
     return {
       request: {
         partnershipId,
@@ -251,13 +338,12 @@ const resolveExportRequest = (
         periodMode,
         periodStartDate,
         periodEndDate,
-        periodLabel: explicitPeriodLabel ||
-          formatPeriodLabel(
-            normalizedPeriodGrain,
-            periodStartDate,
-            periodEndDate,
-            periodMode,
-          ),
+        periodLabel: formatPeriodLabel(
+          normalizedPeriodGrain,
+          periodStartDate,
+          periodEndDate,
+          periodMode,
+        ),
         machineIds,
         machineScopeKey: getMachineScopeKey(machineIds),
         useLegacyWeeklyPreview: false,
