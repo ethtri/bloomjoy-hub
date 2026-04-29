@@ -698,11 +698,43 @@ const clickFirstVisibleText = async (page, textPattern) => {
   await locator.click();
 };
 
+const clickVisibleTextIfPresent = async (page, textPattern, timeout = 2000) => {
+  const locator = page.getByText(textPattern).first();
+  try {
+    await locator.waitFor({ state: 'visible', timeout });
+    await locator.click();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const clickDateFilter = async (page) => {
   await page.getByText('Today').first().click().catch(async () => {
     await clickFirstVisibleText(page, /Today|Yesterday|Last \d+ Days|Last Month|Custom Range/i);
   });
   await page.waitForTimeout(500);
+};
+
+const openMoreFilters = async (page) => {
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(300);
+
+  const opened =
+    (await clickVisibleTextIfPresent(page, /^More$/i, 5000)) ||
+    (await page
+      .locator('button, [role="button"], div, span')
+      .filter({ hasText: /^More$/i })
+      .first()
+      .click()
+      .then(() => true)
+      .catch(() => false));
+
+  if (!opened) {
+    throw new Error('Unable to open provider advanced filters.');
+  }
+
+  await page.waitForTimeout(750);
 };
 
 const clickOptionalDateConfirm = async (page) => {
@@ -747,8 +779,19 @@ const fillVisibleDateInputs = async (page, startDate, endDate) => {
 
 const selectCustomDateRange = async (page, startDate, endDate) => {
   await clickDateFilter(page);
-  await page.getByText('Custom Range', { exact: true }).click();
+  let openedCustomRange =
+    (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+    (await clickVisibleTextIfPresent(page, /^Custom$/i));
   await page.waitForTimeout(750);
+
+  if (!openedCustomRange) {
+    await openMoreFilters(page);
+    openedCustomRange =
+      (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+      (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
+      (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
+    await page.waitForTimeout(750);
+  }
 
   const filled = await fillVisibleDateInputs(page, startDate, endDate);
   if (!filled) {
