@@ -716,11 +716,32 @@ const clickDateFilter = async (page) => {
   await page.waitForTimeout(500);
 };
 
+const scrollFilterPanels = async (page) => {
+  await page
+    .evaluate(() => {
+      const candidates = [
+        ...Array.from(
+          document.querySelectorAll(
+            '.ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown, .nut-popup, .nut-popover, [class*="dropdown"], [class*="popup"], [class*="filter"], [class*="Filter"]'
+          )
+        ),
+        document.scrollingElement,
+      ].filter(Boolean);
+
+      for (const element of candidates) {
+        if (!(element instanceof HTMLElement)) continue;
+        element.scrollTop = element.scrollHeight;
+      }
+    })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+};
+
 const openMoreFilters = async (page) => {
   await page.keyboard.press('Escape').catch(() => {});
   await page.waitForTimeout(300);
 
-  const opened =
+  let opened =
     (await clickVisibleTextIfPresent(page, /^More$/i, 5000)) ||
     (await page
       .locator('button, [role="button"], div, span')
@@ -729,6 +750,20 @@ const openMoreFilters = async (page) => {
       .click()
       .then(() => true)
       .catch(() => false));
+
+  if (!opened) {
+    await page.getByText('Today').first().click().catch(() => {});
+    await page.waitForTimeout(300);
+    opened =
+      (await clickVisibleTextIfPresent(page, /^More$/i, 5000)) ||
+      (await page
+        .locator('button, [role="button"], div, span')
+        .filter({ hasText: /^More$/i })
+        .first()
+        .click()
+        .then(() => true)
+        .catch(() => false));
+  }
 
   if (!opened) {
     throw new Error('Unable to open provider advanced filters.');
@@ -781,6 +816,7 @@ const selectCustomDateRange = async (page, startDate, endDate) => {
   let openedCustomRange = false;
 
   await openMoreFilters(page).catch(() => {});
+  await scrollFilterPanels(page);
   openedCustomRange =
     (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
     (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
@@ -794,10 +830,18 @@ const selectCustomDateRange = async (page, startDate, endDate) => {
     openedCustomRange =
       (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
       (await clickVisibleTextIfPresent(page, /^Custom$/i));
+    if (!openedCustomRange) {
+      await scrollFilterPanels(page);
+      openedCustomRange =
+        (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+        (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
+        (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
+    }
     await page.waitForTimeout(750);
 
     if (!openedCustomRange) {
       await openMoreFilters(page);
+      await scrollFilterPanels(page);
       openedCustomRange =
         (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
         (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
