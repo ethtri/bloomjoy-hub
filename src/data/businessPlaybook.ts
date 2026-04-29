@@ -148,6 +148,12 @@ const sbaStructure: PlaybookCitation = {
   url: "https://www.sba.gov/starting-business/choose-your-business-structure/",
 };
 
+const sbaLicensesPermits: PlaybookCitation = {
+  label: "Apply for licenses and permits",
+  source: "U.S. Small Business Administration",
+  url: "https://www.sba.gov/business-guide/launch-your-business/apply-licenses-and-permits",
+};
+
 const irsEin: PlaybookCitation = {
   label: "Employer Identification Number guidance",
   source: "Internal Revenue Service",
@@ -170,8 +176,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     category: "start",
     audience: "New commercial operators",
     machineFit: "Commercial Machine first, Mini for mobile tests",
-    updatedAt: "2026-04-28",
-    readingTime: "9 min read",
+    updatedAt: "2026-04-29",
+    readingTime: "13 min read",
     heroImage: commercialMachineImage,
     heroImageAlt: "Bloomjoy Commercial Machine ready for a venue placement",
     seoImagePath: "/seo/commercial-machine.jpg",
@@ -179,7 +185,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     keyTakeaways: [
       "Start with the business model, not the machine alone.",
       "The best early plan has one target venue type, one launch budget, and one service rhythm.",
-      "Bloomjoy can help with machine fit, but local business setup and permits require local research.",
+      "The first 30 days should feel like a small operating plan, not a scramble after delivery.",
     ],
     visualSummary: {
       title: "A clean first launch has six moving parts",
@@ -211,10 +217,23 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     },
     sections: [
       {
+        heading: "Before you buy, picture the first Tuesday",
+        body: [
+          "The most useful way to plan a vending business is to imagine an ordinary operating day, not the launch announcement. The machine is already placed. The first rush has passed. Someone needs to check supplies, wipe the area, confirm payments, answer the venue manager, and decide whether the machine is earning the right spot.",
+          "That is where good operators separate themselves. They do not only ask, 'Can this machine make cotton candy?' They ask, 'Who owns the refill routine, what happens when a venue calls, where do supplies live, and how will I know this location is working?'",
+          "Bloomjoy sells equipment, but we also operate machines. That changes how we think about the purchase. A machine is exciting. A repeatable operating rhythm is what gives it a real chance to become a business.",
+        ],
+        callout: {
+          title: "What we would tell a first-time operator",
+          body: "Do not start with ten possible ideas. Start with one target customer, one venue type, one machine fit, and one weekly routine you can actually keep.",
+        },
+      },
+      {
         heading: "Start with the business model",
         body: [
           "A cotton candy machine can be a vending placement, an event attraction, a catering add-on, or a test of a larger venue strategy. The machine is the fun part. The business is the repeatable system around it.",
-          "For most new operators, the simplest first question is: do you want a machine that earns from a fixed location, or do you want a portable offer that you bring to events?",
+          "For most new operators, the simplest first question is: do you want a machine that earns from a fixed location, or do you want a portable offer that you bring to events? Those are both good businesses, but they ask different things from you.",
+          "A fixed-location operator spends more time on site selection, owner relationships, uptime, restock, and reporting. An event operator spends more time on booking, transport, setup, line flow, staffing, and cleanup. If you pick the wrong model, the machine can still be good, but the work around it will feel wrong.",
         ],
         table: {
           caption: "Use this to avoid buying for the wrong job.",
@@ -242,7 +261,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         heading: "Build the first 30-day launch plan",
         body: [
           "Do not wait until the machine arrives to figure out where it goes, who checks it, how supplies are ordered, or what happens when something needs support. A calm launch is planned before the crate shows up.",
-          "The right v1 plan is not fancy. It is a short operating routine you can actually follow.",
+          "The right v1 plan is not fancy. It is a short operating routine you can actually follow. A buyer who knows the first venue, the first supply order, the service owner, and the support path is in a much better position than a buyer who only knows the machine model.",
         ],
         steps: [
           {
@@ -261,6 +280,62 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
             title: "Week 4: prepare the operating rhythm",
             body: "Write the refill, cleaning, check-in, and issue-escalation routine before your first customer order.",
           },
+          {
+            title: "Delivery week: slow down on purpose",
+            body: "Confirm access, placement, power, supplies, and who is present before the machine shows up. A rushed delivery creates avoidable stress.",
+          },
+          {
+            title: "First week live: inspect more often than you think",
+            body: "Check customer flow, cleanliness, supply use, and venue feedback closely. The first week teaches you what the spreadsheet missed.",
+          },
+        ],
+      },
+      {
+        heading: "Write the weekly operator rhythm",
+        body: [
+          "A small vending business becomes easier when the week has a pattern. You do not need a corporate operations manual, but you do need a rhythm that tells you what happens every week, who does it, and what proof you look at.",
+          "For a single machine, that rhythm may be simple. For multiple machines, it becomes the difference between feeling organized and feeling like every text is an emergency.",
+        ],
+        table: {
+          caption: "A starter rhythm you can adapt before launch.",
+          columns: ["Operator moment", "What to check", "Why it matters"],
+          rows: [
+            [
+              "Start of week",
+              "Supply levels, upcoming venue hours, service schedule",
+              "Prevents avoidable stockouts and missed access windows",
+            ],
+            [
+              "Service visit",
+              "Cleanliness, sugar/stick levels, payment flow, visible placement",
+              "Keeps the machine guest-ready and venue-friendly",
+            ],
+            [
+              "Venue check-in",
+              "Staff feedback, guest questions, placement concerns, upcoming events",
+              "Turns the venue into a partner instead of a landlord",
+            ],
+            [
+              "End of week",
+              "Sales trend, issues, supply use, next restock order",
+              "Helps you decide whether to adjust placement, pitch, or routine",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Avoid the first-launch mistakes we see most often",
+        body: [
+          "New operators usually do not fail because they forgot to be excited. They struggle because they skipped the boring pieces that make the exciting part repeatable.",
+          "Use this as a pre-launch honesty check. If any item makes you pause, that is not a bad sign. It is exactly the kind of gap you want to find before money, freight, and venue expectations are involved.",
+        ],
+        checklist: [
+          "Buying before choosing the first business model",
+          "Assuming the busiest location is automatically the best location",
+          "Planning supplies only for opening day instead of the first operating cycle",
+          "Leaving venue communication vague until there is a problem",
+          "Forgetting that delivery, access, power, and cleaning are part of the business",
+          "Treating legal, tax, insurance, and permit research as something to solve later",
         ],
       },
       {
@@ -296,7 +371,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         ],
       },
     ],
-    citations: [sbaStartup, sbaStructure, irsEin, googleHelpfulContent],
+    citations: [sbaStartup, sbaStructure, sbaLicensesPermits, irsEin, googleHelpfulContent],
     relatedSlugs: [
       "startup-budget-checklist-cotton-candy-machine-business",
       "best-locations-for-cotton-candy-vending-machines",
@@ -312,8 +387,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     category: "locations",
     audience: "Commercial vending operators",
     machineFit: "Commercial Machine",
-    updatedAt: "2026-04-28",
-    readingTime: "8 min read",
+    updatedAt: "2026-04-29",
+    readingTime: "12 min read",
     heroImage: landingHeroImage,
     heroImageAlt: "Bloomjoy robotic cotton candy machine in a colorful public setting",
     seoImagePath: "/seo/home-machine.jpg",
@@ -357,6 +432,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         body: [
           "A cotton candy machine is a small show. It works best where people already have permission to be delighted: family entertainment centers, arcades, skating rinks, tourist retail, malls, resorts, cinemas, birthday-party venues, and seasonal attractions.",
           "Raw foot traffic can fool you. A commuter hallway may be packed, but nobody wants to stop. A family entertainment lobby with fewer people can be better because parents are waiting, kids are watching, and the venue already sells fun.",
+          "When we think about locations, we look for the pause. Where do families slow down? Where does a kid have time to point? Where is a parent already in treat mode? The best spot is often not the entrance. It might be near party check-in, an arcade prize counter, a concession line, or a lobby where families wait between activities.",
         ],
         scorecard: {
           title: "Quick location scorecard",
@@ -422,6 +498,71 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         },
       },
       {
+        heading: "Turn the scorecard into a decision",
+        body: [
+          "A scorecard only helps if you decide what the score means before you fall in love with a location. Use the total to decide the next move, not to create a false sense of certainty.",
+          "If a location scores high but has one serious operational problem, treat it as a maybe until that problem is solved. A beautiful spot with bad access, unsafe power, or unclear ownership can become expensive quickly.",
+        ],
+        table: {
+          caption: "A simple way to interpret a 25-point location score.",
+          columns: ["Score", "Read", "Next move"],
+          rows: [
+            [
+              "21-25",
+              "Strong candidate",
+              "Request a site walk, confirm power/access, and discuss pilot or terms",
+            ],
+            [
+              "16-20",
+              "Promising but needs proof",
+              "Identify the weak score and ask targeted questions before pitching hard",
+            ],
+            [
+              "11-15",
+              "Probably not first",
+              "Keep in the pipeline only if one fix would materially improve the site",
+            ],
+            [
+              "10 or below",
+              "Pass for now",
+              "Do not spend early launch energy trying to rescue the wrong location",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Compare real-feeling venue scenarios",
+        body: [
+          "The point is not to find a perfect venue. The point is to understand why one venue deserves your attention before another.",
+          "Here is how we would think about a few common situations before spending time on a pitch.",
+        ],
+        table: {
+          columns: ["Scenario", "What looks good", "What to verify before yes"],
+          rows: [
+            [
+              "Family entertainment center lobby",
+              "Birthday traffic, parents waiting, kids already asking for treats",
+              "Party schedule, staff contact, power, after-hours access, and cleaning expectations",
+            ],
+            [
+              "Mall corridor near a food court",
+              "Impulse traffic and visibility from multiple directions",
+              "Lease rules, utility access, security hours, rent structure, and whether people actually pause",
+            ],
+            [
+              "Tourist retail shop",
+              "Vacation mindset, novelty products, gift/treat behavior",
+              "Available footprint, staff burden, owner enthusiasm, and seasonal traffic swings",
+            ],
+            [
+              "Busy commuter hallway",
+              "Large raw traffic number",
+              "Whether anyone is willing to stop. Often this is weaker than it looks.",
+            ],
+          ],
+        },
+      },
+      {
         heading: "Do a site walk before you promise anything",
         body: [
           "A location can sound perfect by email and fail in person. Before signing anything, walk the site like an operator.",
@@ -435,8 +576,52 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           "Revenue share, rent, or other commercial terms are clear in writing.",
         ],
       },
+      {
+        heading: "Build a location pipeline, not a wish list",
+        body: [
+          "One promising conversation is not a pipeline. A pipeline means you know which venues you want, where each conversation stands, and what the next useful action is.",
+          "This keeps you from sounding generic. A venue owner can tell when you copied the same pitch to everyone. A good pipeline forces you to write down why each location might work.",
+        ],
+        steps: [
+          {
+            title: "Make a target list by category",
+            body: "Group venues by FEC, mall, tourist retail, cinema, resort, school/event venue, or seasonal attraction.",
+          },
+          {
+            title: "Research the specific pause point",
+            body: "Write down where families wait, browse, celebrate, or line up before you send the first message.",
+          },
+          {
+            title: "Start outreach with the venue benefit",
+            body: "Lead with guest experience, not with a machine brochure.",
+          },
+          {
+            title: "Use the site walk to qualify the deal",
+            body: "Confirm visibility, power, service access, staff expectations, and commercial terms.",
+          },
+          {
+            title: "Track the first 30 days",
+            body: "If the venue says yes, define what you will review after launch: sales, service issues, staff feedback, and guest response.",
+          },
+        ],
+      },
+      {
+        heading: "Watch for red flags early",
+        body: [
+          "A no is not a failure. Sometimes it is a gift. The wrong location can take more energy than it returns, especially when you are still learning the business.",
+          "If you see several of these signs, slow down and either solve them in writing or move on.",
+        ],
+        checklist: [
+          "The venue wants the machine hidden away from customer flow",
+          "No one can clearly approve power, placement, and service access",
+          "The owner only talks about rent and not guest experience",
+          "Staff are expected to manage issues but have not agreed to that responsibility",
+          "Access hours make restock or cleaning unrealistic",
+          "Commercial terms are vague or change conversation to conversation",
+        ],
+      },
     ],
-    citations: [sbaStartup],
+    citations: [sbaStartup, sbaLicensesPermits],
     relatedSlugs: [
       "how-to-pitch-location-owners",
       "startup-budget-checklist-cotton-candy-machine-business",
@@ -452,8 +637,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     category: "events",
     audience: "Event operators and mobile sellers",
     machineFit: "Mini Machine and Micro Machine",
-    updatedAt: "2026-04-28",
-    readingTime: "8 min read",
+    updatedAt: "2026-04-29",
+    readingTime: "12 min read",
     heroImage: miniMachineImage,
     heroImageAlt: "Bloomjoy Mini Machine for portable event operators",
     seoImagePath: "/seo/mini-machine.jpg",
@@ -497,6 +682,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         body: [
           "A portable cotton candy business is not only about making candy. It is about showing up on time, setting up cleanly, managing a line, and leaving the customer glad they booked you.",
           "Mini is usually the better event-minded machine when you want more pattern capability and a stronger visual moment. Micro can make sense for smaller, lower-volume, basic-shape use cases.",
+          "Picture the morning of a birthday party or school fundraiser. You are loading supplies, confirming the address, checking power, packing backup tools, and thinking through where the line will form. The guests will remember the cotton candy. The buyer will remember whether you were calm, clean, and easy to work with.",
         ],
         table: {
           columns: ["Question", "Mini", "Micro"],
@@ -536,6 +722,67 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         },
       },
       {
+        heading: "Use sample packages before inventing custom quotes",
+        body: [
+          "Custom work is fine later. Early on, packages make the business easier to sell and easier to operate. They also keep you from accidentally promising three different businesses to three different customers.",
+          "These are planning examples, not fixed prices. Replace the serving counts, travel radius, staffing, and policy details with what fits your machine, market, and comfort level.",
+        ],
+        table: {
+          caption: "Starter package structure for event operators.",
+          columns: ["Package", "Best for", "What to define"],
+          rows: [
+            [
+              "Birthday pop-up",
+              "Backyard parties, play spaces, smaller private events",
+              "Service window, estimated servings, color/menu choices, travel radius, setup space",
+            ],
+            [
+              "School or corporate event",
+              "Longer guest flow, invoice-friendly buyers, planned schedule",
+              "COI needs, arrival time, staff contact, power, payment/invoicing process",
+            ],
+            [
+              "Festival or fair booth",
+              "Public traffic, longer day, more unknowns",
+              "Booth layout, weather plan, restock plan, line control, staffing shifts",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Plan serving counts like an operator",
+        body: [
+          "Serving estimates are not promises. They are planning tools that help you avoid under-packing, under-staffing, or setting up in a way that makes the line harder than it needs to be.",
+          "Start with the buyer's expected attendance, then discount for who will actually want cotton candy, the event length, competing food, and whether people arrive all at once or slowly over time.",
+        ],
+        table: {
+          caption: "A simple serving-planning worksheet.",
+          columns: ["Planning input", "Question to answer", "Operator note"],
+          rows: [
+            [
+              "Guest count",
+              "How many people are expected, and how many are kids or treat buyers?",
+              "Do not pack only for the invitation count. Pack for realistic demand plus buffer.",
+            ],
+            [
+              "Service window",
+              "Will demand hit all at once or spread across the event?",
+              "A two-hour party and a six-hour fair need different queue plans.",
+            ],
+            [
+              "Menu complexity",
+              "How many colors, shapes, or choices are you offering?",
+              "More options can slow the line, especially with children choosing.",
+            ],
+            [
+              "Staffing",
+              "Who greets, manages the line, handles payment, and resets supplies?",
+              "If one person owns everything, keep the offer simpler.",
+            ],
+          ],
+        },
+      },
+      {
         heading: "Build the event-day kit",
         body: [
           "The machine is only one part of the setup. Your event kit should make the job feel repeatable even when the venue is chaotic.",
@@ -550,8 +797,52 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           "Trash plan and end-of-event cleanup supplies",
         ],
       },
+      {
+        heading: "Run the event day from a checklist",
+        body: [
+          "The best event operators make the day feel boring in the best possible way. They know when to arrive, what gets unpacked first, how the line works, and what happens if the venue contact is busy.",
+          "Write this down before your first paid booking. When the event is loud, hot, crowded, or running late, a checklist is kinder than memory.",
+        ],
+        steps: [
+          {
+            title: "Day before",
+            body: "Confirm address, contact, arrival window, power, parking, load-in path, weather, and expected attendance.",
+          },
+          {
+            title: "Arrival",
+            body: "Find the venue contact, inspect power, choose the line direction, and keep walkways clear before unpacking fully.",
+          },
+          {
+            title: "Setup",
+            body: "Place table/signage, stage supplies, test the machine, prepare payment backup if needed, and take a clean setup photo.",
+          },
+          {
+            title: "Service",
+            body: "Keep the menu simple, watch the line, restock before you are empty, and clean small messes before they look like messes.",
+          },
+          {
+            title: "Teardown",
+            body: "Pack cleanly, remove trash, thank the buyer, note supply use, and write one improvement for the next booking.",
+          },
+        ],
+      },
+      {
+        heading: "Put policies in writing before money changes hands",
+        body: [
+          "Policies are not about being difficult. They protect the customer, the operator, and the event. A friendly business can still be clear.",
+          "At minimum, your booking flow should explain what is included, what the customer provides, when payment is due, and what happens if conditions change.",
+        ],
+        checklist: [
+          "Deposit and final payment timing",
+          "Travel radius and extra travel fees",
+          "Indoor/outdoor and weather policy",
+          "Power, table, tent, or space requirements",
+          "Cancellation or reschedule policy",
+          "Certificate of insurance or vendor paperwork timing",
+        ],
+      },
     ],
-    citations: [sbaStartup],
+    citations: [sbaStartup, sbaLicensesPermits],
     relatedSlugs: [
       "commercial-vending-vs-event-catering",
       "startup-budget-checklist-cotton-candy-machine-business",
@@ -567,8 +858,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     category: "budget",
     audience: "Budget-conscious buyers",
     machineFit: "Commercial, Mini, and Micro",
-    updatedAt: "2026-04-28",
-    readingTime: "7 min read",
+    updatedAt: "2026-04-29",
+    readingTime: "12 min read",
     heroImage: suppliesImage,
     heroImageAlt: "Bloomjoy cotton candy sugar and paper sticks for launch planning",
     seoImagePath: "/seo/supplies.jpg",
@@ -612,6 +903,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         body: [
           "The fastest way to under-budget is to stop at the machine number. A realistic budget includes everything required to open, operate, restock, and stay compliant.",
           "Your exact numbers depend on machine model, shipping, location, venue terms, supplies, local requirements, and whether you are fixed-location or event-based.",
+          "Think about the first 90 days, not just purchase day. You may need opening supplies, a second supply order, travel, storage, signage, payment setup, venue paperwork, insurance documentation, and a reserve for normal early surprises.",
         ],
         table: {
           caption: "Use this as a planning worksheet, then replace estimates with real quotes.",
@@ -651,6 +943,49 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         },
       },
       {
+        heading: "Build a worksheet with formulas, not guesses",
+        body: [
+          "A good budget lets you replace assumptions with real quotes over time. Start with placeholders, then mark each line as estimated, quoted, paid, or recurring.",
+          "Avoid using someone else's budget as a shortcut. Freight, local permits, insurance, venue terms, and event setup needs can change the picture quickly.",
+        ],
+        table: {
+          caption: "Public-safe worksheet structure. Replace blanks with your actual quotes.",
+          columns: ["Line item", "Planning formula", "Status to track"],
+          rows: [
+            [
+              "Core equipment",
+              "Machine quote + selected configuration + payment hardware if applicable",
+              "Quoted before deposit",
+            ],
+            [
+              "Freight and delivery",
+              "Freight quote + access requirements + liftgate/install assumptions",
+              "Quoted after delivery location is known",
+            ],
+            [
+              "Opening supplies",
+              "Expected first operating cycle x supply buffer",
+              "Ordered before launch",
+            ],
+            [
+              "Venue or event setup",
+              "Signage + table/display needs + extension/power plan + storage/transport",
+              "Estimated, then confirmed by site walk",
+            ],
+            [
+              "Admin and compliance",
+              "Registration + insurance + permits + professional advice as needed",
+              "Confirmed locally",
+            ],
+            [
+              "Operating reserve",
+              "One to three months of known fixed obligations, adjusted for risk",
+              "Set aside before launch when possible",
+            ],
+          ],
+        },
+      },
+      {
         heading: "Match the budget to the path",
         body: [
           "A fixed-location vending budget usually spends more time on venue agreement, placement, service access, payment setup, and reliable restock. An event budget usually spends more time on transport, staffing, table setup, signage, and booking materials.",
@@ -661,6 +996,39 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           "Event business: prioritize transport, event kit, booking workflow, and staff flow.",
           "Hybrid model: budget for both location service and event-day portability before committing.",
         ],
+      },
+      {
+        heading: "Stress-test the first few months",
+        body: [
+          "Planning is not the same as promising profit. The point of a stress test is to understand what has to be true for the business to feel healthy.",
+          "Use conservative assumptions first. If the plan only works when every location is perfect, every weekend is busy, and nothing breaks your schedule, it is probably too fragile.",
+        ],
+        table: {
+          caption: "Simple questions to pressure-test your plan.",
+          columns: ["Question", "Formula or check", "What it tells you"],
+          rows: [
+            [
+              "What are my fixed monthly obligations?",
+              "Rent, subscriptions, insurance, storage, financing, or other fixed costs",
+              "The baseline the business must cover before it feels comfortable",
+            ],
+            [
+              "How many orders cover fixed obligations?",
+              "Fixed obligations divided by expected contribution per order",
+              "A rough break-even order count, not a profit promise",
+            ],
+            [
+              "What if demand is 25% lower than expected?",
+              "Reduce expected orders and rerun the worksheet",
+              "Whether the launch still has breathing room",
+            ],
+            [
+              "What if restock or service costs are higher?",
+              "Increase supplies, travel, or labor assumptions",
+              "Whether your reserve is large enough for normal variance",
+            ],
+          ],
+        },
       },
       {
         heading: "Keep a reserve for the unglamorous stuff",
@@ -677,8 +1045,27 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           "Local permits, insurance, or professional advice",
         ],
       },
+      {
+        heading: "Bring better questions into the quote conversation",
+        body: [
+          "A good quote conversation is not just, 'What does the machine cost?' It is a fit conversation. The more context you bring, the better the answer can be.",
+          "Before you talk to Bloomjoy or any equipment provider, write down the business model, target venues, launch timing, budget constraints, and what you need the machine to do on day one.",
+        ],
+        checklist: [
+          "Which model am I building first: fixed vending, events, or hybrid?",
+          "Do I have a target venue type or event buyer already in mind?",
+          "Do I need complex patterns, higher throughput, portability, or a lower-cost test?",
+          "Where will the machine live, and what delivery/access constraints exist?",
+          "Which costs are fixed, quoted, estimated, or still unknown?",
+          "What reserve can I set aside after buying the machine and opening supplies?",
+        ],
+        callout: {
+          title: "What this means in practice",
+          body: "The cheapest plan is not always the safest plan. The right plan gives the machine enough support, supplies, and breathing room to operate well after the excitement of launch day.",
+        },
+      },
     ],
-    citations: [sbaStartup, sbaStructure],
+    citations: [sbaStartup, sbaStructure, sbaLicensesPermits],
     relatedSlugs: [
       "how-to-start-cotton-candy-vending-business",
       "business-setup-basics-llc-ein-insurance-permits",
@@ -694,8 +1081,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     category: "locations",
     audience: "Operators doing venue outreach",
     machineFit: "Commercial Machine",
-    updatedAt: "2026-04-28",
-    readingTime: "7 min read",
+    updatedAt: "2026-04-29",
+    readingTime: "12 min read",
     heroImage: aboutFoundersImage,
     heroImageAlt: "Bloomjoy team preparing operator materials",
     seoImagePath: "/seo/about.jpg",
@@ -739,6 +1126,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         body: [
           "A location owner is not buying your excitement. They are deciding whether this machine improves their space without creating operational headaches.",
           "Lead with the guest experience and the operating plan. The cotton candy part is memorable, but the owner needs to know it will not become their problem.",
+          "The best pitch sounds like you have already thought through their day. Where does the machine sit? Who services it? What happens if a guest has a question? How do they make money or improve the guest experience without adding staff chaos?",
         ],
         script: {
           title: "Simple opening email",
@@ -747,6 +1135,21 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
             "I think [Venue] could be a strong fit because guests already spend time near [specific area].",
             "The machine creates a visual treat moment, and I handle the service routine, supplies, and owner check-ins.",
             "Would you be open to a quick walkthrough next week to see if the space, power, and guest flow make sense?",
+          ],
+        },
+      },
+      {
+        heading: "Use the right script for the moment",
+        body: [
+          "A cold email, warm intro, follow-up, and site-walk recap should not sound identical. Keep the same core promise, but match the message to the relationship.",
+          "The goal is not to win the whole deal in one note. The goal is to earn a short conversation or walkthrough.",
+        ],
+        script: {
+          title: "Three useful outreach scripts",
+          lines: [
+            "Cold email: Hi [Name], I operate robotic cotton candy machines for family-friendly venues. I noticed [specific reason the venue has family dwell time], and I think there may be a guest-experience fit worth exploring.",
+            "Warm intro: [Referrer] mentioned you manage guest experience at [Venue]. I help place and service robotic cotton candy machines, and I would love to see whether a small pilot could add a fun treat moment without adding staff work.",
+            "Site-walk follow-up: Thanks for walking the space today. Based on what we saw, the strongest potential placement is [area] because [reason]. The open questions are [power/access/terms]. If those check out, I suggest a short pilot with clear success metrics.",
           ],
         },
       },
@@ -764,6 +1167,43 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           "Why this venue's audience is a good fit",
           "Next step: site walk, pilot date, or decision meeting",
         ],
+      },
+      {
+        heading: "Prepare for owner objections",
+        body: [
+          "Objections are not bad. They usually mean the owner is picturing the machine in their space. Treat each concern as a chance to show that you are an operator, not just a salesperson.",
+          "If you do not know the answer yet, say so and follow up. Guessing creates more risk than pausing.",
+        ],
+        table: {
+          columns: ["Owner concern", "Helpful answer angle", "Proof to bring"],
+          rows: [
+            [
+              "Will this make a mess?",
+              "Explain cleaning routine, service schedule, and who owns cleanup",
+              "Checklist, supply plan, and service contact",
+            ],
+            [
+              "Will staff have to manage it?",
+              "Clarify what staff do and do not own",
+              "Simple issue path and operator contact",
+            ],
+            [
+              "Will it take too much space?",
+              "Show footprint, flow, and placement options",
+              "Photos, measurements, and site-walk notes",
+            ],
+            [
+              "What about insurance or paperwork?",
+              "Ask what documents the venue requires and confirm timing",
+              "Business setup packet or document checklist",
+            ],
+            [
+              "How do we know guests will use it?",
+              "Offer a pilot with simple success metrics",
+              "Location scorecard and proposed review date",
+            ],
+          ],
+        },
       },
       {
         heading: "Offer a pilot when the owner is interested but cautious",
@@ -793,8 +1233,52 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           ],
         },
       },
+      {
+        heading: "Run the site walk like a professional",
+        body: [
+          "A site walk is not a tour. It is a qualification meeting. You are checking whether the venue, machine, owner, and operating routine can all work together.",
+          "Bring a short agenda so the owner feels you are making the decision easier, not creating another project for them.",
+        ],
+        checklist: [
+          "Confirm the decision maker and day-to-day staff contact",
+          "Stand in the proposed placement and watch guest flow",
+          "Verify power, cleaning access, restock access, and security hours",
+          "Discuss commercial terms: rent, revenue share, pilot length, or amenity logic",
+          "Agree on what staff should do if there is a question or issue",
+          "Set a follow-up date and define the next decision",
+        ],
+      },
+      {
+        heading: "Report back after launch",
+        body: [
+          "Winning the location is only the first part. Keeping it means proving that you are paying attention.",
+          "A simple owner update can be enough: what happened, what you checked, what you are adjusting, and what you need from the venue. This is especially helpful after the first week and first month.",
+        ],
+        table: {
+          caption: "Simple owner update structure.",
+          columns: ["Update line", "Example"],
+          rows: [
+            [
+              "Guest response",
+              "Families are stopping most often before/after birthday check-in.",
+            ],
+            [
+              "Operations",
+              "Service visit completed Monday; supplies are stocked and area was cleaned.",
+            ],
+            [
+              "Adjustment",
+              "We recommend turning the machine slightly toward the waiting area for better visibility.",
+            ],
+            [
+              "Ask",
+              "Please tell staff to text [contact] if they notice a supply or guest question.",
+            ],
+          ],
+        },
+      },
     ],
-    citations: [sbaStartup],
+    citations: [sbaStartup, sbaLicensesPermits],
     relatedSlugs: [
       "best-locations-for-cotton-candy-vending-machines",
       "how-to-start-cotton-candy-vending-business",
@@ -810,8 +1294,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     category: "start",
     audience: "Buyers choosing a business path",
     machineFit: "Commercial, Mini, and Micro",
-    updatedAt: "2026-04-28",
-    readingTime: "6 min read",
+    updatedAt: "2026-04-29",
+    readingTime: "11 min read",
     heroImage: microMachineImage,
     heroImageAlt: "Bloomjoy Micro Machine with cotton candy output for smaller setups",
     seoImagePath: "/seo/micro-machine.jpg",
@@ -855,6 +1339,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         body: [
           "Both models can use the same basic product category, but they feel very different day to day.",
           "Fixed-location vending rewards patient location development, clear service routes, and reliable restocking. Events reward booking, setup speed, customer flow, and a polished live experience.",
+          "This is why the question is not simply, 'Which machine is best?' The better question is, 'Which operating life am I willing to build?' A machine can support the business, but it cannot make you love the work around it.",
         ],
         table: {
           columns: ["Decision", "Commercial vending", "Event or catering"],
@@ -883,6 +1368,38 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         },
       },
       {
+        heading: "Compare a normal week in each model",
+        body: [
+          "The daily work is where the decision becomes clear. Imagine doing the business on an average week, not just on the day you announce it.",
+          "If one column sounds energizing and the other sounds draining, pay attention. That is useful data.",
+        ],
+        table: {
+          columns: ["Work moment", "Commercial vending", "Event or catering"],
+          rows: [
+            [
+              "Selling",
+              "Research venues, pitch owners, schedule site walks, negotiate terms",
+              "Answer inquiries, quote packages, follow up with planners and parents",
+            ],
+            [
+              "Operations",
+              "Service route, restock, clean, check payments, update owner",
+              "Pack, transport, set up, serve, manage line, tear down",
+            ],
+            [
+              "Schedule shape",
+              "More repeatable once locations are active",
+              "More weekend and event-date driven",
+            ],
+            [
+              "Main risk",
+              "Weak placement or unclear service responsibility",
+              "Underpriced events, poor logistics, or too much custom work",
+            ],
+          ],
+        },
+      },
+      {
         heading: "Choose the model that fits your personality",
         body: [
           "If you like recurring locations, repeatable service routes, and business-to-business selling, fixed vending may fit you. If you like live events, weekends, direct customer energy, and moving parts, events may feel more natural.",
@@ -895,14 +1412,64 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         ],
       },
       {
+        heading: "Choose this path if",
+        body: [
+          "Neither path is automatically better. The right choice depends on your goals, schedule, sales comfort, budget, and appetite for operational complexity.",
+          "Use these prompts as a decision tree before you compare machine specs.",
+        ],
+        table: {
+          columns: ["Choose", "If this sounds like you", "Be honest about"],
+          rows: [
+            [
+              "Commercial vending",
+              "You like B2B selling, repeat locations, and building a small route over time",
+              "Venue outreach can be slow, and a bad location can waste months",
+            ],
+            [
+              "Events and catering",
+              "You like live customer energy, weekend work, and booking-based revenue",
+              "Every event has logistics, policies, and customer communication",
+            ],
+            [
+              "Mini/Micro testing",
+              "You want a smaller first step before committing to a larger placement strategy",
+              "Lower complexity can also mean lower throughput or simpler output",
+            ],
+            [
+              "Hybrid later",
+              "You already have one path stable and want to add another channel",
+              "Hybrid too early can split attention before either model is strong",
+            ],
+          ],
+        },
+      },
+      {
         heading: "Let the business model choose the machine",
         body: [
           "A Commercial Machine is designed for high-throughput, fixed or serious venue use. Mini is designed for operators who need a more portable footprint and still want stronger pattern capability. Micro is the simpler entry point for basic-shape, lower-volume use.",
           "If you are stuck, write down your first ten target customers. The list usually tells you which model you are really building.",
         ],
+        callout: {
+          title: "The first ten customer test",
+          body: "If your list is mostly venue owners, mall managers, FEC operators, and attraction managers, you are probably building a vending placement business. If it is parents, schools, event planners, companies, and festival organizers, you are probably building an event business. If the list is half and half, pick the side you can sell and operate first.",
+        },
+      },
+      {
+        heading: "Know when not to choose a path",
+        body: [
+          "Good operators say no to the wrong first move. That does not mean the idea is bad forever. It means the timing, resources, or operating model may not be ready yet.",
+          "A clear no can protect your budget and your energy.",
+        ],
+        checklist: [
+          "Do not choose vending first if you have no realistic venue pipeline and do not want to pitch owners.",
+          "Do not choose events first if weekend work, transport, setup, and customer communication sound exhausting.",
+          "Do not choose hybrid first if you have not proven either location service or event execution.",
+          "Do not choose solely by machine price if the cheaper path cannot do the work your business model needs.",
+          "Do not ignore admin basics because the machine itself feels fun and tangible.",
+        ],
       },
     ],
-    citations: [sbaStartup],
+    citations: [sbaStartup, sbaLicensesPermits],
     relatedSlugs: [
       "how-to-start-cotton-candy-vending-business",
       "mini-micro-event-catering-business-guide",
@@ -918,8 +1485,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     category: "setup",
     audience: "New business owners",
     machineFit: "All machine paths",
-    updatedAt: "2026-04-28",
-    readingTime: "8 min read",
+    updatedAt: "2026-04-29",
+    readingTime: "12 min read",
     heroImage: aboutHeroImage,
     heroImageAlt: "Bloomjoy operations team context for business setup planning",
     seoImagePath: "/seo/about.jpg",
@@ -963,6 +1530,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         body: [
           "Bloomjoy can share an operator-minded checklist, but your legal, tax, insurance, and permit requirements depend on where and how you operate. Use this article to get organized, then confirm the details with your state, city, venue, accountant, insurance broker, or attorney.",
           "That said, a little admin planning goes a long way. It is much easier to open a bank account, sign a venue agreement, and collect payments when your paperwork is not a mystery.",
+          "Think of this as an admin day. Put the boring documents in one folder before the venue asks for them. It is not the most photogenic part of a cotton candy business, but it can make you look serious when a good location is ready to move.",
         ],
         callout: {
           title: "Important sequence",
@@ -999,6 +1567,22 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         ],
       },
       {
+        heading: "Create a venue-ready document packet",
+        body: [
+          "Venues vary, but many professional conversations eventually become a paperwork conversation. If you can answer calmly, you feel less like a hobbyist and more like a partner.",
+          "Do not fabricate or rush documents. Build the packet as each item becomes real and verified for your business.",
+        ],
+        checklist: [
+          "Business formation or registration confirmation, if applicable",
+          "EIN confirmation letter or tax ID documentation, if applicable",
+          "W-9 for U.S. venue or vendor onboarding workflows",
+          "Certificate of insurance, if the venue requires one",
+          "Local business license, seller's permit, food/vendor permit, or event permit where required",
+          "Simple venue agreement or pilot agreement",
+          "Machine/service contact sheet for day-to-day questions",
+        ],
+      },
+      {
         heading: "Questions to ask before your first placement",
         body: [
           "The right questions save time. Ask them before you sign a venue agreement or book a paid event.",
@@ -1013,8 +1597,59 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           "Can I provide invoices, W-9, certificate of insurance, or other requested documents?",
         ],
       },
+      {
+        heading: "Track renewals before they become urgent",
+        body: [
+          "Some licenses and permits expire. Insurance renews. Venue paperwork may need updates. A small renewal calendar can save you from a last-minute scramble.",
+          "The SBA notes that license and permit requirements and fees can vary by business activity, location, and government rules, and that vending machines are commonly regulated at the local level. That is your cue to check locally and keep dates organized.",
+        ],
+        table: {
+          caption: "Simple compliance calendar fields.",
+          columns: ["Item", "Who to confirm with", "Date to track"],
+          rows: [
+            [
+              "Business registration",
+              "State or local registration office",
+              "Annual report, renewal, or filing deadline",
+            ],
+            [
+              "Sales tax or seller permit",
+              "State tax agency or local authority",
+              "Filing dates and renewal date if applicable",
+            ],
+            [
+              "Food, vending, or event permit",
+              "City, county, health department, or event organizer",
+              "Expiration date and event-specific deadlines",
+            ],
+            [
+              "Insurance",
+              "Insurance broker or carrier",
+              "Policy renewal and certificate request timing",
+            ],
+            [
+              "Venue agreement",
+              "Venue owner or property manager",
+              "Pilot review, renewal, or termination dates",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Ask better questions of professionals",
+        body: [
+          "A professional advisor can help more when you bring a specific business model. Saying 'I might sell cotton candy somehow' is hard to advise. Saying 'I plan to place a machine in family entertainment venues in this county' is much better.",
+          "Bring your planned locations, sales model, ownership structure, and first launch timeline into the conversation.",
+        ],
+        bullets: [
+          "Ask an accountant how to handle sales tax, income tracking, expenses, and entity choice for your situation.",
+          "Ask an insurance broker what coverage venues commonly require for vending or event work.",
+          "Ask the city, county, health department, or event organizer which permits apply to your planned activity.",
+          "Ask venues what vendor documents they need before you sign or launch.",
+        ],
+      },
     ],
-    citations: [sbaStartup, sbaStructure, irsEin],
+    citations: [sbaStartup, sbaStructure, sbaLicensesPermits, irsEin],
     relatedSlugs: [
       "startup-budget-checklist-cotton-candy-machine-business",
       "how-to-start-cotton-candy-vending-business",

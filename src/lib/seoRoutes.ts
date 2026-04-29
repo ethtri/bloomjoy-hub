@@ -44,7 +44,7 @@ export const PUBLIC_ROBOTS =
   "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 export const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
 
-const LASTMOD = "2026-04-28";
+const LASTMOD = "2026-04-29";
 
 export const commercialMachineFaqs = [
   {

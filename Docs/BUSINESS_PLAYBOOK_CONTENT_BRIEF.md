@@ -12,6 +12,8 @@ The content should help a serious buyer make a better business decision before t
 - Use official sources for business setup topics, especially SBA and IRS pages.
 - Make each article visually scannable with real Bloomjoy imagery plus at least one useful visual block.
 - Keep public articles indexable. Save downloadable templates, calculators, and deeper operator assets for future Plus work.
+- Flagship public articles should usually land around 1,000-1,800 words. Shorter pieces need a clear reason.
+- Include operator-led narrative: field notes, first-launch scenes, common mistakes, and "what this means in practice" guidance.
 
 ## Article Template
 Each article should include:
@@ -20,6 +22,7 @@ Each article should include:
 - 3 key takeaways
 - Real Bloomjoy image or approved branded visual
 - At least one useful visual block: table, checklist, scorecard, pitch script, worksheet preview, or comparison chart
+- At least one concrete operator example, sample scenario, script, filled-in worksheet, or decision rule
 - Primary CTA and optional secondary CTA
 - Sources and related articles
 
@@ -40,4 +43,5 @@ Each article should include:
 - For general startup sequencing, cite SBA startup guidance.
 - For business structure topics, cite SBA business structure guidance.
 - For EIN topics, cite IRS EIN guidance and note that EIN applications are free through the IRS.
+- For licenses and permits, cite SBA license/permit guidance and remind readers that state, county, city, and venue requirements can vary.
 - For SEO/content quality standards, follow Google Search Central's people-first content guidance.
