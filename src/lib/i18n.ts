@@ -278,7 +278,7 @@ export const translations = {
 
     'reports.title': 'Reporting',
     'reports.description':
-      'Track assigned machine performance, review sales trends, and use the internal partner dashboard when settlement math needs a closer look.',
+      'Track assigned machine performance, review sales trends, and use the internal partner dashboard when revenue-share reporting needs a closer look.',
     'reports.machinesAvailable': '{count} machines available',
     'reports.latestSale': 'Latest sale {date}',
     'reports.lastImport': 'Last import {date}',
