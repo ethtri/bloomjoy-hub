@@ -303,16 +303,34 @@ const extractRevenueCandidatesCents = (lines) => {
   return [...candidates].sort((left, right) => left - right);
 };
 
-const extractRecordCount = (text) => {
+const extractRecordCount = (texts) => {
+  const sources = (Array.isArray(texts) ? texts : String(texts ?? '').split(/\r?\n/))
+    .map((text) => String(text ?? '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
   const patterns = [
-    /\bshowing\s+[0-9,]+\s*(?:-|\u2013)\s*[0-9,]+\s+of\s+([0-9,]+)\b/gi,
-    /\btotal\D{0,20}([0-9,]+)\D{0,20}(?:items?|records?|orders?)\b/gi,
-    /\b([0-9,]+)\s*(?:items?|records?|orders?)\b/gi,
+    /\bshowing\s+[0-9,]+\s*(?:-|\u2013)\s*[0-9,]+\s+of\s+([0-9,]+)\b/i,
+    /\btotal\s*([0-9,]+)\s*(?:items?|records?|orders?)\b/i,
+    /\b([0-9,]+)\s*(?:items?|records?|orders?)\b/i,
   ];
   const candidates = [];
 
-  for (const pattern of patterns) {
-    for (const match of String(text ?? '').matchAll(pattern)) {
+  for (let index = 0; index < sources.length - 2; index += 1) {
+    if (/^total$/i.test(sources[index]) && /^[0-9,]+$/.test(sources[index + 1])) {
+      const unit = sources[index + 2];
+      if (/^(?:items?|records?|orders?)$/i.test(unit)) {
+        const parsed = parseInteger(sources[index + 1]);
+        if (parsed !== null) candidates.push(parsed);
+      }
+    }
+  }
+
+  for (const source of sources) {
+    if (/\d+\.\d+/.test(source)) continue;
+
+    for (const pattern of patterns) {
+      const match = source.match(pattern);
+      if (!match) continue;
+
       const parsed = parseInteger(match[1]);
       if (parsed !== null) candidates.push(parsed);
     }
@@ -408,11 +426,10 @@ const readOrdersUiSummary = async (page) => {
     .map((line) => line.trim())
     .filter(Boolean);
   const visibleTexts = await collectVisibleTexts(page);
-  const combinedText = [...visibleTexts, bodyText].join('\n');
   const selectedWindow = extractSelectedWindow(visibleTexts) ?? deriveSelectedWindow();
   const uiRevenueCandidatesCents = extractRevenueCandidatesCents(lines);
   const uiRevenueCents = uiRevenueCandidatesCents.length > 0 ? Math.max(...uiRevenueCandidatesCents) : null;
-  const uiRecordCount = extractRecordCount(combinedText);
+  const uiRecordCount = extractRecordCount([...lines, ...visibleTexts]);
 
   if (!selectedWindow?.uiWindowStart || !selectedWindow?.uiWindowEnd) {
     const diagnostic = buildUiSummaryDiagnostic(visibleTexts);
