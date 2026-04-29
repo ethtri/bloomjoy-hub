@@ -7,6 +7,8 @@ The content should help a serious buyer make a better business decision before t
 
 Internal sales/support enablement for these articles lives in `Docs/BUSINESS_PLAYBOOK_SALES_ENABLEMENT.md`.
 
+Launch and distribution planning lives in `Docs/BUSINESS_PLAYBOOK_LAUNCH_CAMPAIGN.md`.
+
 ## Editorial Standard
 - Be useful first. Every article needs specific examples, checklists, tables, scripts, scorecards, or decision frameworks.
 - Keep the voice practical, confident, clear, and lightly playful where natural.
