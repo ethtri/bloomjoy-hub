@@ -67,6 +67,15 @@ type RevokePlusAccessInput = {
   reason: string;
 };
 
+const formatRpcError = (
+  rpcName: string,
+  error: { code?: string; message?: string } | null | undefined
+) => {
+  const code = error?.code?.trim();
+  const message = error?.message?.trim() || 'Unknown Supabase error.';
+  return `${rpcName} failed${code ? ` (${code})` : ''}: ${message}`;
+};
+
 export const fetchAdminAccountSummaries = async (
   search: string
 ): Promise<AdminAccountSummary[]> => {
@@ -74,11 +83,11 @@ export const fetchAdminAccountSummaries = async (
     p_search: search.trim() ? search.trim() : null,
   });
 
-  if (error || !data) {
-    throw new Error(error?.message || 'Unable to load account summaries.');
+  if (error) {
+    throw new Error(formatRpcError('admin_get_account_summaries', error));
   }
 
-  return data as AdminAccountSummary[];
+  return (data ?? []) as AdminAccountSummary[];
 };
 
 export const fetchMachineInventoryForAccount = async (

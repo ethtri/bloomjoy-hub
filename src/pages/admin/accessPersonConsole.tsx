@@ -45,6 +45,17 @@ import {
   type ScopedAdminGrantRecord,
 } from '@/lib/adminGovernance';
 import {
+  adminGrantTechnicianAccess,
+  adminRenewTechnicianAccess,
+  adminRevokeTechnicianAccess,
+  adminUpdateTechnicianMachines,
+  fetchAdminTechnicianAccessContext,
+  type AdminTechnicianAccessContext,
+  type AdminTechnicianAccount,
+  type AdminTechnicianGrant,
+  type AdminTechnicianMachine,
+} from '@/lib/adminTechnicianAccess';
+import {
   fetchAdminCorporatePartnerAccessOptions,
   fetchAdminEffectiveAccessContext,
   grantCorporatePartnerMembership,
@@ -127,11 +138,18 @@ const emptyQuantities: Record<MachineType, number> = { commercial: 0, mini: 0, m
 const accessLevels: ReportingAccessLevel[] = ['viewer', 'report_manager'];
 const emptyAccountSummaries: AdminAccountSummary[] = [];
 const emptyCorporatePartnerOptions: { partners: CorporatePartnerOption[] } = { partners: [] };
+const emptyTechnicianAccessContext: AdminTechnicianAccessContext = {
+  targetEmail: '',
+  targetUserId: null,
+  accounts: [],
+  grants: [],
+};
 const emptyReportingAccessMatrix: AdminReportingAccessMatrix = { people: [], machines: [], grants: [] };
 const emptyScopedAdminGrants: ScopedAdminGrantRecord[] = [];
 const emptyAdminRoles: AdminRoleRecord[] = [];
 const emptyMachineInventory: CustomerMachineInventoryRecord[] = [];
 const emptyAuditLog: AdminAuditLogRecord[] = [];
+const trainingOnlyScopeValue = '__training_only__';
 
 const capabilityLabels: Record<string, string> = {
   'training.view': 'View training',
@@ -187,6 +205,8 @@ const normalizeSearch = (value: string) => value.trim().toLowerCase();
 const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const hasEmailShape = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
 const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message.trim() ? error.message : fallback;
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -297,6 +317,19 @@ const getTechnicianSources = (context: EffectiveAccessContext | null): Technicia
     }))
     .filter((record) => record.id);
 
+const getGrantMachineScopeValue = (grant: AdminTechnicianGrant) =>
+  grant.machines.find((machine) => machine.isActive)?.machineId ??
+  grant.machines.find((machine) => !machine.revokedAt && machine.status === 'active')?.machineId ??
+  trainingOnlyScopeValue;
+
+const getMachineScopeId = (value: string) => (value === trainingOnlyScopeValue ? null : value);
+
+const getAccountMachines = (
+  accounts: AdminTechnicianAccount[],
+  accountId: string
+): AdminTechnicianMachine[] =>
+  accounts.find((account) => account.accountId === accountId)?.machines ?? [];
+
 const formatAccessSource = (account: AdminAccountSummary | null, plusSource?: PlusAccessSourceRecord) => {
   const source = account?.plus_access_source ?? plusSource?.source ?? 'none';
   switch (source) {
@@ -391,6 +424,8 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
   const [submittedSearch, setSubmittedSearch] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<SelectedAccessPerson | null>(null);
   const [showActivity, setShowActivity] = useState(initialShowActivity);
+  const normalizedSubmittedSearch = submittedSearch.trim();
+  const submittedSearchIsEmail = hasEmailShape(normalizedSubmittedSearch);
 
   const {
     data: searchResults = emptyAccountSummaries,
@@ -399,7 +434,7 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
   } = useQuery({
     queryKey: ['admin-person-access-search', submittedSearch],
     queryFn: () => fetchAdminAccountSummaries(submittedSearch),
-    enabled: submittedSearch.trim().length > 0,
+    enabled: normalizedSubmittedSearch.length > 0,
     staleTime: 1000 * 30,
   });
 
@@ -407,6 +442,7 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
   const {
     data: selectedAccountResults = emptyAccountSummaries,
     isFetching: isLoadingSelectedAccount,
+    error: selectedAccountError,
   } = useQuery({
     queryKey: ['admin-person-selected-account', accountSearchKey],
     queryFn: () => fetchAdminAccountSummaries(accountSearchKey),
@@ -455,6 +491,7 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
       queryClient.invalidateQueries({ queryKey: ['admin-scoped-admin-grants'] }),
       queryClient.invalidateQueries({ queryKey: ['admin-governance-roles'] }),
       queryClient.invalidateQueries({ queryKey: ['admin-corporate-partner-access-options'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] }),
       queryClient.invalidateQueries({ queryKey: ['admin-person-audit'] }),
     ]);
   };
@@ -476,14 +513,21 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
     });
   };
 
-  const handlePreviewEmail = () => {
-    const value = searchDraft.trim();
+  const handlePreviewEmail = (value: string) => {
     if (!hasEmailShape(value)) {
       toast.error('Enter a valid email to open an email-based access workspace.');
       return;
     }
     setSelectedPerson({ email: value, userId: null, label: value });
   };
+
+  const searchFailed = Boolean(searchError);
+  const canShowSearchResults = normalizedSubmittedSearch.length > 0 && !isSearching && !searchFailed;
+  const searchErrorMessage = getErrorMessage(searchError, 'Unable to search people.');
+  const selectedAccountErrorMessage = getErrorMessage(
+    selectedAccountError,
+    'Unable to refresh the selected account summary.'
+  );
 
   return (
     <div className="space-y-6">
@@ -523,12 +567,6 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
           </div>
         </div>
 
-        {searchError && (
-          <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            Unable to search people.
-          </div>
-        )}
-
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {!submittedSearch && !selectedPerson && (
             <div className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">
@@ -537,21 +575,40 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
             </div>
           )}
 
-          {submittedSearch && !isSearching && searchResults.length === 0 && (
+          {normalizedSubmittedSearch && isSearching && (
+            <div className="rounded-md border border-border bg-muted/20 p-4 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">
+              Searching people...
+            </div>
+          )}
+
+          {normalizedSubmittedSearch && !isSearching && searchFailed && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 md:col-span-2 xl:col-span-3">
+              <p className="text-sm font-medium text-destructive">Unable to search people.</p>
+              <p className="mt-1 break-words text-sm text-destructive/90">{searchErrorMessage}</p>
+            </div>
+          )}
+
+          {canShowSearchResults && searchResults.length === 0 && (
             <div className="rounded-md border border-border bg-muted/20 p-4 md:col-span-2 xl:col-span-3">
               <p className="text-sm font-medium text-foreground">No matching auth user was found.</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Email-based Corporate Partner grants can still be created before first sign-in.
+                {submittedSearchIsEmail
+                  ? 'Email-based Corporate Partner grants can still be created before first sign-in.'
+                  : 'Try a full email address or Supabase Auth user ID.'}
               </p>
-              {hasEmailShape(searchDraft) && (
-                <Button className="mt-3" variant="outline" onClick={handlePreviewEmail}>
+              {submittedSearchIsEmail && (
+                <Button
+                  className="mt-3"
+                  variant="outline"
+                  onClick={() => handlePreviewEmail(normalizedSubmittedSearch)}
+                >
                   Open email workspace
                 </Button>
               )}
             </div>
           )}
 
-          {searchResults.slice(0, 9).map((account) => (
+          {canShowSearchResults && searchResults.slice(0, 9).map((account) => (
             <button
               key={account.user_id}
               type="button"
@@ -579,14 +636,14 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
             </button>
           ))}
 
-          {submittedSearch && hasEmailShape(searchDraft) && searchResults.length > 0 && (
+          {canShowSearchResults && submittedSearchIsEmail && searchResults.length > 0 && (
             <button
               type="button"
-              onClick={handlePreviewEmail}
+              onClick={() => handlePreviewEmail(normalizedSubmittedSearch)}
               className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-left transition hover:bg-muted/40"
             >
               <p className="text-sm font-medium text-foreground">Use typed email instead</p>
-              <p className="mt-1 text-sm text-muted-foreground">{searchDraft.trim()}</p>
+              <p className="mt-1 break-all text-sm text-muted-foreground">{normalizedSubmittedSearch}</p>
             </button>
           )}
         </div>
@@ -625,7 +682,13 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
 
           {effectiveAccessError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              Unable to load the effective access preview.
+              {getErrorMessage(effectiveAccessError, 'Unable to load the effective access preview.')}
+            </div>
+          )}
+
+          {selectedAccountError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {selectedAccountErrorMessage}
             </div>
           )}
 
@@ -649,7 +712,11 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
                 effectiveAccess={effectiveAccess}
                 onChanged={refreshWorkspace}
               />
-              <TechnicianAccessCard effectiveAccess={effectiveAccess} />
+              <TechnicianAccessCard
+                identity={identity}
+                effectiveAccess={effectiveAccess}
+                onChanged={refreshWorkspace}
+              />
               <ManualReportingAccessCard identity={identity} onChanged={refreshWorkspace} />
               <ScopedAdminAccessCard identity={identity} onChanged={refreshWorkspace} />
               <SuperAdminAccessCard identity={identity} onChanged={refreshWorkspace} />
@@ -1494,49 +1561,462 @@ function PartnerPortalAccessControls({
   );
 }
 
-function TechnicianAccessCard({ effectiveAccess }: { effectiveAccess: EffectiveAccessContext | null }) {
-  const grants = getTechnicianSources(effectiveAccess);
-  const activeGrants = grants.filter((grant) => grant.isActive);
+function TechnicianAccessCard({
+  identity,
+  effectiveAccess,
+  onChanged,
+}: {
+  identity: AccessWorkspaceIdentity;
+  effectiveAccess: EffectiveAccessContext | null;
+  onChanged: () => Promise<void>;
+}) {
+  const queryClient = useQueryClient();
+  const sourceGrants = getTechnicianSources(effectiveAccess);
+  const activeSourceGrants = sourceGrants.filter((grant) => grant.isActive);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [selectedScopeValue, setSelectedScopeValue] = useState(trainingOnlyScopeValue);
+  const [grantReason, setGrantReason] = useState('');
+  const [scopeDrafts, setScopeDrafts] = useState<Record<string, string>>({});
+  const [scopeReasons, setScopeReasons] = useState<Record<string, string>>({});
+  const [renewReasons, setRenewReasons] = useState<Record<string, string>>({});
+  const [revokeReasons, setRevokeReasons] = useState<Record<string, string>>({});
+  const [isSavingGrant, setIsSavingGrant] = useState(false);
+  const [savingScopeGrantId, setSavingScopeGrantId] = useState<string | null>(null);
+  const [renewingGrantId, setRenewingGrantId] = useState<string | null>(null);
+  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+
+  const {
+    data: technicianContext = emptyTechnicianAccessContext,
+    isFetching,
+    error,
+  } = useQuery({
+    queryKey: ['admin-technician-access-context', identity.email],
+    queryFn: () => fetchAdminTechnicianAccessContext(identity.email as string),
+    enabled: Boolean(identity.email),
+    staleTime: 1000 * 20,
+  });
+
+  const accounts = technicianContext.accounts;
+  const grants = technicianContext.grants;
+  const activeGrants = grants.filter((grant) => grant.isActive && !grant.revokedAt);
+  const selectedAccount = useMemo(
+    () => accounts.find((account) => account.accountId === selectedAccountId) ?? null,
+    [accounts, selectedAccountId]
+  );
+  const selectedAccountMachines = useMemo(
+    () => selectedAccount?.machines ?? [],
+    [selectedAccount]
+  );
+  const selectedMachineId = getMachineScopeId(selectedScopeValue);
+  const selectedMachine =
+    selectedMachineId && selectedAccountMachines.find((machine) => machine.machineId === selectedMachineId);
+
+  useEffect(() => {
+    const firstActiveGrant = grants.find((grant) => !grant.revokedAt) ?? null;
+    const nextAccountId = firstActiveGrant?.accountId ?? accounts[0]?.accountId ?? '';
+    setSelectedAccountId(nextAccountId);
+    setSelectedScopeValue(firstActiveGrant ? getGrantMachineScopeValue(firstActiveGrant) : trainingOnlyScopeValue);
+    setGrantReason('');
+    setScopeDrafts(
+      Object.fromEntries(grants.map((grant) => [grant.grantId, getGrantMachineScopeValue(grant)]))
+    );
+    setScopeReasons({});
+    setRenewReasons({});
+    setRevokeReasons({});
+  }, [accounts, grants, identity.email, identity.userId]);
+
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    if (
+      selectedScopeValue !== trainingOnlyScopeValue &&
+      !selectedAccountMachines.some((machine) => machine.machineId === selectedScopeValue)
+    ) {
+      setSelectedScopeValue(trainingOnlyScopeValue);
+    }
+  }, [selectedAccountId, selectedAccountMachines, selectedScopeValue]);
+
+  const refreshTechnicianContext = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] });
+  };
+
+  const handleSaveGrant = async () => {
+    if (!identity.email) {
+      toast.error('Technician access requires an email.');
+      return;
+    }
+    if (!selectedAccountId) {
+      toast.error('Select an account.');
+      return;
+    }
+    if (!grantReason.trim()) {
+      toast.error('Reason is required.');
+      return;
+    }
+
+    setIsSavingGrant(true);
+    try {
+      await adminGrantTechnicianAccess({
+        email: identity.email,
+        accountId: selectedAccountId,
+        machineId: selectedMachineId,
+        reason: grantReason.trim(),
+      });
+      trackEvent('admin_technician_access_saved', {
+        target_user_id: identity.userId,
+        machine_count: selectedMachineId ? 1 : 0,
+      });
+      toast.success('Technician access saved.');
+      setGrantReason('');
+      await refreshTechnicianContext();
+      await onChanged();
+    } catch (grantError) {
+      toast.error(grantError instanceof Error ? grantError.message : 'Unable to save Technician access.');
+    } finally {
+      setIsSavingGrant(false);
+    }
+  };
+
+  const handleSaveScope = async (grant: AdminTechnicianGrant) => {
+    const reason = scopeReasons[grant.grantId]?.trim() ?? '';
+    if (!reason) {
+      toast.error('Scope change reason is required.');
+      return;
+    }
+
+    setSavingScopeGrantId(grant.grantId);
+    try {
+      await adminUpdateTechnicianMachines({
+        grantId: grant.grantId,
+        machineId: getMachineScopeId(scopeDrafts[grant.grantId] ?? getGrantMachineScopeValue(grant)),
+        reason,
+      });
+      trackEvent('admin_technician_scope_updated', {
+        target_user_id: grant.technicianUserId,
+        grant_id: grant.grantId,
+      });
+      toast.success('Technician machine scope saved.');
+      setScopeReasons((current) => ({ ...current, [grant.grantId]: '' }));
+      await refreshTechnicianContext();
+      await onChanged();
+    } catch (scopeError) {
+      toast.error(scopeError instanceof Error ? scopeError.message : 'Unable to save Technician scope.');
+    } finally {
+      setSavingScopeGrantId(null);
+    }
+  };
+
+  const handleRenewGrant = async (grant: AdminTechnicianGrant) => {
+    const reason = renewReasons[grant.grantId]?.trim() ?? '';
+    if (!reason) {
+      toast.error('Renewal reason is required.');
+      return;
+    }
+
+    setRenewingGrantId(grant.grantId);
+    try {
+      await adminRenewTechnicianAccess({ grantId: grant.grantId, reason });
+      trackEvent('admin_technician_access_renewed', {
+        target_user_id: grant.technicianUserId,
+        grant_id: grant.grantId,
+      });
+      toast.success('Technician access renewed.');
+      setRenewReasons((current) => ({ ...current, [grant.grantId]: '' }));
+      await refreshTechnicianContext();
+      await onChanged();
+    } catch (renewError) {
+      toast.error(renewError instanceof Error ? renewError.message : 'Unable to renew Technician access.');
+    } finally {
+      setRenewingGrantId(null);
+    }
+  };
+
+  const handleRevokeGrant = async (grant: AdminTechnicianGrant) => {
+    const reason = revokeReasons[grant.grantId]?.trim() ?? '';
+    if (!reason) {
+      toast.error('Revoke reason is required.');
+      return;
+    }
+
+    setRevokingGrantId(grant.grantId);
+    try {
+      await adminRevokeTechnicianAccess({ grantId: grant.grantId, reason });
+      trackEvent('admin_technician_access_revoked', {
+        target_user_id: grant.technicianUserId,
+        grant_id: grant.grantId,
+      });
+      toast.success('Technician access revoked.');
+      setRevokeReasons((current) => ({ ...current, [grant.grantId]: '' }));
+      await refreshTechnicianContext();
+      await onChanged();
+    } catch (revokeError) {
+      toast.error(revokeError instanceof Error ? revokeError.message : 'Unable to revoke Technician access.');
+    } finally {
+      setRevokingGrantId(null);
+    }
+  };
 
   return (
     <SourceCard
       icon={Wrench}
       title="Technician"
-      status={activeGrants.length > 0 ? 'Active' : 'Inactive'}
-      description="Shows customer-managed Technician access. The customer-facing grant/change/revoke flow stays in Portal Settings."
+      status={activeGrants.length > 0 || activeSourceGrants.length > 0 ? 'Active' : 'Inactive'}
+      description="Super Admin controls for Technician training access and one-machine reporting scope."
     >
-      {grants.length === 0 ? (
+      {!identity.email && (
         <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-          No Technician source is active for this person.
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {grants.map((grant) => (
-            <div key={grant.id} className="rounded-md border border-border p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="font-medium text-foreground">{grant.accountName}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Sponsor: {grant.partnerName ?? grant.sponsorType} / expires {formatDate(grant.expiresAt)}
-                  </p>
-                </div>
-                <Badge className="w-fit" variant={grant.isActive ? 'default' : 'outline'}>
-                  {grant.status}
-                </Badge>
-              </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <SummaryMetric label="Machine scope" value={pluralize(grant.machineIds.length, 'machine')} />
-                <SummaryMetric label="Grant reason" value={grant.grantReason || 'Technician access'} />
-              </div>
-            </div>
-          ))}
+          Select or enter an email before managing Technician access.
         </div>
       )}
-      <PreviewBox>
-        Technician access is source-aware and customer-managed. Admins can review why it exists here,
-        but Plus Customers and Corporate Partners manage Technician grant, renewal, scope, and revoke
-        actions from Portal &gt; Settings &gt; Technician Access (`/portal/account`).
-      </PreviewBox>
+
+      {error && (
+        <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {error instanceof Error ? error.message : 'Unable to load Admin Technician controls.'}
+        </div>
+      )}
+
+      {identity.email && !error && (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <SummaryMetric
+              label="Technician source"
+              value={isFetching ? 'Refreshing...' : activeGrants.length > 0 ? 'Active' : 'No active grant'}
+            />
+            <SummaryMetric
+              label="Current admin scope"
+              value={pluralize(activeGrants.reduce((total, grant) => total + grant.machines.filter((machine) => machine.isActive).length, 0), 'machine')}
+            />
+            <SummaryMetric
+              label="Available machines"
+              value={pluralize(accounts.reduce((total, account) => total + account.machineCount, 0), 'machine')}
+            />
+          </div>
+
+          <div className="rounded-md border border-border p-3">
+            <div className="grid gap-3 md:grid-cols-[0.32fr_0.28fr_0.4fr]">
+              <div>
+                <Label htmlFor="admin-technician-account">Account</Label>
+                <select
+                  id="admin-technician-account"
+                  value={selectedAccountId}
+                  onChange={(event) => setSelectedAccountId(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  disabled={isFetching || accounts.length === 0}
+                >
+                  {accounts.map((account) => (
+                    <option key={account.accountId} value={account.accountId}>
+                      {account.accountName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="admin-technician-machine">Machine scope</Label>
+                <select
+                  id="admin-technician-machine"
+                  value={selectedScopeValue}
+                  onChange={(event) => setSelectedScopeValue(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  disabled={isFetching || !selectedAccountId}
+                >
+                  <option value={trainingOnlyScopeValue}>Training only - no machine</option>
+                  {selectedAccountMachines.map((machine) => (
+                    <option key={machine.machineId} value={machine.machineId}>
+                      {machine.machineLabel}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="admin-technician-reason">Grant or update reason</Label>
+                <Input
+                  id="admin-technician-reason"
+                  value={grantReason}
+                  onChange={(event) => setGrantReason(event.target.value)}
+                  placeholder="Required reason"
+                />
+              </div>
+            </div>
+            <PreviewBox>
+              Saving gives {identity.label} Technician training access
+              {selectedMachine
+                ? ` plus viewer reporting for ${selectedMachine.machineLabel}.`
+                : ' with no assigned reporting machine.'}{' '}
+              This does not grant Plus Customer, Corporate Partner, billing, supply discount, or
+              admin privileges. Switching to training-only revokes only Technician-sourced reporting
+              entitlements; unrelated manual reporting grants remain unchanged.
+            </PreviewBox>
+            <Button
+              className="mt-3"
+              onClick={handleSaveGrant}
+              disabled={isSavingGrant || isFetching || !selectedAccountId || !identity.email}
+            >
+              {isSavingGrant ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+              Save Technician access
+            </Button>
+          </div>
+
+          {grants.length === 0 ? (
+            <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+              No Technician source has been created for this person.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {grants.map((grant) => {
+                const accountMachines = getAccountMachines(accounts, grant.accountId);
+                const activeMachineCount = grant.machines.filter((machine) => machine.isActive).length;
+                const draftScope = scopeDrafts[grant.grantId] ?? getGrantMachineScopeValue(grant);
+                const draftMachine = getMachineScopeId(draftScope);
+
+                return (
+                  <div key={grant.grantId} className="rounded-md border border-border p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-medium text-foreground">{grant.accountName}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Sponsor: {grant.partnerName ?? grant.sponsorType} / expires {formatDate(grant.expiresAt)}
+                        </p>
+                      </div>
+                      <Badge className="w-fit" variant={grant.isActive ? 'default' : 'outline'}>
+                        {grant.revokedAt ? 'revoked' : grant.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <SummaryMetric label="Machine scope" value={activeMachineCount === 0 ? 'Training only' : pluralize(activeMachineCount, 'machine')} />
+                      <SummaryMetric label="Reporting rows" value={String(grant.activeReportingEntitlementCount)} />
+                      <SummaryMetric label="Grant reason" value={grant.grantReason || 'Technician access'} />
+                    </div>
+
+                    {!grant.revokedAt && (
+                      <div className="mt-3 space-y-3">
+                        <PreviewBox>
+                          Scope changes renew the Technician grant and replace only this
+                          Technician source's reporting machine. Manual reporting grants and other
+                          access sources are not removed.
+                        </PreviewBox>
+                        <div className="grid gap-3 lg:grid-cols-[0.28fr_0.42fr_0.3fr]">
+                          <div>
+                            <Label htmlFor={`technician-scope-${grant.grantId}`}>Scope after save</Label>
+                            <select
+                              id={`technician-scope-${grant.grantId}`}
+                              value={draftScope}
+                              onChange={(event) =>
+                                setScopeDrafts((current) => ({
+                                  ...current,
+                                  [grant.grantId]: event.target.value,
+                                }))
+                              }
+                              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            >
+                              <option value={trainingOnlyScopeValue}>Training only - no machine</option>
+                              {accountMachines.map((machine) => (
+                                <option key={machine.machineId} value={machine.machineId}>
+                                  {machine.machineLabel}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <Label htmlFor={`technician-scope-reason-${grant.grantId}`}>Scope reason</Label>
+                            <Input
+                              id={`technician-scope-reason-${grant.grantId}`}
+                              value={scopeReasons[grant.grantId] ?? ''}
+                              onChange={(event) =>
+                                setScopeReasons((current) => ({
+                                  ...current,
+                                  [grant.grantId]: event.target.value,
+                                }))
+                              }
+                              placeholder="Required for machine changes"
+                            />
+                          </div>
+                          <div className="flex items-end">
+                            <Button
+                              className="w-full"
+                              variant="outline"
+                              onClick={() => void handleSaveScope(grant)}
+                              disabled={savingScopeGrantId === grant.grantId || !scopeReasons[grant.grantId]?.trim()}
+                            >
+                              {savingScopeGrantId === grant.grantId ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : null}
+                              Save scope
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Preview: {draftMachine ? 'one assigned reporting machine' : 'training-only access'} after save.
+                        </p>
+
+                        <div className="grid gap-3 lg:grid-cols-[0.7fr_0.3fr]">
+                          <div>
+                            <Label htmlFor={`technician-renew-reason-${grant.grantId}`}>Renewal reason</Label>
+                            <Input
+                              id={`technician-renew-reason-${grant.grantId}`}
+                              value={renewReasons[grant.grantId] ?? ''}
+                              onChange={(event) =>
+                                setRenewReasons((current) => ({
+                                  ...current,
+                                  [grant.grantId]: event.target.value,
+                                }))
+                              }
+                              placeholder="Required to renew current scope"
+                            />
+                          </div>
+                          <div className="flex items-end">
+                            <Button
+                              className="w-full"
+                              variant="outline"
+                              onClick={() => void handleRenewGrant(grant)}
+                              disabled={renewingGrantId === grant.grantId || !renewReasons[grant.grantId]?.trim()}
+                            >
+                              {renewingGrantId === grant.grantId ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                              )}
+                              Renew
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 lg:grid-cols-[0.7fr_0.3fr]">
+                          <div>
+                            <Label htmlFor={`technician-revoke-reason-${grant.grantId}`}>Revoke reason</Label>
+                            <Input
+                              id={`technician-revoke-reason-${grant.grantId}`}
+                              value={revokeReasons[grant.grantId] ?? ''}
+                              onChange={(event) =>
+                                setRevokeReasons((current) => ({
+                                  ...current,
+                                  [grant.grantId]: event.target.value,
+                                }))
+                              }
+                              placeholder="Required to revoke"
+                            />
+                          </div>
+                          <div className="flex items-end">
+                            <Button
+                              className="w-full"
+                              variant="outline"
+                              onClick={() => void handleRevokeGrant(grant)}
+                              disabled={revokingGrantId === grant.grantId || !revokeReasons[grant.grantId]?.trim()}
+                            >
+                              {revokingGrantId === grant.grantId ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : null}
+                              Revoke
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </SourceCard>
   );
 }
