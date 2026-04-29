@@ -197,6 +197,9 @@ const asBoolean = (value: unknown) => Boolean(value);
 const asStringArray = (value: unknown) =>
   Array.isArray(value) ? value.filter(Boolean).map(String) : [];
 
+const matchesIdentityEmail = (identity: AccessWorkspaceIdentity, email: string | null | undefined) =>
+  Boolean(identity.email && email && normalizeSearch(identity.email) === normalizeSearch(email));
+
 const getSourceRecord = (context: EffectiveAccessContext | null, key: string) => {
   const value = context?.sources?.[key];
   return isPlainObject(value) ? value : {};
@@ -237,6 +240,43 @@ const getCorporateSources = (context: EffectiveAccessContext | null): CorporateP
       isActive: asBoolean(record.isActive),
     }))
     .filter((record) => record.id);
+
+const getCorporateMembershipsForIdentity = (
+  context: EffectiveAccessContext | null,
+  partners: CorporatePartnerOption[],
+  identity: AccessWorkspaceIdentity
+): CorporatePartnerSourceRecord[] => {
+  const membershipsById = new Map<string, CorporatePartnerSourceRecord>();
+
+  getCorporateSources(context).forEach((membership) => {
+    membershipsById.set(membership.id, membership);
+  });
+
+  partners.forEach((partner) => {
+    partner.memberships
+      .filter(
+        (membership) =>
+          (identity.userId && membership.userId === identity.userId) ||
+          matchesIdentityEmail(identity, membership.memberEmail)
+      )
+      .forEach((membership) => {
+        const existing = membershipsById.get(membership.id);
+        membershipsById.set(membership.id, {
+          id: membership.id,
+          partnerId: partner.partnerId,
+          partnerName: partner.partnerName,
+          status: membership.status,
+          startsAt: membership.startsAt,
+          expiresAt: membership.expiresAt,
+          grantReason: membership.grantReason || existing?.grantReason || 'Corporate Partner access',
+          revokedAt: membership.revokedAt,
+          isActive: membership.isActive,
+        });
+      });
+  });
+
+  return [...membershipsById.values()].sort((a, b) => Number(b.isActive) - Number(a.isActive));
+};
 
 const getTechnicianSources = (context: EffectiveAccessContext | null): TechnicianSourceRecord[] =>
   getSourceArray(context, 'technicianGrants')
@@ -293,6 +333,31 @@ const groupMachines = (machines: AdminReportingAccessMachine[]) => {
 
 const isMachineGrant = (grant: AdminReportingAccessGrant) =>
   grant.scopeType === 'machine' && Boolean(grant.machineId);
+
+const getManualReportingMachineIds = (context: EffectiveAccessContext | null) => {
+  if (!context || context.presets.includes('Super Admin')) return [];
+
+  const derivedMachineIds = new Set([
+    ...(context.scopes.corporatePartnerMachineIds ?? []),
+    ...(context.scopes.technicianMachineIds ?? []),
+    ...(context.scopes.scopedAdminMachineIds ?? []),
+  ]);
+
+  return (context.scopes.machineIds ?? []).filter((machineId) => !derivedMachineIds.has(machineId));
+};
+
+const getSoonestFutureDate = (values: Array<string | null | undefined>) => {
+  const now = Date.now();
+  const futureDates = values
+    .map((value) => (value ? new Date(value) : null))
+    .filter((date): date is Date => Boolean(date) && Number.isFinite(date.getTime()) && date.getTime() > now)
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  return futureDates[0]?.toISOString() ?? null;
+};
+
+const formatReportingAccessLevel = (level: ReportingAccessLevel) =>
+  level === 'report_manager' ? 'Report manager' : 'Viewer';
 
 const identityMatches = (
   identity: AccessWorkspaceIdentity,
@@ -359,7 +424,6 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
           account.customer_email &&
           normalizeSearch(account.customer_email) === normalizeSearch(selectedPerson.email)
       ) ??
-      selectedAccountResults[0] ??
       null
     );
   }, [selectedAccountResults, selectedPerson]);
@@ -376,9 +440,10 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
     staleTime: 1000 * 20,
   });
 
-  const identity = selectedPerson
-    ? buildIdentity(selectedPerson, selectedAccount, effectiveAccess)
-    : null;
+  const identity = useMemo(
+    () => (selectedPerson ? buildIdentity(selectedPerson, selectedAccount, effectiveAccess) : null),
+    [effectiveAccess, selectedAccount, selectedPerson]
+  );
 
   const refreshWorkspace = async () => {
     await Promise.all([
@@ -618,18 +683,57 @@ function EffectiveAccessSummary({
   isLoading: boolean;
 }) {
   const plusSource = getPlusSource(effectiveAccess);
+  const previewUnavailable = !identity.email && !effectiveAccess;
   const orderedPresets = presetOrder.filter((preset) => effectiveAccess?.presets.includes(preset));
+  const derivedPresets =
+    orderedPresets.length > 0
+      ? orderedPresets
+      : account?.has_plus_access
+        ? ['Plus Customer']
+        : [];
   const capabilities =
     effectiveAccess?.capabilities.map((capability) => capabilityLabels[capability] ?? capability) ?? [];
   const reportingMachineCount = effectiveAccess?.scopes.machineIds?.length ?? 0;
+  const corporateSources = getCorporateSources(effectiveAccess);
+  const technicianSources = getTechnicianSources(effectiveAccess);
+  const manualReportingMachineCount = getManualReportingMachineIds(effectiveAccess).length;
+  const hasScopedAdmin = Boolean(effectiveAccess?.presets.includes('Scoped Admin'));
+  const hasSuperAdmin = Boolean(effectiveAccess?.presets.includes('Super Admin'));
+  const nextExpiry = getSoonestFutureDate([
+    account?.plus_grant_expires_at ?? plusSource.freeGrantExpiresAt,
+    account?.membership_cancel_at_period_end ? account.current_period_end : null,
+    ...corporateSources.map((source) => source.expiresAt),
+    ...technicianSources.map((source) => source.expiresAt),
+  ]);
   const activeSourceCount = [
-    plusSource.hasPlusAccess,
-    getCorporateSources(effectiveAccess).some((source) => source.isActive),
-    getTechnicianSources(effectiveAccess).some((source) => source.isActive),
-    effectiveAccess?.presets.includes('Scoped Admin'),
-    effectiveAccess?.presets.includes('Super Admin'),
-    reportingMachineCount > 0,
+    plusSource.hasPlusAccess || Boolean(account?.has_plus_access),
+    corporateSources.some((source) => source.isActive),
+    technicianSources.some((source) => source.isActive),
+    hasScopedAdmin,
+    hasSuperAdmin,
+    manualReportingMachineCount > 0,
   ].filter(Boolean).length;
+  const effectiveAccessValue = isLoading
+    ? '...'
+    : previewUnavailable
+      ? derivedPresets.length
+        ? `Partial preview: ${derivedPresets.join(', ')}`
+        : 'Preview unavailable'
+      : orderedPresets.length
+        ? orderedPresets.join(', ')
+        : 'Baseline';
+  const capabilitiesValue = isLoading
+    ? '...'
+    : previewUnavailable
+      ? 'Email required for full preview'
+      : capabilities.length
+        ? pluralize(capabilities.length, 'capability')
+        : 'No elevated capabilities';
+  const reportingScopeValue = isLoading
+    ? '...'
+    : previewUnavailable
+      ? 'Email required for full preview'
+      : pluralize(reportingMachineCount, 'reporting machine');
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 sm:p-5">
@@ -655,18 +759,22 @@ function EffectiveAccessSummary({
           </dl>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <SummaryMetric
             label="Effective access"
-            value={isLoading ? '...' : orderedPresets.length ? orderedPresets.join(', ') : 'Baseline'}
+            value={effectiveAccessValue}
           />
           <SummaryMetric
             label="What can they do?"
-            value={isLoading ? '...' : capabilities.length ? pluralize(capabilities.length, 'capability') : 'No elevated capabilities'}
+            value={capabilitiesValue}
           />
           <SummaryMetric
             label="Where does it apply?"
-            value={isLoading ? '...' : pluralize(reportingMachineCount, 'reporting machine')}
+            value={reportingScopeValue}
+          />
+          <SummaryMetric
+            label="When does it expire?"
+            value={nextExpiry ? formatDate(nextExpiry) : 'No expiry recorded'}
           />
         </div>
       </div>
@@ -677,10 +785,10 @@ function EffectiveAccessSummary({
             Effective presets
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {orderedPresets.length === 0 ? (
-              <Badge variant="outline">Baseline</Badge>
+            {derivedPresets.length === 0 ? (
+              <Badge variant="outline">{previewUnavailable ? 'Preview unavailable' : 'Baseline'}</Badge>
             ) : (
-              orderedPresets.map((preset) => (
+              derivedPresets.map((preset) => (
                 <Badge key={preset} variant="outline">
                   {preset}
                 </Badge>
@@ -712,6 +820,10 @@ function EffectiveAccessSummary({
           value={activeSourceCount > 0 ? pluralize(activeSourceCount, 'active source') : 'No active source'}
         />
         <SummaryMetric
+          label="Manual reporting machines"
+          value={pluralize(manualReportingMachineCount, 'machine')}
+        />
+        <SummaryMetric
           label="Corporate Partner machines"
           value={pluralize(effectiveAccess?.scopes.corporatePartnerMachineIds?.length ?? 0, 'machine')}
         />
@@ -719,11 +831,14 @@ function EffectiveAccessSummary({
           label="Technician machines"
           value={pluralize(effectiveAccess?.scopes.technicianMachineIds?.length ?? 0, 'machine')}
         />
-        <SummaryMetric
-          label="Scoped admin machines"
-          value={pluralize(effectiveAccess?.scopes.scopedAdminMachineIds?.length ?? 0, 'machine')}
-        />
       </div>
+
+      {previewUnavailable && (
+        <div className="mt-4 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm text-foreground">
+          Effective access preview requires an email because the current backend preview RPC is
+          email-based. Source cards that use user ID data remain available where safe.
+        </div>
+      )}
 
       {effectiveAccess?.warnings.length ? (
         <div className="mt-4 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm text-foreground">
@@ -1007,7 +1122,7 @@ function CorporatePartnerAccessCard({
   const [portalReason, setPortalReason] = useState('');
   const [revokeReasons, setRevokeReasons] = useState<Record<string, string>>({});
   const [isGranting, setIsGranting] = useState(false);
-  const [updatingPartyId, setUpdatingPartyId] = useState<string | null>(null);
+  const [isSavingPortalAccess, setIsSavingPortalAccess] = useState(false);
   const [revokingMembershipId, setRevokingMembershipId] = useState<string | null>(null);
 
   const { data: options = emptyCorporatePartnerOptions, isFetching, error } = useQuery({
@@ -1028,7 +1143,7 @@ function CorporatePartnerAccessCard({
     setRevokeReasons({});
   }, [identity.email, identity.userId]);
 
-  const memberships = getCorporateSources(effectiveAccess);
+  const memberships = getCorporateMembershipsForIdentity(effectiveAccess, options.partners, identity);
   const activeMemberships = memberships.filter((membership) => membership.isActive);
   const selectedPartner =
     options.partners.find((partner) => partner.partnerId === selectedPartnerId) ??
@@ -1103,26 +1218,37 @@ function CorporatePartnerAccessCard({
     }
   };
 
-  const updatePortalAccess = async (partyId: string, enabled: boolean) => {
-    if (!portalReason.trim()) {
+  const savePortalAccessChanges = async (
+    changes: Array<{ partyId: string; enabled: boolean }>,
+    reason: string
+  ) => {
+    const normalizedReason = reason.trim();
+    if (changes.length === 0) {
+      toast.info('No partner-level portal access changes to save.');
+      return;
+    }
+    if (!normalizedReason) {
       toast.error('Enter a reason before changing partner portal access.');
       return;
     }
 
-    setUpdatingPartyId(partyId);
+    setIsSavingPortalAccess(true);
     try {
-      await setPartnershipPartyPortalAccess({
-        partyId,
-        enabled,
-        reason: portalReason.trim(),
-      });
+      for (const change of changes) {
+        await setPartnershipPartyPortalAccess({
+          partyId: change.partyId,
+          enabled: change.enabled,
+          reason: normalizedReason,
+        });
+      }
       toast.success('Partnership portal access updated.');
+      setPortalReason('');
       await refreshOptions();
       await onChanged();
     } catch (updateError) {
       toast.error(updateError instanceof Error ? updateError.message : 'Unable to update access.');
     } finally {
-      setUpdatingPartyId(null);
+      setIsSavingPortalAccess(false);
     }
   };
 
@@ -1239,8 +1365,8 @@ function CorporatePartnerAccessCard({
               partner={selectedPartner}
               portalReason={portalReason}
               setPortalReason={setPortalReason}
-              updatingPartyId={updatingPartyId}
-              updatePortalAccess={updatePortalAccess}
+              isSaving={isSavingPortalAccess}
+              savePortalAccessChanges={savePortalAccessChanges}
             />
           )}
         </div>
@@ -1253,24 +1379,52 @@ function PartnerPortalAccessControls({
   partner,
   portalReason,
   setPortalReason,
-  updatingPartyId,
-  updatePortalAccess,
+  isSaving,
+  savePortalAccessChanges,
 }: {
   partner: CorporatePartnerOption;
   portalReason: string;
   setPortalReason: (value: string) => void;
-  updatingPartyId: string | null;
-  updatePortalAccess: (partyId: string, enabled: boolean) => Promise<void>;
+  isSaving: boolean;
+  savePortalAccessChanges: (
+    changes: Array<{ partyId: string; enabled: boolean }>,
+    reason: string
+  ) => Promise<void>;
 }) {
+  const portalStateSignature = partner.portalPartnerships
+    .map((partnership) => `${partnership.partyId}:${partnership.portalAccessEnabled}`)
+    .join('|');
+  const [draftPortalAccess, setDraftPortalAccess] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setDraftPortalAccess(
+      Object.fromEntries(
+        partner.portalPartnerships.map((partnership) => [
+          partnership.partyId,
+          partnership.portalAccessEnabled,
+        ])
+      )
+    );
+  }, [partner.partnerId, partner.portalPartnerships, portalStateSignature]);
+
+  const portalChanges = partner.portalPartnerships
+    .map((partnership) => ({
+      partyId: partnership.partyId,
+      partnershipName: partnership.partnershipName,
+      enabled: draftPortalAccess[partnership.partyId] ?? partnership.portalAccessEnabled,
+      currentlyEnabled: partnership.portalAccessEnabled,
+    }))
+    .filter((change) => change.enabled !== change.currentlyEnabled);
+
   return (
-    <div className="rounded-md border border-border p-3">
+    <div className="rounded-md border border-amber/40 bg-amber/10 p-3">
       <div className="flex items-start gap-2">
-        <ShieldAlert className="mt-0.5 h-4 w-4 text-muted-foreground" />
+        <ShieldAlert className="mt-0.5 h-4 w-4 text-amber" />
         <div>
           <p className="text-sm font-medium text-foreground">Partner-level portal access</p>
           <p className="mt-1 text-xs text-muted-foreground">
             This affects every Corporate Partner member for this partner record, not only the
-            selected person.
+            selected person. Review the staged changes before saving.
           </p>
         </div>
       </div>
@@ -1280,7 +1434,7 @@ function PartnerPortalAccessControls({
           id="partner-portal-reason"
           value={portalReason}
           onChange={(event) => setPortalReason(event.target.value)}
-          placeholder="Required before toggling partnership portal access"
+          placeholder="Required before saving partner-level changes"
         />
       </div>
       <div className="mt-3 divide-y divide-border rounded-md border border-border">
@@ -1290,10 +1444,13 @@ function PartnerPortalAccessControls({
           partner.portalPartnerships.map((partnership) => (
             <label key={partnership.partyId} className="flex cursor-pointer items-start gap-3 p-3">
               <Checkbox
-                checked={partnership.portalAccessEnabled}
-                disabled={updatingPartyId === partnership.partyId}
+                checked={draftPortalAccess[partnership.partyId] ?? partnership.portalAccessEnabled}
+                disabled={isSaving}
                 onCheckedChange={(checked) =>
-                  void updatePortalAccess(partnership.partyId, checked === true)
+                  setDraftPortalAccess((current) => ({
+                    ...current,
+                    [partnership.partyId]: checked === true,
+                  }))
                 }
               />
               <span className="min-w-0 flex-1">
@@ -1308,6 +1465,30 @@ function PartnerPortalAccessControls({
           ))
         )}
       </div>
+      <PreviewBox tone="warning">
+        {portalChanges.length === 0
+          ? 'No partner-level changes are staged.'
+          : `This will change ${pluralize(
+              portalChanges.length,
+              'partnership'
+            )}: ${portalChanges
+              .map((change) => `${change.partnershipName} -> ${change.enabled ? 'enabled' : 'disabled'}`)
+              .join(', ')}.`}
+      </PreviewBox>
+      <Button
+        className="mt-3"
+        variant="outline"
+        onClick={() =>
+          void savePortalAccessChanges(
+            portalChanges.map((change) => ({ partyId: change.partyId, enabled: change.enabled })),
+            portalReason
+          )
+        }
+        disabled={isSaving || portalChanges.length === 0 || !portalReason.trim()}
+      >
+        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        Save partner-level changes
+      </Button>
     </div>
   );
 }
@@ -1399,12 +1580,25 @@ function ManualReportingAccessCard({
   }, [identity, matrix.grants]);
 
   const originalMachineIds = useMemo(() => new Set(machineGrantByMachineId.keys()), [machineGrantByMachineId]);
+  const originalMachineSignature = useMemo(
+    () => [...originalMachineIds].sort((a, b) => a.localeCompare(b)).join('|'),
+    [originalMachineIds]
+  );
+  const existingGrantLevels = useMemo(
+    () => uniqueValues([...machineGrantByMachineId.values()].map((grant) => grant.accessLevel)),
+    [machineGrantByMachineId]
+  );
 
   useEffect(() => {
     setSelectedMachineIds(new Set(originalMachineIds));
+    setAccessLevel(
+      existingGrantLevels.length === 1
+        ? (existingGrantLevels[0] as ReportingAccessLevel)
+        : 'viewer'
+    );
     setAccessReason('');
     setMachineSearch('');
-  }, [identity.email, identity.userId, originalMachineIds]);
+  }, [existingGrantLevels, identity.email, identity.userId, originalMachineSignature, originalMachineIds]);
 
   const filteredMachines = useMemo(() => {
     const search = normalizeSearch(machineSearch);
@@ -1492,6 +1686,14 @@ function ManualReportingAccessCard({
           label="Current manual scope"
           value={isSuperAdmin ? 'All machines via Super Admin' : pluralize(originalMachineIds.size, 'machine')}
         />
+        <SummaryMetric
+          label="Existing levels"
+          value={
+            existingGrantLevels.length === 0
+              ? 'No manual grants'
+              : existingGrantLevels.map((level) => formatReportingAccessLevel(level as ReportingAccessLevel)).join(', ')
+          }
+        />
         <SummaryMetric label="Selected after save" value={pluralize(selectedMachineIds.size, 'machine')} />
         <SummaryMetric label="Change preview" value={`+${addedMachineIds.length} / -${removedMachineIds.length}`} />
       </div>
@@ -1505,7 +1707,7 @@ function ManualReportingAccessCard({
         <div className="mt-4 space-y-3">
           <div className="grid gap-3 md:grid-cols-[0.35fr_0.65fr]">
             <div>
-              <Label htmlFor="manual-reporting-level">New grant level</Label>
+              <Label htmlFor="manual-reporting-level">Level for newly added machines</Label>
               <select
                 id="manual-reporting-level"
                 value={accessLevel}
@@ -1534,7 +1736,8 @@ function ManualReportingAccessCard({
           <PreviewBox>
             This will add {pluralize(addedMachineIds.length, 'manual reporting machine')} and revoke{' '}
             {pluralize(removedMachineIds.length, 'manual reporting machine')}. Derived access from
-            Corporate Partner, Technician, and Scoped Admin sources is not changed.
+            Corporate Partner, Technician, and Scoped Admin sources is not changed. Existing manual
+            grants that remain selected keep their current access level.
           </PreviewBox>
 
           <div>
@@ -1552,6 +1755,7 @@ function ManualReportingAccessCard({
             selectedMachineIds={selectedMachineIds}
             toggleMachine={toggleMachine}
             isFetching={isFetching}
+            grantByMachineId={machineGrantByMachineId}
           />
 
           <Button onClick={saveAccessChanges} disabled={isSaving || !hasAccessChanges || !identity.email}>
@@ -1838,7 +2042,7 @@ function SuperAdminAccessCard({
   });
 
   const role = useMemo(
-    () => roles.sort(roleSort).find((candidate) => identityMatches(identity, candidate)) ?? null,
+    () => [...roles].sort(roleSort).find((candidate) => identityMatches(identity, candidate)) ?? null,
     [identity, roles]
   );
 
@@ -1980,11 +2184,13 @@ function MachineChecklist({
   selectedMachineIds,
   toggleMachine,
   isFetching,
+  grantByMachineId,
 }: {
   groupedMachines: Array<{ key: string; accountName: string; machines: AdminReportingAccessMachine[] }>;
   selectedMachineIds: Set<string>;
   toggleMachine: (machineId: string, checked: boolean) => void;
   isFetching: boolean;
+  grantByMachineId?: Map<string, AdminReportingAccessGrant>;
 }) {
   return (
     <div className="max-h-[420px] overflow-y-auto rounded-md border border-border">
@@ -2011,6 +2217,11 @@ function MachineChecklist({
                 <span className="mt-1 block text-xs text-muted-foreground">
                   {machine.locationName} / external ID {machine.sunzeMachineId ?? 'n/a'} / viewers{' '}
                   {machine.viewerCount}
+                  {grantByMachineId?.has(machine.id)
+                    ? ` / current manual level ${formatReportingAccessLevel(
+                        grantByMachineId.get(machine.id)?.accessLevel ?? 'viewer'
+                      )}`
+                    : ''}
                 </span>
               </span>
             </label>
@@ -2166,6 +2377,13 @@ function ScopeBreakdownCard({
   identity: AccessWorkspaceIdentity;
   effectiveAccess: EffectiveAccessContext | null;
 }) {
+  const corporateSources = getCorporateSources(effectiveAccess);
+  const technicianSources = getTechnicianSources(effectiveAccess);
+  const nextExpiry = getSoonestFutureDate([
+    ...corporateSources.map((source) => source.expiresAt),
+    ...technicianSources.map((source) => source.expiresAt),
+  ]);
+
   return (
     <div className="rounded-lg border border-border bg-card p-4 sm:p-5">
       <div className="flex items-start gap-3">
@@ -2183,6 +2401,10 @@ function ScopeBreakdownCard({
           value={pluralize(effectiveAccess?.scopes.machineIds?.length ?? 0, 'machine')}
         />
         <SummaryMetric
+          label="Manual-only machines"
+          value={pluralize(getManualReportingMachineIds(effectiveAccess).length, 'machine')}
+        />
+        <SummaryMetric
           label="Partnerships"
           value={pluralize(effectiveAccess?.scopes.partnershipIds?.length ?? 0, 'partnership')}
         />
@@ -2197,6 +2419,10 @@ function ScopeBreakdownCard({
         <SummaryMetric
           label="Scoped Admin machines"
           value={pluralize(effectiveAccess?.scopes.scopedAdminMachineIds?.length ?? 0, 'machine')}
+        />
+        <SummaryMetric
+          label="Next source expiry"
+          value={nextExpiry ? formatDate(nextExpiry) : 'No expiry recorded'}
         />
       </div>
       <p className="mt-4 text-xs text-muted-foreground">
