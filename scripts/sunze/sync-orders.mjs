@@ -919,18 +919,19 @@ const clickVantCalendarDate = async (page, dateKey) => {
         normalized.includes(`${year}.${paddedMonth}`)
       );
     };
+    const monthSelector = '.van-calendar__month, .van-calendar-month, [class*="calendar-month"]';
+    const daySelector = '[role="gridcell"], .van-calendar__day, .van-calendar-day, [class*="calendar-day"]';
     const getMonths = () =>
-      Array.from(calendar.querySelectorAll('.van-calendar-month, [class*="calendar-month"]')).filter(
+      Array.from(calendar.querySelectorAll(monthSelector)).filter(
         (element) =>
           element instanceof HTMLElement &&
-          (element.matches('.van-calendar-month') ||
-            element.querySelector('[role="grid"], .van-calendar-day, [class*="calendar-day"]'))
+          (element.matches('.van-calendar__month, .van-calendar-month') || element.querySelector(daySelector))
       );
     const getMonthTitle = (monthElement) =>
       normalizeText(
         (
           monthElement.querySelector(
-            '.van-calendar-month__month-title, [class*="calendar-month"][class*="month-title"], [class*="month-title"]'
+            '.van-calendar__month-title, .van-calendar-month__month-title, [class*="calendar-month"][class*="month-title"], [class*="month-title"]'
           ) || monthElement
         ).textContent
       );
@@ -976,7 +977,7 @@ const clickVantCalendarDate = async (page, dateKey) => {
     await delay(500);
 
     const findDayElements = () =>
-      Array.from(monthElement.querySelectorAll('[role="gridcell"], .van-calendar-day, [class*="calendar-day"]')).filter(
+      Array.from(monthElement.querySelectorAll(daySelector)).filter(
         (element) => element instanceof HTMLElement && !/\bdisabled\b/i.test(element.className)
       );
     const findDayElement = () =>
