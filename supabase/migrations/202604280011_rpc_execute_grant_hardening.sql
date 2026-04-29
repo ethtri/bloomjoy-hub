@@ -12,7 +12,9 @@ declare
   fn record;
   locked_search_path_names constant text[] := array[
     'admin_scoped_grant_is_active',
+    'corporate_partner_membership_is_active',
     'normalize_account_email',
+    'normalize_corporate_partner_email',
     'normalize_operator_training_email',
     'normalize_reporting_match_text',
     'normalize_technician_email',
