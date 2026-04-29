@@ -10,7 +10,7 @@ Owner: Marketing/CMO maintains this library with Sales and Operations input.
 Maintenance:
 - Review monthly with the Business Playbook analytics review.
 - Update snippets when article URLs, pricing, Plus benefits, reporting availability, or support boundaries change.
-- Keep snippets short enough for email, SMS, chat, or CRM notes.
+- Keep full snippets email-ready. For SMS, chat, or CRM notes, trim to one helpful point, one article link, and one follow-up question.
 - Keep legal, tax, insurance, permit, and ROI language cautious. Point buyers to official/local sources instead of making promises.
 
 ## How to Use
@@ -64,6 +64,8 @@ Avoid:
 
 ## Reusable Reply Snippets
 Replace bracketed fields before sending. Keep the article link and one follow-up question.
+
+Channel trimming rule: for SMS or chat, use the first useful sentence, the article link, and the final question. Do not paste the full email-style snippet into a short channel.
 
 ### SNIP-01: Starting A Vending Business
 Great question. The cleanest way to start is to think in pieces: machine fit, location strategy, launch budget, basic business setup, supplies, and the weekly operating rhythm.

@@ -78,7 +78,7 @@ Copy approval note: the site, email, and social copy in this document is the lau
 ### Homepage Or Sitewide Strip
 Headline: `New: Bloomjoy Business Playbook`
 
-Body: `Practical startup, budget, location, and event-planning guides for people exploring cotton candy vending or catering. Built from Bloomjoy's operator experience, not generic business fluff.`
+Body: `Practical startup, budget, location, and event-planning guides for people exploring cotton candy vending or catering, built from Bloomjoy's operator experience.`
 
 CTA: `Read the Playbook`
 
@@ -120,7 +120,7 @@ What should I budget for?
 How do I pitch a location owner?
 Should I choose Commercial, Mini, or Micro?
 
-We built the Bloomjoy Business Playbook to answer those questions in a practical way. It is not a pile of generic startup advice. It is a set of operator-led guides with checklists, examples, pitch notes, budget prompts, and machine-fit guidance based on what Bloomjoy has learned from selling, operating, and supporting machines.
+We built the Bloomjoy Business Playbook to answer those questions in a practical way. It is a set of operator-led guides with checklists, examples, pitch notes, budget prompts, and machine-fit guidance based on what Bloomjoy has learned from selling, operating, and supporting machines.
 
 Start here:
 https://www.bloomjoyusa.com/resources/business-playbook
@@ -130,12 +130,12 @@ If you are already comparing machines or have a location/event in mind, reply wi
 - The Bloomjoy team
 ```
 
-Follow-up email for clickers who do not request a quote, if email tooling supports it:
+Optional follow-up email for warm leads who still need a planning path, if email tooling and consent posture support it:
 
 ```
 Hi [first name],
 
-Saw you were checking out the Bloomjoy Business Playbook. If you are still in planning mode, the most useful next step is usually to pick one path:
+If you are still in planning mode, the most useful next step is usually to pick one path:
 
 Commercial placement: start with location fit and owner pitch.
 Events or catering: start with Mini/Micro event planning.
