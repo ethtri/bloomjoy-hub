@@ -4,7 +4,11 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { parseSunzeOrderWorkbook, summarizeSunzeOrderRows } from './sunze-orders.mjs';
+import {
+  assertSunzeOrderRowsWithinWindow,
+  parseSunzeOrderWorkbook,
+  summarizeSunzeOrderRows,
+} from './sunze-orders.mjs';
 
 const args = process.argv.slice(2);
 
@@ -45,6 +49,8 @@ const dryRun = hasFlag('--dry-run');
 const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
 const datePreset = getArg('--date-preset', 'Last 7 Days');
+const dateStartArg = getArg('--date-start');
+const dateEndArg = getArg('--date-end');
 const downloadDirArg = getArg('--download-dir');
 const summaryMachineCodesArg =
   getArg('--summary-machine-codes') ||
@@ -63,6 +69,18 @@ const ingestChunkSize = Math.min(
     process.env.PROVIDER_INGEST_CHUNK_SIZE ?? process.env.SUNZE_INGEST_CHUNK_SIZE,
     DEFAULT_INGEST_CHUNK_SIZE
   )
+);
+const exportTaskTimeoutMs = parsePositiveInteger(
+  process.env.PROVIDER_EXPORT_TASK_TIMEOUT_MS ?? process.env.SUNZE_EXPORT_TASK_TIMEOUT_MS,
+  5 * 60 * 1000
+);
+const exportDownloadTimeoutMs = parsePositiveInteger(
+  process.env.PROVIDER_EXPORT_DOWNLOAD_TIMEOUT_MS ?? process.env.SUNZE_EXPORT_DOWNLOAD_TIMEOUT_MS,
+  2 * 60 * 1000
+);
+const exportTaskClockSkewToleranceMs = parsePositiveInteger(
+  process.env.PROVIDER_EXPORT_TASK_CLOCK_SKEW_MS ?? process.env.SUNZE_EXPORT_TASK_CLOCK_SKEW_MS,
+  0
 );
 const supportedDatePresets = new Set([
   'Today',
@@ -96,6 +114,7 @@ const jsonLog = (payload) => console.log(JSON.stringify(payload, null, 2));
 
 const dateTokenPattern =
   /(?:20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]20\d{2})/g;
+const monthDayTokenPattern = /(?:^|[^\d])(\d{1,2})[-/.](\d{1,2})(?![-/.\d])/g;
 
 const normalizeDate = (value) => {
   const text = String(value ?? '').trim();
@@ -112,6 +131,17 @@ const normalizeDate = (value) => {
   const month = Number(parts.month);
   const day = Number(parts.day);
   if (!Number.isInteger(month) || !Number.isInteger(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  const year = Number(parts.year);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
     return null;
   }
 
@@ -135,11 +165,47 @@ const addDays = (dateKey, days) => {
   return date.toISOString().slice(0, 10);
 };
 
-if (!supportedDatePresets.has(datePreset)) {
+const daysBetweenInclusive = (startDateKey, endDateKey) => {
+  const [startYear, startMonth, startDay] = startDateKey.split('-').map(Number);
+  const [endYear, endMonth, endDay] = endDateKey.split('-').map(Number);
+  const startDate = Date.UTC(startYear, startMonth - 1, startDay);
+  const endDate = Date.UTC(endYear, endMonth - 1, endDay);
+  return Math.floor((endDate - startDate) / 86400000) + 1;
+};
+
+const customDateStart = dateStartArg ? normalizeDate(dateStartArg) : null;
+const customDateEnd = dateEndArg ? normalizeDate(dateEndArg) : null;
+const hasCustomDateRange = Boolean(customDateStart || customDateEnd);
+
+if (dateStartArg && !customDateStart) {
+  throw new Error(`Invalid provider custom date start: ${dateStartArg}. Expected YYYY-MM-DD.`);
+}
+
+if (dateEndArg && !customDateEnd) {
+  throw new Error(`Invalid provider custom date end: ${dateEndArg}. Expected YYYY-MM-DD.`);
+}
+
+if (Boolean(customDateStart) !== Boolean(customDateEnd)) {
+  throw new Error('Provider custom date exports require both --date-start and --date-end.');
+}
+
+if (customDateStart && customDateEnd && customDateStart > customDateEnd) {
+  throw new Error(`Provider custom date start must be before or equal to date end: ${customDateStart} > ${customDateEnd}.`);
+}
+
+if (customDateStart && customDateEnd && daysBetweenInclusive(customDateStart, customDateEnd) > 31) {
   throw new Error(
-    `Unsupported provider date preset: ${datePreset}. Supported presets: ${[...supportedDatePresets].join(', ')}. Provider Custom Range exports are not used because they have produced corrupted workbooks.`
+    `Provider custom date exports must be requested in monthly chunks of 31 days or less: ${customDateStart} to ${customDateEnd}.`
   );
 }
+
+if (!hasCustomDateRange && !supportedDatePresets.has(datePreset)) {
+  throw new Error(
+    `Unsupported provider date preset: ${datePreset}. Supported presets: ${[...supportedDatePresets].join(', ')}. Use --date-start and --date-end for approved custom-range exports.`
+  );
+}
+
+const exportDateLabel = hasCustomDateRange ? `Custom Range:${customDateStart}:${customDateEnd}` : datePreset;
 
 const deriveWindowFromPreset = (preset) => {
   const normalizedPreset = String(preset ?? '').trim().toLowerCase();
@@ -198,6 +264,16 @@ const deriveWindowFromPreset = (preset) => {
   return null;
 };
 
+const deriveSelectedWindow = () =>
+  hasCustomDateRange
+    ? {
+        uiWindowStart: customDateStart,
+        uiWindowEnd: customDateEnd,
+        uiWindowSource: 'custom_range',
+        selectedPreset: 'Custom Range',
+      }
+    : deriveWindowFromPreset(datePreset);
+
 const parseRevenueCandidateCents = (value) => {
   const text = String(value ?? '').replace(/\s+/g, ' ');
   const patterns = [
@@ -239,22 +315,40 @@ const extractRevenueCandidatesCents = (lines) => {
   return [...candidates].sort((left, right) => left - right);
 };
 
-const extractRecordCount = (text) => {
+const extractRecordCount = (texts) => {
+  const sources = (Array.isArray(texts) ? texts : String(texts ?? '').split(/\r?\n/))
+    .map((text) => String(text ?? '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
   const patterns = [
     /\bshowing\s+[0-9,]+\s*(?:-|\u2013)\s*[0-9,]+\s+of\s+([0-9,]+)\b/i,
-    /\btotal\D{0,20}([0-9,]+)\D{0,20}(?:items?|records?|orders?)\b/i,
+    /\btotal\s*([0-9,]+)\s*(?:items?|records?|orders?)\b/i,
     /\b([0-9,]+)\s*(?:items?|records?|orders?)\b/i,
   ];
+  const candidates = [];
 
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      const parsed = parseInteger(match[1]);
-      if (parsed !== null) return parsed;
+  for (let index = 0; index < sources.length - 2; index += 1) {
+    if (/^total$/i.test(sources[index]) && /^[0-9,]+$/.test(sources[index + 1])) {
+      const unit = sources[index + 2];
+      if (/^(?:items?|records?|orders?)$/i.test(unit)) {
+        const parsed = parseInteger(sources[index + 1]);
+        if (parsed !== null) candidates.push(parsed);
+      }
     }
   }
 
-  return null;
+  for (const source of sources) {
+    if (/\d+\.\d+/.test(source)) continue;
+
+    for (const pattern of patterns) {
+      const match = source.match(pattern);
+      if (!match) continue;
+
+      const parsed = parseInteger(match[1]);
+      if (parsed !== null) candidates.push(parsed);
+    }
+  }
+
+  return candidates.length > 0 ? Math.max(...candidates) : null;
 };
 
 const collectVisibleTexts = async (page) =>
@@ -273,6 +367,9 @@ const collectVisibleTexts = async (page) =>
       '.ant-select-selection-placeholder',
       '.ant-statistic',
       '.ant-pagination-total-text',
+      '.custom-date-trigger',
+      '.van-picker',
+      '.van-calendar',
     ];
     return Array.from(document.querySelectorAll(selectors.join(',')))
       .flatMap((element) => {
@@ -296,6 +393,8 @@ const collectVisibleTexts = async (page) =>
 const sanitizeDiagnosticText = (value) =>
   String(value ?? '')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+    .replace(/Task\s*No\.?\s*:?\s*[A-Za-z0-9-]{4,}/gi, 'Task No.:[id]')
+    .replace(/\b[A-Za-z0-9][A-Za-z0-9-]{15,}\b/g, '[id]')
     .replace(/\b\d{6,}\b/g, '[number]')
     .slice(0, 120);
 
@@ -316,19 +415,60 @@ const buildUiSummaryDiagnostic = (texts) =>
     .join(' | ');
 
 const extractSelectedWindow = (texts) => {
+  const allDates = [];
+  const allMonthDayKeys = [];
+
   for (const text of texts) {
     const dates = Array.from(text.matchAll(dateTokenPattern))
       .map((match) => normalizeDate(match[0]))
       .filter(Boolean);
+    const monthDayKeys = Array.from(String(text ?? '').matchAll(monthDayTokenPattern))
+      .map((match) => {
+        const month = Number(match[1]);
+        const day = Number(match[2]);
+        return Number.isInteger(month) && Number.isInteger(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31
+          ? `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+          : null;
+      })
+      .filter(Boolean);
 
-    if (dates.length >= 1) {
+    allDates.push(...dates);
+    allMonthDayKeys.push(...monthDayKeys);
+
+    if (!hasCustomDateRange && dates.length >= 2) {
       return {
         uiWindowStart: dates[0],
-        uiWindowEnd: dates[1] ?? dates[0],
+        uiWindowEnd: dates[1],
         uiWindowSource: 'visible_dates',
         selectedPreset: null,
       };
     }
+  }
+
+  if (hasCustomDateRange) {
+    const visibleDateSet = new Set(allDates);
+    const visibleMonthDaySet = new Set(allMonthDayKeys);
+    const customStartMonthDay = customDateStart.slice(5);
+    const customEndMonthDay = customDateEnd.slice(5);
+
+    return (visibleDateSet.has(customDateStart) && visibleDateSet.has(customDateEnd)) ||
+      (visibleMonthDaySet.has(customStartMonthDay) && visibleMonthDaySet.has(customEndMonthDay))
+      ? {
+          uiWindowStart: customDateStart,
+          uiWindowEnd: customDateEnd,
+          uiWindowSource: 'visible_custom_dates',
+          selectedPreset: 'Custom Range',
+        }
+      : null;
+  }
+
+  if (allDates.length >= 1) {
+    return {
+      uiWindowStart: allDates[0],
+      uiWindowEnd: allDates[1] ?? allDates[0],
+      uiWindowSource: 'visible_dates',
+      selectedPreset: null,
+    };
   }
 
   return null;
@@ -341,11 +481,10 @@ const readOrdersUiSummary = async (page) => {
     .map((line) => line.trim())
     .filter(Boolean);
   const visibleTexts = await collectVisibleTexts(page);
-  const combinedText = [...visibleTexts, bodyText].join('\n');
-  const selectedWindow = extractSelectedWindow(visibleTexts) ?? deriveWindowFromPreset(datePreset);
+  const selectedWindow = extractSelectedWindow(visibleTexts) ?? (!hasCustomDateRange ? deriveSelectedWindow() : null);
   const uiRevenueCandidatesCents = extractRevenueCandidatesCents(lines);
   const uiRevenueCents = uiRevenueCandidatesCents.length > 0 ? Math.max(...uiRevenueCandidatesCents) : null;
-  const uiRecordCount = extractRecordCount(combinedText);
+  const uiRecordCount = extractRecordCount([...lines, ...visibleTexts]);
 
   if (!selectedWindow?.uiWindowStart || !selectedWindow?.uiWindowEnd) {
     const diagnostic = buildUiSummaryDiagnostic(visibleTexts);
@@ -387,6 +526,7 @@ const assertExportMatchesUi = (summary, uiSummaries) => {
     return {
       ...matchedSummary,
       uiRevenueCents: summary.orderAmountCents,
+      uiRecordCountMatched: true,
     };
   }
 
@@ -591,10 +731,19 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
   return machineCodes;
 };
 
-const assertAllowedSunzeRoute = (page) => {
+const routeBaseMatches = (url, expectedBaseUrl) => {
+  const expected = new URL(expectedBaseUrl);
+  const expectedPath = expected.pathname.endsWith('/') ? expected.pathname : `${expected.pathname}/`;
+  const actualPath = url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/`;
+
+  return url.origin === expected.origin && actualPath.startsWith(expectedPath);
+};
+
+const assertAllowedSunzeRoute = (page, expectedBaseUrl = required(loginUrl, 'PROVIDER_LOGIN_URL').split('#')[0]) => {
   const url = new URL(page.url());
-  const allowedHashes = ['#/login', '#/home', '#/orderCenter', '#/device'];
-  const isAllowed = allowedHashes.some((hash) => url.hash.startsWith(hash));
+  const allowedHashes = ['#/login', '#/home', '#/orderCenter', '#/taskExportList', '#/device'];
+  const isAllowed =
+    routeBaseMatches(url, expectedBaseUrl) && allowedHashes.some((hash) => url.hash.startsWith(hash));
 
   if (!isAllowed) {
     throw new Error(`Unexpected provider route during reporting sync: ${url.origin}${url.pathname}${url.hash}`);
@@ -605,7 +754,7 @@ const openOrdersPage = async (page) => {
   const baseUrl = required(loginUrl, 'PROVIDER_LOGIN_URL').split('#')[0];
 
   await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
-  assertAllowedSunzeRoute(page);
+  assertAllowedSunzeRoute(page, baseUrl);
   await page.getByText(/Password/i).first().click().catch(() => {});
   await page
     .getByPlaceholder(/Username|Email/i)
@@ -629,7 +778,7 @@ const openOrdersPage = async (page) => {
   await page.waitForTimeout(2500);
 
   await page.goto(`${baseUrl}#/orderCenter`, { waitUntil: 'domcontentloaded' });
-  assertAllowedSunzeRoute(page);
+  assertAllowedSunzeRoute(page, baseUrl);
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(2500);
 
@@ -644,6 +793,764 @@ const selectDatePreset = async (page, preset) => {
   await page.waitForTimeout(1500);
 };
 
+const formatProviderDate = (dateKey) => dateKey.replace(/-/g, '/');
+
+const clickFirstVisibleText = async (page, textPattern) => {
+  const locator = page.getByText(textPattern).first();
+  await locator.waitFor({ state: 'visible', timeout: 10000 });
+  await locator.click();
+};
+
+const clickVisibleTextIfPresent = async (page, textPattern, timeout = 2000) => {
+  const locator = page.getByText(textPattern).first();
+  try {
+    await locator.waitFor({ state: 'visible', timeout });
+    await locator.click();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const clickDateFilter = async (page) => {
+  const activeDateChip = page.locator('.filter-chip.active').first();
+
+  if ((await activeDateChip.count()) > 0 && (await activeDateChip.isVisible().catch(() => false))) {
+    await activeDateChip.click();
+  } else {
+    await page.getByText('Today').first().click().catch(async () => {
+      await clickFirstVisibleText(page, /Today|Yesterday|Last \d+ Days|Last Month|Custom Range/i);
+    });
+  }
+
+  await page.waitForTimeout(500);
+};
+
+const scrollFilterPanels = async (page) => {
+  await page
+    .evaluate(() => {
+      const candidates = [
+        ...Array.from(
+          document.querySelectorAll(
+            '.ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown, .nut-popup, .nut-popover, [class*="dropdown"], [class*="popup"], [class*="filter"], [class*="Filter"]'
+          )
+        ),
+        document.scrollingElement,
+      ].filter(Boolean);
+
+      for (const element of candidates) {
+        if (!(element instanceof HTMLElement)) continue;
+        element.scrollTop = element.scrollHeight;
+      }
+    })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+};
+
+const openMoreFilters = async (page) => {
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(300);
+
+  let opened =
+    (await clickVisibleTextIfPresent(page, /^More$/i, 5000)) ||
+    (await page
+      .locator('button, [role="button"], div, span')
+      .filter({ hasText: /^More$/i })
+      .first()
+      .click()
+      .then(() => true)
+      .catch(() => false));
+
+  if (!opened) {
+    await page.getByText('Today').first().click().catch(() => {});
+    await page.waitForTimeout(300);
+    opened =
+      (await clickVisibleTextIfPresent(page, /^More$/i, 5000)) ||
+      (await page
+        .locator('button, [role="button"], div, span')
+        .filter({ hasText: /^More$/i })
+        .first()
+        .click()
+        .then(() => true)
+        .catch(() => false));
+  }
+
+  if (!opened) {
+    throw new Error('Unable to open provider advanced filters.');
+  }
+
+  await page.waitForTimeout(750);
+};
+
+const clickOptionalDateConfirm = async (page) => {
+  const labels = [/^Confirm$/i, /^OK$/i, /^Apply$/i, /^Done$/i];
+
+  for (const label of labels) {
+    const button = page.getByRole('button', { name: label }).first();
+    if ((await button.count()) > 0 && (await button.isVisible().catch(() => false))) {
+      await button.click();
+      return true;
+    }
+  }
+
+  for (const label of labels) {
+    const text = page.getByText(label).first();
+    if ((await text.count()) > 0 && (await text.isVisible().catch(() => false))) {
+      await text.click();
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const fillVisibleDateInputs = async (page, startDate, endDate) => {
+  const formattedStart = formatProviderDate(startDate);
+  const formattedEnd = formatProviderDate(endDate);
+  const inputGroups = [page.locator('.ant-picker input:visible'), page.locator('input:visible')];
+
+  for (const inputs of inputGroups) {
+    const count = await inputs.count();
+    if (count < 2) continue;
+
+    await inputs.nth(0).fill(formattedStart);
+    await inputs.nth(1).fill(formattedEnd);
+    await inputs.nth(1).press('Enter').catch(() => {});
+    return true;
+  }
+
+  return false;
+};
+
+const isVantCalendarVisible = async (page) =>
+  page
+    .locator('.van-calendar:visible')
+    .first()
+    .waitFor({ state: 'visible', timeout: 1000 })
+    .then(() => true)
+    .catch(() => false);
+
+const openCustomRangeCalendar = async (page) => {
+  await clickDateFilter(page);
+
+  const customTrigger = page.locator('.custom-date-trigger:visible').first();
+  let openedCustomFlow = false;
+
+  if ((await customTrigger.count()) > 0 && (await customTrigger.isVisible().catch(() => false))) {
+    await customTrigger.click();
+    openedCustomFlow = true;
+  } else {
+    openedCustomFlow =
+      (await clickVisibleTextIfPresent(page, /Custom Date Range/i, 2000)) ||
+      (await clickVisibleTextIfPresent(page, /^Custom Range$/i, 2000)) ||
+      (await clickVisibleTextIfPresent(page, /^Custom$/i, 2000)) ||
+      (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i, 2000));
+  }
+
+  if (!openedCustomFlow) {
+    const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+    throw new Error(
+      diagnostic
+        ? `Unable to open provider custom date control. Visible controls: ${diagnostic}`
+        : 'Unable to open provider custom date control.'
+    );
+  }
+
+  await page.waitForTimeout(500);
+
+  if (!(await isVantCalendarVisible(page))) {
+    await page
+      .locator('.van-picker:visible')
+      .getByText(/Day|Daily|By Day/i)
+      .first()
+      .click({ timeout: 1000 })
+      .catch(() => {});
+    await clickOptionalDateConfirm(page);
+  }
+
+  await page.locator('.van-calendar:visible').first().waitFor({ state: 'visible', timeout: 10000 });
+};
+
+const clickVantCalendarDate = async (page, dateKey) => {
+  const result = await page.evaluate(async (targetDateKey) => {
+    const [year, month, day] = targetDateKey.split('-').map(Number);
+    const delay = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
+    const normalizeText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+    const isVisible = (element) => {
+      if (!(element instanceof HTMLElement)) return false;
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    };
+    const calendar = Array.from(document.querySelectorAll('.van-calendar')).find(isVisible);
+
+    if (!calendar) {
+      return { ok: false, reason: 'calendar_not_visible' };
+    }
+
+    const body =
+      calendar.querySelector('.van-calendar__body') ||
+      calendar.querySelector('[class*="calendar__body"]') ||
+      calendar;
+    const paddedMonth = String(month).padStart(2, '0');
+    const targetMonthIndex = (year - 2022) * 12 + (month - 1);
+    const current = new Date();
+    const approximateMonthCount = Math.max(1, (current.getFullYear() - 2022) * 12 + current.getMonth() + 1);
+    const monthMatches = (text) => {
+      const normalized = normalizeText(text);
+      return (
+        new RegExp(`${year}\\D+0?${month}(?:\\D|$)`).test(normalized) ||
+        normalized.includes(`${year}/${paddedMonth}`) ||
+        normalized.includes(`${year}-${paddedMonth}`) ||
+        normalized.includes(`${year}.${paddedMonth}`)
+      );
+    };
+    const monthSelector = '.van-calendar__month, .van-calendar-month, [class*="calendar-month"]';
+    const daySelector = '[role="gridcell"], .van-calendar__day, .van-calendar-day, [class*="calendar-day"]';
+    const getMonths = () =>
+      Array.from(calendar.querySelectorAll(monthSelector)).filter(
+        (element) =>
+          element instanceof HTMLElement &&
+          (element.matches('.van-calendar__month, .van-calendar-month') || element.querySelector(daySelector))
+      );
+    const getMonthTitle = (monthElement) =>
+      normalizeText(
+        (
+          monthElement.querySelector(
+            '.van-calendar__month-title, .van-calendar-month__month-title, [class*="calendar-month"][class*="month-title"], [class*="month-title"]'
+          ) || monthElement
+        ).textContent
+      );
+    const findMonth = () => getMonths().find((monthElement) => monthMatches(getMonthTitle(monthElement)));
+
+    let monthElement = findMonth();
+
+    if (!monthElement && body instanceof HTMLElement) {
+      const monthCount = Math.max(getMonths().length, approximateMonthCount);
+      const scrollIndexes = [
+        targetMonthIndex,
+        targetMonthIndex - 1,
+        targetMonthIndex + 1,
+        targetMonthIndex - 2,
+        targetMonthIndex + 2,
+      ].filter((index) => index >= 0 && index < monthCount);
+
+      for (const index of scrollIndexes) {
+        body.scrollTop = Math.max(0, Math.min(body.scrollHeight, (body.scrollHeight / monthCount) * index));
+        body.dispatchEvent(new Event('scroll', { bubbles: true }));
+        await delay(250);
+        monthElement = findMonth();
+        if (monthElement) break;
+      }
+    }
+
+    if (!monthElement) {
+      const visibleTitles = getMonths().map(getMonthTitle).filter(Boolean).slice(-12);
+      return {
+        ok: false,
+        reason: 'month_not_found',
+        target: `${year}/${paddedMonth}`,
+        visibleTitles,
+      };
+    }
+
+    if (body instanceof HTMLElement && monthElement instanceof HTMLElement) {
+      body.scrollTop = Math.max(0, monthElement.offsetTop - Math.floor(body.clientHeight / 3));
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    } else {
+      monthElement.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }
+    await delay(500);
+
+    const findDayElements = () =>
+      Array.from(monthElement.querySelectorAll(daySelector)).filter(
+        (element) => element instanceof HTMLElement && !/\bdisabled\b/i.test(element.className)
+      );
+    const findDayElement = () =>
+      findDayElements().find((element) => {
+        const text = normalizeText(element.textContent)
+          .replace(/\b(Start|End)\b/gi, ' ')
+          .trim();
+        const match = text.match(/\d{1,2}/);
+        return match && Number(match[0]) === day;
+      });
+
+    let dayElement = findDayElement();
+
+    if (!dayElement && body instanceof HTMLElement) {
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await delay(750);
+      dayElement = findDayElement();
+    }
+
+    const dayElements = findDayElements();
+    if (!dayElement) {
+      return {
+        ok: false,
+        reason: 'day_not_found',
+        target: `${year}/${paddedMonth}/${String(day).padStart(2, '0')}`,
+        monthTitle: getMonthTitle(monthElement),
+        dayTexts: dayElements.map((element) => normalizeText(element.textContent)).slice(0, 40),
+      };
+    }
+
+    dayElement.scrollIntoView({ block: 'center', inline: 'center' });
+    await delay(100);
+    dayElement.click();
+
+    return {
+      ok: true,
+      monthTitle: getMonthTitle(monthElement),
+      dayText: normalizeText(dayElement.textContent).slice(0, 60),
+    };
+  }, dateKey);
+
+  if (!result?.ok) {
+    throw new Error(
+      `Unable to select provider calendar date ${dateKey}: ${result?.reason || 'unknown'} ${JSON.stringify(result ?? {})}`
+    );
+  }
+
+  return result;
+};
+
+const waitForVantCalendarToClose = async (page) =>
+  page
+    .waitForFunction(
+      () =>
+        !Array.from(document.querySelectorAll('.van-calendar')).some((element) => {
+          if (!(element instanceof HTMLElement)) return false;
+          const style = window.getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        }),
+      null,
+      { timeout: 10000 }
+    )
+    .catch(() => {});
+
+const selectCustomDateRangeWithCalendar = async (page, startDate, endDate) => {
+  await openCustomRangeCalendar(page);
+  await clickVantCalendarDate(page, startDate);
+  await page.waitForTimeout(300);
+  await clickVantCalendarDate(page, endDate);
+  await waitForVantCalendarToClose(page);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+};
+
+const selectCustomDateRange = async (page, startDate, endDate) => {
+  let calendarError = null;
+
+  try {
+    await selectCustomDateRangeWithCalendar(page, startDate, endDate);
+    return;
+  } catch (error) {
+    calendarError = error;
+    if (await isVantCalendarVisible(page)) {
+      const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+      throw new Error(
+        diagnostic
+          ? `Unable to select provider custom calendar range. Visible controls: ${diagnostic}. ${calendarError instanceof Error ? calendarError.message : String(calendarError)}`
+          : `Unable to select provider custom calendar range. ${calendarError instanceof Error ? calendarError.message : String(calendarError)}`
+      );
+    }
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
+  }
+
+  let openedCustomRange = false;
+
+  await openMoreFilters(page).catch(() => {});
+  await scrollFilterPanels(page);
+  openedCustomRange =
+    (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+    (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
+    (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
+  await page.waitForTimeout(750);
+
+  let filled = await fillVisibleDateInputs(page, startDate, endDate);
+
+  if (!filled) {
+    await clickDateFilter(page);
+    openedCustomRange =
+      (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+      (await clickVisibleTextIfPresent(page, /^Custom$/i));
+    if (!openedCustomRange) {
+      await scrollFilterPanels(page);
+      openedCustomRange =
+        (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+        (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
+        (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
+    }
+    await page.waitForTimeout(750);
+
+    if (!openedCustomRange) {
+      await openMoreFilters(page);
+      await scrollFilterPanels(page);
+      openedCustomRange =
+        (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+        (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
+        (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
+      await page.waitForTimeout(750);
+    }
+
+    filled = await fillVisibleDateInputs(page, startDate, endDate);
+  }
+
+  if (!filled && openedCustomRange) {
+    openedCustomRange =
+      (await clickVisibleTextIfPresent(page, /^Custom Range$/i)) ||
+      (await clickVisibleTextIfPresent(page, /^Custom$/i)) ||
+      (await clickVisibleTextIfPresent(page, /Custom Range|Custom/i));
+    await page.waitForTimeout(750);
+    filled = await fillVisibleDateInputs(page, startDate, endDate);
+  }
+
+  if (!filled) {
+    const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+    const calendarMessage = calendarError instanceof Error ? calendarError.message : null;
+    throw new Error(
+      diagnostic
+        ? `Unable to fill provider custom date range. Visible date controls: ${diagnostic}${calendarMessage ? ` Calendar error: ${calendarMessage}` : ''}`
+        : `Unable to fill provider custom date range.${calendarMessage ? ` Calendar error: ${calendarMessage}` : ''}`
+    );
+  }
+
+  await clickOptionalDateConfirm(page);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+};
+
+const selectOrdersDateFilter = async (page) => {
+  if (hasCustomDateRange) {
+    await selectCustomDateRange(page, customDateStart, customDateEnd);
+    return;
+  }
+
+  await selectDatePreset(page, datePreset);
+};
+
+const requestExportTask = async (page) => {
+  await page.getByText('Export', { exact: true }).click();
+  await page
+    .getByText(/Confirm to export selected orders|Please go to Export Center/i)
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(async () => {
+      const diagnostic = buildUiSummaryDiagnostic(await collectVisibleTexts(page));
+      throw new Error(
+        diagnostic
+          ? `Provider export confirmation did not appear. Visible controls: ${diagnostic}`
+          : 'Provider export confirmation did not appear.'
+      );
+    });
+
+  const requestedAtMs = await page.evaluate(() => Math.floor(Date.now() / 1000) * 1000);
+  await page.getByText('Confirm', { exact: true }).click();
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+
+  return requestedAtMs;
+};
+
+const readVisibleExportTaskNos = async (page, baseUrl) => {
+  await page.goto(`${baseUrl}#/taskExportList`, { waitUntil: 'domcontentloaded' });
+  assertAllowedSunzeRoute(page);
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+
+  return page.evaluate(() => {
+    const taskNos = new Set();
+    const text = document.body?.innerText || '';
+    for (const match of text.matchAll(/Task\s*No\.?\s*:?\s*([A-Za-z0-9-]{8,})/gi)) {
+      taskNos.add(match[1]);
+    }
+    return [...taskNos];
+  });
+};
+
+const markRequestedExportTaskForDownload = async (
+  page,
+  { requestedAtMs, ignoredTaskNos = [], targetTaskNo = null }
+) =>
+  page.evaluate(
+    ({ minCreatedAtMs, toleranceMs, ignoredTaskNos: ignoredTaskNosArg, targetTaskNo: targetTaskNoArg }) => {
+      const timestampPattern = /20\d{2}[/-]\d{1,2}[/-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}/g;
+      const sanitize = (value) =>
+        String(value ?? '')
+          .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+          .replace(/Task\s*No\.?\s*:?\s*[A-Za-z0-9-]{4,}/gi, 'Task No.:[id]')
+          .replace(/\b[A-Za-z0-9][A-Za-z0-9-]{15,}\b/g, '[id]')
+          .replace(/[A-Fa-f0-9]{16,}/g, '[id]')
+          .replace(/\b\d{6,}\b/g, '[number]')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 240);
+      const maskTaskNo = (value) => {
+        const text = String(value ?? '');
+        return text ? `${text.slice(0, 4)}...[id]` : null;
+      };
+      const extractTaskNo = (text) =>
+        String(text ?? '').match(/Task\s*No\.?\s*:?\s*([A-Za-z0-9-]{8,})/i)?.[1] ?? null;
+      const parseTimestamp = (value) => {
+        const match = String(value ?? '').match(
+          /(20\d{2})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})/
+        );
+        if (!match) return null;
+
+        const [, year, month, day, hour, minute, second] = match.map(Number);
+        const parsed = new Date(year, month - 1, day, hour, minute, second).getTime();
+        return Number.isFinite(parsed) ? parsed : null;
+      };
+      const extractCreatedAt = (text) => {
+        const lines = String(text ?? '')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+        for (const line of lines) {
+          if (/Expiry Time/i.test(line)) continue;
+          const match = line.match(timestampPattern);
+          if (match?.[0]) return parseTimestamp(match[0]);
+        }
+
+        const withoutExpiry = String(text ?? '').replace(
+          /Expiry Time\s*:?\s*20\d{2}[/-]\d{1,2}[/-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}/gi,
+          ''
+        );
+        const fallback = withoutExpiry.match(timestampPattern);
+        return fallback?.[0] ? parseTimestamp(fallback[0]) : null;
+      };
+      const normalizeStatus = (text) => {
+        if (/Completed/i.test(text)) return 'Completed';
+        if (/Fail(?:ed|ure)?/i.test(text)) return 'Failed';
+        if (/Processing|Progress|Pending|Waiting|Running/i.test(text)) return 'Pending';
+        return 'Unknown';
+      };
+
+      document
+        .querySelectorAll('[data-bloomjoy-download-candidate]')
+        .forEach((element) => element.removeAttribute('data-bloomjoy-download-candidate'));
+
+      const findClickableDownloadElement = (element) => {
+        if (!(element instanceof HTMLElement)) return null;
+        const clickable =
+          element.closest(
+            'button, a, [role="button"], .ant-btn, .nut-button, [class*="button"], [class*="Button"]'
+          ) || element;
+        return clickable instanceof HTMLElement ? clickable : null;
+      };
+      const findDownloadElement = (root) => {
+        const elements = [
+          root,
+          ...root.querySelectorAll(
+            'button, a, [role="button"], .ant-btn, .nut-button, [class*="button"], [class*="Button"], span'
+          ),
+        ];
+
+        return elements
+          .filter((element) => (element.textContent || '').trim() === 'Download')
+          .map(findClickableDownloadElement)
+          .find(Boolean);
+      };
+      const ignoredTaskNos = new Set(ignoredTaskNosArg);
+      const rowsByTaskNo = new Map();
+
+      for (const element of document.querySelectorAll('body *')) {
+        if (!(element instanceof HTMLElement)) continue;
+        const text = element.innerText || element.textContent || '';
+        if (!/Task\s*No/i.test(text) || text.length > 4000) continue;
+
+        const taskNo = extractTaskNo(text);
+        const createdAtMs = extractCreatedAt(text);
+        if (!taskNo || !Number.isFinite(createdAtMs)) continue;
+
+        const downloadElement = findDownloadElement(element);
+        const status = normalizeStatus(text);
+        const isCompleted = status === 'Completed' && Boolean(downloadElement);
+        const score = text.length - (isCompleted ? 2000 : 0) - (downloadElement ? 500 : 0);
+        const row = {
+          taskNo,
+          taskNoMasked: maskTaskNo(taskNo),
+          createdAtMs,
+          status,
+          isCompleted,
+          text: sanitize(text),
+          element: downloadElement,
+          score,
+        };
+        const existing = rowsByTaskNo.get(taskNo);
+
+        if (!existing || row.score < existing.score) {
+          rowsByTaskNo.set(taskNo, row);
+        }
+      }
+
+      const rows = [...rowsByTaskNo.values()].sort((left, right) => right.createdAtMs - left.createdAtMs);
+      const targetRow = targetTaskNoArg
+        ? rows.find((row) => row.taskNo === targetTaskNoArg) ?? null
+        : null;
+      const candidateRows = rows
+        .filter(
+          (row) =>
+            !ignoredTaskNos.has(row.taskNo) &&
+            Number.isFinite(row.createdAtMs) &&
+            row.createdAtMs >= minCreatedAtMs - toleranceMs
+        )
+        .sort((left, right) => {
+          const leftDistance = Math.abs(left.createdAtMs - minCreatedAtMs);
+          const rightDistance = Math.abs(right.createdAtMs - minCreatedAtMs);
+          return leftDistance - rightDistance || left.createdAtMs - right.createdAtMs;
+        });
+      const claimedRow = targetRow ?? candidateRows[0] ?? null;
+      const match = claimedRow?.isCompleted ? claimedRow : null;
+
+      if (match) {
+        match.element.setAttribute('data-bloomjoy-download-candidate', 'true');
+      }
+
+      return {
+        matched: Boolean(match),
+        taskNo: claimedRow?.taskNo ?? null,
+        taskNoMasked: claimedRow?.taskNoMasked ?? null,
+        createdAtMs: claimedRow?.createdAtMs ?? null,
+        status: claimedRow?.status ?? null,
+        taskText: claimedRow?.text ?? null,
+        visibleTasks: rows
+          .slice(0, 5)
+          .map(({ createdAtMs, status, taskNoMasked }) => ({ createdAtMs, status, taskNoMasked })),
+      };
+    },
+    {
+      minCreatedAtMs: requestedAtMs,
+      toleranceMs: exportTaskClockSkewToleranceMs,
+      ignoredTaskNos,
+      targetTaskNo,
+    }
+  );
+
+const waitForDownloadFromAnyPage = (context, timeoutMs) => {
+  let cleanup = () => {};
+  let settled = false;
+
+  const promise = new Promise((resolve, reject) => {
+    const pageListeners = new Map();
+    let timer = null;
+
+    cleanup = () => {
+      if (timer) clearTimeout(timer);
+      context.off('page', watchPage);
+      for (const [watchedPage, listener] of pageListeners.entries()) {
+        watchedPage.off('download', listener);
+      }
+    };
+
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+
+    function watchPage(watchedPage) {
+      if (!watchedPage || pageListeners.has(watchedPage)) return;
+      const listener = (download) => settle(resolve, download);
+      pageListeners.set(watchedPage, listener);
+      watchedPage.on('download', listener);
+    }
+
+    context.pages().forEach(watchPage);
+    context.on('page', watchPage);
+    timer = setTimeout(
+      () => settle(reject, new Error(`Provider export task download did not start within ${timeoutMs}ms.`)),
+      timeoutMs
+    );
+  });
+
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+    },
+  };
+};
+
+const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignoredTaskNos) => {
+  const taskListUrl = `${baseUrl}#/taskExportList`;
+  const deadline = Date.now() + exportTaskTimeoutMs;
+  let lastTaskDiagnostic = null;
+  let targetTaskNo = null;
+
+  while (Date.now() < deadline) {
+    await page.goto(taskListUrl, { waitUntil: 'domcontentloaded' });
+    assertAllowedSunzeRoute(page);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(1500);
+
+    const task = await markRequestedExportTaskForDownload(page, {
+      requestedAtMs,
+      ignoredTaskNos,
+      targetTaskNo,
+    });
+    lastTaskDiagnostic = task;
+
+    if (!targetTaskNo && task.taskNo) {
+      targetTaskNo = task.taskNo;
+      console.warn(
+        `Pinned provider export task ${task.taskNoMasked || '[id]'} created at ${new Date(
+          task.createdAtMs
+        ).toISOString()} with status ${task.status || 'Unknown'}.`
+      );
+    }
+
+    if (targetTaskNo && task.status === 'Failed') {
+      throw new Error(
+        `Provider export task ${task.taskNoMasked || '[id]'} failed after request at ${new Date(
+          task.createdAtMs
+        ).toISOString()}.`
+      );
+    }
+
+    if (task.matched) {
+      console.warn(
+        `Matched provider export task ${task.taskNoMasked || '[id]'} for download with status ${
+          task.status || 'Unknown'
+        } and createdAt ${new Date(task.createdAtMs).toISOString()}.`
+      );
+      const downloadWaiter = waitForDownloadFromAnyPage(page.context(), exportDownloadTimeoutMs);
+      try {
+        await page.locator('[data-bloomjoy-download-candidate="true"]').first().click();
+      } catch (error) {
+        downloadWaiter.cancel();
+        throw error;
+      }
+
+      return {
+        download: await downloadWaiter.promise,
+        task,
+      };
+    }
+
+    await page.waitForTimeout(5000);
+  }
+
+  const visibleTasks = lastTaskDiagnostic?.visibleTasks
+    ?.map(
+      (task) =>
+        `${task.taskNoMasked || '[id]'} ${task.status || 'Unknown'} ${
+          task.createdAtMs ? new Date(task.createdAtMs).toISOString() : 'unknown-created-at'
+        }`
+    )
+    .join(' | ');
+  throw new Error(
+    visibleTasks
+      ? `Provider export task did not complete within ${exportTaskTimeoutMs}ms. Recent task diagnostics: ${visibleTasks}`
+      : `Provider export task did not complete within ${exportTaskTimeoutMs}ms.`
+  );
+};
+
 const exportOrdersWorkbook = async () => {
   const downloadRoot = downloadDirArg
     ? resolve(downloadDirArg)
@@ -651,7 +1558,7 @@ const exportOrdersWorkbook = async () => {
   await mkdir(downloadRoot, { recursive: true });
 
   const browser = await chromium.launch({ headless: !headful });
-  const context = await browser.newContext({ acceptDownloads: true });
+  const context = await browser.newContext({ acceptDownloads: true, timezoneId: reportingTimezone });
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
   let succeeded = false;
@@ -659,24 +1566,33 @@ const exportOrdersWorkbook = async () => {
 
   try {
     const baseUrl = await openOrdersPage(page);
-    await selectDatePreset(page, datePreset);
+    const preExistingExportTaskNos = await readVisibleExportTaskNos(page, baseUrl);
+    await page.goto(`${baseUrl}#/orderCenter`, { waitUntil: 'domcontentloaded' });
+    assertAllowedSunzeRoute(page);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(2500);
+    await selectOrdersDateFilter(page);
     const preExportUiSummary = await readOrdersUiSummary(page);
 
-    const downloadPromise = page.waitForEvent('download');
-    await page.getByText('Export', { exact: true }).click();
-    const download = await downloadPromise;
+    const exportRequestedAtMs = await requestExportTask(page);
+    const { download, task } = await downloadCompletedExportTask(
+      page,
+      baseUrl,
+      exportRequestedAtMs,
+      preExistingExportTaskNos
+    );
     const filename = basename(await download.suggestedFilename());
     const filePath = join(downloadRoot, filename);
     await download.saveAs(filePath);
     downloadedFilePath = filePath;
-    const postExportUiSummary = await readOrdersUiSummary(page);
     const visibleSunzeMachineCodes = await readVisibleSunzeMachineCodes(page, baseUrl);
     succeeded = true;
 
     return {
       filePath,
-      uiSummaries: [preExportUiSummary, postExportUiSummary],
+      uiSummaries: [preExportUiSummary],
       visibleSunzeMachineCodes,
+      exportTaskCreatedAtMs: task.createdAtMs,
       cleanupPath: downloadDirArg ? filePath : downloadRoot,
       cleanupMode: downloadDirArg ? 'file' : 'directory',
     };
@@ -803,8 +1719,17 @@ const isRetryableWorkbookError = (error) => {
   const message = error instanceof Error ? error.message : String(error ?? '');
   return (
     /Sheet "Order" not found/i.test(message) ||
-    /end of central directory|invalid zip|corrupt|unexpected end/i.test(message)
+    /end of central directory|invalid zip|corrupt|unexpected end|contains no workbook files/i.test(message)
   );
+};
+
+const parseOrdersSourceRows = async (source) => {
+  const rows = await parseSunzeOrderWorkbook(source.filePath);
+  assertSunzeOrderRowsWithinWindow(rows, {
+    windowStart: deriveSelectedWindow()?.uiWindowStart,
+    windowEnd: deriveSelectedWindow()?.uiWindowEnd,
+  });
+  return rows;
 };
 
 const loadOrdersSource = async () => {
@@ -818,7 +1743,7 @@ const loadOrdersSource = async () => {
     };
     return {
       source,
-      rows: await parseSunzeOrderWorkbook(source.filePath),
+      rows: await parseOrdersSourceRows(source),
     };
   }
 
@@ -828,7 +1753,7 @@ const loadOrdersSource = async () => {
     try {
       return {
         source,
-        rows: await parseSunzeOrderWorkbook(source.filePath),
+        rows: await parseOrdersSourceRows(source),
       };
     } catch (error) {
       await cleanupExportSource(source);
@@ -860,8 +1785,10 @@ try {
 
   const payload = {
     source: 'sunze_browser',
-    sourceReference: `sunze-orders:${datePreset}:${new Date().toISOString()}`,
-    datePreset,
+    sourceReference: `sunze-orders:${exportDateLabel}:${new Date().toISOString()}`,
+    datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+    dateStart: customDateStart,
+    dateEnd: customDateEnd,
     windowStart: summary.windowStart,
     windowEnd: summary.windowEnd,
     generatedAt: new Date().toISOString(),
@@ -872,13 +1799,17 @@ try {
       githubWorkflow: process.env.GITHUB_WORKFLOW ?? null,
       githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
       parseFileMode: Boolean(parseFilePath),
-      datePreset,
+      datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+      dateStart: customDateStart,
+      dateEnd: customDateEnd,
+      exportTaskCreatedAtMs: source.exportTaskCreatedAtMs ?? null,
       selectedWindowStart: matchedUiSummary?.uiWindowStart ?? null,
       selectedWindowEnd: matchedUiSummary?.uiWindowEnd ?? null,
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       reportingTimezone,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
+      uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
       parsedRowCount: summary.rowCount,
       parsedMachineCount: summary.machineCount,
@@ -915,13 +1846,16 @@ try {
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
+      uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
       visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
       ignoredUnmappedMachineCount: ingestValidation?.ignoredUnmappedMachineCount ?? null,
       newlyPendingUnmappedMachineCount: ingestValidation?.newlyPendingUnmappedMachineCount ?? null,
-      datePreset,
+      datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+      dateStart: customDateStart,
+      dateEnd: customDateEnd,
     });
   } else {
     const result = await postIngestPayloadInChunks(payload);
@@ -937,6 +1871,8 @@ try {
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
+      uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
+      uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
       importRunIds: result.importRunIds ?? null,
@@ -947,6 +1883,9 @@ try {
       rowsQuarantined: result.rowsQuarantined ?? null,
       rowsIgnored: result.rowsIgnored ?? null,
       pendingUnmappedMachineCount: result.pendingUnmappedMachineCount ?? null,
+      datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+      dateStart: customDateStart,
+      dateEnd: customDateEnd,
     });
   }
 } finally {

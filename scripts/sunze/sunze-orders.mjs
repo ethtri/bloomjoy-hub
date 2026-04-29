@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, extname, join } from 'node:path';
+import { unzipSync } from 'fflate';
 import { readSheet } from 'read-excel-file/node';
 
 export const SUNZE_ORDER_SHEET = 'Order';
@@ -15,6 +19,8 @@ export const SUNZE_ORDER_HEADERS = [
   'Status',
 ];
 
+const optionalOrderHeaders = new Set(['Affiliated merchant', 'Machine name']);
+
 export class SunzeOrderParseError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -31,11 +37,54 @@ const normalizeSourceLabel = (value) => toText(value).replace(/\s+/g, ' ');
 
 const pad2 = (value) => String(value).padStart(2, '0');
 
+const workbookExtensions = new Set(['.xlsx', '.xlsm']);
+
 const buildDateString = (year, month, day) =>
   `${String(year).padStart(4, '0')}-${pad2(month)}-${pad2(day)}`;
 
 const buildUtcIso = ({ year, month, day, hour = 0, minute = 0, second = 0 }) =>
   `${buildDateString(year, month, day)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}.000Z`;
+
+const isValidUtcDateTimeParts = ({ year, month, day, hour, minute, second }) => {
+  if (
+    ![year, month, day, hour, minute, second].every(Number.isFinite) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59 ||
+    second < 0 ||
+    second > 59
+  ) {
+    return false;
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day &&
+    parsed.getUTCHours() === hour &&
+    parsed.getUTCMinutes() === minute &&
+    parsed.getUTCSeconds() === second
+  );
+};
+
+const throwInvalidPaymentTime = (rowNumber) => {
+  throw new SunzeOrderParseError(`Invalid payment time at row ${rowNumber}.`, {
+    rowNumber,
+  });
+};
+
+const normalizeTimezoneOffset = (value) => {
+  const source = String(value ?? '');
+  if (source.toUpperCase() === 'Z') return 'Z';
+  return source.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+};
 
 export const parseTradeItemQuantity = (value) => {
   const source = normalizeSourceLabel(value);
@@ -126,8 +175,48 @@ const parsePaymentTime = (value, rowNumber) => {
   }
 
   const source = toText(value);
+  const timezoneDateMatch = source.match(
+    /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/i
+  );
+
+  if (timezoneDateMatch) {
+    const [
+      ,
+      yearRaw,
+      monthRaw,
+      dayRaw,
+      hourRaw,
+      minuteRaw,
+      secondRaw = '0',
+      fractionRaw = '',
+      timezoneRaw,
+    ] = timezoneDateMatch;
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    const second = Number(secondRaw);
+
+    if (isValidUtcDateTimeParts({ year, month, day, hour, minute, second })) {
+      const normalizedSource = `${buildDateString(year, month, day)}T${pad2(hour)}:${pad2(
+        minute
+      )}:${pad2(second)}${fractionRaw}${normalizeTimezoneOffset(timezoneRaw)}`;
+      const parsed = new Date(normalizedSource);
+
+      if (Number.isFinite(parsed.getTime())) {
+        return {
+          paymentTimeIso: parsed.toISOString(),
+          saleDate: buildDateString(year, month, day),
+        };
+      }
+    }
+
+    throwInvalidPaymentTime(rowNumber);
+  }
+
   const localDateMatch = source.match(
-    /(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+    /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
   );
 
   if (localDateMatch) {
@@ -140,32 +229,24 @@ const parsePaymentTime = (value, rowNumber) => {
     const minute = Number(minuteRaw);
     const second = Number(secondRaw);
 
-    if (
-      [year, month, day, hour, minute, second].every(Number.isFinite) &&
-      month >= 1 &&
-      month <= 12 &&
-      day >= 1 &&
-      day <= 31 &&
-      hour >= 0 &&
-      hour <= 23 &&
-      minute >= 0 &&
-      minute <= 59 &&
-      second >= 0 &&
-      second <= 59
-    ) {
+    if (isValidUtcDateTimeParts({ year, month, day, hour, minute, second })) {
       return {
         paymentTimeIso: buildUtcIso({ year, month, day, hour, minute, second }),
         saleDate: buildDateString(year, month, day),
       };
     }
+
+    throwInvalidPaymentTime(rowNumber);
+  }
+
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(source)) {
+    throwInvalidPaymentTime(rowNumber);
   }
 
   const parsed = new Date(source);
 
   if (!source || !Number.isFinite(parsed.getTime())) {
-    throw new SunzeOrderParseError(`Invalid payment time at row ${rowNumber}.`, {
-      rowNumber,
-    });
+    throwInvalidPaymentTime(rowNumber);
   }
 
   return {
@@ -176,12 +257,15 @@ const parsePaymentTime = (value, rowNumber) => {
 
 const validateHeaders = (headers) => {
   const normalized = headers.map(normalizeHeader);
-  const missing = SUNZE_ORDER_HEADERS.filter((header) => !normalized.includes(header));
+  const requiredHeaders = SUNZE_ORDER_HEADERS.filter((header) => !optionalOrderHeaders.has(header));
+  const missing = requiredHeaders.filter((header) => !normalized.includes(header));
   const unexpected = normalized.filter((header) => header && !SUNZE_ORDER_HEADERS.includes(header));
 
   if (missing.length || unexpected.length) {
     throw new SunzeOrderParseError('Provider order export headers changed.', {
       expectedHeaders: SUNZE_ORDER_HEADERS,
+      requiredHeaders,
+      optionalHeaders: [...optionalOrderHeaders],
       observedHeaders: normalized,
       missingHeaders: missing,
       unexpectedHeaders: unexpected,
@@ -240,9 +324,129 @@ export const parseSunzeOrderRows = (rows) => {
     });
 };
 
-export const parseSunzeOrderWorkbook = async (filePath) => {
-  const rows = await readSheet(filePath, SUNZE_ORDER_SHEET);
+const isMissingOrderSheetError = (error) =>
+  error instanceof Error && /Sheet "Order" not found/i.test(error.message);
+
+const wrapWorkbookReadError = (error, filePath) =>
+  new SunzeOrderParseError('Provider order workbook could not be read.', {
+    fileName: basename(filePath),
+    cause: error instanceof Error ? error.message : String(error),
+  });
+
+const parseSunzeOrderWorkbookFile = async (filePath) => {
+  let rows;
+
+  try {
+    rows = await readSheet(filePath, SUNZE_ORDER_SHEET);
+  } catch (error) {
+    if (!isMissingOrderSheetError(error)) {
+      throw wrapWorkbookReadError(error, filePath);
+    }
+
+    try {
+      rows = await readSheet(filePath, 1);
+    } catch (fallbackError) {
+      throw wrapWorkbookReadError(fallbackError, filePath);
+    }
+  }
+
   return parseSunzeOrderRows(rows);
+};
+
+const safeTempWorkbookName = (entryName, index) => {
+  const fileName = basename(entryName).replace(/[^A-Za-z0-9._-]/g, '_') || `orders-${index}.xlsx`;
+  const extension = extname(fileName).toLowerCase();
+  return workbookExtensions.has(extension) ? `${index}-${fileName}` : `${index}-${fileName}.xlsx`;
+};
+
+const parseSunzeOrderZip = async (filePath) => {
+  const source = await readFile(filePath);
+  let entries;
+
+  try {
+    entries = unzipSync(new Uint8Array(source));
+  } catch (error) {
+    throw new SunzeOrderParseError('Provider order zip is invalid.', {
+      fileName: basename(filePath),
+      cause: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const workbookEntries = Object.entries(entries)
+    .filter(([entryName]) => {
+      const name = entryName.replace(/\\/g, '/');
+      const fileName = basename(name);
+      return workbookExtensions.has(extname(fileName).toLowerCase()) && !fileName.startsWith('~$');
+    })
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  if (workbookEntries.length === 0) {
+    throw new SunzeOrderParseError('Provider order zip contains no workbook files.', {
+      fileName: basename(filePath),
+    });
+  }
+
+  const tempRoot = await mkdtemp(join(tmpdir(), 'sunze-order-zip-'));
+  const rows = [];
+
+  try {
+    for (let index = 0; index < workbookEntries.length; index += 1) {
+      const [entryName, bytes] = workbookEntries[index];
+      const tempPath = join(tempRoot, safeTempWorkbookName(entryName, index + 1));
+
+      await writeFile(tempPath, bytes);
+
+      try {
+        rows.push(...(await parseSunzeOrderWorkbookFile(tempPath)));
+      } catch (error) {
+        if (error instanceof SunzeOrderParseError) {
+          throw new SunzeOrderParseError(`${error.message} Zip entry: ${entryName}.`, {
+            ...error.details,
+            zipEntry: entryName,
+          });
+        }
+        throw error;
+      }
+    }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+
+  if (rows.length === 0) {
+    throw new SunzeOrderParseError('Provider order zip contains no order rows.', {
+      fileName: basename(filePath),
+      workbookCount: workbookEntries.length,
+    });
+  }
+
+  return rows;
+};
+
+export const parseSunzeOrderWorkbook = async (filePath) => {
+  if (extname(filePath).toLowerCase() === '.zip') {
+    return parseSunzeOrderZip(filePath);
+  }
+
+  return parseSunzeOrderWorkbookFile(filePath);
+};
+
+export const assertSunzeOrderRowsWithinWindow = (rows, { windowStart, windowEnd } = {}) => {
+  if (!windowStart || !windowEnd) return rows;
+
+  const outsideRow = rows.find(
+    (row) => row.saleDate && (row.saleDate < windowStart || row.saleDate > windowEnd)
+  );
+
+  if (outsideRow) {
+    throw new SunzeOrderParseError('Provider order export includes rows outside the selected date window.', {
+      windowStart,
+      windowEnd,
+      observedSaleDate: outsideRow.saleDate,
+      machineCode: outsideRow.machineCode,
+    });
+  }
+
+  return rows;
 };
 
 export const summarizeSunzeOrderRows = (rows) => {

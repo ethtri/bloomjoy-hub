@@ -71,13 +71,14 @@ No credentials, raw workbook files, order numbers, row-level customer/order valu
   - `Last Month`
   - `Last 3 Months`
   - `Custom Range`
-- `Last 7 Days` is the daily catch-up preset so each run has rolling overlap for missed or late rows. `Last Month` is the monthly safety-sweep preset for historical gaps.
-- `Custom Range` is not approved for automated backfills because manual testing produced corrupted workbook downloads. Use validated presets such as `Last 7 Days`, `Last Month`, or `Last 3 Months`, and verify parsed dates before ingesting.
+- `Last 7 Days` is the daily catch-up preset so each run has rolling overlap for missed or late rows. `Last Month` remains the monthly safety-sweep preset.
+- `Custom Range` is approved for historical backfills only through the new Export Task flow, and should be run in monthly chunks with parsed dates verified before ingesting.
+- If Sunze's custom date selector is unavailable, manually downloaded Export Task `.zip`/`.xlsx` files may be backfilled with `--parse-file` plus explicit monthly `--date-start` / `--date-end`; the same workbook header and row-date validation still applies before ingest.
 - The page displays filtered totals:
   - `Revenue`
   - `Volume`
   - total record count
-- The `Export` action downloads an `.xlsx` workbook for the active filters.
+- The `Export` action now opens a confirmation dialog and creates an asynchronous export task. Completed task files are downloaded from `#/taskExportList` and may be either a single `.xlsx` workbook or a `.zip` containing multiple monthly `.xlsx` workbooks.
 
 ### Machine Center
 
@@ -109,7 +110,7 @@ No credentials, raw workbook files, order numbers, row-level customer/order valu
 
 ## Export Data Contract
 
-The Orders export workbook contains one worksheet named `Order`.
+The Orders export workbook usually contains one worksheet named `Order`. Export Task zip workbooks have also been observed with the first worksheet named `0`; the parser accepts that sheet name only if the required order headers validate.
 
 Observed headers:
 
@@ -117,9 +118,9 @@ Observed headers:
 | --- | --- |
 | `Order number` | Stable source order identifier; treat as sensitive. |
 | `Trade name` | Product/pattern text; can include multiple comma-separated items. |
-| `Affiliated merchant` | Merchant/account identifier; treat as sensitive. |
+| `Affiliated merchant` | Optional merchant/account identifier; treat as sensitive. |
 | `Machine code` | Sunze machine identifier from the order export. |
-| `Machine name` | Human-readable machine name. |
+| `Machine name` | Optional human-readable machine name. |
 | `Order amount` | Numeric order amount. |
 | `Tax` | Numeric tax field; nullable in some rows. |
 | `Payment method` | Source payment label. |
@@ -150,12 +151,12 @@ Important metric notes:
 2. The worker launches an isolated Chromium context with downloads enabled.
 3. It logs in with the Bloomjoy-owned service account.
 4. It navigates directly to `#/orderCenter`.
-5. It selects the safe `Last 7 Days` daily preset, or `Last Month` for the monthly catch-up schedule.
+5. It selects the safe `Last 7 Days` daily preset, `Last Month` for the monthly catch-up schedule, or an explicit monthly custom range for backfills.
 6. It keeps the machine selector on `All Machines`.
-7. It downloads the Orders `.xlsx` export.
-8. It validates the workbook sheet and exact headers.
+7. It clicks `Export`, confirms the export dialog, navigates to `#/taskExportList`, pins the requested task created after the request timestamp, fails immediately on a terminal failed task, and downloads only after completion.
+8. It validates the workbook sheet and required headers across `.xlsx` files or `.zip` bundles; optional merchant/name metadata may be absent from Export Task workbooks.
 9. It normalizes rows into payment method, sale date, machine code, net sales cents, tax cents, and source status.
-10. It deletes the raw workbook after parsing.
+10. It deletes raw workbook or zip files after parsing.
 11. It sends normalized rows to `sunze-sales-ingest` with `REPORTING_INGEST_TOKEN`.
 12. The Edge Function hashes sensitive order identifiers with `REPORTING_ROW_HASH_SALT`, rejects unknown machines/statuses/payment methods, and upserts idempotent `machine_sales_facts`.
 

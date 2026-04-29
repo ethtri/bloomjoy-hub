@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zipSync, strToU8 } from 'fflate';
 import {
+  assertSunzeOrderRowsWithinWindow,
   parseSunzeOrderRows,
   parseSunzeOrderWorkbook,
   summarizeSunzeOrderRows,
@@ -56,7 +57,7 @@ const worksheetXml = (rows) => `<?xml version="1.0" encoding="UTF-8" standalone=
   </sheetData>
 </worksheet>`;
 
-const buildWorkbook = (rows) =>
+const buildWorkbook = (rows, { sheetName = 'Order' } = {}) =>
   zipSync({
     '[Content_Types].xml': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -72,7 +73,7 @@ const buildWorkbook = (rows) =>
     'xl/workbook.xml': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>
-    <sheet name="Order" sheetId="1" r:id="rId1"/>
+    <sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/>
   </sheets>
 </workbook>`),
     'xl/_rels/workbook.xml.rels': strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -85,7 +86,16 @@ const buildWorkbook = (rows) =>
 const fixturePath = new URL('./sample-sunze-orders.json', import.meta.url);
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
 const rows = [fixture.headers, ...fixture.rows];
-const tempPath = join(tmpdir(), `sunze-orders-parser-${Date.now()}.xlsx`);
+const tempPaths = [];
+const createTempPath = (extension) => {
+  const tempPath = join(
+    tmpdir(),
+    `sunze-orders-parser-${Date.now()}-${tempPaths.length + 1}.${extension}`
+  );
+  tempPaths.push(tempPath);
+  return tempPath;
+};
+const tempPath = createTempPath('xlsx');
 
 const assertParseError = (testRows, expectedMessage) => {
   assert.throws(
@@ -102,6 +112,11 @@ const withCell = (sourceRow, headerName, value) => {
   row[SUNZE_ORDER_HEADERS.indexOf(headerName)] = value;
   return row;
 };
+
+const projectRowsToHeaders = (headers, sourceRows) => [
+  headers,
+  ...sourceRows.map((row) => headers.map((header) => row[SUNZE_ORDER_HEADERS.indexOf(header)])),
+];
 
 try {
   await writeFile(tempPath, buildWorkbook(rows));
@@ -124,6 +139,109 @@ try {
   assert.equal(summary.orderAmountCents, 1800);
   assert.equal(summary.windowStart, '2026-04-22');
   assert.equal(summary.windowEnd, '2026-04-23');
+  const compactHeaders = SUNZE_ORDER_HEADERS.filter(
+    (header) => !['Affiliated merchant', 'Machine name'].includes(header)
+  );
+  const compactParsed = parseSunzeOrderRows(projectRowsToHeaders(compactHeaders, fixture.rows));
+  assert.equal(compactParsed.length, 3);
+  assert.equal(compactParsed[0].machineName, '');
+  assert.equal(assertSunzeOrderRowsWithinWindow(parsed, {
+    windowStart: '2026-04-22',
+    windowEnd: '2026-04-23',
+  }), parsed);
+  assert.throws(
+    () =>
+      assertSunzeOrderRowsWithinWindow(parsed, {
+        windowStart: '2026-04-23',
+        windowEnd: '2026-04-23',
+      }),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('outside the selected date window')
+  );
+
+  const zipPath = createTempPath('zip');
+  await writeFile(
+    zipPath,
+    zipSync({
+      '2026-04.xlsx': buildWorkbook(rows),
+      'nested/2026-05.xlsx': buildWorkbook(
+        [
+          SUNZE_ORDER_HEADERS,
+          withCell(fixture.rows[0], 'Payment time', '2026/05/01 10:15:00'),
+        ],
+        { sheetName: '0' }
+      ),
+    })
+  );
+  const zippedParsed = await parseSunzeOrderWorkbook(zipPath);
+  const zippedSummary = summarizeSunzeOrderRows(zippedParsed);
+  assert.equal(zippedParsed.length, 4);
+  assert.equal(zippedSummary.windowStart, '2026-04-22');
+  assert.equal(zippedSummary.windowEnd, '2026-05-01');
+
+  const emptyZipPath = createTempPath('zip');
+  await writeFile(emptyZipPath, zipSync({}));
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(emptyZipPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('contains no workbook files')
+  );
+
+  const nonWorkbookZipPath = createTempPath('zip');
+  await writeFile(nonWorkbookZipPath, zipSync({ 'notes.txt': strToU8('not an order export') }));
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(nonWorkbookZipPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('contains no workbook files')
+  );
+
+  const badWorkbookZipPath = createTempPath('zip');
+  await writeFile(
+    badWorkbookZipPath,
+    zipSync({
+      'bad.xlsx': buildWorkbook([[...SUNZE_ORDER_HEADERS.filter((header) => header !== 'Status')], fixture.rows[0]]),
+    })
+  );
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(badWorkbookZipPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('headers changed') &&
+      error.message.includes('Zip entry: bad.xlsx')
+  );
+
+  const malformedWorkbookPath = createTempPath('xlsx');
+  await writeFile(malformedWorkbookPath, 'not an xlsx workbook');
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(malformedWorkbookPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('could not be read')
+  );
+
+  const malformedWorkbookZipPath = createTempPath('zip');
+  await writeFile(
+    malformedWorkbookZipPath,
+    zipSync({
+      'broken.xlsx': strToU8('not an xlsx workbook'),
+    })
+  );
+  await assert.rejects(
+    () => parseSunzeOrderWorkbook(malformedWorkbookZipPath),
+    (error) =>
+      error instanceof SunzeOrderParseError &&
+      typeof error.message === 'string' &&
+      error.message.includes('could not be read') &&
+      error.message.includes('Zip entry: broken.xlsx')
+  );
 
   const duplicateUpdateRows = [
     SUNZE_ORDER_HEADERS,
@@ -142,6 +260,13 @@ try {
   assert.equal(midnightParsed[0].saleDate, '2026-04-24');
   assert.equal(midnightParsed[0].paymentTimeIso, '2026-04-24T00:00:03.000Z');
 
+  const timezoneParsed = parseSunzeOrderRows([
+    SUNZE_ORDER_HEADERS,
+    withCell(fixture.rows[0], 'Payment time', '2026-04-24T00:30:00+08:00'),
+  ]);
+  assert.equal(timezoneParsed[0].saleDate, '2026-04-24');
+  assert.equal(timezoneParsed[0].paymentTimeIso, '2026-04-23T16:30:00.000Z');
+
   assertParseError(
     [[...SUNZE_ORDER_HEADERS.filter((header) => header !== 'Status')], fixture.rows[0]],
     'headers changed'
@@ -158,6 +283,14 @@ try {
     [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Order amount', -1)],
     'Invalid Order amount'
   );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment time', '2026/02/31 10:00:00')],
+    'Invalid payment time'
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment time', '2026-04-24 00:30:00 trailing')],
+    'Invalid payment time'
+  );
 
   console.log(
     JSON.stringify(
@@ -173,10 +306,22 @@ try {
           'unknown payment rejection',
           'unknown status rejection',
           'negative amount rejection',
+          'impossible payment date rejection',
           'zero no-pay normalization',
           'trade item quantity parsing',
           'duplicate order preservation',
           'midnight date boundary',
+          'zip export parsing',
+          'optional metadata header handling',
+          'empty zip rejection',
+          'non-workbook zip rejection',
+          'zipped workbook header rejection',
+          'malformed workbook rejection',
+          'malformed zipped workbook rejection',
+          'fallback first-sheet parsing',
+          'selected date window rejection',
+          'timezone payment time parsing',
+          'partial timestamp rejection',
         ],
       },
       null,
@@ -184,5 +329,5 @@ try {
     )
   );
 } finally {
-  await rm(tempPath, { force: true });
+  await Promise.all(tempPaths.map((path) => rm(path, { force: true })));
 }
