@@ -51,6 +51,7 @@ const expectedH1TextByRoute = {
   "/plus": "Onboarding + Playbooks + Concierge",
   "/resources": "Guides, FAQs, and operator playbooks for starting smart",
   "/resources/business-playbook": "Practical startup guides for cotton candy operators",
+  "/resources/business-playbook/planner": "Machine Fit + Startup Budget Planner",
   "/contact": "Contact Us",
   "/about": "About Bloomjoy",
   "/privacy": "Privacy Policy",
@@ -185,7 +186,7 @@ const validatePublicRouteHtml = async (route, seoRoutes) => {
     );
   }
 
-  if (route.path.startsWith("/resources/business-playbook/")) {
+  if (route.structuredDataKind === "business-playbook-article") {
     assertIncludes(
       html,
       `"@type":"Article"`,

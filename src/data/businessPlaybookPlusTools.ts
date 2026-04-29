@@ -15,6 +15,7 @@ export type BusinessPlaybookPlusTool = {
   icon: PlusToolIcon;
   accentClass: string;
   previewItems: string[];
+  samplePreview: string;
   articleLabel: string;
   articleHref: string;
 };
@@ -32,15 +33,17 @@ export const businessPlaybookPlusTools: BusinessPlaybookPlusTool[] = [
     categoryLabel: "Budget and Plan",
     formatLabel: "Plus worksheet",
     description:
-      "A launch-budget builder for machine, delivery, opening supplies, local setup checks, and operating buffer assumptions.",
+      "A launch-budget builder for machine, landed-cost questions, accessories, opening supplies, local setup checks, and operating buffer assumptions.",
     bestFor: "Buyers comparing Commercial, Mini, or Micro paths before a quote call.",
     icon: "budget",
     accentClass: "bg-amber/10 text-amber",
     previewItems: [
-      "Machine and delivery assumptions",
-      "Opening sugar, sticks, and event kit lines",
+      "Machine, freight, tariffs, duties, and delivery assumptions",
+      "Payment hardware, accessories, sugar, sticks, and event kit lines",
       "Local setup and operating-buffer prompts",
     ],
+    samplePreview:
+      "Sample row: Freight/import fees - shipping, tariffs, customs duties, brokerage, delivery terms - replace placeholder with landed-cost quote.",
     articleLabel: "Read budget guide",
     articleHref:
       "/resources/business-playbook/startup-budget-checklist-cotton-candy-machine-business",
@@ -60,6 +63,8 @@ export const businessPlaybookPlusTools: BusinessPlaybookPlusTool[] = [
       "Questions for footprint, power, and support",
       "Follow-up note after a site walk",
     ],
+    samplePreview:
+      "Sample opener: We help family venues add a small guest-experience moment without adding a new staff station.",
     articleLabel: "Read pitch guide",
     articleHref: "/resources/business-playbook/how-to-pitch-location-owners",
   },
@@ -78,6 +83,8 @@ export const businessPlaybookPlusTools: BusinessPlaybookPlusTool[] = [
       "Venue and support contact checkpoints",
       "Supply, payment, cleaning, and escalation reminders",
     ],
+    samplePreview:
+      "Sample task: Before delivery, confirm placement, power, service access, venue contact, and opening supply storage.",
     articleLabel: "Read launch guide",
     articleHref:
       "/resources/business-playbook/how-to-start-cotton-candy-vending-business",
@@ -97,6 +104,8 @@ export const businessPlaybookPlusTools: BusinessPlaybookPlusTool[] = [
       "Cleaning, refill, and payment review prompts",
       "Issue log and owner check-in reminders",
     ],
+    samplePreview:
+      "Sample check: Wipe visible surfaces, confirm sugar/stick levels, test payment flow, and note anything the venue mentioned.",
     articleLabel: "Compare operating paths",
     articleHref: "/resources/business-playbook/commercial-vending-vs-event-catering",
   },
@@ -115,6 +124,8 @@ export const businessPlaybookPlusTools: BusinessPlaybookPlusTool[] = [
       "Placement, power, and maintenance access notes",
       "Owner readiness and next-action prompt",
     ],
+    samplePreview:
+      "Sample score row: Dwell time 1-5 - do families wait, browse, line up, or pause within sight of the machine?",
     articleLabel: "Read location guide",
     articleHref:
       "/resources/business-playbook/best-locations-for-cotton-candy-vending-machines",
