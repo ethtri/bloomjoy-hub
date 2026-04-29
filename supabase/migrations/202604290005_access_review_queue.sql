@@ -6,6 +6,26 @@
 
 drop function if exists public.admin_get_access_review_queue(integer, integer);
 
+create index if not exists technician_grants_review_expiry_idx
+  on public.technician_grants (expires_at)
+  where revoked_at is null
+    and status in ('pending', 'active')
+    and expires_at is not null;
+
+create index if not exists corporate_partner_memberships_review_expiry_idx
+  on public.corporate_partner_memberships (expires_at)
+  where revoked_at is null
+    and status = 'active'
+    and expires_at is not null;
+
+create index if not exists plus_access_grants_review_expiry_idx
+  on public.plus_access_grants (expires_at)
+  where revoked_at is null;
+
+create index if not exists admin_scoped_access_grants_review_expiry_idx
+  on public.admin_scoped_access_grants (expires_at)
+  where revoked_at is null;
+
 create or replace function public.admin_get_access_review_queue(
   p_window_days integer default 30,
   p_limit integer default 100
@@ -83,7 +103,8 @@ begin
     from public.technician_grants grant_row
     join public.customer_accounts account on account.id = grant_row.account_id
     where grant_row.revoked_at is null
-      and grant_row.status <> 'revoked'
+      and grant_row.status in ('pending', 'active')
+      and grant_row.starts_at <= now()
       and grant_row.expires_at is not null
       and grant_row.expires_at <= now() + (review_window_days * interval '1 day')
 
@@ -128,7 +149,8 @@ begin
     from public.corporate_partner_memberships membership
     join public.reporting_partners partner on partner.id = membership.partner_id
     where membership.revoked_at is null
-      and membership.status <> 'revoked'
+      and membership.status = 'active'
+      and membership.starts_at <= now()
       and membership.expires_at is not null
       and membership.expires_at <= now() + (review_window_days * interval '1 day')
 
@@ -209,6 +231,7 @@ begin
     from public.plus_access_grants grant_row
     left join auth.users auth_user on auth_user.id = grant_row.user_id
     where grant_row.revoked_at is null
+      and grant_row.starts_at <= now()
       and grant_row.expires_at <= now() + (review_window_days * interval '1 day')
 
     union all
@@ -266,6 +289,7 @@ begin
     from public.admin_scoped_access_grants grant_row
     left join auth.users auth_user on auth_user.id = grant_row.user_id
     where grant_row.revoked_at is null
+      and grant_row.starts_at <= now()
       and (
         grant_row.expires_at is null
         or grant_row.expires_at <= now() + (review_window_days * interval '1 day')
@@ -322,6 +346,6 @@ comment on function public.admin_get_access_review_queue(integer, integer) is
 revoke execute on function public.admin_get_access_review_queue(integer, integer)
   from public, anon;
 grant execute on function public.admin_get_access_review_queue(integer, integer)
-  to authenticated;
+  to authenticated, service_role;
 
 select pg_notify('pgrst', 'reload schema');

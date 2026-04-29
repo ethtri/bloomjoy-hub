@@ -275,8 +275,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/admin/access` defaults to the person-first `Find a person` view, not grant-type tabs
 - [ ] Admin Access shows an `Access needing review` reminder panel below Find a person, and the panel does not replace person-first search as the primary workflow
 - [ ] Admin Access review reminders load without `404`/`PGRST202` for `admin_get_access_review_queue`
-- [ ] Admin Access review reminders distinguish urgent/soon/review items for expiring Technician grants, Corporate Partner memberships, Plus Customer admin grants, Super Admin, Scoped Admin, and inactive Corporate Partner sources when fixture data exists
-- [ ] Selecting a review reminder opens that person's consolidated workspace and preserves the relevant source card path for review before any change is made
+- [ ] Direct non-super-admin RPC calls to `admin_get_access_review_queue` return `Super-admin access required` and no queue data
+- [ ] With known lifecycle fixtures, Admin Access review reminders distinguish urgent/soon/review items for expiring Technician grants, Corporate Partner memberships, Plus Customer admin grants, Super Admin, Scoped Admin, and inactive Corporate Partner sources; record the fixture user/email used for each category
+- [ ] Selecting a review reminder opens that person's consolidated workspace, keeps the selected user ID as the identity anchor when present, and scrolls to the relevant source card before any change is made
 - [ ] Technician review reminders remain read-only in Admin Access and direct renewal/scope/revoke work to Portal > Settings > Technician Access (`/portal/account`)
 - [ ] `/admin/accounts` redirects to `/admin/access?tab=users` and still lands on the person-first console
 - [ ] `/admin/audit` redirects to `/admin/access?tab=audit` and opens the secondary global activity view

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
   AlertTriangle,
   Building2,
   CheckCircle2,
@@ -72,6 +73,11 @@ type SelectedAccessPerson = {
   email: string | null;
   userId: string | null;
   label: string;
+  reviewFocus?: {
+    cardId: string;
+    sourceLabel: string;
+    actionLabel: string;
+  } | null;
 };
 
 type PlusAccessSourceRecord = {
@@ -363,6 +369,15 @@ const getSoonestFutureDate = (values: Array<string | null | undefined>) => {
 const formatReportingAccessLevel = (level: ReportingAccessLevel) =>
   level === 'report_manager' ? 'Report manager' : 'Viewer';
 
+const sourceCardIdForReviewKind = (kind: string) => {
+  if (kind.startsWith('technician')) return 'technician-source-card';
+  if (kind.startsWith('corporate_partner')) return 'corporate-partner-source-card';
+  if (kind.startsWith('plus_grant')) return 'plus-customer-source-card';
+  if (kind === 'scoped_admin_review') return 'scoped-admin-source-card';
+  if (kind === 'global_admin_review') return 'super-admin-source-card';
+  return 'effective-access-summary';
+};
+
 const identityMatches = (
   identity: AccessWorkspaceIdentity,
   record: { user_id?: string | null; userId?: string | null; user_email?: string | null; userEmail?: string | null; customer_email?: string | null }
@@ -380,8 +395,13 @@ function buildIdentity(
   account: AdminAccountSummary | null,
   effectiveAccess: EffectiveAccessContext | null
 ): AccessWorkspaceIdentity {
-  const email = effectiveAccess?.email ?? account?.customer_email ?? selectedPerson.email ?? null;
-  const userId = effectiveAccess?.userId ?? account?.user_id ?? selectedPerson.userId ?? null;
+  const selectedUserId = selectedPerson.userId ?? null;
+  const effectiveAccessMatchesSelection =
+    !selectedUserId || effectiveAccess?.userId === selectedUserId;
+  const email = selectedUserId
+    ? account?.customer_email ?? (effectiveAccessMatchesSelection ? effectiveAccess?.email ?? null : null)
+    : effectiveAccess?.email ?? account?.customer_email ?? selectedPerson.email ?? null;
+  const userId = selectedUserId ?? effectiveAccess?.userId ?? account?.user_id ?? null;
   return {
     email,
     userId,
@@ -432,9 +452,12 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
     );
   }, [selectedAccountResults, selectedPerson]);
 
-  const effectiveAccessEmail = selectedPerson?.email ?? selectedAccount?.customer_email ?? '';
+  const selectedAccountLookupComplete = !selectedPerson?.userId || !isLoadingSelectedAccount;
+  const effectiveAccessEmail = selectedPerson?.userId
+    ? selectedAccount?.customer_email ?? (selectedAccountLookupComplete ? selectedPerson.email ?? '' : '')
+    : selectedPerson?.email ?? selectedAccount?.customer_email ?? '';
   const {
-    data: effectiveAccess = null,
+    data: rawEffectiveAccess = null,
     isFetching: isLoadingEffectiveAccess,
     error: effectiveAccessError,
   } = useQuery({
@@ -444,10 +467,30 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
     staleTime: 1000 * 20,
   });
 
+  const effectiveAccess = useMemo(() => {
+    if (selectedPerson?.userId && rawEffectiveAccess && rawEffectiveAccess.userId !== selectedPerson.userId) {
+      return null;
+    }
+
+    return rawEffectiveAccess;
+  }, [rawEffectiveAccess, selectedPerson?.userId]);
+
   const identity = useMemo(
     () => (selectedPerson ? buildIdentity(selectedPerson, selectedAccount, effectiveAccess) : null),
     [effectiveAccess, selectedAccount, selectedPerson]
   );
+
+  useEffect(() => {
+    if (!selectedPerson?.reviewFocus) return;
+
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(selectedPerson.reviewFocus?.cardId ?? '')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [selectedPerson?.email, selectedPerson?.label, selectedPerson?.reviewFocus, selectedPerson?.userId]);
 
   const refreshWorkspace = async () => {
     await Promise.all([
@@ -492,7 +535,7 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
 
   const handleSelectReviewItem = (item: AdminAccessReviewItem) => {
     const label = item.personEmail ?? item.userId ?? item.sourceLabel;
-    const searchValue = item.workspaceSearch ?? item.personEmail ?? item.userId ?? '';
+    const searchValue = item.userId ?? item.workspaceSearch ?? item.personEmail ?? '';
 
     if (!item.personEmail && !item.userId) {
       toast.error('This review item is missing a person identifier.');
@@ -505,7 +548,18 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
       email: item.personEmail,
       userId: item.userId,
       label,
+      reviewFocus: {
+        cardId: sourceCardIdForReviewKind(item.kind),
+        sourceLabel: item.sourceLabel,
+        actionLabel: item.actionLabel,
+      },
     });
+    setShowActivity(false);
+  };
+
+  const handleClearSelectedPerson = () => {
+    setSelectedPerson(null);
+    setSubmittedSearch('');
     setShowActivity(false);
   };
 
@@ -638,6 +692,10 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={handleClearSelectedPerson}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                {selectedPerson.reviewFocus ? 'Back to review queue' : 'Clear person'}
+              </Button>
               <Button variant="outline" onClick={refreshWorkspace}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh
@@ -648,6 +706,13 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
               </Button>
             </div>
           </div>
+
+          {selectedPerson.reviewFocus && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground">
+              Reviewing {selectedPerson.reviewFocus.sourceLabel}. The page will focus the relevant
+              source card before any access change is made: {selectedPerson.reviewFocus.actionLabel}.
+            </div>
+          )}
 
           {effectiveAccessError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -925,7 +990,7 @@ function EffectiveAccessSummary({
       : pluralize(reportingMachineCount, 'reporting machine');
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 sm:p-5">
+    <div id="effective-access-summary" className="scroll-mt-24 rounded-lg border border-border bg-card p-4 sm:p-5">
       <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
         <div>
           <div className="flex items-center gap-2">
@@ -1087,6 +1152,7 @@ function ExpiryReviewBadge({ value }: { value: string | null }) {
 }
 
 function SourceCard({
+  id,
   icon: Icon,
   title,
   status,
@@ -1094,6 +1160,7 @@ function SourceCard({
   children,
   muted = false,
 }: {
+  id: string;
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   status: string;
@@ -1102,7 +1169,10 @@ function SourceCard({
   muted?: boolean;
 }) {
   return (
-    <article className={cn('rounded-lg border border-border bg-card p-4 sm:p-5', muted && 'bg-muted/20')}>
+    <article
+      id={id}
+      className={cn('scroll-mt-24 rounded-lg border border-border bg-card p-4 sm:p-5', muted && 'bg-muted/20')}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <span className="rounded-md border border-border bg-background p-2">
@@ -1231,6 +1301,7 @@ function PlusCustomerAccessCard({
 
   return (
     <SourceCard
+      id="plus-customer-source-card"
       icon={CheckCircle2}
       title="Plus Customer"
       status={isActive ? 'Active' : 'Inactive'}
@@ -1483,6 +1554,7 @@ function CorporatePartnerAccessCard({
 
   return (
     <SourceCard
+      id="corporate-partner-source-card"
       icon={Building2}
       title="Corporate Partner"
       status={activeMemberships.length > 0 ? 'Active' : 'Inactive'}
@@ -1500,56 +1572,64 @@ function CorporatePartnerAccessCard({
             No Corporate Partner membership source is active for this person.
           </div>
         ) : (
-          memberships.map((membership) => (
-            <div key={membership.id} className="rounded-md border border-border p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="font-medium text-foreground">{membership.partnerName}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Reason: {membership.grantReason} / expires {formatDate(membership.expiresAt)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <ExpiryReviewBadge value={membership.expiresAt} />
-                  <Badge className="w-fit" variant={membership.isActive ? 'default' : 'outline'}>
-                    {membership.status}
-                  </Badge>
-                </div>
-              </div>
-              {membership.isActive && (
-                <div className="mt-3 space-y-2">
-                  <PreviewBox>
-                    Revoking this membership removes partner reporting, partner-derived machine
-                    reporting, member supply pricing, support, and Technician management from this
-                    Corporate Partner source. Unrelated Plus, Technician, Scoped Admin, or manual
-                    reporting sources remain unchanged.
-                  </PreviewBox>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      value={revokeReasons[membership.id] ?? ''}
-                      onChange={(event) =>
-                        setRevokeReasons((current) => ({
-                          ...current,
-                          [membership.id]: event.target.value,
-                        }))
-                      }
-                      placeholder="Required revoke reason"
-                    />
-                    <Button
-                      variant="outline"
-                      disabled={revokingMembershipId === membership.id}
-                      onClick={() => void revokeCorporatePartner(membership.id)}
-                    >
-                      {revokingMembershipId === membership.id ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : null}
-                      Revoke
-                    </Button>
+          memberships.map((membership) => {
+            const revokeReasonId = `corporate-revoke-reason-${membership.id}`;
+
+            return (
+              <div key={membership.id} className="rounded-md border border-border p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">{membership.partnerName}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Reason: {membership.grantReason} / expires {formatDate(membership.expiresAt)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <ExpiryReviewBadge value={membership.expiresAt} />
+                    <Badge className="w-fit" variant={membership.isActive ? 'default' : 'outline'}>
+                      {membership.status}
+                    </Badge>
                   </div>
                 </div>
-              )}
-            </div>
-          ))
+                {membership.isActive && (
+                  <div className="mt-3 space-y-2">
+                    <PreviewBox>
+                      Revoking this membership removes partner reporting, partner-derived machine
+                      reporting, member supply pricing, support, and Technician management from this
+                      Corporate Partner source. Unrelated Plus, Technician, Scoped Admin, or manual
+                      reporting sources remain unchanged.
+                    </PreviewBox>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Label htmlFor={revokeReasonId} className="sr-only">
+                        Revoke reason for {membership.partnerName}
+                      </Label>
+                      <Input
+                        id={revokeReasonId}
+                        value={revokeReasons[membership.id] ?? ''}
+                        onChange={(event) =>
+                          setRevokeReasons((current) => ({
+                            ...current,
+                            [membership.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Required revoke reason"
+                      />
+                      <Button
+                        variant="outline"
+                        disabled={revokingMembershipId === membership.id}
+                        onClick={() => void revokeCorporatePartner(membership.id)}
+                      >
+                        {revokingMembershipId === membership.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : null}
+                        Revoke
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -1731,6 +1811,7 @@ function TechnicianAccessCard({ effectiveAccess }: { effectiveAccess: EffectiveA
 
   return (
     <SourceCard
+      id="technician-source-card"
       icon={Wrench}
       title="Technician"
       status={activeGrants.length > 0 ? 'Active' : 'Inactive'}
@@ -1905,6 +1986,7 @@ function ManualReportingAccessCard({
 
   return (
     <SourceCard
+      id="manual-reporting-source-card"
       icon={FileClock}
       title="Manual reporting access"
       status={originalMachineIds.size > 0 || isSuperAdmin ? 'Active' : 'Inactive'}
@@ -2154,6 +2236,7 @@ function ScopedAdminAccessCard({
 
   return (
     <SourceCard
+      id="scoped-admin-source-card"
       icon={ShieldCheck}
       title="Scoped Admin"
       status={activeGrant ? 'Active' : 'Inactive'}
@@ -2167,50 +2250,58 @@ function ScopedAdminAccessCard({
 
       {personGrants.length > 0 && (
         <div className="space-y-3">
-          {personGrants.map((grant) => (
-            <div key={grant.id} className="rounded-md border border-border p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="font-medium text-foreground">{grant.userEmail ?? grant.userId}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {pluralize(grant.scopes.filter((scope) => scope.active).length, 'machine scope')} / reason: {grant.grantReason}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <ExpiryReviewBadge value={grant.expiresAt} />
-                  <Badge className="w-fit" variant={grant.active ? 'default' : 'outline'}>
-                    {grant.active ? 'active' : 'revoked'}
-                  </Badge>
-                </div>
-              </div>
-              {grant.active && (
-                <div className="mt-3 space-y-2">
-                  <PreviewBox>
-                    Revoking this grant removes their ability to open Admin Access and manage manual
-                    reporting grants for these scoped machines. It does not remove unrelated portal
-                    reporting access.
-                  </PreviewBox>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      value={revokeReasons[grant.id] ?? ''}
-                      onChange={(event) =>
-                        setRevokeReasons((current) => ({ ...current, [grant.id]: event.target.value }))
-                      }
-                      placeholder="Required revoke reason"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() => void handleRevokeScopedAdmin(grant)}
-                      disabled={revokingGrantId === grant.id}
-                    >
-                      {revokingGrantId === grant.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Revoke
-                    </Button>
+          {personGrants.map((grant) => {
+            const revokeReasonId = `scoped-admin-revoke-reason-${grant.id}`;
+
+            return (
+              <div key={grant.id} className="rounded-md border border-border p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">{grant.userEmail ?? grant.userId}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {pluralize(grant.scopes.filter((scope) => scope.active).length, 'machine scope')} / reason: {grant.grantReason}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <ExpiryReviewBadge value={grant.expiresAt} />
+                    <Badge className="w-fit" variant={grant.active ? 'default' : 'outline'}>
+                      {grant.active ? 'active' : 'revoked'}
+                    </Badge>
                   </div>
                 </div>
-              )}
-            </div>
-          ))}
+                {grant.active && (
+                  <div className="mt-3 space-y-2">
+                    <PreviewBox>
+                      Revoking this grant removes their ability to open Admin Access and manage manual
+                      reporting grants for these scoped machines. It does not remove unrelated portal
+                      reporting access.
+                    </PreviewBox>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Label htmlFor={revokeReasonId} className="sr-only">
+                        Revoke reason for {grant.userEmail ?? grant.userId}
+                      </Label>
+                      <Input
+                        id={revokeReasonId}
+                        value={revokeReasons[grant.id] ?? ''}
+                        onChange={(event) =>
+                          setRevokeReasons((current) => ({ ...current, [grant.id]: event.target.value }))
+                        }
+                        placeholder="Required revoke reason"
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={() => void handleRevokeScopedAdmin(grant)}
+                        disabled={revokingGrantId === grant.id}
+                      >
+                        {revokingGrantId === grant.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Revoke
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -2342,6 +2433,7 @@ function SuperAdminAccessCard({
 
   return (
     <SourceCard
+      id="super-admin-source-card"
       icon={Globe2}
       title="Super Admin"
       status={role?.active ? 'Active' : 'Inactive'}
