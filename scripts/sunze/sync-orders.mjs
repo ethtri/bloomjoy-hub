@@ -114,6 +114,7 @@ const jsonLog = (payload) => console.log(JSON.stringify(payload, null, 2));
 
 const dateTokenPattern =
   /(?:20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]20\d{2})/g;
+const monthDayTokenPattern = /(?:^|[^\d])(\d{1,2})[-/.](\d{1,2})(?![-/.\d])/g;
 
 const normalizeDate = (value) => {
   const text = String(value ?? '').trim();
@@ -415,13 +416,24 @@ const buildUiSummaryDiagnostic = (texts) =>
 
 const extractSelectedWindow = (texts) => {
   const allDates = [];
+  const allMonthDayKeys = [];
 
   for (const text of texts) {
     const dates = Array.from(text.matchAll(dateTokenPattern))
       .map((match) => normalizeDate(match[0]))
       .filter(Boolean);
+    const monthDayKeys = Array.from(String(text ?? '').matchAll(monthDayTokenPattern))
+      .map((match) => {
+        const month = Number(match[1]);
+        const day = Number(match[2]);
+        return Number.isInteger(month) && Number.isInteger(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31
+          ? `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+          : null;
+      })
+      .filter(Boolean);
 
     allDates.push(...dates);
+    allMonthDayKeys.push(...monthDayKeys);
 
     if (!hasCustomDateRange && dates.length >= 2) {
       return {
@@ -435,8 +447,12 @@ const extractSelectedWindow = (texts) => {
 
   if (hasCustomDateRange) {
     const visibleDateSet = new Set(allDates);
+    const visibleMonthDaySet = new Set(allMonthDayKeys);
+    const customStartMonthDay = customDateStart.slice(5);
+    const customEndMonthDay = customDateEnd.slice(5);
 
-    return visibleDateSet.has(customDateStart) && visibleDateSet.has(customDateEnd)
+    return (visibleDateSet.has(customDateStart) && visibleDateSet.has(customDateEnd)) ||
+      (visibleMonthDaySet.has(customStartMonthDay) && visibleMonthDaySet.has(customEndMonthDay))
       ? {
           uiWindowStart: customDateStart,
           uiWindowEnd: customDateEnd,
