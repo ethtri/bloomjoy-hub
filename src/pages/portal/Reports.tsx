@@ -1068,7 +1068,6 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
 
 function PartnerDashboardView() {
   const { isSuperAdmin } = useAuth();
-  const queryClient = useQueryClient();
   const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
   const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
@@ -1391,13 +1390,6 @@ function PartnerDashboardView() {
           ? 'Preparing CSV'
           : 'Export';
 
-  const refreshPartnerDashboard = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['partner-dashboard-partnerships'] }),
-      queryClient.invalidateQueries({ queryKey: ['partner-dashboard-period-preview'] }),
-    ]);
-  };
-
   const exportPartnerReport = async (format: PartnerDashboardExportFormat) => {
     if (!preview || !currentPeriod) {
       toast.error('Load a partner report period before exporting.');
@@ -1578,21 +1570,9 @@ function PartnerDashboardView() {
               </LabeledControl>
 
               <div className="flex flex-col gap-2 sm:flex-row lg:col-span-2 lg:justify-end xl:col-span-1">
-                <Button
-                  variant="outline"
-                  onClick={refreshPartnerDashboard}
-                  disabled={previewFetching}
-                >
-                  {previewFetching ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  Refresh
-                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button disabled={partnerExportDisabled} className="justify-center">
+                    <Button disabled={partnerExportDisabled} className="w-full justify-center sm:w-auto">
                       {exportingPartnerFormat ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
