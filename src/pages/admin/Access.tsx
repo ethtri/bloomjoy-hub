@@ -53,6 +53,7 @@ import {
   lookupReportingUserByEmailAdmin,
   setUserMachineReportingAccessAdmin,
   type AdminReportingAccessGrant,
+  type AdminReportingAccessMatrix,
   type AdminReportingAccessMachine,
   type AdminReportingAccessPerson,
   type ReportingAccessLevel,
@@ -68,6 +69,7 @@ const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
 ];
 const emptyQuantities: Record<MachineType, number> = { commercial: 0, mini: 0, micro: 0 };
 const accessLevels: ReportingAccessLevel[] = ['viewer', 'report_manager'];
+const emptyReportingAccessMatrix: AdminReportingAccessMatrix = { people: [], machines: [], grants: [] };
 
 const formatDate = (value: string | null) =>
   value
@@ -1085,7 +1087,7 @@ function ReportingAccessTab() {
   const [machineSearch, setMachineSearch] = useState('');
 
   const {
-    data: matrix = { people: [], machines: [], grants: [] },
+    data: matrix = emptyReportingAccessMatrix,
     isLoading,
     isFetching,
     error,
@@ -1431,7 +1433,7 @@ function ScopedAdminsTab() {
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
 
   const {
-    data: matrix = { people: [], machines: [], grants: [] },
+    data: matrix = emptyReportingAccessMatrix,
     isLoading: machinesLoading,
     error: machinesError,
   } = useQuery({
