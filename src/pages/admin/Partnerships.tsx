@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  UserPlus,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -287,6 +288,20 @@ const getParticipantRoleLabel = (role: string) => participantRoleLabels[role] ??
 const formatFeeBasisLabel = (feeBasis: string) =>
   feeBasis === 'per_stick' ? 'per paid stick/item' : formatLabel(feeBasis);
 const getPartyReportName = (party: ReportingPartnershipParty) => party.partner_legal_name || party.partner_name;
+
+const getCorporatePartnerInvitePath = (partner: ReportingPartner) => {
+  const params = new URLSearchParams({
+    action: 'add-access',
+    preset: 'corporate_partner',
+    partnerId: partner.id,
+  });
+
+  if (partner.primary_contact_email) {
+    params.set('email', partner.primary_contact_email);
+  }
+
+  return `/admin/access?${params.toString()}`;
+};
 
 const sortParticipantsByAddedDate = (participants: ReportingPartnershipParty[]) =>
   [...participants].sort(
@@ -1221,6 +1236,10 @@ function ParticipantsSection({
     () => sortParticipantsByAddedDate(setup.parties.filter((party) => party.partnership_id === selectedPartnership.id)),
     [selectedPartnership.id, setup.parties]
   );
+  const partnersById = useMemo(
+    () => new Map(setup.partners.map((partner) => [partner.id, partner])),
+    [setup.partners]
+  );
   const defaultParticipantForm = useMemo(
     () => ({
       ...emptyParticipantForm,
@@ -1354,7 +1373,10 @@ function ParticipantsSection({
         {participants.length === 0 ? (
           <EmptyRow text="No participants added yet." />
         ) : (
-          participants.map((party) => (
+          participants.map((party) => {
+            const partner = partnersById.get(party.partner_id);
+
+            return (
             <Row key={party.id}>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="min-w-0">
@@ -1369,6 +1391,14 @@ function ParticipantsSection({
                 )}
               </div>
               <div className="flex items-center gap-2">
+                {partner && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link to={getCorporatePartnerInvitePath(partner)}>
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Invite
+                    </Link>
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" onClick={() => editParticipant(party)}>
                   Edit
                 </Button>
@@ -1409,7 +1439,8 @@ function ParticipantsSection({
                 </AlertDialog>
               </div>
             </Row>
-          ))
+            );
+          })
         )}
       </div>
 

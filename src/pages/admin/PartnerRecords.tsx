@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Loader2, Pencil, Plus, RefreshCw, Search } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CheckCircle2, Loader2, Pencil, Plus, RefreshCw, Search, UserPlus } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -50,6 +51,20 @@ const emptyPartnerForm = {
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+const getPartnerAccessInvitePath = (partner: ReportingPartner) => {
+  const params = new URLSearchParams({
+    action: 'add-access',
+    preset: 'corporate_partner',
+    partnerId: partner.id,
+  });
+
+  if (partner.primary_contact_email) {
+    params.set('email', partner.primary_contact_email);
+  }
+
+  return `/admin/access?${params.toString()}`;
+};
 
 export default function AdminPartnerRecordsPage() {
   const queryClient = useQueryClient();
@@ -226,11 +241,19 @@ export default function AdminPartnerRecordsPage() {
                             {partner.status}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          <Button variant="outline" size="sm" onClick={() => openEdit(partner)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </Button>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-2">
+                            <Button asChild variant="outline" size="sm">
+                              <Link to={getPartnerAccessInvitePath(partner)}>
+                                <UserPlus className="mr-2 h-4 w-4" />
+                                Invite
+                              </Link>
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => openEdit(partner)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
