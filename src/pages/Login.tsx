@@ -143,7 +143,7 @@ const getInviteIntentCopy = (intent: LoginInviteIntent) =>
     : {
         title: 'Technician invite',
         description:
-          'Create an account or sign in with this email to access training and assigned machine reporting.',
+          'Create an account or sign in with this email to access training and any assigned machine reporting.',
         icon: GraduationCap,
       };
 
@@ -557,8 +557,8 @@ export default function LoginPage() {
     <AppLayout>
       <section className="portal-section">
         <div className="container-page">
-          <div className="grid gap-5 xl:grid-cols-[0.95fr,1.05fr]">
-            <div className="order-2 rounded-[28px] border border-border bg-gradient-to-br from-background via-background to-muted/40 p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-1">
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[0.95fr,1.05fr]">
+            <div className="order-2 min-w-0 rounded-[28px] border border-border bg-gradient-to-br from-background via-background to-muted/40 p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-1">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground sm:h-14 sm:w-14">
                 <Mail className="h-6 w-6 sm:h-7 sm:w-7" />
               </div>
@@ -625,7 +625,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <div className="order-1 rounded-[28px] border border-border bg-background p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-2">
+            <div className="order-1 min-w-0 rounded-[28px] border border-border bg-background p-5 shadow-[var(--shadow-md)] sm:p-7 xl:order-2">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   {t('login.signInEyebrow')}
@@ -726,6 +726,7 @@ export default function LoginPage() {
                 <div className="grid grid-cols-2 gap-1">
                   <button
                     type="button"
+                    aria-pressed={authMethod === 'password'}
                     className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       authMethod === 'password'
                         ? 'bg-primary text-primary-foreground'
@@ -737,6 +738,7 @@ export default function LoginPage() {
                   </button>
                   <button
                     type="button"
+                    aria-pressed={authMethod === 'magic_link'}
                     className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       authMethod === 'magic_link'
                         ? 'bg-primary text-primary-foreground'

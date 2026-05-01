@@ -663,8 +663,8 @@ export function AdminPersonAccessConsole({
               workspace.
             </p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="relative flex-1">
+          <div className="min-w-0 space-y-2">
+            <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
                 aria-label="Search by email or user ID"
@@ -677,20 +677,22 @@ export function AdminPersonAccessConsole({
                 className="pl-9"
               />
             </div>
-            <Button onClick={handleSearchSubmit} disabled={isSearching}>
-              {isSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-              Search
-            </Button>
-            <Button onClick={() => setIsAccessLauncherOpen(true)}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              Add or invite access
-            </Button>
-            {!selectedPerson && (
-              <Button variant="outline" onClick={() => setShowActivity((current) => !current)}>
-                <FileClock className="mr-2 h-4 w-4" />
-                Activity
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button onClick={handleSearchSubmit} disabled={isSearching}>
+                {isSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                Search
               </Button>
-            )}
+              <Button onClick={() => setIsAccessLauncherOpen(true)}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add or invite access
+              </Button>
+              {!selectedPerson && (
+                <Button variant="outline" onClick={() => setShowActivity((current) => !current)}>
+                  <FileClock className="mr-2 h-4 w-4" />
+                  Activity
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1113,6 +1115,8 @@ function AccessLauncher({
 
     setIsSaving(true);
     try {
+      let inviteDeliveryFailed = false;
+
       if (preset === 'corporate_partner') {
         if (!selectedPartner) {
           toast.error('Select or create a partner record.');
@@ -1138,10 +1142,11 @@ function AccessLauncher({
           });
           toast.success('Corporate Partner access saved and invite email sent.');
         } catch (inviteError) {
+          inviteDeliveryFailed = true;
           toast.error(
             inviteError instanceof Error
-              ? `Corporate Partner access saved, but invite email failed: ${inviteError.message}`
-              : 'Corporate Partner access saved, but invite email failed.'
+              ? `Corporate Partner access saved, but invite email failed: ${inviteError.message}. Keep this dialog open and try again.`
+              : 'Corporate Partner access saved, but invite email failed. Keep this dialog open and try again.'
           );
         }
       }
@@ -1172,12 +1177,19 @@ function AccessLauncher({
           });
           toast.success('Technician access saved and invite email sent.');
         } catch (inviteError) {
+          inviteDeliveryFailed = true;
           toast.error(
             inviteError instanceof Error
-              ? `Technician access saved, but invite email failed: ${inviteError.message}`
-              : 'Technician access saved, but invite email failed.'
+              ? `Technician access saved, but invite email failed: ${inviteError.message}. Keep this dialog open and try again.`
+              : 'Technician access saved, but invite email failed. Keep this dialog open and try again.'
           );
         }
+      }
+
+      if (inviteDeliveryFailed) {
+        await refreshLauncherQueries();
+        await onChanged();
+        return;
       }
 
       trackEvent('admin_access_launcher_saved', {
@@ -1282,13 +1294,15 @@ function AccessLauncher({
           </section>
 
           <section>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" role="radiogroup" aria-label="Access preset">
               {accessLauncherPresets.map((item) => {
                 const isSelected = item.key === preset;
                 return (
                   <button
                     key={item.key}
                     type="button"
+                    aria-checked={isSelected}
+                    role="radio"
                     onClick={() => setPreset(item.key)}
                     className={cn(
                       'rounded-md border p-3 text-left transition hover:bg-muted/30',
