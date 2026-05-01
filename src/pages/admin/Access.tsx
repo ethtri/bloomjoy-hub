@@ -159,6 +159,16 @@ export default function AdminAccessPage() {
   const { isScopedAdmin, isSuperAdmin } = useAuth();
   const [searchParams] = useSearchParams();
   const initialShowActivity = searchParams.get('tab') === 'audit';
+  const initialLauncher = useMemo(
+    () => ({
+      open: searchParams.get('action') === 'add-access',
+      preset: searchParams.get('preset') ?? undefined,
+      email: searchParams.get('email') ?? undefined,
+      partnerId: searchParams.get('partnerId') ?? undefined,
+      accountId: searchParams.get('accountId') ?? undefined,
+    }),
+    [searchParams]
+  );
 
   return (
     <AppLayout>
@@ -187,7 +197,10 @@ export default function AdminAccessPage() {
 
           <div className="mt-6">
             {isSuperAdmin ? (
-              <AdminPersonAccessConsole initialShowActivity={initialShowActivity} />
+              <AdminPersonAccessConsole
+                initialShowActivity={initialShowActivity}
+                initialLauncher={initialLauncher}
+              />
             ) : (
               <div className="space-y-4">
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">

@@ -7,10 +7,13 @@ import {
   FileClock,
   Globe2,
   Loader2,
+  Mail,
   RefreshCw,
   Search,
+  Send,
   ShieldAlert,
   ShieldCheck,
+  UserPlus,
   UserRound,
   Wrench,
 } from 'lucide-react';
@@ -19,9 +22,18 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { sendAccessInvite, type AccessInviteType } from '@/lib/accessInvites';
 import {
   fetchAdminAccountSummaries,
   fetchMachineInventoryForAccount,
@@ -72,7 +84,12 @@ import {
   type AdminReportingAccessMachine,
   type ReportingAccessLevel,
 } from '@/lib/reporting';
+import {
+  upsertReportingPartnerAdmin,
+  type ReportingPartner,
+} from '@/lib/partnershipReporting';
 import { trackEvent } from '@/lib/analytics';
+import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { cn } from '@/lib/utils';
 
 type SelectedAccessPerson = {
@@ -128,6 +145,28 @@ type AccessWorkspaceIdentity = {
   label: string;
 };
 
+type AccessLauncherPreset =
+  | 'corporate_partner'
+  | 'technician'
+  | 'scoped_admin'
+  | 'super_admin'
+  | 'plus_customer';
+
+type AccessLauncherInitialState = {
+  open?: boolean;
+  preset?: string;
+  email?: string;
+  partnerId?: string;
+  accountId?: string;
+};
+
+type AccessLauncherPresetMeta = {
+  key: AccessLauncherPreset;
+  label: string;
+  description: string;
+  inviteable: boolean;
+};
+
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
   { key: 'mini', label: 'Mini' },
@@ -150,6 +189,46 @@ const emptyAdminRoles: AdminRoleRecord[] = [];
 const emptyMachineInventory: CustomerMachineInventoryRecord[] = [];
 const emptyAuditLog: AdminAuditLogRecord[] = [];
 const trainingOnlyScopeValue = '__training_only__';
+const emptyPartnerForm = {
+  name: '',
+  legalName: '',
+  primaryContactName: '',
+  primaryContactEmail: '',
+  notes: '',
+};
+const accessLauncherPresets: AccessLauncherPresetMeta[] = [
+  {
+    key: 'corporate_partner',
+    label: 'Corporate Partner',
+    description: 'Invite by email, connect to a partner record, and enable partner-facing portal access.',
+    inviteable: true,
+  },
+  {
+    key: 'technician',
+    label: 'Technician',
+    description: 'Invite by email for training-only access or one assigned reporting machine.',
+    inviteable: true,
+  },
+  {
+    key: 'scoped_admin',
+    label: 'Scoped Admin',
+    description: 'Existing auth user required; grant limited admin reporting access by machine.',
+    inviteable: false,
+  },
+  {
+    key: 'super_admin',
+    label: 'Super Admin',
+    description: 'Existing auth user required; high-risk global admin role.',
+    inviteable: false,
+  },
+  {
+    key: 'plus_customer',
+    label: 'Plus Customer',
+    description: 'Existing customer account oriented; open the person workspace to manage Plus grants.',
+    inviteable: false,
+  },
+];
+const accessLauncherPresetKeys = new Set(accessLauncherPresets.map((preset) => preset.key));
 
 const capabilityLabels: Record<string, string> = {
   'training.view': 'View training',
@@ -204,6 +283,17 @@ const parseExpiryDateEndOfDay = (value: string): Date | null => {
 const normalizeSearch = (value: string) => value.trim().toLowerCase();
 const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const hasEmailShape = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
+const normalizeLauncherPreset = (value: string | undefined): AccessLauncherPreset | undefined =>
+  value && accessLauncherPresetKeys.has(value as AccessLauncherPreset)
+    ? (value as AccessLauncherPreset)
+    : undefined;
+const getAccessInviteLoginUrl = (inviteType: AccessInviteType, email: string) => {
+  const params = new URLSearchParams({
+    intent: inviteType,
+    email: email.trim().toLowerCase(),
+  });
+  return getCanonicalUrlForSurface('app', '/login', `?${params.toString()}`, '', window.location);
+};
 const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
@@ -418,14 +508,33 @@ function buildIdentity(
   };
 }
 
-export function AdminPersonAccessConsole({ initialShowActivity = false }: { initialShowActivity?: boolean }) {
+export function AdminPersonAccessConsole({
+  initialShowActivity = false,
+  initialLauncher,
+}: {
+  initialShowActivity?: boolean;
+  initialLauncher?: AccessLauncherInitialState;
+}) {
   const queryClient = useQueryClient();
   const [searchDraft, setSearchDraft] = useState('');
   const [submittedSearch, setSubmittedSearch] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<SelectedAccessPerson | null>(null);
   const [showActivity, setShowActivity] = useState(initialShowActivity);
+  const [isAccessLauncherOpen, setIsAccessLauncherOpen] = useState(Boolean(initialLauncher?.open));
   const normalizedSubmittedSearch = submittedSearch.trim();
   const submittedSearchIsEmail = hasEmailShape(normalizedSubmittedSearch);
+
+  useEffect(() => {
+    if (initialLauncher?.open) {
+      setIsAccessLauncherOpen(true);
+    }
+  }, [
+    initialLauncher?.accountId,
+    initialLauncher?.email,
+    initialLauncher?.open,
+    initialLauncher?.partnerId,
+    initialLauncher?.preset,
+  ]);
 
   const {
     data: searchResults = emptyAccountSummaries,
@@ -531,6 +640,17 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
 
   return (
     <div className="space-y-6">
+      <AccessLauncher
+        open={isAccessLauncherOpen}
+        onOpenChange={setIsAccessLauncherOpen}
+        initialPreset={initialLauncher?.preset}
+        initialEmail={initialLauncher?.email}
+        initialPartnerId={initialLauncher?.partnerId}
+        initialAccountId={initialLauncher?.accountId}
+        onOpenWorkspace={(person) => setSelectedPerson(person)}
+        onChanged={refreshWorkspace}
+      />
+
       <section className="rounded-lg border border-border bg-card p-4 sm:p-5">
         <div className="grid gap-4 lg:grid-cols-[0.55fr_0.45fr] lg:items-end">
           <div>
@@ -557,6 +677,10 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
             <Button onClick={handleSearchSubmit} disabled={isSearching}>
               {isSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
               Search
+            </Button>
+            <Button onClick={() => setIsAccessLauncherOpen(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Add or invite access
             </Button>
             {!selectedPerson && (
               <Button variant="outline" onClick={() => setShowActivity((current) => !current)}>
@@ -736,6 +860,713 @@ export function AdminPersonAccessConsole({ initialShowActivity = false }: { init
         </section>
       ) : null}
     </div>
+  );
+}
+
+function AccessLauncher({
+  open,
+  onOpenChange,
+  initialPreset,
+  initialEmail,
+  initialPartnerId,
+  initialAccountId,
+  onOpenWorkspace,
+  onChanged,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialPreset?: string;
+  initialEmail?: string;
+  initialPartnerId?: string;
+  initialAccountId?: string;
+  onOpenWorkspace: (person: SelectedAccessPerson) => void;
+  onChanged: () => Promise<void>;
+}) {
+  const queryClient = useQueryClient();
+  const initialNormalizedPreset = normalizeLauncherPreset(initialPreset) ?? 'corporate_partner';
+  const [preset, setPreset] = useState<AccessLauncherPreset>(initialNormalizedPreset);
+  const [targetInput, setTargetInput] = useState(initialEmail ?? '');
+  const [selectedExistingUserId, setSelectedExistingUserId] = useState('');
+  const [selectedPartnerId, setSelectedPartnerId] = useState(initialPartnerId ?? '');
+  const [selectedAccountId, setSelectedAccountId] = useState(initialAccountId ?? '');
+  const [selectedScopeValue, setSelectedScopeValue] = useState(trainingOnlyScopeValue);
+  const [grantReason, setGrantReason] = useState('');
+  const [partnerForm, setPartnerForm] = useState(emptyPartnerForm);
+  const [isCreatingPartner, setIsCreatingPartner] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const searchValue = targetInput.trim();
+  const normalizedEmail = hasEmailShape(searchValue) ? normalizeSearch(searchValue) : '';
+  const presetMeta = accessLauncherPresets.find((item) => item.key === preset) ?? accessLauncherPresets[0];
+
+  useEffect(() => {
+    if (!open) return;
+    setPreset(normalizeLauncherPreset(initialPreset) ?? 'corporate_partner');
+    setTargetInput(initialEmail ?? '');
+    setSelectedPartnerId(initialPartnerId ?? '');
+    setSelectedAccountId(initialAccountId ?? '');
+    setSelectedScopeValue(trainingOnlyScopeValue);
+    setGrantReason('');
+    setPartnerForm(emptyPartnerForm);
+    setSelectedExistingUserId('');
+  }, [initialAccountId, initialEmail, initialPartnerId, initialPreset, open]);
+
+  const {
+    data: existingPeople = emptyAccountSummaries,
+    isFetching: isSearchingPeople,
+    error: personSearchError,
+  } = useQuery({
+    queryKey: ['access-launcher-person-search', searchValue],
+    queryFn: () => fetchAdminAccountSummaries(searchValue),
+    enabled: open && searchValue.length >= 3,
+    staleTime: 1000 * 30,
+  });
+
+  const {
+    data: corporateOptions = emptyCorporatePartnerOptions,
+    isFetching: isFetchingCorporateOptions,
+    error: corporateOptionsError,
+  } = useQuery({
+    queryKey: ['admin-corporate-partner-access-options'],
+    queryFn: fetchAdminCorporatePartnerAccessOptions,
+    enabled: open && preset === 'corporate_partner',
+    staleTime: 1000 * 30,
+  });
+
+  const {
+    data: technicianContext = emptyTechnicianAccessContext,
+    isFetching: isFetchingTechnicianContext,
+    error: technicianContextError,
+  } = useQuery({
+    queryKey: ['admin-technician-access-context', normalizedEmail],
+    queryFn: () => fetchAdminTechnicianAccessContext(normalizedEmail),
+    enabled: open && preset === 'technician' && Boolean(normalizedEmail),
+    staleTime: 1000 * 20,
+  });
+
+  const selectedExistingAccount = useMemo(() => {
+    if (selectedExistingUserId) {
+      return existingPeople.find((account) => account.user_id === selectedExistingUserId) ?? null;
+    }
+
+    const exactByUserId = existingPeople.find((account) => account.user_id === searchValue);
+    if (exactByUserId) return exactByUserId;
+
+    if (normalizedEmail) {
+      return (
+        existingPeople.find(
+          (account) =>
+            account.customer_email &&
+            normalizeSearch(account.customer_email) === normalizedEmail
+        ) ?? null
+      );
+    }
+
+    return existingPeople.length === 1 ? existingPeople[0] : null;
+  }, [existingPeople, normalizedEmail, searchValue, selectedExistingUserId]);
+
+  useEffect(() => {
+    if (selectedExistingUserId && existingPeople.some((account) => account.user_id === selectedExistingUserId)) {
+      return;
+    }
+
+    const exactAccount =
+      existingPeople.find((account) => account.user_id === searchValue) ??
+      (normalizedEmail
+        ? existingPeople.find(
+            (account) =>
+              account.customer_email &&
+              normalizeSearch(account.customer_email) === normalizedEmail
+          )
+        : null);
+
+    setSelectedExistingUserId(exactAccount?.user_id ?? '');
+  }, [existingPeople, normalizedEmail, searchValue, selectedExistingUserId]);
+
+  useEffect(() => {
+    if (preset !== 'corporate_partner') return;
+    if (selectedPartnerId && corporateOptions.partners.some((partner) => partner.partnerId === selectedPartnerId)) {
+      return;
+    }
+    setSelectedPartnerId(initialPartnerId ?? corporateOptions.partners[0]?.partnerId ?? '');
+  }, [corporateOptions.partners, initialPartnerId, preset, selectedPartnerId]);
+
+  useEffect(() => {
+    if (preset !== 'technician') return;
+    if (selectedAccountId && technicianContext.accounts.some((account) => account.accountId === selectedAccountId)) {
+      return;
+    }
+    setSelectedAccountId(initialAccountId ?? technicianContext.accounts[0]?.accountId ?? '');
+  }, [initialAccountId, preset, selectedAccountId, technicianContext.accounts]);
+
+  const selectedPartner =
+    corporateOptions.partners.find((partner) => partner.partnerId === selectedPartnerId) ??
+    corporateOptions.partners[0] ??
+    null;
+  const portalEnabledPartnerships =
+    selectedPartner?.portalPartnerships.filter((partnership) => partnership.portalAccessEnabled) ?? [];
+  const derivedMachineIds = new Set(
+    portalEnabledPartnerships.flatMap((partnership) =>
+      partnership.machines.map((machine) => machine.machineId)
+    )
+  );
+  const selectedTechnicianAccount =
+    technicianContext.accounts.find((account) => account.accountId === selectedAccountId) ??
+    technicianContext.accounts[0] ??
+    null;
+  const selectedTechnicianMachines = useMemo(
+    () => selectedTechnicianAccount?.machines ?? [],
+    [selectedTechnicianAccount]
+  );
+  useEffect(() => {
+    if (preset !== 'technician' || selectedScopeValue === trainingOnlyScopeValue) return;
+    if (!selectedTechnicianMachines.some((machine) => machine.machineId === selectedScopeValue)) {
+      setSelectedScopeValue(trainingOnlyScopeValue);
+    }
+  }, [preset, selectedScopeValue, selectedTechnicianMachines]);
+
+  const selectedMachineId = getMachineScopeId(selectedScopeValue);
+  const selectedTechnicianMachine =
+    selectedMachineId &&
+    selectedTechnicianMachines.find((machine) => machine.machineId === selectedMachineId);
+  const isExistingUserPreset = !presetMeta.inviteable;
+  const canSaveInvite = presetMeta.inviteable && Boolean(normalizedEmail) && Boolean(grantReason.trim());
+  const existingPresetActionLabel =
+    preset === 'plus_customer' ? 'Open Plus Customer workspace' : 'Open person workspace';
+
+  const refreshLauncherQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-corporate-partner-access-options'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] }),
+      queryClient.invalidateQueries({ queryKey: ['access-launcher-person-search'] }),
+    ]);
+  };
+
+  const openSelectedWorkspace = () => {
+    if (!selectedExistingAccount) {
+      toast.error(`${presetMeta.label} requires an existing authenticated user.`);
+      return;
+    }
+
+    onOpenWorkspace({
+      email: selectedExistingAccount.customer_email,
+      userId: selectedExistingAccount.user_id,
+      label: selectedExistingAccount.customer_email ?? selectedExistingAccount.user_id,
+    });
+    onOpenChange(false);
+  };
+
+  const createPartnerRecord = async () => {
+    const partnerName = partnerForm.name.trim();
+    const contactEmail = partnerForm.primaryContactEmail.trim() || normalizedEmail;
+
+    if (!partnerName) {
+      toast.error('Partner name is required.');
+      return;
+    }
+    if (contactEmail && !hasEmailShape(contactEmail)) {
+      toast.error('Primary contact email must be valid.');
+      return;
+    }
+
+    setIsCreatingPartner(true);
+    try {
+      const createdPartner: ReportingPartner = await upsertReportingPartnerAdmin({
+        name: partnerName,
+        legalName: partnerForm.legalName.trim() || null,
+        partnerType: 'revenue_share_partner',
+        primaryContactName: partnerForm.primaryContactName.trim() || null,
+        primaryContactEmail: contactEmail || null,
+        status: 'active',
+        notes: partnerForm.notes.trim() || null,
+        reason: 'Partner record created from Access Launcher',
+      });
+      setSelectedPartnerId(createdPartner.id);
+      setPartnerForm(emptyPartnerForm);
+      await queryClient.invalidateQueries({ queryKey: ['admin-corporate-partner-access-options'] });
+      toast.success('Partner record created.');
+    } catch (createError) {
+      toast.error(createError instanceof Error ? createError.message : 'Unable to create partner record.');
+    } finally {
+      setIsCreatingPartner(false);
+    }
+  };
+
+  const saveInviteableAccess = async () => {
+    if (!normalizedEmail) {
+      toast.error('Enter a valid email before sending an invite.');
+      return;
+    }
+    if (!grantReason.trim()) {
+      toast.error('Grant reason is required.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      if (preset === 'corporate_partner') {
+        if (!selectedPartner) {
+          toast.error('Select or create a partner record.');
+          return;
+        }
+
+        const membership = await grantCorporatePartnerMembership({
+          email: normalizedEmail,
+          partnerId: selectedPartner.partnerId,
+          reason: grantReason.trim(),
+        });
+
+        if (!membership.id) {
+          throw new Error('Corporate Partner membership was saved without a source ID.');
+        }
+
+        try {
+          await sendAccessInvite({
+            inviteType: 'corporate_partner',
+            sourceId: membership.id,
+            targetEmail: normalizedEmail,
+            loginUrl: getAccessInviteLoginUrl('corporate_partner', normalizedEmail),
+          });
+          toast.success('Corporate Partner access saved and invite email sent.');
+        } catch (inviteError) {
+          toast.error(
+            inviteError instanceof Error
+              ? `Corporate Partner access saved, but invite email failed: ${inviteError.message}`
+              : 'Corporate Partner access saved, but invite email failed.'
+          );
+        }
+      }
+
+      if (preset === 'technician') {
+        if (!selectedTechnicianAccount) {
+          toast.error('Select a sponsor account.');
+          return;
+        }
+
+        const grant = await adminGrantTechnicianAccess({
+          email: normalizedEmail,
+          accountId: selectedTechnicianAccount.accountId,
+          machineId: selectedMachineId,
+          reason: grantReason.trim(),
+        });
+
+        if (!grant.grantId) {
+          throw new Error('Technician access was saved without a grant ID.');
+        }
+
+        try {
+          await sendAccessInvite({
+            inviteType: 'technician',
+            sourceId: grant.grantId,
+            targetEmail: normalizedEmail,
+            loginUrl: getAccessInviteLoginUrl('technician', normalizedEmail),
+          });
+          toast.success('Technician access saved and invite email sent.');
+        } catch (inviteError) {
+          toast.error(
+            inviteError instanceof Error
+              ? `Technician access saved, but invite email failed: ${inviteError.message}`
+              : 'Technician access saved, but invite email failed.'
+          );
+        }
+      }
+
+      trackEvent('admin_access_launcher_saved', {
+        preset,
+        inviteable: presetMeta.inviteable,
+      });
+      setGrantReason('');
+      await refreshLauncherQueries();
+      await onChanged();
+      onOpenWorkspace({
+        email: normalizedEmail,
+        userId: selectedExistingAccount?.user_id ?? null,
+        label: normalizedEmail,
+      });
+      onOpenChange(false);
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : 'Unable to save access.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Add or invite access</DialogTitle>
+          <DialogDescription>
+            Start with a person or email, choose the intended outcome, then save the access source
+            with the right scope and audit reason.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5">
+          <section className="rounded-md border border-border bg-muted/20 p-4">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.4fr)] lg:items-end">
+              <div>
+                <Label htmlFor="access-launcher-target">Person or email</Label>
+                <div className="relative mt-1">
+                  <Mail className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="access-launcher-target"
+                    value={targetInput}
+                    onChange={(event) => setTargetInput(event.target.value)}
+                    placeholder="partner@example.com or existing user ID"
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+              <div className="rounded-md border border-border bg-background p-3 text-sm">
+                <p className="font-medium text-foreground">
+                  {normalizedEmail ? normalizedEmail : 'Existing-user lookup'}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {presetMeta.inviteable
+                    ? 'This preset can be granted before first sign-in.'
+                    : 'This preset requires an existing Supabase Auth user.'}
+                </p>
+              </div>
+            </div>
+
+            {searchValue.length >= 3 && (
+              <div className="mt-3 rounded-md border border-border bg-background p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-foreground">Matching auth users</p>
+                  {isSearchingPeople && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+                {personSearchError ? (
+                  <p className="mt-2 text-sm text-destructive">
+                    {getErrorMessage(personSearchError, 'Unable to search people.')}
+                  </p>
+                ) : existingPeople.length === 0 && !isSearchingPeople ? (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    No auth user found. Corporate Partner and Technician invites can still be sent
+                    to a valid email.
+                  </p>
+                ) : (
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    {existingPeople.slice(0, 4).map((account) => (
+                      <button
+                        key={account.user_id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedExistingUserId(account.user_id);
+                          if (account.customer_email) setTargetInput(account.customer_email);
+                        }}
+                        className={cn(
+                          'min-w-0 rounded-md border border-border bg-background p-3 text-left transition hover:bg-muted/30',
+                          selectedExistingAccount?.user_id === account.user_id && 'border-primary bg-primary/5'
+                        )}
+                      >
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {account.customer_email ?? 'No email on file'}
+                        </p>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">{account.user_id}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              {accessLauncherPresets.map((item) => {
+                const isSelected = item.key === preset;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setPreset(item.key)}
+                    className={cn(
+                      'rounded-md border p-3 text-left transition hover:bg-muted/30',
+                      isSelected ? 'border-primary bg-primary/5' : 'border-border bg-background'
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium text-foreground">{item.label}</p>
+                      <Badge variant={item.inviteable ? 'default' : 'outline'}>
+                        {item.inviteable ? 'Invite' : 'Existing'}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {preset === 'corporate_partner' && (
+            <section className="grid gap-4 lg:grid-cols-[0.42fr_0.58fr]">
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="access-launcher-partner">Partner record</Label>
+                  <select
+                    id="access-launcher-partner"
+                    value={selectedPartner?.partnerId ?? ''}
+                    onChange={(event) => setSelectedPartnerId(event.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    disabled={isFetchingCorporateOptions || corporateOptions.partners.length === 0}
+                  >
+                    {corporateOptions.partners.length === 0 ? (
+                      <option value="">No partner records</option>
+                    ) : (
+                      corporateOptions.partners.map((partner) => (
+                        <option key={partner.partnerId} value={partner.partnerId}>
+                          {partner.partnerName}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  {corporateOptionsError && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {getErrorMessage(corporateOptionsError, 'Unable to load partner records.')}
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-md border border-border p-3">
+                  <p className="text-sm font-medium text-foreground">Create partner record</p>
+                  <div className="mt-3 grid gap-3">
+                    <Input
+                      value={partnerForm.name}
+                      onChange={(event) => setPartnerForm((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="Partner name"
+                    />
+                    <Input
+                      value={partnerForm.legalName}
+                      onChange={(event) => setPartnerForm((current) => ({ ...current, legalName: event.target.value }))}
+                      placeholder="Legal name (optional)"
+                    />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Input
+                        value={partnerForm.primaryContactName}
+                        onChange={(event) =>
+                          setPartnerForm((current) => ({
+                            ...current,
+                            primaryContactName: event.target.value,
+                          }))
+                        }
+                        placeholder="Primary contact"
+                      />
+                      <Input
+                        value={partnerForm.primaryContactEmail}
+                        onChange={(event) =>
+                          setPartnerForm((current) => ({
+                            ...current,
+                            primaryContactEmail: event.target.value,
+                          }))
+                        }
+                        placeholder={normalizedEmail || 'contact@example.com'}
+                      />
+                    </div>
+                    <Textarea
+                      value={partnerForm.notes}
+                      onChange={(event) => setPartnerForm((current) => ({ ...current, notes: event.target.value }))}
+                      placeholder="Notes (optional)"
+                    />
+                    <Button type="button" variant="outline" onClick={createPartnerRecord} disabled={isCreatingPartner}>
+                      {isCreatingPartner ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Building2 className="mr-2 h-4 w-4" />}
+                      Create and select partner
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <SummaryMetric
+                    label="Portal partnerships"
+                    value={isFetchingCorporateOptions ? 'Loading...' : String(portalEnabledPartnerships.length)}
+                  />
+                  <SummaryMetric label="Derived machines" value={String(derivedMachineIds.size)} />
+                  <SummaryMetric
+                    label="Invite target"
+                    value={normalizedEmail ? 'Email invite' : 'Needs email'}
+                  />
+                </div>
+                <PreviewBox>
+                  This will grant Corporate Partner access for{' '}
+                  {selectedPartner?.partnerName ?? 'the selected partner'} and send an invite to{' '}
+                  {normalizedEmail || 'the entered email'}. Reporting is derived only from active
+                  portal-enabled partnerships.
+                </PreviewBox>
+                <div className="divide-y divide-border rounded-md border border-border">
+                  {selectedPartner && selectedPartner.portalPartnerships.length === 0 ? (
+                    <p className="p-3 text-sm text-muted-foreground">
+                      No active partnerships are linked to this partner record yet.
+                    </p>
+                  ) : (
+                    selectedPartner?.portalPartnerships.map((partnership) => (
+                      <div key={partnership.partyId} className="flex items-start justify-between gap-3 p-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {partnership.partnershipName}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {pluralize(partnership.machineCount, 'machine')}
+                          </p>
+                        </div>
+                        <Badge variant={partnership.portalAccessEnabled ? 'default' : 'outline'}>
+                          {partnership.portalAccessEnabled ? 'Portal enabled' : 'Portal off'}
+                        </Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {preset === 'technician' && (
+            <section className="grid gap-4 lg:grid-cols-[0.42fr_0.58fr]">
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="access-launcher-technician-account">Sponsor account</Label>
+                  <select
+                    id="access-launcher-technician-account"
+                    value={selectedTechnicianAccount?.accountId ?? ''}
+                    onChange={(event) => setSelectedAccountId(event.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    disabled={isFetchingTechnicianContext || technicianContext.accounts.length === 0}
+                  >
+                    {technicianContext.accounts.length === 0 ? (
+                      <option value="">No eligible accounts</option>
+                    ) : (
+                      technicianContext.accounts.map((account) => (
+                        <option key={account.accountId} value={account.accountId}>
+                          {account.accountName}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="access-launcher-technician-machine">Machine scope</Label>
+                  <select
+                    id="access-launcher-technician-machine"
+                    value={selectedScopeValue}
+                    onChange={(event) => setSelectedScopeValue(event.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    disabled={!selectedTechnicianAccount}
+                  >
+                    <option value={trainingOnlyScopeValue}>Training only - no machine</option>
+                    {selectedTechnicianMachines.map((machine) => (
+                      <option key={machine.machineId} value={machine.machineId}>
+                        {machine.machineLabel}
+                      </option>
+                    ))}
+                  </select>
+                  {technicianContextError && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {getErrorMessage(technicianContextError, 'Unable to load eligible Technician accounts.')}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <SummaryMetric
+                    label="Sponsor"
+                    value={selectedTechnicianAccount?.accountName ?? 'Select account'}
+                  />
+                  <SummaryMetric
+                    label="Machine scope"
+                    value={selectedTechnicianMachine ? selectedTechnicianMachine.machineLabel : 'Training only'}
+                  />
+                  <SummaryMetric
+                    label="Existing grants"
+                    value={isFetchingTechnicianContext ? 'Loading...' : String(technicianContext.grants.length)}
+                  />
+                </div>
+                <PreviewBox>
+                  This will grant Technician training access to {normalizedEmail || 'the entered email'}
+                  {selectedTechnicianMachine
+                    ? ` plus reporting for ${selectedTechnicianMachine.machineLabel}.`
+                    : ' with no reporting machine.'}{' '}
+                  Technician access is limited to training-only or exactly one machine in this flow.
+                </PreviewBox>
+              </div>
+            </section>
+          )}
+
+          {isExistingUserPreset && (
+            <section className="rounded-md border border-amber/40 bg-amber/10 p-4">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="mt-0.5 h-5 w-5 text-amber" />
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-foreground">{presetMeta.label} uses the person workspace</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {preset === 'plus_customer'
+                      ? 'Plus Customer access is account-oriented and should be managed from the selected person workspace so billing and existing grant state stay visible.'
+                      : `${presetMeta.label} requires an existing authenticated user. Open the person workspace, review effective access, then use the source card with its preview and required reason.`}
+                  </p>
+                  <div className="mt-3">
+                    {selectedExistingAccount ? (
+                      <div className="rounded-md border border-border bg-background p-3 text-sm">
+                        <p className="font-medium text-foreground">
+                          {selectedExistingAccount.customer_email ?? 'No email on file'}
+                        </p>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">
+                          {selectedExistingAccount.user_id}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Search for and select an existing auth user before continuing.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {presetMeta.inviteable && (
+            <section>
+              <Label htmlFor="access-launcher-reason">Grant reason</Label>
+              <Textarea
+                id="access-launcher-reason"
+                value={grantReason}
+                onChange={(event) => setGrantReason(event.target.value)}
+                placeholder="Required audit reason"
+                className="mt-1"
+              />
+            </section>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          {presetMeta.inviteable ? (
+            <Button
+              type="button"
+              onClick={saveInviteableAccess}
+              disabled={
+                isSaving ||
+                !canSaveInvite ||
+                (preset === 'corporate_partner' && !selectedPartner) ||
+                (preset === 'technician' && !selectedTechnicianAccount)
+              }
+            >
+              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+              Grant and send invite
+            </Button>
+          ) : (
+            <Button type="button" onClick={openSelectedWorkspace} disabled={!selectedExistingAccount}>
+              <UserRound className="mr-2 h-4 w-4" />
+              {existingPresetActionLabel}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

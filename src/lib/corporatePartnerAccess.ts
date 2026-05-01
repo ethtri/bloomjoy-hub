@@ -63,6 +63,17 @@ export type CorporatePartnerAccessOptions = {
   partners: CorporatePartnerOption[];
 };
 
+export type CorporatePartnerMembershipMutationResult = {
+  id: string;
+  partnerId: string;
+  userId: string | null;
+  memberEmail: string;
+  status: string;
+  startsAt: string;
+  expiresAt: string | null;
+  grantReason: string;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -198,7 +209,7 @@ export const grantCorporatePartnerMembership = async (input: {
   email: string;
   partnerId: string;
   reason: string;
-}) => {
+}): Promise<CorporatePartnerMembershipMutationResult> => {
   const { data, error } = await supabaseClient.rpc('admin_grant_corporate_partner_membership', {
     p_target_email: input.email.trim(),
     p_partner_id: input.partnerId,
@@ -210,7 +221,17 @@ export const grantCorporatePartnerMembership = async (input: {
     throw new Error(error?.message || 'Unable to grant Corporate Partner access.');
   }
 
-  return data;
+  const record = isRecord(data) ? data : {};
+  return {
+    id: asString(record.id),
+    partnerId: asString(record.partnerId),
+    userId: asNullableString(record.userId),
+    memberEmail: asString(record.memberEmail, input.email.trim().toLowerCase()),
+    status: asString(record.status, 'active'),
+    startsAt: asString(record.startsAt),
+    expiresAt: asNullableString(record.expiresAt),
+    grantReason: asString(record.grantReason, input.reason.trim()),
+  };
 };
 
 export const revokeCorporatePartnerMembership = async (input: {

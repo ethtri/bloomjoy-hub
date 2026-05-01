@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 type AuthMethod = 'password' | 'magic_link';
+type LoginInviteIntent = 'corporate_partner' | 'technician';
 const GOOGLE_GSI_SCRIPT_ID = 'google-gsi-script';
 const GOOGLE_GSI_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
 
@@ -120,6 +121,31 @@ const safeDecode = (value?: string | null) => {
     return value;
   }
 };
+
+const loginInviteEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const getLoginInviteIntent = (value: string | null): LoginInviteIntent | null => {
+  if (value === 'corporate_partner' || value === 'technician') {
+    return value;
+  }
+
+  return null;
+};
+
+const getInviteIntentCopy = (intent: LoginInviteIntent) =>
+  intent === 'corporate_partner'
+    ? {
+        title: 'Corporate Partner invite',
+        description:
+          'Create an account or sign in with this email to access partner reporting, training, support, and eligible machine reporting.',
+        icon: BarChart3,
+      }
+    : {
+        title: 'Technician invite',
+        description:
+          'Create an account or sign in with this email to access training and assigned machine reporting.',
+        icon: GraduationCap,
+      };
 
 const getSendLinkErrorMessage = (error: { status?: number; code?: string; message?: string }) => {
   if (error.status === 429 || error.code === 'over_email_send_rate_limit') {
@@ -252,6 +278,11 @@ export default function LoginPage() {
   const location = useLocation();
   const fromPath =
     (location.state as { from?: { pathname?: string } })?.from?.pathname || '/portal';
+  const inviteParams = new URLSearchParams(location.search);
+  const inviteIntent = getLoginInviteIntent(inviteParams.get('intent'));
+  const inviteEmail = inviteParams.get('email')?.trim().toLowerCase() ?? '';
+  const inviteCopy = inviteIntent ? getInviteIntentCopy(inviteIntent) : null;
+  const InviteIcon = inviteCopy?.icon;
   const mainSiteUrl = getCanonicalUrlForSurface('marketing', '/', '', '', window.location);
   const plusUrl = getCanonicalUrlForSurface('marketing', '/plus', '', '', window.location);
 
@@ -264,6 +295,22 @@ export default function LoginPage() {
   useEffect(() => {
     signInWithGoogleIdTokenRef.current = signInWithGoogleIdToken;
   }, [signInWithGoogleIdToken]);
+
+  useEffect(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const queryIntent = getLoginInviteIntent(queryParams.get('intent'));
+    const queryEmail = queryParams.get('email')?.trim().toLowerCase() ?? '';
+
+    if (queryEmail && loginInviteEmailPattern.test(queryEmail)) {
+      setEmail(queryEmail);
+    }
+
+    if (queryIntent) {
+      setAuthMethod('password');
+      setCreateAccountMode(true);
+      setSent(false);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     if (!useGisRenderedButton || !googleClientId) {
@@ -592,6 +639,27 @@ export default function LoginPage() {
               </div>
 
               <div className="mt-6 space-y-4">
+                {inviteCopy && (
+                  <div className="rounded-xl border border-primary/25 bg-primary/5 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-background text-primary">
+                        {InviteIcon && <InviteIcon className="h-4 w-4" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-foreground">{inviteCopy.title}</p>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          {inviteCopy.description}
+                        </p>
+                        {inviteEmail && (
+                          <p className="mt-2 break-all text-xs font-medium text-primary">
+                            {inviteEmail}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               <div className="space-y-2">
                 {useGisRenderedButton ? (
                   <>
