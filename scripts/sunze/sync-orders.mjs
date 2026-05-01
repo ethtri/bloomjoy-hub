@@ -6,6 +6,7 @@ import { basename, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import {
   assertSunzeOrderRowsWithinWindow,
+  filterSunzeOrderRowsToWindow,
   parseSunzeOrderWorkbook,
   summarizeSunzeOrderRows,
 } from './sunze-orders.mjs';
@@ -53,6 +54,7 @@ await loadEnvFile(resolve(process.cwd(), '.env'));
 const dryRun = hasFlag('--dry-run');
 const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
+const filterDateWindow = hasFlag('--filter-date-window');
 const datePreset = getArg('--date-preset', 'Last 7 Days');
 const dateStartArg = getArg('--date-start');
 const dateEndArg = getArg('--date-end');
@@ -201,6 +203,12 @@ if (customDateStart && customDateEnd && customDateStart > customDateEnd) {
 if (customDateStart && customDateEnd && daysBetweenInclusive(customDateStart, customDateEnd) > 31) {
   throw new Error(
     `Provider custom date exports must be requested in monthly chunks of 31 days or less: ${customDateStart} to ${customDateEnd}.`
+  );
+}
+
+if (filterDateWindow && (!parseFilePath || !hasCustomDateRange)) {
+  throw new Error(
+    '--filter-date-window requires --parse-file with both --date-start and --date-end so out-of-window source rows stay explicit.'
   );
 }
 
@@ -1634,12 +1642,31 @@ const isRetryableWorkbookError = (error) => {
 };
 
 const parseOrdersSourceRows = async (source) => {
-  const rows = await parseSunzeOrderWorkbook(source.filePath);
-  assertSunzeOrderRowsWithinWindow(rows, {
-    windowStart: deriveSelectedWindow()?.uiWindowStart,
-    windowEnd: deriveSelectedWindow()?.uiWindowEnd,
-  });
-  return rows;
+  const sourceRows = await parseSunzeOrderWorkbook(source.filePath);
+  const selectedWindow = deriveSelectedWindow();
+  const windowBounds = {
+    windowStart: selectedWindow?.uiWindowStart,
+    windowEnd: selectedWindow?.uiWindowEnd,
+  };
+
+  if (filterDateWindow) {
+    const filtered = filterSunzeOrderRowsToWindow(sourceRows, windowBounds);
+    assertSunzeOrderRowsWithinWindow(filtered.rows, windowBounds);
+    return {
+      sourceRows,
+      rows: filtered.rows,
+      outOfWindowRowCount: filtered.outOfWindowRows.length,
+      dateWindowFilterApplied: true,
+    };
+  }
+
+  assertSunzeOrderRowsWithinWindow(sourceRows, windowBounds);
+  return {
+    sourceRows,
+    rows: sourceRows,
+    outOfWindowRowCount: 0,
+    dateWindowFilterApplied: false,
+  };
 };
 
 const loadOrdersSource = async () => {
@@ -1653,7 +1680,7 @@ const loadOrdersSource = async () => {
     };
     return {
       source,
-      rows: await parseOrdersSourceRows(source),
+      ...(await parseOrdersSourceRows(source)),
     };
   }
 
@@ -1663,7 +1690,7 @@ const loadOrdersSource = async () => {
     try {
       return {
         source,
-        rows: await parseOrdersSourceRows(source),
+        ...(await parseOrdersSourceRows(source)),
       };
     } catch (error) {
       await cleanupExportSource(source);
@@ -1683,12 +1710,15 @@ const loadOrdersSource = async () => {
 let cleanupTarget = null;
 
 try {
-  const { source, rows } = await loadOrdersSource();
+  const { source, rows, sourceRows, outOfWindowRowCount, dateWindowFilterApplied } =
+    await loadOrdersSource();
 
   cleanupTarget = source.cleanupPath
     ? { path: source.cleanupPath, mode: source.cleanupMode }
     : null;
   const summary = summarizeSunzeOrderRows(rows);
+  const sourceSummary = summarizeSunzeOrderRows(sourceRows);
+  const requestedWindow = deriveSelectedWindow();
 
   const matchedUiSummary =
     source.uiSummaries.length > 0 ? assertExportMatchesUi(summary, source.uiSummaries) : null;
@@ -1729,6 +1759,17 @@ try {
       parsedRowCount: summary.rowCount,
       parsedMachineCount: summary.machineCount,
       parsedOrderAmountCents: summary.orderAmountCents,
+      sourceParsedRowCount: sourceSummary.rowCount,
+      sourceMachineCount: sourceSummary.machineCount,
+      sourceOrderAmountCents: sourceSummary.orderAmountCents,
+      sourceWindowStart: sourceSummary.windowStart,
+      sourceWindowEnd: sourceSummary.windowEnd,
+      filteredWindowStart: summary.windowStart,
+      filteredWindowEnd: summary.windowEnd,
+      requestedWindowStart: requestedWindow?.uiWindowStart ?? null,
+      requestedWindowEnd: requestedWindow?.uiWindowEnd ?? null,
+      dateWindowFilterApplied,
+      outOfWindowRowCount,
       visibleSunzeMachineCodes: source.visibleSunzeMachineCodes,
       visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
       expectedVisibleMachineCount: parseFilePath ? null : expectedVisibleMachineCount,
@@ -1746,9 +1787,11 @@ try {
       ok: true,
       dryRun: true,
       ingestDryRunValidated: Boolean(ingestValidation),
+      rowsSeen: ingestValidation?.rowsSeen ?? null,
       rowsValidated: ingestValidation?.rowsValidated ?? null,
       rowsQuarantined: ingestValidation?.rowsQuarantined ?? null,
       rowsIgnored: ingestValidation?.rowsIgnored ?? null,
+      unmappedRowsQueued: ingestValidation?.unmappedRowsQueued ?? null,
       ingestChunkCount: ingestValidation?.chunkCount ?? null,
       ingestChunkSize: ingestValidation?.ingestChunkSize ?? null,
       rowsParsed: summary.rowCount,
@@ -1756,6 +1799,20 @@ try {
       orderAmountCents: summary.orderAmountCents,
       windowStart: payload.windowStart,
       windowEnd: payload.windowEnd,
+      sourceRowsParsed: sourceSummary.rowCount,
+      sourceMachineCount: sourceSummary.machineCount,
+      sourceOrderAmountCents: sourceSummary.orderAmountCents,
+      sourceWindowStart: sourceSummary.windowStart,
+      sourceWindowEnd: sourceSummary.windowEnd,
+      filteredRowsParsed: summary.rowCount,
+      filteredMachineCount: summary.machineCount,
+      filteredOrderAmountCents: summary.orderAmountCents,
+      filteredWindowStart: summary.windowStart,
+      filteredWindowEnd: summary.windowEnd,
+      requestedWindowStart: requestedWindow?.uiWindowStart ?? null,
+      requestedWindowEnd: requestedWindow?.uiWindowEnd ?? null,
+      dateWindowFilterApplied,
+      outOfWindowRowCount,
       selectedWindowStart: matchedUiSummary?.uiWindowStart ?? null,
       selectedWindowEnd: matchedUiSummary?.uiWindowEnd ?? null,
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
@@ -1801,11 +1858,30 @@ try {
       importRunIds: result.importRunIds ?? null,
       ingestChunkCount: result.chunkCount ?? null,
       ingestChunkSize: result.ingestChunkSize ?? null,
+      rowsSeen: result.rowsSeen ?? null,
+      rowsValidated: result.rowsValidated ?? null,
       rowsImported: result.rowsImported ?? null,
       rowsSkipped: result.rowsSkipped ?? null,
       rowsQuarantined: result.rowsQuarantined ?? null,
       rowsIgnored: result.rowsIgnored ?? null,
+      unmappedRowsQueued: result.unmappedRowsQueued ?? null,
       pendingUnmappedMachineCount: result.pendingUnmappedMachineCount ?? null,
+      ignoredUnmappedMachineCount: result.ignoredUnmappedMachineCount ?? null,
+      newlyPendingUnmappedMachineCount: result.newlyPendingUnmappedMachineCount ?? null,
+      sourceRowsParsed: sourceSummary.rowCount,
+      sourceMachineCount: sourceSummary.machineCount,
+      sourceOrderAmountCents: sourceSummary.orderAmountCents,
+      sourceWindowStart: sourceSummary.windowStart,
+      sourceWindowEnd: sourceSummary.windowEnd,
+      filteredRowsParsed: summary.rowCount,
+      filteredMachineCount: summary.machineCount,
+      filteredOrderAmountCents: summary.orderAmountCents,
+      filteredWindowStart: summary.windowStart,
+      filteredWindowEnd: summary.windowEnd,
+      requestedWindowStart: requestedWindow?.uiWindowStart ?? null,
+      requestedWindowEnd: requestedWindow?.uiWindowEnd ?? null,
+      dateWindowFilterApplied,
+      outOfWindowRowCount,
       datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
       dateStart: customDateStart,
       dateEnd: customDateEnd,

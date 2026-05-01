@@ -106,6 +106,11 @@ type PartnerMachineComparisonRow = {
   current: PartnerDashboardMachinePeriod;
   previous?: PartnerDashboardMachinePeriod;
 };
+type PartnerMachineHistoryRow = {
+  period: PartnerDashboardPeriod;
+  previous?: PartnerDashboardPeriod;
+  isCurrent: boolean;
+};
 
 const ALL_PARTNER_MACHINES = 'all';
 const PARTNER_REVENUE_SHARE_LABEL = 'Partner Revenue Share';
@@ -493,6 +498,9 @@ const usesNetSalesAsPayoutBasis = (period: PartnerDashboardTotals | undefined) =
 
 const shouldShowPayoutBasisColumn = (rows: PartnerMachineComparisonRow[]) =>
   rows.some((row) => !usesNetSalesAsPayoutBasis(row.current));
+
+const shouldShowPeriodPayoutBasisColumn = (periods: PartnerDashboardTotals[]) =>
+  periods.some((period) => !usesNetSalesAsPayoutBasis(period));
 
 const formatPayoutBasisDetail = (period: PartnerDashboardTotals) =>
   usesNetSalesAsPayoutBasis(period)
@@ -1303,6 +1311,21 @@ function PartnerDashboardView() {
     [currentPeriod, preview, previousPeriod, trendPreview]
   );
   const showPayoutBasisColumn = shouldShowPayoutBasisColumn(machineRows);
+  const machineHistoryRows = useMemo<PartnerMachineHistoryRow[]>(
+    () =>
+      displayPeriods.map((period, index) => ({
+        period,
+        previous: index > 0 ? displayPeriods[index - 1] : undefined,
+        isCurrent: selectedPeriod
+          ? periodMatchesOption(period, selectedPeriod)
+          : currentPeriod
+            ? period.periodStart === currentPeriod.periodStart &&
+              period.periodEnd === currentPeriod.periodEnd
+            : false,
+      })),
+    [currentPeriod, displayPeriods, selectedPeriod]
+  );
+  const showHistoryPayoutBasisColumn = shouldShowPeriodPayoutBasisColumn(displayPeriods);
 
   const netSalesTrendData = useMemo(
     () =>
@@ -1712,124 +1735,133 @@ function PartnerDashboardView() {
           </div>
 
           <div className="grid min-w-0 gap-6">
-            <Card className="min-w-0">
-              <CardHeader>
-                <CardTitle className="text-xl">Machine rollups</CardTitle>
-                <CardDescription>
-                  All assigned machines for the selected {getPartnerPeriodNoun(periodMode)}, compared with the previous period.
-                  {selectedMachineLabel ? ` ${selectedMachineLabel} is highlighted.` : ''}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {machineRows.length === 0 ? (
-                  <EmptyPanel title="No machine rollups" description="Assign machines and import sales before this table can show partner performance." />
-                ) : (
-                  <>
-                    <div className="flex flex-col gap-3 md:hidden">
-                      {machineRows.map((row) => (
-                        <PartnerMachineMobileCard
-                          key={row.current.reportingMachineId}
-                          row={row}
-                          isSelected={row.current.reportingMachineId === selectedMachineId}
-                        />
-                      ))}
-                    </div>
-                    <div className="hidden md:block">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Machine</TableHead>
-                            <TableHead className="text-right">Gross sales</TableHead>
-                            <TableHead className="text-right">Refunds</TableHead>
-                            <TableHead className="text-right">Volume</TableHead>
-                            <TableHead className="text-right">Tax + deductions</TableHead>
-                            <TableHead className="text-right">Net sales</TableHead>
-                            {showPayoutBasisColumn && (
-                              <TableHead className="text-right">Payout basis</TableHead>
-                            )}
-                            <TableHead className="text-right">{PARTNER_REVENUE_SHARE_LABEL}</TableHead>
-                            <TableHead className="text-right">Change</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {machineRows.map((row) => {
-                            const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
-                            return (
-                              <TableRow
-                                key={row.current.reportingMachineId}
-                                className={cn(
-                                  row.current.reportingMachineId === selectedMachineId && 'bg-muted/40'
-                                )}
-                              >
-                                <TableCell>
-                                  <div className="font-medium">{row.current.machineLabel}</div>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {formatCurrency(row.current.grossSalesCents)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  -{formatCurrency(row.current.refundAmountCents, true)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div>{numberFormatter.format(periodVolume(row.current))} items</div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {numberFormatter.format(row.current.orderCount)} transactions
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div>{formatCurrency(row.current.taxCents + row.current.feeCents, true)}</div>
-                                  {hasAdditionalCosts(row.current) && (
-                                    <div className="text-xs text-muted-foreground">
-                                      Additional costs {formatCurrency(row.current.costCents, true)}
-                                    </div>
+            {selectedMachineId === ALL_PARTNER_MACHINES ? (
+              <Card className="min-w-0">
+                <CardHeader>
+                  <CardTitle className="text-xl">Machine rollups</CardTitle>
+                  <CardDescription>
+                    All assigned machines for the selected {getPartnerPeriodNoun(periodMode)}, compared with the previous period.
+                    {selectedMachineLabel ? ` ${selectedMachineLabel} is highlighted.` : ''}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {machineRows.length === 0 ? (
+                    <EmptyPanel title="No machine rollups" description="Assign machines and import sales before this table can show partner performance." />
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-3 md:hidden">
+                        {machineRows.map((row) => (
+                          <PartnerMachineMobileCard
+                            key={row.current.reportingMachineId}
+                            row={row}
+                            isSelected={row.current.reportingMachineId === selectedMachineId}
+                          />
+                        ))}
+                      </div>
+                      <div className="hidden md:block">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Machine</TableHead>
+                              <TableHead className="text-right">Gross sales</TableHead>
+                              <TableHead className="text-right">Refunds</TableHead>
+                              <TableHead className="text-right">Volume</TableHead>
+                              <TableHead className="text-right">Tax + deductions</TableHead>
+                              <TableHead className="text-right">Net sales</TableHead>
+                              {showPayoutBasisColumn && (
+                                <TableHead className="text-right">Payout basis</TableHead>
+                              )}
+                              <TableHead className="text-right">{PARTNER_REVENUE_SHARE_LABEL}</TableHead>
+                              <TableHead className="text-right">Change</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {machineRows.map((row) => {
+                              const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
+                              return (
+                                <TableRow
+                                  key={row.current.reportingMachineId}
+                                  className={cn(
+                                    row.current.reportingMachineId === selectedMachineId && 'bg-muted/40'
                                   )}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div>{formatCurrency(row.current.netSalesCents, true)}</div>
-                                  {!showPayoutBasisColumn && usesNetSalesAsPayoutBasis(row.current) && (
-                                    <div className="text-xs text-muted-foreground">Payout basis</div>
-                                  )}
-                                </TableCell>
-                                {showPayoutBasisColumn && (
-                                  <TableCell className="text-right">
-                                    {formatCurrency(row.current.splitBaseCents, true)}
+                                >
+                                  <TableCell>
+                                    <div className="font-medium">{row.current.machineLabel}</div>
                                   </TableCell>
-                                )}
-                                <TableCell className="text-right">
-                                  {formatCurrency(row.current.amountOwedCents, true)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div
-                                    className={cn(
-                                      'inline-flex items-center justify-end gap-1 font-medium',
-                                      getChangeTone(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0)
+                                  <TableCell className="text-right">
+                                    {formatCurrency(row.current.grossSalesCents)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    -{formatCurrency(row.current.refundAmountCents, true)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div>{numberFormatter.format(periodVolume(row.current))} items</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {numberFormatter.format(row.current.orderCount)} transactions
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div>{formatCurrency(row.current.taxCents + row.current.feeCents, true)}</div>
+                                    {hasAdditionalCosts(row.current) && (
+                                      <div className="text-xs text-muted-foreground">
+                                        Additional costs {formatCurrency(row.current.costCents, true)}
+                                      </div>
                                     )}
-                                  >
-                                    <TrendIcon className="h-4 w-4" />
-                                    {formatPercentChange(
-                                      row.current.grossSalesCents,
-                                      row.previous?.grossSalesCents ?? 0
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div>{formatCurrency(row.current.netSalesCents, true)}</div>
+                                    {!showPayoutBasisColumn && usesNetSalesAsPayoutBasis(row.current) && (
+                                      <div className="text-xs text-muted-foreground">Payout basis</div>
                                     )}
-                                  </div>
-                                  <div
-                                    className={cn(
-                                      'text-xs',
-                                      getChangeTone(periodVolume(row.current), periodVolume(row.previous))
-                                    )}
-                                  >
-                                    Volume {formatPercentChange(periodVolume(row.current), periodVolume(row.previous))}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
+                                  </TableCell>
+                                  {showPayoutBasisColumn && (
+                                    <TableCell className="text-right">
+                                      {formatCurrency(row.current.splitBaseCents, true)}
+                                    </TableCell>
+                                  )}
+                                  <TableCell className="text-right">
+                                    {formatCurrency(row.current.amountOwedCents, true)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div
+                                      className={cn(
+                                        'inline-flex items-center justify-end gap-1 font-medium',
+                                        getChangeTone(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0)
+                                      )}
+                                    >
+                                      <TrendIcon className="h-4 w-4" />
+                                      {formatPercentChange(
+                                        row.current.grossSalesCents,
+                                        row.previous?.grossSalesCents ?? 0
+                                      )}
+                                    </div>
+                                    <div
+                                      className={cn(
+                                        'text-xs',
+                                        getChangeTone(periodVolume(row.current), periodVolume(row.previous))
+                                      )}
+                                    >
+                                      Volume {formatPercentChange(periodVolume(row.current), periodVolume(row.previous))}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <PartnerMachineHistoryCard
+                rows={machineHistoryRows}
+                periodMode={periodMode}
+                machineLabel={selectedMachineLabel}
+                showPayoutBasisColumn={showHistoryPayoutBasisColumn}
+              />
+            )}
 
             <PartnerCalculationCard
               summary={currentPeriod ?? preview.summary}
@@ -2325,6 +2357,246 @@ function PrintableMetric({
         {value}
       </div>
       <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
+    </div>
+  );
+}
+
+function PartnerMachineHistoryCard({
+  rows,
+  periodMode,
+  machineLabel,
+  showPayoutBasisColumn,
+}: {
+  rows: PartnerMachineHistoryRow[];
+  periodMode: PartnerPeriodMode;
+  machineLabel?: string;
+  showPayoutBasisColumn: boolean;
+}) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle className="text-xl">Machine history</CardTitle>
+        <CardDescription>
+          {machineLabel ?? 'Selected machine'} history across {getPartnerModeLabel(periodMode).toLowerCase()} periods.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <EmptyPanel
+            title="No machine history"
+            description="Import sales for this machine before history can be shown."
+          />
+        ) : (
+          <>
+            <div className="flex flex-col gap-3 md:hidden">
+              {rows.map((row) => (
+                <PartnerMachineHistoryMobileCard
+                  key={`${row.period.periodStart}-${row.period.periodEnd}`}
+                  row={row}
+                  periodMode={periodMode}
+                  showPayoutBasisColumn={showPayoutBasisColumn}
+                />
+              ))}
+            </div>
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Period</TableHead>
+                    <TableHead className="text-right">Gross sales</TableHead>
+                    <TableHead className="text-right">Refunds</TableHead>
+                    <TableHead className="text-right">Volume</TableHead>
+                    <TableHead className="text-right">Tax + deductions</TableHead>
+                    <TableHead className="text-right">Net sales</TableHead>
+                    {showPayoutBasisColumn && (
+                      <TableHead className="text-right">Payout basis</TableHead>
+                    )}
+                    <TableHead className="text-right">{PARTNER_REVENUE_SHARE_LABEL}</TableHead>
+                    <TableHead className="text-right">Change</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => {
+                    const TrendIcon = row.previous
+                      ? getTrendIcon(row.period.grossSalesCents, row.previous.grossSalesCents)
+                      : Info;
+
+                    return (
+                      <TableRow
+                        key={`${row.period.periodStart}-${row.period.periodEnd}`}
+                        className={cn(row.isCurrent && 'bg-muted/40')}
+                      >
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">
+                              {formatPartnerPeriod(row.period, periodMode)}
+                            </span>
+                            {row.isCurrent && <Badge variant="secondary">Current</Badge>}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(row.period.grossSalesCents)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          -{formatCurrency(row.period.refundAmountCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div>{numberFormatter.format(periodVolume(row.period))} items</div>
+                          <div className="text-xs text-muted-foreground">
+                            {numberFormatter.format(row.period.orderCount)} transactions
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div>{formatCurrency(row.period.taxCents + row.period.feeCents, true)}</div>
+                          {hasAdditionalCosts(row.period) && (
+                            <div className="text-xs text-muted-foreground">
+                              Additional costs {formatCurrency(row.period.costCents, true)}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div>{formatCurrency(row.period.netSalesCents, true)}</div>
+                          {!showPayoutBasisColumn && usesNetSalesAsPayoutBasis(row.period) && (
+                            <div className="text-xs text-muted-foreground">Payout basis</div>
+                          )}
+                        </TableCell>
+                        {showPayoutBasisColumn && (
+                          <TableCell className="text-right">
+                            {formatCurrency(row.period.splitBaseCents, true)}
+                          </TableCell>
+                        )}
+                        <TableCell className="text-right font-medium text-foreground">
+                          {formatCurrency(row.period.amountOwedCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {row.previous ? (
+                            <>
+                              <div
+                                className={cn(
+                                  'inline-flex items-center justify-end gap-1 font-medium',
+                                  getChangeTone(
+                                    row.period.grossSalesCents,
+                                    row.previous.grossSalesCents
+                                  )
+                                )}
+                              >
+                                <TrendIcon className="h-4 w-4" />
+                                {formatPercentChange(
+                                  row.period.grossSalesCents,
+                                  row.previous.grossSalesCents
+                                )}
+                              </div>
+                              <div
+                                className={cn(
+                                  'text-xs',
+                                  getChangeTone(periodVolume(row.period), periodVolume(row.previous))
+                                )}
+                              >
+                                Volume {formatPercentChange(periodVolume(row.period), periodVolume(row.previous))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-sm text-muted-foreground">No prior history</div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PartnerMachineHistoryMobileCard({
+  row,
+  periodMode,
+  showPayoutBasisColumn,
+}: {
+  row: PartnerMachineHistoryRow;
+  periodMode: PartnerPeriodMode;
+  showPayoutBasisColumn: boolean;
+}) {
+  const TrendIcon = row.previous
+    ? getTrendIcon(row.period.grossSalesCents, row.previous.grossSalesCents)
+    : Info;
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border border-border bg-background p-4',
+        row.isCurrent && 'bg-muted/40'
+      )}
+    >
+      <div className="flex flex-col gap-3 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 font-medium text-foreground">
+            <span>{formatPartnerPeriod(row.period, periodMode)}</span>
+            {row.isCurrent && <Badge variant="secondary">Current</Badge>}
+          </div>
+        </div>
+        <div className="shrink-0 text-left min-[390px]:text-right">
+          <div className="font-semibold text-foreground">
+            {formatCurrency(row.period.grossSalesCents)}
+          </div>
+          {row.previous ? (
+            <div
+              className={cn(
+                'mt-1 inline-flex items-center gap-1 text-xs font-medium',
+                getChangeTone(row.period.grossSalesCents, row.previous.grossSalesCents)
+              )}
+            >
+              <TrendIcon className="h-3.5 w-3.5" />
+              {formatPercentChange(row.period.grossSalesCents, row.previous.grossSalesCents)}
+            </div>
+          ) : (
+            <div className="mt-1 text-xs text-muted-foreground">No prior history</div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[390px]:grid-cols-2">
+        <MobileProofItem
+          label="Volume"
+          value={`${numberFormatter.format(periodVolume(row.period))} items`}
+          detail={`${numberFormatter.format(row.period.orderCount)} transactions`}
+        />
+        <MobileProofItem
+          label={PARTNER_REVENUE_SHARE_LABEL}
+          value={formatCurrency(row.period.amountOwedCents, true)}
+          detail={
+            row.previous
+              ? `Volume ${formatPercentChange(periodVolume(row.period), periodVolume(row.previous))}`
+              : 'No prior history'
+          }
+        />
+        <MobileProofItem
+          label="Refunds"
+          value={`-${formatCurrency(row.period.refundAmountCents, true)}`}
+          detail={`Gross sales ${formatCurrency(row.period.grossSalesCents, true)}`}
+        />
+        <MobileProofItem
+          label="Tax + deductions"
+          value={formatCurrency(row.period.taxCents + row.period.feeCents, true)}
+          detail={formatTaxDeductionsDetail(row.period)}
+        />
+        <MobileProofItem
+          label="Net sales"
+          value={formatCurrency(row.period.netSalesCents, true)}
+          detail={formatPayoutBasisDetail(row.period)}
+        />
+        {showPayoutBasisColumn && (
+          <MobileProofItem
+            label="Payout basis"
+            value={formatCurrency(row.period.splitBaseCents, true)}
+            detail="Revenue share basis"
+          />
+        )}
+      </div>
     </div>
   );
 }

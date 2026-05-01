@@ -183,12 +183,9 @@ const formatDeductionCurrency = (cents: unknown): string => {
 };
 
 const formatCompactCurrency = (cents: unknown): string => {
-  const dollars = Math.round(numberValue(cents)) / 100;
-  const absolute = Math.abs(dollars);
-  const sign = dollars < 0 ? "-" : "";
-  if (absolute >= 1_000_000) return `${sign}$${(absolute / 1_000_000).toFixed(1)}M`;
-  if (absolute >= 1_000) return `${sign}$${(absolute / 1_000).toFixed(1)}k`;
-  return `${sign}$${absolute.toFixed(0)}`;
+  const dollars = Math.round(numberValue(cents) / 100);
+  const absolute = Math.abs(dollars).toLocaleString("en-US");
+  return dollars < 0 ? `-$${absolute}` : `$${absolute}`;
 };
 
 const formatDeduction = (cents: unknown): string => {
@@ -441,6 +438,12 @@ const getMachineBloomjoyRetainedCents = (machine: PartnerReportMachine) =>
     ? machine.bloomjoy_retained_cents
     : 0;
 
+const getPeriodPartnerPayoutCents = (period: PartnerReportPeriod) =>
+  getPrimaryPartnerPayoutCents(period);
+
+const getPeriodBloomjoyRetainedCents = (period: PartnerReportPeriod) =>
+  getBloomjoyRetainedCents(period);
+
 export const buildPartnerReportReference = (
   snapshotId: string,
   preview: PartnerReportPreview,
@@ -474,6 +477,7 @@ export const buildPartnerReportCsv = ({
   const reportTitle = getReportTitle(preview);
   const periodLabel = getReportPeriodLabel(preview);
   const machineScopeLabel = getMachineScopeLabel(preview);
+  const trendPeriods = getTrendPeriods(preview);
   const rows = [
     csvRow([reportTitle]),
     csvRow(["Partnership", preview.partnershipName ?? ""]),
@@ -546,6 +550,43 @@ export const buildPartnerReportCsv = ({
     )),
   ];
 
+  if (machineScopeLabel && trendPeriods.length > 0) {
+    rows.push(
+      "",
+      csvRow(["Machine History"]),
+      csvRow([
+        "Period start",
+        "Period end",
+        "Orders",
+        "Sticks/items",
+        "Gross sales",
+        "Refund impact",
+        "Tax + deductions",
+        "Net sales",
+        "Payout basis",
+        getPartnerPayoutLabel(payoutRecipientLabels),
+        "Bloomjoy retained",
+      ]),
+      ...trendPeriods.map((period) => {
+        const taxAndDeductions = numberValue(period.tax_cents) +
+          numberValue(period.fee_cents) + numberValue(period.cost_cents);
+        return csvRow([
+          period.period_start ?? "",
+          period.period_end ?? "",
+          formatInteger(period.order_count),
+          formatInteger(period.item_quantity),
+          formatCurrency(period.gross_sales_cents),
+          formatDeductionCurrency(period.refund_amount_cents),
+          formatDeductionCurrency(taxAndDeductions),
+          formatCurrency(period.net_sales_cents),
+          formatCurrency(period.split_base_cents ?? period.net_sales_cents),
+          formatCurrency(getPeriodPartnerPayoutCents(period)),
+          formatCurrency(getPeriodBloomjoyRetainedCents(period)),
+        ]);
+      }),
+    );
+  }
+
   const warnings = preview.warnings ?? [];
   if (warnings.length > 0) {
     rows.push("", csvRow(["Warnings"]));
@@ -576,6 +617,21 @@ const XLSX_STYLE = {
   currency: 5,
   note: 6,
   warning: 7,
+} as const;
+
+const XLSX_TAGLINES = {
+  summary:
+    "Executive view of the selected partner settlement: period context, agreement terms, top-line sales, deductions, payout basis, amount owed, and Bloomjoy retained value.",
+  machineRollups:
+    "Management view of how each assigned machine contributed to the settlement, showing activity, deductions, net sales, payout basis, and retained value.",
+  periodTrend:
+    "High-level comparison across recent reporting periods to show whether sales, deductions, payout basis, and amount owed are moving up or down.",
+  assumptions:
+    "Plain-language record of the partnership terms, payout rule labels, data scope, and export guardrails used to produce this workbook.",
+  warningState:
+    "Operational review status for the export, showing whether any data-quality or setup warnings were present when the workbook was generated.",
+  reconciliation:
+    "Finance check tying the executive totals back to machine rollups so management can see that net sales and amount owed reconcile.",
 } as const;
 
 const xlsxEncoder = new TextEncoder();
@@ -649,6 +705,8 @@ const buildWorkbookSummarySheet = (
     widths: [30, 20, 54],
     rows: [
       [xlsxText(getReportTitle(preview), XLSX_STYLE.title)],
+      [xlsxText(XLSX_TAGLINES.summary, XLSX_STYLE.note)],
+      [],
       [xlsxText("Partnership", XLSX_STYLE.label), xlsxText(preview.partnershipName ?? "")],
       [xlsxText("Selected period", XLSX_STYLE.label), xlsxText(getReportPeriodLabel(preview))],
       ...(machineScopeLabel
@@ -752,12 +810,7 @@ const buildWorkbookMachineSheet = (
     widths: [34, 12, 14, 16, 16, 16, 18, 16, 18, 16, 16, 18, 18],
     rows: [
       [xlsxText("Machine Rollups", XLSX_STYLE.title)],
-      [
-        xlsxText(
-          "Partner-facing machine rows use the same selected partnership, period, and machine assignment scope as the dashboard and PDF.",
-          XLSX_STYLE.note,
-        ),
-      ],
+      [xlsxText(XLSX_TAGLINES.machineRollups, XLSX_STYLE.note)],
       [],
       header.map((label) => xlsxText(label, XLSX_STYLE.header)),
       ...(machineRows.length > 0
@@ -773,6 +826,7 @@ const buildWorkbookTrendSheet = (
 ): XlsxWorksheet => {
   const { preview, payoutRecipientLabels } = context;
   const trendPeriods = getTrendPeriods(preview);
+  const machineScopeLabel = getMachineScopeLabel(preview);
   const periods = trendPeriods.length > 0
     ? trendPeriods
     : [{
@@ -803,12 +857,10 @@ const buildWorkbookTrendSheet = (
     widths: [16, 16, 12, 14, 16, 16, 18, 16, 16, 18, 18],
     rows: [
       [xlsxText("Period Trend", XLSX_STYLE.title)],
-      [
-        xlsxText(
-          "Trend periods match the report export window used for the PDF trend context when available.",
-          XLSX_STYLE.note,
-        ),
-      ],
+      [xlsxText(XLSX_TAGLINES.periodTrend, XLSX_STYLE.note)],
+      ...(machineScopeLabel
+        ? [[xlsxText(`Machine history for ${machineScopeLabel}.`, XLSX_STYLE.note)]]
+        : []),
       [],
       [
         "Period start",
@@ -850,6 +902,8 @@ const buildWorkbookAssumptionsSheet = (
     widths: [28, 92],
     rows: [
       [xlsxText("Assumptions", XLSX_STYLE.title)],
+      [xlsxText(XLSX_TAGLINES.assumptions, XLSX_STYLE.note)],
+      [],
       [xlsxText("Partnership", XLSX_STYLE.label), xlsxText(preview.partnershipName ?? "")],
       [xlsxText("Selected period", XLSX_STYLE.label), xlsxText(getReportPeriodLabel(preview))],
       ...(machineScopeLabel
@@ -912,6 +966,8 @@ const buildWorkbookWarningsSheet = (
     widths: [18, 92],
     rows: [
       [xlsxText("Warning State", XLSX_STYLE.title)],
+      [xlsxText(XLSX_TAGLINES.warningState, XLSX_STYLE.note)],
+      [],
       [xlsxText("Severity", XLSX_STYLE.header), xlsxText("Message", XLSX_STYLE.header)],
       ...warningRows,
     ],
@@ -986,6 +1042,8 @@ const buildWorkbookReconciliationSheet = (
     widths: [30, 18, 82],
     rows: [
       [xlsxText("Reconciliation Detail", XLSX_STYLE.title)],
+      [xlsxText(XLSX_TAGLINES.reconciliation, XLSX_STYLE.note)],
+      [],
       [xlsxText("Bridge line", XLSX_STYLE.header), xlsxText("Amount", XLSX_STYLE.header), xlsxText("Notes", XLSX_STYLE.header)],
       ...bridgeRows,
       [],
@@ -2224,10 +2282,12 @@ const drawAppendixHeader = (
   fonts: PdfFonts,
   assets: PdfAssets,
   {
+    title = "Machine detail",
     periodLabel,
     reportReference,
     generatedAt,
   }: {
+    title?: string;
     periodLabel: string;
     reportReference: string;
     generatedAt: string;
@@ -2244,7 +2304,7 @@ const drawAppendixHeader = (
       height: 28,
     });
   }
-  drawText(page, fonts, "Machine detail", {
+  drawText(page, fonts, title, {
     x: assets.logo ? 66 : 30,
     y: height - 34,
     size: 16,
@@ -2298,9 +2358,10 @@ const drawAppendixPage = (
   periodLabel: string,
   reportReference: string,
   generatedAt: string,
+  title = "Machine detail",
 ) => {
   const page = pdfDoc.addPage([792, 612]);
-  drawAppendixHeader(page, fonts, assets, { periodLabel, reportReference, generatedAt });
+  drawAppendixHeader(page, fonts, assets, { title, periodLabel, reportReference, generatedAt });
   return page;
 };
 
@@ -2461,6 +2522,111 @@ const drawMachineAppendix = (
   });
 };
 
+const drawMachineHistoryAppendix = (
+  pdfDoc: PDFDocument,
+  fonts: PdfFonts,
+  assets: PdfAssets,
+  context: PartnerReportExportContext,
+  reportReference: string,
+) => {
+  const { preview, generatedAt } = context;
+  const machineScopeLabel = getMachineScopeLabel(preview);
+  const periods = getTrendPeriods(preview);
+  if (!machineScopeLabel || periods.length === 0) return;
+
+  const periodLabel = `Machine history: ${machineScopeLabel}`;
+  const generatedAtLabel = formatPreparedAt(generatedAt);
+  const columns = [
+    { label: "Period", x: 34, width: 82 },
+    { label: "Orders", x: 124, width: 34, align: "right" as const },
+    { label: "Items", x: 166, width: 34, align: "right" as const },
+    { label: "Gross sales", x: 212, width: 62, align: "right" as const },
+    { label: "Refund impact", x: 282, width: 62, align: "right" as const },
+    { label: "Tax + deductions", x: 352, width: 72, align: "right" as const },
+    { label: "Net sales", x: 432, width: 60, align: "right" as const },
+    { label: "Payout basis", x: 500, width: 60, align: "right" as const },
+    { label: PARTNER_REVENUE_SHARE_LABEL, x: 568, width: 72, align: "right" as const },
+    { label: "Bloomjoy retained", x: 648, width: 82, align: "right" as const },
+  ];
+
+  let page = drawAppendixPage(
+    pdfDoc,
+    fonts,
+    assets,
+    periodLabel,
+    reportReference,
+    generatedAtLabel,
+    "Machine history",
+  );
+  let y = 526;
+  drawText(page, fonts, "Recent period history for the selected machine scope from the same trend data used by the dashboard graph.", {
+    x: 30,
+    y,
+    size: 8,
+    color: COLORS.muted,
+    maxWidth: 720,
+  });
+  y -= 36;
+  drawAppendixTableHeader(page, fonts, y, columns);
+  y -= 28;
+
+  periods.forEach((period, index) => {
+    const rowHeight = 28;
+    if (y - rowHeight < 54) {
+      page = drawAppendixPage(
+        pdfDoc,
+        fonts,
+        assets,
+        periodLabel,
+        reportReference,
+        generatedAtLabel,
+        "Machine history",
+      );
+      y = 526;
+      drawAppendixTableHeader(page, fonts, y, columns);
+      y -= 28;
+    }
+
+    page.drawRectangle({
+      x: 30,
+      y: y - rowHeight + 8,
+      width: 732,
+      height: rowHeight,
+      color: index % 2 === 0 ? COLORS.white : COLORS.blushLight,
+      borderColor: COLORS.border,
+      borderWidth: 0.35,
+    });
+
+    drawText(page, fonts, `${period.period_start ?? ""} to ${period.period_end ?? ""}`, {
+      x: columns[0].x,
+      y,
+      size: 6.8,
+      color: COLORS.ink,
+      maxWidth: columns[0].width,
+    });
+
+    const taxAndDeductions = numberValue(period.tax_cents) +
+      numberValue(period.fee_cents) +
+      numberValue(period.cost_cents);
+    [
+      formatInteger(period.order_count),
+      formatInteger(period.item_quantity),
+      formatCurrency(period.gross_sales_cents),
+      formatDeduction(period.refund_amount_cents),
+      formatDeduction(taxAndDeductions),
+      formatCurrency(period.net_sales_cents),
+      formatCurrency(period.split_base_cents ?? period.net_sales_cents),
+      formatCurrency(getPeriodPartnerPayoutCents(period)),
+      formatCurrency(getPeriodBloomjoyRetainedCents(period)),
+    ].forEach((value, valueIndex) => {
+      const column = columns[valueIndex + 1];
+      drawRightAlignedText(page, fonts.regular, value, column.x + column.width, y, 6.6, COLORS.ink);
+    });
+
+    y -= rowHeight;
+  });
+};
+
 export const buildPartnerReportPdf = async (
   context: PartnerReportExportContext,
 ): Promise<Uint8Array> => {
@@ -2479,6 +2645,7 @@ export const buildPartnerReportPdf = async (
   drawDashboardPage(pdfDoc, fonts, assets, context, reportReference);
   drawDetailPage(pdfDoc, fonts, assets, context, reportReference);
   drawMachineAppendix(pdfDoc, fonts, assets, context, reportReference);
+  drawMachineHistoryAppendix(pdfDoc, fonts, assets, context, reportReference);
 
   const pages = pdfDoc.getPages();
   pages.forEach((page, index) => {

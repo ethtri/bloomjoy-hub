@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { zipSync, strToU8 } from 'fflate';
 import {
   assertSunzeOrderRowsWithinWindow,
+  filterSunzeOrderRowsToWindow,
   parseSunzeOrderRows,
   parseSunzeOrderWorkbook,
   summarizeSunzeOrderRows,
@@ -220,6 +221,22 @@ try {
       typeof error.message === 'string' &&
       error.message.includes('outside the selected date window')
   );
+  const windowFiltered = filterSunzeOrderRowsToWindow(parsed, {
+    windowStart: '2026-04-23',
+    windowEnd: '2026-04-23',
+  });
+  assert.equal(windowFiltered.rows.length, 1);
+  assert.equal(windowFiltered.outOfWindowRows.length, 2);
+  assert.equal(windowFiltered.rows[0].saleDate, '2026-04-23');
+  assert.equal(assertSunzeOrderRowsWithinWindow(windowFiltered.rows, {
+    windowStart: '2026-04-23',
+    windowEnd: '2026-04-23',
+  }), windowFiltered.rows);
+  const windowFilteredSummary = summarizeSunzeOrderRows(windowFiltered.rows);
+  assert.equal(windowFilteredSummary.rowCount, 1);
+  assert.equal(windowFilteredSummary.machineCount, 1);
+  assert.equal(windowFilteredSummary.windowStart, '2026-04-23');
+  assert.equal(windowFilteredSummary.windowEnd, '2026-04-23');
 
   const zipPath = createTempPath('zip');
   await writeFile(
@@ -384,6 +401,7 @@ try {
           'malformed zipped workbook rejection',
           'fallback first-sheet parsing',
           'selected date window rejection',
+          'selected date window filtering',
           'timezone payment time parsing',
           'partial timestamp rejection',
         ],
