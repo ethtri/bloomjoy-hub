@@ -43,7 +43,7 @@ const getOperatorTrainingErrorMessage = (
       rawMessage.includes('get_my_operator_training_grants'));
 
   if (missingRpc) {
-    return 'Operator training access is not enabled in this environment yet. Bloomjoy needs to finish the database rollout before grants can be managed.';
+    return 'Training-only Technician access is not enabled in this environment yet. Bloomjoy needs to finish the database rollout before this access can be managed.';
   }
 
   return rawMessage || fallback;
@@ -69,7 +69,7 @@ export const fetchMyOperatorTrainingGrants = async (): Promise<OperatorTrainingG
 
   if (error) {
     throw new Error(
-      getOperatorTrainingErrorMessage(error.message, 'Unable to load operator training access.')
+      getOperatorTrainingErrorMessage(error.message, 'Unable to load training-only Technician access.')
     );
   }
 
@@ -78,7 +78,7 @@ export const fetchMyOperatorTrainingGrants = async (): Promise<OperatorTrainingG
 
 export const grantOperatorTrainingAccess = async (
   operatorEmail: string,
-  reason = 'Operator training access'
+  reason = 'Training-only Technician access'
 ): Promise<OperatorTrainingGrant> => {
   const { data, error } = await supabaseClient.rpc('grant_operator_training_access', {
     p_operator_email: operatorEmail.trim(),
@@ -88,7 +88,7 @@ export const grantOperatorTrainingAccess = async (
 
   if (error || !data) {
     throw new Error(
-      getOperatorTrainingErrorMessage(error?.message, 'Unable to grant operator training access.')
+      getOperatorTrainingErrorMessage(error?.message, 'Unable to grant training-only Technician access.')
     );
   }
 
@@ -107,14 +107,14 @@ export const sendOperatorTrainingInvite = async (
     },
     {
       requireUserAuth: true,
-      authErrorMessage: 'Log in to send an operator invite.',
+      authErrorMessage: 'Log in to send a training invite.',
     }
   );
 };
 
 export const revokeOperatorTrainingAccess = async (
   grantId: string,
-  reason = 'Operator no longer needs training access'
+  reason = 'Technician no longer needs training access'
 ): Promise<OperatorTrainingGrant> => {
   const { data, error } = await supabaseClient.rpc('revoke_operator_training_access', {
     p_grant_id: grantId,
@@ -123,7 +123,7 @@ export const revokeOperatorTrainingAccess = async (
 
   if (error || !data) {
     throw new Error(
-      getOperatorTrainingErrorMessage(error?.message, 'Unable to revoke operator training access.')
+      getOperatorTrainingErrorMessage(error?.message, 'Unable to revoke training-only Technician access.')
     );
   }
 
