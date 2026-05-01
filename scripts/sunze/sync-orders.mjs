@@ -9,6 +9,11 @@ import {
   parseSunzeOrderWorkbook,
   summarizeSunzeOrderRows,
 } from './sunze-orders.mjs';
+import {
+  assertExportMatchesUi,
+  extractRevenueCandidatesCents,
+  extractUiRecordCount,
+} from './reconcile-orders-export.mjs';
 
 const args = process.argv.slice(2);
 
@@ -274,83 +279,6 @@ const deriveSelectedWindow = () =>
       }
     : deriveWindowFromPreset(datePreset);
 
-const parseRevenueCandidateCents = (value) => {
-  const text = String(value ?? '').replace(/\s+/g, ' ');
-  const patterns = [
-    /(?:\$|USD)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.\d{1,2})?|[0-9]+(?:\.\d{1,2})?)/gi,
-    /\b([0-9]{1,3}(?:,[0-9]{3})+\.\d{1,2}|[0-9]+\.\d{1,2})\b/g,
-  ];
-  const values = [];
-
-  for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) {
-      const amount = Number(match[1].replace(/,/g, ''));
-      if (Number.isFinite(amount)) values.push(Math.round(amount * 100));
-    }
-  }
-
-  return values;
-};
-
-const parseInteger = (value) => {
-  const match = String(value ?? '').match(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,6})/);
-  if (!match) return null;
-  const parsed = Number(match[1].replace(/,/g, ''));
-  return Number.isSafeInteger(parsed) ? parsed : null;
-};
-
-const extractRevenueCandidatesCents = (lines) => {
-  const candidates = new Set();
-
-  for (let index = 0; index < lines.length; index += 1) {
-    if (!/^Revenue\b/i.test(lines[index])) continue;
-
-    for (let offset = 0; offset <= 24; offset += 1) {
-      for (const parsed of parseRevenueCandidateCents(lines[index + offset] ?? '')) {
-        candidates.add(parsed);
-      }
-    }
-  }
-
-  return [...candidates].sort((left, right) => left - right);
-};
-
-const extractRecordCount = (texts) => {
-  const sources = (Array.isArray(texts) ? texts : String(texts ?? '').split(/\r?\n/))
-    .map((text) => String(text ?? '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-  const patterns = [
-    /\bshowing\s+[0-9,]+\s*(?:-|\u2013)\s*[0-9,]+\s+of\s+([0-9,]+)\b/i,
-    /\btotal\s*([0-9,]+)\s*(?:items?|records?|orders?)\b/i,
-    /\b([0-9,]+)\s*(?:items?|records?|orders?)\b/i,
-  ];
-  const candidates = [];
-
-  for (let index = 0; index < sources.length - 2; index += 1) {
-    if (/^total$/i.test(sources[index]) && /^[0-9,]+$/.test(sources[index + 1])) {
-      const unit = sources[index + 2];
-      if (/^(?:items?|records?|orders?)$/i.test(unit)) {
-        const parsed = parseInteger(sources[index + 1]);
-        if (parsed !== null) candidates.push(parsed);
-      }
-    }
-  }
-
-  for (const source of sources) {
-    if (/\d+\.\d+/.test(source)) continue;
-
-    for (const pattern of patterns) {
-      const match = source.match(pattern);
-      if (!match) continue;
-
-      const parsed = parseInteger(match[1]);
-      if (parsed !== null) candidates.push(parsed);
-    }
-  }
-
-  return candidates.length > 0 ? Math.max(...candidates) : null;
-};
-
 const collectVisibleTexts = async (page) =>
   page.evaluate(() => {
     const selectors = [
@@ -388,6 +316,19 @@ const collectVisibleTexts = async (page) =>
       .map((text) => text.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
       .slice(0, 500);
+  });
+
+const collectTrustedRecordCountTexts = async (page) =>
+  page.evaluate(() => {
+    const selectors = [
+      '.ant-pagination-total-text',
+      '[class*="pagination-total"]',
+      '[class*="pagination"] [class*="total"]',
+    ];
+    return Array.from(document.querySelectorAll(selectors.join(',')))
+      .map((element) => (element.textContent || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 20);
   });
 
 const sanitizeDiagnosticText = (value) =>
@@ -481,10 +422,14 @@ const readOrdersUiSummary = async (page) => {
     .map((line) => line.trim())
     .filter(Boolean);
   const visibleTexts = await collectVisibleTexts(page);
+  const trustedRecordCountTexts = await collectTrustedRecordCountTexts(page);
   const selectedWindow = extractSelectedWindow(visibleTexts) ?? (!hasCustomDateRange ? deriveSelectedWindow() : null);
   const uiRevenueCandidatesCents = extractRevenueCandidatesCents(lines);
   const uiRevenueCents = uiRevenueCandidatesCents.length > 0 ? Math.max(...uiRevenueCandidatesCents) : null;
-  const uiRecordCount = extractRecordCount([...lines, ...visibleTexts]);
+  const recordCountSummary = extractUiRecordCount({
+    trustedTexts: trustedRecordCountTexts,
+    fallbackTexts: [...lines, ...visibleTexts],
+  });
 
   if (!selectedWindow?.uiWindowStart || !selectedWindow?.uiWindowEnd) {
     const diagnostic = buildUiSummaryDiagnostic(visibleTexts);
@@ -499,47 +444,12 @@ const readOrdersUiSummary = async (page) => {
     throw new Error('Unable to verify the provider order revenue total.');
   }
 
-  if (uiRecordCount === null) {
-    throw new Error('Unable to verify the provider order record count.');
-  }
-
   return {
     ...selectedWindow,
     uiRevenueCents,
     uiRevenueCandidatesCents,
-    uiRecordCount,
+    ...recordCountSummary,
   };
-};
-
-const uiSummaryMatchesExport = (summary, uiSummary) =>
-  summary.rowCount === uiSummary.uiRecordCount &&
-  (summary.orderAmountCents === uiSummary.uiRevenueCents ||
-    uiSummary.uiRevenueCandidatesCents?.includes(summary.orderAmountCents)) &&
-  (!summary.windowStart ||
-    (summary.windowStart >= uiSummary.uiWindowStart && summary.windowStart <= uiSummary.uiWindowEnd)) &&
-  (!summary.windowEnd ||
-    (summary.windowEnd >= uiSummary.uiWindowStart && summary.windowEnd <= uiSummary.uiWindowEnd));
-
-const assertExportMatchesUi = (summary, uiSummaries) => {
-  const matchedSummary = uiSummaries.find((uiSummary) => uiSummaryMatchesExport(summary, uiSummary));
-  if (matchedSummary) {
-    return {
-      ...matchedSummary,
-      uiRevenueCents: summary.orderAmountCents,
-      uiRecordCountMatched: true,
-    };
-  }
-
-  const uiDiagnostic = uiSummaries
-    .map(
-      (uiSummary, index) =>
-        `snapshot ${index + 1}: ${uiSummary.uiRecordCount} rows/${uiSummary.uiRevenueCents} cents/${uiSummary.uiWindowStart} to ${uiSummary.uiWindowEnd}; revenue candidates ${uiSummary.uiRevenueCandidatesCents?.join(',') || 'none'}`
-    )
-    .join('; ');
-
-  throw new Error(
-    `Provider export mismatch: workbook parsed ${summary.rowCount} rows/${summary.orderAmountCents} cents/${summary.windowStart} to ${summary.windowEnd}; UI ${uiDiagnostic}.`
-  );
 };
 
 const sanitizeMachineCode = (value) => {
@@ -1810,6 +1720,11 @@ try {
       reportingTimezone,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
       uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
+      uiRecordCountTrusted: matchedUiSummary?.uiRecordCountTrusted ?? null,
+      uiRecordCountSource: matchedUiSummary?.uiRecordCountSource ?? null,
+      uiRecordCountReason: matchedUiSummary?.uiRecordCountReason ?? null,
+      uiRecordCountCandidates: matchedUiSummary?.uiRecordCountCandidates ?? [],
+      uiRecordCountSourceText: matchedUiSummary?.uiRecordCountSourceText ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
       parsedRowCount: summary.rowCount,
       parsedMachineCount: summary.machineCount,
@@ -1847,6 +1762,10 @@ try {
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
       uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
+      uiRecordCountTrusted: matchedUiSummary?.uiRecordCountTrusted ?? null,
+      uiRecordCountSource: matchedUiSummary?.uiRecordCountSource ?? null,
+      uiRecordCountReason: matchedUiSummary?.uiRecordCountReason ?? null,
+      uiRecordCountCandidates: matchedUiSummary?.uiRecordCountCandidates ?? [],
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
       visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
@@ -1873,6 +1792,10 @@ try {
       visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
       uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
+      uiRecordCountTrusted: matchedUiSummary?.uiRecordCountTrusted ?? null,
+      uiRecordCountSource: matchedUiSummary?.uiRecordCountSource ?? null,
+      uiRecordCountReason: matchedUiSummary?.uiRecordCountReason ?? null,
+      uiRecordCountCandidates: matchedUiSummary?.uiRecordCountCandidates ?? [],
       rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
       importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
       importRunIds: result.importRunIds ?? null,

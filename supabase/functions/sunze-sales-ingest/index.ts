@@ -749,6 +749,15 @@ serve(async (req) => {
       selected_preset: sanitizeText(bodyMeta.selectedPreset, 100) || null,
       reporting_timezone: sanitizeText(bodyMeta.reportingTimezone, 100) || null,
       ui_record_count: safeInteger(bodyMeta.uiRecordCount),
+      ui_record_count_matched: bodyMeta.uiRecordCountMatched === true,
+      ui_record_count_trusted: bodyMeta.uiRecordCountTrusted === true,
+      ui_record_count_source: sanitizeText(bodyMeta.uiRecordCountSource, 100) || null,
+      ui_record_count_reason: sanitizeText(bodyMeta.uiRecordCountReason, 300) || null,
+      ui_record_count_candidates: Array.isArray(bodyMeta.uiRecordCountCandidates)
+        ? bodyMeta.uiRecordCountCandidates
+            .map((candidate) => safeInteger(candidate))
+            .filter((candidate) => candidate !== null)
+        : [],
       ui_revenue_cents: safeInteger(bodyMeta.uiRevenueCents),
       parsed_row_count: safeInteger(bodyMeta.parsedRowCount),
       parsed_machine_count: safeInteger(bodyMeta.parsedMachineCount),

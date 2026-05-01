@@ -12,6 +12,7 @@ import {
   SUNZE_ORDER_HEADERS,
   SunzeOrderParseError,
 } from './sunze-orders.mjs';
+import { assertExportMatchesUi, extractUiRecordCount } from './reconcile-orders-export.mjs';
 
 const escapeXml = (value) =>
   String(value)
@@ -139,6 +140,65 @@ try {
   assert.equal(summary.orderAmountCents, 1800);
   assert.equal(summary.windowStart, '2026-04-22');
   assert.equal(summary.windowEnd, '2026-04-23');
+
+  const monthlyExportSummary = {
+    rowCount: 6729,
+    orderAmountCents: 7237040,
+    windowStart: '2026-04-02',
+    windowEnd: '2026-05-01',
+  };
+  const weakRecordCountSummary = assertExportMatchesUi(monthlyExportSummary, [
+    {
+      uiWindowStart: '2026-02-28',
+      uiWindowEnd: '2026-05-01',
+      uiRevenueCents: 7237040,
+      uiRevenueCandidatesCents: [7237040],
+      ...extractUiRecordCount({ fallbackTexts: ['1 records'] }),
+    },
+  ]);
+  assert.equal(weakRecordCountSummary.uiRecordCount, 1);
+  assert.equal(weakRecordCountSummary.uiRecordCountTrusted, false);
+  assert.equal(weakRecordCountSummary.uiRecordCountMatched, false);
+
+  const trustedRecordCountSummary = assertExportMatchesUi(monthlyExportSummary, [
+    {
+      uiWindowStart: '2026-02-28',
+      uiWindowEnd: '2026-05-01',
+      uiRevenueCents: 7237040,
+      uiRevenueCandidatesCents: [7237040],
+      ...extractUiRecordCount({ trustedTexts: ['Total 6,729 items'] }),
+    },
+  ]);
+  assert.equal(trustedRecordCountSummary.uiRecordCount, 6729);
+  assert.equal(trustedRecordCountSummary.uiRecordCountTrusted, true);
+  assert.equal(trustedRecordCountSummary.uiRecordCountMatched, true);
+  assert.throws(
+    () =>
+      assertExportMatchesUi(monthlyExportSummary, [
+        {
+          uiWindowStart: '2026-02-28',
+          uiWindowEnd: '2026-05-01',
+          uiRevenueCents: 7237040,
+          uiRevenueCandidatesCents: [7237040],
+          ...extractUiRecordCount({ trustedTexts: ['Total 1 items'] }),
+        },
+      ]),
+    /trusted UI row count 1 did not match/
+  );
+  assert.throws(
+    () =>
+      assertExportMatchesUi(monthlyExportSummary, [
+        {
+          uiWindowStart: '2026-02-28',
+          uiWindowEnd: '2026-05-01',
+          uiRevenueCents: 100,
+          uiRevenueCandidatesCents: [100],
+          ...extractUiRecordCount({ fallbackTexts: ['1 records'] }),
+        },
+      ]),
+    /Provider export mismatch/
+  );
+
   const compactHeaders = SUNZE_ORDER_HEADERS.filter(
     (header) => !['Affiliated merchant', 'Machine name'].includes(header)
   );
@@ -309,6 +369,10 @@ try {
           'impossible payment date rejection',
           'zero no-pay normalization',
           'trade item quantity parsing',
+          'weak UI row count reconciliation',
+          'trusted UI row count reconciliation',
+          'trusted UI row count mismatch rejection',
+          'revenue mismatch rejection',
           'duplicate order preservation',
           'midnight date boundary',
           'zip export parsing',
