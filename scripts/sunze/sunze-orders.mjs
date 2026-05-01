@@ -449,6 +449,32 @@ export const assertSunzeOrderRowsWithinWindow = (rows, { windowStart, windowEnd 
   return rows;
 };
 
+export const filterSunzeOrderRowsToWindow = (rows, { windowStart, windowEnd } = {}) => {
+  if (!windowStart || !windowEnd) {
+    return {
+      rows,
+      outOfWindowRows: [],
+    };
+  }
+
+  const includedRows = [];
+  const outOfWindowRows = [];
+
+  for (const row of rows) {
+    const outsideWindow = row.saleDate && (row.saleDate < windowStart || row.saleDate > windowEnd);
+    if (outsideWindow) {
+      outOfWindowRows.push(row);
+    } else {
+      includedRows.push(row);
+    }
+  }
+
+  return {
+    rows: includedRows,
+    outOfWindowRows,
+  };
+};
+
 export const summarizeSunzeOrderRows = (rows) => {
   const saleDates = rows.map((row) => row.saleDate).filter(Boolean).sort();
 
