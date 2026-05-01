@@ -15,6 +15,8 @@ export type AdminTechnicianAccount = {
   accountId: string;
   accountName: string;
   accountStatus: string;
+  sponsorUserId: string | null;
+  sponsorType: string;
   machineCount: number;
   machines: AdminTechnicianMachine[];
 };
@@ -55,6 +57,9 @@ export type AdminTechnicianGrant = {
 export type AdminTechnicianAccessContext = {
   targetEmail: string;
   targetUserId: string | null;
+  activeAccountCount: number;
+  eligibleAccountCount: number;
+  ineligibleAccountCount: number;
   accounts: AdminTechnicianAccount[];
   grants: AdminTechnicianGrant[];
 };
@@ -141,6 +146,8 @@ const mapAccount = (item: unknown): AdminTechnicianAccount => {
     accountId: asString(record.accountId),
     accountName: asString(record.accountName, 'Customer account'),
     accountStatus: asString(record.accountStatus, 'active'),
+    sponsorUserId: asNullableString(record.sponsorUserId),
+    sponsorType: asString(record.sponsorType, 'plus_customer_account'),
     machineCount: asNumber(record.machineCount),
     machines: asArray(record.machines, mapMachine).filter((machine) => machine.machineId),
   };
@@ -223,6 +230,9 @@ export const fetchAdminTechnicianAccessContext = async (
   return {
     targetEmail: asString(record.targetEmail, email.trim().toLowerCase()),
     targetUserId: asNullableString(record.targetUserId),
+    activeAccountCount: asNumber(record.activeAccountCount),
+    eligibleAccountCount: asNumber(record.eligibleAccountCount),
+    ineligibleAccountCount: asNumber(record.ineligibleAccountCount),
     accounts: asArray(record.accounts, mapAccount).filter((account) => account.accountId),
     grants: asArray(record.grants, mapGrant).filter((grant) => grant.grantId),
   };

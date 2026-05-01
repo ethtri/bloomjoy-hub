@@ -180,6 +180,9 @@ const emptyCorporatePartnerOptions: { partners: CorporatePartnerOption[] } = { p
 const emptyTechnicianAccessContext: AdminTechnicianAccessContext = {
   targetEmail: '',
   targetUserId: null,
+  activeAccountCount: 0,
+  eligibleAccountCount: 0,
+  ineligibleAccountCount: 0,
   accounts: [],
   grants: [],
 };
@@ -1029,6 +1032,12 @@ function AccessLauncher({
   const selectedTechnicianMachine =
     selectedMachineId &&
     selectedTechnicianMachines.find((machine) => machine.machineId === selectedMachineId);
+  const hasTechnicianAccountEligibilityGap =
+    preset === 'technician' &&
+    Boolean(normalizedEmail) &&
+    !isFetchingTechnicianContext &&
+    !technicianContextError &&
+    technicianContext.accounts.length === 0;
   const isExistingUserPreset = !presetMeta.inviteable;
   const canSaveInvite = presetMeta.inviteable && Boolean(normalizedEmail) && Boolean(grantReason.trim());
   const existingPresetActionLabel =
@@ -1443,6 +1452,18 @@ function AccessLauncher({
                       ))
                     )}
                   </select>
+                  {hasTechnicianAccountEligibilityGap && (
+                    <div className="mt-2 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                        <p className="text-muted-foreground">
+                          No active Plus Customer owner is available to sponsor Technician access.
+                          Add or repair Plus Customer ownership first, then return to invite the
+                          Technician.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="access-launcher-technician-machine">Machine scope</Label>
@@ -1472,7 +1493,11 @@ function AccessLauncher({
                 <div className="grid gap-3 sm:grid-cols-3">
                   <SummaryMetric
                     label="Sponsor"
-                    value={selectedTechnicianAccount?.accountName ?? 'Select account'}
+                    value={
+                      hasTechnicianAccountEligibilityGap
+                        ? 'No eligible sponsor'
+                        : selectedTechnicianAccount?.accountName ?? 'Select account'
+                    }
                   />
                   <SummaryMetric
                     label="Machine scope"
@@ -1483,13 +1508,22 @@ function AccessLauncher({
                     value={isFetchingTechnicianContext ? 'Loading...' : String(technicianContext.grants.length)}
                   />
                 </div>
-                <PreviewBox>
-                  This will grant Technician training access to {normalizedEmail || 'the entered email'}
-                  {selectedTechnicianMachine
-                    ? ` plus reporting for ${selectedTechnicianMachine.machineLabel}.`
-                    : ' with no reporting machine.'}{' '}
-                  Technician access is limited to training-only or exactly one machine in this flow.
-                </PreviewBox>
+                {hasTechnicianAccountEligibilityGap ? (
+                  <PreviewBox>
+                    Technician invites require a grantable customer account with an active Plus
+                    Customer owner. {pluralize(technicianContext.ineligibleAccountCount, 'active account')}
+                    {' '}currently needs Plus Customer ownership before it can sponsor Technician
+                    access.
+                  </PreviewBox>
+                ) : (
+                  <PreviewBox>
+                    This will grant Technician training access to {normalizedEmail || 'the entered email'}
+                    {selectedTechnicianMachine
+                      ? ` plus reporting for ${selectedTechnicianMachine.machineLabel}.`
+                      : ' with no reporting machine.'}{' '}
+                    Technician access is limited to training-only or exactly one machine in this flow.
+                  </PreviewBox>
+                )}
               </div>
             </section>
           )}
