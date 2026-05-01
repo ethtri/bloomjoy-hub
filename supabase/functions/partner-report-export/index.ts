@@ -1027,7 +1027,8 @@ serve(async (req) => {
         request.periodStartDate,
         request.periodEndDate,
       ),
-      request.format === "pdf" || request.format === "xlsx"
+      request.format === "pdf" || request.format === "xlsx" ||
+        request.machineIds.length > 0
         ? loadTrendPeriods({ userSupabase, request })
         : Promise.resolve([]),
     ]);
