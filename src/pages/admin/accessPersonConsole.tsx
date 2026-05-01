@@ -1015,6 +1015,8 @@ function AccessLauncher({
       partnership.machines.map((machine) => machine.machineId)
     )
   );
+  const corporatePartnerHasPortalScope =
+    portalEnabledPartnerships.length > 0 && derivedMachineIds.size > 0;
   const selectedTechnicianAccount =
     technicianContext.accounts.find((account) => account.accountId === selectedAccountId) ??
     technicianContext.accounts[0] ??
@@ -1120,6 +1122,12 @@ function AccessLauncher({
       if (preset === 'corporate_partner') {
         if (!selectedPartner) {
           toast.error('Select or create a partner record.');
+          return;
+        }
+        if (!corporatePartnerHasPortalScope) {
+          toast.error(
+            'Select a Corporate Partner with at least one portal-enabled partnership and reporting machine before sending an invite.'
+          );
           return;
         }
 
@@ -1417,6 +1425,18 @@ function AccessLauncher({
                   {normalizedEmail || 'the entered email'}. Reporting is derived only from active
                   portal-enabled partnerships.
                 </PreviewBox>
+                {selectedPartner && !corporatePartnerHasPortalScope && (
+                  <div className="rounded-md border border-amber/40 bg-amber/10 p-3 text-sm">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                      <p className="text-muted-foreground">
+                        This partner is not ready for an invite yet. Enable portal access on an
+                        active partnership with at least one reporting machine, then return to send
+                        Corporate Partner access.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="divide-y divide-border rounded-md border border-border">
                   {selectedPartner && selectedPartner.portalPartnerships.length === 0 ? (
                     <p className="p-3 text-sm text-muted-foreground">
@@ -1588,7 +1608,7 @@ function AccessLauncher({
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 gap-2 border-t border-border bg-background/95 px-6 py-4 backdrop-blur sm:gap-0">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -1599,7 +1619,7 @@ function AccessLauncher({
               disabled={
                 isSaving ||
                 !canSaveInvite ||
-                (preset === 'corporate_partner' && !selectedPartner) ||
+                (preset === 'corporate_partner' && (!selectedPartner || !corporatePartnerHasPortalScope)) ||
                 (preset === 'technician' && !selectedTechnicianAccount)
               }
             >
