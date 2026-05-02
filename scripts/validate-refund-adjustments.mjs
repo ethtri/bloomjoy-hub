@@ -127,6 +127,29 @@ assert.equal(canonicalMachineMatch.matchReason, 'canonical_reporting_machine_id_
 assert.equal(canonicalMachineMatch.matchedMachine?.id, machines[1].id);
 assert.deepEqual(canonicalMachineMatch.candidateMachineIds, [machines[1].id]);
 
+const canonicalMachineMissingLocationInput = extractRefundInput(
+  {
+    source_reporting_machine_id: machines[1].id,
+    location_of_purchase: '',
+    refund_date: '2026-04-06',
+    refund_amount_usd: '12.50',
+    status: 'Closed',
+    decision: 'Approve',
+    request_id: 'SANITIZED-CANONICAL-MISSING-LOCATION',
+  },
+  'canonical-machine-missing-location-fixture'
+);
+const canonicalMachineMissingLocationMatch = matchRefundToMachine(
+  canonicalMachineMissingLocationInput,
+  profiles
+);
+assert.equal(canonicalMachineMissingLocationMatch.matchStatus, 'invalid');
+assert.equal(
+  canonicalMachineMissingLocationMatch.matchReason,
+  'missing_required_refund_fields'
+);
+assert.equal(canonicalMachineMissingLocationMatch.matchedMachine, null);
+
 const invalidCanonicalMachineInput = extractRefundInput(
   {
     source_reporting_machine_id: 'not-a-reporting-machine-id',
@@ -463,6 +486,18 @@ const exactUniqueAliasReviewWarns = refundReviewRowAppliesToPartnerScope({
 });
 assert.equal(exactUniqueAliasReviewWarns, true);
 
+const sourceMachineInvalidReviewWarns = refundReviewRowAppliesToPartnerScope({
+  ...scopeArgs,
+  row: {
+    refund_date: '2026-04-12',
+    resolution_status: 'unresolved',
+    match_status: 'invalid',
+    source_reporting_machine_id: machines[1].id,
+    source_location: '',
+  },
+});
+assert.equal(sourceMachineInvalidReviewWarns, true);
+
 const otherPartnerMachineDoesNotWarn = refundReviewRowAppliesToPartnerScope({
   ...scopeArgs,
   row: {
@@ -568,6 +603,7 @@ console.log(
     fixtures: {
       exactLocationMatch: exactMatch.matchStatus,
       canonicalMachineIdPreferred: canonicalMachineMatch.matchStatus,
+      canonicalMachineMissingLocationHeldForReview: canonicalMachineMissingLocationMatch.matchStatus,
       invalidCanonicalMachineIdHeldForReview: invalidCanonicalMachineMatch.matchStatus,
       unknownCanonicalMachineIdHeldForReview: unknownCanonicalMachineMatch.matchStatus,
       fuzzyAliasMatch: fuzzyMatch.matchStatus,
@@ -587,6 +623,7 @@ console.log(
       partnerScopedMatchedMachineReview: matchedMachineReviewWarns,
       partnerScopedSingleCandidateReview: singleCandidateReviewWarns,
       partnerScopedExactAliasReview: exactUniqueAliasReviewWarns,
+      partnerScopedSourceMachineInvalidReview: sourceMachineInvalidReviewWarns,
       partnerScopedOtherPartnerSuppressed: !otherPartnerMachineDoesNotWarn,
       partnerScopedOutOfScopeSuppressed: !outOfScopePhoneCaseDoesNotWarn,
       partnerScopedAmbiguousLabelSuppressed: !ambiguousLabelDoesNotWarn,
