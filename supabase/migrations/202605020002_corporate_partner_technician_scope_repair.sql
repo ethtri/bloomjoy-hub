@@ -261,6 +261,9 @@ comment on function public.get_my_technician_grants() is
 revoke execute on function public.can_manage_corporate_partner_technician_grant(uuid, uuid, uuid[])
   from public, anon, authenticated;
 revoke execute on function public.can_access_technician_grant(uuid, uuid)
-  from public, anon, authenticated;
+  from public, anon;
+
+grant execute on function public.can_access_technician_grant(uuid, uuid)
+  to authenticated;
 
 select pg_notify('pgrst', 'reload schema');

@@ -67,6 +67,12 @@ const staticChecks = [
       'not assignment.machine_id = any(scope.machine_ids)',
       'public.can_manage_corporate_partner_technician_grant',
       'stale Corporate Partner grants outside current portal-enabled machine scope',
+      'grant execute on function public.can_access_technician_grant(uuid, uuid)',
+      'to authenticated',
+    ],
+    forbiddenPatterns: [
+      'revoke execute on function public.can_access_technician_grant(uuid, uuid) from public, anon, authenticated',
+      'grant execute on function public.can_manage_corporate_partner_technician_grant',
     ],
   },
   {
@@ -110,6 +116,13 @@ const runStaticChecks = () => {
     if (missing.length > 0) {
       fail(`${check.name}: missing ${missing.map((item) => JSON.stringify(item)).join(', ')}`);
     }
+    const forbidden = (check.forbiddenPatterns ?? []).filter((pattern) => {
+      const compactPattern = pattern.replace(/\s+/g, ' ');
+      return content.includes(pattern) || compactContent.includes(compactPattern);
+    });
+    if (forbidden.length > 0) {
+      fail(`${check.name}: forbidden ${forbidden.map((item) => JSON.stringify(item)).join(', ')}`);
+    }
     results.push(check.name);
   }
 
@@ -125,18 +138,23 @@ const compactObject = (value) =>
 const liveCases = [
   {
     name: 'Scoped Admin cannot grant Super Admin',
+    type: 'negative',
     tokenEnv: 'ADMIN_BOUNDARY_SCOPED_ADMIN_JWT',
     rpc: 'admin_grant_super_admin_by_email',
+    requiredEnv: ['ADMIN_BOUNDARY_SUPER_ADMIN_TARGET_EMAIL'],
+    expectedErrorPatterns: ['Admin access required'],
     body: () => ({
-      p_target_email: env.ADMIN_BOUNDARY_SUPER_ADMIN_TARGET_EMAIL || 'boundary-negative@example.invalid',
+      p_target_email: env.ADMIN_BOUNDARY_SUPER_ADMIN_TARGET_EMAIL,
       p_reason: 'Issue #376 negative check',
     }),
   },
   {
     name: 'Scoped Admin cannot revoke Super Admin',
+    type: 'negative',
     tokenEnv: 'ADMIN_BOUNDARY_SCOPED_ADMIN_JWT',
     rpc: 'admin_revoke_super_admin',
     requiredEnv: ['ADMIN_BOUNDARY_SUPER_ADMIN_TARGET_USER_ID'],
+    expectedErrorPatterns: ['Admin access required'],
     body: () => ({
       p_target_user_id: env.ADMIN_BOUNDARY_SUPER_ADMIN_TARGET_USER_ID,
       p_reason: 'Issue #376 negative check',
@@ -144,9 +162,11 @@ const liveCases = [
   },
   {
     name: 'Scoped Admin cannot exceed machine scope',
+    type: 'negative',
     tokenEnv: 'ADMIN_BOUNDARY_SCOPED_ADMIN_JWT',
     rpc: 'admin_set_user_machine_reporting_access',
     requiredEnv: ['ADMIN_BOUNDARY_REPORTING_TARGET_EMAIL', 'ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID'],
+    expectedErrorPatterns: ['Scoped admin access does not include one or more requested machines'],
     body: () => ({
       p_user_email: env.ADMIN_BOUNDARY_REPORTING_TARGET_EMAIL,
       p_machine_ids: [env.ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID],
@@ -156,15 +176,23 @@ const liveCases = [
   },
   {
     name: 'Corporate Partner cannot open admin reporting matrix',
+    type: 'negative',
     tokenEnv: 'ADMIN_BOUNDARY_CORPORATE_PARTNER_JWT',
     rpc: 'admin_get_reporting_access_matrix',
+    expectedErrorPatterns: ['Admin access required'],
     body: () => ({}),
   },
   {
     name: 'Corporate Partner cannot grant Technician outside partner machine scope',
+    type: 'negative',
     tokenEnv: 'ADMIN_BOUNDARY_CORPORATE_PARTNER_JWT',
     rpc: 'grant_technician_access',
     requiredEnv: ['ADMIN_BOUNDARY_TECHNICIAN_TARGET_EMAIL', 'ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID'],
+    expectedErrorPatterns: [
+      'Technician management access required',
+      'Corporate Partner machine scope is required',
+      'Select machines from one active portal-enabled Corporate Partner scope',
+    ],
     body: () => ({
       p_technician_email: env.ADMIN_BOUNDARY_TECHNICIAN_TARGET_EMAIL,
       p_machine_ids: [env.ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID],
@@ -174,21 +202,68 @@ const liveCases = [
     }),
   },
   {
+    name: 'Corporate Partner cannot update Technician grant to out-of-scope machines',
+    type: 'negative',
+    tokenEnv: 'ADMIN_BOUNDARY_CORPORATE_PARTNER_JWT',
+    rpc: 'update_technician_machines',
+    requiredEnv: [
+      'ADMIN_BOUNDARY_CORPORATE_PARTNER_MANAGEABLE_TECHNICIAN_GRANT_ID',
+      'ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID',
+    ],
+    expectedErrorPatterns: ['Corporate Partner can manage only Technician grants in their partner scope'],
+    body: () => ({
+      p_grant_id: env.ADMIN_BOUNDARY_CORPORATE_PARTNER_MANAGEABLE_TECHNICIAN_GRANT_ID,
+      p_machine_ids: [env.ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID],
+      p_reason: 'Issue #376 direct update negative check',
+    }),
+  },
+  {
+    name: 'Corporate Partner cannot revoke stale or out-of-scope Technician grant',
+    type: 'negative',
+    tokenEnv: 'ADMIN_BOUNDARY_CORPORATE_PARTNER_JWT',
+    rpc: 'revoke_technician_access',
+    requiredEnv: ['ADMIN_BOUNDARY_CORPORATE_PARTNER_STALE_TECHNICIAN_GRANT_ID'],
+    expectedErrorPatterns: ['Corporate Partner can revoke only Technician grants in their partner scope'],
+    body: () => ({
+      p_grant_id: env.ADMIN_BOUNDARY_CORPORATE_PARTNER_STALE_TECHNICIAN_GRANT_ID,
+      p_reason: 'Issue #376 direct revoke negative check',
+    }),
+  },
+  {
+    name: 'Corporate Partner grant list hides stale or out-of-scope Technician grant',
+    type: 'grantVisibility',
+    tokenEnv: 'ADMIN_BOUNDARY_CORPORATE_PARTNER_JWT',
+    rpc: 'get_my_technician_grants',
+    requiredEnv: [
+      'ADMIN_BOUNDARY_CORPORATE_PARTNER_MANAGEABLE_TECHNICIAN_GRANT_ID',
+      'ADMIN_BOUNDARY_CORPORATE_PARTNER_STALE_TECHNICIAN_GRANT_ID',
+    ],
+    visibleGrantIdEnv: 'ADMIN_BOUNDARY_CORPORATE_PARTNER_MANAGEABLE_TECHNICIAN_GRANT_ID',
+    hiddenGrantIdEnv: 'ADMIN_BOUNDARY_CORPORATE_PARTNER_STALE_TECHNICIAN_GRANT_ID',
+    body: () => ({}),
+  },
+  {
     name: 'Technician cannot open admin reporting matrix',
+    type: 'negative',
     tokenEnv: 'ADMIN_BOUNDARY_TECHNICIAN_JWT',
     rpc: 'admin_get_reporting_access_matrix',
+    expectedErrorPatterns: ['Admin access required'],
     body: () => ({}),
   },
   {
     name: 'Reporting User cannot open admin reporting matrix',
+    type: 'negative',
     tokenEnv: 'ADMIN_BOUNDARY_REPORTING_USER_JWT',
     rpc: 'admin_get_reporting_access_matrix',
+    expectedErrorPatterns: ['Admin access required'],
     body: () => ({}),
   },
   {
     name: 'Baseline user cannot open admin reporting matrix',
+    type: 'negative',
     tokenEnv: 'ADMIN_BOUNDARY_BASELINE_JWT',
     rpc: 'admin_get_reporting_access_matrix',
+    expectedErrorPatterns: ['Admin access required'],
     body: () => ({}),
   },
 ];
@@ -221,6 +296,126 @@ const readRpcError = async (response) => {
   }
 };
 
+const readRpcJson = async (response) => {
+  const text = await response.text();
+  if (!text) {
+    fail(`Expected JSON response from ${response.url}, received an empty body.`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    fail(`Expected JSON response from ${response.url}, received: ${text.slice(0, 200)}`);
+  }
+};
+
+const describeRpcError = (response, error) =>
+  `HTTP ${response.status}${error.code ? ` ${error.code}` : ''}${error.message ? `: ${error.message}` : ''}`;
+
+const unprovenErrorCodes = new Set([
+  '22P02',
+  '22023',
+  '23502',
+  '23503',
+  '23514',
+  '42501',
+  '42703',
+  '42883',
+  '42P01',
+  'PGRST100',
+  'PGRST102',
+  'PGRST202',
+  'PGRST204',
+]);
+
+const unprovenErrorPatterns = [
+  /could not find the function/i,
+  /schema cache/i,
+  /invalid input/i,
+  /malformed/i,
+  /violates .*constraint/i,
+  /null value/i,
+  /permission denied for function/i,
+  /No active Technician grant found/i,
+  /No user found for email/i,
+  /One or more reporting machines were not found/i,
+  /Active account not found/i,
+  /Technician grant ID is required/i,
+  /Target user ID is required/i,
+  /Target email is required/i,
+  /User email is required/i,
+  /Technician email is required/i,
+  /Access denied/i,
+  /No active Plus Account Owner sponsor found for this account/i,
+];
+
+const assertExpectedAuthorizationFailure = ({ check, response, error }) => {
+  if (response.status === 401 || response.status === 404 || error.code === 'PGRST202') {
+    fail(`${check.name}: ${describeRpcError(response, error)} does not prove the permission boundary.`);
+  }
+
+  if (unprovenErrorCodes.has(error.code) || unprovenErrorPatterns.some((pattern) => pattern.test(error.message))) {
+    fail(`${check.name}: ${describeRpcError(response, error)} looks like an auth/schema/fixture error, not authorization evidence.`);
+  }
+
+  const expectedPatterns = check.expectedErrorPatterns ?? [];
+  const matchedExpectedPattern = expectedPatterns.some((pattern) =>
+    error.message.toLowerCase().includes(pattern.toLowerCase())
+  );
+
+  if (!matchedExpectedPattern) {
+    fail(
+      `${check.name}: expected authorization failure matching ${expectedPatterns
+        .map((pattern) => JSON.stringify(pattern))
+        .join(' or ')}, received ${describeRpcError(response, error)}.`
+    );
+  }
+};
+
+const grantIdFor = (grant) => {
+  if (!grant || typeof grant !== 'object') return '';
+  return String(grant.grantId ?? grant.grant_id ?? grant.id ?? '');
+};
+
+const assertGrantVisibility = async ({ check, response }) => {
+  if (!response.ok) {
+    const error = await readRpcError(response);
+    fail(`${check.name}: expected HTTP 200 visibility evidence, received ${describeRpcError(response, error)}.`);
+  }
+
+  const body = await readRpcJson(response);
+  if (!Array.isArray(body)) {
+    fail(`${check.name}: expected get_my_technician_grants to return a JSON array.`);
+  }
+
+  const visibleGrantId = env[check.visibleGrantIdEnv];
+  const hiddenGrantId = env[check.hiddenGrantIdEnv];
+  const returnedGrantIds = body.map(grantIdFor).filter(Boolean);
+
+  if (!returnedGrantIds.includes(visibleGrantId)) {
+    fail(
+      `${check.name}: expected visible grant ${check.visibleGrantIdEnv} to be returned; this does not prove the Corporate Partner persona fixture.`
+    );
+  }
+
+  if (returnedGrantIds.includes(hiddenGrantId)) {
+    fail(`${check.name}: stale/out-of-scope grant ${check.hiddenGrantIdEnv} was returned.`);
+  }
+
+  return `${check.name}: HTTP ${response.status}; visible grant present and stale grant absent (${returnedGrantIds.length} returned)`;
+};
+
+const requiredLiveEnvNames = () => {
+  const names = new Set();
+  for (const check of liveCases) {
+    names.add(check.tokenEnv);
+    for (const requiredName of check.requiredEnv ?? []) {
+      names.add(requiredName);
+    }
+  }
+  return [...names].sort();
+};
+
 const runLiveChecks = async () => {
   if (env.ADMIN_BOUNDARY_RUN_LIVE !== 'true') {
     return { passed: [], skipped: ['Live RPC checks skipped; set ADMIN_BOUNDARY_RUN_LIVE=true.'] };
@@ -232,20 +427,15 @@ const runLiveChecks = async () => {
     fail('Live RPC checks require SUPABASE_URL/VITE_SUPABASE_URL and SUPABASE_ANON_KEY/VITE_SUPABASE_ANON_KEY.');
   }
 
+  const missingEnv = requiredLiveEnvNames().filter((name) => !env[name]);
+  if (missingEnv.length > 0) {
+    fail(`ADMIN_BOUNDARY_RUN_LIVE=true requires all persona and fixture env vars. Missing: ${missingEnv.join(', ')}`);
+  }
+
   const passed = [];
-  const skipped = [];
 
   for (const check of liveCases) {
     const token = env[check.tokenEnv];
-    const missing = [
-      ...(token ? [] : [check.tokenEnv]),
-      ...((check.requiredEnv ?? []).filter((name) => !env[name])),
-    ];
-
-    if (missing.length > 0) {
-      skipped.push(`${check.name}: missing ${missing.join(', ')}`);
-      continue;
-    }
 
     const response = await postRpc({
       url,
@@ -255,25 +445,21 @@ const runLiveChecks = async () => {
       body: check.body(),
     });
 
+    if (check.type === 'grantVisibility') {
+      passed.push(await assertGrantVisibility({ check, response }));
+      continue;
+    }
+
     if (response.ok) {
       fail(`${check.name}: expected RPC failure but received HTTP ${response.status}.`);
     }
-
     const error = await readRpcError(response);
-    if (response.status === 401 || response.status === 404 || error.code === 'PGRST202') {
-      fail(
-        `${check.name}: received HTTP ${response.status}${error.code ? ` ${error.code}` : ''}; this does not prove the permission boundary.`
-      );
-    }
+    assertExpectedAuthorizationFailure({ check, response, error });
 
-    passed.push(`${check.name}: HTTP ${response.status}${error.code ? ` ${error.code}` : ''}`);
+    passed.push(`${check.name}: ${describeRpcError(response, error)}`);
   }
 
-  if (passed.length === 0) {
-    fail('ADMIN_BOUNDARY_RUN_LIVE=true but no live RPC checks ran. Provide at least one role JWT.');
-  }
-
-  return { passed, skipped };
+  return { passed, skipped: [] };
 };
 
 const main = async () => {

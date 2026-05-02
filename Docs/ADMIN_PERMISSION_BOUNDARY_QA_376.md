@@ -44,7 +44,7 @@ Run optional live negative RPC checks from a local environment with role session
 ADMIN_BOUNDARY_RUN_LIVE=true npm run auth:validate-admin-boundaries
 ```
 
-Optional live variables:
+Required live variables when `ADMIN_BOUNDARY_RUN_LIVE=true`:
 
 | Variable | Purpose |
 | --- | --- |
@@ -59,14 +59,22 @@ Optional live variables:
 | `ADMIN_BOUNDARY_SUPER_ADMIN_TARGET_USER_ID` | Existing Super Admin user ID for blocked revoke attempts. |
 | `ADMIN_BOUNDARY_REPORTING_TARGET_EMAIL` | Existing user email for reporting grant negative checks. |
 | `ADMIN_BOUNDARY_TECHNICIAN_TARGET_EMAIL` | Target Technician email for negative checks. |
-| `ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID` | Machine outside the Scoped Admin or Corporate Partner test persona scope. |
-| `ADMIN_BOUNDARY_CORPORATE_PARTNER_ACCOUNT_ID` | Optional account context for Corporate Partner Technician negative checks. |
-| `ADMIN_BOUNDARY_CORPORATE_PARTNER_ID` | Optional partner context for Corporate Partner Technician negative checks. |
+| `ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID` | Active reporting machine outside the Scoped Admin and Corporate Partner test persona scopes. |
+| `ADMIN_BOUNDARY_CORPORATE_PARTNER_MANAGEABLE_TECHNICIAN_GRANT_ID` | Active Corporate Partner Technician grant currently visible/manageable by the Corporate Partner persona. |
+| `ADMIN_BOUNDARY_CORPORATE_PARTNER_STALE_TECHNICIAN_GRANT_ID` | Active Corporate Partner Technician grant that is stale or outside the persona's current portal-enabled account/machine scope. |
+
+Optional live variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `ADMIN_BOUNDARY_CORPORATE_PARTNER_ACCOUNT_ID` | Account context for Corporate Partner Technician grant negative checks when the fixture needs disambiguation. |
+| `ADMIN_BOUNDARY_CORPORATE_PARTNER_ID` | Partner context for Corporate Partner Technician grant negative checks when the fixture needs disambiguation. |
 
 ## Evidence To Capture
 
 - Desktop and mobile screenshots for blocked `/admin` states, Scoped Admin limited Access view, Super Admin person workspace, Portal Technician Access, and Portal Reports scope.
-- Network evidence for expected failed direct RPCs, recording only status/error class and not session tokens.
+- Network evidence for expected failed direct RPCs, recording only status/error class and not session tokens. Live validation should fail on `401`, `404`, `PGRST202`, malformed UUID/body errors, missing users/machines/grants, or generic non-OK responses that do not match the expected authorization message.
+- Corporate Partner direct-path evidence: `update_technician_machines` with `ADMIN_BOUNDARY_CORPORATE_PARTNER_MANAGEABLE_TECHNICIAN_GRANT_ID` plus `ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID` returns the Corporate Partner scope denial; `revoke_technician_access` with `ADMIN_BOUNDARY_CORPORATE_PARTNER_STALE_TECHNICIAN_GRANT_ID` returns the stale/out-of-scope revoke denial; `get_my_technician_grants` returns HTTP 200 with the manageable grant present and the stale/out-of-scope grant absent.
 - Audit log evidence for successful Super Admin or Scoped Admin in-scope changes.
 - Refresh or re-login after revoke checks before deciding a route still leaks access.
 
