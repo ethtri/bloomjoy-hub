@@ -60,7 +60,7 @@ const staticChecks = [
   },
   {
     name: 'Corporate Partner Technician repair uses current portal-enabled account and machine scope',
-    file: 'supabase/migrations/202605020001_corporate_partner_technician_scope_repair.sql',
+    file: 'supabase/migrations/202605020002_corporate_partner_technician_scope_repair.sql',
     patterns: [
       'grant_row.account_id = any(scope.account_ids)',
       "grant_row.sponsor_type <> 'corporate_partner'",

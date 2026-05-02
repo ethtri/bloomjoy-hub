@@ -73,5 +73,5 @@ Optional live variables:
 ## Current Branch Notes
 
 - Source review found a narrow direct-RPC gap: Corporate Partner Technician grant listing/management could key off active partner membership alone after partner machine scope changed.
-- Migration `202605020001_corporate_partner_technician_scope_repair.sql` repairs that by requiring current portal-enabled account/machine scope for Corporate Partner Technician grant visibility and mutation authority.
+- Migration `202605020002_corporate_partner_technician_scope_repair.sql` repairs that by requiring current portal-enabled account/machine scope for Corporate Partner Technician grant visibility and mutation authority.
 - Live browser/RPC execution still requires local Supabase env vars and separate persona sessions.
