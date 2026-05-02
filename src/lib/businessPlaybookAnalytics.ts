@@ -2,6 +2,7 @@ import {
   businessPlaybookArticles,
   type PlaybookCategoryId,
 } from "@/data/businessPlaybook";
+import { plannerPath, type PlannerMachineId } from "@/data/businessPlaybookPlanner";
 import { trackEvent } from "@/lib/analytics";
 
 type PlaybookSurface =
@@ -16,6 +17,9 @@ type PlaybookSurface =
   | "playbook_article_inline"
   | "playbook_article_sidebar"
   | "playbook_article_related"
+  | "playbook_planner"
+  | "resources_planner_promo"
+  | "playbook_index_planner_promo"
   | "machine_listing"
   | "commercial_machine_page"
   | "mini_machine_page"
@@ -67,6 +71,10 @@ export const getNormalizedInternalSourcePage = (sourcePage?: string | null) =>
   getSafeInternalPath(sourcePage);
 
 const getDestinationType = (href: string) => {
+  if (href === plannerPath) {
+    return "playbook_planner";
+  }
+
   if (href === "/resources/business-playbook" || href.startsWith("/resources/business-playbook#")) {
     return "playbook_index";
   }
@@ -120,7 +128,7 @@ export const getPlaybookArticleTrackingProps = (href: string) => {
 export const getNormalizedBusinessPlaybookSourcePage = (sourcePage?: string | null) => {
   const path = getSafeInternalPath(sourcePage);
 
-  if (path === "/resources/business-playbook") {
+  if (path === "/resources/business-playbook" || path === plannerPath) {
     return path;
   }
 
@@ -152,6 +160,27 @@ export const trackPlusPreviewResourceClick = (props: PlaybookClickProps) => {
 
 export const trackBuyerFlowPlaybookLinkClick = (props: PlaybookClickProps) => {
   trackEvent("click_buyer_flow_playbook_link", withDestinationMetadata(props));
+};
+
+export const trackBusinessPlaybookPlannerInteraction = (props: {
+  action: "view" | "select_fit_answer" | "select_budget_machine";
+  question?: string;
+  answer?: string;
+  recommendedMachine?: PlannerMachineId | "undecided";
+  budgetMachine?: PlannerMachineId | "not_selected";
+}) => {
+  const eventName =
+    props.action === "view"
+      ? "view_business_playbook_planner"
+      : "update_business_playbook_planner";
+
+  trackEvent(eventName, {
+    action: props.action,
+    question: props.question,
+    answer: props.answer,
+    recommended_machine: props.recommendedMachine ?? "undecided",
+    budget_machine: props.budgetMachine ?? "not_selected",
+  });
 };
 
 export const trackContactSubmitFromPlaybook = ({
