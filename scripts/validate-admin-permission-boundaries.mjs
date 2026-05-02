@@ -63,6 +63,7 @@ const staticChecks = [
     file: 'supabase/migrations/202605020001_corporate_partner_technician_scope_repair.sql',
     patterns: [
       'grant_row.account_id = any(scope.account_ids)',
+      "grant_row.sponsor_type <> 'corporate_partner'",
       'not assignment.machine_id = any(scope.machine_ids)',
       'public.can_manage_corporate_partner_technician_grant',
       'stale Corporate Partner grants outside current portal-enabled machine scope',
@@ -205,6 +206,21 @@ const postRpc = async ({ url, anonKey, token, rpc, body }) => {
   });
 };
 
+const readRpcError = async (response) => {
+  const text = await response.text();
+  if (!text) return { code: '', message: '' };
+
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      code: typeof parsed.code === 'string' ? parsed.code : '',
+      message: typeof parsed.message === 'string' ? parsed.message : text,
+    };
+  } catch {
+    return { code: '', message: text };
+  }
+};
+
 const runLiveChecks = async () => {
   if (env.ADMIN_BOUNDARY_RUN_LIVE !== 'true') {
     return { passed: [], skipped: ['Live RPC checks skipped; set ADMIN_BOUNDARY_RUN_LIVE=true.'] };
@@ -243,7 +259,14 @@ const runLiveChecks = async () => {
       fail(`${check.name}: expected RPC failure but received HTTP ${response.status}.`);
     }
 
-    passed.push(`${check.name}: HTTP ${response.status}`);
+    const error = await readRpcError(response);
+    if (response.status === 401 || response.status === 404 || error.code === 'PGRST202') {
+      fail(
+        `${check.name}: received HTTP ${response.status}${error.code ? ` ${error.code}` : ''}; this does not prove the permission boundary.`
+      );
+    }
+
+    passed.push(`${check.name}: HTTP ${response.status}${error.code ? ` ${error.code}` : ''}`);
   }
 
   if (passed.length === 0) {

@@ -74,7 +74,17 @@ as $$
         left join auth.users auth_user on auth_user.id = p_user_id
         where grant_row.id = p_technician_grant_id
           and (
-            grant_row.sponsor_user_id = p_user_id
+            (
+              grant_row.sponsor_user_id = p_user_id
+              and (
+                grant_row.sponsor_type <> 'corporate_partner'
+                or public.can_manage_corporate_partner_technician_grant(
+                  p_user_id,
+                  grant_row.id,
+                  null
+                )
+              )
+            )
             or grant_row.technician_user_id = p_user_id
             or lower(grant_row.technician_email) = lower(auth_user.email)
             or public.can_manage_corporate_partner_technician_grant(
