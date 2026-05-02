@@ -503,6 +503,12 @@ export const refundReviewRowAppliesToPartnerScope = ({
   const matchedMachineId = row.matched_machine_id ?? row.matchedMachineId ?? null;
   if (matchedMachineId && isAssignedForRefundDate(matchedMachineId)) return true;
 
+  const sourceReportingMachineId =
+    row.source_reporting_machine_id ?? row.sourceReportingMachineId ?? null;
+  if (sourceReportingMachineId && isAssignedForRefundDate(sourceReportingMachineId)) {
+    return true;
+  }
+
   const candidateMachineIds = parseCandidateMachineIds(
     row.candidate_machine_ids ?? row.candidateMachineIds
   );
@@ -543,7 +549,7 @@ export const countPartnerScopedRefundReviewRows = ({
 export const matchRefundToMachine = (input, machineProfiles) => {
   const hasCanonicalMachineId = Boolean(input.hasSourceReportingMachineId);
 
-  if (!input.refundDate || input.amountCents <= 0 || (!input.normalizedLocation && !hasCanonicalMachineId)) {
+  if (!input.refundDate || input.amountCents <= 0 || !input.normalizedLocation) {
     return {
       matchStatus: 'invalid',
       matchConfidence: 0,

@@ -564,7 +564,7 @@ const uniqueIds = (machines: MachineProfile[]) => [...new Set(machines.map((mach
 const matchRefund = (input: RefundInput, machines: MachineProfile[]) => {
   const hasCanonicalMachineId = Boolean(input.hasSourceReportingMachineId);
 
-  if (!input.refundDate || input.amountCents <= 0 || (!input.normalizedLocation && !hasCanonicalMachineId)) {
+  if (!input.refundDate || input.amountCents <= 0 || !input.normalizedLocation) {
     return {
       status: "invalid",
       confidence: 0,
