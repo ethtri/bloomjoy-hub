@@ -4,6 +4,7 @@ import {
   Building2,
   CheckCircle2,
   Clock3,
+  Copy,
   FileClock,
   Globe2,
   Loader2,
@@ -33,7 +34,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { sendAccessInvite, type AccessInviteType } from '@/lib/accessInvites';
+import {
+  fetchAccessInviteDeliveries,
+  sendAccessInvite,
+  type AccessInviteDelivery,
+  type AccessInviteType,
+} from '@/lib/accessInvites';
 import {
   fetchAdminAccountSummaries,
   fetchMachineInventoryForAccount,
@@ -74,6 +80,7 @@ import {
   revokeCorporatePartnerMembership,
   setPartnershipPartyPortalAccess,
   type CorporatePartnerOption,
+  type CorporatePartnerPartnership,
   type EffectiveAccessContext,
 } from '@/lib/corporatePartnerAccess';
 import {
@@ -89,7 +96,7 @@ import {
   type ReportingPartner,
 } from '@/lib/partnershipReporting';
 import { trackEvent } from '@/lib/analytics';
-import { getCanonicalUrlForSurface } from '@/lib/appSurface';
+import { CANONICAL_HOSTS } from '@/lib/appSurface';
 import { cn } from '@/lib/utils';
 
 type SelectedAccessPerson = {
@@ -115,6 +122,7 @@ type CorporatePartnerSourceRecord = {
   id: string;
   partnerId: string;
   partnerName: string;
+  memberEmail: string | null;
   status: string;
   startsAt: string | null;
   expiresAt: string | null;
@@ -166,6 +174,26 @@ type AccessLauncherPresetMeta = {
   description: string;
   inviteable: boolean;
 };
+
+type CorporatePartnerInviteOutcome = 'sent' | 'failed' | 'not_attempted';
+type CorporatePartnerPortalAccessOutcome = 'not_staged' | 'applied' | 'held_back' | 'partially_applied';
+
+type CorporatePartnerSaveConfirmation = {
+  partnerName: string;
+  targetEmail: string;
+  portalEnabledPartnershipCount: number;
+  derivedMachineCount: number;
+  stagedPortalPartnershipCount: number;
+  portalAccessOutcome: CorporatePartnerPortalAccessOutcome;
+  portalAccessMessage: string;
+  activePersonGrant: boolean;
+  inviteOutcome: CorporatePartnerInviteOutcome;
+  inviteMessage: string;
+};
+
+type AccessInvitePreflight =
+  | { ok: true; targetEmail: string; loginUrl: string }
+  | { ok: false; message: string };
 
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
@@ -286,6 +314,8 @@ const parseExpiryDateEndOfDay = (value: string): Date | null => {
 const normalizeSearch = (value: string) => value.trim().toLowerCase();
 const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const hasEmailShape = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
+const hasInviteEmailShape = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const allowedAccessInviteLoginOrigin = `https://${CANONICAL_HOSTS.app}`;
 const normalizeLauncherPreset = (value: string | undefined): AccessLauncherPreset | undefined =>
   value && accessLauncherPresetKeys.has(value as AccessLauncherPreset)
     ? (value as AccessLauncherPreset)
@@ -295,11 +325,71 @@ const getAccessInviteLoginUrl = (inviteType: AccessInviteType, email: string) =>
     intent: inviteType,
     email: email.trim().toLowerCase(),
   });
-  return getCanonicalUrlForSurface('app', '/login', `?${params.toString()}`, '', window.location);
+  return `${allowedAccessInviteLoginOrigin}/login?${params.toString()}`;
+};
+const validateAccessInvitePreflight = (
+  inviteType: AccessInviteType,
+  email: string
+): AccessInvitePreflight => {
+  const targetEmail = normalizeSearch(email);
+  if (!hasInviteEmailShape(targetEmail)) {
+    return { ok: false, message: 'Enter a valid invite email before saving access.' };
+  }
+
+  try {
+    const loginUrl = getAccessInviteLoginUrl(inviteType, targetEmail);
+    const parsedUrl = new URL(loginUrl);
+    const isAllowedOrigin = parsedUrl.origin === allowedAccessInviteLoginOrigin;
+    const hasExpectedLoginRoute = parsedUrl.pathname === '/login';
+    const hasExpectedInviteIntent = parsedUrl.searchParams.get('intent') === inviteType;
+    const hasExpectedEmail = parsedUrl.searchParams.get('email') === targetEmail;
+
+    if (!isAllowedOrigin || !hasExpectedLoginRoute || !hasExpectedInviteIntent || !hasExpectedEmail) {
+      return {
+        ok: false,
+        message: 'Unable to create a valid Bloomjoy invite login URL before saving access.',
+      };
+    }
+
+    return { ok: true, targetEmail, loginUrl };
+  } catch {
+    return {
+      ok: false,
+      message: 'Unable to create a valid Bloomjoy invite login URL before saving access.',
+    };
+  }
 };
 const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
+const getCorporatePartnerMachineIds = (partnerships: CorporatePartnerPartnership[]) =>
+  new Set(
+    partnerships.flatMap((partnership) =>
+      partnership.machines.map((machine) => machine.machineId).filter(Boolean)
+    )
+  );
+const getCorporatePartnerInviteEmail = (
+  membership: CorporatePartnerSourceRecord,
+  identity: AccessWorkspaceIdentity
+) => normalizeSearch(membership.memberEmail ?? identity.email ?? '');
+const getLatestInviteDeliveryBySourceId = (deliveries: AccessInviteDelivery[]) => {
+  const latestBySourceId = new Map<string, AccessInviteDelivery>();
+  deliveries.forEach((delivery) => {
+    if (!latestBySourceId.has(delivery.sourceId)) {
+      latestBySourceId.set(delivery.sourceId, delivery);
+    }
+  });
+  return latestBySourceId;
+};
+const formatInviteDeliverySummary = (delivery: AccessInviteDelivery | undefined) => {
+  if (!delivery) return 'No invite email has been sent from this membership yet.';
+  const sentAt = formatDate(delivery.sentAt);
+  return delivery.deliveryStatus === 'sent'
+    ? `Last invite sent ${sentAt} to ${delivery.targetEmail}.`
+    : `Last invite failed ${sentAt}${delivery.errorMessage ? `: ${delivery.errorMessage}` : '.'}`;
+};
+const isPortalAccessOutcomeWarning = (outcome: CorporatePartnerPortalAccessOutcome) =>
+  outcome === 'held_back' || outcome === 'partially_applied';
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -345,6 +435,7 @@ const getCorporateSources = (context: EffectiveAccessContext | null): CorporateP
       id: asString(record.id),
       partnerId: asString(record.partnerId),
       partnerName: asString(record.partnerName, 'Partner'),
+      memberEmail: asNullableString(record.memberEmail),
       status: asString(record.status, 'active'),
       startsAt: asNullableString(record.startsAt),
       expiresAt: asNullableString(record.expiresAt),
@@ -378,6 +469,7 @@ const getCorporateMembershipsForIdentity = (
           id: membership.id,
           partnerId: partner.partnerId,
           partnerName: partner.partnerName,
+          memberEmail: membership.memberEmail || existing?.memberEmail || null,
           status: membership.status,
           startsAt: membership.startsAt,
           expiresAt: membership.expiresAt,
@@ -897,6 +989,9 @@ function AccessLauncher({
   const [selectedScopeValue, setSelectedScopeValue] = useState(trainingOnlyScopeValue);
   const [grantReason, setGrantReason] = useState('');
   const [partnerForm, setPartnerForm] = useState(emptyPartnerForm);
+  const [stagedPortalAccess, setStagedPortalAccess] = useState<Record<string, boolean>>({});
+  const [corporatePartnerSaveConfirmation, setCorporatePartnerSaveConfirmation] =
+    useState<CorporatePartnerSaveConfirmation | null>(null);
   const [isCreatingPartner, setIsCreatingPartner] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -913,6 +1008,8 @@ function AccessLauncher({
     setSelectedScopeValue(trainingOnlyScopeValue);
     setGrantReason('');
     setPartnerForm(emptyPartnerForm);
+    setStagedPortalAccess({});
+    setCorporatePartnerSaveConfirmation(null);
     setSelectedExistingUserId('');
   }, [initialAccountId, initialEmail, initialPartnerId, initialPreset, open]);
 
@@ -997,6 +1094,11 @@ function AccessLauncher({
   }, [corporateOptions.partners, initialPartnerId, preset, selectedPartnerId]);
 
   useEffect(() => {
+    setStagedPortalAccess({});
+    setCorporatePartnerSaveConfirmation(null);
+  }, [normalizedEmail, preset, selectedPartnerId]);
+
+  useEffect(() => {
     if (preset !== 'technician') return;
     if (selectedAccountId && technicianContext.accounts.some((account) => account.accountId === selectedAccountId)) {
       return;
@@ -1010,13 +1112,78 @@ function AccessLauncher({
     null;
   const portalEnabledPartnerships =
     selectedPartner?.portalPartnerships.filter((partnership) => partnership.portalAccessEnabled) ?? [];
-  const derivedMachineIds = new Set(
-    portalEnabledPartnerships.flatMap((partnership) =>
-      partnership.machines.map((machine) => machine.machineId)
-    )
+  const portalDisabledMachineBackedPartnerships =
+    selectedPartner?.portalPartnerships.filter(
+      (partnership) => !partnership.portalAccessEnabled && partnership.machines.length > 0
+    ) ?? [];
+  const stagedPortalPartnerships = portalDisabledMachineBackedPartnerships.filter(
+    (partnership) => stagedPortalAccess[partnership.partyId]
   );
-  const corporatePartnerHasPortalScope =
-    portalEnabledPartnerships.length > 0 && derivedMachineIds.size > 0;
+  const effectivePortalEnabledPartnerships = [
+    ...portalEnabledPartnerships,
+    ...stagedPortalPartnerships,
+  ];
+  const derivedMachineIds = getCorporatePartnerMachineIds(portalEnabledPartnerships);
+  const effectiveDerivedMachineIds = getCorporatePartnerMachineIds(effectivePortalEnabledPartnerships);
+  const allLinkedMachineIds = getCorporatePartnerMachineIds(selectedPartner?.portalPartnerships ?? []);
+  const hasActiveLinkedPartnership = Boolean(selectedPartner && selectedPartner.portalPartnerships.length > 0);
+  const hasActiveMachines = allLinkedMachineIds.size > 0;
+  const corporatePartnerWillHavePortalScope =
+    effectivePortalEnabledPartnerships.length > 0 && effectiveDerivedMachineIds.size > 0;
+  const corporatePartnerReadiness = (() => {
+    if (isFetchingCorporateOptions) {
+      return {
+        label: 'Checking partner setup',
+        description: 'Loading active partnerships, portal access, and machines for this partner.',
+      };
+    }
+    if (!selectedPartner) {
+      return {
+        label: 'No partner selected',
+        description: 'Select or create the business partner before granting Corporate Partner access.',
+      };
+    }
+    if (!hasActiveLinkedPartnership) {
+      return {
+        label: 'No active linked partnership',
+        description:
+          'This partner record is active, but no active reporting partnership is linked to it yet.',
+      };
+    }
+    if (!hasActiveMachines) {
+      return {
+        label: 'No active machines',
+        description:
+          'The linked partnership needs at least one active reporting machine before partner reporting can be invited.',
+      };
+    }
+    if (!corporatePartnerWillHavePortalScope) {
+      return {
+        label: 'Portal access not enabled',
+        description:
+          'Active machines exist, but Corporate Partner portal access is off. Stage portal access below to enable it with this same reason.',
+      };
+    }
+    if (!normalizedEmail) {
+      return {
+        label: 'No invite email',
+        description: 'Enter a valid email address for the person receiving access.',
+      };
+    }
+    if (!grantReason.trim()) {
+      return {
+        label: 'Grant reason needed',
+        description: 'Enter the audit reason that explains both the access grant and any staged portal change.',
+      };
+    }
+    return {
+      label: 'Person grant ready',
+      description:
+        stagedPortalPartnerships.length > 0
+          ? `Save will grant the person, send the invite, then enable portal access for ${pluralize(stagedPortalPartnerships.length, 'partnership')}.`
+          : 'Save will grant this person Corporate Partner access and send the invite.',
+    };
+  })();
   const selectedTechnicianAccount =
     technicianContext.accounts.find((account) => account.accountId === selectedAccountId) ??
     technicianContext.accounts[0] ??
@@ -1106,11 +1273,19 @@ function AccessLauncher({
   };
 
   const saveInviteableAccess = async () => {
-    if (!normalizedEmail) {
-      toast.error('Enter a valid email before sending an invite.');
+    const inviteType: AccessInviteType | null =
+      preset === 'corporate_partner' ? 'corporate_partner' : preset === 'technician' ? 'technician' : null;
+    if (!inviteType) {
+      toast.error('Choose an inviteable access type.');
       return;
     }
-    if (!grantReason.trim()) {
+    const invitePreflight = validateAccessInvitePreflight(inviteType, searchValue);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+    const grantReasonText = grantReason.trim();
+    if (!grantReasonText) {
       toast.error('Grant reason is required.');
       return;
     }
@@ -1124,39 +1299,152 @@ function AccessLauncher({
           toast.error('Select or create a partner record.');
           return;
         }
-        if (!corporatePartnerHasPortalScope) {
+        if (!corporatePartnerWillHavePortalScope) {
           toast.error(
-            'Select a Corporate Partner with at least one portal-enabled partnership and reporting machine before sending an invite.'
+            'Stage portal access for a machine-backed partnership before sending this Corporate Partner invite.'
           );
           return;
         }
 
         const membership = await grantCorporatePartnerMembership({
-          email: normalizedEmail,
+          email: invitePreflight.targetEmail,
           partnerId: selectedPartner.partnerId,
-          reason: grantReason.trim(),
+          reason: grantReasonText,
         });
 
         if (!membership.id) {
           throw new Error('Corporate Partner membership was saved without a source ID.');
         }
 
+        let inviteOutcome: CorporatePartnerInviteOutcome = 'not_attempted';
+        let inviteMessage = 'Invite email was not attempted.';
+
         try {
           await sendAccessInvite({
             inviteType: 'corporate_partner',
             sourceId: membership.id,
-            targetEmail: normalizedEmail,
-            loginUrl: getAccessInviteLoginUrl('corporate_partner', normalizedEmail),
+            targetEmail: invitePreflight.targetEmail,
+            loginUrl: invitePreflight.loginUrl,
           });
-          toast.success('Corporate Partner access saved and invite email sent.');
+          inviteOutcome = 'sent';
+          inviteMessage = `Invite email sent to ${invitePreflight.targetEmail}.`;
         } catch (inviteError) {
           inviteDeliveryFailed = true;
+          inviteOutcome = 'failed';
+          inviteMessage =
+            inviteError instanceof Error
+              ? `Invite email failed: ${inviteError.message}`
+              : 'Invite email failed.';
           toast.error(
             inviteError instanceof Error
-              ? `Corporate Partner access saved, but invite email failed: ${inviteError.message}. Keep this dialog open and try again.`
-              : 'Corporate Partner access saved, but invite email failed. Keep this dialog open and try again.'
+              ? `Corporate Partner membership saved, but invite email failed: ${inviteError.message}. Staged portal access was not applied.`
+              : 'Corporate Partner membership saved, but invite email failed. Staged portal access was not applied.'
           );
         }
+
+        if (inviteDeliveryFailed) {
+          setCorporatePartnerSaveConfirmation({
+            partnerName: selectedPartner.partnerName,
+            targetEmail: invitePreflight.targetEmail,
+            portalEnabledPartnershipCount: portalEnabledPartnerships.length,
+            derivedMachineCount: derivedMachineIds.size,
+            stagedPortalPartnershipCount: stagedPortalPartnerships.length,
+            portalAccessOutcome: stagedPortalPartnerships.length > 0 ? 'held_back' : 'not_staged',
+            portalAccessMessage:
+              stagedPortalPartnerships.length > 0
+                ? `Staged partner-level portal access was held back; ${pluralize(stagedPortalPartnerships.length, 'partnership')} remain unapplied. Use invite recovery on the active membership, then save portal access separately or retry this launcher.`
+                : 'No staged partner-level portal access changes were requested.',
+            activePersonGrant: membership.status === 'active',
+            inviteOutcome,
+            inviteMessage,
+          });
+          await refreshLauncherQueries();
+          await onChanged();
+          return;
+        }
+
+        let portalAccessOutcome: CorporatePartnerPortalAccessOutcome = 'not_staged';
+        let portalAccessMessage = 'No staged partner-level portal access changes were requested.';
+        let appliedPortalPartnershipCount = 0;
+
+        if (stagedPortalPartnerships.length > 0) {
+          try {
+            for (const partnership of stagedPortalPartnerships) {
+              await setPartnershipPartyPortalAccess({
+                partyId: partnership.partyId,
+                enabled: true,
+                reason: grantReasonText,
+              });
+              appliedPortalPartnershipCount += 1;
+            }
+            portalAccessOutcome = 'applied';
+            portalAccessMessage = `Partner-level portal access was applied for ${pluralize(stagedPortalPartnerships.length, 'staged partnership')}.`;
+          } catch (portalError) {
+            const portalErrorMessage = getErrorMessage(
+              portalError,
+              'Unable to apply staged partner-level portal access.'
+            );
+            const appliedPortalPartnerships = stagedPortalPartnerships.slice(0, appliedPortalPartnershipCount);
+            setCorporatePartnerSaveConfirmation({
+              partnerName: selectedPartner.partnerName,
+              targetEmail: invitePreflight.targetEmail,
+              portalEnabledPartnershipCount:
+                portalEnabledPartnerships.length + appliedPortalPartnershipCount,
+              derivedMachineCount: getCorporatePartnerMachineIds([
+                ...portalEnabledPartnerships,
+                ...appliedPortalPartnerships,
+              ]).size,
+              stagedPortalPartnershipCount: stagedPortalPartnerships.length,
+              portalAccessOutcome:
+                appliedPortalPartnershipCount > 0 ? 'partially_applied' : 'held_back',
+              portalAccessMessage:
+                appliedPortalPartnershipCount > 0
+                  ? `Partner-level portal access was applied for ${appliedPortalPartnershipCount} of ${stagedPortalPartnerships.length} staged partnerships before an error: ${portalErrorMessage}`
+                  : `Invite email sent, but staged partner-level portal access was held back: ${portalErrorMessage}`,
+              activePersonGrant: membership.status === 'active',
+              inviteOutcome,
+              inviteMessage,
+            });
+            toast.error(
+              appliedPortalPartnershipCount > 0
+                ? `Invite sent, but partner-level portal access was only partially applied: ${portalErrorMessage}`
+                : `Invite sent, but staged partner-level portal access was not applied: ${portalErrorMessage}`
+            );
+            await refreshLauncherQueries();
+            await onChanged();
+            return;
+          }
+        }
+
+        setCorporatePartnerSaveConfirmation({
+          partnerName: selectedPartner.partnerName,
+          targetEmail: invitePreflight.targetEmail,
+          portalEnabledPartnershipCount: effectivePortalEnabledPartnerships.length,
+          derivedMachineCount: effectiveDerivedMachineIds.size,
+          stagedPortalPartnershipCount: stagedPortalPartnerships.length,
+          portalAccessOutcome,
+          portalAccessMessage,
+          activePersonGrant: membership.status === 'active',
+          inviteOutcome,
+          inviteMessage,
+        });
+
+        toast.success(
+          stagedPortalPartnerships.length > 0
+            ? 'Corporate Partner access saved, invite email sent, and staged portal access applied.'
+            : 'Corporate Partner access saved and invite email sent.'
+        );
+
+        trackEvent('admin_access_launcher_saved', {
+          preset,
+          inviteable: presetMeta.inviteable,
+          stagedPortalPartnerships: stagedPortalPartnerships.length,
+        });
+        setGrantReason('');
+        setStagedPortalAccess({});
+        await refreshLauncherQueries();
+        await onChanged();
+        return;
       }
 
       if (preset === 'technician') {
@@ -1166,10 +1454,10 @@ function AccessLauncher({
         }
 
         const grant = await adminGrantTechnicianAccess({
-          email: normalizedEmail,
+          email: invitePreflight.targetEmail,
           accountId: selectedTechnicianAccount.accountId,
           machineId: selectedMachineId,
-          reason: grantReason.trim(),
+          reason: grantReasonText,
         });
 
         if (!grant.grantId) {
@@ -1180,8 +1468,8 @@ function AccessLauncher({
           await sendAccessInvite({
             inviteType: 'technician',
             sourceId: grant.grantId,
-            targetEmail: normalizedEmail,
-            loginUrl: getAccessInviteLoginUrl('technician', normalizedEmail),
+            targetEmail: invitePreflight.targetEmail,
+            loginUrl: invitePreflight.loginUrl,
           });
           toast.success('Technician access saved and invite email sent.');
         } catch (inviteError) {
@@ -1208,9 +1496,9 @@ function AccessLauncher({
       await refreshLauncherQueries();
       await onChanged();
       onOpenWorkspace({
-        email: normalizedEmail,
+        email: invitePreflight.targetEmail,
         userId: selectedExistingAccount?.user_id ?? null,
-        label: normalizedEmail,
+        label: invitePreflight.targetEmail,
       });
       onOpenChange(false);
     } catch (saveError) {
@@ -1219,6 +1507,12 @@ function AccessLauncher({
       setIsSaving(false);
     }
   };
+
+  const corporatePartnerConfirmationNeedsAttention =
+    corporatePartnerSaveConfirmation?.inviteOutcome === 'failed' ||
+    (corporatePartnerSaveConfirmation
+      ? isPortalAccessOutcomeWarning(corporatePartnerSaveConfirmation.portalAccessOutcome)
+      : false);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1408,56 +1702,231 @@ function AccessLauncher({
               </div>
 
               <div className="space-y-3">
+                {corporatePartnerSaveConfirmation && (
+                  <div
+                    className={cn(
+                      'rounded-md border p-3',
+                      corporatePartnerConfirmationNeedsAttention
+                        ? 'border-amber/40 bg-amber/10'
+                        : 'border-primary/30 bg-primary/5'
+                    )}
+                  >
+                    <div className="flex items-start gap-2">
+                      {corporatePartnerConfirmationNeedsAttention ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 text-amber" />
+                      ) : (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-sm font-semibold text-foreground">
+                            {corporatePartnerConfirmationNeedsAttention ? 'Action needed' : 'Invite sent'}
+                          </p>
+                          <Badge
+                            className="w-fit"
+                            variant={corporatePartnerConfirmationNeedsAttention ? 'destructive' : 'default'}
+                          >
+                            {corporatePartnerConfirmationNeedsAttention ? 'Review' : 'Complete'}
+                          </Badge>
+                        </div>
+                        <p className="mt-2 break-words text-sm text-muted-foreground">
+                          {corporatePartnerSaveConfirmation.inviteMessage}
+                        </p>
+                        <ul className="mt-3 space-y-2 text-sm">
+                          <li className="flex items-start gap-2">
+                            {corporatePartnerSaveConfirmation.activePersonGrant ? (
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                            ) : (
+                              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                            )}
+                            <span className="text-muted-foreground">
+                              Person membership{' '}
+                              {corporatePartnerSaveConfirmation.activePersonGrant
+                                ? 'is active'
+                                : 'was saved but is not active'}{' '}
+                              for {corporatePartnerSaveConfirmation.targetEmail}.
+                            </span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            {corporatePartnerSaveConfirmation.inviteOutcome === 'sent' ? (
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                            ) : (
+                              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                            )}
+                            <span className="text-muted-foreground">
+                              {corporatePartnerSaveConfirmation.inviteMessage}
+                            </span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            {isPortalAccessOutcomeWarning(corporatePartnerSaveConfirmation.portalAccessOutcome) ? (
+                              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                            ) : (
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                            )}
+                            <span className="text-muted-foreground">
+                              {corporatePartnerSaveConfirmation.portalAccessMessage}
+                            </span>
+                          </li>
+                        </ul>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          <SummaryMetric label="Partner selected" value={corporatePartnerSaveConfirmation.partnerName} />
+                          <SummaryMetric
+                            label="Portal-enabled after save"
+                            value={String(corporatePartnerSaveConfirmation.portalEnabledPartnershipCount)}
+                          />
+                          <SummaryMetric
+                            label="Staged portal changes"
+                            value={
+                              corporatePartnerSaveConfirmation.stagedPortalPartnershipCount > 0
+                                ? `${corporatePartnerSaveConfirmation.stagedPortalPartnershipCount} ${corporatePartnerSaveConfirmation.portalAccessOutcome.replace('_', ' ')}`
+                                : 'None'
+                            }
+                          />
+                          <SummaryMetric
+                            label="Derived machines"
+                            value={String(corporatePartnerSaveConfirmation.derivedMachineCount)}
+                          />
+                          <SummaryMetric
+                            label="Active person grant"
+                            value={corporatePartnerSaveConfirmation.activePersonGrant ? 'Yes' : 'No'}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="grid gap-3 sm:grid-cols-3">
                   <SummaryMetric
-                    label="Portal partnerships"
-                    value={isFetchingCorporateOptions ? 'Loading...' : String(portalEnabledPartnerships.length)}
+                    label="Partner"
+                    value={
+                      isFetchingCorporateOptions
+                        ? 'Loading...'
+                        : selectedPartner?.partnerName ?? 'No partner selected'
+                    }
                   />
-                  <SummaryMetric label="Derived machines" value={String(derivedMachineIds.size)} />
                   <SummaryMetric
-                    label="Invite target"
-                    value={normalizedEmail ? 'Email invite' : 'Needs email'}
+                    label="Portal enabled after success"
+                    value={String(effectivePortalEnabledPartnerships.length)}
                   />
+                  <SummaryMetric label="Machines after success" value={String(effectiveDerivedMachineIds.size)} />
+                </div>
+                <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-foreground">{corporatePartnerReadiness.label}</p>
+                      <p className="mt-1 text-muted-foreground">{corporatePartnerReadiness.description}</p>
+                    </div>
+                    <Badge
+                      className="w-fit"
+                      variant={corporatePartnerWillHavePortalScope ? 'default' : 'outline'}
+                    >
+                      Readiness
+                    </Badge>
+                  </div>
                 </div>
                 <PreviewBox>
                   This will grant Corporate Partner access for{' '}
                   {selectedPartner?.partnerName ?? 'the selected partner'} and send an invite to{' '}
                   {normalizedEmail || 'the entered email'}. Reporting is derived only from active
                   portal-enabled partnerships.
+                  {stagedPortalPartnerships.length > 0 ? (
+                    <>
+                      {' '}After the membership and invite email succeed, this save will enable
+                      partner-level portal access for {pluralize(stagedPortalPartnerships.length, 'partnership')}{' '}
+                      using the same reason. If the invite fails, that partner-level change stays
+                      unapplied. Portal setup still does not grant this person access without the
+                      membership.
+                    </>
+                  ) : null}
                 </PreviewBox>
-                {selectedPartner && !corporatePartnerHasPortalScope && (
-                  <div className="rounded-md border border-amber/40 bg-amber/10 p-3 text-sm">
+                {portalDisabledMachineBackedPartnerships.length > 0 && (
+                  <div className="rounded-md border border-amber/40 bg-amber/10 p-3">
                     <div className="flex items-start gap-2">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
-                      <p className="text-muted-foreground">
-                        This partner is not ready for an invite yet. Enable portal access on an
-                        active partnership with at least one reporting machine, then return to send
-                        Corporate Partner access.
-                      </p>
+                      <ShieldAlert className="mt-0.5 h-4 w-4 text-amber" />
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Enable portal access on save</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          These active partnerships have machines but Corporate Partner portal access is
+                          off. Check the partnership to stage that explicit partner-level change; it
+                          applies only after the membership exists and the invite email sends.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 divide-y divide-border rounded-md border border-border bg-background">
+                      {portalDisabledMachineBackedPartnerships.map((partnership) => (
+                        <label key={partnership.partyId} className="flex cursor-pointer items-start gap-3 p-3">
+                          <Checkbox
+                            checked={stagedPortalAccess[partnership.partyId] === true}
+                            disabled={isSaving}
+                            onCheckedChange={(checked) =>
+                              setStagedPortalAccess((current) => ({
+                                ...current,
+                                [partnership.partyId]: checked === true,
+                              }))
+                            }
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium text-foreground">
+                              {partnership.partnershipName}
+                            </span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {pluralize(partnership.machineCount, 'active machine')}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
                     </div>
                   </div>
                 )}
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <SummaryMetric label="Portal enabled now" value={String(portalEnabledPartnerships.length)} />
+                  <SummaryMetric label="Machines now" value={String(derivedMachineIds.size)} />
+                  <SummaryMetric
+                    label="Invite target"
+                    value={normalizedEmail ? 'Email invite' : 'Needs email'}
+                  />
+                </div>
                 <div className="divide-y divide-border rounded-md border border-border">
-                  {selectedPartner && selectedPartner.portalPartnerships.length === 0 ? (
+                  {!selectedPartner ? (
                     <p className="p-3 text-sm text-muted-foreground">
-                      No active partnerships are linked to this partner record yet.
+                      Select or create a partner record to check Corporate Partner invite readiness.
+                    </p>
+                  ) : selectedPartner.portalPartnerships.length === 0 ? (
+                    <p className="p-3 text-sm text-muted-foreground">
+                      No active linked partnership is available for this partner record yet.
                     </p>
                   ) : (
-                    selectedPartner?.portalPartnerships.map((partnership) => (
-                      <div key={partnership.partyId} className="flex items-start justify-between gap-3 p-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-foreground">
-                            {partnership.partnershipName}
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {pluralize(partnership.machineCount, 'machine')}
-                          </p>
+                    selectedPartner.portalPartnerships.map((partnership) => {
+                      const willEnable =
+                        !partnership.portalAccessEnabled && stagedPortalAccess[partnership.partyId] === true;
+                      const hasMachines = partnership.machines.length > 0;
+                      return (
+                        <div key={partnership.partyId} className="flex items-start justify-between gap-3 p-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {partnership.partnershipName}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {hasMachines
+                                ? pluralize(partnership.machineCount, 'active machine')
+                                : 'No active machines'}
+                            </p>
+                          </div>
+                          <Badge
+                            className="w-fit"
+                            variant={partnership.portalAccessEnabled || willEnable ? 'default' : 'outline'}
+                          >
+                            {partnership.portalAccessEnabled
+                              ? 'Portal enabled'
+                              : willEnable
+                                ? 'Staged after invite'
+                                : hasMachines
+                                  ? 'Portal off'
+                                  : 'No active machines'}
+                          </Badge>
                         </div>
-                        <Badge variant={partnership.portalAccessEnabled ? 'default' : 'outline'}>
-                          {partnership.portalAccessEnabled ? 'Portal enabled' : 'Portal off'}
-                        </Badge>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -1571,7 +2040,7 @@ function AccessLauncher({
                   <p className="mt-1 text-sm text-muted-foreground">
                     {preset === 'plus_customer'
                       ? 'Plus Customer access is account-oriented and should be managed from the selected person workspace so billing and existing grant state stay visible.'
-                      : `${presetMeta.label} requires an existing authenticated user. Open the person workspace, review effective access, then use the source card with its preview and required reason.`}
+                      : `${presetMeta.label} requires an existing authenticated user. Open the person workspace, review effective access, then use that access section with its preview and required reason.`}
                   </p>
                   <div className="mt-3">
                     {selectedExistingAccount ? (
@@ -1619,7 +2088,7 @@ function AccessLauncher({
               disabled={
                 isSaving ||
                 !canSaveInvite ||
-                (preset === 'corporate_partner' && (!selectedPartner || !corporatePartnerHasPortalScope)) ||
+                (preset === 'corporate_partner' && (!selectedPartner || !corporatePartnerWillHavePortalScope)) ||
                 (preset === 'technician' && !selectedTechnicianAccount)
               }
             >
@@ -1803,7 +2272,7 @@ function EffectiveAccessSummary({
       {previewUnavailable && (
         <div className="mt-4 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm text-foreground">
           Effective access preview requires an email because the current backend preview RPC is
-          email-based. Source cards that use user ID data remain available where safe.
+          email-based. Access sections that use user ID data remain available where safe.
         </div>
       )}
 
@@ -2089,6 +2558,7 @@ function CorporatePartnerAccessCard({
   const [portalReason, setPortalReason] = useState('');
   const [revokeReasons, setRevokeReasons] = useState<Record<string, string>>({});
   const [isGranting, setIsGranting] = useState(false);
+  const [sendingInviteMembershipId, setSendingInviteMembershipId] = useState<string | null>(null);
   const [isSavingPortalAccess, setIsSavingPortalAccess] = useState(false);
   const [revokingMembershipId, setRevokingMembershipId] = useState<string | null>(null);
 
@@ -2112,6 +2582,22 @@ function CorporatePartnerAccessCard({
 
   const memberships = getCorporateMembershipsForIdentity(effectiveAccess, options.partners, identity);
   const activeMemberships = memberships.filter((membership) => membership.isActive);
+  const activeMembershipIds = activeMemberships.map((membership) => membership.id).sort();
+  const { data: inviteDeliveries = [], isFetching: isFetchingInviteDeliveries } = useQuery({
+    queryKey: ['access-invite-deliveries', 'corporate_partner', activeMembershipIds],
+    queryFn: () =>
+      fetchAccessInviteDeliveries({
+        inviteType: 'corporate_partner',
+        sourceType: 'corporate_partner_membership',
+        sourceIds: activeMembershipIds,
+      }),
+    enabled: activeMembershipIds.length > 0,
+    staleTime: 1000 * 15,
+  });
+  const latestInviteBySourceId = useMemo(
+    () => getLatestInviteDeliveryBySourceId(inviteDeliveries),
+    [inviteDeliveries]
+  );
   const selectedPartner =
     options.partners.find((partner) => partner.partnerId === selectedPartnerId) ??
     options.partners[0] ??
@@ -2159,6 +2645,62 @@ function CorporatePartnerAccessCard({
       );
     } finally {
       setIsGranting(false);
+    }
+  };
+
+  const sendCorporatePartnerInvite = async (membership: CorporatePartnerSourceRecord) => {
+    const targetEmail = getCorporatePartnerInviteEmail(membership, identity);
+    if (!targetEmail) {
+      toast.error('This Corporate Partner membership does not have an invite email.');
+      return;
+    }
+    const invitePreflight = validateAccessInvitePreflight('corporate_partner', targetEmail);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+
+    setSendingInviteMembershipId(membership.id);
+    try {
+      await sendAccessInvite({
+        inviteType: 'corporate_partner',
+        sourceId: membership.id,
+        targetEmail: invitePreflight.targetEmail,
+        loginUrl: invitePreflight.loginUrl,
+      });
+      toast.success('Corporate Partner invite email sent.');
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+    } catch (inviteError) {
+      toast.error(
+        inviteError instanceof Error ? inviteError.message : 'Unable to send Corporate Partner invite.'
+      );
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+    } finally {
+      setSendingInviteMembershipId(null);
+    }
+  };
+
+  const copyCorporatePartnerInviteLink = async (membership: CorporatePartnerSourceRecord) => {
+    const targetEmail = getCorporatePartnerInviteEmail(membership, identity);
+    if (!targetEmail) {
+      toast.error('This Corporate Partner membership does not have an invite email.');
+      return;
+    }
+    const invitePreflight = validateAccessInvitePreflight('corporate_partner', targetEmail);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+    if (!navigator.clipboard?.writeText) {
+      toast.error('Clipboard copy is not available in this browser.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(invitePreflight.loginUrl);
+      toast.success('Login link copied.');
+    } catch {
+      toast.error('Unable to copy login link.');
     }
   };
 
@@ -2238,53 +2780,112 @@ function CorporatePartnerAccessCard({
             No Corporate Partner membership source is active for this person.
           </div>
         ) : (
-          memberships.map((membership) => (
-            <div key={membership.id} className="rounded-md border border-border p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="font-medium text-foreground">{membership.partnerName}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Reason: {membership.grantReason} / expires {formatDate(membership.expiresAt)}
-                  </p>
-                </div>
-                <Badge className="w-fit" variant={membership.isActive ? 'default' : 'outline'}>
-                  {membership.status}
-                </Badge>
-              </div>
-              {membership.isActive && (
-                <div className="mt-3 space-y-2">
-                  <PreviewBox>
-                    Revoking this membership removes partner reporting, partner-derived machine
-                    reporting, member supply pricing, support, and Technician management from this
-                    Corporate Partner source. Unrelated Plus, Technician, Scoped Admin, or manual
-                    reporting sources remain unchanged.
-                  </PreviewBox>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      value={revokeReasons[membership.id] ?? ''}
-                      onChange={(event) =>
-                        setRevokeReasons((current) => ({
-                          ...current,
-                          [membership.id]: event.target.value,
-                        }))
-                      }
-                      placeholder="Required revoke reason"
-                    />
-                    <Button
-                      variant="outline"
-                      disabled={revokingMembershipId === membership.id}
-                      onClick={() => void revokeCorporatePartner(membership.id)}
-                    >
-                      {revokingMembershipId === membership.id ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : null}
-                      Revoke
-                    </Button>
+          memberships.map((membership) => {
+            const inviteDelivery = latestInviteBySourceId.get(membership.id);
+            const inviteEmail = getCorporatePartnerInviteEmail(membership, identity);
+            return (
+              <div key={membership.id} className="rounded-md border border-border p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">{membership.partnerName}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Reason: {membership.grantReason} / expires {formatDate(membership.expiresAt)}
+                    </p>
                   </div>
+                  <Badge className="w-fit" variant={membership.isActive ? 'default' : 'outline'}>
+                    {membership.status}
+                  </Badge>
                 </div>
-              )}
-            </div>
-          ))
+                {membership.isActive && (
+                  <div className="mt-3 space-y-2">
+                    <div className="rounded-md border border-border bg-muted/20 p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground">Invite recovery</p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            {isFetchingInviteDeliveries
+                              ? 'Checking invite delivery history...'
+                              : formatInviteDeliverySummary(inviteDelivery)}
+                          </p>
+                          <p className="mt-1 break-all text-xs text-muted-foreground">
+                            Login email: {inviteEmail || 'No email on membership'}
+                          </p>
+                        </div>
+                        <Badge
+                          className="w-fit"
+                          variant={
+                            inviteDelivery?.deliveryStatus === 'sent'
+                              ? 'default'
+                              : inviteDelivery?.deliveryStatus === 'failed'
+                                ? 'destructive'
+                                : 'outline'
+                          }
+                        >
+                          {inviteDelivery?.deliveryStatus === 'sent'
+                            ? 'Invite sent'
+                            : inviteDelivery?.deliveryStatus === 'failed'
+                              ? 'Invite failed'
+                              : 'No invite sent'}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={!inviteEmail || sendingInviteMembershipId === membership.id}
+                          onClick={() => void sendCorporatePartnerInvite(membership)}
+                        >
+                          {sendingInviteMembershipId === membership.id ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="mr-2 h-4 w-4" />
+                          )}
+                          {inviteDelivery ? 'Resend invite' : 'Send invite'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={!inviteEmail}
+                          onClick={() => void copyCorporatePartnerInviteLink(membership)}
+                        >
+                          <Copy className="mr-2 h-4 w-4" />
+                          Copy login link
+                        </Button>
+                      </div>
+                    </div>
+                    <PreviewBox>
+                      Revoking this membership removes partner reporting, partner-derived machine
+                      reporting, member supply pricing, support, and Technician management from this
+                      Corporate Partner source. Unrelated Plus, Technician, Scoped Admin, or manual
+                      reporting sources remain unchanged.
+                    </PreviewBox>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        value={revokeReasons[membership.id] ?? ''}
+                        onChange={(event) =>
+                          setRevokeReasons((current) => ({
+                            ...current,
+                            [membership.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Required revoke reason"
+                      />
+                      <Button
+                        variant="outline"
+                        disabled={revokingMembershipId === membership.id}
+                        onClick={() => void revokeCorporatePartner(membership.id)}
+                      >
+                        {revokingMembershipId === membership.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : null}
+                        Revoke
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -2318,14 +2919,19 @@ function CorporatePartnerAccessCard({
           </div>
           <Button onClick={grantCorporatePartner} disabled={isGranting || !selectedPartner || !identity.email}>
             {isGranting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-            Grant Corporate Partner
+            Grant access only
           </Button>
+          <p className="text-xs text-muted-foreground">
+            This creates or updates the Corporate Partner membership. It does not email the person;
+            use Send invite on an active membership above.
+          </p>
         </div>
         <div className="space-y-3">
           <PreviewBox>
             This will give {identity.label} Corporate Partner benefits for {selectedPartner?.partnerName ?? 'the selected partner'}.
             Today that means {pluralize(portalEnabledPartnerships.length, 'portal-enabled partnership')} and{' '}
-            {pluralize(derivedMachineIds.size, 'derived reporting machine')}.
+            {pluralize(derivedMachineIds.size, 'derived reporting machine')}. Email is separate so
+            admins can resend or copy the login link without changing access.
           </PreviewBox>
           {selectedPartner && (
             <PartnerPortalAccessControls
@@ -3806,7 +4412,7 @@ function ScopeBreakdownCard({
         />
       </div>
       <p className="mt-4 text-xs text-muted-foreground">
-        Manual reporting access is shown in its source card because it can be changed independently
+        Manual reporting access is shown in its own access section because it can be changed independently
         from derived access sources.
       </p>
     </div>
