@@ -34,6 +34,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   fetchAccessInviteDeliveries,
   sendAccessInvite,
@@ -166,6 +167,11 @@ type AccessLauncherInitialState = {
   email?: string;
   partnerId?: string;
   accountId?: string;
+};
+
+type AdminPersonAccessConsoleProps = {
+  initialShowActivity?: boolean;
+  initialLauncher?: AccessLauncherInitialState;
 };
 
 type AccessLauncherPresetMeta = {
@@ -603,13 +609,37 @@ function buildIdentity(
   };
 }
 
-export function AdminPersonAccessConsole({
+export function AdminPersonAccessConsole(props: AdminPersonAccessConsoleProps) {
+  const { isSuperAdmin } = useAuth();
+
+  if (!isSuperAdmin) {
+    return <AdminPersonAccessConsoleBoundary />;
+  }
+
+  return <AdminPersonAccessConsoleInner {...props} />;
+}
+
+function AdminPersonAccessConsoleBoundary() {
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground sm:p-5">
+      <div className="flex items-start gap-3">
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <div>
+          <h2 className="font-semibold text-foreground">Super Admin access is required for global access management.</h2>
+          <p className="mt-1">
+            Scoped admins can manage manual reporting grants only through the assigned-machine
+            reporting workspace.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPersonAccessConsoleInner({
   initialShowActivity = false,
   initialLauncher,
-}: {
-  initialShowActivity?: boolean;
-  initialLauncher?: AccessLauncherInitialState;
-}) {
+}: AdminPersonAccessConsoleProps) {
   const queryClient = useQueryClient();
   const [searchDraft, setSearchDraft] = useState('');
   const [submittedSearch, setSubmittedSearch] = useState('');
