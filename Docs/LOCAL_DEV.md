@@ -290,6 +290,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set STRIPE_STICKS_MEMBER_PRICE_ID=...`
    - `supabase secrets set STRIPE_PLUS_PRICE_ID=...`
    - Optional local/dev only: `supabase secrets set BLOOMJOY_ALLOW_LOCAL_REDIRECT_URLS=true` when serving commerce/invite functions locally against a non-local `SUPABASE_URL`
+   - Optional preview/UAT only: `supabase secrets set BLOOMJOY_ALLOWED_VERCEL_PREVIEW_ORIGINS=https://<exact-preview>.vercel.app` when invite emails must link back to a Vercel preview. Use exact origins only; do not set this for production launch.
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`
    - `supabase secrets set RESEND_API_KEY=...`
    - `supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...`
@@ -319,6 +320,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve custom-sticks-artwork-upload --no-verify-jwt`
    - `supabase functions serve custom-sticks-artwork-link --no-verify-jwt`
    - `supabase functions serve support-request-intake --no-verify-jwt`
+   - `supabase functions serve access-invite --no-verify-jwt`
    - `supabase functions serve sales-report-export --no-verify-jwt`
    - `supabase functions serve sales-report-scheduler --no-verify-jwt`
    - `supabase functions serve sunze-sales-sync --no-verify-jwt`
