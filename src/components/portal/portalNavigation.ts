@@ -57,7 +57,7 @@ export const portalDestinations: PortalDestination[] = [
   },
   {
     href: '/portal/account',
-    label: 'Settings',
+    label: 'Account Settings',
     labelKey: 'portal.nav.account',
     description: 'Profile, billing, shipping, and language preferences.',
     descriptionKey: 'portal.nav.accountDescription',
