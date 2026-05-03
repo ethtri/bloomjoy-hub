@@ -11,6 +11,11 @@ const allowedProductionUrls = [
   "https://app.bloomjoyusa.com/login",
 ];
 
+const allowedPreviewOrigin = "https://bloomjoy-hub-git-cp-uat-challenge-bloomjoy.vercel.app";
+const allowedPreviewUrls = [
+  `${allowedPreviewOrigin}/login?intent=technician&email=qa%40example.com`,
+];
+
 const rejectedUrls = [
   "https://example.com/cart?checkout=success",
   "https://bloomjoyusa.com/login",
@@ -18,6 +23,7 @@ const rejectedUrls = [
   "javascript:alert(1)",
   "https://www.bloomjoyusa.com.evil.test/cart",
   "https://user:pass@app.bloomjoyusa.com/login",
+  "https://bloomjoy-hub-git-unconfigured-bloomjoy.vercel.app/login",
 ];
 
 for (const url of allowedProductionUrls) {
@@ -38,6 +44,32 @@ for (const url of allowedLocalUrls) {
   assert.equal(result.ok, false, `${url} should be rejected by default`);
   assert.match(result.error, /Bloomjoy production origin/);
 }
+
+for (const url of allowedPreviewUrls) {
+  process.env.BLOOMJOY_ALLOWED_VERCEL_PREVIEW_ORIGINS = allowedPreviewOrigin;
+  const result = validateBrowserUrl(url, {
+    label: "test URL",
+    allowConfiguredPreviewOrigins: true,
+  });
+  assert.equal(result.ok, true, `${url} should be allowed for opted-in access-invite preview origin`);
+  assert.equal(result.isPreviewOrigin, true, `${url} should be marked as preview origin`);
+}
+
+for (const url of allowedPreviewUrls) {
+  const result = validateBrowserUrl(url, { label: "test URL" });
+  assert.equal(result.ok, false, `${url} should be rejected by default checkout-style validation`);
+  assert.match(result.error, /Bloomjoy production origin/);
+}
+
+const rejectedPreviewBypass = validateBrowserUrl("https://example.com/login", {
+  label: "test URL",
+  allowedPreviewOrigins: ["https://example.com"],
+});
+assert.equal(
+  rejectedPreviewBypass.ok,
+  false,
+  "configured preview origins must be exact Vercel preview origins",
+);
 
 for (const url of rejectedUrls) {
   const result = validateBrowserUrl(url, { label: "test URL" });
