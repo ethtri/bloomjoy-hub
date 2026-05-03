@@ -134,9 +134,7 @@ const getStringValue = (record: Record<string, unknown>, key: string) =>
   typeof record[key] === "string" ? record[key] as string : "";
 
 const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: string) => {
-  const subject = source.inviteType === "corporate_partner"
-    ? "Bloomjoy Corporate Partner access"
-    : "Bloomjoy Technician access";
+  const subject = "Bloomjoy portal invitation";
   const inviter = actorEmail || "A Bloomjoy administrator";
 
   const text = [
@@ -233,10 +231,10 @@ async function getCorporatePartnerSource(sourceId: string, targetEmail: string):
     sourceId,
     targetEmail,
     targetUserId: getStringValue(membershipRecord, "user_id") || null,
-    title: "Corporate Partner access is ready",
-    body: `You have been added as a Corporate Partner for ${partnerName}.`,
+    title: "Your Bloomjoy portal invitation",
+    body: `You have been invited to access Bloomjoy Hub for ${partnerName}.`,
     accessSummary:
-      "Corporate Partner access can include partner reporting, training, support, member supply pricing, and Technician management for eligible portal-enabled partnership machines.",
+      "After you sign in, Bloomjoy Hub will show the tools and information available to your account.",
   };
 }
 
@@ -287,10 +285,10 @@ async function getTechnicianSource(sourceId: string, targetEmail: string): Promi
     sourceId,
     targetEmail,
     targetUserId: getStringValue(grantRecord, "technician_user_id") || null,
-    title: "Technician access is ready",
-    body: `You have been added as a Technician for ${accountName}.`,
+    title: "Your Bloomjoy portal invitation",
+    body: `You have been invited to access Bloomjoy Hub for ${accountName}.`,
     accessSummary:
-      "Technician access includes Bloomjoy training and, when assigned, reporting for the specific machine selected by the account owner or Bloomjoy admin.",
+      "After you sign in, Bloomjoy Hub will show the tools and information available to your account.",
   };
 }
 
