@@ -470,7 +470,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
             <div className="hidden items-center gap-3 md:flex">
               {isAuthenticated && <nav className="flex items-center gap-2">{renderWorkspaceLinks()}</nav>}
-              <LanguagePreferenceControl compact />
+              {!isAuthenticated && <LanguagePreferenceControl compact />}
 
               <a
                 href={marketingHomeUrl}
@@ -492,7 +492,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             </div>
 
             <div className="flex items-center gap-2 md:hidden">
-              {isAuthenticated && <LanguagePreferenceControl className="shrink-0" compact />}
+              {!isAuthenticated && <LanguagePreferenceControl className="shrink-0" compact />}
               <Sheet>
                 <SheetTrigger asChild>
                   <button
@@ -512,7 +512,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                     <SheetDescription>{appContext.description}</SheetDescription>
                   </SheetHeader>
                   <div className="mt-6 space-y-3">
-                    <LanguagePreferenceControl fullWidth />
+                    {!isAuthenticated && <LanguagePreferenceControl fullWidth />}
                     {isAuthenticated && renderWorkspaceLinks(true)}
                     {isAuthenticated && isAdmin && isAdminPath && renderMobileAdminLinks()}
                     {isAuthenticated && showAccountLink && (
