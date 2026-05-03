@@ -21,6 +21,28 @@ const staticChecks = [
     ],
   },
   {
+    name: 'Scoped Admin Admin Access page hides global person console controls',
+    file: 'src/pages/admin/Access.tsx',
+    patterns: [
+      '{isSuperAdmin ? (',
+      '<AdminPersonAccessConsole',
+      'Manage reporting visibility for the machines included in your scoped admin grant.',
+      '<ReportingAccessTab />',
+    ],
+  },
+  {
+    name: 'Person console global controls require Super Admin',
+    file: 'src/pages/admin/accessPersonConsole.tsx',
+    patterns: [
+      'const { isSuperAdmin } = useAuth();',
+      'if (!isSuperAdmin)',
+      'AdminPersonAccessConsoleBoundary',
+      'Super Admin access is required for global access management.',
+      'Add or invite access',
+      'Grant Super Admin',
+    ],
+  },
+  {
     name: 'Scoped Admin navigation hides super-admin-only destinations',
     file: 'src/components/layout/AppLayout.tsx',
     patterns: [
@@ -73,6 +95,17 @@ const staticChecks = [
     forbiddenPatterns: [
       'revoke execute on function public.can_access_technician_grant(uuid, uuid) from public, anon, authenticated',
       'grant execute on function public.can_manage_corporate_partner_technician_grant',
+    ],
+  },
+  {
+    name: 'Technician grant visibility helper is bound to the current authenticated actor',
+    file: 'supabase/migrations/202605030001_technician_grant_helper_actor_guard.sql',
+    patterns: [
+      'create or replace function public.can_access_technician_grant',
+      'p_user_id = (select auth.uid())',
+      'authenticated callers cannot test access for arbitrary users',
+      'grant execute on function public.can_access_technician_grant(uuid, uuid)',
+      'to authenticated',
     ],
   },
   {
