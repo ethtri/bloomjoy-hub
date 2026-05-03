@@ -163,6 +163,7 @@
   - a live `$0` Stripe checkout smoke order after the webhook email redesign deployment
 
 ## Next P0 milestones
+- Clear executive preview-auth UAT blocker `#380`: Supabase Auth URL Configuration must keep Site URL on `https://app.bloomjoyusa.com` and add `https://*-snapcase.vercel.app/**` to Additional Redirect URLs so login-gated Vercel previews return to the same preview host instead of production.
 - Complete trusted corporate partner settlement before building operator performance dashboards:
   - complete issue `#244` by deploying the refund service-account secrets, sharing the source sheet with the service account, and confirming the first dry-run/live sync in production
   - keep issue `#169` open until production UAT evidence confirms reviewed refund handling and partner-ready settlement expectations across current partner agreements
@@ -274,10 +275,10 @@ Execution order is based on launch risk and dependency overlap.
 - UAT signal: Google callback had been landing on `localhost:3000` (`ERR_CONNECTION_REFUSED`) instead of the live domain flow.
 - Recovery evidence (2026-03-19):
   - User-captured live Google login initially returned to `http://localhost:3000/#access_token=...` with no `/portal` path.
-  - Repo audit confirmed the app requests `${window.location.origin}/portal` for Google OAuth redirect, pointing to stale Supabase Site URL and/or missing allowlist entries for `https://www.bloomjoyusa.com`.
+  - Repo audit confirmed the app passes a Supabase `redirectTo`/`emailRedirectTo` URL for the active app surface, so wrong-host returns point first to stale Supabase Site URL and/or missing redirect allowlist entries.
   - After owner dashboard updates, live Google login now completes successfully back to the site.
 - Remaining follow-up:
-  - Merge the auth-host guidance PR and keep `npm run auth:preflight` aligned to canonical `https://www.bloomjoyusa.com` plus apex alias redirects.
+  - Keep `npm run auth:preflight` aligned to canonical `https://app.bloomjoyusa.com` app routes plus the `https://*-snapcase.vercel.app/**` preview UAT redirect pattern.
   - Capture final callback-host and consent-screen evidence in launch sign-off docs.
   - Keep the Supabase project-ref domain on the chooser as an expected temporary state until `auth.bloomjoyusa.com` is enabled and cut over.
 - Owner dependency: Google Cloud + Supabase dashboard branding/custom-domain execution remain owner-controlled.

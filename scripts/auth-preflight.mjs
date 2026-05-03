@@ -8,6 +8,7 @@ const DEFAULTS = {
   appOrigin: 'http://localhost:8080',
   prodAppOrigin: 'https://app.bloomjoyusa.com',
   prodMarketingOrigin: 'https://www.bloomjoyusa.com',
+  previewRedirectPattern: 'https://*-snapcase.vercel.app/**',
   projectRef: 'ygbzkgxktzqsiygjlqyg',
   customAuthHost: 'auth.bloomjoyusa.com',
   requireCustomAuthDomain: false,
@@ -44,6 +45,12 @@ function parseArgs(argv) {
 
     if (arg === '--prod-marketing-origin' && next) {
       parsed.prodMarketingOrigin = next;
+      i += 1;
+      continue;
+    }
+
+    if (arg === '--preview-redirect-pattern' && next) {
+      parsed.previewRedirectPattern = next;
       i += 1;
       continue;
     }
@@ -264,6 +271,7 @@ function run() {
       `${origin}/portal`,
       `${origin}/reset-password`,
     ]),
+    args.previewRedirectPattern,
   ];
 
   printList('Google OAuth Authorized JavaScript origins (copy/paste)', [

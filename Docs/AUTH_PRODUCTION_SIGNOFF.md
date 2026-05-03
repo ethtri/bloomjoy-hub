@@ -2,7 +2,7 @@
 
 Purpose: convert deferred auth launch hardening into an execution checklist with clear ownership and evidence capture.
 
-Last updated: 2026-03-19
+Last updated: 2026-05-03
 
 ## 1) Owners and launch window
 - Launch date/time:
@@ -34,8 +34,8 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 | Google OAuth callback host resolves to `auth.bloomjoyusa.com` in live flow |  |  |  |
 | Google OAuth client secret rotated after setup-sharing activity |  |  |  |
 | Supabase Google provider updated with current client credentials |  |  |  |
-| Supabase Site URL set to `https://www.bloomjoyusa.com` |  |  |  |
-| Supabase redirect URL allowlist includes `https://www.bloomjoyusa.com` routes plus apex `https://bloomjoyusa.com` cutover aliases |  |  |  |
+| Supabase Site URL set to `https://app.bloomjoyusa.com` |  |  |  |
+| Supabase redirect URL allowlist includes `https://app.bloomjoyusa.com` app routes plus `https://*-snapcase.vercel.app/**` for Vercel preview UAT |  |  |  |
 
 ## 4) Security and reliability checks
 ### Email OTP and rate limits
@@ -62,6 +62,7 @@ Capture evidence links for each required flow.
 | Password login (`/login` -> `/portal`) |  |  |
 | Magic link login (`/login` -> email -> `/portal`) |  |  |
 | Google login (`/login` -> consent -> `/portal`) |  |  |
+| Vercel preview login returns to the same preview host at `/portal` |  |  |
 | Google callback host is `auth.bloomjoyusa.com` |  |  |
 | Logged-out redirect guard (`/portal` -> `/login`) |  |  |
 | Branded auth email (signup confirmation) |  |  |
@@ -103,9 +104,14 @@ Manual evidence still required before go/no-go:
 
 ### Redirect lands on `http://localhost:3000/#access_token=...`
 - Treat this as a stale Supabase URL Configuration issue first.
-- Confirm Supabase Site URL is `https://www.bloomjoyusa.com`.
-- Confirm redirect allowlist includes `https://www.bloomjoyusa.com`, `/login`, `/portal`, and `/reset-password`.
-- Keep apex `https://bloomjoyusa.com` entries allowlisted during cutover if traffic can still start there.
+- Confirm Supabase Site URL is `https://app.bloomjoyusa.com`.
+- Confirm redirect allowlist includes `https://app.bloomjoyusa.com`, `/login`, `/portal`, and `/reset-password`.
+
+### Vercel preview login returns to production
+- Treat this as a missing Supabase preview redirect allowlist entry first.
+- Confirm Supabase Site URL remains `https://app.bloomjoyusa.com`.
+- Confirm Additional Redirect URLs include `https://*-snapcase.vercel.app/**`.
+- Retry from the PR preview `/login` URL and confirm the final URL stays on the same preview host at `/portal`.
 
 ## 7) Go/No-Go sign-off
 - [ ] All checklist items in sections 3-5 are complete.
