@@ -21,6 +21,7 @@ This repo is operated primarily through AI coding agents. The owner is not expec
 - For UI changes, provide preview/localhost links and desktop/mobile screenshots.
 - For user-facing changes, provide exact UAT steps and expected results.
 - Use `Docs/UAT_PERSONA_PLAYBOOK.md` when preparing owner UAT steps for public, portal, admin, reporting, Technician, or Corporate Partner changes.
+- If login-gated preview UAT redirects to production, do not use it for executive pre-merge testing. Use agent/technical UAT with controlled test sessions or JWTs, and record the evidence.
 - For high-risk changes, include an explicit rollback plan and independent AI review evidence.
 
 Use an independent AI reviewer or delegated subagent for high-risk review when the current agent environment allows it. If not available, perform a separate review pass and record what was checked.
@@ -29,6 +30,8 @@ Use an independent AI reviewer or delegated subagent for high-risk review when t
 - Low risk: no owner involvement unless wording or product direction is unclear.
 - Medium risk: owner UAT is optional; agents still provide a preview checklist.
 - High risk: owner UAT or go/no-go confirmation is required before merge or production rollout.
+
+Until preview auth redirects are fixed, executive testing for login-gated flows is post-release acceptance, not preview sign-off.
 
 The owner should not need to inspect code diffs to make routine decisions. PRs should present enough evidence for a product-level go/no-go.
 

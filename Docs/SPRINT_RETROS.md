@@ -40,6 +40,8 @@ Keep entries plain-language and brief. Link to issues and PRs instead of copying
 - UAT evidence:
   - Independent review findings are now part of sprint closeout status, not just optional notes.
   - `#379` still needs credentialed live checks for Super Admin, Scoped Admin, Corporate Partner, Technician, and non-admin boundaries.
+  - Login-gated preview UAT currently redirects to production, so executive testing should be treated as post-release acceptance until preview auth redirects are fixed.
+  - Pre-merge UAT for risky logged-in features should be agent/technical UAT with controlled test sessions or JWTs, not executive preview testing.
   - Required evidence: persona used, key URL/RPC exercised, expected allow/deny result, and any cleanup performed.
 - What worked:
   - Parallel worktrees kept implementation, database, QA, and docs lanes separated.
@@ -53,11 +55,13 @@ Keep entries plain-language and brief. Link to issues and PRs instead of copying
   - `#379` remains draft/blocker-remediation/UAT-required until the code-change blocker is fixed and credentialed live persona/RPC verification proves the permission boundaries.
   - `#378` should not roll out to production until the DB migration and `refund-adjustment-sync` function are deployed together and the aggregate post-deploy audit passes.
   - `#264` remains open/blocked-external for invalid or unmatched rows that guardrails cannot classify automatically.
+  - Preview-login UAT blocker: no issue found yet; create/link one before relying on executive preview UAT for logged-in flows.
 - Follow-up issues:
   - Keep `#264` scoped to source-data cleanup and reconciliation after settlement guardrails and post-deploy audit evidence.
   - Use the `#379` UAT packet to decide whether any additional access-boundary repair PR is needed.
+  - `TBD preview-login UAT blocker` - fix preview auth redirects so login-gated UAT stays on the preview deployment.
 - Owner decisions needed:
-  - Confirm the live UAT credential/persona set and cleanup expectations for `#379`.
+  - Confirm the post-release acceptance window, credential/persona set, and cleanup expectations for `#379`.
   - Decide who owns invalid/unmatched refund source rows that remain after guardrails block incomplete settlement records.
 - Rollback notes:
   - `#377` is docs-only and has no app rollback.
