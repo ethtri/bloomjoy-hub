@@ -267,6 +267,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Access Launcher opens from `/admin/access` and deep links from `/admin/access?action=add-access`, with preset links for `corporate_partner`, `technician`, `scoped_admin`, `super_admin`, and `plus_customer`.
 - [ ] Access Launcher Corporate Partner preset can grant email-based access for a never-authenticated email, send the invite email, and write both `access_invite_deliveries` and `admin_audit_log` evidence.
 - [ ] Access Launcher Technician preset can grant training-only access or exactly one machine, send the invite email, and preserve the one-machine Technician reporting boundary.
+- [ ] Access invite email copy stays generic: it may mention the relevant partner/account context, but it must not promise specific roles, grants, discounts, Technician management, or reporting permissions.
 - [ ] Login invite URLs `/login?intent=corporate_partner&email=...` and `/login?intent=technician&email=...` prefill the email, show the contextual invite banner, and keep password, Google, and email-link sign-in available.
 - [ ] Scoped Admin, Super Admin, and Plus Customer presets require an existing auth user and route to the selected person workspace instead of creating pending admin/customer invites.
 - [ ] Non-admin and Scoped Admin sessions cannot call the `access-invite` Edge Function; invalid source IDs, mismatched target emails, revoked grants, and expired Technician grants are rejected.
