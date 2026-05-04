@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { validateAccessInvitePreflight } from "../src/lib/accessInviteLoginUrls.ts";
 import { validateBrowserUrl } from "../supabase/functions/_shared/browser-url-allowlist.mjs";
 
 const allowedLocalUrls = [
@@ -93,5 +94,85 @@ assert.equal(
   false,
   "explicit external invite login URL should not fall back silently",
 );
+
+const makeLocation = (origin) => {
+  const url = new URL(origin);
+  return {
+    origin: url.origin,
+    hostname: url.hostname,
+    protocol: url.protocol,
+  };
+};
+
+const allowedClientInviteOrigins = [
+  "https://app.bloomjoyusa.com",
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+  allowedPreviewOrigin,
+];
+
+for (const origin of allowedClientInviteOrigins) {
+  const result = validateAccessInvitePreflight(
+    "technician",
+    "QA@Example.com",
+    makeLocation(origin),
+  );
+  assert.equal(result.ok, true, `${origin} should build an access invite login URL`);
+  assert.equal(
+    result.loginUrl,
+    `${origin}/login?intent=technician&email=qa%40example.com`,
+    `${origin} should preserve the exact allowed invite origin, login route, intent, and email`,
+  );
+}
+
+const defaultClientInviteResult = validateAccessInvitePreflight(
+  "corporate_partner",
+  "partner@example.com",
+  null,
+);
+assert.equal(defaultClientInviteResult.ok, true, "non-browser invite helper should use app origin");
+assert.equal(
+  defaultClientInviteResult.loginUrl,
+  "https://app.bloomjoyusa.com/login?intent=corporate_partner&email=partner%40example.com",
+);
+
+const rejectedClientInviteOrigins = [
+  "https://www.bloomjoyusa.com",
+  "http://app.bloomjoyusa.com",
+  "https://example.com",
+  "http://bloomjoy-hub-git-cp-uat-challenge-bloomjoy.vercel.app",
+  "https://bloomjoy-hub-git-cp-uat-challenge-bloomjoy.vercel.app.evil.test",
+];
+
+for (const origin of rejectedClientInviteOrigins) {
+  const result = validateAccessInvitePreflight(
+    "technician",
+    "qa@example.com",
+    makeLocation(origin),
+  );
+  assert.equal(result.ok, false, `${origin} should be rejected for access invite login URLs`);
+}
+
+const rejectedSpoofedClientLocation = validateAccessInvitePreflight(
+  "technician",
+  "qa@example.com",
+  {
+    origin: "https://example.com",
+    hostname: "localhost",
+    protocol: "https:",
+  },
+);
+assert.equal(
+  rejectedSpoofedClientLocation.ok,
+  false,
+  "invite helper should reject mismatched origin and hostname inputs",
+);
+
+const rejectedClientInviteEmail = validateAccessInvitePreflight(
+  "technician",
+  "not-an-email",
+  makeLocation("http://localhost:8080"),
+);
+assert.equal(rejectedClientInviteEmail.ok, false, "invite helper should reject invalid emails");
 
 console.log("Edge URL allowlist checks passed");

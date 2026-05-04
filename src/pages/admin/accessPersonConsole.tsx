@@ -38,6 +38,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   fetchAccessInviteDeliveries,
   sendAccessInvite,
+  validateAccessInvitePreflight,
   type AccessInviteDelivery,
   type AccessInviteType,
 } from '@/lib/accessInvites';
@@ -97,7 +98,6 @@ import {
   type ReportingPartner,
 } from '@/lib/partnershipReporting';
 import { trackEvent } from '@/lib/analytics';
-import { CANONICAL_HOSTS } from '@/lib/appSurface';
 import { cn } from '@/lib/utils';
 
 type SelectedAccessPerson = {
@@ -196,10 +196,6 @@ type CorporatePartnerSaveConfirmation = {
   inviteOutcome: CorporatePartnerInviteOutcome;
   inviteMessage: string;
 };
-
-type AccessInvitePreflight =
-  | { ok: true; targetEmail: string; loginUrl: string }
-  | { ok: false; message: string };
 
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
@@ -320,51 +316,10 @@ const parseExpiryDateEndOfDay = (value: string): Date | null => {
 const normalizeSearch = (value: string) => value.trim().toLowerCase();
 const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const hasEmailShape = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
-const hasInviteEmailShape = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-const allowedAccessInviteLoginOrigin = `https://${CANONICAL_HOSTS.app}`;
 const normalizeLauncherPreset = (value: string | undefined): AccessLauncherPreset | undefined =>
   value && accessLauncherPresetKeys.has(value as AccessLauncherPreset)
     ? (value as AccessLauncherPreset)
     : undefined;
-const getAccessInviteLoginUrl = (inviteType: AccessInviteType, email: string) => {
-  const params = new URLSearchParams({
-    intent: inviteType,
-    email: email.trim().toLowerCase(),
-  });
-  return `${allowedAccessInviteLoginOrigin}/login?${params.toString()}`;
-};
-const validateAccessInvitePreflight = (
-  inviteType: AccessInviteType,
-  email: string
-): AccessInvitePreflight => {
-  const targetEmail = normalizeSearch(email);
-  if (!hasInviteEmailShape(targetEmail)) {
-    return { ok: false, message: 'Enter a valid invite email before saving access.' };
-  }
-
-  try {
-    const loginUrl = getAccessInviteLoginUrl(inviteType, targetEmail);
-    const parsedUrl = new URL(loginUrl);
-    const isAllowedOrigin = parsedUrl.origin === allowedAccessInviteLoginOrigin;
-    const hasExpectedLoginRoute = parsedUrl.pathname === '/login';
-    const hasExpectedInviteIntent = parsedUrl.searchParams.get('intent') === inviteType;
-    const hasExpectedEmail = parsedUrl.searchParams.get('email') === targetEmail;
-
-    if (!isAllowedOrigin || !hasExpectedLoginRoute || !hasExpectedInviteIntent || !hasExpectedEmail) {
-      return {
-        ok: false,
-        message: 'Unable to create a valid Bloomjoy invite login URL before saving access.',
-      };
-    }
-
-    return { ok: true, targetEmail, loginUrl };
-  } catch {
-    return {
-      ok: false,
-      message: 'Unable to create a valid Bloomjoy invite login URL before saving access.',
-    };
-  }
-};
 const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
