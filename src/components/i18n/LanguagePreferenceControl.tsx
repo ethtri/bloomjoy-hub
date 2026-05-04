@@ -4,12 +4,14 @@ import { cn } from '@/lib/utils';
 
 type LanguagePreferenceControlProps = {
   className?: string;
+  compact?: boolean;
   showText?: boolean;
   fullWidth?: boolean;
 };
 
 export function LanguagePreferenceControl({
   className,
+  compact = false,
   showText = false,
   fullWidth = false,
 }: LanguagePreferenceControlProps) {
@@ -34,12 +36,15 @@ export function LanguagePreferenceControl({
       <div
         className={cn(
           'inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-background p-1 shadow-[var(--shadow-sm)]',
+          compact && 'gap-0 p-0.5',
           fullWidth && !showText && 'w-full'
         )}
         role="group"
         aria-label={t('language.selectorLabel')}
       >
-        <Languages className="ml-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        {!compact && (
+          <Languages className="ml-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        )}
         {supportedLanguages.map((supportedLanguage) => {
           const isActive = supportedLanguage.code === language;
 
@@ -51,6 +56,7 @@ export function LanguagePreferenceControl({
               title={t('language.current', { language: supportedLanguage.label })}
               className={cn(
                 'min-h-8 rounded-full px-2.5 text-xs font-semibold transition-colors sm:px-3',
+                compact && 'min-h-7 min-w-9 px-2 text-[11px]',
                 isActive
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',

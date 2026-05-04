@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
@@ -114,6 +114,17 @@ type PartnerMachineHistoryRow = {
 
 const ALL_PARTNER_MACHINES = 'all';
 const PARTNER_REVENUE_SHARE_LABEL = 'Partner Revenue Share';
+const PARTNER_BLOOMJOY_REVIEW_TITLE = 'Bloomjoy review in progress';
+const PARTNER_BLOOMJOY_REVIEW_DESCRIPTION =
+  'Bloomjoy is reviewing this partner dashboard and will update this view when review is complete.';
+const PARTNER_BLOOMJOY_REVIEW_REASONS = [
+  'Some dashboard details may stay unavailable until Bloomjoy finishes review.',
+  'If access was just updated, sign out and sign back in before retrying.',
+];
+const PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE =
+  'Bloomjoy is reviewing this partner report. Export will be available when review is complete.';
+const PARTNER_BLOOMJOY_REVIEW_PERIOD_MESSAGE =
+  'Bloomjoy is reviewing this reporting period. Some details may update when review is complete.';
 
 const isReportingTabWarning = (warning: PartnerDashboardWarning) =>
   warning.severity === 'blocking';
@@ -565,8 +576,12 @@ const groupRows = <TKey extends string>(
 export default function ReportsPage() {
   const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
   const { t } = useLanguage();
-  const [activeView, setActiveView] = useState<ReportingView>('operator');
   const canUsePartnerDashboard = isSuperAdmin || isScopedAdmin || isCorporatePartner;
+  const [activeView, setActiveView] = useState<ReportingView>(
+    isCorporatePartner ? 'partner' : 'operator'
+  );
+  const hasAppliedCorporatePartnerDefault = useRef(isCorporatePartner);
+  const partnerDashboardLabel = isCorporatePartner ? 'Partner Dashboard' : t('reports.partnerDashboard');
 
   const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
     useQuery({
@@ -580,6 +595,15 @@ export default function ReportsPage() {
       setActiveView('operator');
     }
   }, [activeView, canUsePartnerDashboard]);
+
+  useEffect(() => {
+    if (!isCorporatePartner || !canUsePartnerDashboard || hasAppliedCorporatePartnerDefault.current) {
+      return;
+    }
+
+    hasAppliedCorporatePartnerDefault.current = true;
+    setActiveView('partner');
+  }, [canUsePartnerDashboard, isCorporatePartner]);
 
   return (
     <PortalLayout>
@@ -633,7 +657,7 @@ export default function ReportsPage() {
                     {t('reports.operatorView')}
                   </ToggleGroupItem>
                   <ToggleGroupItem value="partner" className="h-9 rounded-md text-sm">
-                    {t('reports.partnerDashboard')}
+                    {partnerDashboardLabel}
                   </ToggleGroupItem>
                 </ToggleGroup>
               ) : undefined
@@ -1058,8 +1082,49 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
   );
 }
 
+type PartnerDashboardUnavailableStateProps = {
+  title: string;
+  description: string;
+  reasons: string[];
+  action?: ReactNode;
+  tone?: 'default' | 'destructive';
+};
+
+function PartnerDashboardUnavailableState({
+  title,
+  description,
+  reasons,
+  action,
+  tone = 'default',
+}: PartnerDashboardUnavailableStateProps) {
+  return (
+    <Card
+      className={cn(
+        'border-primary/15 bg-primary/5',
+        tone === 'destructive' && 'border-destructive/30 bg-destructive/5'
+      )}
+    >
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription className="text-sm leading-6 text-foreground">
+          {description}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
+          {reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+        {action && <div>{action}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function PartnerDashboardView() {
-  const { isSuperAdmin } = useAuth();
+  const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
+  const canSeeInternalPartnerWarnings = isSuperAdmin || isScopedAdmin;
   const [periodMode, setPeriodMode] = useState<PartnerPeriodMode>('weekly');
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
   const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
@@ -1361,6 +1426,9 @@ function PartnerDashboardView() {
     [preview?.warnings, selectedMachineId]
   );
   const hasBlockingWarnings = blockingWarnings.length > 0;
+  const partnerReviewWarningMessage = hasBlockingWarnings
+    ? PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE
+    : PARTNER_BLOOMJOY_REVIEW_PERIOD_MESSAGE;
   const previewFetching = selectedPreviewFetching || trendPreviewFetching;
   const trendLabel = getPartnerModeLabel(periodMode);
   const inProgressPeriodLabel = selectedPeriod?.isInProgress
@@ -1382,6 +1450,7 @@ function PartnerDashboardView() {
         : exportingPartnerFormat === 'csv'
           ? 'Preparing CSV'
           : 'Export';
+  const showNoPartnerMachines = Boolean(preview && preview.machinePeriods.length === 0);
 
   const exportPartnerReport = async (format: PartnerDashboardExportFormat) => {
     if (!preview || !currentPeriod) {
@@ -1393,7 +1462,11 @@ function PartnerDashboardView() {
       return;
     }
     if (hasBlockingWarnings) {
-      toast.error('Resolve blocking admin review items before exporting the partner report.');
+      toast.error(
+        canSeeInternalPartnerWarnings
+          ? 'Resolve blocking admin review items before exporting the partner report.'
+          : PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE
+      );
       return;
     }
 
@@ -1432,35 +1505,67 @@ function PartnerDashboardView() {
 
   if (partnershipsError) {
     return (
-      <Alert variant="destructive">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>Unable to load partner dashboard setup</AlertTitle>
-        <AlertDescription>
-          The partner dashboard uses scoped reporting setup data. Refresh or confirm this role has
-          the full machine scope for the selected partnership.
-        </AlertDescription>
-      </Alert>
+      <PartnerDashboardUnavailableState
+        title={
+          canSeeInternalPartnerWarnings
+            ? 'Partner Dashboard unavailable'
+            : PARTNER_BLOOMJOY_REVIEW_TITLE
+        }
+        description={
+          canSeeInternalPartnerWarnings
+            ? 'Bloomjoy could not confirm the partner dashboard scope for this session.'
+            : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+        }
+        reasons={
+          canSeeInternalPartnerWarnings
+            ? [
+                isCorporatePartner
+                  ? 'Corporate Partner grant: confirm this login still has an active Corporate Partner grant tied to the intended partner record.'
+                  : 'Corporate Partner grant: this session does not show a Corporate Partner portal grant.',
+                'Portal-enabled partnership: confirm the partnership is active and enabled for portal reporting.',
+                'Machines: confirm the partnership has assigned reporting machines.',
+                'Session: if access was just granted or updated, sign out and sign back in before retrying.',
+              ]
+            : PARTNER_BLOOMJOY_REVIEW_REASONS
+        }
+        tone={canSeeInternalPartnerWarnings ? 'destructive' : 'default'}
+      />
     );
   }
 
   if (partnerships.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>No active partnerships yet</CardTitle>
-          <CardDescription>
-            Add an active partnership, assign machines, and configure financial rules before the
-            dashboard can preview revenue share math.
-          </CardDescription>
-        </CardHeader>
-        {isSuperAdmin && (
-          <CardContent>
+      <PartnerDashboardUnavailableState
+        title={
+          canSeeInternalPartnerWarnings
+            ? 'Partner Dashboard unavailable'
+            : PARTNER_BLOOMJOY_REVIEW_TITLE
+        }
+        description={
+          canSeeInternalPartnerWarnings
+            ? isCorporatePartner
+              ? 'This Corporate Partner login is recognized, but no dashboard-ready partnership is visible yet.'
+              : 'No active partner dashboard scope is visible for this role.'
+            : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+        }
+        reasons={
+          canSeeInternalPartnerWarnings
+            ? [
+                'Corporate Partner grant: confirm the grant is active and connected to the right partner record.',
+                'Portal-enabled partnership: confirm an active partnership is enabled for portal reporting.',
+                'Machines: confirm at least one reporting machine is assigned to that partnership.',
+                'Session: if Bloomjoy just changed access, sign out and sign back in to refresh the portal session.',
+              ]
+            : PARTNER_BLOOMJOY_REVIEW_REASONS
+        }
+        action={
+          isSuperAdmin ? (
             <Button asChild>
               <Link to="/admin/partnerships">Open partnership setup</Link>
             </Button>
-          </CardContent>
-        )}
-      </Card>
+          ) : undefined
+        }
+      />
     );
   }
 
@@ -1640,11 +1745,23 @@ function PartnerDashboardView() {
       {previewError && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Unable to load partner preview</AlertTitle>
+          <AlertTitle>
+            {canSeeInternalPartnerWarnings
+              ? 'Unable to load partner preview'
+              : PARTNER_BLOOMJOY_REVIEW_TITLE}
+          </AlertTitle>
           <AlertDescription>
-            {previewError instanceof Error
-              ? previewError.message
-              : 'Check the partnership setup and try again.'}
+            {canSeeInternalPartnerWarnings ? (
+              <>
+                {previewError instanceof Error
+                  ? previewError.message
+                  : 'Check the partnership setup and try again.'}{' '}
+                Confirm the Corporate Partner grant, portal-enabled partnership, assigned machines,
+                and sign out and back in if access changed recently.
+              </>
+            ) : (
+              PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -1663,6 +1780,31 @@ function PartnerDashboardView() {
         <PartnerDashboardSkeleton />
       ) : preview ? (
         <>
+          {showNoPartnerMachines && (
+            <PartnerDashboardUnavailableState
+              title={
+                canSeeInternalPartnerWarnings
+                  ? 'No partner machines visible'
+                  : PARTNER_BLOOMJOY_REVIEW_TITLE
+              }
+              description={
+                canSeeInternalPartnerWarnings
+                  ? 'The Partner Dashboard opened, but this partnership has no machines visible for the selected reporting period.'
+                  : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+              }
+              reasons={
+                canSeeInternalPartnerWarnings
+                  ? [
+                      'Machines: confirm at least one reporting machine is assigned to this partnership.',
+                      'Period: if the partnership has machines but this period has no sales, try another reporting period before escalating.',
+                      'Portal-enabled partnership: confirm the partnership is active and enabled for portal reporting.',
+                      'Session: if machine access was just changed, sign out and sign back in before retrying.',
+                    ]
+                  : PARTNER_BLOOMJOY_REVIEW_REASONS
+              }
+            />
+          )}
+
           <PartnerAnswerBand
             preview={preview}
             currentPeriod={currentPeriod}
@@ -1677,39 +1819,49 @@ function PartnerDashboardView() {
             <Alert className="border-amber/20 bg-amber/10 text-foreground">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>
-                {blockingWarnings.length > 0 ? 'Report setup needs attention' : 'Period review notes'}
+                {canSeeInternalPartnerWarnings
+                  ? blockingWarnings.length > 0
+                    ? 'Report setup needs attention'
+                    : 'Period review notes'
+                  : PARTNER_BLOOMJOY_REVIEW_TITLE}
               </AlertTitle>
               <AlertDescription>
                 <div className="mt-2 flex flex-col gap-2">
-                  {blockingWarnings.length > 0 && (
-                    <div className="font-medium">
-                      Partner export is locked until blocking setup items are resolved in admin.
-                    </div>
-                  )}
-                  {blockingWarnings.slice(0, 4).map((warning, index) => (
-                    <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
-                      <Badge variant="destructive">Blocking</Badge>{' '}
-                      {warning.message}
-                    </div>
-                  ))}
-                  {blockingWarnings.length > 4 && (
-                    <div>{blockingWarnings.length - 4} more blocking warnings hidden.</div>
-                  )}
-                  {nonBlockingWarnings.slice(0, blockingWarnings.length > 0 ? 2 : 4).map((warning, index) => (
-                    <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-note-${index}`}>
-                      <Badge variant="secondary">Note</Badge>{' '}
-                      {warning.message}
-                    </div>
-                  ))}
-                  {nonBlockingWarnings.length > (blockingWarnings.length > 0 ? 2 : 4) && (
-                    <div>
-                      {nonBlockingWarnings.length - (blockingWarnings.length > 0 ? 2 : 4)} more notes hidden.
-                    </div>
-                  )}
-                  {blockingWarnings.length > 0 && isSuperAdmin && (
-                    <Button asChild variant="outline" size="sm" className="w-fit">
-                      <Link to="/admin/partnerships">Open admin setup</Link>
-                    </Button>
+                  {canSeeInternalPartnerWarnings ? (
+                    <>
+                      {blockingWarnings.length > 0 && (
+                        <div className="font-medium">
+                          Partner export is locked until blocking setup items are resolved in admin.
+                        </div>
+                      )}
+                      {blockingWarnings.slice(0, 4).map((warning, index) => (
+                        <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-${index}`}>
+                          <Badge variant="destructive">Blocking</Badge>{' '}
+                          {warning.message}
+                        </div>
+                      ))}
+                      {blockingWarnings.length > 4 && (
+                        <div>{blockingWarnings.length - 4} more blocking warnings hidden.</div>
+                      )}
+                      {nonBlockingWarnings.slice(0, blockingWarnings.length > 0 ? 2 : 4).map((warning, index) => (
+                        <div key={`${warning.warningType}-${warning.machineId ?? 'scope'}-note-${index}`}>
+                          <Badge variant="secondary">Note</Badge>{' '}
+                          {warning.message}
+                        </div>
+                      ))}
+                      {nonBlockingWarnings.length > (blockingWarnings.length > 0 ? 2 : 4) && (
+                        <div>
+                          {nonBlockingWarnings.length - (blockingWarnings.length > 0 ? 2 : 4)} more notes hidden.
+                        </div>
+                      )}
+                      {blockingWarnings.length > 0 && isSuperAdmin && (
+                        <Button asChild variant="outline" size="sm" className="w-fit">
+                          <Link to="/admin/partnerships">Open admin setup</Link>
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <div className="font-medium">{partnerReviewWarningMessage}</div>
                   )}
                 </div>
               </AlertDescription>

@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Handshake } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { NavLink } from '@/components/NavLink';
 import {
@@ -52,6 +52,11 @@ export function PortalLayout({ children }: PortalLayoutProps) {
       : portalAccessTier === 'training'
         ? t('portal.trainingAccess')
         : t('portal.baselineAccess');
+  const AccessStatusIcon = isCorporatePartner ? Handshake : currentDestination.icon;
+  const getDestinationLabel = (destination: (typeof portalDestinations)[number]) =>
+    isCorporatePartner && destination.href === '/portal/account'
+      ? 'Account Settings'
+      : t(destination.labelKey);
 
   return (
     <AppLayout>
@@ -66,19 +71,29 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                 <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
                   {t('portal.description')}
                 </p>
+                {isCorporatePartner && (
+                  <div className="mt-3 flex md:hidden">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                      <Handshake className="h-3.5 w-3.5" aria-hidden="true" />
+                      Corporate Partner portal
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="hidden md:flex">
                 <span
                   className={cn(
                     'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium',
-                    portalAccessTier === 'plus'
+                    isCorporatePartner
+                      ? 'border-primary/20 bg-primary/10 text-primary'
+                      : portalAccessTier === 'plus'
                       ? 'border-sage/20 bg-sage-light text-sage'
                       : portalAccessTier === 'training'
                         ? 'border-amber/30 bg-amber/10 text-amber'
                         : 'border-primary/20 bg-primary/10 text-primary'
                   )}
                 >
-                  <currentDestination.icon className="h-4 w-4" />
+                  <AccessStatusIcon className="h-4 w-4" />
                   {accessStatusLabel}
                 </span>
               </div>
@@ -95,7 +110,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                             {t('portal.currentSection')}
                           </span>
                           <span className="block truncate font-semibold text-foreground">
-                            {t(currentDestination.labelKey)}
+                            {getDestinationLabel(currentDestination)}
                           </span>
                         </span>
                       </span>
@@ -149,7 +164,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                               <span className="min-w-0 flex-1">
                                 <span className="flex flex-wrap items-center gap-2">
                                   <span className="font-semibold text-foreground">
-                                    {t(destination.labelKey)}
+                                    {getDestinationLabel(destination)}
                                   </span>
                                   {locked && (
                                     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
@@ -190,7 +205,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
                   >
                     <span className="flex items-center gap-2">
                       <destination.icon className="h-4 w-4" />
-                      <span>{t(destination.labelKey)}</span>
+                      <span>{getDestinationLabel(destination)}</span>
                       {locked && (
                         <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
                           {t(getAccessLevelLabelKey(destination.access))}

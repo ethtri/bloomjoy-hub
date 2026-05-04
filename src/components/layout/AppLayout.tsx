@@ -225,7 +225,15 @@ const isActiveAdminDestination = (pathname: string, destination: AdminDestinatio
     : pathname === destination.href || pathname.startsWith(`${destination.href}/`);
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const { isAdmin, isAuthenticated, isSuperAdmin, portalAccessTier, signOut, user } = useAuth();
+  const {
+    isAdmin,
+    isAuthenticated,
+    isCorporatePartner,
+    isSuperAdmin,
+    portalAccessTier,
+    signOut,
+    user,
+  } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
@@ -234,6 +242,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const marketingHomeUrl = getCanonicalUrlForSurface('marketing', '/', '', '', currentLocation);
   const accountUrl = '/portal/account';
   const showAccountLink = portalAccessTier !== 'training';
+  const accountLinkLabel = isCorporatePartner ? 'Account Settings' : t('app.account');
   const homeUrl = isAuthenticated ? '/portal' : '/login';
   const isAdminPath = location.pathname.startsWith('/admin');
   const signedInEmail = user?.email ?? '';
@@ -245,6 +254,19 @@ export function AppLayout({ children }: AppLayoutProps) {
   const handleSignOut = async () => {
     await signOut();
     navigate('/login', { replace: true });
+  };
+
+  const renderCorporatePartnerBadge = () => {
+    if (!isAuthenticated || !isCorporatePartner) {
+      return null;
+    }
+
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
+        <Handshake className="h-3.5 w-3.5" aria-hidden="true" />
+        Corporate Partner
+      </span>
+    );
   };
 
   const renderWorkspaceLinks = (mobile = false) =>
@@ -396,7 +418,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             <DropdownMenuItem asChild>
               <Link to={accountUrl} className="cursor-pointer gap-2">
                 <Settings className="h-4 w-4" />
-                {t('app.account')}
+                {accountLinkLabel}
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -437,14 +459,18 @@ export function AppLayout({ children }: AppLayoutProps) {
                 <p className="truncate font-display text-base font-semibold text-foreground sm:text-lg">
                   {appContext.title}
                 </p>
-                <p className="hidden truncate text-sm text-muted-foreground sm:block">
-                  {user?.email || appContext.description}
-                </p>
+                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
+                  {renderCorporatePartnerBadge()}
+                  <span className="hidden truncate text-sm text-muted-foreground sm:block">
+                    {user?.email || appContext.description}
+                  </span>
+                </div>
               </div>
             </Link>
 
             <div className="hidden items-center gap-3 md:flex">
               {isAuthenticated && <nav className="flex items-center gap-2">{renderWorkspaceLinks()}</nav>}
+              {!isAuthenticated && <LanguagePreferenceControl compact />}
 
               <a
                 href={marketingHomeUrl}
@@ -465,7 +491,8 @@ export function AppLayout({ children }: AppLayoutProps) {
               )}
             </div>
 
-            <div className="md:hidden">
+            <div className="flex items-center gap-2 md:hidden">
+              {!isAuthenticated && <LanguagePreferenceControl className="shrink-0" compact />}
               <Sheet>
                 <SheetTrigger asChild>
                   <button
@@ -485,7 +512,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                     <SheetDescription>{appContext.description}</SheetDescription>
                   </SheetHeader>
                   <div className="mt-6 space-y-3">
-                    <LanguagePreferenceControl fullWidth />
+                    {!isAuthenticated && <LanguagePreferenceControl fullWidth />}
                     {isAuthenticated && renderWorkspaceLinks(true)}
                     {isAuthenticated && isAdmin && isAdminPath && renderMobileAdminLinks()}
                     {isAuthenticated && showAccountLink && (
@@ -494,7 +521,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                           to={accountUrl}
                           className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
                         >
-                          <span>{t('app.account')}</span>
+                          <span>{accountLinkLabel}</span>
                           <User className="h-4 w-4" />
                         </Link>
                       </SheetClose>
