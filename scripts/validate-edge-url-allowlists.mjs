@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { validateAccessInvitePreflight } from "../src/lib/accessInviteLoginUrls.ts";
+import { validateAccessInvitePreflight } from "../src/lib/accessInviteLoginUrls.mjs";
 import { validateBrowserUrl } from "../supabase/functions/_shared/browser-url-allowlist.mjs";
 
 const allowedLocalUrls = [
