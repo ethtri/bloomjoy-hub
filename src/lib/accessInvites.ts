@@ -1,5 +1,11 @@
 import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
+export {
+  getAccessInviteLoginUrl,
+  resolveAccessInviteLoginOrigin,
+  validateAccessInvitePreflight,
+  type AccessInvitePreflight,
+} from '@/lib/accessInviteLoginUrls';
 
 export type AccessInviteType = 'corporate_partner' | 'technician';
 export type AccessInviteSourceType = 'corporate_partner_membership' | 'technician_grant';
