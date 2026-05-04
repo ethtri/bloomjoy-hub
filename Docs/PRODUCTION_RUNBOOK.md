@@ -26,8 +26,8 @@ Set the following values before launch.
 | `STRIPE_STICKS_MEMBER_PRICE_ID` | Server-only | `stripe-sticks-checkout` | Stripe member sticks price config | Billing owner |
 | `STRIPE_PLUS_PRICE_ID` | Server-only | `stripe-plus-checkout` | Stripe product/price config | Billing owner |
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
-| `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake` | Resend API key | Technical owner |
-| `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake` | Verified sender in Resend | Technical owner |
+| `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite` | Resend API key | Technical owner |
+| `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite` | Verified sender in Resend | Technical owner |
 | `INTERNAL_NOTIFICATION_RECIPIENTS` | Server-only | `stripe-webhook`, `lead-submission-intake` | Internal recipient list (comma-separated) | Release owner |
 | `WECOM_CORP_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
@@ -35,7 +35,7 @@ Set the following values before launch.
 | `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
 | `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions, `refund-adjustment-sync` | Supabase project URL | Technical owner |
 | `SUPABASE_ANON_KEY` | Server-only | `stripe-sugar-checkout`, `stripe-plus-checkout`, `stripe-customer-portal` | Supabase project anon key | Technical owner |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake`, `refund-adjustment-sync` | Supabase service role key | Technical owner |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake`, `access-invite`, `refund-adjustment-sync` | Supabase service role key | Technical owner |
 | `REPORT_SCHEDULER_SECRET` | Server-only | `sales-report-scheduler`, `refund-adjustment-sync` | Generated secret stored in function secrets | Technical owner |
 | `REPORTING_INGEST_TOKEN` | Server-only + GitHub Actions secret | `sunze-sales-ingest`, Sunze sync workflow | Generated ingest token | Technical owner |
 | `REPORTING_ROW_HASH_SALT` | Server-only | `sunze-sales-ingest` | Generated secret stored in function secrets | Technical owner |
@@ -53,6 +53,7 @@ Set the following values before launch.
 
 Security rule:
 - Never place secrets in `VITE_` variables.
+- Leave `BLOOMJOY_ALLOWED_VERCEL_PREVIEW_ORIGINS` unset in production. For temporary preview/UAT invite testing only, set it to comma-separated exact `https://<preview>.vercel.app` origins that should be allowed in invite login links.
 
 ## 3) Pre-launch checklist (T-24h)
 - [ ] Launch freeze announced (no unrelated merges to `main` during launch window).
@@ -142,7 +143,7 @@ Refund source note:
 - Add GitHub secrets `REFUND_ADJUSTMENT_SYNC_URL` and `REFUND_ADJUSTMENT_SYNC_TOKEN`. The token should match `REPORT_SCHEDULER_SECRET`; do not use the Supabase service-role key. Manual runs fail fast if they are missing. Scheduled runs skip until the repository variable `REFUND_ADJUSTMENT_SYNC_ENABLED=true`.
 
 ### Step C: Deploy Supabase Edge Functions
-Deploy all current checkout, submission, and reporting functions:
+Deploy all current checkout, submission, invite, and reporting functions:
 
 Before deploying reporting functions, confirm Step A has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
@@ -156,6 +157,7 @@ supabase functions deploy lead-submission-intake --no-verify-jwt
 supabase functions deploy custom-sticks-artwork-upload --no-verify-jwt
 supabase functions deploy custom-sticks-artwork-link --no-verify-jwt
 supabase functions deploy support-request-intake --no-verify-jwt
+supabase functions deploy access-invite --no-verify-jwt
 supabase functions deploy sales-report-export --no-verify-jwt
 supabase functions deploy partner-report-export --no-verify-jwt
 supabase functions deploy sales-report-scheduler --no-verify-jwt
@@ -258,6 +260,7 @@ Rollback order:
      - `stripe-customer-portal`
      - `stripe-webhook`
      - `support-request-intake`
+     - `access-invite`
 3) Secrets:
    - Restore prior secrets only if rotation caused failure.
 4) Database:
