@@ -6,6 +6,11 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## P0 admin permission-boundary QA (2026-05-04)
+- PR `#379` live security QA applied the pending Supabase migrations for refund guardrails and admin/Corporate Partner permission-boundary repair, then restored the missing `admin_revoke_super_admin` RPC with a forward-only migration.
+- Controlled live validation used disposable QA-only personas and sacrificial reporting/partner/Technician rows. The validator passed all static checks and all live negative RPC checks for Scoped Admin, Corporate Partner, Technician, Reporting User, and Baseline users.
+- Before/after readback confirmed the failed negative calls did not create out-of-scope reporting access, did not add out-of-scope Technician machine access, did not alter the manageable Technician grant, and did not revoke the stale/out-of-scope test grant. Disposable QA users and rows were cleaned up after the run.
+
 ## Production admin asset loading guard (2026-04-27)
 - P0 issue `#246` was traced to stale lazy-loaded chunk URLs under `/assets/*` being served through the SPA fallback as `200 text/html` after the referenced hashed files were no longer present in the active Vercel deployment.
 - Current production `/admin/access` HTML references fresh chunk hashes, and those current chunks return `application/javascript`; the repo hardening adds a Vercel guard so missing `/assets/*` files return `404` instead of `index.html`.
