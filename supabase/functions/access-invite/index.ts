@@ -40,9 +40,87 @@ type InviteSource = {
   accessSummary: string;
 };
 
+type InviteAttempt = {
+  inviteType: InviteType;
+  sourceType: SourceType;
+  sourceId: string;
+  targetEmail: string;
+  targetUserId?: string | null;
+};
+
+type DeliveryStatus = "sent" | "failed";
+type AuditAction = "access_invite.sent" | "access_invite.failed";
+type InviteEvidenceMeta = Record<string, unknown>;
+type EvidenceTarget = "access_invite_deliveries" | "admin_audit_log";
+type EvidenceWriteFailure = {
+  target: EvidenceTarget;
+  message: string;
+};
+
+const sourceTypeByInviteType: Record<InviteType, SourceType> = {
+  corporate_partner: "corporate_partner_membership",
+  technician: "technician_grant",
+};
+const maxEvidenceMessageLength = 500;
+const sentEvidenceFailureMessage =
+  "Invite email may have been sent, but Bloomjoy could not record delivery evidence. Please verify delivery and audit logs before retrying.";
+
 const sanitizeText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
 const normalizeEmail = (value: unknown) => sanitizeText(value).toLowerCase();
+
+class InviteEvidenceError extends Error {
+  failedTargets: EvidenceTarget[];
+
+  constructor(status: DeliveryStatus, failures: EvidenceWriteFailure[]) {
+    const failedTargets = [...new Set(failures.map((failure) => failure.target))];
+    super(`Unable to record access invite ${status} evidence in ${failedTargets.join(" and ")}.`);
+    this.name = "InviteEvidenceError";
+    this.failedTargets = failedTargets;
+  }
+}
+
+const sanitizeErrorEvidence = (value: unknown, fallback = "Unable to send access invite.") => {
+  const raw = value instanceof Error
+    ? value.message
+    : typeof value === "string"
+      ? value
+      : fallback;
+  const message = (raw || fallback)
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/(api[_-]?key["':=\s]+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
+    .slice(0, maxEvidenceMessageLength);
+
+  return message || fallback;
+};
+
+const getLoginOriginMeta = (loginUrlResult: {
+  url: string;
+  isProductionOrigin?: boolean;
+  isLocalOrigin?: boolean;
+  isPreviewOrigin?: boolean;
+}): InviteEvidenceMeta => {
+  let loginOrigin = "unknown";
+  try {
+    loginOrigin = new URL(loginUrlResult.url).origin;
+  } catch {
+    loginOrigin = "unparseable";
+  }
+
+  const loginOriginType = loginUrlResult.isProductionOrigin
+    ? "production"
+    : loginUrlResult.isLocalOrigin
+      ? "local"
+      : loginUrlResult.isPreviewOrigin
+        ? "preview"
+        : "unknown";
+
+  return {
+    login_origin: loginOrigin,
+    login_origin_type: loginOriginType,
+  };
+};
 
 const escapeHtml = (value: string): string =>
   value
@@ -56,9 +134,7 @@ const getStringValue = (record: Record<string, unknown>, key: string) =>
   typeof record[key] === "string" ? record[key] as string : "";
 
 const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: string) => {
-  const subject = source.inviteType === "corporate_partner"
-    ? "Bloomjoy Corporate Partner access"
-    : "Bloomjoy Technician access";
+  const subject = "Bloomjoy portal invitation";
   const inviter = actorEmail || "A Bloomjoy administrator";
 
   const text = [
@@ -155,10 +231,10 @@ async function getCorporatePartnerSource(sourceId: string, targetEmail: string):
     sourceId,
     targetEmail,
     targetUserId: getStringValue(membershipRecord, "user_id") || null,
-    title: "Corporate Partner access is ready",
-    body: `You have been added as a Corporate Partner for ${partnerName}.`,
+    title: "Your Bloomjoy portal invitation",
+    body: `You have been invited to access Bloomjoy Hub for ${partnerName}.`,
     accessSummary:
-      "Corporate Partner access can include partner reporting, training, support, member supply pricing, and Technician management for eligible portal-enabled partnership machines.",
+      "After you sign in, Bloomjoy Hub will show the tools and information available to your account.",
   };
 }
 
@@ -209,45 +285,115 @@ async function getTechnicianSource(sourceId: string, targetEmail: string): Promi
     sourceId,
     targetEmail,
     targetUserId: getStringValue(grantRecord, "technician_user_id") || null,
-    title: "Technician access is ready",
-    body: `You have been added as a Technician for ${accountName}.`,
+    title: "Your Bloomjoy portal invitation",
+    body: `You have been invited to access Bloomjoy Hub for ${accountName}.`,
     accessSummary:
-      "Technician access includes Bloomjoy training and, when assigned, reporting for the specific machine selected by the account owner or Bloomjoy admin.",
+      "After you sign in, Bloomjoy Hub will show the tools and information available to your account.",
   };
 }
 
-async function insertDelivery(source: InviteSource, actorUserId: string, status: "sent" | "failed", errorMessage?: string) {
-  if (!supabase) return;
+async function recordInviteEvidence(
+  attempt: InviteAttempt,
+  actorUserId: string,
+  status: DeliveryStatus,
+  meta: InviteEvidenceMeta = {},
+  errorMessage?: string
+) {
+  if (!supabase) {
+    throw new InviteEvidenceError(status, [
+      { target: "access_invite_deliveries", message: "Supabase is not configured." },
+      { target: "admin_audit_log", message: "Supabase is not configured." },
+    ]);
+  }
 
-  await supabase.from("access_invite_deliveries").insert({
-    invite_type: source.inviteType,
-    source_type: source.sourceType,
-    source_id: source.sourceId,
-    target_email: source.targetEmail,
-    sent_by: actorUserId,
+  const safeErrorMessage = errorMessage ? sanitizeErrorEvidence(errorMessage) : undefined;
+  const action: AuditAction = status === "sent" ? "access_invite.sent" : "access_invite.failed";
+  const auditMeta = {
+    invite_type: attempt.inviteType,
+    source_type: attempt.sourceType,
+    source_id: attempt.sourceId,
+    target_email: attempt.targetEmail,
     delivery_status: status,
-    error_message: errorMessage ?? null,
-  });
+    ...meta,
+    ...(safeErrorMessage ? { error_message: safeErrorMessage } : {}),
+  };
+
+  const evidenceWrites: Array<{ target: EvidenceTarget; write: PromiseLike<void> }> = [
+    {
+      target: "access_invite_deliveries",
+      write: supabase.from("access_invite_deliveries").insert({
+        invite_type: attempt.inviteType,
+        source_type: attempt.sourceType,
+        source_id: attempt.sourceId,
+        target_email: attempt.targetEmail,
+        sent_by: actorUserId,
+        delivery_status: status,
+        error_message: safeErrorMessage ?? null,
+      }).then(({ error }) => {
+        if (error) throw error;
+      }),
+    },
+    {
+      target: "admin_audit_log",
+      write: supabase.from("admin_audit_log").insert({
+        actor_user_id: actorUserId,
+        action,
+        entity_type: attempt.sourceType,
+        entity_id: attempt.sourceId,
+        target_user_id: attempt.targetUserId ?? null,
+        before: {},
+        after: {},
+        meta: auditMeta,
+      }).then(({ error }) => {
+        if (error) throw error;
+      }),
+    },
+  ];
+
+  const writes = await Promise.allSettled(evidenceWrites.map(({ write }) => write));
+  const failedWrites = writes.flatMap((result, index): EvidenceWriteFailure[] =>
+    result.status === "rejected"
+      ? [{
+          target: evidenceWrites[index].target,
+          message: sanitizeErrorEvidence(result.reason, "Unable to record invite evidence."),
+        }]
+      : []
+  );
+
+  if (failedWrites.length > 0) {
+    console.warn("access-invite evidence write failed", {
+      failed_targets: failedWrites.map((failure) => failure.target),
+      failures: failedWrites,
+      source_type: attempt.sourceType,
+      source_id: attempt.sourceId,
+      delivery_status: status,
+    });
+    throw new InviteEvidenceError(status, failedWrites);
+  }
 }
 
-async function insertAudit(
-  source: InviteSource,
+async function recordFailureEvidence(
+  attempt: InviteAttempt,
   actorUserId: string,
-  action: "access_invite.sent" | "access_invite.failed",
-  meta: Record<string, unknown>
+  meta: InviteEvidenceMeta,
+  failure: unknown,
+  fallback: string,
 ) {
-  if (!supabase) return;
+  const message = sanitizeErrorEvidence(failure, fallback);
 
-  await supabase.from("admin_audit_log").insert({
-    actor_user_id: actorUserId,
-    action,
-    entity_type: source.sourceType,
-    entity_id: source.sourceId,
-    target_user_id: source.targetUserId,
-    before: {},
-    after: {},
-    meta,
-  });
+  try {
+    await recordInviteEvidence(attempt, actorUserId, "failed", meta, message);
+  } catch (evidenceError) {
+    console.error("access-invite failure evidence unavailable", {
+      original_error_message: message,
+      evidence_error_message: sanitizeErrorEvidence(
+        evidenceError,
+        "Unable to record invite failure evidence.",
+      ),
+    });
+  }
+
+  return message;
 }
 
 serve(async (req) => {
@@ -302,6 +448,7 @@ serve(async (req) => {
     const loginUrlResult = validateBrowserUrl(body?.loginUrl, {
       label: "login URL",
       fallbackUrl: fallbackLoginUrl,
+      allowConfiguredPreviewOrigins: true,
     });
 
     if (!["corporate_partner", "technician"].includes(inviteType)) {
@@ -325,16 +472,45 @@ serve(async (req) => {
       });
     }
 
+    const inviteAttempt: InviteAttempt = {
+      inviteType,
+      sourceType: sourceTypeByInviteType[inviteType],
+      sourceId,
+      targetEmail,
+    };
+
     if (!loginUrlResult.ok) {
+      await recordFailureEvidence(
+        inviteAttempt,
+        user.id,
+        { login_origin_type: "invalid" },
+        loginUrlResult.error,
+        "Login URL is invalid.",
+      );
+
       return new Response(JSON.stringify({ error: loginUrlResult.error }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const source = inviteType === "corporate_partner"
-      ? await getCorporatePartnerSource(sourceId, targetEmail)
-      : await getTechnicianSource(sourceId, targetEmail);
+    const loginOriginMeta = getLoginOriginMeta(loginUrlResult);
+    let source: InviteSource;
+    try {
+      source = inviteType === "corporate_partner"
+        ? await getCorporatePartnerSource(sourceId, targetEmail)
+        : await getTechnicianSource(sourceId, targetEmail);
+    } catch (sourceError) {
+      await recordFailureEvidence(
+        inviteAttempt,
+        user.id,
+        loginOriginMeta,
+        sourceError,
+        "Unable to load invite source.",
+      );
+      throw sourceError;
+    }
+
     const email = buildInviteEmail(source, loginUrlResult.url, normalizeEmail(user.email));
 
     try {
@@ -345,37 +521,40 @@ serve(async (req) => {
         html: email.html,
       });
     } catch (sendError) {
-      const message = sendError instanceof Error ? sendError.message : "Unable to send invite email.";
-      await insertDelivery(source, user.id, "failed", message);
-      await insertAudit(source, user.id, "access_invite.failed", {
-        invite_type: source.inviteType,
-        source_type: source.sourceType,
-        source_id: source.sourceId,
-        target_email: source.targetEmail,
-        delivery_status: "failed",
-        error_message: message,
-      });
-      throw sendError;
+      const message = await recordFailureEvidence(
+        source,
+        user.id,
+        loginOriginMeta,
+        sendError,
+        "Unable to send invite email.",
+      );
+      throw new Error(message);
     }
 
-    await insertDelivery(source, user.id, "sent");
-    await insertAudit(source, user.id, "access_invite.sent", {
-      invite_type: source.inviteType,
-      source_type: source.sourceType,
-      source_id: source.sourceId,
-      target_email: source.targetEmail,
-      delivery_status: "sent",
-    });
+    try {
+      await recordInviteEvidence(source, user.id, "sent", loginOriginMeta);
+    } catch (evidenceError) {
+      console.error("access-invite sent evidence unavailable", {
+        evidence_error_message: sanitizeErrorEvidence(
+          evidenceError,
+          "Unable to record invite sent evidence.",
+        ),
+        source_type: source.sourceType,
+        source_id: source.sourceId,
+      });
+
+      return new Response(JSON.stringify({ error: sentEvidenceFailureMessage }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     return new Response(JSON.stringify({ ok: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("access-invite error", error);
-    const message =
-      error instanceof Error && error.message
-        ? error.message
-        : "Unable to send access invite.";
+    const message = sanitizeErrorEvidence(error, "Unable to send access invite.");
+    console.error("access-invite error", message);
 
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
