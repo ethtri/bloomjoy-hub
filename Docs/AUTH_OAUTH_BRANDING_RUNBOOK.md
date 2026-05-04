@@ -2,7 +2,7 @@
 
 Purpose: make Google sign-in show Bloomjoy branding and move OAuth callbacks off `<project-ref>.supabase.co` to a Bloomjoy-owned auth subdomain.
 
-Last updated: 2026-03-22
+Last updated: 2026-05-04
 
 ## 1) Prerequisites
 - Domain access for Bloomjoy DNS (to create CNAME/TXT records).
@@ -11,6 +11,7 @@ Last updated: 2026-03-22
 - Supabase custom domain add-on enabled (required by Supabase to use custom auth hostname).
 - App URLs decided in advance:
   - Local app URL: `http://localhost:8080` (or your active Vite port)
+  - Vercel preview URL pattern: `https://*-snapcase.vercel.app/**`
   - Production operator app URL (canonical): `https://app.bloomjoyusa.com`
   - Production marketing URL: `https://www.bloomjoyusa.com`
   - Auth hostname target (recommended): `auth.bloomjoyusa.com`
@@ -33,6 +34,7 @@ Record status as `Not started`, `In progress`, `Done`, or `Blocked`.
 - Redirect URLs used by app flows:
   - `http://localhost:8080/portal`
   - `http://localhost:8080/reset-password`
+  - `https://*-snapcase.vercel.app/**` for Vercel preview UAT
   - `https://app.bloomjoyusa.com/portal`
   - `https://app.bloomjoyusa.com/reset-password`
 
@@ -57,6 +59,7 @@ Use these exact values when configuring Google OAuth + Supabase auth settings:
     - `http://localhost:8080/login`
     - `http://localhost:8080/portal`
     - `http://localhost:8080/reset-password`
+    - `https://*-snapcase.vercel.app/**`
     - `https://app.bloomjoyusa.com`
     - `https://app.bloomjoyusa.com/login`
     - `https://app.bloomjoyusa.com/portal`
@@ -144,6 +147,7 @@ Supabase Dashboard -> Authentication:
   - `http://localhost:8080/login`
   - `http://localhost:8080/portal`
   - `http://localhost:8080/reset-password`
+  - `https://*-snapcase.vercel.app/**`
   - `https://app.bloomjoyusa.com`
   - `https://app.bloomjoyusa.com/login`
   - `https://app.bloomjoyusa.com/portal`
@@ -160,8 +164,9 @@ Supabase Dashboard -> Authentication:
 - Do not commit production secrets or local `.env` files.
 
 Repo auth redirect behavior:
-- Login and Google auth redirects use the canonical app surface and route to `https://app.bloomjoyusa.com/portal`.
-- Password recovery redirects use the canonical app surface and route to `https://app.bloomjoyusa.com/reset-password`.
+- On production hosts, login and Google auth redirects use the canonical app surface and route to `https://app.bloomjoyusa.com/portal`.
+- On production hosts, password recovery redirects use the canonical app surface and route to `https://app.bloomjoyusa.com/reset-password`.
+- Vercel preview hosts ending in `.vercel.app` intentionally keep the active preview origin, so preview OAuth and magic-link flows require the Supabase Additional Redirect URL pattern `https://*-snapcase.vercel.app/**`.
 - If Google sign-in lands on bare `http://localhost:3000/#access_token=...`, the fallback is coming from Supabase project settings, not this repo's redirect helper.
 
 ## 8) Verification checklist
@@ -171,6 +176,7 @@ Repo auth redirect behavior:
   - [ ] OAuth callback returns to `/portal` and session is created.
 - Deployed environment:
   - [ ] Repeat verification on `https://app.bloomjoyusa.com/login`.
+  - [ ] For Vercel preview UAT, repeat verification from the PR preview `/login` URL and confirm the final browser URL stays on the same preview host at `/portal` instead of `https://app.bloomjoyusa.com/portal`.
   - [ ] Browser network trace shows callback host `auth.bloomjoyusa.com` (not `<PROJECT_REF>.supabase.co`).
   - [ ] Final post-auth browser URL is `https://app.bloomjoyusa.com/portal` (not `http://localhost:3000`).
   - [ ] No auth-console errors during sign-in.
@@ -203,6 +209,14 @@ Repo auth redirect behavior:
   - Set Supabase Site URL to `https://app.bloomjoyusa.com`.
   - Add `https://app.bloomjoyusa.com`, `/login`, `/portal`, and `/reset-password` to Supabase redirect URLs.
   - Retry from `https://app.bloomjoyusa.com/login` and confirm the final browser URL is `https://app.bloomjoyusa.com/portal`.
+
+### Preview login returns to production
+- Cause: the active Vercel preview origin is not present in the Supabase redirect allowlist, so Supabase falls back to the configured Site URL after auth.
+- Fix:
+  - Keep Supabase Site URL set to `https://app.bloomjoyusa.com`.
+  - Add `https://*-snapcase.vercel.app/**` to Supabase Additional Redirect URLs.
+  - Retry from the PR preview `/login` URL and confirm the final browser URL stays on the same preview host at `/portal`.
+  - If the preview is protected by Vercel Deployment Protection, treat that as a separate preview-access setting, not a Supabase redirect bug.
 
 ## 10) Launch hardening follow-up
 Anything still pending for production approval/review stays tracked in issue `#77`:

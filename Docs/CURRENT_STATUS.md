@@ -6,6 +6,13 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## P0 docs/workflow closeout (2026-05-04)
+- Issue `#380` is no longer a code blocker for the Corporate Partner release. The owner added the Supabase preview redirect wildcard, non-secret OAuth initiation checks preserved preview hosts, and owner local login UAT passed.
+- Vercel Deployment Protection can still block ordinary unauthenticated preview access. Treat that as preview-access configuration, not the old Supabase redirect-to-production bug.
+- PR `#381` is superseded by the current closeout docs: the still-useful preview redirect guidance was carried into the auth runbook, auth sign-off checklist, smoke checklist, and `auth:preflight` output.
+- PR `#377` is superseded by the merged Corporate Partner release and this closeout. The durable admin-boundary and refund fallback decisions were moved into `Docs/DECISIONS.md`; its pre-release retro wording should not be merged as-is.
+- Recommended GitHub cleanup: close `#380` as resolved, close draft PRs `#381` and `#377` as superseded, and use the current closeout PR as the small documentation record.
+
 ## P0 admin permission-boundary QA (2026-05-04)
 - PR `#379` live security QA applied the pending Supabase migrations for refund guardrails and admin/Corporate Partner permission-boundary repair, then restored the missing `admin_revoke_super_admin` RPC with a forward-only migration.
 - Controlled live validation used disposable QA-only personas and sacrificial reporting/partner/Technician rows. The validator passed all static checks and all live negative RPC checks for Scoped Admin, Corporate Partner, Technician, Reporting User, and Baseline users.
