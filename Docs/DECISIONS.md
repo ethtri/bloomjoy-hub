@@ -1,5 +1,41 @@
 # Decisions
 
+## 2026-05-04 - Vercel preview auth redirect support
+Vercel preview login should return to the same preview host when Supabase Auth is used for preview UAT.
+
+**Canonical rule**
+- Keep the Supabase Site URL on the production app host: `https://app.bloomjoyusa.com`.
+- Keep `https://*-snapcase.vercel.app/**` in Supabase Additional Redirect URLs so PR previews can complete login without falling back to production.
+- Treat Vercel Deployment Protection as a separate preview-access setting. It can block ordinary executive preview access even when Supabase redirects are configured correctly.
+
+**Why this choice**
+- Preview UAT needs to test the PR deployment, not the production app.
+- The app already asks Supabase to return to the active app surface; Supabase must allow that destination before it will honor the request.
+
+## 2026-05-02 - Admin access boundary rule
+Scoped admins and partner-facing admins may manage only their current active machine/account scope.
+
+**Canonical rule**
+- Current active scope is the only manageable scope for partner/scoped admin workflows.
+- Historical, expired, inactive, removed, or otherwise out-of-scope machine/account access must not remain manageable through partner/scoped admin tools.
+- Any later expansion to historical or inactive access management needs an explicit new decision and implementation guardrails.
+
+**Why this choice**
+- Access management must reflect current authority, not old operational relationships.
+- This prevents partner/scoped admins from changing users or machines they no longer actively own.
+
+## 2026-05-02 - Refund fallback settlement rule
+Refund settlement may use Request Amount as a narrow fallback only after the rest of the required settlement context is present.
+
+**Canonical rule**
+- When refund status is `Closed`, the decision is approve-style, and the approved/refund amount is blank, Request Amount may be used as the settlement amount.
+- This fallback applies only when required settlement fields are otherwise present.
+- Rows missing date, location, status, or decision remain review-only and must not become settlement-ready through the fallback.
+
+**Why this choice**
+- Closed approved refunds often carry the business amount in Request Amount, but incomplete rows still need human review.
+- The fallback improves settlement completeness without weakening data-quality gates.
+
 ## 2026-04-29 - Business Playbook Plus tools access model
 Business Playbook public articles stay indexable. Plus-ready worksheets and operator templates may be previewed publicly, but downloadable files should live behind Plus/member access when download plumbing is implemented.
 
