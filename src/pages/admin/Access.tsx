@@ -185,7 +185,7 @@ export default function AdminAccessPage() {
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 {isSuperAdmin
                   ? 'Find a person, review their effective access, then grant, change, or revoke source-specific access with a required reason.'
-                  : 'Manage reporting visibility for the machines included in your scoped admin grant.'}
+                  : 'Manage Corporate Partner permissions and reporting visibility for the machines included in your scoped admin grant.'}
               </p>
               {isScopedAdmin && !isSuperAdmin && (
                 <Badge className="mt-3" variant="secondary">
@@ -202,11 +202,13 @@ export default function AdminAccessPage() {
                 initialLauncher={initialLauncher}
               />
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
                   Your scoped admin grant limits this workspace to assigned machines. Saving changes
-                  only affects manual reporting grants inside that scope.
+                  only affects Corporate Partner permissions and manual reporting grants inside that
+                  scope.
                 </div>
+                <PresetsTab />
                 <ReportingAccessTab />
               </div>
             )}
@@ -218,6 +220,7 @@ export default function AdminAccessPage() {
 }
 
 function PresetsTab() {
+  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [personEmail, setPersonEmail] = useState('');
   const [effectiveAccess, setEffectiveAccess] = useState<EffectiveAccessContext | null>(null);
@@ -288,6 +291,8 @@ function PresetsTab() {
   };
 
   const reloadPreviewedEffectiveAccess = async (fallbackEmail?: string) => {
+    if (!isSuperAdmin) return;
+
     const email = effectiveAccess?.email ?? fallbackEmail ?? personEmail.trim();
     if (!email) return;
 
@@ -384,8 +389,17 @@ function PresetsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 xl:grid-cols-[0.42fr_0.58fr]">
-        <div className="rounded-lg border border-border bg-card p-4">
+      {!isSuperAdmin && (
+        <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+          Scoped Admin Corporate Partner management uses only partners whose active partnership
+          machines are fully inside your current machine grant. Partners with out-of-scope
+          portal-enabled access stay hidden and blocked by RPC checks.
+        </div>
+      )}
+
+      <div className={cn('grid gap-6', isSuperAdmin && 'xl:grid-cols-[0.42fr_0.58fr]')}>
+        {isSuperAdmin && (
+          <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
               <Label htmlFor="effective-access-email">Person</Label>
@@ -467,6 +481,7 @@ function PresetsTab() {
             )}
           </div>
         </div>
+        )}
 
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -474,7 +489,7 @@ function PresetsTab() {
               <h2 className="font-semibold text-foreground">Corporate Partner preset</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Grants training, support, member supply pricing, partner reporting, machine
-                reporting, and Technician management for portal-enabled partnerships.
+                reporting, and Technician management for manageable portal-enabled partnerships.
               </p>
             </div>
             <Button variant="outline" onClick={refreshCorporatePartnerOptions} disabled={isFetching}>
@@ -510,6 +525,11 @@ function PresetsTab() {
                     </option>
                   ))}
                 </select>
+                {!isLoading && corporateOptions.partners.length === 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    No Corporate Partner records are manageable inside your current admin scope.
+                  </p>
+                )}
               </div>
               <div>
                 <Label htmlFor="corporate-partner-email">Member email</Label>

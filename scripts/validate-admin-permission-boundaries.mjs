@@ -26,8 +26,18 @@ const staticChecks = [
     patterns: [
       '{isSuperAdmin ? (',
       '<AdminPersonAccessConsole',
-      'Manage reporting visibility for the machines included in your scoped admin grant.',
+      'Manage Corporate Partner permissions and reporting visibility for the machines included in your scoped admin grant.',
       '<ReportingAccessTab />',
+    ],
+  },
+  {
+    name: 'Scoped Admin can use scoped Corporate Partner permissions panel',
+    file: 'src/pages/admin/Access.tsx',
+    patterns: [
+      '<PresetsTab />',
+      'Scoped Admin Corporate Partner management uses only partners whose active partnership',
+      'No Corporate Partner records are manageable inside your current admin scope.',
+      'only affects Corporate Partner permissions and manual reporting grants inside that',
     ],
   },
   {
@@ -95,6 +105,24 @@ const staticChecks = [
     forbiddenPatterns: [
       'revoke execute on function public.can_access_technician_grant(uuid, uuid) from public, anon, authenticated',
       'grant execute on function public.can_manage_corporate_partner_technician_grant',
+    ],
+  },
+  {
+    name: 'Scoped Admin Corporate Partner management is bounded to current active machine scope',
+    file: 'supabase/migrations/202605060001_scoped_admin_corporate_partner_permissions.sql',
+    patterns: [
+      'create or replace function public.admin_can_manage_corporate_partner',
+      'create or replace function public.admin_can_manage_corporate_partner_party',
+      'create or replace function public.admin_get_corporate_partner_access_options',
+      'create or replace function public.admin_grant_corporate_partner_membership',
+      'create or replace function public.admin_revoke_corporate_partner_membership',
+      'create or replace function public.admin_set_partnership_party_portal_access',
+      'public.admin_has_full_current_partnership_machine_scope',
+      'Scoped admin access does not include this Corporate Partner scope',
+      'Scoped admin access does not include this Corporate Partner membership',
+      'Scoped admin access does not include this partnership party',
+      "'actor_authority'",
+      "'scoped_admin'",
     ],
   },
   {
