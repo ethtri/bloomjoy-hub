@@ -41,6 +41,17 @@ const staticChecks = [
     ],
   },
   {
+    name: 'Scoped Admin can use scoped machine tax-rate panel',
+    file: 'src/pages/admin/Access.tsx',
+    patterns: [
+      '<ScopedMachineTaxRatesPanel />',
+      'Manage reporting tax assumptions only for machines inside your scoped admin grant.',
+      'fetchScopedMachineTaxSetup',
+      'saveScopedMachineTaxRate',
+      'Unable to load scoped machine tax setup.',
+    ],
+  },
+  {
     name: 'Person console global controls require Super Admin',
     file: 'src/pages/admin/accessPersonConsole.tsx',
     patterns: [
@@ -123,6 +134,21 @@ const staticChecks = [
       'Scoped admin access does not include this partnership party',
       "'actor_authority'",
       "'scoped_admin'",
+    ],
+  },
+  {
+    name: 'Scoped Admin machine tax changes are bounded to current machine scope',
+    file: 'supabase/migrations/202605060002_scoped_admin_machine_tax_rates.sql',
+    patterns: [
+      'create or replace function public.admin_get_scoped_machine_tax_setup',
+      'create or replace function public.admin_set_reporting_machine_tax_rate',
+      'actor_machine_ids := public.scoped_admin_machine_ids(actor_user_id)',
+      'Scoped admin access does not include this machine',
+      "'reporting_machine_tax_rate'",
+      "'actor_authority'",
+      "'scoped_admin'",
+      'grant execute on function public.admin_get_scoped_machine_tax_setup()',
+      'grant execute on function public.admin_set_reporting_machine_tax_rate(uuid, numeric, date, text)',
     ],
   },
   {
