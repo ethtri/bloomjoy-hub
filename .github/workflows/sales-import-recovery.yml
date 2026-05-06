@@ -1,0 +1,103 @@
+name: Sales Import Recovery
+
+on:
+  workflow_run:
+    workflows:
+      - Sales Import Sync
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Parse and validate the recovery export without writing sales facts'
+        required: false
+        default: 'true'
+      confirm_live:
+        description: 'Required as true for manual non-dry-run recovery imports'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-import-sync
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.event == 'schedule' &&
+          contains(fromJSON('["failure","cancelled","timed_out"]'), github.event.workflow_run.conclusion)
+        )
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROVIDER_LOGIN_URL: ${{ secrets.SUNZE_LOGIN_URL }}
+      PROVIDER_REPORTING_EMAIL: ${{ secrets.SUNZE_REPORTING_EMAIL }}
+      PROVIDER_REPORTING_PASSWORD: ${{ secrets.SUNZE_REPORTING_PASSWORD }}
+      REPORTING_INGEST_URL: ${{ secrets.REPORTING_INGEST_URL }}
+      REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      CONFIRM_LIVE: ${{ inputs.confirm_live || 'false' }}
+      GITHUB_EVENT_NAME: ${{ github.event_name }}
+      SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url || '' }}
+      PROVIDER_INGEST_CHUNK_SIZE: ${{ vars.SUNZE_INGEST_CHUNK_SIZE || '1000' }}
+      PROVIDER_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
+      SALES_IMPORT_STALE_HOURS: '30'
+      PROVIDER_REPORTING_TIMEZONE: America/Los_Angeles
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate parser fixture
+        run: npm run reporting:validate-provider-parser
+
+      - name: Recover sales orders
+        shell: bash
+        run: |
+          args=(--date-preset "Last 7 Days")
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$CONFIRM_LIVE" != "true" ]]; then
+            echo "Manual live sales import recovery requires confirm_live=true." >&2
+            exit 1
+          fi
+          npm run reporting:provider-sync -- "${args[@]}"
+
+      - name: Check sales import freshness
+        if: ${{ success() && env.DRY_RUN != 'true' }}
+        run: npm run reporting:provider-health -- --event freshness_check --stale-hours "$SALES_IMPORT_STALE_HOURS"
+
+      - name: Notify sales import recovery failure
+        if: ${{ failure() && env.DRY_RUN != 'true' }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            message="Manual Sales Import Recovery workflow failed before a completed import."
+          else
+            message="Automatic Sales Import Recovery also failed after a scheduled Sales Import Sync did not complete."
+            if [[ -n "$SOURCE_RUN_URL" ]]; then
+              message="$message Source run: $SOURCE_RUN_URL"
+            fi
+          fi
+          npm run reporting:provider-health -- --event failure --message "$message" --stale-hours "$SALES_IMPORT_STALE_HOURS"

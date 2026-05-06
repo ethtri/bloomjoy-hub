@@ -104,13 +104,15 @@ Use these after the sales reporting migration has been applied.
    - Add `--summary-machine-codes <comma-separated-sunze-ids>` when you need date-level counts for specific machines without logging raw order rows.
    - Daily automation remains on `Last 7 Days`. Historical backfills should use explicit monthly `--date-start` / `--date-end` chunks, then verify parsed `windowStart`/`windowEnd` before running without `--dry-run`.
    - The GitHub `Sales Import Sync` manual dispatch defaults to `dry_run=true`; manual live imports require `dry_run=false` and `confirm_live=true`.
+   - Scheduled `Sales Import Sync` runs a primary live `Last 7 Days` replay at `13:30 UTC` plus a backup replay at `17:30 UTC`. The monthly `14:45 UTC` run on the first day of the month is the only scheduled sync that defaults to `Last Month`.
+   - `Sales Import Recovery` automatically replays a live `Last 7 Days` sync when a scheduled `Sales Import Sync` run on `main` fails, is cancelled, or times out. Manual recovery dispatch defaults to `dry_run=true`; manual live recovery requires `dry_run=false` and `confirm_live=true`.
    - Sunze export now completes through Export Task List. The worker confirms the export, pins the requested task after the request timestamp, downloads it after completion, parses `.xlsx` or `.zip` files, and deletes raw downloads after parsing.
    - If a manual provider file is used for backfill, keep it outside the repo/CI artifacts and delete it after the dry-run/live ingest checks are complete.
    - Large exports are posted to ingest in chunks so historical date ranges stay below the locked endpoint row limit.
    - In GitHub Actions, dry-runs also validate the Supabase ingest and machine mappings without writing sales facts. Local dry-runs skip ingest validation unless `REPORTING_INGEST_URL` and `REPORTING_INGEST_TOKEN` are present.
-6) Run the Sunze import freshness check without touching Sunze:
+7) Run the Sunze import freshness check without touching Sunze:
    - `npm run reporting:provider-health -- --event freshness_check --stale-hours 30`
-7) In production, run the scheduled GitHub Action with encrypted repository secrets:
+8) In production, run the scheduled GitHub Action with encrypted repository secrets:
    - `SUNZE_LOGIN_URL`
    - `SUNZE_REPORTING_EMAIL`
    - `SUNZE_REPORTING_PASSWORD`
@@ -125,7 +127,7 @@ Notes:
 - GitHub encrypted secrets for the Sunze worker are `SUNZE_LOGIN_URL`, `SUNZE_REPORTING_EMAIL`, `SUNZE_REPORTING_PASSWORD`, `REPORTING_INGEST_URL`, and `REPORTING_INGEST_TOKEN`.
 - GitHub encrypted secrets for the refund sync worker are `REFUND_ADJUSTMENT_SYNC_URL` and `REFUND_ADJUSTMENT_SYNC_TOKEN`; set the repository variable `REFUND_ADJUSTMENT_SYNC_ENABLED=true` only after manual dry-run/live validation. Optional variable `REFUND_ADJUSTMENT_SYNC_ROW_LIMIT` controls page size and defaults to 50. The GitHub workflow does not receive the Google service-account JSON or Supabase service-role key.
 - Server-only Supabase function secrets for reporting are `REPORT_SCHEDULER_SECRET`, `REPORTING_INGEST_TOKEN`, `REPORTING_ROW_HASH_SALT`, `GOOGLE_REFUNDS_SHEET_ID`, optional `GOOGLE_REFUNDS_SHEET_RANGE`, and `GOOGLE_SERVICE_ACCOUNT_JSON`.
-- Sunze sync controls use optional `SUNZE_EXPECTED_MACHINE_COUNT`, `SUNZE_SYNC_STALE_HOURS=30`, and `SUNZE_REPORTING_TIMEZONE=America/Los_Angeles` by default. The scheduled sync workflow uses `Last 7 Days` daily for rolling overlap and `Last Month` monthly as a safety sweep, then performs a post-import freshness check. The separate Sunze health workflow checks again later for missed/stale imports. Set the expected count only after confirming how many machines the workflow Sunze account exposes in the top-level Machine Center; new visible machines are placed in the `/admin/reporting` imported-machine setup queue instead of blocking already configured sales.
+- Sunze sync controls use optional `SUNZE_EXPECTED_MACHINE_COUNT`, `SUNZE_SYNC_STALE_HOURS=30`, and `SUNZE_REPORTING_TIMEZONE=America/Los_Angeles` by default. The scheduled sync workflow uses primary and backup `Last 7 Days` daily replays for rolling overlap, plus `Last Month` monthly as a safety sweep, then performs a post-import freshness check. The recovery workflow automatically retries failed/cancelled/timed-out scheduled syncs before the separate Sunze health workflow checks later for missed/stale imports. Set the expected count only after confirming how many machines the workflow Sunze account exposes in the top-level Machine Center; new visible machines are placed in the `/admin/reporting` imported-machine setup queue instead of blocking already configured sales.
 - Admins set up newly discovered Sunze IDs from `/admin/reporting` by choosing the report/partnership, confirming machine label/location/type/tax, and saving once. Pending rows for unconfigured machines are quarantined in normalized form and replayed into `machine_sales_facts` after the Sunze ID is connected to a report-ready machine.
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
