@@ -123,7 +123,6 @@ as $$
           join public.reporting_partnerships partnership
             on partnership.id = party.partnership_id
           where party.partner_id = p_partner_id
-            and party.portal_access_enabled
             and partnership.status = 'active'
             and not public.admin_has_full_current_partnership_machine_scope(
               p_user_id,

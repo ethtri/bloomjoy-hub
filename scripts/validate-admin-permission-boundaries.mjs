@@ -135,6 +135,12 @@ const staticChecks = [
       "'actor_authority'",
       "'scoped_admin'",
     ],
+    forbiddenPatterns: [
+      `where party.partner_id = p_partner_id
+            and party.portal_access_enabled
+            and partnership.status = 'active'
+            and not public.admin_has_full_current_partnership_machine_scope`,
+    ],
   },
   {
     name: 'Scoped Admin machine tax changes are bounded to current machine scope',
