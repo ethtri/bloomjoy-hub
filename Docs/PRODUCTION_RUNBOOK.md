@@ -28,7 +28,7 @@ Set the following values before launch.
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite` | Resend API key | Technical owner |
 | `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite` | Verified sender in Resend | Technical owner |
-| `INTERNAL_NOTIFICATION_RECIPIENTS` | Server-only | `stripe-webhook`, `lead-submission-intake` | Internal recipient list (comma-separated) | Release owner |
+| `INTERNAL_NOTIFICATION_RECIPIENTS` | Server-only | `stripe-webhook`, `lead-submission-intake` | Additional internal recipient list; Ethan/Ian are always included by the email helper | Release owner |
 | `WECOM_CORP_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_AGENT_SECRET` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
@@ -113,7 +113,7 @@ supabase secrets set STRIPE_PLUS_PRICE_ID=...
 supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
 supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...
-supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=ops@bloomjoyusa.com,support@bloomjoyusa.com
+supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com
 supabase secrets set WECOM_CORP_ID=...
 supabase secrets set WECOM_AGENT_ID=...
 supabase secrets set WECOM_AGENT_SECRET=...
@@ -205,18 +205,20 @@ Run immediately after deploy:
 - [ ] Anonymous/non-member sugar checkout charges `$10/kg` and creates `orders` record in Supabase.
 - [ ] Bloomjoy Plus sugar checkout charges `$8/kg` and creates `orders` record in Supabase.
 - [ ] Sugar checkout test order stores customer contact, billing/shipping address, pricing tier, receipt URL, and color breakdown in `orders`.
-- [ ] Sugar checkout test order sends internal summary email to configured operations recipients.
+- [ ] Sugar checkout test order sends internal summary email to Ethan/Ian plus any configured additional recipients.
 - [ ] Sugar checkout test order sends customer confirmation email with the branded HTML confirmation layout, order summary, and receipt link.
 - [ ] Sugar checkout test order sends WeCom alert when `WECOM_*` secrets are configured and the WeCom app/network policy allows traffic from the live function egress IPs.
 - [ ] Bloomjoy branded sticks checkout test order (5+ boxes) creates `orders` record in Supabase with size/address/shipping metadata.
-- [ ] Bloomjoy branded sticks checkout test order sends internal summary email to configured operations recipients.
+- [ ] Bloomjoy branded sticks checkout test order sends internal summary email to Ethan/Ian plus any configured additional recipients.
 - [ ] Bloomjoy branded sticks checkout test order sends customer confirmation email with the branded HTML confirmation layout.
+- [ ] Under-5 branded-stick procurement request creates a `lead_submissions` record and sends internal procurement email to Ethan/Ian plus any configured additional recipients.
+- [ ] Custom-stick procurement request creates a `lead_submissions` record with private artwork metadata and sends internal procurement email to Ethan/Ian plus any configured additional recipients.
 - [ ] Plus checkout test subscription creates/updates `subscriptions` record in Supabase.
 - [ ] Refund Adjustment Sync manual `dry_run=true` run returns aggregate counts only, with no private customer/payment/free-text values in logs.
 - [ ] Refund Adjustment Sync manual `dry_run=false` run creates a completed import run in `/admin/reporting`, applies only approved closed matched refunds, and leaves open/denied/unmatched/ambiguous/invalid rows in review.
-- [ ] Quote request on `/contact` sends internal summary email to configured operations recipients.
-- [ ] Quote/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
-- [ ] `/admin/orders` shows address, pricing tier, receipt URL, order breakdown, and notification status for the test orders.
+- [ ] Quote request on `/contact` sends internal summary email to Ethan/Ian plus any configured additional recipients.
+- [ ] Quote/procurement/order/support events send WeCom alerts to configured internal recipients (or log non-blocking warning on dispatch failure).
+- [ ] `/admin/orders` shows the fulfillment packet, address, pricing tier, receipt URL, order breakdown, and notification status for the test orders.
 - [ ] `/admin/access?tab=users` loads account summaries without a red error state.
 - [ ] `/admin/access?tab=reporting-access` can save machine reporting grants with a required reason.
 - [ ] `/admin/partnerships` loads setup tabs without missing-RPC errors.

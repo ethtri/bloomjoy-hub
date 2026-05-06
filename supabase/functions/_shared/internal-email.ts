@@ -16,10 +16,7 @@ const getRecipients = (): string[] => {
   const configuredRecipients = parseRecipients(
     Deno.env.get("INTERNAL_NOTIFICATION_RECIPIENTS")
   );
-  if (configuredRecipients.length > 0) {
-    return configuredRecipients;
-  }
-  return DEFAULT_RECIPIENTS;
+  return Array.from(new Set([...DEFAULT_RECIPIENTS, ...configuredRecipients]));
 };
 
 export type InternalEmailInput = {

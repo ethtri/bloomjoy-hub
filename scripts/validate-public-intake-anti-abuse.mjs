@@ -66,10 +66,14 @@ assert(
   'Repeated quote notification simulation did not trip the non-caller-controlled global notification quota.'
 );
 
-const insertIndex = intakeFunction.indexOf('.from("lead_submissions")');
-const submissionLimitIndex = intakeFunction.indexOf('rules: PUBLIC_INTAKE_SUBMISSION_LIMITS');
-const notificationLimitIndex = intakeFunction.indexOf('rules: PUBLIC_INTAKE_NOTIFICATION_LIMITS');
-const sendInternalEmailIndex = intakeFunction.indexOf('sendInternalEmail({');
+const handlerStartIndex = intakeFunction.indexOf('serve(async (req) => {');
+assert(handlerStartIndex > -1, 'Could not find lead intake request handler.');
+
+const requestHandler = intakeFunction.slice(handlerStartIndex);
+const insertIndex = requestHandler.search(/\.from\("lead_submissions"\)\s*\.insert\(\{/);
+const submissionLimitIndex = requestHandler.indexOf('rules: PUBLIC_INTAKE_SUBMISSION_LIMITS');
+const notificationLimitIndex = requestHandler.indexOf('rules: PUBLIC_INTAKE_NOTIFICATION_LIMITS');
+const sendInternalEmailIndex = requestHandler.indexOf('sendInternalEmail({');
 
 assert(insertIndex > -1, 'Could not find lead_submissions insert path.');
 assert(submissionLimitIndex > -1, 'Missing submission throttle wiring.');
@@ -88,7 +92,7 @@ assert(
   'Body size enforcement must stream the request body instead of trusting Content-Length alone.'
 );
 assert(
-  intakeFunction.includes('leadSubmission.submission_type !== "quote"'),
+  intakeFunction.includes('internallyNotifiedSubmissionTypes.has(leadSubmission.submission_type)'),
   'Notification eligibility must use the persisted lead type, not the current request type.'
 );
 assert(

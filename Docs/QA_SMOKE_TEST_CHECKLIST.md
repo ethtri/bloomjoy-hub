@@ -55,9 +55,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sticks ordering on `/supplies?order=sticks` allows direct typed quantity input (not only +/- controls)
 - [ ] Sticks ordering clearly supports Bloomjoy branded paper sticks and custom paper sticks at `$130/box` with `2000 pieces/box`
 - [ ] Bloomjoy branded sticks flow requires machine size selection and delivery location type selection before request/checkout
-- [ ] Bloomjoy branded sticks orders under 5 boxes submit a procurement lead with box count, size, address type, and estimated shipping summary
+- [ ] Bloomjoy branded sticks orders under 5 boxes submit a procurement lead with box count, size, address type, and estimated shipping summary, then send internal email + WeCom procurement alerts when configured
 - [ ] Bloomjoy branded sticks orders of 5+ boxes launch direct Stripe checkout with free shipping and do not use the shared cart
-- [ ] Custom sticks flow on `/supplies?order=custom` accepts logo/image upload through a signed upload token and submits a procurement lead with private artwork storage metadata/path, requested box count, selected size, and `$750` first-order plate-fee note; no public artwork URL is stored in the lead message
+- [ ] Custom sticks flow on `/supplies?order=custom` accepts logo/image upload through a signed upload token and submits a procurement lead with private artwork storage metadata/path, requested box count, selected size, and `$750` first-order plate-fee note, then sends internal email + WeCom procurement alerts when configured; no public artwork URL is stored in the lead message
 - [ ] Super-admin artwork access can generate a signed URL for a submitted `custom-sticks-artwork` object and the link expires after the configured short window
 - [ ] Shared cart remains sugar-only and legacy stick items do not block checkout
 - [ ] Cart remains sugar-only and has no horizontal overflow on mobile viewports (`360x800`, `390x844`, `414x896`)
@@ -85,9 +85,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mobile icon-only cart/menu controls have accessible names
 - [ ] Product-gallery thumbnail buttons are keyboard operable and announce selected image state
 - [ ] Contact/Quote submission creates a `lead_submissions` row in Supabase with expected type/email
-- [ ] Quote submissions send internal notification email with full request summary (name/email/source/type/message)
+- [ ] Quote submissions send internal notification email to Ethan/Ian and any configured additional recipients with full request summary (name/email/source/type/message)
 - [ ] Quote submissions send a WeCom internal alert to configured `WECOM_ALERT_TO_USERIDS` recipients
-- [ ] Public intake anti-abuse: repeated direct POSTs with the same IP/email are throttled, repeated identical payloads dedupe server-side, and quote notifications stop after the configured quota while normal Contact and procurement requests still return success
+- [ ] Procurement submissions send internal notification email to Ethan/Ian and any configured additional recipients with fulfillment next steps
+- [ ] Public intake anti-abuse: repeated direct POSTs with the same IP/email are throttled, repeated identical payloads dedupe server-side, and quote/procurement notifications stop after the configured quota while normal Contact and procurement requests still return success
 - [ ] `/machines/mini` SEO/meta copy no longer references waitlist or upcoming launch language
 
 ## Auth / portal
@@ -246,12 +247,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Sugar checkout completes with test card for high-quantity equal split (e.g., 500KG total)
 - [ ] Sugar checkout completes with test card for unequal split mix (custom per-color quantities)
 - [ ] Sugar checkout writes an `orders` row with customer email/name/phone, billing address, shipping address, pricing tier, unit price, shipping total, receipt URL, and sugar color mix
-- [ ] Sugar checkout completed webhook sends internal order summary email (customer, totals, pricing tier, sugar mix, line items)
+- [ ] Sugar checkout completed webhook sends internal order summary email to Ethan/Ian and any configured additional recipients (customer, totals, pricing tier, sugar mix, line items, fulfillment next steps)
 - [ ] Sugar checkout sends customer confirmation email with branded HTML layout, clear totals, shipping address, color quantities, and receipt link
 - [ ] Sugar checkout completed webhook sends a WeCom internal alert with order ID, customer, and sugar breakdown
 - [ ] Bloomjoy branded sticks checkout completes with test card for 5+ boxes and shows free shipping in Stripe Checkout
 - [ ] Bloomjoy branded sticks checkout writes an `orders` row with billing/shipping address, shipping total, receipt URL, and order detail metadata
-- [ ] Bloomjoy branded sticks checkout completed webhook sends internal order summary email with box count, machine size, address type, and shipping total
+- [ ] Bloomjoy branded sticks checkout completed webhook sends internal order summary email to Ethan/Ian and any configured additional recipients with box count, machine size, address type, shipping total, and fulfillment next steps
 - [ ] Bloomjoy branded sticks checkout sends customer confirmation email with branded HTML layout, shipping address, and receipt link
 - [ ] Bloomjoy branded sticks checkout completed webhook sends a WeCom internal alert with order ID, customer, and stick-order summary
 - [ ] Plus subscription checkout shows flat `$100/month` account pricing and completes with test card
@@ -295,7 +296,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/orders`
 - [ ] Super-admin user can access `/admin/orders`
 - [ ] Admin orders supports search by customer email/order ID and date range filtering
-- [ ] Admin orders detail panel shows billing/shipping address snapshots, pricing tier, unit price, receipt link, and notification statuses
+- [ ] Admin orders detail panel shows a fulfillment packet plus billing/shipping address snapshots, pricing tier, unit price, receipt link, and notification statuses
 - [ ] Admin orders detail panel shows sugar color quantities for sugar orders and box/size/address metadata for Bloomjoy branded stick orders
 - [ ] Admin fulfillment updates create `admin_audit_log` entries with `action=order.fulfillment_updated`
 - [ ] Non-admin user cannot access `/admin/access`
