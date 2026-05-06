@@ -41,6 +41,13 @@ import {
   type ScopedAdminGrantRecord,
 } from '@/lib/adminGovernance';
 import {
+  emptyScopedMachineTaxSetup,
+  fetchScopedMachineTaxSetup,
+  saveScopedMachineTaxRate,
+  type ScopedMachineTaxMachine,
+  type ScopedMachineTaxRate,
+} from '@/lib/adminScopedMachineTax';
+import {
   fetchAdminCorporatePartnerAccessOptions,
   fetchAdminEffectiveAccessContext,
   grantCorporatePartnerMembership,
@@ -70,6 +77,7 @@ const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
 const emptyQuantities: Record<MachineType, number> = { commercial: 0, mini: 0, micro: 0 };
 const accessLevels: ReportingAccessLevel[] = ['viewer', 'report_manager'];
 const emptyReportingAccessMatrix: AdminReportingAccessMatrix = { people: [], machines: [], grants: [] };
+const initialReportingTaxStartDate = '2026-01-01';
 
 const formatDate = (value: string | null) =>
   value
@@ -185,7 +193,7 @@ export default function AdminAccessPage() {
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 {isSuperAdmin
                   ? 'Find a person, review their effective access, then grant, change, or revoke source-specific access with a required reason.'
-                  : 'Manage reporting visibility for the machines included in your scoped admin grant.'}
+                  : 'Manage Corporate Partner permissions and reporting visibility for the machines included in your scoped admin grant.'}
               </p>
               {isScopedAdmin && !isSuperAdmin && (
                 <Badge className="mt-3" variant="secondary">
@@ -202,11 +210,14 @@ export default function AdminAccessPage() {
                 initialLauncher={initialLauncher}
               />
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
                   Your scoped admin grant limits this workspace to assigned machines. Saving changes
-                  only affects manual reporting grants inside that scope.
+                  only affects Corporate Partner permissions and manual reporting grants inside that
+                  scope.
                 </div>
+                <PresetsTab />
+                <ScopedMachineTaxRatesPanel />
                 <ReportingAccessTab />
               </div>
             )}
@@ -218,6 +229,7 @@ export default function AdminAccessPage() {
 }
 
 function PresetsTab() {
+  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [personEmail, setPersonEmail] = useState('');
   const [effectiveAccess, setEffectiveAccess] = useState<EffectiveAccessContext | null>(null);
@@ -288,6 +300,8 @@ function PresetsTab() {
   };
 
   const reloadPreviewedEffectiveAccess = async (fallbackEmail?: string) => {
+    if (!isSuperAdmin) return;
+
     const email = effectiveAccess?.email ?? fallbackEmail ?? personEmail.trim();
     if (!email) return;
 
@@ -384,8 +398,17 @@ function PresetsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 xl:grid-cols-[0.42fr_0.58fr]">
-        <div className="rounded-lg border border-border bg-card p-4">
+      {!isSuperAdmin && (
+        <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+          Scoped Admin Corporate Partner management uses only partners whose active partnership
+          machines are fully inside your current machine grant. Partners with out-of-scope
+          portal-enabled access stay hidden and blocked by RPC checks.
+        </div>
+      )}
+
+      <div className={cn('grid gap-6', isSuperAdmin && 'xl:grid-cols-[0.42fr_0.58fr]')}>
+        {isSuperAdmin && (
+          <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
               <Label htmlFor="effective-access-email">Person</Label>
@@ -467,6 +490,7 @@ function PresetsTab() {
             )}
           </div>
         </div>
+        )}
 
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -474,7 +498,7 @@ function PresetsTab() {
               <h2 className="font-semibold text-foreground">Corporate Partner preset</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Grants training, support, member supply pricing, partner reporting, machine
-                reporting, and Technician management for portal-enabled partnerships.
+                reporting, and Technician management for manageable portal-enabled partnerships.
               </p>
             </div>
             <Button variant="outline" onClick={refreshCorporatePartnerOptions} disabled={isFetching}>
@@ -510,6 +534,11 @@ function PresetsTab() {
                     </option>
                   ))}
                 </select>
+                {!isLoading && corporateOptions.partners.length === 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    No Corporate Partner records are manageable inside your current admin scope.
+                  </p>
+                )}
               </div>
               <div>
                 <Label htmlFor="corporate-partner-email">Member email</Label>
@@ -696,6 +725,302 @@ function AccessBadgeGroup({ title, values }: { title: string; values: string[] }
         )}
       </div>
     </div>
+  );
+}
+
+const getCurrentScopedTaxRate = (
+  taxRates: ScopedMachineTaxRate[],
+  machineId: string,
+  currentDate = formatDateInput(new Date())
+) =>
+  taxRates
+    .filter(
+      (taxRate) =>
+        taxRate.machineId === machineId &&
+        taxRate.status === 'active' &&
+        taxRate.effectiveStartDate <= currentDate &&
+        (!taxRate.effectiveEndDate || taxRate.effectiveEndDate >= currentDate)
+    )
+    .sort((left, right) => right.effectiveStartDate.localeCompare(left.effectiveStartDate))[0];
+
+const getScopedTaxStatus = (taxRate: ScopedMachineTaxRate | undefined) => {
+  if (!taxRate) return 'Missing';
+  return taxRate.taxRatePercent === 0 ? 'No tax' : 'Configured';
+};
+
+function ScopedMachineTaxRatesPanel() {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState('');
+  const [taxDrafts, setTaxDrafts] = useState<Record<string, string>>({});
+  const [startDateDrafts, setStartDateDrafts] = useState<Record<string, string>>({});
+  const [reason, setReason] = useState('');
+  const [savingMachineId, setSavingMachineId] = useState<string | null>(null);
+
+  const {
+    data: setup = emptyScopedMachineTaxSetup,
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery({
+    queryKey: ['admin-scoped-machine-tax-setup'],
+    queryFn: fetchScopedMachineTaxSetup,
+    staleTime: 1000 * 30,
+  });
+
+  const rows = useMemo(() => {
+    const normalizedSearch = normalizeSearch(search);
+    return setup.machines
+      .map((machine) => {
+        const currentTaxRate = getCurrentScopedTaxRate(setup.taxRates, machine.id);
+        const warning = setup.warnings.find((item) => item.machineId === machine.id);
+        return {
+          machine,
+          currentTaxRate,
+          warning,
+          taxDraft:
+            taxDrafts[machine.id] ??
+            (currentTaxRate ? String(Number(currentTaxRate.taxRatePercent)) : ''),
+          startDateDraft:
+            startDateDrafts[machine.id] ??
+            (currentTaxRate ? formatDateInput(new Date()) : initialReportingTaxStartDate),
+        };
+      })
+      .filter((row) => {
+        if (!normalizedSearch) return true;
+        return [
+          row.machine.machineLabel,
+          row.machine.sunzeMachineId ?? '',
+          row.machine.accountName,
+          row.machine.activePartnerships
+            .map((partnership) => partnership.partnershipName)
+            .join(' '),
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedSearch);
+      });
+  }, [search, setup, startDateDrafts, taxDrafts]);
+
+  const refresh = () =>
+    queryClient.invalidateQueries({
+      queryKey: ['admin-scoped-machine-tax-setup'],
+    });
+
+  const saveTaxRate = async ({
+    machine,
+    currentTaxRate,
+    taxDraft,
+    startDateDraft,
+  }: {
+    machine: ScopedMachineTaxMachine;
+    currentTaxRate: ScopedMachineTaxRate | undefined;
+    taxDraft: string;
+    startDateDraft: string;
+  }) => {
+    const parsedRate = Number(taxDraft);
+    const normalizedReason = reason.trim();
+
+    if (!taxDraft.trim() || Number.isNaN(parsedRate) || parsedRate < 0 || parsedRate > 100) {
+      toast.error('Enter a reporting tax rate from 0 to 100.');
+      return;
+    }
+
+    if (!startDateDraft) {
+      toast.error('Choose when the reporting tax rate applies from.');
+      return;
+    }
+
+    if (!normalizedReason) {
+      toast.error('Update reason is required.');
+      return;
+    }
+
+    setSavingMachineId(machine.id);
+    try {
+      await saveScopedMachineTaxRate({
+        machineId: machine.id,
+        taxRatePercent: parsedRate,
+        effectiveStartDate: startDateDraft,
+        reason: normalizedReason,
+      });
+      toast.success(`${machine.machineLabel} reporting tax saved.`);
+      setTaxDrafts((current) => {
+        const next = { ...current };
+        delete next[machine.id];
+        return next;
+      });
+      setStartDateDrafts((current) => {
+        const next = { ...current };
+        delete next[machine.id];
+        return next;
+      });
+      trackEvent('admin_scoped_machine_tax_saved', {
+        machine_id: machine.id,
+        had_existing_rate: Boolean(currentTaxRate),
+      });
+      await refresh();
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : 'Unable to save machine tax rate.');
+    } finally {
+      setSavingMachineId(null);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="font-semibold text-foreground">Machine tax rates</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Manage reporting tax assumptions only for machines inside your scoped admin grant.
+          </p>
+        </div>
+        <Button variant="outline" onClick={refresh} disabled={isFetching}>
+          {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+          Refresh
+        </Button>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.45fr)]">
+        <div>
+          <Label htmlFor="scoped-tax-search">Search machines</Label>
+          <Input
+            id="scoped-tax-search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Machine, external ID, account, or partner report"
+          />
+        </div>
+        <div>
+          <Label htmlFor="scoped-tax-reason">Update reason</Label>
+          <Input
+            id="scoped-tax-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Required for tax changes"
+          />
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          Unable to load scoped machine tax setup.
+        </div>
+      )}
+
+      <div className="mt-4 overflow-hidden rounded-md border border-border">
+        {isLoading && <div className="p-4 text-sm text-muted-foreground">Loading machine tax rates...</div>}
+        {!isLoading && rows.length === 0 && (
+          <div className="p-4 text-sm text-muted-foreground">
+            No scoped machines matched this tax setup view.
+          </div>
+        )}
+        {rows.map((row) => {
+          const status = getScopedTaxStatus(row.currentTaxRate);
+          const statusVariant =
+            status === 'Missing' && row.machine.activePartnerships.length > 0
+              ? 'destructive'
+              : status === 'Configured'
+                ? 'default'
+                : 'outline';
+          return (
+            <div
+              key={row.machine.id}
+              className="grid gap-4 border-b border-border p-4 text-sm last:border-b-0 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.9fr)_minmax(0,0.9fr)]"
+            >
+              <div className="min-w-0">
+                <div className="font-medium text-foreground">{row.machine.machineLabel}</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant="outline">{row.machine.machineType.replaceAll('_', ' ')}</Badge>
+                  <Badge variant={statusVariant}>{status}</Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {row.machine.accountName} / external ID {row.machine.sunzeMachineId ?? 'n/a'}
+                </p>
+                {row.warning && (
+                  <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    {row.warning.message}
+                  </p>
+                )}
+              </div>
+
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Partner reports
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {row.machine.activePartnerships.length === 0 ? (
+                    <Badge variant="outline">No active partner reports</Badge>
+                  ) : (
+                    row.machine.activePartnerships.map((partnership) => (
+                      <Badge key={partnership.partnershipId} variant="secondary">
+                        {partnership.partnershipName}
+                      </Badge>
+                    ))
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Latest sale: {row.machine.latestSaleDate ?? 'No sales yet'}
+                </p>
+                {row.currentTaxRate && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Current {Number(row.currentTaxRate.taxRatePercent).toFixed(2)}% applies from{' '}
+                    {row.currentTaxRate.effectiveStartDate}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,0.55fr)_minmax(0,0.75fr)_auto] sm:items-end">
+                <div>
+                  <Label htmlFor={`scoped-tax-rate-${row.machine.id}`}>Tax %</Label>
+                  <Input
+                    id={`scoped-tax-rate-${row.machine.id}`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={row.taxDraft}
+                    onChange={(event) =>
+                      setTaxDrafts((current) => ({
+                        ...current,
+                        [row.machine.id]: event.target.value,
+                      }))
+                    }
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor={`scoped-tax-start-${row.machine.id}`}>Applies from</Label>
+                  <Input
+                    id={`scoped-tax-start-${row.machine.id}`}
+                    type="date"
+                    value={row.startDateDraft}
+                    onChange={(event) =>
+                      setStartDateDrafts((current) => ({
+                        ...current,
+                        [row.machine.id]: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <Button
+                  onClick={() => void saveTaxRate(row)}
+                  disabled={savingMachineId === row.machine.id}
+                >
+                  {savingMachineId === row.machine.id ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                  )}
+                  Save
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
