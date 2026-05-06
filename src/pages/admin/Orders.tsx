@@ -89,6 +89,23 @@ const formatPricingTier = (pricingTier: OrderRecord['pricing_tier']) => {
   }
 };
 
+const formatOrderType = (orderType: OrderRecord['order_type']) => {
+  switch (orderType) {
+    case 'sugar':
+      return 'Sugar';
+    case 'blank_sticks':
+      return 'Bloomjoy branded sticks';
+    default:
+      return 'Unknown';
+  }
+};
+
+const formatFulfillmentStatus = (status: OrderFulfillmentStatus) =>
+  status
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+
 const formatNotificationStatus = (sentAt: string | null, error: string | null) => {
   if (sentAt) {
     return `Sent ${formatDate(sentAt)}`;
@@ -99,6 +116,24 @@ const formatNotificationStatus = (sentAt: string | null, error: string | null) =
   }
 
   return 'Pending';
+};
+
+const getNotificationHealth = (order: OrderRecord) => {
+  const failures = [
+    order.internal_notification_error ? 'internal email' : null,
+    order.customer_confirmation_error ? 'customer confirmation' : null,
+    order.wecom_alert_error ? 'WeCom alert' : null,
+  ].filter(Boolean);
+
+  if (failures.length) {
+    return `Needs review: ${failures.join(', ')}`;
+  }
+
+  if (order.internal_notification_sent_at && order.customer_confirmation_sent_at) {
+    return 'Email notifications sent';
+  }
+
+  return 'Notifications pending';
 };
 
 const formatAddressSnapshot = (address: OrderRecord['shipping_address']) => {
@@ -116,6 +151,28 @@ const formatAddressSnapshot = (address: OrderRecord['shipping_address']) => {
   ]
     .filter(Boolean)
     .join(', ') || 'n/a';
+};
+
+const formatStickSize = (stickSize: string) => {
+  switch (stickSize) {
+    case 'commercial_10x300':
+      return 'Commercial / Full Machine (10mm x 300mm)';
+    case 'mini_10x220':
+      return 'Mini Machine (10mm x 220mm)';
+    default:
+      return stickSize || 'n/a';
+  }
+};
+
+const formatAddressType = (addressType: string) => {
+  switch (addressType) {
+    case 'business':
+      return 'Business address';
+    case 'residential':
+      return 'Residential address';
+    default:
+      return addressType || 'n/a';
+  }
 };
 
 const getOrderReference = (order: OrderRecord) =>
@@ -204,6 +261,22 @@ const getDisplayLineItems = (order: OrderRecord): DisplayLineItem[] =>
       currency: typeof item.currency === 'string' ? item.currency : order.currency,
     }));
 
+const getFulfillmentSummary = (
+  order: OrderRecord,
+  sugarMix: SugarMixSummary | null,
+  blankSticks: BlankSticksSummary | null
+) => {
+  if (sugarMix) {
+    return `Ship ${sugarMix.total} KG sugar: ${sugarMix.white} KG white, ${sugarMix.blue} KG blue, ${sugarMix.orange} KG orange, ${sugarMix.red} KG red.`;
+  }
+
+  if (blankSticks) {
+    return `Ship ${blankSticks.boxCount} boxes of ${formatStickSize(blankSticks.stickSize)} sticks (${blankSticks.piecesPerBox} pieces/box) to a ${formatAddressType(blankSticks.addressType).toLowerCase()}.`;
+  }
+
+  return `Review ${formatOrderType(order.order_type).toLowerCase()} line items before fulfillment.`;
+};
+
 const InfoCard = ({
   label,
   value,
@@ -272,6 +345,9 @@ export default function AdminOrdersPage() {
   const selectedSugarMix = selectedOrder ? getSugarMixSummary(selectedOrder) : null;
   const selectedBlankSticks = selectedOrder ? getBlankSticksSummary(selectedOrder) : null;
   const selectedLineItems = selectedOrder ? getDisplayLineItems(selectedOrder) : [];
+  const selectedFulfillmentSummary = selectedOrder
+    ? getFulfillmentSummary(selectedOrder, selectedSugarMix, selectedBlankSticks)
+    : '';
 
   const selectOrder = (order: OrderRecord) => {
     setSelectedId(order.id);
@@ -357,7 +433,7 @@ export default function AdminOrdersPage() {
               <option value="all">All fulfillment statuses</option>
               {fulfillmentOptions.map((status) => (
                 <option key={status} value={status}>
-                  {status}
+                  {formatFulfillmentStatus(status)}
                 </option>
               ))}
             </select>
@@ -425,10 +501,12 @@ export default function AdminOrdersPage() {
                         <td className="px-4 py-3 text-sm text-foreground">
                           <div className="font-medium">{formatCurrency(order.amount_total, order.currency)}</div>
                           <div className="text-muted-foreground">{order.status}</div>
-                          <div className="text-xs text-muted-foreground">{order.order_type}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatOrderType(order.order_type)}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">
-                          {order.fulfillment_status}
+                          {formatFulfillmentStatus(order.fulfillment_status)}
                         </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">
                           {formatDate(order.created_at)}
@@ -460,8 +538,55 @@ export default function AdminOrdersPage() {
                     </p>
                   </div>
 
+                  <div className="rounded-md bg-muted/35 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Fulfillment Packet
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-foreground">
+                      {selectedFulfillmentSummary}
+                    </p>
+                    <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Ship To
+                        </p>
+                        <p className="mt-1 text-foreground">
+                          {selectedOrder.shipping_name ?? selectedOrder.customer_name ?? 'n/a'}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {formatAddressSnapshot(selectedOrder.shipping_address)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Contact
+                        </p>
+                        <p className="mt-1 text-foreground">
+                          {selectedOrder.customer_email ?? 'n/a'}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {selectedOrder.customer_phone ?? selectedOrder.shipping_phone ?? 'No phone'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Current Status
+                        </p>
+                        <p className="mt-1 text-foreground">
+                          {formatFulfillmentStatus(selectedOrder.fulfillment_status)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Notification Health
+                        </p>
+                        <p className="mt-1 text-foreground">{getNotificationHealth(selectedOrder)}</p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <InfoCard label="Order Type" value={selectedOrder.order_type} />
+                    <InfoCard label="Order Type" value={formatOrderType(selectedOrder.order_type)} />
                     <InfoCard label="Pricing Tier" value={formatPricingTier(selectedOrder.pricing_tier)} />
                     <InfoCard label="Unit Price" value={formatUnitPrice(selectedOrder.unit_price_cents)} />
                     <InfoCard
@@ -555,8 +680,10 @@ export default function AdminOrdersPage() {
                       <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-foreground">
                         <p>Boxes: {selectedBlankSticks.boxCount}</p>
                         <p className="mt-1">Pieces per box: {selectedBlankSticks.piecesPerBox}</p>
-                        <p className="mt-1">Stick size: {selectedBlankSticks.stickSize}</p>
-                        <p className="mt-1">Address type: {selectedBlankSticks.addressType}</p>
+                        <p className="mt-1">Stick size: {formatStickSize(selectedBlankSticks.stickSize)}</p>
+                        <p className="mt-1">
+                          Address type: {formatAddressType(selectedBlankSticks.addressType)}
+                        </p>
                         <p className="mt-1">
                           Shipping rate per box: ${selectedBlankSticks.shippingRatePerBoxUsd.toFixed(2)}
                         </p>
@@ -645,7 +772,7 @@ export default function AdminOrdersPage() {
                     >
                       {fulfillmentOptions.map((status) => (
                         <option key={status} value={status}>
-                          {status}
+                          {formatFulfillmentStatus(status)}
                         </option>
                       ))}
                     </select>

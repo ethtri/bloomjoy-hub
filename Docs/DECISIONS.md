@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-05-06 - Supply procurement notifications join the internal alert pipeline
+Supply procurement requests should use the same internal alert pattern as quote and paid order events.
+
+**Canonical rule**
+- Under-5 branded-stick requests and custom-stick requests remain `lead_submissions` because they need manual confirmation/proofing before payment or fulfillment.
+- `lead-submission-intake` sends internal notifications for `quote` and `procurement` submissions.
+- Internal notification email always includes Ethan (`etrifari@bloomjoysweets.com`) and Ian (`ian@bloomjoysweets.com`); `INTERNAL_NOTIFICATION_RECIPIENTS` may add more recipients.
+- WeCom/WeChat Work remains a secondary, non-blocking alert channel for quote, procurement, order, and support events.
+
+**Why this choice**
+- Small stick orders and custom sticks are operational supply requests even when they do not go through Stripe checkout yet.
+- Keeping procurement in the existing lead table avoids inventing a second order system while still giving fulfillment the same email/WeCom visibility.
+- Email must not depend on a single mutable recipient secret being perfect before orders start increasing.
+
 ## 2026-05-04 - Vercel preview auth redirect support
 Vercel preview login should return to the same preview host when Supabase Auth is used for preview UAT.
 
@@ -417,6 +431,7 @@ We will use **Resend** from Supabase Edge Functions for internal operations noti
 
 **Scope**
 - Quote request notifications from `lead-submission-intake`.
+- Supply procurement notifications from `lead-submission-intake`.
 - Sugar order notifications from `stripe-webhook` (`checkout.session.completed` payment mode).
 
 **Why this choice**
@@ -460,13 +475,14 @@ For current operations-event alerting, we will use **WeCom app messaging** from 
 
 **Scope**
 - Quote submission alerts (`lead-submission-intake`)
+- Supply procurement alerts (`lead-submission-intake`)
 - Sugar order alerts (`stripe-webhook`)
 - Support request alerts (`support-request-intake`)
 
 **Why this choice**
 - Keeps WeCom credentials server-side only (`WECOM_*` function secrets).
 - Aligns to actual ops communication channel without changing customer-facing auth flows.
-- Adds non-blocking behavior so core quote/order/support flows continue if WeCom is unavailable.
+- Adds non-blocking behavior so core quote/procurement/order/support flows continue if WeCom is unavailable.
 
 **Implementation notes**
 - Token lifecycle handled server-side with cached `access_token` fetch/refresh.

@@ -186,7 +186,6 @@ function run() {
     'SUPABASE_SERVICE_ROLE_KEY',
     'RESEND_API_KEY',
     'INTERNAL_NOTIFICATION_FROM_EMAIL',
-    'INTERNAL_NOTIFICATION_RECIPIENTS',
     'STRIPE_SUGAR_NON_MEMBER_PRICE_ID',
     'STRIPE_STICKS_MEMBER_PRICE_ID',
     'WECOM_CORP_ID',
@@ -254,7 +253,7 @@ function run() {
   printList('Required commerce checks', [
     'Webhook secret present',
     'Member and non-member sugar price IDs configured',
-    'Internal email sender and recipients configured',
+    'Internal email sender configured; Ethan/Ian are default admin recipients',
     'WeCom alert secrets configured',
     'Supabase service-role and anon keys configured',
   ]);

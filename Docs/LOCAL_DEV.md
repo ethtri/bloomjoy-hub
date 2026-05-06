@@ -278,7 +278,7 @@ Use this after a PR is merged or intentionally closed. Do not remove a worktree 
 - If an asset is needed in the app, add a small optimized version in `public/` and document it.
 
 ## Stripe and submission server-side functions (current)
-Stripe checkout/webhook flows and lead submission notifications currently run on Supabase Edge Functions.
+Stripe checkout/webhook flows and quote/procurement lead submission notifications currently run on Supabase Edge Functions.
 For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
 
 ### Supabase Edge Functions (Stripe + submissions)
@@ -296,7 +296,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase secrets set STRIPE_WEBHOOK_SECRET=...`
    - `supabase secrets set RESEND_API_KEY=...`
    - `supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...`
-   - `supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=ops@bloomjoyusa.com,support@bloomjoyusa.com`
+   - `supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com`
    - `supabase secrets set WECOM_CORP_ID=...`
    - `supabase secrets set WECOM_AGENT_ID=...`
    - `supabase secrets set WECOM_AGENT_SECRET=...`

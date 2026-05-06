@@ -6,6 +6,13 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Supply order notification hardening (2026-05-06)
+- Paid sugar and 5+ box branded-stick checkouts continue to persist in `orders`, send customer confirmations, and alert internal fulfillment through email plus WeCom when WeCom delivery is allowed.
+- Under-5 branded-stick requests and custom-stick requests now send internal procurement notifications from `lead-submission-intake`; those requests already persist as `lead_submissions`, and notification failures are recorded without losing the submission.
+- Internal email notifications always include Ethan (`etrifari@bloomjoysweets.com`) and Ian (`ian@bloomjoysweets.com`), while `INTERNAL_NOTIFICATION_RECIPIENTS` can add more recipients.
+- `/admin/orders` now opens each paid order with a fulfillment packet that summarizes what to ship, where to ship it, contact details, current fulfillment status, and notification health.
+- WeCom/WeChat Work remains the secondary alert channel. The code path is active for quote, procurement, order, and support events, but production delivery still depends on resolving the known WeCom app/network policy blocker.
+
 ## P0 docs/workflow closeout (2026-05-04)
 - Issue `#380` is no longer a code blocker for the Corporate Partner release. The owner added the Supabase preview redirect wildcard, non-secret OAuth initiation checks preserved preview hosts, and owner local login UAT passed.
 - Vercel Deployment Protection can still block ordinary unauthenticated preview access. Treat that as preview-access configuration, not the old Supabase redirect-to-production bug.
@@ -238,7 +245,7 @@
   - `npm run lint` (passes with existing fast-refresh warnings only)
 
 ## Session closeout snapshot (2026-03-10)
-- PR `#108` merged: WeCom internal-alert POC is now wired server-side for quote/order/support events with non-blocking failure handling.
+- PR `#108` merged: WeCom internal-alert POC is now wired server-side for quote/order/support events with non-blocking failure handling; procurement alerts were added later in the supply order hardening slice.
 - PR `#109` merged: portal + admin support now include WeChat onboarding concierge intake (`request_type=wechat_onboarding` + structured `intake_meta`) and queue filtering/metrics.
 - New follow-up issue opened and added to project board: `#110` (operationalize WeCom alert reliability + WeChat onboarding concierge runbook/SLA).
 
@@ -403,16 +410,16 @@ Execution order is based on launch risk and dependency overlap.
 - SEO structured-data hardening (`2026-03-09`): public-route HTML now includes JSON-LD (`Organization`, `WebSite`, `WebPage`) in both prerendered output and client-side route SEO updates so crawlers receive machine-readable page context.
 - SEO redirect/guard hardening (`2026-03-09`): added permanent host canonicalization redirect (`bloomjoyusa.com` -> `www.bloomjoyusa.com`) and permanent legacy path redirects (`/products*` -> `/machines*`) in `vercel.json`.
 - SEO CI hardening (`2026-03-09`): added `npm run seo:check` plus CI workflow coverage to validate robots/sitemap, canonical/noindex route outputs, JSON-LD presence on public routes, and redirect guard rules.
-- Submission notifications hardening: quote requests now flow through server-side `lead-submission-intake` and send internal summary emails; Stripe sugar order webhooks now send internal summary emails with duplicate-dispatch protection.
+- Submission notifications hardening: quote and procurement requests now flow through server-side `lead-submission-intake` and send internal summary emails; Stripe paid-order webhooks now send internal summary emails with duplicate-dispatch protection.
 - Submission notification recovery (`PR #103`, `2026-03-09`): resolved the internal-notification migration version collision by applying `202603090001_internal_notifications_backfill.sql`, aligned `INTERNAL_NOTIFICATION_FROM_EMAIL` to a verified Resend sender on `bloomjoyusa.com`, and revalidated quote-notification dispatch end-to-end (`lead-submission-intake` returns `200`, `internal_notification_sent_at` and dispatch `sent_at` are populated).
 - Session closeout smoke snapshot (`2026-03-09`): production-config API checks passed for quote notification dispatch, magic-link trigger, and password-reset trigger; remaining launch evidence is now limited to manual inbox/browser screenshots in `Docs/AUTH_PRODUCTION_SIGNOFF.md`.
-- WeCom alerting POC merged (`#107` via PR `#108`, `2026-03-10`): quote/order/support flows now attempt WeCom dispatch using server-only `WECOM_*` secrets with token cache + non-blocking failure logging.
+- WeCom alerting POC merged (`#107` via PR `#108`, `2026-03-10`): quote/procurement/order/support flows now attempt WeCom dispatch using server-only `WECOM_*` secrets with token cache + non-blocking failure logging.
 - WeChat onboarding concierge merged (PR `#109`, `2026-03-10`): support flow now includes structured onboarding intake (`phone/device/blocked step/referral`) persisted in `support_requests.intake_meta` and surfaced in `/admin/support` triage filters/cards.
 
 ## Known risks / blockers
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
-- Internal notification pipeline is restored for quote submissions, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender, recipient list).
+- Internal notification pipeline is restored for quote/procurement submissions and paid supply orders, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender).
 - WeCom alert dispatch reliability now depends on owner-managed app policy as well as valid secrets/recipient scope; current live failure is `60020: not allow to access from your ip`.
 - WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.

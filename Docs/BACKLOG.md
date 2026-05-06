@@ -139,5 +139,5 @@ Guidelines:
 ## P2 - Ops hardening follow-ups
 36. **Operationalize WeCom alerts + WeChat onboarding concierge** (`#110`)
    - Define referral-buddy onboarding runbook and response-time SLA.
-   - Validate 1-week WeCom delivery reliability for quote/order/support alerts.
+   - Validate 1-week WeCom delivery reliability for quote/procurement/order/support alerts.
    - Capture sign-off evidence for onboarding intake + non-blocking alert failure behavior.

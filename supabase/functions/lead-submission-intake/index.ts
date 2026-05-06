@@ -15,7 +15,7 @@ import {
   type PublicIntakeAbuseSupabaseClient,
   sanitizePublicIntakeSourcePage,
 } from "../_shared/public-intake-abuse-controls.ts";
-import { sendWeComAlertSafe } from "../_shared/wecom-alert.ts";
+import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
 
 export const config = {
   verify_jwt: false,
@@ -29,6 +29,7 @@ const validSubmissionTypes = new Set([
   "procurement",
   "general",
 ]);
+const internallyNotifiedSubmissionTypes = new Set(["quote", "procurement"]);
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -357,6 +358,120 @@ const markDispatchSkipped = async (
     .eq("event_key", eventKey);
 };
 
+const updateLeadNotificationState = async (
+  leadSubmissionId: string,
+  patch: Record<string, unknown>,
+) => {
+  if (!supabase) return;
+
+  const { error } = await supabase
+    .from("lead_submissions")
+    .update(patch)
+    .eq("id", leadSubmissionId);
+
+  if (error) {
+    console.error("Failed to update lead notification state.", {
+      leadSubmissionId,
+      error,
+      patch,
+    });
+  }
+};
+
+const formatSubmissionLabel = (submissionType: string) => {
+  switch (submissionType) {
+    case "quote":
+      return "quote request";
+    case "procurement":
+      return "procurement request";
+    case "demo":
+      return "demo request";
+    default:
+      return "contact request";
+  }
+};
+
+const formatArtworkMetadataLines = (metadata: Record<string, unknown>): string[] => {
+  const artwork = isRecord(metadata.customSticksArtwork)
+    ? metadata.customSticksArtwork
+    : null;
+
+  if (!artwork) {
+    return [];
+  }
+
+  return [
+    "",
+    "Private Custom-Sticks Artwork:",
+    `- Bucket: ${sanitizeText(artwork.bucket) || "n/a"}`,
+    `- Storage path: ${sanitizeText(artwork.storagePath) || "n/a"}`,
+    `- File name: ${sanitizeText(artwork.fileName) || "n/a"}`,
+    `- Content type: ${sanitizeText(artwork.contentType) || "n/a"}`,
+    `- Size: ${Number(artwork.sizeBytes) || "n/a"} bytes`,
+  ];
+};
+
+const buildLeadNotification = (
+  leadSubmission: {
+    id: string;
+    submission_type: string;
+    name: string;
+    email: string;
+    source_page: string;
+    message: string;
+    metadata?: Record<string, unknown> | null;
+    created_at: string;
+  },
+) => {
+  const submissionLabel = formatSubmissionLabel(leadSubmission.submission_type);
+  const metadata = isRecord(leadSubmission.metadata) ? leadSubmission.metadata : {};
+  const isProcurement = leadSubmission.submission_type === "procurement";
+  const subject = `New ${submissionLabel}: ${leadSubmission.name}`;
+  const intro = isProcurement
+    ? "A new supply procurement request was submitted."
+    : "A new quote request was submitted.";
+  const nextSteps = isProcurement
+    ? [
+      "",
+      "Fulfillment Next Steps:",
+      "- Reply to the customer to confirm availability, payment/shipping details, and timing.",
+      "- If this is a custom sticks request, generate a short-lived private artwork link before vendor review.",
+      "- Track the request until it is converted to a paid order or closed.",
+    ]
+    : [
+      "",
+      "Next Steps:",
+      "- Review the request context and reply to the customer.",
+      "- Record follow-up outside the public intake form.",
+    ];
+
+  const commonLines = [
+    `Submission ID: ${leadSubmission.id}`,
+    `Submitted At (UTC): ${leadSubmission.created_at}`,
+    `Inquiry Type: ${leadSubmission.submission_type}`,
+    `Name: ${leadSubmission.name}`,
+    `Email: ${leadSubmission.email}`,
+    `Source Page: ${leadSubmission.source_page}`,
+    ...formatArtworkMetadataLines(metadata),
+    "",
+    "Message:",
+    leadSubmission.message,
+  ];
+
+  return {
+    subject,
+    text: [
+      intro,
+      "",
+      ...commonLines,
+      ...nextSteps,
+    ].join("\n"),
+    weComTag: isProcurement ? "Bloomjoy Procurement" : "Bloomjoy Quote",
+    weComTitle: subject,
+    weComLines: commonLines,
+  };
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -551,7 +666,7 @@ serve(async (req) => {
 
     if (
       !leadSubmission ||
-      leadSubmission.submission_type !== "quote" ||
+      !internallyNotifiedSubmissionTypes.has(leadSubmission.submission_type) ||
       leadSubmission.internal_notification_sent_at
     ) {
       return new Response(JSON.stringify({ ok: true }), {
@@ -595,54 +710,49 @@ serve(async (req) => {
       });
     }
 
-    const quoteSubject = `New quote request: ${leadSubmission.name}`;
-    const quoteText = [
-      "A new quote request was submitted.",
-      "",
-      `Submission ID: ${leadSubmission.id}`,
-      `Submitted At (UTC): ${leadSubmission.created_at}`,
-      `Inquiry Type: ${leadSubmission.submission_type}`,
-      `Name: ${leadSubmission.name}`,
-      `Email: ${leadSubmission.email}`,
-      `Source Page: ${leadSubmission.source_page}`,
-      "",
-      "Message:",
-      leadSubmission.message,
-    ].join("\n");
+    const notification = buildLeadNotification(leadSubmission);
 
     try {
       await sendInternalEmail({
-        subject: quoteSubject,
-        text: quoteText,
+        subject: notification.subject,
+        text: notification.text,
       });
     } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "Unknown internal email failure.";
+      await updateLeadNotificationState(leadSubmission.id, {
+        internal_notification_error: message,
+      });
       await releaseDispatch(eventKey);
-      throw error;
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    await sendWeComAlertSafe({
-      tag: "Bloomjoy Quote",
-      title: `New quote request: ${leadSubmission.name}`,
-      lines: [
-        `Submission ID: ${leadSubmission.id}`,
-        `Submitted At (UTC): ${leadSubmission.created_at}`,
-        `Inquiry Type: ${leadSubmission.submission_type}`,
-        `Name: ${leadSubmission.name}`,
-        `Email: ${leadSubmission.email}`,
-        `Source Page: ${leadSubmission.source_page}`,
-        "Message:",
-        leadSubmission.message,
-      ],
+    const weComResult = await sendWeComAlertResult({
+      tag: notification.weComTag,
+      title: notification.weComTitle,
+      lines: notification.weComLines,
     });
 
     await Promise.all([
-      supabase
-        .from("lead_submissions")
-        .update({ internal_notification_sent_at: new Date().toISOString() })
-        .eq("id", leadSubmission.id),
+      updateLeadNotificationState(leadSubmission.id, {
+        internal_notification_sent_at: new Date().toISOString(),
+        internal_notification_error: null,
+        ...(weComResult.ok
+          ? {
+            wecom_alert_sent_at: new Date().toISOString(),
+            wecom_alert_error: null,
+          }
+          : {
+            wecom_alert_error: weComResult.message,
+          }),
+      }),
       markDispatchSent(eventKey, {
         submission_type: leadSubmission.submission_type,
         source_page: leadSubmission.source_page,
+        wecom_alert_sent: weComResult.ok,
       }),
     ]);
 

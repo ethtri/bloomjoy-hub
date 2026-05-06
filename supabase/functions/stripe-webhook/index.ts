@@ -17,6 +17,7 @@ const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const adminOrdersUrl = "https://app.bloomjoyusa.com/admin/orders";
 
 if (!stripeSecretKey) {
   console.error("Missing STRIPE_SECRET_KEY");
@@ -479,6 +480,12 @@ const buildInternalOrderEmail = (context: OrderContext) => {
       `Receipt URL: ${context.receiptUrl ?? "n/a"}`,
       ...detailSection,
       "",
+      "Fulfillment Next Steps:",
+      `- Open Admin Orders: ${adminOrdersUrl}`,
+      `- Search for checkout session ${context.session.id}.`,
+      "- Assign an owner, add fulfillment notes, and update status/tracking as the order moves.",
+      "- Fulfill from the product details and shipping address above.",
+      "",
       "Line Items:",
       lineItemSummary,
     ].join("\n"),
@@ -494,6 +501,7 @@ const buildWeComAlertLines = (context: OrderContext): string[] => [
   `Customer Email: ${context.customerEmail ?? "n/a"}`,
   `Customer Name: ${context.customerName ?? "n/a"}`,
   `Shipping Name: ${context.shippingName ?? "n/a"}`,
+  `Admin Orders: ${adminOrdersUrl}`,
   context.orderType === "blank_sticks"
     ? `Boxes / Pieces per box: ${context.blankSticks?.box_count ?? "n/a"} / ${context.blankSticks?.pieces_per_box ?? "n/a"}`
     : `Sugar KG (W/B/O/R/T): ${context.sugarMix.white_kg}/${context.sugarMix.blue_kg}/${context.sugarMix.orange_kg}/${context.sugarMix.red_kg}/${context.sugarMix.total_kg}`,
