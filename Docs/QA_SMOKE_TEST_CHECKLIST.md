@@ -233,11 +233,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate/idempotent, same-content different-request, invalid-row, `Closed + Approve`, approved `Request Amount` fallback, `Open`, `Deny`, missing-decision, current customer-service export header, live sheet-shaped rows, sanitized-payload, and partner-settlement fixtures
 - [ ] Refund Adjustment Sync GitHub Action can be run manually with `dry_run=true`, pages through the source rows, and returns aggregate counts only, with no customer names, emails, payment IDs, card digits, or free-text incident descriptions in logs
 - [ ] Sales Import Sync GitHub Action manual dispatch defaults to `dry_run=true` and rejects manual live imports unless `confirm_live=true` is explicitly set
+- [ ] Sales Import Sync scheduled defaults still choose `Last Month` only for `45 14 1 * *`; the primary `30 13 * * *` and backup `30 17 * * *` scheduled replays choose `Last 7 Days`
+- [ ] Sales Import Recovery GitHub Action manual dispatch defaults to `dry_run=true` and rejects manual live recovery unless `confirm_live=true` is explicitly set
 - [ ] `npm run reporting:provider-sync -- --dry-run` requests the provider Orders export, confirms it, downloads the newest completed Export Task file, parses `.xlsx` or `.zip` exports, reconciles parsed row count/revenue against the provider UI, checks top-level machine discovery, deletes raw downloads, and validates Supabase ingest/machine mappings without writing sales facts when ingest env vars are present
 - [ ] `npm run reporting:provider-sync -- --date-start YYYY-MM-DD --date-end YYYY-MM-DD --dry-run` succeeds for one monthly custom-range backfill window and rejects exports with rows outside that selected window
 - [ ] `npm run reporting:provider-sync -- --parse-file path/to/month.zip --date-start YYYY-MM-DD --date-end YYYY-MM-DD --dry-run` parses a manually supplied Export Task file, validates the selected monthly window, and logs only aggregate counts/metadata
 - [ ] `npm run reporting:provider-sync -- --parse-file path/to/multi-month.xlsx --date-start YYYY-MM-DD --date-end YYYY-MM-DD --filter-date-window --dry-run` filters a manually supplied multi-month workbook to the requested monthly chunk and logs source window, filtered window, and out-of-window row counts without storing raw rows
 - [ ] `npm run reporting:provider-health -- --event freshness_check --stale-hours 30` reports the latest completed sales import or sends a stale-data ops alert
+- [ ] After a failed/cancelled/timed-out scheduled sales import, Sales Import Recovery replays `Last 7 Days`, runs the freshness check, and sends a recovery-failure alert only if the retry or freshness check still fails
 
 ## Payments (test mode)
 - [ ] Signed-out or non-Plus sugar checkout uses `$10/kg` in the cart summary and Stripe Checkout

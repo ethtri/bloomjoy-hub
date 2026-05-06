@@ -4,6 +4,8 @@ on:
   schedule:
     # Daily catch-up with a rolling overlap so missed/late sales rows are repaired idempotently.
     - cron: '30 13 * * *'
+    # Backup daily replay in case GitHub misses or cancels the primary scheduled run before repo code starts.
+    - cron: '30 17 * * *'
     # Monthly safety sweep for historical gaps and missed daily workflow runs.
     - cron: '45 14 1 * *'
   workflow_dispatch:
