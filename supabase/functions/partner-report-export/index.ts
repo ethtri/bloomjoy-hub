@@ -10,12 +10,14 @@ import {
   buildPartnerReportPdf,
   buildPartnerReportReference,
   buildPartnerReportXlsx,
+  type PartnerReportExportContext,
   type PartnerReportPreview,
 } from "../_shared/partner-report-export.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const schedulerSecret = Deno.env.get("REPORT_SCHEDULER_SECRET");
 const exportBucket = "sales-report-exports";
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,6 +33,7 @@ const validPeriodModes = new Set([
 type PartnerReportPeriodGrain = "reporting_week" | "calendar_month";
 type PartnerReportPeriodMode = "weekly" | "month_to_date" | "completed_month";
 type PartnerReportExportFormat = "pdf" | "csv" | "xlsx";
+type PartnerReportWarning = NonNullable<PartnerReportPreview["warnings"]>[number];
 
 type PartnerPeriodPreviewRpc = {
   partnership_id?: string;
@@ -59,6 +62,35 @@ type ExportRequest = {
 
 type PartnerReportPeriod = NonNullable<PartnerReportPreview["periods"]>[number];
 type PartnerReportMachine = NonNullable<PartnerReportPreview["machines"]>[number];
+
+type PartnerReportScheduleRun = {
+  id: string;
+  schedule_id: string;
+  partnership_id: string;
+  period_grain: PartnerReportPeriodGrain;
+  period_start_date: string;
+  period_end_date: string;
+  period_label: string;
+  trigger_type: string;
+  status: string;
+  warning_gate_status: string;
+};
+
+type PartnerReportArtifact = {
+  snapshotId: string;
+  storagePath: string;
+  signedUrl?: string;
+  format: PartnerReportExportFormat;
+  fileName: string;
+  periodGrain: PartnerReportPeriodGrain;
+  periodMode: PartnerReportPeriodMode;
+  periodStartDate: string;
+  periodEndDate: string;
+  machineScopeLabel?: string;
+  warnings: PartnerReportWarning[];
+  generatedAt: string;
+  reportReference: string;
+};
 
 const serviceSupabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -485,6 +517,13 @@ const getBlockingWarnings = (preview: PartnerReportPreview) =>
     String(warning.severity ?? "blocking").toLowerCase() !== "non_blocking"
   );
 
+const assertNoBlockingWarnings = (preview: PartnerReportPreview) => {
+  const blockingWarnings = getBlockingWarnings(preview);
+  if (blockingWarnings.length > 0) {
+    throw new BlockingWarningsError(blockingWarnings);
+  }
+};
+
 const getPayoutRecipientLabels = async (
   partnershipId: string,
 ): Promise<string[]> => {
@@ -547,6 +586,35 @@ const getActiveFinancialRule = async (
 class MachineScopeError extends Error {
   status = 400;
 }
+
+class PreviewLoadError extends Error {
+  status = 400;
+}
+
+class BlockingWarningsError extends Error {
+  status = 409;
+  warnings: PartnerReportWarning[];
+
+  constructor(warnings: PartnerReportWarning[]) {
+    super("Resolve blocking report review items before exporting this partner report.");
+    this.warnings = warnings;
+  }
+}
+
+class ScheduleRunValidationError extends Error {
+  status = 400;
+}
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
+const getErrorStatus = (error: unknown) =>
+  error instanceof MachineScopeError ||
+    error instanceof PreviewLoadError ||
+    error instanceof BlockingWarningsError ||
+    error instanceof ScheduleRunValidationError
+    ? error.status
+    : 500;
 
 const mapReportPeriod = (period: Record<string, unknown>): PartnerReportPeriod => ({
   period_start: String(period.period_start ?? ""),
@@ -791,15 +859,17 @@ const mapPeriodPreviewToPartnerReportPreview = (
 };
 
 const loadTrendPeriods = async ({
-  userSupabase,
+  previewSupabase,
+  periodPreviewRpcName,
   request,
 }: {
-  userSupabase: SupabaseClient;
+  previewSupabase: SupabaseClient;
+  periodPreviewRpcName: string;
   request: ExportRequest;
 }): Promise<PartnerReportPeriod[]> => {
   const { trendStartDate, trendEndDate } = getTrendRange(request);
-  const { data, error } = await userSupabase.rpc(
-    "admin_preview_partner_period_report",
+  const { data, error } = await previewSupabase.rpc(
+    periodPreviewRpcName,
     {
       p_partnership_id: request.partnershipId,
       p_date_from: trendStartDate,
@@ -830,6 +900,54 @@ const loadTrendPeriods = async ({
     .slice(-expectedCount);
 };
 
+const loadPartnerReportPreview = async ({
+  previewSupabase,
+  periodPreviewRpcName,
+  request,
+}: {
+  previewSupabase: SupabaseClient;
+  periodPreviewRpcName: string;
+  request: ExportRequest;
+}): Promise<PartnerReportPreview> => {
+  const { data, error } = request.useLegacyWeeklyPreview
+    ? await previewSupabase.rpc(
+      "admin_preview_partner_weekly_report",
+      {
+        p_partnership_id: request.partnershipId,
+        p_week_ending_date: request.periodEndDate,
+      },
+    )
+    : await previewSupabase.rpc(
+      periodPreviewRpcName,
+      {
+        p_partnership_id: request.partnershipId,
+        p_date_from: request.periodStartDate,
+        p_date_to: request.periodEndDate,
+        p_period_grain: request.periodGrain,
+      },
+    );
+
+  if (error) {
+    throw new PreviewLoadError(
+      error.message || "Unable to preview partner report.",
+    );
+  }
+
+  return request.useLegacyWeeklyPreview
+    ? ({
+      ...((data ?? {}) as PartnerReportPreview),
+      periodGrain: "reporting_week",
+      periodMode: request.periodMode,
+      periodStartDate: request.periodStartDate,
+      periodEndDate: request.periodEndDate,
+      periodLabel: request.periodLabel,
+    } satisfies PartnerReportPreview)
+    : mapPeriodPreviewToPartnerReportPreview(
+      (data ?? {}) as PartnerPeriodPreviewRpc,
+      request,
+    );
+};
+
 const getOrCreateSnapshot = async ({
   partnershipId,
   periodGrain,
@@ -844,7 +962,7 @@ const getOrCreateSnapshot = async ({
   periodStartDate: string;
   periodEndDate: string;
   machineScopeKey: string;
-  userId: string;
+  userId: string | null;
   summaryJson: Record<string, unknown>;
 }) => {
   if (!serviceSupabase) {
@@ -873,7 +991,7 @@ const getOrCreateSnapshot = async ({
       .from("partner_report_snapshots")
       .update({
         generated_at: new Date().toISOString(),
-        generated_by: userId,
+        ...(userId ? { generated_by: userId } : {}),
         week_ending_date: periodEndDate,
         period_grain: periodGrain,
         period_start_date: periodStartDate,
@@ -922,224 +1040,65 @@ const getOrCreateSnapshot = async ({
   return inserted;
 };
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+const buildPartnerReportArtifact = async ({
+  request,
+  preview,
+  previewSupabase,
+  periodPreviewRpcName,
+  actorUserId,
+  createSignedUrl,
+}: {
+  request: ExportRequest;
+  preview: PartnerReportPreview;
+  previewSupabase: SupabaseClient;
+  periodPreviewRpcName: string;
+  actorUserId: string | null;
+  createSignedUrl: boolean;
+}): Promise<PartnerReportArtifact> => {
+  if (!serviceSupabase) {
+    throw new Error("Partner report export is not configured.");
   }
 
-  try {
-    if (req.method !== "POST") {
-      return jsonResponse({ error: "Method not allowed." }, 405);
-    }
+  assertNoBlockingWarnings(preview);
 
-    if (!supabaseUrl || !supabaseAnonKey || !serviceSupabase) {
-      return jsonResponse(
-        { error: "Partner report export is not configured." },
-        500,
-      );
-    }
-
-    const accessToken = resolveSupabaseAccessToken(req);
-    if (!accessToken) {
-      return jsonResponse({ error: "Unauthorized." }, 401);
-    }
-
-    const { data: authData, error: authError } = await serviceSupabase.auth
-      .getUser(accessToken);
-    const user = authData?.user;
-    if (authError || !user) {
-      return jsonResponse({ error: "Unauthorized." }, 401);
-    }
-
-    const body = await req.json().catch(() => ({}));
-    const raw = body && typeof body === "object"
-      ? (body as Record<string, unknown>)
-      : {};
-    const { request, error: requestError } = resolveExportRequest(raw);
-
-    if (!request) {
-      return jsonResponse(
-        { error: requestError ?? "Invalid export request." },
-        400,
-      );
-    }
-
-    const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { persistSession: false },
-      global: {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    });
-
-    const { data: previewData, error: previewError } = request
-        .useLegacyWeeklyPreview
-      ? await userSupabase.rpc(
-        "admin_preview_partner_weekly_report",
-        {
-          p_partnership_id: request.partnershipId,
-          p_week_ending_date: request.periodEndDate,
-        },
-      )
-      : await userSupabase.rpc(
-        "admin_preview_partner_period_report",
-        {
-          p_partnership_id: request.partnershipId,
-          p_date_from: request.periodStartDate,
-          p_date_to: request.periodEndDate,
-          p_period_grain: request.periodGrain,
-        },
-      );
-
-    if (previewError) {
-      return jsonResponse({
-        error: previewError.message || "Unable to preview partner report.",
-      }, 400);
-    }
-
-    const preview = request.useLegacyWeeklyPreview
-      ? ({
-        ...((previewData ?? {}) as PartnerReportPreview),
-        periodGrain: "reporting_week",
-        periodMode: request.periodMode,
-        periodStartDate: request.periodStartDate,
-        periodEndDate: request.periodEndDate,
-        periodLabel: request.periodLabel,
-      } satisfies PartnerReportPreview)
-      : mapPeriodPreviewToPartnerReportPreview(
-        (previewData ?? {}) as PartnerPeriodPreviewRpc,
-        request,
-      );
-    const blockingWarnings = getBlockingWarnings(preview);
-    if (blockingWarnings.length > 0) {
-      return jsonResponse({
-        error:
-          "Resolve blocking report review items before exporting this partner report.",
-      }, 409);
-    }
-
-    const generatedAt = new Date().toISOString();
-    const [payoutRecipientLabels, financialRule, trendPeriods] = await Promise.all([
-      getPayoutRecipientLabels(request.partnershipId),
-      getActiveFinancialRule(
-        request.partnershipId,
-        request.periodStartDate,
-        request.periodEndDate,
-      ),
-      request.format === "pdf" || request.format === "xlsx" ||
-        request.machineIds.length > 0
-        ? loadTrendPeriods({ userSupabase, request })
-        : Promise.resolve([]),
-    ]);
-    const calculationLabel = formatCalculationLabel(financialRule);
-    const exportPayoutRecipientLabels = request.useLegacyWeeklyPreview
-      ? payoutRecipientLabels
-      : payoutRecipientLabels.length > 1
-      ? [payoutRecipientLabels.join(" + ")]
-      : payoutRecipientLabels;
-    const ruleExportLabels = getRuleExportLabels(financialRule, {
-      combineRecipientShares: !request.useLegacyWeeklyPreview,
-    });
-    const exportPreview = trendPeriods.length > 0
-      ? { ...preview, periods: trendPeriods }
-      : preview;
-    const snapshot = await getOrCreateSnapshot({
-      partnershipId: request.partnershipId,
-      periodGrain: request.periodGrain,
-      periodStartDate: request.periodStartDate,
-      periodEndDate: request.periodEndDate,
-      machineScopeKey: request.machineScopeKey,
-      userId: user.id,
-      summaryJson: {
-        preview: exportPreview,
-        calculationLabel,
-        payoutRecipientLabels: exportPayoutRecipientLabels,
-        ...ruleExportLabels,
-        generatedAt,
-        periodGrain: request.periodGrain,
-        periodStartDate: request.periodStartDate,
-        periodEndDate: request.periodEndDate,
-        periodLabel: request.periodLabel,
-        periodMode: request.periodMode,
-        machineScopeKey: request.machineScopeKey,
-        machineIds: request.machineIds,
-        machineScopeLabel: exportPreview.machineScopeLabel,
-      },
-    });
-    const reportReference = buildPartnerReportReference(snapshot.id, exportPreview);
-    const context = {
+  const generatedAt = new Date().toISOString();
+  const [payoutRecipientLabels, financialRule, trendPeriods] = await Promise.all([
+    getPayoutRecipientLabels(request.partnershipId),
+    getActiveFinancialRule(
+      request.partnershipId,
+      request.periodStartDate,
+      request.periodEndDate,
+    ),
+    request.format === "pdf" || request.format === "xlsx" ||
+      request.machineIds.length > 0
+      ? loadTrendPeriods({ previewSupabase, periodPreviewRpcName, request })
+      : Promise.resolve([]),
+  ]);
+  const calculationLabel = formatCalculationLabel(financialRule);
+  const exportPayoutRecipientLabels = request.useLegacyWeeklyPreview
+    ? payoutRecipientLabels
+    : payoutRecipientLabels.length > 1
+    ? [payoutRecipientLabels.join(" + ")]
+    : payoutRecipientLabels;
+  const ruleExportLabels = getRuleExportLabels(financialRule, {
+    combineRecipientShares: !request.useLegacyWeeklyPreview,
+  });
+  const exportPreview = trendPeriods.length > 0
+    ? { ...preview, periods: trendPeriods }
+    : preview;
+  const snapshot = await getOrCreateSnapshot({
+    partnershipId: request.partnershipId,
+    periodGrain: request.periodGrain,
+    periodStartDate: request.periodStartDate,
+    periodEndDate: request.periodEndDate,
+    machineScopeKey: request.machineScopeKey,
+    userId: actorUserId,
+    summaryJson: {
       preview: exportPreview,
-      payoutRecipientLabels: exportPayoutRecipientLabels,
       calculationLabel,
+      payoutRecipientLabels: exportPayoutRecipientLabels,
+      ...ruleExportLabels,
       generatedAt,
-      snapshotId: snapshot.id,
-      ...ruleExportLabels,
-    };
-    const fileBytes = request.format === "pdf"
-      ? await buildPartnerReportPdf(context)
-      : request.format === "xlsx"
-      ? buildPartnerReportXlsx(context)
-      : encoder.encode(buildPartnerReportCsv(context));
-    const contentType = request.format === "pdf"
-      ? "application/pdf"
-      : request.format === "xlsx"
-      ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      : "text/csv";
-    const periodSlug = request.periodGrain === "calendar_month"
-      ? request.periodMode === "month_to_date"
-        ? `${request.periodStartDate}-to-${request.periodEndDate}`
-        : request.periodStartDate.slice(0, 7)
-      : request.periodEndDate;
-    const modeSlug = request.periodMode === "month_to_date"
-      ? "month-to-date"
-      : request.periodGrain === "calendar_month"
-      ? "monthly"
-      : "weekly";
-    const machineSlug = request.machineIds.length > 0
-      ? `-${slugify(exportPreview.machineScopeLabel ?? "selected-machine")}`
-      : "";
-    const fileName = `${slugify(exportPreview.partnershipName ?? "partner-report")}-${
-      modeSlug
-    }-${periodSlug}${machineSlug}.${request.format}`;
-    const storagePath =
-      `partner-reports/${request.partnershipId}/${request.periodGrain}/${snapshot.id}/${fileName}`;
-
-    const { error: uploadError } = await serviceSupabase.storage
-      .from(exportBucket)
-      .upload(
-        storagePath,
-        new Blob([toBlobPart(fileBytes)], { type: contentType }),
-        {
-          contentType,
-          upsert: true,
-        },
-      );
-
-    if (uploadError) {
-      if (
-        (request.format === "csv" || request.format === "xlsx") &&
-        uploadError.message?.toLowerCase().includes("mime")
-      ) {
-        throw new Error(
-          request.format === "xlsx"
-            ? "XLSX export storage is not configured. Apply the latest reporting export migration and retry."
-            : "CSV export storage is not configured for text/csv. Apply the latest reporting export migration and retry.",
-        );
-      }
-      throw new Error(
-        uploadError.message || "Unable to upload partner report.",
-      );
-    }
-
-    const nextSummaryJson = {
-      ...((snapshot.summary_json as Record<string, unknown> | null) ?? {}),
-      preview: exportPreview,
-      calculationLabel,
-      payoutRecipientLabels: exportPayoutRecipientLabels,
-      snapshotId: snapshot.id,
-      reportReference,
-      ...ruleExportLabels,
       periodGrain: request.periodGrain,
       periodStartDate: request.periodStartDate,
       periodEndDate: request.periodEndDate,
@@ -1148,38 +1107,123 @@ serve(async (req) => {
       machineScopeKey: request.machineScopeKey,
       machineIds: request.machineIds,
       machineScopeLabel: exportPreview.machineScopeLabel,
-      exports: {
-        ...(((snapshot.summary_json as Record<string, unknown> | null)
-          ?.exports as Record<string, unknown> | undefined) ?? {}),
-        [request.format]: {
-          storagePath,
-          generatedAt,
-          fileName,
-        },
+    },
+  });
+  const reportReference = buildPartnerReportReference(snapshot.id, exportPreview);
+  const context: PartnerReportExportContext = {
+    preview: exportPreview,
+    payoutRecipientLabels: exportPayoutRecipientLabels,
+    calculationLabel,
+    generatedAt,
+    snapshotId: snapshot.id,
+    ...ruleExportLabels,
+  };
+  const fileBytes = request.format === "pdf"
+    ? await buildPartnerReportPdf(context)
+    : request.format === "xlsx"
+    ? buildPartnerReportXlsx(context)
+    : encoder.encode(buildPartnerReportCsv(context));
+  const contentType = request.format === "pdf"
+    ? "application/pdf"
+    : request.format === "xlsx"
+    ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    : "text/csv";
+  const periodSlug = request.periodGrain === "calendar_month"
+    ? request.periodMode === "month_to_date"
+      ? `${request.periodStartDate}-to-${request.periodEndDate}`
+      : request.periodStartDate.slice(0, 7)
+    : request.periodEndDate;
+  const modeSlug = request.periodMode === "month_to_date"
+    ? "month-to-date"
+    : request.periodGrain === "calendar_month"
+    ? "monthly"
+    : "weekly";
+  const machineSlug = request.machineIds.length > 0
+    ? `-${slugify(exportPreview.machineScopeLabel ?? "selected-machine")}`
+    : "";
+  const fileName = `${slugify(exportPreview.partnershipName ?? "partner-report")}-${
+    modeSlug
+  }-${periodSlug}${machineSlug}.${request.format}`;
+  const storagePath =
+    `partner-reports/${request.partnershipId}/${request.periodGrain}/${snapshot.id}/${fileName}`;
+
+  const { error: uploadError } = await serviceSupabase.storage
+    .from(exportBucket)
+    .upload(
+      storagePath,
+      new Blob([toBlobPart(fileBytes)], { type: contentType }),
+      {
+        contentType,
+        upsert: true,
       },
-    };
+    );
 
-    const { error: snapshotUpdateError } = await serviceSupabase
-      .from("partner_report_snapshots")
-      .update({
-        export_storage_path: storagePath,
-        week_ending_date: request.periodEndDate,
-        period_grain: request.periodGrain,
-        period_start_date: request.periodStartDate,
-        period_end_date: request.periodEndDate,
-        machine_scope_key: request.machineScopeKey,
-        summary_json: nextSummaryJson,
-        generated_at: generatedAt,
-      })
-      .eq("id", snapshot.id);
-
-    if (snapshotUpdateError) {
+  if (uploadError) {
+    if (
+      (request.format === "csv" || request.format === "xlsx") &&
+      uploadError.message?.toLowerCase().includes("mime")
+    ) {
       throw new Error(
-        snapshotUpdateError.message ||
-          "Unable to update partner report snapshot.",
+        request.format === "xlsx"
+          ? "XLSX export storage is not configured. Apply the latest reporting export migration and retry."
+          : "CSV export storage is not configured for text/csv. Apply the latest reporting export migration and retry.",
       );
     }
+    throw new Error(
+      uploadError.message || "Unable to upload partner report.",
+    );
+  }
 
+  const nextSummaryJson = {
+    ...((snapshot.summary_json as Record<string, unknown> | null) ?? {}),
+    preview: exportPreview,
+    calculationLabel,
+    payoutRecipientLabels: exportPayoutRecipientLabels,
+    snapshotId: snapshot.id,
+    reportReference,
+    ...ruleExportLabels,
+    periodGrain: request.periodGrain,
+    periodStartDate: request.periodStartDate,
+    periodEndDate: request.periodEndDate,
+    periodLabel: request.periodLabel,
+    periodMode: request.periodMode,
+    machineScopeKey: request.machineScopeKey,
+    machineIds: request.machineIds,
+    machineScopeLabel: exportPreview.machineScopeLabel,
+    exports: {
+      ...(((snapshot.summary_json as Record<string, unknown> | null)
+        ?.exports as Record<string, unknown> | undefined) ?? {}),
+      [request.format]: {
+        storagePath,
+        generatedAt,
+        fileName,
+      },
+    },
+  };
+
+  const { error: snapshotUpdateError } = await serviceSupabase
+    .from("partner_report_snapshots")
+    .update({
+      export_storage_path: storagePath,
+      week_ending_date: request.periodEndDate,
+      period_grain: request.periodGrain,
+      period_start_date: request.periodStartDate,
+      period_end_date: request.periodEndDate,
+      machine_scope_key: request.machineScopeKey,
+      summary_json: nextSummaryJson,
+      generated_at: generatedAt,
+    })
+    .eq("id", snapshot.id);
+
+  if (snapshotUpdateError) {
+    throw new Error(
+      snapshotUpdateError.message ||
+        "Unable to update partner report snapshot.",
+    );
+  }
+
+  let signedUrl: string | undefined;
+  if (createSignedUrl) {
     const { data: signedUrlData, error: signedUrlError } = await serviceSupabase
       .storage
       .from(exportBucket)
@@ -1191,27 +1235,399 @@ serve(async (req) => {
       );
     }
 
-    return jsonResponse({
-      snapshotId: snapshot.id,
-      storagePath,
-      signedUrl: signedUrlData.signedUrl,
-      format: request.format,
-      fileName,
-      periodGrain: request.periodGrain,
-      periodMode: request.periodMode,
-      periodStartDate: request.periodStartDate,
-      periodEndDate: request.periodEndDate,
-      machineScopeLabel: exportPreview.machineScopeLabel,
+    signedUrl = signedUrlData.signedUrl;
+  }
+
+  return {
+    snapshotId: snapshot.id,
+    storagePath,
+    signedUrl,
+    format: request.format,
+    fileName,
+    periodGrain: request.periodGrain,
+    periodMode: request.periodMode,
+    periodStartDate: request.periodStartDate,
+    periodEndDate: request.periodEndDate,
+    machineScopeLabel: exportPreview.machineScopeLabel,
+    warnings: exportPreview.warnings ?? [],
+    generatedAt,
+    reportReference,
+  };
+};
+
+const scheduleRunToExportRequest = (
+  run: PartnerReportScheduleRun,
+): ExportRequest => {
+  if (run.trigger_type === "dry_run") {
+    throw new ScheduleRunValidationError(
+      "Dry-run schedule records validate warnings only and do not generate PDF artifacts.",
+    );
+  }
+
+  if (!validPeriodGrains.has(run.period_grain)) {
+    throw new ScheduleRunValidationError(
+      "Schedule run period grain is invalid.",
+    );
+  }
+
+  if (
+    !isValidDateInput(run.period_start_date) ||
+    !isValidDateInput(run.period_end_date)
+  ) {
+    throw new ScheduleRunValidationError(
+      "Schedule run date range is invalid.",
+    );
+  }
+
+  const periodMode = getDefaultPeriodMode(run.period_grain);
+  return {
+    partnershipId: run.partnership_id,
+    format: "pdf",
+    periodGrain: run.period_grain,
+    periodMode,
+    periodStartDate: run.period_start_date,
+    periodEndDate: run.period_end_date,
+    periodLabel: run.period_label ||
+      formatPeriodLabel(
+        run.period_grain,
+        run.period_start_date,
+        run.period_end_date,
+        periodMode,
+      ),
+    machineIds: [],
+    machineScopeKey: "all",
+    useLegacyWeeklyPreview: false,
+  };
+};
+
+const updateScheduleRun = async (
+  runId: string,
+  values: Record<string, unknown>,
+) => {
+  if (!serviceSupabase) {
+    throw new Error("Partner report export is not configured.");
+  }
+
+  const { data, error } = await serviceSupabase
+    .from("partner_report_schedule_runs")
+    .update(values)
+    .eq("id", runId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      error?.message || "Unable to update partner report schedule run.",
+    );
+  }
+
+  return data as PartnerReportScheduleRun;
+};
+
+const releaseScheduleRun = async (
+  runId: string,
+  workerKey: string,
+  status: string,
+  errorCode: string | null = null,
+  errorMessage: string | null = null,
+) => {
+  if (!serviceSupabase) {
+    throw new Error("Partner report export is not configured.");
+  }
+
+  const { data, error } = await serviceSupabase.rpc(
+    "partner_report_schedule_release_run",
+    {
+      p_run_id: runId,
+      p_worker_key: workerKey,
+      p_status: status,
+      p_error_code: errorCode,
+      p_error_message: errorMessage,
+    },
+  );
+
+  if (error || !data) {
+    throw new Error(
+      error?.message || "Unable to release partner report schedule run.",
+    );
+  }
+
+  return data as PartnerReportScheduleRun;
+};
+
+const getScheduleRunId = (raw: Record<string, unknown>) =>
+  String(raw.scheduleRunId ?? raw.runId ?? "").trim();
+
+const isScheduledPdfRequest = (raw: Record<string, unknown>) => {
+  const mode = String(raw.mode ?? raw.action ?? "").trim().toLowerCase();
+  return Boolean(getScheduleRunId(raw)) ||
+    mode === "scheduled_pdf" ||
+    mode === "generate_scheduled_pdf";
+};
+
+const handleScheduledPdfExport = async (
+  req: Request,
+  raw: Record<string, unknown>,
+) => {
+  if (!schedulerSecret) {
+    return jsonResponse(
+      { error: "REPORT_SCHEDULER_SECRET is not configured." },
+      500,
+    );
+  }
+
+  if (req.headers.get("Authorization") !== `Bearer ${schedulerSecret}`) {
+    return jsonResponse({ error: "Unauthorized." }, 401);
+  }
+
+  if (!serviceSupabase) {
+    return jsonResponse(
+      { error: "Partner report export is not configured." },
+      500,
+    );
+  }
+
+  const scheduleRunId = getScheduleRunId(raw);
+  if (!uuidPattern.test(scheduleRunId)) {
+    return jsonResponse({ error: "Valid scheduleRunId is required." }, 400);
+  }
+
+  const workerKey = String(raw.workerKey ?? "partner-report-export").trim() ||
+    "partner-report-export";
+
+  const { data: claimedRunData, error: claimError } = await serviceSupabase.rpc(
+    "partner_report_schedule_claim_run",
+    {
+      p_run_id: scheduleRunId,
+      p_worker_key: workerKey,
+      p_lease_seconds: 600,
+    },
+  );
+
+  if (claimError || !claimedRunData) {
+    return jsonResponse(
+      {
+        error: claimError?.message ||
+          "Partner report schedule run is not claimable.",
+      },
+      409,
+    );
+  }
+
+  const run = claimedRunData as PartnerReportScheduleRun;
+
+  try {
+    const request = scheduleRunToExportRequest(run);
+
+    await updateScheduleRun(run.id, {
+      status: "checking_warnings",
+      warning_gate_status: "not_checked",
+      warnings_json: [],
+      error_code: null,
+      error_message: null,
     });
+
+    const preview = await loadPartnerReportPreview({
+      previewSupabase: serviceSupabase,
+      periodPreviewRpcName: "partner_report_scheduler_preview_partner_period_report",
+      request,
+    });
+    const warnings = preview.warnings ?? [];
+    const blockingWarnings = getBlockingWarnings(preview);
+
+    if (blockingWarnings.length > 0) {
+      await updateScheduleRun(run.id, {
+        warning_gate_status: "blocked",
+        warnings_json: warnings,
+        snapshot_id: null,
+        artifact_storage_path: null,
+        artifact_format: null,
+        artifact_generated_at: null,
+      });
+      await releaseScheduleRun(
+        run.id,
+        workerKey,
+        "blocked",
+        "blocking_warnings",
+        "Resolve blocking report review items before scheduled PDF generation.",
+      );
+
+      return jsonResponse({
+        runId: run.id,
+        scheduleId: run.schedule_id,
+        status: "blocked",
+        warningGateStatus: "blocked",
+        blockingWarningCount: blockingWarnings.length,
+        warnings,
+      });
+    }
+
+    await updateScheduleRun(run.id, {
+      status: "generating",
+      warning_gate_status: "passed",
+      warnings_json: warnings,
+      error_code: null,
+      error_message: null,
+    });
+
+    const artifact = await buildPartnerReportArtifact({
+      request,
+      preview,
+      previewSupabase: serviceSupabase,
+      periodPreviewRpcName: "partner_report_scheduler_preview_partner_period_report",
+      actorUserId: null,
+      createSignedUrl: false,
+    });
+
+    await updateScheduleRun(run.id, {
+      snapshot_id: artifact.snapshotId,
+      artifact_storage_path: artifact.storagePath,
+      artifact_format: "pdf",
+      artifact_generated_at: artifact.generatedAt,
+      warning_gate_status: "passed",
+      warnings_json: artifact.warnings,
+      error_code: null,
+      error_message: null,
+    });
+    await releaseScheduleRun(run.id, workerKey, "artifact_ready");
+
+    return jsonResponse({
+      runId: run.id,
+      scheduleId: run.schedule_id,
+      status: "artifact_ready",
+      warningGateStatus: "passed",
+      snapshotId: artifact.snapshotId,
+      storagePath: artifact.storagePath,
+      format: artifact.format,
+      fileName: artifact.fileName,
+      periodGrain: artifact.periodGrain,
+      periodMode: artifact.periodMode,
+      periodStartDate: artifact.periodStartDate,
+      periodEndDate: artifact.periodEndDate,
+      machineScopeLabel: artifact.machineScopeLabel,
+      warnings: artifact.warnings,
+    });
+  } catch (error) {
+    const message = getErrorMessage(
+      error,
+      "Unable to generate scheduled partner report PDF.",
+    );
+
+    try {
+      await releaseScheduleRun(
+        run.id,
+        workerKey,
+        "failed",
+        error instanceof ScheduleRunValidationError
+          ? "invalid_schedule_run"
+          : "artifact_generation_failed",
+        message,
+      );
+    } catch (releaseError) {
+      console.error("partner-report-export schedule run release error", releaseError);
+    }
+
+    return jsonResponse(
+      { runId: run.id, status: "failed", error: message },
+      getErrorStatus(error),
+    );
+  }
+};
+
+const handleManualExport = async (
+  req: Request,
+  raw: Record<string, unknown>,
+) => {
+  if (!supabaseUrl || !supabaseAnonKey || !serviceSupabase) {
+    return jsonResponse(
+      { error: "Partner report export is not configured." },
+      500,
+    );
+  }
+
+  const accessToken = resolveSupabaseAccessToken(req);
+  if (!accessToken) {
+    return jsonResponse({ error: "Unauthorized." }, 401);
+  }
+
+  const { data: authData, error: authError } = await serviceSupabase.auth
+    .getUser(accessToken);
+  const user = authData?.user;
+  if (authError || !user) {
+    return jsonResponse({ error: "Unauthorized." }, 401);
+  }
+
+  const { request, error: requestError } = resolveExportRequest(raw);
+
+  if (!request) {
+    return jsonResponse(
+      { error: requestError ?? "Invalid export request." },
+      400,
+    );
+  }
+
+  const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false },
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  });
+
+  const preview = await loadPartnerReportPreview({
+    previewSupabase: userSupabase,
+    periodPreviewRpcName: "admin_preview_partner_period_report",
+    request,
+  });
+  const artifact = await buildPartnerReportArtifact({
+    request,
+    preview,
+    previewSupabase: userSupabase,
+    periodPreviewRpcName: "admin_preview_partner_period_report",
+    actorUserId: user.id,
+    createSignedUrl: true,
+  });
+
+  return jsonResponse({
+    snapshotId: artifact.snapshotId,
+    storagePath: artifact.storagePath,
+    signedUrl: artifact.signedUrl,
+    format: artifact.format,
+    fileName: artifact.fileName,
+    periodGrain: artifact.periodGrain,
+    periodMode: artifact.periodMode,
+    periodStartDate: artifact.periodStartDate,
+    periodEndDate: artifact.periodEndDate,
+    machineScopeLabel: artifact.machineScopeLabel,
+  });
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    if (req.method !== "POST") {
+      return jsonResponse({ error: "Method not allowed." }, 405);
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const raw = body && typeof body === "object"
+      ? (body as Record<string, unknown>)
+      : {};
+
+    return isScheduledPdfRequest(raw)
+      ? await handleScheduledPdfExport(req, raw)
+      : await handleManualExport(req, raw);
   } catch (error) {
     console.error("partner-report-export error", error);
     return jsonResponse(
       {
-        error: error instanceof Error && error.message
-          ? error.message
-          : "Unable to export partner report.",
+        error: getErrorMessage(error, "Unable to export partner report."),
       },
-      error instanceof MachineScopeError ? error.status : 500,
+      getErrorStatus(error),
     );
   }
 });
