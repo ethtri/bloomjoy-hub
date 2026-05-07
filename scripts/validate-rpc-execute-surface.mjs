@@ -16,22 +16,32 @@ const serviceRoleOnlyFunctions = [
   {
     signature: 'public.can_access_partner_dashboard(uuid, uuid, date, date)',
     name: 'can_access_partner_dashboard',
+    migrationName: hardeningMigrationName,
   },
   {
     signature: 'public.admin_grant_machine_report_access(text, uuid, uuid, uuid, text, text)',
     name: 'admin_grant_machine_report_access',
+    migrationName: hardeningMigrationName,
   },
   {
     signature: 'public.create_report_export(uuid, jsonb)',
     name: 'create_report_export',
+    migrationName: hardeningMigrationName,
   },
   {
     signature: 'public.admin_list_reporting_sync_runs(integer)',
     name: 'admin_list_reporting_sync_runs',
+    migrationName: hardeningMigrationName,
   },
   {
     signature: 'public.admin_reconcile_technician_entitlements(text)',
     name: 'admin_reconcile_technician_entitlements',
+    migrationName: hardeningMigrationName,
+  },
+  {
+    signature: 'public.partner_report_scheduler_preview_partner_period_report(uuid, date, date, text)',
+    name: 'partner_report_scheduler_preview_partner_period_report',
+    migrationName: '202605070001_partner_report_scheduler_pdf_export.sql',
   },
 ];
 
@@ -71,9 +81,9 @@ const statementMentionsAuthenticated = (sql, verb, signature) => {
   return pattern.test(compactSql(sql));
 };
 
-const expectMigrationStatement = (sql, snippet) => {
+const expectMigrationStatement = (migrationName, sql, snippet) => {
   if (!compactSql(sql).includes(compactSql(snippet))) {
-    fail(`${hardeningMigrationName}: missing statement: ${snippet}`);
+    fail(`${migrationName}: missing statement: ${snippet}`);
   }
 };
 
@@ -121,21 +131,32 @@ const assertBrowserDoesNotCallServiceOnlyFunctions = () => {
   }
 };
 
-const assertIssueMigration = () => {
+const assertServiceOnlyMigrations = () => {
   if (!fs.existsSync(hardeningMigrationPath)) {
     fail(`Missing migration ${hardeningMigrationName}.`);
   }
 
-  const sql = readText(hardeningMigrationPath);
-
   for (const fn of serviceRoleOnlyFunctions) {
+    const migrationPath = path.join(migrationsDir, fn.migrationName);
+    if (!fs.existsSync(migrationPath)) {
+      fail(`Missing migration ${fn.migrationName} for ${fn.signature}.`);
+    }
+
+    const sql = readText(migrationPath);
     expectMigrationStatement(
+      fn.migrationName,
       sql,
       `revoke execute on function ${fn.signature} from public, anon, authenticated`
     );
-    expectMigrationStatement(sql, `grant execute on function ${fn.signature} to service_role`);
-    expectMigrationStatement(sql, `comment on function ${fn.signature} is`);
+    expectMigrationStatement(
+      fn.migrationName,
+      sql,
+      `grant execute on function ${fn.signature} to service_role`
+    );
+    expectMigrationStatement(fn.migrationName, sql, `comment on function ${fn.signature} is`);
   }
+
+  const sql = readText(hardeningMigrationPath);
 
   for (const signature of protectedAuthenticatedFunctions) {
     if (statementMentionsAuthenticated(sql, 'revoke', signature)) {
@@ -146,14 +167,14 @@ const assertIssueMigration = () => {
 
 const assertNoLaterAuthenticatedRegrant = () => {
   const migrations = getMigrationFiles();
-  const hardeningIndex = migrations.indexOf(hardeningMigrationName);
-  if (hardeningIndex === -1) {
-    fail(`Unable to locate ${hardeningMigrationName} in migration order.`);
-  }
+  for (const fn of serviceRoleOnlyFunctions) {
+    const migrationIndex = migrations.indexOf(fn.migrationName);
+    if (migrationIndex === -1) {
+      fail(`Unable to locate ${fn.migrationName} in migration order.`);
+    }
 
-  for (const migrationName of migrations.slice(hardeningIndex + 1)) {
-    const sql = readText(path.join(migrationsDir, migrationName));
-    for (const fn of serviceRoleOnlyFunctions) {
+    for (const migrationName of migrations.slice(migrationIndex + 1)) {
+      const sql = readText(path.join(migrationsDir, migrationName));
       if (statementMentionsAuthenticated(sql, 'grant', fn.signature)) {
         fail(`${migrationName} re-grants authenticated execute on service-role-only ${fn.signature}.`);
       }
@@ -162,7 +183,7 @@ const assertNoLaterAuthenticatedRegrant = () => {
 };
 
 const main = () => {
-  assertIssueMigration();
+  assertServiceOnlyMigrations();
   assertNoLaterAuthenticatedRegrant();
   assertBrowserDoesNotCallServiceOnlyFunctions();
 
