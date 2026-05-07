@@ -8,6 +8,7 @@ This repo is operated primarily through AI coding agents. The owner is not expec
 - Convert vague ideas, parked work, or exploratory branches into issues instead of leaving long-lived draft PRs.
 - Use the GitHub PR template as the source of truth for risk, verification, UAT steps, screenshots, and rollback.
 - Ask the owner only for product judgment, external-account actions, final high-risk UAT, or ambiguous go/no-go decisions.
+- For repeatable PM/PO sprint orchestration with subagent execution and QA challenge lanes, use `Docs/AGENT_SPRINT_WORKFLOW.md`.
 
 ## Risk levels
 - Low risk: docs-only, copy-only, small cleanup, or non-runtime guardrails.
