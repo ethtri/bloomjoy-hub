@@ -909,23 +909,15 @@ const loadPartnerReportPreview = async ({
   periodPreviewRpcName: string;
   request: ExportRequest;
 }): Promise<PartnerReportPreview> => {
-  const { data, error } = request.useLegacyWeeklyPreview
-    ? await previewSupabase.rpc(
-      "admin_preview_partner_weekly_report",
-      {
-        p_partnership_id: request.partnershipId,
-        p_week_ending_date: request.periodEndDate,
-      },
-    )
-    : await previewSupabase.rpc(
-      periodPreviewRpcName,
-      {
-        p_partnership_id: request.partnershipId,
-        p_date_from: request.periodStartDate,
-        p_date_to: request.periodEndDate,
-        p_period_grain: request.periodGrain,
-      },
-    );
+  const { data, error } = await previewSupabase.rpc(
+    periodPreviewRpcName,
+    {
+      p_partnership_id: request.partnershipId,
+      p_date_from: request.periodStartDate,
+      p_date_to: request.periodEndDate,
+      p_period_grain: request.periodGrain,
+    },
+  );
 
   if (error) {
     throw new PreviewLoadError(
@@ -933,19 +925,10 @@ const loadPartnerReportPreview = async ({
     );
   }
 
-  return request.useLegacyWeeklyPreview
-    ? ({
-      ...((data ?? {}) as PartnerReportPreview),
-      periodGrain: "reporting_week",
-      periodMode: request.periodMode,
-      periodStartDate: request.periodStartDate,
-      periodEndDate: request.periodEndDate,
-      periodLabel: request.periodLabel,
-    } satisfies PartnerReportPreview)
-    : mapPeriodPreviewToPartnerReportPreview(
-      (data ?? {}) as PartnerPeriodPreviewRpc,
-      request,
-    );
+  return mapPeriodPreviewToPartnerReportPreview(
+    (data ?? {}) as PartnerPeriodPreviewRpc,
+    request,
+  );
 };
 
 const getOrCreateSnapshot = async ({
