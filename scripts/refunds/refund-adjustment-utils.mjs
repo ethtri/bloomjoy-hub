@@ -9,6 +9,9 @@ export const AUTO_APPLY_DECISIONS = new Set([
   'refund approve',
 ]);
 
+export const REMOVED_LIVE_SOURCE_MATCH_REASON =
+  'missing_from_live_source_snapshot_settlement_preserved';
+
 export const normalizeHeader = (value) =>
   String(value ?? '')
     .normalize('NFKD')
@@ -347,6 +350,41 @@ export const buildSanitizedRefundPayload = ({
   candidate_machine_count: match?.candidateMachineIds?.length ?? 0,
   matched_machine_id: match?.matchedMachine?.id ?? null,
   applied_adjustment_id: appliedAdjustmentId,
+});
+
+const reviewRowValue = (row, snakeKey, camelKey = snakeKey) => row?.[snakeKey] ?? row?.[camelKey];
+
+export const selectRemovedLiveSourceReviewRows = ({ currentSourceRowReferences, reviewRows }) => {
+  const currentReferences = new Set(
+    [...(currentSourceRowReferences ?? [])].map((reference) => String(reference ?? '')).filter(Boolean)
+  );
+
+  return (reviewRows ?? []).filter((row) => {
+    const source = String(reviewRowValue(row, 'source') ?? '');
+    const sourceRowReference = String(
+      reviewRowValue(row, 'source_row_reference', 'sourceRowReference') ?? ''
+    );
+    const appliedAdjustmentId = reviewRowValue(
+      row,
+      'applied_adjustment_id',
+      'appliedAdjustmentId'
+    );
+
+    return (
+      source === 'sheet_api' &&
+      Boolean(appliedAdjustmentId) &&
+      sourceRowReference &&
+      !currentReferences.has(sourceRowReference)
+    );
+  });
+};
+
+export const buildRemovedLiveSourceReviewPatch = ({ importRunId = null } = {}) => ({
+  ...(importRunId ? { import_run_id: importRunId } : {}),
+  match_status: 'needs_review',
+  match_confidence: 0,
+  match_reason: REMOVED_LIVE_SOURCE_MATCH_REASON,
+  resolution_status: 'unresolved',
 });
 
 export const buildMachineProfiles = ({ machines, aliases = [] }) => {

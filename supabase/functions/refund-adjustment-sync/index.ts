@@ -24,6 +24,8 @@ type RefundAdjustmentRow = Record<string, unknown>;
 type ImportRowsOptions = {
   dryRun?: boolean;
   reviewSource?: "api_payload" | "sheet_api";
+  currentSourceRowReferences?: Set<string>;
+  reconcileRemovedSourceRows?: boolean;
 };
 
 type RefundInput = {
@@ -66,6 +68,8 @@ const autoApplyDecisions = new Set([
   "refund approved",
   "refund approve",
 ]);
+
+const removedLiveSourceMatchReason = "missing_from_live_source_snapshot_settlement_preserved";
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -337,6 +341,18 @@ const sheetValuesToRows = (values: unknown[][]) => {
         ([key, value]) => key !== "source_sheet_row_number" && sanitizeText(value),
       )
     );
+};
+
+const buildCurrentSourceRowReferences = (rows: RefundAdjustmentRow[]) => {
+  const references = new Set<string>();
+  rows.forEach((row, index) => {
+    const fallbackRowReference = sanitizeText(row.source_sheet_row_number)
+      ? `sheet-row-${sanitizeText(row.source_sheet_row_number)}`
+      : `row-${index + 1}`;
+    const input = extractRefundInput(row, fallbackRowReference);
+    if (input.sourceRowReference) references.add(input.sourceRowReference);
+  });
+  return references;
 };
 
 const fetchRefundSheetRows = async () => {
@@ -749,6 +765,66 @@ const loadExistingAdjustments = async () => {
   return hashOwners;
 };
 
+const isRemovedLiveSourceReviewState = (row: Record<string, unknown>) =>
+  sanitizeText(row.match_status) === "needs_review" &&
+  sanitizeText(row.resolution_status) === "unresolved" &&
+  sanitizeText(row.match_reason) === removedLiveSourceMatchReason;
+
+const reconcileRemovedLiveSourceRows = async ({
+  sourceReference,
+  currentSourceRowReferences,
+  dryRun,
+  runId,
+}: {
+  sourceReference: string;
+  currentSourceRowReferences: Set<string>;
+  dryRun: boolean;
+  runId: string | null;
+}) => {
+  if (!supabase) return { rowsMissingFromSource: 0, rowsFlaggedForReview: 0 };
+
+  const { data, error } = await supabase
+    .from("refund_adjustment_review_rows")
+    .select("id, source_row_reference, match_status, match_reason, resolution_status, applied_adjustment_id")
+    .eq("source", "sheet_api")
+    .eq("source_reference", sourceReference)
+    .not("applied_adjustment_id", "is", null);
+
+  if (error) {
+    throw new Error(error.message || "Unable to load applied live refund review rows.");
+  }
+
+  const missingRows = ((data ?? []) as Array<Record<string, unknown>>).filter((row) => {
+    const sourceRowReference = sanitizeText(row.source_row_reference);
+    return sourceRowReference && !currentSourceRowReferences.has(sourceRowReference);
+  });
+  const rowsToFlag = missingRows.filter((row) => !isRemovedLiveSourceReviewState(row));
+  const rowIdsToFlag = rowsToFlag.map((row) => sanitizeText(row.id)).filter(Boolean);
+
+  if (!dryRun && rowIdsToFlag.length > 0) {
+    const { error: updateError } = await supabase
+      .from("refund_adjustment_review_rows")
+      .update({
+        import_run_id: runId,
+        imported_at: new Date().toISOString(),
+        match_status: "needs_review",
+        match_confidence: 0,
+        match_reason: removedLiveSourceMatchReason,
+        resolution_status: "unresolved",
+      })
+      .in("id", rowIdsToFlag);
+
+    if (updateError) {
+      throw new Error(updateError.message || "Unable to flag removed live refund source rows for review.");
+    }
+  }
+
+  return {
+    rowsMissingFromSource: missingRows.length,
+    rowsFlaggedForReview: rowsToFlag.length,
+  };
+};
+
 const importRows = async (
   rows: RefundAdjustmentRow[],
   sourceReference: string | null,
@@ -784,6 +860,8 @@ const importRows = async (
     rowsAmbiguous: 0,
     rowsUnmatched: 0,
     rowsUnapplied: 0,
+    rowsMissingFromSource: 0,
+    rowsFlaggedForReview: 0,
   };
 
   try {
@@ -951,6 +1029,17 @@ const importRows = async (
       }
     }
 
+    if (options.reconcileRemovedSourceRows && options.currentSourceRowReferences) {
+      const reconciliation = await reconcileRemovedLiveSourceRows({
+        sourceReference: sourceReference ?? googleRefundsSheetId ?? "refund-source-export",
+        currentSourceRowReferences: options.currentSourceRowReferences,
+        dryRun,
+        runId,
+      });
+      counts.rowsMissingFromSource = reconciliation.rowsMissingFromSource;
+      counts.rowsFlaggedForReview = reconciliation.rowsFlaggedForReview;
+    }
+
     if (!dryRun) await updateRun(runId, {
       status: "completed",
       rows_seen: counts.rowsSeen,
@@ -965,6 +1054,8 @@ const importRows = async (
         rows_ambiguous: counts.rowsAmbiguous,
         rows_unmatched: counts.rowsUnmatched,
         rows_unapplied: counts.rowsUnapplied,
+        rows_missing_from_source: counts.rowsMissingFromSource,
+        rows_flagged_for_review: counts.rowsFlaggedForReview,
       },
       completed_at: new Date().toISOString(),
     });
@@ -1018,17 +1109,22 @@ serve(async (req) => {
     let effectiveRowOffset = 0;
     let effectiveRowLimit = rows.length;
     let reviewSource: ImportRowsOptions["reviewSource"] = "api_payload";
+    let currentSourceRowReferences: Set<string> | undefined;
+    let shouldReconcileRemovedSourceRows = false;
 
     if (rows.length === 0) {
       try {
         const fetched = await fetchRefundSheetRows();
-        rows = fetched.rows;
+        const sourceRows = fetched.rows;
+        currentSourceRowReferences = buildCurrentSourceRowReferences(sourceRows);
+        rows = sourceRows;
         sourceReference = sanitizeText(body.sourceReference) || fetched.sourceReference;
         reviewSource = "sheet_api";
         sourceRowsTotal = rows.length;
         effectiveRowOffset = Math.min(rowOffset, sourceRowsTotal);
         effectiveRowLimit = requestedRowLimit;
         rows = rows.slice(effectiveRowOffset, effectiveRowOffset + effectiveRowLimit);
+        shouldReconcileRemovedSourceRows = effectiveRowOffset + rows.length >= sourceRowsTotal;
       } catch (error) {
         const errorMessage = error instanceof Error && error.message
           ? error.message
@@ -1053,7 +1149,12 @@ serve(async (req) => {
       }
     }
 
-    const result = await importRows(rows, sourceReference, { dryRun, reviewSource });
+    const result = await importRows(rows, sourceReference, {
+      dryRun,
+      reviewSource,
+      currentSourceRowReferences,
+      reconcileRemovedSourceRows: shouldReconcileRemovedSourceRows,
+    });
 
     return jsonResponse({
       status: "completed",
