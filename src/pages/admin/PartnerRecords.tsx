@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Loader2, Pencil, Plus, RefreshCw, Search, UserPlus } from 'lucide-react';
+import {
+  AlertTriangle,
+  Archive,
+  CheckCircle2,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  UserPlus,
+} from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -18,6 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  archiveReportingPartnerAdmin,
   fetchPartnershipReportingSetup,
   upsertReportingPartnerAdmin,
   type PartnershipReportingSetup,
@@ -69,8 +80,9 @@ const getPartnerAccessInvitePath = (partner: ReportingPartner) => {
 export default function AdminPartnerRecordsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('active');
   const [editingPartner, setEditingPartner] = useState<ReportingPartner | null>(null);
+  const [archivingPartner, setArchivingPartner] = useState<ReportingPartner | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const {
@@ -243,16 +255,29 @@ export default function AdminPartnerRecordsPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
-                            <Button asChild variant="outline" size="sm">
-                              <Link to={getPartnerAccessInvitePath(partner)}>
-                                <UserPlus className="mr-2 h-4 w-4" />
-                                Invite
-                              </Link>
-                            </Button>
+                            {partner.status === 'active' && (
+                              <Button asChild variant="outline" size="sm">
+                                <Link to={getPartnerAccessInvitePath(partner)}>
+                                  <UserPlus className="mr-2 h-4 w-4" />
+                                  Invite
+                                </Link>
+                              </Button>
+                            )}
                             <Button variant="outline" size="sm" onClick={() => openEdit(partner)}>
                               <Pencil className="mr-2 h-4 w-4" />
                               Edit
                             </Button>
+                            {partner.status !== 'archived' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
+                                onClick={() => setArchivingPartner(partner)}
+                              >
+                                <Archive className="mr-2 h-4 w-4" />
+                                Archive
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -271,6 +296,13 @@ export default function AdminPartnerRecordsPage() {
         partner={editingPartner}
         existingPartners={setup.partners}
         onSaved={refresh}
+      />
+      <ArchivePartnerRecordDialog
+        partner={archivingPartner}
+        onOpenChange={(open) => {
+          if (!open) setArchivingPartner(null);
+        }}
+        onArchived={refresh}
       />
     </AppLayout>
   );
@@ -291,6 +323,7 @@ function PartnerRecordDialog({
 }) {
   const [form, setForm] = useState(emptyPartnerForm);
   const [isSaving, setIsSaving] = useState(false);
+  const statusOptions = partner?.status === 'archived' ? statuses : ['active'];
 
   useEffect(() => {
     if (!open) return;
@@ -420,8 +453,13 @@ function PartnerRecordDialog({
               id="partner-record-status-field"
               value={form.status}
               onChange={(status) => setForm({ ...form, status })}
-              options={statuses}
+              options={statusOptions}
             />
+            {partner?.status !== 'archived' && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Use the archive action when a test record should leave reporting setup.
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="partner-record-notes">Notes</Label>
@@ -439,6 +477,103 @@ function PartnerRecordDialog({
           <Button onClick={savePartner} disabled={isSaving}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Record
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ArchivePartnerRecordDialog({
+  partner,
+  onOpenChange,
+  onArchived,
+}: {
+  partner: ReportingPartner | null;
+  onOpenChange: (open: boolean) => void;
+  onArchived: () => Promise<unknown>;
+}) {
+  const [reason, setReason] = useState('');
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  useEffect(() => {
+    if (partner) {
+      setReason('');
+    }
+  }, [partner]);
+
+  const archivePartner = async () => {
+    if (!partner) return;
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) {
+      toast.error('Enter a reason before archiving this partner record.');
+      return;
+    }
+
+    setIsArchiving(true);
+    try {
+      const result = await archiveReportingPartnerAdmin({
+        partnerId: partner.id,
+        reason: normalizedReason,
+      });
+      toast.success(
+        result.alreadyArchived
+          ? 'Partner record was already archived.'
+          : 'Partner record archived.'
+      );
+      onOpenChange(false);
+      await onArchived();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to archive partner record.');
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
+  return (
+    <Dialog open={Boolean(partner)} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Archive Partner Record?</DialogTitle>
+          <DialogDescription>
+            This archives {partner?.name ?? 'this partner record'} and removes it from normal
+            partnership setup selectors. Hard delete stays blocked unless the record is a disposable
+            fixture with no dependent history.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              Archive is blocked when active partnerships, memberships, schedules, report snapshots,
+              sales facts, or applied adjustments are tied to this record.
+            </div>
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="partner-record-archive-reason">Archive reason</Label>
+          <Textarea
+            id="partner-record-archive-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Example: Test partner record created for QA cleanup"
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isArchiving}>
+            Cancel
+          </Button>
+          <Button
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={archivePartner}
+            disabled={isArchiving}
+          >
+            {isArchiving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Archive className="mr-2 h-4 w-4" />
+            )}
+            Archive Record
           </Button>
         </DialogFooter>
       </DialogContent>

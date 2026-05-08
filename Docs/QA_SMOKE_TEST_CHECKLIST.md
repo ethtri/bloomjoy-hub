@@ -356,7 +356,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mobile admin routes show the same super-admin destinations in the operator menu: Admin Home, Orders, Support, Access, Partner Records, Machines, Partnerships, and Reporting
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
-- [ ] Admin Partner Records can search, create, and edit reusable partner records with separate display name and legal name fields, without exposing "party" terminology
+- [ ] Admin Partner Records can search, create, edit, and archive reusable partner records with separate display name and legal name fields, without exposing "party" terminology
+- [ ] Issue `#326`: super-admin can archive an unused test partner record from `/admin/partner-records` with required reason copy naming the record, and `admin_audit_log` stores actor, target ID/status, timestamp, and reason without customer/payment/source payloads or signed URLs
+- [ ] Issue `#326`: archiving a partner record is blocked when active memberships, active partnership parties, active assignments, active schedules, report snapshots, schedule runs, sales facts, or applied adjustment history are tied to it
 - [ ] Admin Partnerships setup loads without missing-RPC errors for `admin_get_partnership_reporting_setup`
 - [ ] Admin Partnerships opens as a guided setup flow with Details, Participants, Machines, Payout Rules, and Weekly Preview steps
 - [ ] Admin Partnerships is navigable on mobile with a compact partnership picker, `Step X of 5` header, horizontal step controls, and sticky Back/Next controls
@@ -372,7 +374,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Machines can record a reporting tax rate change with only `New reporting tax %` and `Applies from`, and the previous active rate closes without overlap
 - [ ] Admin Machines exposes read-only reporting tax history for a machine without making normal admins manage tax status, end date, or notes
 - [ ] Machine tax warnings appear on Admin Machines, not Admin Partnerships
-- [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus weekly/monthly cadence, report due days, invoice payment due days, payment method, ownership model, pricing authority, contract reference, and a simple active/inactive control
+- [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus weekly/monthly cadence, report due days, invoice payment due days, payment method, ownership model, pricing authority, contract reference, and archive cleanup action
+- [ ] Issue `#326`: super-admin can archive an unused test partnership from `/admin/partnerships` with required reason copy naming the partnership; related active assignments, payout rules, and schedules without run history are archived, and audit metadata stays limited to IDs/status/counts/reason
+- [ ] Issue `#326`: archiving or hard-deleting a partnership is blocked when report snapshots, schedule runs, sales facts, applied adjustments, active memberships, active parties, active assignments, or active schedules make the record unsafe to remove
+- [ ] Issue `#326`: archived partner records and archived partnerships are hidden from `/admin/partnerships` selectors, `/admin/reporting` report/partnership selectors, Portal Reports partner dashboard lists, and partner-report schedule creation options
+- [ ] Issue `#326`: anonymous, non-admin, scoped-admin, `report_manager`, and Corporate Partner sessions cannot call archive RPCs or hard-delete partner/partnership records directly
 - [ ] Admin Partnerships > Payout Rules shows a plain-language sales-to-payout summary, one current payout rule, stable participant-named Payout Allocation rows based on Participants marked `Receives payout`, whole-percent inputs, a 100% allocation check, click/tap help popovers, and no editable payout-rule date/status fields
 - [ ] Admin Partnerships > Payout Rules can save a contract-specific deduction label and additional deduction notes for cashless processing, royalties, or other agreement-specific deductions
 - [ ] Saving Admin Partnerships > Payout Rules repeatedly updates the current payout rule instead of creating duplicate visible rules
