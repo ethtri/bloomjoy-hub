@@ -42,6 +42,7 @@ const Privacy = lazyRoute(() => import("./pages/Privacy"));
 const Terms = lazyRoute(() => import("./pages/Terms"));
 const BillingCancellation = lazyRoute(() => import("./pages/BillingCancellation"));
 const Cart = lazyRoute(() => import("./pages/Cart"));
+const RefundRequest = lazyRoute(() => import("./pages/RefundRequest"));
 const Login = lazyRoute(() => import("./pages/Login"));
 const ResetPassword = lazyRoute(() => import("./pages/ResetPassword"));
 const PortalDashboard = lazyRoute(() => import("./pages/portal/Dashboard"));
@@ -60,6 +61,7 @@ const AdminPartnerRecords = lazyRoute(() => import("./pages/admin/PartnerRecords
 const AdminMachines = lazyRoute(() => import("./pages/admin/Machines"));
 const AdminPartnerships = lazyRoute(() => import("./pages/admin/Partnerships"));
 const AdminReporting = lazyRoute(() => import("./pages/admin/Reporting"));
+const AdminRefunds = lazyRoute(() => import("./pages/admin/Refunds"));
 const NotFound = lazyRoute(() => import("./pages/NotFound"));
 
 const browserQueryClient = new QueryClient();
@@ -151,6 +153,7 @@ export const AppShell = () => (
           <Route path="/terms" element={<Terms />} />
           <Route path="/billing-cancellation" element={<BillingCancellation />} />
           <Route path="/cart" element={<Cart />} />
+          <Route path="/refunds/request" element={<RefundRequest />} />
           <Route path="/login" element={<Login />} />
           <Route path="/login/operator" element={<Navigate to="/login" replace />} />
           <Route path="/reset-password" element={<ResetPassword />} />
@@ -178,6 +181,7 @@ export const AppShell = () => (
               />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />
+              <Route path="/admin/refunds" element={<AdminRefunds />} />
               <Route
                 path="/admin/audit"
                 element={<Navigate to="/admin/access?tab=audit" replace />}

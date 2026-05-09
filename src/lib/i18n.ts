@@ -68,6 +68,9 @@ export const translations = {
       'Guided agreement setup, participants, assigned machines, split terms, and preview.',
     'admin.reporting': 'Reporting',
     'admin.reportingDescription': 'Report schedules, exports, and sync status.',
+    'admin.refunds': 'Refunds',
+    'admin.refundsDescription':
+      'Refund intake, correlation evidence, manager decisions, and settlement readiness.',
 
     'portal.memberPortal': 'Member Portal',
     'portal.description':

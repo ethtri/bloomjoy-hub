@@ -5,8 +5,11 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function AdminRoute() {
-  const { loading, isAdmin, isScopedAdmin, isSuperAdmin } = useAuth();
+  const { adminAccess, loading, isAdmin, isScopedAdmin, isSuperAdmin } = useAuth();
   const location = useLocation();
+  const allowedSurfaces = new Set(adminAccess.allowedSurfaces);
+  const canAccessSurface = (surface: string) =>
+    isSuperAdmin || allowedSurfaces.has('*') || allowedSurfaces.has(surface);
 
   if (loading) {
     return (
@@ -20,14 +23,18 @@ export function AdminRoute() {
     return <Outlet />;
   }
 
-  if (isScopedAdmin && location.pathname === '/admin') {
-    return <Navigate to="/admin/access?tab=reporting-access" replace />;
+  if (!isSuperAdmin && isAdmin && location.pathname === '/admin') {
+    const redirectTarget = canAccessSurface('refunds')
+      ? '/admin/refunds'
+      : '/admin/access?tab=reporting-access';
+    return <Navigate to={redirectTarget} replace />;
   }
 
-  if (
-    isScopedAdmin &&
-    (location.pathname === '/admin/access' || location.pathname.startsWith('/admin/access/'))
-  ) {
+  if (isScopedAdmin && canAccessSurface('access') && location.pathname.startsWith('/admin/access')) {
+    return <Outlet />;
+  }
+
+  if (canAccessSurface('refunds') && location.pathname.startsWith('/admin/refunds')) {
     return <Outlet />;
   }
 

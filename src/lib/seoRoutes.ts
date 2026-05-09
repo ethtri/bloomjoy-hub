@@ -25,7 +25,7 @@ export type RouteSeo = {
 };
 
 export type PrivateRouteSeo = RouteSeo & {
-  title: "Bloomjoy Hub" | "Bloomjoy Operator App";
+  title: string;
   canonicalOrigin: string;
 };
 
@@ -388,6 +388,19 @@ export const privateRoutes: PrivateRouteSeo[] = [
     lastmod: LASTMOD,
   },
   {
+    path: "/refunds/request",
+    canonicalOrigin: MARKETING_ORIGIN,
+    title: "Refund Request | Bloomjoy",
+    description:
+      "Submit a Bloomjoy refund or product issue request for operations review.",
+    robots: PRIVATE_ROBOTS,
+    surface: "marketing",
+    ogType: "website",
+    ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
+    ogImageAlt: DEFAULT_IMAGE_ALT,
+    lastmod: LASTMOD,
+  },
+  {
     path: "/login/operator",
     canonicalOrigin: APP_ORIGIN,
     canonicalPath: "/login",
@@ -416,6 +429,7 @@ export const privateRoutes: PrivateRouteSeo[] = [
     "/admin/access",
     "/admin/partnerships",
     "/admin/reporting",
+    "/admin/refunds",
     "/admin/audit",
   ].map(
     (path): PrivateRouteSeo => ({

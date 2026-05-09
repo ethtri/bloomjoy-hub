@@ -28,6 +28,21 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
 
+## Refund Operations MVP
+- [ ] Direct-load `/refunds/request` on desktop and mobile; page is noindex, not listed in `sitemap.xml`, and the form loads active machine/location options.
+- [ ] Submit a hosted refund request with card payment, amount, last 4, Apple Pay/wallet checked, issue description, and optional photo; customer confirmation email is logged in `refund_case_messages`.
+- [ ] Submit a cash request that has one matching sales fact within +/- 1 hour and exact amount; case lands with matched cash correlation evidence and no auto-approval.
+- [ ] Submit a cash request with no conservative match; case lands in `waiting_on_customer` and logs the friendly more-info email.
+- [ ] Submit a request with multiple conservative cash candidates; case lands in manager review rather than writing a reporting adjustment.
+- [ ] Auth boundary: unauthenticated users cannot open `/admin/refunds`; assigned refund managers can open only refund operations; scoped admins see only scoped machines; super-admins see all refund cases.
+- [ ] Admin refund queue filters/searches cases, opens case details, shows customer issue text, photos, timeline/messages, correlation evidence, and manager assignment.
+- [ ] Admin can assign up to 3 authenticated refund managers per machine; a fourth manager is blocked by validation/RPC.
+- [ ] Manager denial path records a friendly decision reason and does not write to `sales_adjustment_facts`.
+- [ ] Approved manual card path records a Nayax transaction ID and manual refund reference before completion.
+- [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.
+- [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.
+- [ ] Run shadow-mode UAT with selected QR/direct-link cases while the Google Form/AppSheet process remains available as fallback; do not cut over until pilot evidence is clean.
+
 ## Public site
 - [ ] Home loads and key CTAs navigate correctly
 - [ ] Home machine cards show correct model images (Commercial, Mini, Micro) without awkward clipping

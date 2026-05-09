@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu,
   MonitorCog,
+  ReceiptText,
   Settings,
   Shield,
   ShoppingBag,
@@ -65,6 +66,7 @@ type AdminDestination = {
   descriptionKey: TranslationKey;
   icon: LucideIcon;
   requiresSuperAdmin?: boolean;
+  surface?: 'access' | 'refunds';
 };
 
 const adminDestinations: AdminDestination[] = [
@@ -110,6 +112,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Users, Plus Customer access, Corporate Partner access, global roles, reporting access, and audit history.',
     descriptionKey: 'admin.accessDescription',
     icon: Users,
+    surface: 'access',
   },
   {
     href: '/admin/partner-records',
@@ -154,6 +157,17 @@ const adminDestinations: AdminDestination[] = [
     descriptionKey: 'admin.reportingDescription',
     icon: BarChart3,
     requiresSuperAdmin: true,
+  },
+  {
+    href: '/admin/refunds',
+    label: 'Refunds',
+    labelKey: 'admin.refunds',
+    shortLabel: 'Refunds',
+    shortLabelKey: 'admin.refunds',
+    description: 'Refund intake, correlation evidence, manager decisions, and settlement readiness.',
+    descriptionKey: 'admin.refundsDescription',
+    icon: ReceiptText,
+    surface: 'refunds',
   },
 ];
 
@@ -233,6 +247,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     portalAccessTier,
     signOut,
     user,
+    adminAccess,
   } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
@@ -247,9 +262,18 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isAdminPath = location.pathname.startsWith('/admin');
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
-  const visibleAdminDestinations = adminDestinations.filter(
-    (item) => isSuperAdmin || !item.requiresSuperAdmin
-  );
+  const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
+  const visibleAdminDestinations = adminDestinations.filter((item) => {
+    if (item.requiresSuperAdmin && !isSuperAdmin) {
+      return false;
+    }
+
+    if (!item.surface || isSuperAdmin || allowedAdminSurfaces.has('*')) {
+      return true;
+    }
+
+    return allowedAdminSurfaces.has(item.surface);
+  });
 
   const handleSignOut = async () => {
     await signOut();
