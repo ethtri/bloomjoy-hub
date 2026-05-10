@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
+  Clock3,
   ExternalLink,
   Loader2,
+  Mail,
+  MessageSquareText,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -41,6 +45,27 @@ const statusOptions: RefundCaseStatus[] = [
   'completed',
   'closed',
 ];
+
+const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
+  approved: 'approved',
+  card_refund_pending: 'approved',
+  cash_zelle_pending: 'approved',
+  completed: 'approved',
+  denied: 'denied',
+};
+
+const noDecisionStatuses = new Set<RefundCaseStatus>([
+  'submitted',
+  'needs_review',
+  'waiting_on_customer',
+  'correlated',
+]);
+
+const statusesByDecision: Record<'none' | 'approved' | 'denied', RefundCaseStatus[]> = {
+  none: ['submitted', 'needs_review', 'waiting_on_customer', 'correlated', 'closed'],
+  approved: ['approved', 'card_refund_pending', 'cash_zelle_pending', 'completed', 'closed'],
+  denied: ['denied', 'closed'],
+};
 
 const openStatuses = new Set<RefundCaseStatus>([
   'submitted',
@@ -108,12 +133,100 @@ const centsFromCurrency = (value: string) => {
 
 const statusLabel = (value: string) => value.replace(/_/g, ' ');
 
+const eventLabel = (value: string) => statusLabel(value).replace(/\b\w/g, (letter) => letter.toUpperCase());
+
 const statusBadgeClass = (status: RefundCaseStatus) => {
   if (status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (status === 'denied' || status === 'closed') return 'border-slate-200 bg-slate-50 text-slate-700';
   if (status === 'waiting_on_customer') return 'border-amber-200 bg-amber-50 text-amber-700';
   if (status === 'approved' || status.endsWith('_pending')) return 'border-sky-200 bg-sky-50 text-sky-700';
   return 'border-primary/20 bg-primary/10 text-primary';
+};
+
+const messageStatusBadgeClass = (status: string) => {
+  if (status === 'sent') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
+  if (status === 'skipped') return 'border-slate-200 bg-slate-50 text-slate-700';
+  return 'border-amber-200 bg-amber-50 text-amber-700';
+};
+
+const alignDecisionForStatus = (status: RefundCaseStatus, currentDecision: RefundDecision): RefundDecision => {
+  if (statusDecisionMap[status]) return statusDecisionMap[status] ?? null;
+  if (noDecisionStatuses.has(status)) return null;
+  return currentDecision;
+};
+
+const alignStatusForDecision = (
+  decision: RefundDecision,
+  currentStatus: RefundCaseStatus,
+  paymentMethod: RefundCaseRecord['paymentMethod']
+): RefundCaseStatus => {
+  if (decision === 'approved') {
+    if (statusesByDecision.approved.includes(currentStatus)) return currentStatus;
+    return paymentMethod === 'card' ? 'card_refund_pending' : 'approved';
+  }
+
+  if (decision === 'denied') {
+    return currentStatus === 'closed' ? 'closed' : 'denied';
+  }
+
+  return noDecisionStatuses.has(currentStatus) ? currentStatus : 'needs_review';
+};
+
+const getCoherentStatusOptions = (
+  editor: EditorState,
+  selectedCase: RefundCaseRecord
+): RefundCaseStatus[] => {
+  const decisionKey = editor.decision ?? 'none';
+  const options = statusesByDecision[decisionKey].filter((status) => {
+    if (status === 'card_refund_pending') return selectedCase.paymentMethod === 'card';
+    if (status === 'cash_zelle_pending') return selectedCase.paymentMethod !== 'card';
+    return true;
+  });
+
+  if (!options.includes(editor.status)) {
+    return [editor.status, ...options];
+  }
+
+  return options;
+};
+
+const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState): string[] => {
+  const issues: string[] = [];
+  const requiredDecision = statusDecisionMap[editor.status];
+  const refundAmountCents = centsFromCurrency(editor.refundAmount);
+  const hasCorrelation =
+    selectedCase.correlationStatus === 'matched' &&
+    Boolean(selectedCase.correlationSource) &&
+    (Boolean(selectedCase.matchedSalesFactId) || Boolean(editor.matchedNayaxTransactionId.trim()));
+
+  if (requiredDecision && editor.decision !== requiredDecision) {
+    issues.push(`${statusLabel(editor.status)} requires a ${requiredDecision} decision.`);
+  }
+
+  if (noDecisionStatuses.has(editor.status) && editor.decision) {
+    issues.push(`${statusLabel(editor.status)} is a review/follow-up status and cannot carry a final decision.`);
+  }
+
+  if (editor.status === 'completed') {
+    if (!hasCorrelation) {
+      issues.push('Completion requires matched correlation evidence before settlement write-through.');
+    }
+
+    if (!editor.refundAmount || refundAmountCents === null || refundAmountCents <= 0) {
+      issues.push('Completion requires a positive refund amount.');
+    }
+
+    if (!editor.manualRefundReference.trim()) {
+      issues.push('Completion requires a manual refund reference.');
+    }
+
+    if (selectedCase.paymentMethod === 'card' && !editor.matchedNayaxTransactionId.trim()) {
+      issues.push('Card completion requires a Nayax transaction ID.');
+    }
+  }
+
+  return issues;
 };
 
 export default function AdminRefundsPage() {
@@ -193,6 +306,10 @@ export default function AdminRefundsPage() {
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ??
     overview.cases.find((refundCase) => refundCase.id === selectedId) ??
     null;
+  const saveIssues = useMemo(
+    () => (selectedCase && editor ? getCaseSaveIssues(selectedCase, editor) : []),
+    [editor, selectedCase]
+  );
 
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
     setSelectedId(refundCase.id);
@@ -206,6 +323,12 @@ export default function AdminRefundsPage() {
     const refundAmountCents = centsFromCurrency(editor.refundAmount);
     if (editor.refundAmount && refundAmountCents === null) {
       toast.error('Refund amount must be a valid dollar amount.');
+      return;
+    }
+
+    const issues = getCaseSaveIssues(selectedCase, editor);
+    if (issues.length > 0) {
+      toast.error(issues[0]);
       return;
     }
 
@@ -378,9 +501,62 @@ export default function AdminRefundsPage() {
             </select>
           </div>
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(420px,0.95fr)]">
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <table className="w-full">
+          <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+            <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+              <div className="divide-y divide-border/70 lg:hidden">
+                {isLoading && (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    Loading refund queue...
+                  </div>
+                )}
+                {!isLoading && filteredCases.length === 0 && (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    No refund cases found.
+                  </div>
+                )}
+                {!isLoading &&
+                  filteredCases.map((refundCase) => (
+                    <button
+                      key={refundCase.id}
+                      type="button"
+                      onClick={() => handleSelectCase(refundCase)}
+                      className={cn(
+                        'block w-full min-w-0 p-4 text-left transition-colors hover:bg-muted/40',
+                        refundCase.id === selectedId && 'bg-muted/50'
+                      )}
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-foreground">
+                            {refundCase.publicReference}
+                          </div>
+                          <div className="mt-1 break-words text-xs text-muted-foreground">
+                            {refundCase.customerEmail}
+                          </div>
+                        </div>
+                        <Badge className={cn('shrink-0 capitalize', statusBadgeClass(refundCase.status))}>
+                          {statusLabel(refundCase.status)}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {refundCase.locationName} - {refundCase.machineLabel}
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs text-muted-foreground min-[380px]:grid-cols-2">
+                        <div>
+                          <span className="font-medium text-foreground">Evidence:</span>{' '}
+                          {statusLabel(refundCase.correlationStatus)}
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground">Created:</span>{' '}
+                          {formatDate(refundCase.createdAt)}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+
+              <div className="hidden overflow-x-auto lg:block">
+              <table className="min-w-[720px] w-full">
                 <thead className="border-b border-border bg-muted/40">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -441,21 +617,22 @@ export default function AdminRefundsPage() {
                         <td className="px-4 py-3 align-top text-sm text-muted-foreground">
                           <div className="capitalize">{statusLabel(refundCase.correlationStatus)}</div>
                           <div className="mt-1 text-xs">
-                            {refundCase.correlationSource ?? 'no source'} ·{' '}
+                            {refundCase.correlationSource ?? 'no source'} /{' '}
                             {Math.round(refundCase.correlationConfidence * 100)}%
                           </div>
                         </td>
                         <td className="px-4 py-3 align-top text-sm text-muted-foreground">
                           {formatDate(refundCase.createdAt)}
                         </td>
-                      </tr>
-                    ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
+              </div>
             </div>
 
-            <div className="space-y-5">
-              <div className="rounded-xl border border-border bg-card p-5">
+            <div className="min-w-0 space-y-5">
+              <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
                     Select a refund case to review evidence, photos, and decision controls.
@@ -469,8 +646,8 @@ export default function AdminRefundsPage() {
                           {statusLabel(selectedCase.status)}
                         </Badge>
                       </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {selectedCase.customerEmail} · {selectedCase.paymentMethod} ·{' '}
+                      <p className="mt-1 break-words text-xs text-muted-foreground">
+                        {selectedCase.customerEmail} / {selectedCase.paymentMethod} /{' '}
                         {formatCurrency(selectedCase.paymentAmountCents)}
                       </p>
                     </div>
@@ -482,7 +659,7 @@ export default function AdminRefundsPage() {
                       <p className="mt-1 text-muted-foreground">
                         Incident: {formatDate(selectedCase.incidentAt)}
                       </p>
-                      <p className="mt-3 text-muted-foreground">{selectedCase.issueSummary}</p>
+                      <p className="mt-3 break-words text-muted-foreground">{selectedCase.issueSummary}</p>
                     </div>
 
                     <div className="rounded-lg border border-border bg-background p-3 text-sm">
@@ -493,10 +670,10 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 text-muted-foreground">
                             {selectedCase.correlationSummary || 'No correlation summary recorded.'}
                           </p>
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            Source: {selectedCase.correlationSource ?? 'n/a'} · Status:{' '}
-                            {statusLabel(selectedCase.correlationStatus)} · Sales fact:{' '}
-                            {selectedCase.matchedSalesFactId ?? 'n/a'} · Nayax:{' '}
+                          <p className="mt-2 break-words text-xs text-muted-foreground">
+                            Source: {selectedCase.correlationSource ?? 'n/a'} / Status:{' '}
+                            {statusLabel(selectedCase.correlationStatus)} / Sales fact:{' '}
+                            {selectedCase.matchedSalesFactId ?? 'n/a'} / Nayax:{' '}
                             {selectedCase.matchedNayaxTransactionId ?? 'n/a'}
                           </p>
                         </div>
@@ -516,14 +693,82 @@ export default function AdminRefundsPage() {
                               size="sm"
                               variant="outline"
                               onClick={() => void handleOpenAttachment(attachment.id)}
+                              className="max-w-full justify-start"
                             >
                               <ExternalLink className="mr-2 h-4 w-4" />
-                              {attachment.fileName}
+                              <span className="truncate">{attachment.fileName}</span>
                             </Button>
                           ))}
                         </div>
                       </div>
                     )}
+
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="flex items-center gap-2">
+                          <Clock3 className="h-4 w-4 text-primary" />
+                          <p className="text-sm font-medium text-foreground">Event timeline</p>
+                        </div>
+                        <div className="mt-3 space-y-3">
+                          {selectedCase.events.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No case events have been recorded.</p>
+                          ) : (
+                            selectedCase.events.map((event) => (
+                              <div key={event.id} className="border-l border-border pl-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline">{eventLabel(event.eventType)}</Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatDate(event.createdAt)}
+                                  </span>
+                                </div>
+                                <p className="mt-1 break-words text-sm text-muted-foreground">
+                                  {event.message || 'No event note recorded.'}
+                                </p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-4 w-4 text-primary" />
+                          <p className="text-sm font-medium text-foreground">Customer messages</p>
+                        </div>
+                        <div className="mt-3 space-y-3">
+                          {selectedCase.messages.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              No customer email records have been logged.
+                            </p>
+                          ) : (
+                            selectedCase.messages.map((message) => (
+                              <div key={message.id} className="rounded-md border border-border/80 p-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline" className="capitalize">
+                                    {statusLabel(message.messageType)}
+                                  </Badge>
+                                  <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
+                                    {message.status}
+                                  </Badge>
+                                </div>
+                                <p className="mt-2 break-words text-sm font-medium text-foreground">
+                                  {message.subject}
+                                </p>
+                                <p className="mt-1 break-words text-xs text-muted-foreground">
+                                  To {message.recipientEmail} /{' '}
+                                  {message.sentAt ? `sent ${formatDate(message.sentAt)}` : `created ${formatDate(message.createdAt)}`}
+                                </p>
+                                {message.errorMessage && (
+                                  <p className="mt-1 break-words text-xs text-destructive">
+                                    {message.errorMessage}
+                                  </p>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
@@ -532,12 +777,21 @@ export default function AdminRefundsPage() {
                           value={editor.status}
                           onChange={(event) =>
                             setEditor((current) =>
-                              current ? { ...current, status: event.target.value as RefundCaseStatus } : current
+                              current
+                                ? {
+                                    ...current,
+                                    status: event.target.value as RefundCaseStatus,
+                                    decision: alignDecisionForStatus(
+                                      event.target.value as RefundCaseStatus,
+                                      current.decision
+                                    ),
+                                  }
+                                : current
                             )
                           }
                           className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                         >
-                          {statusOptions.map((status) => (
+                          {getCoherentStatusOptions(editor, selectedCase).map((status) => (
                             <option key={status} value={status}>
                               {statusLabel(status)}
                             </option>
@@ -554,6 +808,11 @@ export default function AdminRefundsPage() {
                                 ? {
                                     ...current,
                                     decision: (event.target.value || null) as RefundDecision,
+                                    status: alignStatusForDecision(
+                                      (event.target.value || null) as RefundDecision,
+                                      current.status,
+                                      selectedCase.paymentMethod
+                                    ),
                                   }
                                 : current
                             )
@@ -565,6 +824,14 @@ export default function AdminRefundsPage() {
                           <option value="denied">Deny</option>
                         </select>
                       </div>
+                    </div>
+
+                    <div className="flex items-start gap-2 rounded-lg border border-muted bg-muted/25 p-3 text-xs text-muted-foreground">
+                      <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <p>
+                        Decision changes keep the status list coherent. Follow-up statuses clear the
+                        final decision; approved and denied paths set the matching decision before submit.
+                      </p>
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -662,8 +929,8 @@ export default function AdminRefundsPage() {
                               >
                                 <span className="font-semibold">{candidate.transactionId}</span>
                                 <span className="ml-2 text-sky-700">
-                                  {formatCurrency(candidate.amountCents)} · last4{' '}
-                                  {candidate.cardLast4 || 'n/a'} · {candidate.paymentStatus || 'n/a'}
+                                  {formatCurrency(candidate.amountCents)} / last4{' '}
+                                  {candidate.cardLast4 || 'n/a'} / {candidate.paymentStatus || 'n/a'}
                                 </span>
                               </button>
                             ))}
@@ -701,7 +968,23 @@ export default function AdminRefundsPage() {
                       />
                     </div>
 
-                    <Button onClick={handleSaveCase} disabled={isSaving}>
+                    {saveIssues.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div>
+                            <p className="font-medium">Resolve before saving</p>
+                            <ul className="mt-1 list-disc space-y-1 pl-4">
+                              {saveIssues.map((issue) => (
+                                <li key={issue}>{issue}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <Button onClick={handleSaveCase} disabled={isSaving || saveIssues.length > 0}>
                       {isSaving ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
