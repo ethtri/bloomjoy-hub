@@ -945,6 +945,7 @@ declare
   after_row public.refund_cases;
   normalized_status text;
   normalized_decision text;
+  supplied_decision text;
   normalized_assigned_email text;
   target_manager_id uuid;
   event_message text;
@@ -987,7 +988,15 @@ begin
     raise exception 'Invalid refund case status: %', p_status;
   end if;
 
-  normalized_decision := nullif(lower(trim(coalesce(p_decision, before_row.decision))), '');
+  supplied_decision := nullif(lower(trim(coalesce(p_decision, ''))), '');
+  if supplied_decision = 'approve' then
+    supplied_decision := 'approved';
+  end if;
+  if supplied_decision = 'deny' then
+    supplied_decision := 'denied';
+  end if;
+
+  normalized_decision := coalesce(supplied_decision, before_row.decision);
   if normalized_decision = 'approve' then
     normalized_decision := 'approved';
   end if;
@@ -996,6 +1005,20 @@ begin
   end if;
   if normalized_decision is not null and normalized_decision not in ('approved', 'denied') then
     raise exception 'Invalid refund decision: %', p_decision;
+  end if;
+
+  if normalized_status in ('submitted', 'needs_review', 'waiting_on_customer', 'correlated') then
+    normalized_decision := null;
+  elsif normalized_status in ('approved', 'card_refund_pending', 'cash_zelle_pending', 'completed') then
+    if supplied_decision is not null and supplied_decision <> 'approved' then
+      raise exception 'Refund status % requires an approved decision', normalized_status;
+    end if;
+    normalized_decision := 'approved';
+  elsif normalized_status = 'denied' then
+    if supplied_decision is not null and supplied_decision <> 'denied' then
+      raise exception 'Denied refund cases require a denied decision';
+    end if;
+    normalized_decision := 'denied';
   end if;
 
   normalized_assigned_email := lower(trim(coalesce(p_assigned_manager_email, '')));
@@ -1058,12 +1081,17 @@ begin
     status = normalized_status,
     assigned_manager_id = target_manager_id,
     decision = normalized_decision,
-    decision_reason = nullif(trim(coalesce(p_decision_reason, decision_reason, '')), ''),
+    decision_reason = case
+      when normalized_decision is null then null
+      else nullif(trim(coalesce(p_decision_reason, decision_reason, '')), '')
+    end,
     decided_by = case
+      when normalized_decision is null then null
       when normalized_decision is distinct from before_row.decision then actor_user_id
       else decided_by
     end,
     decided_at = case
+      when normalized_decision is null then null
       when normalized_decision is distinct from before_row.decision then now()
       else decided_at
     end,

@@ -733,6 +733,21 @@ assert.match(
   /Completed refund cases cannot move away from completed\/approved through this RPC/,
   'Completed refund cases must not be rolled back or denied while their adjustment remains settlement-active.'
 );
+assert.match(
+  refundOperationsMigration,
+  /normalized_status in \('submitted', 'needs_review', 'waiting_on_customer', 'correlated'\)[\s\S]*?normalized_decision := null;/,
+  'Review and follow-up refund statuses must clear stale approval/denial decisions in the guarded RPC.'
+);
+assert.match(
+  refundOperationsMigration,
+  /normalized_status in \('approved', 'card_refund_pending', 'cash_zelle_pending', 'completed'\)[\s\S]*?supplied_decision is not null and supplied_decision <> 'approved'[\s\S]*?normalized_decision := 'approved'/,
+  'Approved/pending/completed refund statuses must normalize to an approved decision in the guarded RPC.'
+);
+assert.match(
+  refundOperationsMigration,
+  /normalized_status = 'denied'[\s\S]*?supplied_decision is not null and supplied_decision <> 'denied'[\s\S]*?normalized_decision := 'denied'/,
+  'Denied refund cases must normalize to a denied decision in the guarded RPC.'
+);
 assert.equal(
   refundOperationsMigration.includes("'matched_nayax_transaction_id', after_row.matched_nayax_transaction_id"),
   false,
@@ -793,6 +808,7 @@ console.log(
       refundReducesPartnerSettlement: true,
       refundCaseWriteThroughGuarded: true,
       completedRefundCaseRollbackDenied: true,
+      refundCaseDecisionStatusCoherence: true,
       refundCaseReportingPayloadSanitized: true,
     },
   })
