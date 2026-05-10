@@ -4,6 +4,7 @@ import {
   buildSanitizedRefundPayload,
   buildMachineProfiles,
   buildGlobalUniqueRefundScopeLabelMap,
+  buildRemovedLiveSourceReviewPatch,
   calculatePartnerSettlementTotals,
   countPartnerScopedRefundReviewRows,
   extractRefundInput,
@@ -11,7 +12,9 @@ import {
   matchRefundToMachine,
   parseCsv,
   parseSheetValues,
+  REMOVED_LIVE_SOURCE_MATCH_REASON,
   refundReviewRowAppliesToPartnerScope,
+  selectRemovedLiveSourceReviewRows,
 } from './refunds/refund-adjustment-utils.mjs';
 
 const machines = [
@@ -444,6 +447,113 @@ for (const privateValue of [
   assert.equal(sanitizedPayloadText.includes(privateValue), false);
 }
 
+const currentLiveSourceSnapshot = new Set([
+  'SANITIZED-STILL-PRESENT',
+  'SANITIZED-REVIEW-ONLY',
+  'SANITIZED-DUPLICATE',
+  'SANITIZED-UNMATCHED',
+]);
+const removedLiveSourceRows = selectRemovedLiveSourceReviewRows({
+  currentSourceRowReferences: currentLiveSourceSnapshot,
+  reviewRows: [
+    {
+      id: 'review-present-applied',
+      source: 'sheet_api',
+      source_row_reference: 'SANITIZED-STILL-PRESENT',
+      match_status: 'applied',
+      resolution_status: 'approved',
+      applied_adjustment_id: 'adjustment-present',
+    },
+    {
+      id: 'review-missing-applied',
+      source: 'sheet_api',
+      source_row_reference: 'SANITIZED-MISSING',
+      match_status: 'applied',
+      resolution_status: 'approved',
+      applied_adjustment_id: 'adjustment-missing',
+    },
+    {
+      id: 'review-only-present',
+      source: 'sheet_api',
+      source_row_reference: 'SANITIZED-REVIEW-ONLY',
+      match_status: 'needs_review',
+      resolution_status: 'unresolved',
+      applied_adjustment_id: null,
+    },
+    {
+      id: 'duplicate-present',
+      source: 'sheet_api',
+      source_row_reference: 'SANITIZED-DUPLICATE',
+      match_status: 'duplicate',
+      resolution_status: 'unresolved',
+      applied_adjustment_id: null,
+    },
+    {
+      id: 'unmatched-present',
+      source: 'sheet_api',
+      source_row_reference: 'SANITIZED-UNMATCHED',
+      match_status: 'unmatched',
+      resolution_status: 'unresolved',
+      applied_adjustment_id: null,
+    },
+    {
+      id: 'manual-csv-applied',
+      source: 'manual_csv',
+      source_row_reference: 'SANITIZED-MANUAL-MISSING',
+      match_status: 'applied',
+      resolution_status: 'approved',
+      applied_adjustment_id: 'adjustment-manual',
+    },
+  ],
+});
+assert.deepEqual(
+  removedLiveSourceRows.map((row) => row.id),
+  ['review-missing-applied']
+);
+
+const removedLiveSourcePatch = buildRemovedLiveSourceReviewPatch({
+  importRunId: 'import-run-sanitized',
+});
+assert.equal(removedLiveSourcePatch.match_status, 'needs_review');
+assert.equal(removedLiveSourcePatch.resolution_status, 'unresolved');
+assert.equal(removedLiveSourcePatch.match_reason, REMOVED_LIVE_SOURCE_MATCH_REASON);
+assert.equal(removedLiveSourcePatch.match_confidence, 0);
+assert.equal(removedLiveSourcePatch.import_run_id, 'import-run-sanitized');
+assert.equal(Object.prototype.hasOwnProperty.call(removedLiveSourcePatch, 'applied_adjustment_id'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(removedLiveSourcePatch, 'source_row_reference'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(removedLiveSourcePatch, 'raw_payload'), false);
+
+const settlementFactsBeforeRemovedSourceReview = [
+  {
+    id: 'adjustment-missing',
+    source: 'google_sheets',
+    source_reference: 'sanitized-live-sheet',
+    source_row_reference: 'SANITIZED-MISSING',
+    amount_cents: 850,
+    match_status: 'applied',
+  },
+];
+const settlementFactsAfterRemovedSourceReview = structuredClone(
+  settlementFactsBeforeRemovedSourceReview
+);
+assert.deepEqual(settlementFactsAfterRemovedSourceReview, settlementFactsBeforeRemovedSourceReview);
+
+const aggregateOnlyRemovedSourceOutput = {
+  rowsMissingFromSource: removedLiveSourceRows.length,
+  rowsFlaggedForReview: removedLiveSourceRows.length,
+};
+const aggregateOnlyRemovedSourceText = JSON.stringify(aggregateOnlyRemovedSourceOutput);
+for (const privateValue of [
+  'Customer Name',
+  'customer@example.com',
+  'private-payment-id',
+  '1234',
+  'Private fixture detail',
+  'SANITIZED-MISSING',
+]) {
+  assert.equal(aggregateOnlyRemovedSourceText.includes(privateValue), false);
+}
+
 const scopeArgs = {
   partnershipId,
   dateFrom: '2026-04-01',
@@ -620,6 +730,17 @@ console.log(
       sameContentDifferentRequestNotDuplicate: true,
       liveSheetValuesParsed: true,
       sanitizedPayloadExcludesPrivateFields: true,
+      removedLiveSourcePresentAppliedUnchanged: removedLiveSourceRows.every(
+        (row) => row.id !== 'review-present-applied'
+      ),
+      removedLiveSourceMissingAppliedFlagged: removedLiveSourceRows.some(
+        (row) => row.id === 'review-missing-applied'
+      ),
+      removedLiveSourceReviewOnlyDuplicateUnmatchedSuppressed: removedLiveSourceRows.length === 1,
+      removedLiveSourcePatchRequiresAdminReview:
+        removedLiveSourcePatch.match_reason === REMOVED_LIVE_SOURCE_MATCH_REASON,
+      removedLiveSourcePreservesSettlementFacts: true,
+      removedLiveSourceAggregateOutputOnly: true,
       partnerScopedMatchedMachineReview: matchedMachineReviewWarns,
       partnerScopedSingleCandidateReview: singleCandidateReviewWarns,
       partnerScopedExactAliasReview: exactUniqueAliasReviewWarns,

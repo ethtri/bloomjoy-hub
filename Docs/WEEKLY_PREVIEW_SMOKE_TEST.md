@@ -18,6 +18,16 @@ The happy-path fixture should be a test or launch partnership with:
 
 If the happy-path fixture returns no rows, treat the smoke as blocked. Fix the setup dates, payout-rule coverage, machine mapping, or provider import backfill first; do not pass the smoke by changing the expected date.
 
+## Partnership Effective Window Rule
+
+Partner previews and exports are bounded by the partnership agreement window before settlement amounts are calculated:
+
+- `reporting_partnerships.status` must be `active`.
+- `effective_end_date = null` is open-ended and should not require admins to keep extending long-running partnerships.
+- A selected week/month fully before `effective_start_date` or fully after `effective_end_date` must generate no settlement amounts.
+- For partial weeks/months, the selected reporting period label stays the same, but sales facts, refund adjustments, assignment checks, and payout-rule checks are trimmed to the overlapping active partnership dates.
+- The preview should show a non-blocking trimming warning for partial weeks/months so QA/admins can understand why totals are bounded.
+
 ## Optional Fixture Qualification Query
 Run this only in an approved local, preview, or production admin SQL context. It is for finding a qualifying fixture; it is not a migration.
 

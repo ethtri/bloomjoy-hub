@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
+  Archive,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
@@ -44,9 +45,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  archiveReportingPartnershipAdmin,
   fetchPartnershipReportingSetup,
   exportPartnerWeeklyReportAdmin,
   type ExportPartnerWeeklyReportFormat,
@@ -491,10 +492,14 @@ export default function AdminPartnershipsPage() {
     staleTime: 1000 * 30,
   });
 
+  const visiblePartnerships = useMemo(
+    () => setup.partnerships.filter((partnership) => partnership.status !== 'archived'),
+    [setup.partnerships]
+  );
   const selectedPartnership = useMemo(
     () =>
-      setup.partnerships.find((partnership) => partnership.id === selectedPartnershipId) ?? null,
-    [selectedPartnershipId, setup.partnerships]
+      visiblePartnerships.find((partnership) => partnership.id === selectedPartnershipId) ?? null,
+    [selectedPartnershipId, visiblePartnerships]
   );
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: setupQueryKey });
@@ -658,6 +663,7 @@ export default function AdminPartnershipsPage() {
                     <PartnershipDetailsSection
                       selectedPartnership={selectedPartnership}
                       onSaved={(partnershipId) => updateRouteState(partnershipId, 'participants')}
+                      onArchived={() => updateRouteState('', 'details')}
                       onRefresh={refresh}
                     />
                   )}
@@ -736,6 +742,10 @@ function PartnershipPicker({
   selectedPartnershipId: string;
   onSelect: (partnershipId: string) => void;
 }) {
+  const visiblePartnerships = setup.partnerships.filter(
+    (partnership) => partnership.status !== 'archived'
+  );
+
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
@@ -749,10 +759,10 @@ function PartnershipPicker({
       </div>
 
       <div className="mt-4 space-y-2">
-        {setup.partnerships.length === 0 ? (
-          <EmptyState text="No partnerships yet." />
+        {visiblePartnerships.length === 0 ? (
+          <EmptyState text="No active or draft partnerships yet." />
         ) : (
-          setup.partnerships.map((partnership) => {
+          visiblePartnerships.map((partnership) => {
             const isSelected = selectedPartnershipId === partnership.id;
 
             return (
@@ -796,6 +806,9 @@ function MobileSetupControls({
   onSelectPartnership: (partnershipId: string) => void;
   onStepChange: (step: PartnershipStep) => void;
 }) {
+  const visiblePartnerships = setup.partnerships.filter(
+    (partnership) => partnership.status !== 'archived'
+  );
   const countByStep: Partial<Record<PartnershipStep, number>> = {
     participants: stepCounts.participants,
     machines: stepCounts.machines,
@@ -813,7 +826,7 @@ function MobileSetupControls({
           className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
         >
           <option value="">New partnership</option>
-          {setup.partnerships.map((partnership) => (
+          {visiblePartnerships.map((partnership) => (
             <option key={partnership.id} value={partnership.id}>
               {partnership.name}
             </option>
@@ -993,14 +1006,17 @@ function StepHeader({
 function PartnershipDetailsSection({
   selectedPartnership,
   onSaved,
+  onArchived,
   onRefresh,
 }: {
   selectedPartnership: ReportingPartnership | null;
   onSaved: (partnershipId: string) => void;
+  onArchived: () => void;
   onRefresh: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyPartnershipForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!selectedPartnership) {
@@ -1069,6 +1085,7 @@ function PartnershipDetailsSection({
   };
 
   return (
+    <>
     <section className="rounded-lg border border-border bg-card p-5">
       <div className="grid gap-4 lg:grid-cols-2">
         <div>
@@ -1192,18 +1209,28 @@ function PartnershipDetailsSection({
         <div className="rounded-md border border-border bg-muted/20 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <Label htmlFor="partnership-active">Partnership active</Label>
+              <Label>Archive cleanup</Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                Inactive partnerships stay saved but are removed from normal reporting setup.
+                Archive unused test partnerships to remove them from normal reporting setup.
               </p>
             </div>
-            <Switch
-              id="partnership-active"
-              checked={form.status !== 'archived'}
-              onCheckedChange={(checked) =>
-                setForm({ ...form, status: checked ? 'active' : 'archived' })
-              }
-            />
+            {selectedPartnership ? (
+              selectedPartnership.status === 'archived' ? (
+                <Badge variant="outline">Archived</Badge>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
+                  onClick={() => setIsArchiveDialogOpen(true)}
+                >
+                  <Archive className="mr-2 h-4 w-4" />
+                  Archive
+                </Button>
+              )
+            ) : (
+              <Badge variant="outline">New</Badge>
+            )}
           </div>
         </div>
         <div className="lg:col-span-2">
@@ -1220,6 +1247,119 @@ function PartnershipDetailsSection({
         {form.partnershipId ? 'Save Details' : 'Create Partnership'}
       </Button>
     </section>
+    <ArchivePartnershipDialog
+      partnership={selectedPartnership}
+      open={isArchiveDialogOpen}
+      onOpenChange={setIsArchiveDialogOpen}
+      onArchived={async () => {
+        await onRefresh();
+        onArchived();
+      }}
+    />
+    </>
+  );
+}
+
+function ArchivePartnershipDialog({
+  partnership,
+  open,
+  onOpenChange,
+  onArchived,
+}: {
+  partnership: ReportingPartnership | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onArchived: () => Promise<unknown>;
+}) {
+  const [reason, setReason] = useState('');
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setReason('');
+    }
+  }, [open]);
+
+  const archivePartnership = async () => {
+    if (!partnership) return;
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) {
+      toast.error('Enter a reason before archiving this partnership.');
+      return;
+    }
+
+    setIsArchiving(true);
+    try {
+      const result = await archiveReportingPartnershipAdmin({
+        partnershipId: partnership.id,
+        reason: normalizedReason,
+      });
+      const relatedSummary = [
+        `${result.archivedAssignments} assignment${result.archivedAssignments === 1 ? '' : 's'}`,
+        `${result.archivedFinancialRules} payout rule${result.archivedFinancialRules === 1 ? '' : 's'}`,
+        `${result.archivedSchedules} schedule${result.archivedSchedules === 1 ? '' : 's'}`,
+      ].join(', ');
+      toast.success(
+        result.alreadyArchived
+          ? 'Partnership was already archived.'
+          : `Partnership archived with ${relatedSummary}.`
+      );
+      onOpenChange(false);
+      await onArchived();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to archive partnership.');
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open && Boolean(partnership)} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Archive Partnership?</DialogTitle>
+          <DialogDescription>
+            This archives {partnership?.name ?? 'this partnership'} and hides it from partnership
+            setup, reporting setup, partner dashboard lists, and scheduled-delivery selectors.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              Archive is blocked when report snapshots, schedule runs, sales facts, applied
+              adjustments, or active Corporate Partner memberships are tied to this partnership.
+            </div>
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="partnership-archive-reason">Archive reason</Label>
+          <Textarea
+            id="partnership-archive-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Example: Test reporting partnership created for QA cleanup"
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isArchiving}>
+            Cancel
+          </Button>
+          <Button
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={archivePartnership}
+            disabled={isArchiving}
+          >
+            {isArchiving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Archive className="mr-2 h-4 w-4" />
+            )}
+            Archive Partnership
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1391,7 +1531,7 @@ function ParticipantsSection({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {partner && (
+                {partner?.status === 'active' && (
                   <Button asChild variant="outline" size="sm">
                     <Link to={getCorporatePartnerInvitePath(partner)}>
                       <UserPlus className="mr-2 h-4 w-4" />
@@ -2961,6 +3101,8 @@ function PartnerSelectWithAdd({
   onChange: (partnerId: string) => void;
   onAddNew: () => void;
 }) {
+  const activePartners = setup.partners.filter((partner) => partner.status === 'active');
+
   return (
     <div>
       <Label htmlFor="participant-partner">Partner record</Label>
@@ -2978,7 +3120,7 @@ function PartnerSelectWithAdd({
       >
         <option value="">Select partner record</option>
         <option value="__add_new__">+ Add new partner record</option>
-        {setup.partners.map((partner) => (
+        {activePartners.map((partner) => (
           <option key={partner.id} value={partner.id}>
             {partner.legal_name ? `${partner.name} / ${partner.legal_name}` : partner.name}
           </option>

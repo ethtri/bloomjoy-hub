@@ -246,10 +246,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Corporate Partner sees machine reporting only for machines derived from current partnership assignments
 - [ ] Corporate Partner cannot access `/admin`, tax/rule editing, machine metadata editing, imports, schedules, global reporting, or internal warning ledgers
 - [ ] Inactive partnership status stops Corporate Partner live reporting access
+- [ ] Partner Dashboard preview/export respects the partnership effective window: `effective_end_date = null` is open-ended, fully outside weeks/months generate no settlement amounts, and partial weeks/months show a trimming warning while including only active-window dates
 - [ ] Revoked Corporate Partner membership removes portal reporting access after refresh/re-login
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
-- [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate/idempotent, same-content different-request, invalid-row, `Closed + Approve`, approved `Request Amount` fallback, `Open`, `Deny`, missing-decision, current customer-service export header, live sheet-shaped rows, sanitized-payload, and partner-settlement fixtures
+- [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate/idempotent, same-content different-request, invalid-row, `Closed + Approve`, approved `Request Amount` fallback, `Open`, `Deny`, missing-decision, current customer-service export header, live sheet-shaped rows, removed live-source review reconciliation, sanitized-payload, and partner-settlement fixtures
 - [ ] Refund Adjustment Sync GitHub Action can be run manually with `dry_run=true`, pages through the source rows, and returns aggregate counts only, with no customer names, emails, payment IDs, card digits, or free-text incident descriptions in logs
 - [ ] Sales Import Sync GitHub Action manual dispatch defaults to `dry_run=true` and rejects manual live imports unless `confirm_live=true` is explicitly set
 - [ ] Sales Import Sync scheduled defaults still choose `Last Month` only for `45 14 1 * *`; the primary `30 13 * * *` and backup `30 17 * * *` scheduled replays choose `Last 7 Days`
@@ -371,7 +372,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mobile admin routes show the same super-admin destinations in the operator menu: Admin Home, Orders, Support, Access, Partner Records, Machines, Partnerships, and Reporting
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
-- [ ] Admin Partner Records can search, create, and edit reusable partner records with separate display name and legal name fields, without exposing "party" terminology
+- [ ] Admin Partner Records can search, create, edit, and archive reusable partner records with separate display name and legal name fields, without exposing "party" terminology
+- [ ] Issue `#326`: super-admin can archive an unused test partner record from `/admin/partner-records` with required reason copy naming the record, and `admin_audit_log` stores actor, target ID/status, timestamp, and reason without customer/payment/source payloads or signed URLs
+- [ ] Issue `#326`: archiving a partner record is blocked when active memberships, active partnership parties, active assignments, active schedules, report snapshots, schedule runs, sales facts, or applied adjustment history are tied to it
 - [ ] Admin Partnerships setup loads without missing-RPC errors for `admin_get_partnership_reporting_setup`
 - [ ] Admin Partnerships opens as a guided setup flow with Details, Participants, Machines, Payout Rules, and Weekly Preview steps
 - [ ] Admin Partnerships is navigable on mobile with a compact partnership picker, `Step X of 5` header, horizontal step controls, and sticky Back/Next controls
@@ -387,7 +390,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Machines can record a reporting tax rate change with only `New reporting tax %` and `Applies from`, and the previous active rate closes without overlap
 - [ ] Admin Machines exposes read-only reporting tax history for a machine without making normal admins manage tax status, end date, or notes
 - [ ] Machine tax warnings appear on Admin Machines, not Admin Partnerships
-- [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus weekly/monthly cadence, report due days, invoice payment due days, payment method, ownership model, pricing authority, contract reference, and a simple active/inactive control
+- [ ] Admin Partnerships > Details exposes one agreement-level effective date window plus weekly/monthly cadence, report due days, invoice payment due days, payment method, ownership model, pricing authority, contract reference, and archive cleanup action
+- [ ] Issue `#326`: super-admin can archive an unused test partnership from `/admin/partnerships` with required reason copy naming the partnership; related active assignments, payout rules, and schedules without run history are archived, and audit metadata stays limited to IDs/status/counts/reason
+- [ ] Issue `#326`: archiving or hard-deleting a partnership is blocked when report snapshots, schedule runs, sales facts, applied adjustments, active memberships, active parties, active assignments, or active schedules make the record unsafe to remove
+- [ ] Issue `#326`: archived partner records and archived partnerships are hidden from `/admin/partnerships` selectors, `/admin/reporting` report/partnership selectors, Portal Reports partner dashboard lists, and partner-report schedule creation options
+- [ ] Issue `#326`: anonymous, non-admin, scoped-admin, `report_manager`, and Corporate Partner sessions cannot call archive RPCs or hard-delete partner/partnership records directly
 - [ ] Admin Partnerships > Payout Rules shows a plain-language sales-to-payout summary, one current payout rule, stable participant-named Payout Allocation rows based on Participants marked `Receives payout`, whole-percent inputs, a 100% allocation check, click/tap help popovers, and no editable payout-rule date/status fields
 - [ ] Admin Partnerships > Payout Rules can save a contract-specific deduction label and additional deduction notes for cashless processing, royalties, or other agreement-specific deductions
 - [ ] Saving Admin Partnerships > Payout Rules repeatedly updates the current payout rule instead of creating duplicate visible rules
@@ -396,6 +403,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships warns before leaving the Machines or Payout Rules step with unsaved changes, including on mobile Back/Next navigation
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
 - [ ] Admin Partnerships > Weekly Preview shows actionable in-page readiness messages when the selected week has no active machine assignment coverage, no active payout rule coverage, partial-week coverage, or no imported assigned-machine sales
+- [ ] Admin Partnerships > Weekly Preview and export respect the partnership effective window: inactive/archived partnerships and fully outside weeks produce no settlement amounts; partial weeks are bounded to active partnership dates and show the trimming note
 - [ ] Authenticated Weekly Preview smoke path is run from `Docs/WEEKLY_PREVIEW_SMOKE_TEST.md` with a super-admin on `/admin/partnerships?partnershipId=<qualified_fixture_partnership_id>&step=preview`
 - [ ] Authenticated Weekly Preview happy path for week ending `2026-04-19` shows `2026-04-13 through 2026-04-19`, `Ready`, `Orders` > 0, `Gross sales` > `$0`, and at least one `Sales by Machine` row after the provider import backfill/setup dates are corrected
 - [ ] Authenticated Weekly Preview warning states are checked for `No machines are assigned for this week`, `No active payout rule covers this week`, and `No sales found for this selected week`
