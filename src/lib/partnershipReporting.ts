@@ -395,6 +395,23 @@ export type ExportPartnerWeeklyReportResponse = {
   fileName: string;
 };
 
+export type ArchiveReportingPartnerResult = {
+  targetType: 'reporting_partner';
+  targetId: string;
+  status: 'archived';
+  alreadyArchived: boolean;
+};
+
+export type ArchiveReportingPartnershipResult = {
+  targetType: 'reporting_partnership';
+  targetId: string;
+  status: 'archived';
+  alreadyArchived: boolean;
+  archivedAssignments: number;
+  archivedFinancialRules: number;
+  archivedSchedules: number;
+};
+
 const emptySetup: PartnershipReportingSetup = {
   partners: [],
   partnerships: [],
@@ -465,6 +482,59 @@ export const upsertReportingPartnershipAdmin = async (input: UpsertPartnershipIn
   }
 
   return data as ReportingPartnership;
+};
+
+export const archiveReportingPartnerAdmin = async ({
+  partnerId,
+  reason,
+}: {
+  partnerId: string;
+  reason: string;
+}): Promise<ArchiveReportingPartnerResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_archive_reporting_partner', {
+    p_partner_id: partnerId,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to archive partner record.');
+  }
+
+  const record = data as Partial<ArchiveReportingPartnerResult>;
+  return {
+    targetType: 'reporting_partner',
+    targetId: String(record.targetId ?? partnerId),
+    status: 'archived',
+    alreadyArchived: Boolean(record.alreadyArchived),
+  };
+};
+
+export const archiveReportingPartnershipAdmin = async ({
+  partnershipId,
+  reason,
+}: {
+  partnershipId: string;
+  reason: string;
+}): Promise<ArchiveReportingPartnershipResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_archive_reporting_partnership', {
+    p_partnership_id: partnershipId,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to archive partnership.');
+  }
+
+  const record = data as Partial<ArchiveReportingPartnershipResult>;
+  return {
+    targetType: 'reporting_partnership',
+    targetId: String(record.targetId ?? partnershipId),
+    status: 'archived',
+    alreadyArchived: Boolean(record.alreadyArchived),
+    archivedAssignments: Number(record.archivedAssignments ?? 0),
+    archivedFinancialRules: Number(record.archivedFinancialRules ?? 0),
+    archivedSchedules: Number(record.archivedSchedules ?? 0),
+  };
 };
 
 export const upsertReportingMachineAssignmentAdmin = async (
