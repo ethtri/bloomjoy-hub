@@ -231,6 +231,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Corporate Partner sees machine reporting only for machines derived from current partnership assignments
 - [ ] Corporate Partner cannot access `/admin`, tax/rule editing, machine metadata editing, imports, schedules, global reporting, or internal warning ledgers
 - [ ] Inactive partnership status stops Corporate Partner live reporting access
+- [ ] Partner Dashboard preview/export respects the partnership effective window: `effective_end_date = null` is open-ended, fully outside weeks/months generate no settlement amounts, and partial weeks/months show a trimming warning while including only active-window dates
 - [ ] Revoked Corporate Partner membership removes portal reporting access after refresh/re-login
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
@@ -381,6 +382,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Partnerships warns before leaving the Machines or Payout Rules step with unsaved changes, including on mobile Back/Next navigation
 - [ ] Admin Partnerships > Weekly Preview enforces the partnership week-ending day and uses the previous completed Monday-Sunday week for Bubble Planet-style reporting
 - [ ] Admin Partnerships > Weekly Preview shows actionable in-page readiness messages when the selected week has no active machine assignment coverage, no active payout rule coverage, partial-week coverage, or no imported assigned-machine sales
+- [ ] Admin Partnerships > Weekly Preview and export respect the partnership effective window: inactive/archived partnerships and fully outside weeks produce no settlement amounts; partial weeks are bounded to active partnership dates and show the trimming note
 - [ ] Authenticated Weekly Preview smoke path is run from `Docs/WEEKLY_PREVIEW_SMOKE_TEST.md` with a super-admin on `/admin/partnerships?partnershipId=<qualified_fixture_partnership_id>&step=preview`
 - [ ] Authenticated Weekly Preview happy path for week ending `2026-04-19` shows `2026-04-13 through 2026-04-19`, `Ready`, `Orders` > 0, `Gross sales` > `$0`, and at least one `Sales by Machine` row after the provider import backfill/setup dates are corrected
 - [ ] Authenticated Weekly Preview warning states are checked for `No machines are assigned for this week`, `No active payout rule covers this week`, and `No sales found for this selected week`
