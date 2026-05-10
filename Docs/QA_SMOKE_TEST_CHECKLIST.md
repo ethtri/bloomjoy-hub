@@ -29,13 +29,18 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mobile header/nav works (basic)
 
 ## Refund Operations MVP
+- [ ] Sponsor local UAT setup uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email sponsor-uat@bloomjoy.localhost --app-url http://localhost:8080`, open the printed one-click magic link, and confirm the sponsor reaches `/admin/refunds` without Google OAuth or a shared password.
+- [ ] Sponsor UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
 - [ ] Direct-load `/refunds/request` on desktop and mobile; page is noindex, not listed in `sitemap.xml`, and the form loads active machine/location options.
 - [ ] Submit a hosted refund request with card payment, amount, last 4, Apple Pay/wallet checked, issue description, and optional photo; customer confirmation email is logged in `refund_case_messages`.
 - [ ] Submit a cash request that has one matching sales fact within +/- 1 hour and exact amount; case lands with matched cash correlation evidence and no auto-approval.
 - [ ] Submit a cash request with no conservative match; case lands in `waiting_on_customer` and logs the friendly more-info email.
 - [ ] Submit a request with multiple conservative cash candidates; case lands in manager review rather than writing a reporting adjustment.
 - [ ] Auth boundary: unauthenticated users cannot open `/admin/refunds`; assigned refund managers can open only refund operations; scoped admins see only scoped machines; super-admins see all refund cases.
-- [ ] Admin refund queue filters/searches cases, opens case details, shows customer issue text, photos, timeline/messages, correlation evidence, and manager assignment.
+- [ ] Admin refund queue filters/searches cases, opens case details, shows customer issue text, photos, event timeline, customer message history, correlation evidence, and manager assignment.
+- [ ] Admin detail lets managers verify confirmation and more-info customer email state from `RF-UAT-WAIT` or an equivalent synthetic waiting-on-customer case.
+- [ ] Admin decision controls prevent incoherent combinations before submit: follow-up/review statuses clear final decisions, approved paths carry `approved`, denied paths carry `denied`, and `waiting_on_customer + approved` cannot be saved.
+- [ ] Mobile admin queue/detail at `390x844` has no clipped columns, hidden controls, or horizontal page overflow; queue rows stack as cards or scroll intentionally.
 - [ ] Admin can assign up to 3 authenticated refund managers per machine; a fourth manager is blocked by validation/RPC.
 - [ ] Manager denial path records a friendly decision reason and does not write to `sales_adjustment_facts`.
 - [ ] Approved manual card path records a Nayax transaction ID and manual refund reference before completion.

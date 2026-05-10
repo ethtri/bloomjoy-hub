@@ -222,6 +222,32 @@ To use all login methods in local dev:
      - `http://localhost:8080/reset-password`
 
 
+## Refund operations local UAT (sponsor-ready)
+Use this path for local executive review of `/refunds/request` and `/admin/refunds` without Google OAuth and without sharing a password.
+
+Prereqs:
+- Local Supabase is running and the refund operations migration has been applied.
+- `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.
+- The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
+
+Steps:
+1) Start the app from the worktree: `npm run dev`
+2) Seed synthetic fixtures and generate a one-click local magic link:
+   - `node scripts/refunds/local-refund-uat.mjs --email sponsor-uat@bloomjoy.localhost --app-url http://localhost:8080`
+   - Add `--open` to open the generated link automatically.
+3) Open the printed magic link. It should land on `/admin/refunds` as a local super-admin/refund manager.
+4) Review the synthetic queue cases:
+   - `RF-UAT-CARD`: approved card path with matched transaction evidence.
+   - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
+   - `RF-UAT-CASH`: correlated cash path with one synthetic sales fact and no final decision.
+5) Open `/refunds/request` separately to review the public customer intake form against the same synthetic location/machine options.
+
+Privacy guardrails:
+- The helper writes only synthetic `example.test` customer records and synthetic machine/sales/refund data.
+- Do not paste real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content into local fixtures, docs, PRs, issues, or chat.
+- Do not commit `.env` files or service-role keys. Never put service-role keys in `VITE_` variables.
+
+
 ## Agent best practices (plain language)
 - Each agent uses its own worktree and its own `.env` file.
 - Do not copy another person's `.env`; create your own from `.env.example`.
