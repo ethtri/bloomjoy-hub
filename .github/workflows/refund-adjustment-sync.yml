@@ -74,6 +74,8 @@ jobs:
             rowsAmbiguous: 0,
             rowsUnmatched: 0,
             rowsUnapplied: 0,
+            rowsMissingFromSource: 0,
+            rowsFlaggedForReview: 0,
           };
           let rowOffset = 0;
           let chunk = 0;
@@ -116,6 +118,8 @@ jobs:
               rowsAmbiguous: body.rowsAmbiguous ?? 0,
               rowsUnmatched: body.rowsUnmatched ?? 0,
               rowsUnapplied: body.rowsUnapplied ?? 0,
+              rowsMissingFromSource: body.rowsMissingFromSource ?? 0,
+              rowsFlaggedForReview: body.rowsFlaggedForReview ?? 0,
             };
 
             console.log(JSON.stringify(summary, null, 2));
