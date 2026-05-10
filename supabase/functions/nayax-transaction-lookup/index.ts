@@ -154,8 +154,17 @@ serve(async (req) => {
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Nayax lookup failed (${response.status}): ${errorBody.slice(0, 500)}`);
+      console.warn("nayax-transaction-lookup provider failure", {
+        status: response.status,
+        statusText: sanitizeText(response.statusText, 80) || "provider_error",
+      });
+      return new Response(
+        JSON.stringify({ error: "Unable to look up Nayax transactions." }),
+        {
+          status: 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const nayaxPayload = await response.json();
@@ -167,7 +176,9 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("nayax-transaction-lookup error", error);
+    console.error("nayax-transaction-lookup error", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
     return new Response(JSON.stringify({ error: "Unable to look up Nayax transactions." }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

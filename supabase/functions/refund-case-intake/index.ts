@@ -3,10 +3,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import {
+  buildPublicIntakeDedupeKey,
   buildPublicIntakeKeyHashes,
   checkPublicIntakeRateLimits,
   getPublicIntakeClientIp,
+  getPublicIntakeWindowStart,
+  PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
+  PUBLIC_INTAKE_NOTIFICATION_LIMITS,
   PUBLIC_INTAKE_SUBMISSION_LIMITS,
+  sanitizePublicIntakeSourcePage,
   type PublicIntakeAbuseSupabaseClient,
 } from "../_shared/public-intake-abuse-controls.ts";
 
@@ -30,6 +35,14 @@ type RefundAttachmentInput = {
   byteSize?: unknown;
   base64?: unknown;
 };
+
+type PreparedRefundAttachment = {
+  fileName: string;
+  contentType: string;
+  bytes: Uint8Array;
+};
+
+class RequestValidationError extends Error {}
 
 const sanitizeText = (value: unknown, maxLength = 2000) =>
   typeof value === "string" ? value.trim().slice(0, maxLength) : "";
@@ -141,8 +154,14 @@ const safeFileName = (value: string) =>
     .slice(0, 100) || "photo";
 
 const decodeBase64 = (value: string) => {
-  const binary = atob(value.includes(",") ? value.split(",").pop() ?? "" : value);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  try {
+    const payload = (value.includes(",") ? value.split(",").pop() ?? "" : value)
+      .replace(/\s/g, "");
+    const binary = atob(payload);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  } catch {
+    throw new RequestValidationError("Attachments must be valid image uploads.");
+  }
 };
 
 const formatCurrency = (cents: number | null) => {
@@ -248,62 +267,108 @@ const buildCustomerEmail = ({
   return { subject, text, html };
 };
 
+const prepareAttachments = (
+  attachments: RefundAttachmentInput[],
+): PreparedRefundAttachment[] => {
+  if (attachments.length > maxAttachments) {
+    throw new RequestValidationError("Please upload no more than 3 photos.");
+  }
+
+  return attachments.map((attachment) => {
+    const contentType = sanitizeText(attachment.contentType, 100).toLowerCase();
+    const fileName = safeFileName(sanitizeText(attachment.fileName, 160));
+    const base64 = typeof attachment.base64 === "string" ? attachment.base64.trim() : "";
+    const declaredByteSize = Number(attachment.byteSize ?? 0);
+
+    if (!allowedContentTypes.has(contentType) || !base64) {
+      throw new RequestValidationError("Attachments must be PNG, JPEG, or WebP images.");
+    }
+
+    if (base64.length > maxAttachmentBytes * 2) {
+      throw new RequestValidationError("Each attachment must be 5MB or smaller.");
+    }
+
+    const bytes = decodeBase64(base64);
+    if (bytes.byteLength <= 0 || bytes.byteLength > maxAttachmentBytes) {
+      throw new RequestValidationError("Each attachment must be 5MB or smaller.");
+    }
+
+    if (declaredByteSize > 0 && Math.abs(declaredByteSize - bytes.byteLength) > 64) {
+      throw new RequestValidationError("Attachment size did not match the submitted file.");
+    }
+
+    return { fileName, contentType, bytes };
+  });
+};
+
+const cleanupPartialRefundCase = async (
+  refundCaseId: string,
+  storagePaths: string[],
+) => {
+  if (!supabase) return;
+
+  try {
+    if (storagePaths.length > 0) {
+      await supabase.storage.from(attachmentBucket).remove(storagePaths);
+    }
+
+    await supabase.from("refund_cases").delete().eq("id", refundCaseId);
+  } catch (cleanupError) {
+    console.warn("refund-case-intake partial cleanup failed", {
+      stage: "attachment_compensation",
+      errorType: cleanupError instanceof Error ? cleanupError.name : typeof cleanupError,
+    });
+  }
+};
+
 const uploadAttachments = async (
   refundCaseId: string,
-  attachments: RefundAttachmentInput[]
+  attachments: PreparedRefundAttachment[],
 ) => {
   if (!supabase || attachments.length === 0) return [];
 
   const uploaded = [];
-  for (const [index, attachment] of attachments.entries()) {
-    const contentType = sanitizeText(attachment.contentType, 100).toLowerCase();
-    const fileName = safeFileName(sanitizeText(attachment.fileName, 160));
-    const base64 = sanitizeText(attachment.base64, maxAttachmentBytes * 2);
-    const declaredByteSize = Number(attachment.byteSize ?? 0);
+  const uploadedStoragePaths: string[] = [];
 
-    if (!allowedContentTypes.has(contentType) || !base64) {
-      throw new Error("Attachments must be PNG, JPEG, or WebP images.");
+  try {
+    for (const [index, attachment] of attachments.entries()) {
+      const storagePath =
+        `refund-cases/${refundCaseId}/${index + 1}-${crypto.randomUUID()}-${attachment.fileName}`;
+      const { error: uploadError } = await supabase.storage
+        .from(attachmentBucket)
+        .upload(storagePath, attachment.bytes, {
+          contentType: attachment.contentType,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      uploadedStoragePaths.push(storagePath);
+
+      const { data, error: insertError } = await supabase
+        .from("refund_case_attachments")
+        .insert({
+          refund_case_id: refundCaseId,
+          storage_bucket: attachmentBucket,
+          storage_path: storagePath,
+          file_name: attachment.fileName,
+          content_type: attachment.contentType,
+          byte_size: attachment.bytes.byteLength,
+        })
+        .select("*")
+        .single();
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      uploaded.push(data);
     }
-
-    const bytes = decodeBase64(base64);
-    if (bytes.byteLength > maxAttachmentBytes) {
-      throw new Error("Each attachment must be 5MB or smaller.");
-    }
-
-    if (declaredByteSize > 0 && Math.abs(declaredByteSize - bytes.byteLength) > 64) {
-      throw new Error("Attachment size did not match the submitted file.");
-    }
-
-    const storagePath = `refund-cases/${refundCaseId}/${index + 1}-${crypto.randomUUID()}-${fileName}`;
-    const { error: uploadError } = await supabase.storage
-      .from(attachmentBucket)
-      .upload(storagePath, bytes, {
-        contentType,
-        upsert: false,
-      });
-
-    if (uploadError) {
-      throw uploadError;
-    }
-
-    const { data, error: insertError } = await supabase
-      .from("refund_case_attachments")
-      .insert({
-        refund_case_id: refundCaseId,
-        storage_bucket: attachmentBucket,
-        storage_path: storagePath,
-        file_name: fileName,
-        content_type: contentType,
-        byte_size: bytes.byteLength,
-      })
-      .select("*")
-      .single();
-
-    if (insertError) {
-      throw insertError;
-    }
-
-    uploaded.push(data);
+  } catch (error) {
+    await cleanupPartialRefundCase(refundCaseId, uploadedStoragePaths);
+    throw error;
   }
 
   return uploaded;
@@ -337,6 +402,7 @@ serve(async (req) => {
       });
     }
     const body = parsedBody.body;
+    const sourcePage = sanitizePublicIntakeSourcePage("/refunds/request");
     const machineId = sanitizeText(body?.machineId, 80);
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
@@ -347,8 +413,12 @@ serve(async (req) => {
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
     const cardWalletUsed = Boolean(body?.cardWalletUsed);
     const incidentAt = parseIncidentAt(body?.incidentAt);
-    const attachments = Array.isArray(body?.attachments)
-      ? (body.attachments as RefundAttachmentInput[]).slice(0, maxAttachments)
+    if (body?.attachments !== undefined && !Array.isArray(body.attachments)) {
+      throw new RequestValidationError("Attachments must be uploaded as a list.");
+    }
+
+    const rawAttachments = Array.isArray(body?.attachments)
+      ? body.attachments as RefundAttachmentInput[]
       : [];
 
     if (!isUuid(machineId)) {
@@ -393,12 +463,13 @@ serve(async (req) => {
       });
     }
 
+    const abuseControlSalt = getAbuseControlSalt();
     const abuseSupabase = supabase as unknown as PublicIntakeAbuseSupabaseClient;
     const keyHashes = await buildPublicIntakeKeyHashes({
-      salt: getAbuseControlSalt(),
+      salt: abuseControlSalt,
       ip: getPublicIntakeClientIp(req),
       email: customerEmail,
-      sourcePage: "/refunds/request",
+      sourcePage,
     });
     const submissionLimitResult = await checkPublicIntakeRateLimits({
       supabase: abuseSupabase,
@@ -416,6 +487,8 @@ serve(async (req) => {
         },
       );
     }
+
+    const attachments = prepareAttachments(rawAttachments);
 
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
@@ -504,7 +577,29 @@ serve(async (req) => {
       correlationSummary = "Payment method was not specific enough for conservative matching.";
     }
 
-    const { data: refundCase, error: insertError } = await supabase
+    const serverDedupeWindowStartedAt = getPublicIntakeWindowStart(
+      new Date(),
+      PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
+    );
+    const serverDedupeKey = await buildPublicIntakeDedupeKey({
+      salt: abuseControlSalt,
+      submissionType: "refund_case",
+      email: customerEmail,
+      sourcePage,
+      message: [
+        machineRecord.id,
+        incidentAt.toISOString(),
+        paymentMethod,
+        amountCents ?? "amount-not-provided",
+        paymentMethod === "card" ? cardLast4 : "no-card-last4",
+        issueSummary,
+      ].join("|"),
+      windowStartedAt: serverDedupeWindowStartedAt,
+    });
+    const selectedRefundCaseColumns =
+      "id, public_reference, status, correlation_status";
+
+    const { data: insertedRefundCase, error: insertError } = await supabase
       .from("refund_cases")
       .insert({
         reporting_machine_id: machineRecord.id,
@@ -530,12 +625,43 @@ serve(async (req) => {
           candidate_sales_fact_ids: candidateIds,
           user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
         },
+        server_dedupe_key: serverDedupeKey,
+        server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
       })
-      .select("*")
+      .select(selectedRefundCaseColumns)
       .single();
 
-    if (insertError || !refundCase) {
-      throw new Error(insertError?.message || "Unable to create refund case.");
+    const refundCase = insertedRefundCase;
+    if (insertError) {
+      if (insertError.code !== "23505") {
+        throw new Error(insertError.message || "Unable to create refund case.");
+      }
+
+      const { data: dedupedRefundCase, error: dedupeLookupError } = await supabase
+        .from("refund_cases")
+        .select(selectedRefundCaseColumns)
+        .eq("server_dedupe_key", serverDedupeKey)
+        .maybeSingle();
+
+      if (dedupeLookupError || !dedupedRefundCase) {
+        throw new Error("Unable to create refund case.");
+      }
+
+      return new Response(
+        JSON.stringify({
+          refundCase: {
+            id: dedupedRefundCase.id,
+            publicReference: dedupedRefundCase.public_reference,
+            status: dedupedRefundCase.status,
+            correlationStatus: dedupedRefundCase.correlation_status,
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (!refundCase) {
+      throw new Error("Unable to create refund case.");
     }
 
     let uploadedAttachments: unknown[] = [];
@@ -579,6 +705,41 @@ serve(async (req) => {
       .select("id")
       .single();
 
+    const notificationLimitResult = await checkPublicIntakeRateLimits({
+      supabase: abuseSupabase,
+      keyHashes,
+      rules: PUBLIC_INTAKE_NOTIFICATION_LIMITS,
+    });
+
+    if (!notificationLimitResult.allowed) {
+      console.warn(
+        "Public refund intake customer email suppressed.",
+        notificationLimitResult.reason,
+      );
+
+      if (messageRow?.id) {
+        await supabase
+          .from("refund_case_messages")
+          .update({
+            status: "skipped",
+            error_message: "public_intake_notification_quota",
+          })
+          .eq("id", messageRow.id);
+      }
+
+      return new Response(
+        JSON.stringify({
+          refundCase: {
+            id: refundCase.id,
+            publicReference: refundCase.public_reference,
+            status: refundCase.status,
+            correlationStatus: refundCase.correlation_status,
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     try {
       await sendTransactionalEmail({
         to: [customerEmail],
@@ -594,7 +755,9 @@ serve(async (req) => {
           .eq("id", messageRow.id);
       }
     } catch (emailError) {
-      console.error("refund-case-intake email failed", emailError);
+      console.error("refund-case-intake email failed", {
+        errorType: emailError instanceof Error ? emailError.name : typeof emailError,
+      });
       if (messageRow?.id) {
         await supabase
           .from("refund_case_messages")
@@ -618,7 +781,17 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("refund-case-intake error", error);
+    if (error instanceof RequestValidationError) {
+      console.warn("refund-case-intake validation error", { message: error.message });
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.error("refund-case-intake error", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
     return new Response(JSON.stringify({ error: "Unable to submit refund request." }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

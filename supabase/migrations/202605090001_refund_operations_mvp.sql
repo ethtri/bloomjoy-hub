@@ -149,6 +149,8 @@ create table if not exists public.refund_cases (
   refund_completed_at timestamptz,
   reporting_adjustment_id uuid,
   intake_meta jsonb not null default '{}'::jsonb,
+  server_dedupe_key text,
+  server_dedupe_window_started_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint refund_cases_public_reference_unique unique (public_reference),
@@ -165,6 +167,14 @@ create index if not exists refund_cases_machine_status_idx
 
 create index if not exists refund_cases_customer_email_idx
   on public.refund_cases (lower(customer_email), created_at desc);
+
+create unique index if not exists refund_cases_server_dedupe_key_idx
+  on public.refund_cases (server_dedupe_key)
+  where server_dedupe_key is not null;
+
+create index if not exists refund_cases_server_dedupe_window_idx
+  on public.refund_cases (server_dedupe_window_started_at desc)
+  where server_dedupe_window_started_at is not null;
 
 create index if not exists refund_cases_matched_sales_fact_idx
   on public.refund_cases (matched_sales_fact_id)
@@ -362,6 +372,30 @@ as $$
   select public.can_manage_refund_case((select auth.uid()), p_refund_case_id);
 $$;
 
+create or replace function public.is_review_safe_nayax_transaction_reference(p_value text)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select
+    nullif(trim(coalesce(p_value, '')), '') is not null
+    and length(trim(coalesce(p_value, ''))) between 6 and 80
+    and trim(coalesce(p_value, '')) ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$'
+    and lower(trim(coalesce(p_value, ''))) not in (
+      '000000',
+      '111111',
+      '123456',
+      'abcdef',
+      'manual',
+      'nayax',
+      'none',
+      'refund',
+      'test',
+      'unknown'
+    );
+$$;
+
 create or replace function public.public_refund_machine_options()
 returns table (
   machine_id uuid,
@@ -491,9 +525,12 @@ begin
       or refund_case_row.status <> 'completed'
       or refund_case_row.decision <> 'approved'
       or refund_case_row.correlation_status <> 'matched'
+      or refund_case_row.correlation_source is null
       or (
         refund_case_row.matched_sales_fact_id is null
-        and nullif(trim(coalesce(refund_case_row.matched_nayax_transaction_id, '')), '') is null
+        and not public.is_review_safe_nayax_transaction_reference(
+          refund_case_row.matched_nayax_transaction_id
+        )
       ) then
       raise exception 'Refund case adjustments require an approved, completed, fully correlated case'
         using errcode = '23514';
@@ -912,6 +949,7 @@ declare
   target_manager_id uuid;
   event_message text;
   adjustment_row public.sales_adjustment_facts;
+  normalized_nayax_transaction_id text;
 begin
   actor_user_id := auth.uid();
 
@@ -982,6 +1020,39 @@ begin
     raise exception 'Refund amount must be zero or greater';
   end if;
 
+  normalized_nayax_transaction_id := nullif(
+    trim(coalesce(p_matched_nayax_transaction_id, before_row.matched_nayax_transaction_id, '')),
+    ''
+  );
+
+  if p_matched_nayax_transaction_id is not null then
+    if normalized_nayax_transaction_id is not null
+      and not public.is_review_safe_nayax_transaction_reference(normalized_nayax_transaction_id) then
+      raise exception 'Nayax transaction reference does not meet review-safe format requirements';
+    end if;
+
+    if normalized_nayax_transaction_id is not null
+      and before_row.payment_method <> 'card' then
+      raise exception 'Nayax transaction correlation is only available for card refund cases';
+    end if;
+
+    if normalized_nayax_transaction_id is not null
+      and (
+        before_row.card_last4 is null
+        or coalesce(before_row.payment_amount_cents, p_refund_amount_cents, before_row.refund_amount_cents, 0) <= 0
+      ) then
+      raise exception 'Nayax transaction correlation requires card last4 and a positive payment amount';
+    end if;
+  end if;
+
+  if (before_row.status = 'completed' or before_row.reporting_adjustment_id is not null)
+    and (
+      normalized_status <> 'completed'
+      or normalized_decision <> 'approved'
+    ) then
+    raise exception 'Completed refund cases cannot move away from completed/approved through this RPC';
+  end if;
+
   update public.refund_cases
   set
     status = normalized_status,
@@ -998,28 +1069,25 @@ begin
     end,
     refund_amount_cents = coalesce(p_refund_amount_cents, refund_amount_cents),
     manual_refund_reference = nullif(trim(coalesce(p_manual_refund_reference, manual_refund_reference, '')), ''),
-    matched_nayax_transaction_id = nullif(
-      trim(coalesce(p_matched_nayax_transaction_id, matched_nayax_transaction_id, '')),
-      ''
-    ),
+    matched_nayax_transaction_id = normalized_nayax_transaction_id,
     correlation_status = case
-      when nullif(trim(coalesce(p_matched_nayax_transaction_id, matched_nayax_transaction_id, '')), '') is not null
+      when normalized_nayax_transaction_id is not null
         then 'matched'
       else correlation_status
     end,
     correlation_source = case
-      when nullif(trim(coalesce(p_matched_nayax_transaction_id, matched_nayax_transaction_id, '')), '') is not null
+      when normalized_nayax_transaction_id is not null
         then 'nayax'
       else correlation_source
     end,
     correlation_confidence = case
-      when nullif(trim(coalesce(p_matched_nayax_transaction_id, matched_nayax_transaction_id, '')), '') is not null
+      when normalized_nayax_transaction_id is not null
         then greatest(correlation_confidence, 0.95)
       else correlation_confidence
     end,
     correlation_summary = case
-      when nullif(trim(coalesce(p_matched_nayax_transaction_id, matched_nayax_transaction_id, '')), '') is not null
-        then 'Manager recorded a matching Nayax transaction ID before refund completion.'
+      when normalized_nayax_transaction_id is not null
+        then 'Manager recorded a review-safe Nayax transaction reference before refund completion.'
       else correlation_summary
     end,
     refund_completed_by = case when normalized_status = 'completed' then actor_user_id else refund_completed_by end,
@@ -1036,9 +1104,19 @@ begin
       or after_row.correlation_source is null
       or (
         after_row.matched_sales_fact_id is null
-        and nullif(trim(coalesce(after_row.matched_nayax_transaction_id, '')), '') is null
+        and not public.is_review_safe_nayax_transaction_reference(after_row.matched_nayax_transaction_id)
       ) then
       raise exception 'Completed refund cases must be fully correlated first';
+    end if;
+
+    if after_row.correlation_source = 'nayax'
+      and (
+        after_row.payment_method <> 'card'
+        or after_row.card_last4 is null
+        or not public.is_review_safe_nayax_transaction_reference(after_row.matched_nayax_transaction_id)
+        or nullif(trim(coalesce(after_row.manual_refund_reference, '')), '') is null
+      ) then
+      raise exception 'Completed card refund cases require reviewed Nayax correlation plus a manual refund reference';
     end if;
 
     if coalesce(after_row.refund_amount_cents, after_row.payment_amount_cents, 0) <= 0 then
@@ -1084,8 +1162,9 @@ begin
         'refund_case_decision', after_row.decision,
         'payment_method', after_row.payment_method,
         'correlation_source', after_row.correlation_source,
-        'matched_sales_fact_id', after_row.matched_sales_fact_id,
-        'matched_nayax_transaction_id', after_row.matched_nayax_transaction_id
+        'correlation_has_sales_fact', after_row.matched_sales_fact_id is not null,
+        'correlation_has_card_lookup',
+          public.is_review_safe_nayax_transaction_reference(after_row.matched_nayax_transaction_id)
       )
     )
     on conflict (source, source_reference, source_row_reference)
@@ -1184,11 +1263,8 @@ for select
 using (public.can_manage_refund_case_current_user(id));
 
 drop policy if exists "refund_cases_update_accessible" on public.refund_cases;
-create policy "refund_cases_update_accessible"
-on public.refund_cases
-for update
-using (public.can_manage_refund_case_current_user(id))
-with check (public.can_manage_refund_case_current_user(id));
+
+revoke update on public.refund_cases from anon, authenticated;
 
 drop policy if exists "refund_case_events_select_accessible" on public.refund_case_events;
 create policy "refund_case_events_select_accessible"
@@ -1242,6 +1318,7 @@ revoke execute on function public.can_manage_refund_machine(uuid, uuid) from pub
 revoke execute on function public.can_manage_refund_case(uuid, uuid) from public, anon, authenticated;
 revoke execute on function public.can_manage_refund_machine_current_user(uuid) from public, anon;
 revoke execute on function public.can_manage_refund_case_current_user(uuid) from public, anon;
+revoke execute on function public.is_review_safe_nayax_transaction_reference(text) from public, anon, authenticated;
 revoke execute on function public.admin_set_reporting_machine_refund_managers(uuid, text[], text)
   from public, anon, authenticated;
 revoke execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, text)
@@ -1252,6 +1329,7 @@ grant execute on function public.can_manage_refund_machine(uuid, uuid) to servic
 grant execute on function public.can_manage_refund_case(uuid, uuid) to service_role;
 grant execute on function public.can_manage_refund_machine_current_user(uuid) to authenticated;
 grant execute on function public.can_manage_refund_case_current_user(uuid) to authenticated;
+grant execute on function public.is_review_safe_nayax_transaction_reference(text) to service_role;
 grant execute on function public.public_refund_machine_options() to anon, authenticated;
 grant execute on function public.get_my_admin_access_context() to authenticated;
 grant execute on function public.admin_get_refund_operations_overview() to authenticated;

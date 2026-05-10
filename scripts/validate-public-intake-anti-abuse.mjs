@@ -3,16 +3,20 @@ import { readFileSync } from 'node:fs';
 const files = {
   helper: 'supabase/functions/_shared/public-intake-abuse-controls.ts',
   intakeFunction: 'supabase/functions/lead-submission-intake/index.ts',
+  refundIntakeFunction: 'supabase/functions/refund-case-intake/index.ts',
   migration: 'supabase/migrations/202604290003_public_intake_anti_abuse.sql',
   globalKeyMigration: 'supabase/migrations/202604290004_public_intake_global_key_type.sql',
+  refundMigration: 'supabase/migrations/202605090001_refund_operations_mvp.sql',
 };
 
 const read = (path) => readFileSync(path, 'utf8');
 
 const helper = read(files.helper);
 const intakeFunction = read(files.intakeFunction);
+const refundIntakeFunction = read(files.refundIntakeFunction);
 const migration = read(files.migration);
 const globalKeyMigration = read(files.globalKeyMigration);
+const refundMigration = read(files.refundMigration);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -104,6 +108,52 @@ assert(
   'Intake errors should not log raw error objects that may include private payload context.'
 );
 
+const refundHandlerStartIndex = refundIntakeFunction.indexOf('serve(async (req) => {');
+assert(refundHandlerStartIndex > -1, 'Could not find refund intake request handler.');
+
+const refundRequestHandler = refundIntakeFunction.slice(refundHandlerStartIndex);
+const refundInsertIndex = refundRequestHandler.search(/\.from\("refund_cases"\)\s*\.insert\(\{/);
+const refundSubmissionLimitIndex = refundRequestHandler.indexOf('rules: PUBLIC_INTAKE_SUBMISSION_LIMITS');
+const refundNotificationLimitIndex = refundRequestHandler.indexOf('rules: PUBLIC_INTAKE_NOTIFICATION_LIMITS');
+const refundSendEmailIndex = refundRequestHandler.indexOf('sendTransactionalEmail({');
+const refundPrepareAttachmentsIndex = refundRequestHandler.indexOf('prepareAttachments(rawAttachments)');
+const refundServerDedupeIndex = refundRequestHandler.indexOf('serverDedupeKey');
+
+assert(refundInsertIndex > -1, 'Could not find refund_cases insert path.');
+assert(refundSubmissionLimitIndex > -1, 'Missing refund submission throttle wiring.');
+assert(
+  refundSubmissionLimitIndex < refundInsertIndex,
+  'Refund submission throttle must run before refund_cases persistence.'
+);
+assert(refundPrepareAttachmentsIndex > -1, 'Missing refund attachment pre-validation call.');
+assert(
+  refundPrepareAttachmentsIndex < refundInsertIndex,
+  'Refund attachments must be pre-validated before refund_cases persistence.'
+);
+assert(refundServerDedupeIndex > -1, 'Missing refund server-side dedupe key.');
+assert(
+  refundServerDedupeIndex < refundInsertIndex,
+  'Refund server-side dedupe key must be built before refund_cases persistence.'
+);
+assert(refundNotificationLimitIndex > -1, 'Missing refund notification quota wiring.');
+assert(refundSendEmailIndex > -1, 'Could not find refund customer email dispatch path.');
+assert(
+  refundNotificationLimitIndex < refundSendEmailIndex,
+  'Refund notification quota must run before customer email dispatch.'
+);
+assert(
+  refundIntakeFunction.includes('cleanupPartialRefundCase'),
+  'Refund attachment upload failures must clean up partial PII cases.'
+);
+assert(
+  !refundIntakeFunction.includes('console.error("refund-case-intake error", error)'),
+  'Refund intake errors should not log raw error objects that may include private payload context.'
+);
+assert(
+  !refundIntakeFunction.includes('console.error("refund-case-intake email failed", emailError)'),
+  'Refund email errors should not log raw provider error objects.'
+);
+
 assert(
   migration.includes('public_intake_rate_limit_events'),
   'Missing public intake rate-limit table migration.'
@@ -129,9 +179,15 @@ assert(
   !/ip_address|email_address|raw_email|raw_ip/i.test(migration),
   'Migration should not introduce raw IP/email rate-limit columns.'
 );
+assert(
+  refundMigration.includes('server_dedupe_key text') &&
+    refundMigration.includes('refund_cases_server_dedupe_key_idx'),
+  'Refund case migration must include server-side dedupe storage and a unique dedupe index.'
+);
 
 console.log('Public intake anti-abuse validation passed.');
 console.log(
   `Submission limits: global=${submissionGlobalLimit}/hour, ip=${submissionIpLimit}/hour, email=${submissionEmailLimit}/hour. ` +
-    `Notification quotas: global=${notificationGlobalLimit}/hour, email=${notificationEmailLimit}/hour.`
+    `Notification quotas: global=${notificationGlobalLimit}/hour, email=${notificationEmailLimit}/hour. ` +
+    'Refund intake includes submission throttling, dedupe, attachment pre-validation, and customer-email quotas.'
 );

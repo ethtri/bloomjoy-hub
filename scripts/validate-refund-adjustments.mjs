@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   buildSanitizedRefundPayload,
   buildMachineProfiles,
@@ -16,6 +17,11 @@ import {
   refundReviewRowAppliesToPartnerScope,
   selectRemovedLiveSourceReviewRows,
 } from './refunds/refund-adjustment-utils.mjs';
+
+const refundOperationsMigration = readFileSync(
+  'supabase/migrations/202605090001_refund_operations_mvp.sql',
+  'utf8'
+);
 
 const machines = [
   {
@@ -707,6 +713,42 @@ const grossSplit = calculatePartnerSettlementTotals({
 assert.equal(grossSplit.splitBaseCents, 8000);
 assert.equal(grossSplit.amountOwedCents, 4000);
 
+assert.match(
+  refundOperationsMigration,
+  /check \(source in \('google_sheets', 'manual', 'refund_case'\)\)/,
+  'sales_adjustment_facts source check must allow reviewed refund_case write-through.'
+);
+assert.match(
+  refundOperationsMigration,
+  /if new\.source = 'refund_case'[\s\S]*?Refund case adjustments require an approved, completed, fully correlated case/,
+  'Refund case write-through must be guarded by completed/approved/correlated settlement checks.'
+);
+assert.match(
+  refundOperationsMigration,
+  /insert into public\.sales_adjustment_facts[\s\S]*?'refund_case'/,
+  'admin_update_refund_case must write completed cases through sales_adjustment_facts with source=refund_case.'
+);
+assert.match(
+  refundOperationsMigration,
+  /Completed refund cases cannot move away from completed\/approved through this RPC/,
+  'Completed refund cases must not be rolled back or denied while their adjustment remains settlement-active.'
+);
+assert.equal(
+  refundOperationsMigration.includes("'matched_nayax_transaction_id', after_row.matched_nayax_transaction_id"),
+  false,
+  'Refund case reporting payload must not include raw Nayax transaction identifiers.'
+);
+assert.equal(
+  refundOperationsMigration.includes("'matched_sales_fact_id', after_row.matched_sales_fact_id"),
+  false,
+  'Refund case reporting payload must not include raw matched sales fact identifiers.'
+);
+assert.match(
+  refundOperationsMigration,
+  /'correlation_has_card_lookup'/,
+  'Refund case reporting payload should retain non-identifying card-correlation proof.'
+);
+
 console.log(
   JSON.stringify({
     status: 'ok',
@@ -749,6 +791,9 @@ console.log(
       partnerScopedOutOfScopeSuppressed: !outOfScopePhoneCaseDoesNotWarn,
       partnerScopedAmbiguousLabelSuppressed: !ambiguousLabelDoesNotWarn,
       refundReducesPartnerSettlement: true,
+      refundCaseWriteThroughGuarded: true,
+      completedRefundCaseRollbackDenied: true,
+      refundCaseReportingPayloadSanitized: true,
     },
   })
 );
