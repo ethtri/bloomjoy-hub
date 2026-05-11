@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -26,12 +26,16 @@ const getPostSubmitPlaybookLinks = (interest: string) => {
   if (interest === 'Commercial Machine') {
     return [
       {
+        label: 'Pressure-test payback assumptions',
+        href: '/resources/business-playbook/payback-planner',
+      },
+      {
         label: 'Read the Commercial location guide',
         href: '/resources/business-playbook/best-locations-for-cotton-candy-vending-machines',
       },
       {
-        label: 'Prep your location-owner pitch',
-        href: '/resources/business-playbook/how-to-pitch-location-owners',
+        label: 'Compare revenue share and rent terms',
+        href: '/resources/business-playbook/revenue-share-vs-rent-cotton-candy-machine-placement',
       },
     ];
   }
@@ -39,17 +43,25 @@ const getPostSubmitPlaybookLinks = (interest: string) => {
   if (interest === 'Mini Machine' || interest === 'Micro Machine') {
     return [
       {
+        label: 'Pressure-test event payback assumptions',
+        href: '/resources/business-playbook/payback-planner',
+      },
+      {
         label: 'Read the event business guide',
         href: '/resources/business-playbook/mini-micro-event-catering-business-guide',
       },
       {
-        label: 'Compare vending vs. events',
-        href: '/resources/business-playbook/commercial-vending-vs-event-catering',
+        label: 'Read the ROI and payback guide',
+        href: '/resources/business-playbook/cotton-candy-machine-roi-sales-payback-planning',
       },
     ];
   }
 
   return [
+    {
+      label: 'Pressure-test payback assumptions',
+      href: '/resources/business-playbook/payback-planner',
+    },
     {
       label: 'Start with the business launch guide',
       href: '/resources/business-playbook/how-to-start-cotton-candy-vending-business',
@@ -80,6 +92,16 @@ export default function ContactPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [lastSubmittedInterest, setLastSubmittedInterest] = useState('');
+  const recommendationsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!lastSubmittedInterest) {
+      return;
+    }
+
+    recommendationsRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    recommendationsRef.current?.focus({ preventScroll: true });
+  }, [lastSubmittedInterest]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,7 +179,11 @@ export default function ContactPage() {
         <div className="container-page">
           <div className="mx-auto max-w-2xl">
             {postSubmitPlaybookLinks.length > 0 && (
-              <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-5">
+              <div
+                ref={recommendationsRef}
+                tabIndex={-1}
+                className="mb-6 scroll-mt-24 rounded-xl border border-primary/20 bg-primary/5 p-5 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
                 <div className="flex items-start gap-3">
                   <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                   <div>

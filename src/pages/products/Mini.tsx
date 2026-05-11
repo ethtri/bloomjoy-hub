@@ -116,6 +116,38 @@ export default function MiniPage() {
                       Read the Mini event business guide
                       <ArrowRight className="h-4 w-4" />
                     </Link>
+                    <div className="mt-2 grid gap-1">
+                      <Link
+                        to="/resources/business-playbook/payback-planner"
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'mini_machine_page',
+                            cta: 'mini_payback_scenario_planner',
+                            href: '/resources/business-playbook/payback-planner',
+                            machine: MACHINE_NAMES.mini,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Model event payback assumptions
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                      <Link
+                        to="/resources/business-playbook/cotton-candy-machine-roi-sales-payback-planning"
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'mini_machine_page',
+                            cta: 'mini_roi_payback_guide',
+                            href: '/resources/business-playbook/cotton-candy-machine-roi-sales-payback-planning',
+                            machine: MACHINE_NAMES.mini,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Read the ROI and payback guide
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </div>

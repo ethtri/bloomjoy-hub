@@ -111,6 +111,20 @@ export default function ResourcesPage() {
                     Try startup planner
                   </Link>
                 </Button>
+                <Button asChild variant="outline" size="lg">
+                  <Link
+                    to="/resources/business-playbook/payback-planner"
+                    onClick={() =>
+                      trackResourcesPlaybookCardClick({
+                        surface: "resources_planner_promo",
+                        cta: "open_payback_planner",
+                        href: "/resources/business-playbook/payback-planner",
+                      })
+                    }
+                  >
+                    Plan payback scenarios
+                  </Link>
+                </Button>
               </div>
             </div>
 
@@ -241,6 +255,39 @@ export default function ResourcesPage() {
                   }
                 >
                   Open planner
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-sage/20 bg-sage-light/40 p-5">
+            <div className="grid gap-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-background text-sage shadow-sm">
+                <Calculator className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="font-display text-xl font-bold text-foreground">
+                  Pressure-test payback assumptions
+                </h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Use the Payback Scenario Planner to model landed costs, serving assumptions,
+                  venue rent or revenue share, event costs, and recovery math without treating it
+                  as a sales promise.
+                </p>
+              </div>
+              <Button asChild variant="outline">
+                <Link
+                  to="/resources/business-playbook/payback-planner"
+                  onClick={() =>
+                    trackResourcesPlaybookCardClick({
+                      surface: "resources_planner_promo",
+                      cta: "open_payback_planner_band",
+                      href: "/resources/business-playbook/payback-planner",
+                    })
+                  }
+                >
+                  Open payback planner
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>

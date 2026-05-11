@@ -65,7 +65,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
 - [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=/machines/mini`
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
-- [ ] Micro page primary CTA opens `/contact?type=quote&interest=micro&source=/machines/micro` and preselects `Micro Machine`
+- [ ] Micro page primary CTA opens `/contact?type=quote&interest=micro&source=%2Fmachines%2Fmicro` and preselects `Micro Machine`
 - [ ] Micro page does not add machines to the shared cart; machine review stays quote-led
 - [ ] `/supplies` product images render professional white-background product shots without black background artifacts or awkward clipping on desktop and mobile
 - [ ] `/supplies` defaults to Sugar ordering; `/supplies?order=sugar`, `/supplies?order=sticks`, and `/supplies?order=custom` direct-load with the matching selected flow
@@ -92,6 +92,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/resources/business-playbook` direct-loads and shows category navigation plus all public playbook guides
 - [ ] `/resources/business-playbook/planner` direct-loads and shows the Machine Fit + Startup Budget Planner with no login, no data collection, and no ROI/profit claims
 - [ ] Business Playbook planner interaction updates the recommended Commercial/Mini/Micro fit, budget scenario, planning total, related guide link, and quote CTA on desktop and mobile without horizontal overflow
+- [ ] `/resources/business-playbook/payback-planner` direct-loads and shows the Payback Scenario Planner with Commercial, Mini, and Micro paths, landed-cost fields for import fees/tariffs/shipping/duties/brokerage/accessories/supplies, fictional presets that are not loaded by default, and no earnings or payback promises
+- [ ] Payback Scenario Planner math handles Commercial foot traffic/family-presence/capacity/rent/revenue share, Mini/Micro event attendance/competition/event costs, and zero or negative contribution scenarios without showing `NaN`, `Infinity`, or guaranteed-result language
+- [ ] Payback Scenario Planner quote CTA opens `/contact?type=quote&interest=<machine>&source=%2Fresources%2Fbusiness-playbook%2Fpayback-planner`, and analytics logs only scenario labels, bands, and booleans rather than exact dollar or sales inputs
+- [ ] ROI/payback and revenue-share/rent article routes direct-load, show Article JSON-LD, source links, useful tables/scripts/checklists, and backlinks to the planner and related playbook content
 - [ ] Business Playbook article routes direct-load, show a real Bloomjoy image, useful visual blocks (tables/checklists/scorecards/scripts), source links, related articles, and quote/machine CTAs
 - [ ] Business Playbook article routes are readable on mobile widths (`360x800`, `390x844`, `414x896`) with no clipped tables or horizontal page overflow
 - [ ] Commercial, Mini, Micro, Machines listing, Plus, and Contact success states link to relevant Business Playbook guides

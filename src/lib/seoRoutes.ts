@@ -1,5 +1,6 @@
 import type { AppSurface } from "@/lib/appSurface";
 import { businessPlaybookArticles } from "@/data/businessPlaybook";
+import { paybackPlannerPath } from "@/data/businessPlaybookPaybackPlanner";
 
 export type RouteSeo = {
   path: string;
@@ -44,7 +45,7 @@ export const PUBLIC_ROBOTS =
   "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 export const PRIVATE_ROBOTS = "noindex,nofollow,noarchive,nosnippet";
 
-const LASTMOD = "2026-04-29";
+const LASTMOD = "2026-05-11";
 
 export const commercialMachineFaqs = [
   {
@@ -109,7 +110,7 @@ export const resourcesFaqs = [
   },
   {
     q: "What should I know before requesting a machine quote?",
-    a: "Bring your target venue type, expected volume, delivery location, preferred machine model, and any wrap or supplies needs so Bloomjoy can confirm fit and next steps.",
+    a: "Bring your target venue type, planning-volume assumptions, delivery location, preferred machine model, and any wrap or supplies needs so Bloomjoy can confirm fit and next steps.",
   },
   {
     q: "Which sugar and stick supplies are available?",
@@ -141,6 +142,18 @@ const businessPlaybookSeoRoutes: RouteSeo[] = [
     ogType: "website",
     ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
     ogImageAlt: "Bloomjoy Business Playbook machine fit and startup budget planner",
+    lastmod: LASTMOD,
+  },
+  {
+    path: paybackPlannerPath,
+    title: "Payback Scenario Planner | Bloomjoy Business Playbook",
+    description:
+      "Use Bloomjoy's public Payback Scenario Planner to pressure-test startup cost recovery assumptions for Commercial, Mini, and Micro cotton candy machine paths.",
+    robots: PUBLIC_ROBOTS,
+    surface: "marketing",
+    ogType: "website",
+    ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
+    ogImageAlt: "Bloomjoy Payback Scenario Planner for cotton candy machine operators",
     lastmod: LASTMOD,
   },
   ...businessPlaybookArticles.map(

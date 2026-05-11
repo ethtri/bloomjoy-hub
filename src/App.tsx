@@ -35,6 +35,9 @@ const BusinessPlaybookIndex = lazyRoute(
 const BusinessPlaybookPlanner = lazyRoute(
   () => import("./pages/resources/BusinessPlaybookPlanner")
 );
+const BusinessPlaybookPaybackPlanner = lazyRoute(
+  () => import("./pages/resources/BusinessPlaybookPaybackPlanner")
+);
 const BusinessPlaybookArticle = lazyRoute(
   () => import("./pages/resources/BusinessPlaybookArticle")
 );
@@ -145,6 +148,10 @@ export const AppShell = () => (
           <Route path="/resources" element={<Resources />} />
           <Route path="/resources/business-playbook" element={<BusinessPlaybookIndex />} />
           <Route path="/resources/business-playbook/planner" element={<BusinessPlaybookPlanner />} />
+          <Route
+            path="/resources/business-playbook/payback-planner"
+            element={<BusinessPlaybookPaybackPlanner />}
+          />
           <Route
             path="/resources/business-playbook/:slug"
             element={<BusinessPlaybookArticle />}

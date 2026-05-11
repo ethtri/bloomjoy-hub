@@ -44,7 +44,7 @@ export default function AboutPage() {
                   About Bloomjoy
                 </h1>
                 <p className="mt-4 text-base text-background/90 sm:text-lg">
-                  We help operators build profitable, repeatable cotton candy experiences with
+                  We help operators build practical, repeatable cotton candy experiences with
                   commercial machines, premium supplies, and practical operational support.
                 </p>
               </div>

@@ -2,6 +2,10 @@ import {
   businessPlaybookArticles,
   type PlaybookCategoryId,
 } from "@/data/businessPlaybook";
+import {
+  paybackPlannerPath,
+  type PaybackScenarioId,
+} from "@/data/businessPlaybookPaybackPlanner";
 import { plannerPath, type PlannerMachineId } from "@/data/businessPlaybookPlanner";
 import { trackEvent } from "@/lib/analytics";
 
@@ -18,6 +22,7 @@ type PlaybookSurface =
   | "playbook_article_sidebar"
   | "playbook_article_related"
   | "playbook_planner"
+  | "payback_planner"
   | "resources_planner_promo"
   | "playbook_index_planner_promo"
   | "machine_listing"
@@ -71,6 +76,10 @@ export const getNormalizedInternalSourcePage = (sourcePage?: string | null) =>
   getSafeInternalPath(sourcePage);
 
 const getDestinationType = (href: string) => {
+  if (href === paybackPlannerPath) {
+    return "payback_planner";
+  }
+
   if (href === plannerPath) {
     return "playbook_planner";
   }
@@ -109,6 +118,10 @@ export const getPlaybookArticleSlugFromHref = (href: string) => {
     return undefined;
   }
 
+  if (path === plannerPath || path === paybackPlannerPath) {
+    return undefined;
+  }
+
   return path.replace(playbookArticlePrefix, "") || undefined;
 };
 
@@ -128,7 +141,7 @@ export const getPlaybookArticleTrackingProps = (href: string) => {
 export const getNormalizedBusinessPlaybookSourcePage = (sourcePage?: string | null) => {
   const path = getSafeInternalPath(sourcePage);
 
-  if (path === "/resources/business-playbook" || path === plannerPath) {
+  if (path === "/resources/business-playbook" || path === plannerPath || path === paybackPlannerPath) {
     return path;
   }
 
@@ -180,6 +193,37 @@ export const trackBusinessPlaybookPlannerInteraction = (props: {
     answer: props.answer,
     recommended_machine: props.recommendedMachine ?? "undecided",
     budget_machine: props.budgetMachine ?? "not_selected",
+  });
+};
+
+export const trackBusinessPlaybookPaybackPlannerInteraction = (props: {
+  action:
+    | "view"
+    | "select_scenario"
+    | "apply_preset"
+    | "update_input"
+    | "copy_summary"
+    | "print_summary";
+  scenarioType: PaybackScenarioId | "not_selected";
+  hasRent?: boolean;
+  hasRevenueShare?: boolean;
+  demandBand: "blank" | "low" | "medium" | "high";
+  costBand: "blank" | "low" | "medium" | "high";
+  presetId?: string;
+}) => {
+  const eventName =
+    props.action === "view"
+      ? "view_business_playbook_payback_planner"
+      : "update_business_playbook_payback_planner";
+
+  trackEvent(eventName, {
+    action: props.action,
+    scenario_type: props.scenarioType,
+    has_rent: props.hasRent ?? false,
+    has_revenue_share: props.hasRevenueShare ?? false,
+    demand_band: props.demandBand,
+    cost_band: props.costBand,
+    preset_id: props.presetId,
   });
 };
 
