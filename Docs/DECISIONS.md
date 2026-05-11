@@ -17,7 +17,8 @@ Refund inquiries will move from the Google Form/AppSheet process into Bloomjoy H
 
 **Implementation notes**
 - Track execution through issues `#402`-`#409` and call out overlap with existing refund/reporting PR `#399` on implementation PRs.
-- Shadow-mode acceptance requires selected hosted-intake cases to complete end to end while the Google Form/AppSheet process remains available.
+- Shadow-mode acceptance requires hosted-intake cases to complete end to end while the Google Form/AppSheet process remains available.
+- The first pilot can include all current authenticated refund managers, but it remains a shadow pilot until `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md` merge and cutover gates pass.
 
 ## 2026-05-06 - Supply procurement notifications join the internal alert pipeline
 Supply procurement requests should use the same internal alert pattern as quote and paid order events.

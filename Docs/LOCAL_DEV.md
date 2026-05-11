@@ -241,6 +241,8 @@ To use all login methods in local dev:
 ## Refund operations local UAT (sponsor-ready)
 Use this path for local executive review of `/refunds/request` and `/admin/refunds` without Google OAuth and without sharing a password.
 
+For manager-wide shadow-pilot go/no-go tracking, use `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`.
+
 Prereqs:
 - Local Supabase is running and the refund operations migration has been applied.
 - `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.

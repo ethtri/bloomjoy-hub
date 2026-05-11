@@ -29,6 +29,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mobile header/nav works (basic)
 
 ## Refund Operations MVP
+- [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` stays draft until the merge gate passes, and Google Form/AppSheet remains live until the cutover gate passes.
 - [ ] Sponsor local UAT setup uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email sponsor-uat@bloomjoy.localhost --app-url http://localhost:8080`, open the printed one-click magic link, and confirm the sponsor reaches `/admin/refunds` without Google OAuth or a shared password.
 - [ ] Sponsor UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
 - [ ] Direct-load `/refunds/request` on desktop and mobile; page is noindex, not listed in `sitemap.xml`, and the form loads active machine/location options.
@@ -48,7 +49,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Approved manual card path records a Nayax transaction ID and manual refund reference before completion.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.
 - [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.
-- [ ] Run shadow-mode UAT with selected QR/direct-link cases while the Google Form/AppSheet process remains available as fallback; do not cut over until pilot evidence is clean.
+- [ ] Run manager-wide shadow-mode UAT with all current authenticated refund managers while the Google Form/AppSheet process remains available as fallback; do not cut over until pilot evidence is clean.
 
 ## Public site
 - [ ] Home loads and key CTAs navigate correctly
