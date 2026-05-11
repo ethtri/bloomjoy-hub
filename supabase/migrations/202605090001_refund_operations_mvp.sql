@@ -15,6 +15,37 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
+alter table public.reporting_machines
+  add column if not exists nayax_machine_id text,
+  add column if not exists nayax_account_key text;
+
+alter table public.reporting_machines
+  drop constraint if exists reporting_machines_nayax_machine_id_format;
+
+alter table public.reporting_machines
+  add constraint reporting_machines_nayax_machine_id_format
+  check (
+    nayax_machine_id is null
+    or trim(nayax_machine_id) ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{1,119}$'
+  );
+
+alter table public.reporting_machines
+  drop constraint if exists reporting_machines_nayax_account_key_format;
+
+alter table public.reporting_machines
+  add constraint reporting_machines_nayax_account_key_format
+  check (
+    nayax_account_key is null
+    or trim(nayax_account_key) ~ '^[A-Za-z0-9][A-Za-z0-9_:-]{1,79}$'
+  );
+
+create unique index if not exists reporting_machines_nayax_machine_id_idx
+  on public.reporting_machines (
+    lower(coalesce(nayax_account_key, 'default')),
+    lower(nayax_machine_id)
+  )
+  where nayax_machine_id is not null;
+
 create table if not exists public.reporting_machine_refund_managers (
   id uuid primary key default gen_random_uuid(),
   reporting_machine_id uuid not null references public.reporting_machines (id) on delete cascade,
@@ -138,6 +169,17 @@ create table if not exists public.refund_cases (
   correlation_summary text,
   matched_sales_fact_id uuid references public.machine_sales_facts (id) on delete set null,
   matched_nayax_transaction_id text,
+  matched_nayax_site_id integer check (matched_nayax_site_id is null or matched_nayax_site_id >= 0),
+  matched_nayax_machine_auth_time timestamptz,
+  matched_nayax_amount_cents integer check (
+    matched_nayax_amount_cents is null or matched_nayax_amount_cents >= 0
+  ),
+  matched_nayax_card_last4 text check (
+    matched_nayax_card_last4 is null or matched_nayax_card_last4 ~ '^[0-9]{4}$'
+  ),
+  matched_nayax_currency_code text check (
+    matched_nayax_currency_code is null or matched_nayax_currency_code ~ '^[A-Z]{3}$'
+  ),
   assigned_manager_id uuid references auth.users (id) on delete set null,
   decision text check (decision is null or decision in ('approved', 'denied')),
   decision_reason text,
@@ -536,6 +578,19 @@ begin
         using errcode = '23514';
     end if;
 
+    if refund_case_row.correlation_source = 'nayax'
+      and (
+        refund_case_row.payment_method <> 'card'
+        or not public.is_review_safe_nayax_transaction_reference(
+          refund_case_row.matched_nayax_transaction_id
+        )
+        or refund_case_row.matched_nayax_site_id is null
+        or refund_case_row.matched_nayax_machine_auth_time is null
+      ) then
+      raise exception 'Refund case card adjustments require complete Nayax transaction evidence'
+        using errcode = '23514';
+    end if;
+
     if coalesce(payload ->> 'refund_case_status', '') <> 'completed'
       or coalesce(payload ->> 'refund_case_decision', '') <> 'approved' then
       raise exception 'Refund case adjustments require completed/approved payload proof'
@@ -658,6 +713,11 @@ begin
           'cardWalletUsed', refund_case.card_wallet_used,
           'matchedSalesFactId', refund_case.matched_sales_fact_id,
           'matchedNayaxTransactionId', refund_case.matched_nayax_transaction_id,
+          'matchedNayaxSiteId', refund_case.matched_nayax_site_id,
+          'matchedNayaxMachineAuthTime', refund_case.matched_nayax_machine_auth_time,
+          'matchedNayaxAmountCents', refund_case.matched_nayax_amount_cents,
+          'matchedNayaxCardLast4', refund_case.matched_nayax_card_last4,
+          'matchedNayaxCurrencyCode', refund_case.matched_nayax_currency_code,
           'assignedManagerId', refund_case.assigned_manager_id,
           'assignedManagerEmail', assigned_user.email,
           'decision', refund_case.decision,
@@ -730,6 +790,8 @@ begin
           'machineLabel', machine.machine_label,
           'machineType', machine.machine_type,
           'sunzeMachineId', machine.sunze_machine_id,
+          'nayaxMachineId', machine.nayax_machine_id,
+          'nayaxAccountKey', machine.nayax_account_key,
           'status', machine.status,
           'locationId', location.id,
           'locationName', location.name,
@@ -923,6 +985,123 @@ begin
 end;
 $$;
 
+create or replace function public.admin_set_reporting_machine_nayax_config(
+  p_machine_id uuid,
+  p_nayax_machine_id text,
+  p_nayax_account_key text default 'TGPACI_USA_DB',
+  p_reason text default 'Refund operations Nayax lookup setup'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  actor_user_id uuid;
+  actor_is_super_admin boolean;
+  actor_is_scoped_admin boolean;
+  before_row public.reporting_machines;
+  after_row public.reporting_machines;
+  normalized_machine_id text;
+  normalized_account_key text;
+  normalized_reason text := nullif(trim(coalesce(p_reason, '')), '');
+begin
+  actor_user_id := auth.uid();
+  actor_is_super_admin := public.is_super_admin(actor_user_id);
+  actor_is_scoped_admin := public.is_scoped_admin(actor_user_id);
+
+  if actor_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if not actor_is_super_admin and not actor_is_scoped_admin then
+    raise exception 'Scoped Admin or Super Admin access required';
+  end if;
+
+  if not public.can_manage_refund_machine(actor_user_id, p_machine_id) then
+    raise exception 'Machine access required';
+  end if;
+
+  normalized_machine_id := nullif(trim(coalesce(p_nayax_machine_id, '')), '');
+  normalized_account_key := nullif(upper(trim(coalesce(p_nayax_account_key, ''))), '');
+
+  if normalized_machine_id is not null
+    and normalized_machine_id !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{1,119}$' then
+    raise exception 'Nayax machine ID format is invalid';
+  end if;
+
+  if normalized_account_key is not null
+    and normalized_account_key !~ '^[A-Za-z0-9][A-Za-z0-9_:-]{1,79}$' then
+    raise exception 'Nayax account key format is invalid';
+  end if;
+
+  if normalized_machine_id is not null and normalized_account_key is null then
+    normalized_account_key := 'TGPACI_USA_DB';
+  end if;
+
+  if normalized_reason is null then
+    raise exception 'Nayax setup changes require a reason';
+  end if;
+
+  select *
+  into before_row
+  from public.reporting_machines machine
+  where machine.id = p_machine_id
+  for update;
+
+  if before_row.id is null then
+    raise exception 'Reporting machine not found';
+  end if;
+
+  update public.reporting_machines
+  set
+    nayax_machine_id = normalized_machine_id,
+    nayax_account_key = case
+      when normalized_machine_id is null then null
+      else normalized_account_key
+    end
+  where id = before_row.id
+  returning * into after_row;
+
+  insert into public.admin_audit_log (
+    actor_user_id,
+    action,
+    entity_type,
+    entity_id,
+    before,
+    after,
+    meta
+  )
+  values (
+    actor_user_id,
+    'reporting_machine.nayax_config.set',
+    'reporting_machine',
+    before_row.id::text,
+    jsonb_build_object(
+      'nayax_machine_id', before_row.nayax_machine_id,
+      'nayax_account_key', before_row.nayax_account_key
+    ),
+    jsonb_build_object(
+      'nayax_machine_id', after_row.nayax_machine_id,
+      'nayax_account_key', after_row.nayax_account_key
+    ),
+    jsonb_build_object(
+      'reason', normalized_reason,
+      'actor_authority', case when actor_is_super_admin then 'super_admin' else 'scoped_admin' end
+    )
+  );
+
+  return jsonb_build_object(
+    'machine', jsonb_build_object(
+      'id', after_row.id,
+      'machineLabel', after_row.machine_label,
+      'nayaxMachineId', after_row.nayax_machine_id,
+      'nayaxAccountKey', after_row.nayax_account_key
+    )
+  );
+end;
+$$;
+
 create or replace function public.admin_update_refund_case(
   p_case_id uuid,
   p_status text default null,
@@ -932,7 +1111,12 @@ create or replace function public.admin_update_refund_case(
   p_internal_note text default null,
   p_refund_amount_cents integer default null,
   p_manual_refund_reference text default null,
-  p_matched_nayax_transaction_id text default null
+  p_matched_nayax_transaction_id text default null,
+  p_matched_nayax_site_id integer default null,
+  p_matched_nayax_machine_auth_time timestamptz default null,
+  p_matched_nayax_amount_cents integer default null,
+  p_matched_nayax_card_last4 text default null,
+  p_matched_nayax_currency_code text default null
 )
 returns jsonb
 language plpgsql
@@ -951,6 +1135,11 @@ declare
   event_message text;
   adjustment_row public.sales_adjustment_facts;
   normalized_nayax_transaction_id text;
+  normalized_nayax_site_id integer;
+  normalized_nayax_machine_auth_time timestamptz;
+  normalized_nayax_amount_cents integer;
+  normalized_nayax_card_last4 text;
+  normalized_nayax_currency_code text;
 begin
   actor_user_id := auth.uid();
 
@@ -1047,6 +1236,26 @@ begin
     trim(coalesce(p_matched_nayax_transaction_id, before_row.matched_nayax_transaction_id, '')),
     ''
   );
+  normalized_nayax_site_id := case
+    when normalized_nayax_transaction_id is null then null
+    else coalesce(p_matched_nayax_site_id, before_row.matched_nayax_site_id)
+  end;
+  normalized_nayax_machine_auth_time := case
+    when normalized_nayax_transaction_id is null then null
+    else coalesce(p_matched_nayax_machine_auth_time, before_row.matched_nayax_machine_auth_time)
+  end;
+  normalized_nayax_amount_cents := case
+    when normalized_nayax_transaction_id is null then null
+    else coalesce(p_matched_nayax_amount_cents, before_row.matched_nayax_amount_cents)
+  end;
+  normalized_nayax_card_last4 := case
+    when normalized_nayax_transaction_id is null then null
+    else nullif(trim(coalesce(p_matched_nayax_card_last4, before_row.matched_nayax_card_last4, '')), '')
+  end;
+  normalized_nayax_currency_code := case
+    when normalized_nayax_transaction_id is null then null
+    else nullif(upper(trim(coalesce(p_matched_nayax_currency_code, before_row.matched_nayax_currency_code, ''))), '')
+  end;
 
   if p_matched_nayax_transaction_id is not null then
     if normalized_nayax_transaction_id is not null
@@ -1066,6 +1275,24 @@ begin
       ) then
       raise exception 'Nayax transaction correlation requires card last4 and a positive payment amount';
     end if;
+  end if;
+
+  if normalized_nayax_site_id is not null and normalized_nayax_site_id < 0 then
+    raise exception 'Nayax site ID must be zero or greater';
+  end if;
+
+  if normalized_nayax_amount_cents is not null and normalized_nayax_amount_cents < 0 then
+    raise exception 'Nayax matched amount must be zero or greater';
+  end if;
+
+  if normalized_nayax_card_last4 is not null
+    and normalized_nayax_card_last4 !~ '^[0-9]{4}$' then
+    raise exception 'Nayax matched card last4 must be 4 digits';
+  end if;
+
+  if normalized_nayax_currency_code is not null
+    and normalized_nayax_currency_code !~ '^[A-Z]{3}$' then
+    raise exception 'Nayax matched currency code must be ISO-4217 style';
   end if;
 
   if (before_row.status = 'completed' or before_row.reporting_adjustment_id is not null)
@@ -1098,6 +1325,11 @@ begin
     refund_amount_cents = coalesce(p_refund_amount_cents, refund_amount_cents),
     manual_refund_reference = nullif(trim(coalesce(p_manual_refund_reference, manual_refund_reference, '')), ''),
     matched_nayax_transaction_id = normalized_nayax_transaction_id,
+    matched_nayax_site_id = normalized_nayax_site_id,
+    matched_nayax_machine_auth_time = normalized_nayax_machine_auth_time,
+    matched_nayax_amount_cents = normalized_nayax_amount_cents,
+    matched_nayax_card_last4 = normalized_nayax_card_last4,
+    matched_nayax_currency_code = normalized_nayax_currency_code,
     correlation_status = case
       when normalized_nayax_transaction_id is not null
         then 'matched'
@@ -1115,7 +1347,7 @@ begin
     end,
     correlation_summary = case
       when normalized_nayax_transaction_id is not null
-        then 'Manager recorded a review-safe Nayax transaction reference before refund completion.'
+        then 'Manager selected sanitized Nayax transaction evidence before refund completion.'
       else correlation_summary
     end,
     refund_completed_by = case when normalized_status = 'completed' then actor_user_id else refund_completed_by end,
@@ -1142,6 +1374,8 @@ begin
         after_row.payment_method <> 'card'
         or after_row.card_last4 is null
         or not public.is_review_safe_nayax_transaction_reference(after_row.matched_nayax_transaction_id)
+        or after_row.matched_nayax_site_id is null
+        or after_row.matched_nayax_machine_auth_time is null
         or nullif(trim(coalesce(after_row.manual_refund_reference, '')), '') is null
       ) then
       raise exception 'Completed card refund cases require reviewed Nayax correlation plus a manual refund reference';
@@ -1192,7 +1426,10 @@ begin
         'correlation_source', after_row.correlation_source,
         'correlation_has_sales_fact', after_row.matched_sales_fact_id is not null,
         'correlation_has_card_lookup',
-          public.is_review_safe_nayax_transaction_reference(after_row.matched_nayax_transaction_id)
+          public.is_review_safe_nayax_transaction_reference(after_row.matched_nayax_transaction_id),
+        'correlation_has_nayax_site_id', after_row.matched_nayax_site_id is not null,
+        'correlation_has_nayax_machine_auth_time',
+          after_row.matched_nayax_machine_auth_time is not null
       )
     )
     on conflict (source, source_reference, source_row_reference)
@@ -1340,6 +1577,8 @@ comment on function public.can_manage_refund_case_current_user(uuid) is
   'RLS helper for current-user refund case access checks without exposing arbitrary user-id checks to browser callers.';
 comment on function public.admin_get_refund_operations_overview() is
   'Refund operations queue for Super Admins, Scoped Admins inside scope, and active machine refund managers.';
+comment on function public.admin_set_reporting_machine_nayax_config(uuid, text, text, text) is
+  'Admin RPC for mapping a Bloomjoy reporting machine to its server-side Nayax Lynx machine identifier.';
 
 revoke execute on function public.user_is_refund_manager(uuid) from public, anon, authenticated;
 revoke execute on function public.can_manage_refund_machine(uuid, uuid) from public, anon, authenticated;
@@ -1349,7 +1588,9 @@ revoke execute on function public.can_manage_refund_case_current_user(uuid) from
 revoke execute on function public.is_review_safe_nayax_transaction_reference(text) from public, anon, authenticated;
 revoke execute on function public.admin_set_reporting_machine_refund_managers(uuid, text[], text)
   from public, anon, authenticated;
-revoke execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, text)
+revoke execute on function public.admin_set_reporting_machine_nayax_config(uuid, text, text, text)
+  from public, anon, authenticated;
+revoke execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, text, integer, timestamp with time zone, integer, text, text)
   from public, anon, authenticated;
 
 grant execute on function public.user_is_refund_manager(uuid) to service_role;
@@ -1363,7 +1604,9 @@ grant execute on function public.get_my_admin_access_context() to authenticated;
 grant execute on function public.admin_get_refund_operations_overview() to authenticated;
 grant execute on function public.admin_set_reporting_machine_refund_managers(uuid, text[], text)
   to authenticated;
-grant execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, text)
+grant execute on function public.admin_set_reporting_machine_nayax_config(uuid, text, text, text)
+  to authenticated;
+grant execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, text, integer, timestamp with time zone, integer, text, text)
   to authenticated;
 
 select pg_notify('pgrst', 'reload schema');

@@ -229,6 +229,8 @@ Prereqs:
 - Local Supabase is running and the refund operations migration has been applied.
 - `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
+- For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/api/v1`. Do not use `VITE_` for Nayax secrets.
+- Admins must map each refund-ready machine to its Nayax machine ID from `/admin/refunds` before the lookup button can return card candidates.
 
 Steps:
 1) Start the app from the worktree: `npm run dev`

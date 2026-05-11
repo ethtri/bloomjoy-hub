@@ -9,8 +9,8 @@
 ## Refund Operations MVP planning/implementation (2026-05-09)
 - Codex is acting as Bloomjoy PO/PM through the `bloomjoy-sprint-orchestrator` workflow for refund operations. PM tracking now uses epic `#402` plus implementation/QA issues `#403`-`#409`.
 - The MVP implementation branch starts the hosted refund system in parallel with the Google Form/AppSheet process: noindex `/refunds/request`, authenticated `/admin/refunds`, manager assignments, cash correlation against sales facts, customer confirmation/more-info emails, and reporting write-through for approved/completed correlated cases.
-- Nayax card lookup is scaffolded behind server-only Edge Function configuration (`NAYAX_LYNX_TRANSACTION_LOOKUP_URL`, `NAYAX_LYNX_API_TOKEN`). Card refund execution remains out of MVP until lookup reliability is validated.
-- Open PR `#399` remains an overlap risk for refund/reporting files. Any refund-operations PR must call out this overlap and re-run reporting validation after syncing from `main` if `#399` merges first.
+- Nayax card lookup is activated for the official read-only Last Sales path behind server-only Edge Function configuration (`NAYAX_LYNX_BASE_URL`, `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB`) and per-machine Nayax IDs. Card refund execution remains out of MVP until lookup reliability is validated.
+- Refund/reporting PR `#399` has merged into `main`; the refund operations branch has been synced from `main` and reporting validation should continue to be re-run after any further reporting-foundation changes.
 
 ## Supply order notification hardening (2026-05-06)
 - Paid sugar and 5+ box branded-stick checkouts continue to persist in `orders`, send customer confirmations, and alert internal fulfillment through email plus WeCom when WeCom delivery is allowed.

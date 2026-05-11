@@ -42,6 +42,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin decision controls prevent incoherent combinations before submit: follow-up/review statuses clear final decisions, approved paths carry `approved`, denied paths carry `denied`, and `waiting_on_customer + approved` cannot be saved.
 - [ ] Mobile admin queue/detail at `390x844` has no clipped columns, hidden controls, or horizontal page overflow; queue rows stack as cards or scroll intentionally.
 - [ ] Admin can assign up to 3 authenticated refund managers per machine; a fourth manager is blocked by validation/RPC.
+- [ ] Admin can save a server-side Nayax machine ID/account key per machine; card lookup stays blocked with a friendly setup message until the machine is mapped and the Edge Function secret exists.
+- [ ] Card lookup calls Nayax Last Sales for the mapped machine and returns only sanitized candidate evidence: transaction ID, site ID, machine authorization time, amount, currency, card brand/last 4, and match reason.
 - [ ] Manager denial path records a friendly decision reason and does not write to `sales_adjustment_facts`.
 - [ ] Approved manual card path records a Nayax transaction ID and manual refund reference before completion.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.

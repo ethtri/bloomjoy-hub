@@ -122,6 +122,11 @@ export type RefundCaseRecord = {
   cardWalletUsed: boolean;
   matchedSalesFactId: string | null;
   matchedNayaxTransactionId: string | null;
+  matchedNayaxSiteId: number | null;
+  matchedNayaxMachineAuthTime: string | null;
+  matchedNayaxAmountCents: number | null;
+  matchedNayaxCardLast4: string | null;
+  matchedNayaxCurrencyCode: string | null;
   assignedManagerId: string | null;
   assignedManagerEmail: string | null;
   decision: RefundDecision;
@@ -142,6 +147,8 @@ export type RefundAdminMachine = {
   machineLabel: string;
   machineType: string;
   sunzeMachineId: string | null;
+  nayaxMachineId: string | null;
+  nayaxAccountKey: string | null;
   status: string;
   locationId: string;
   locationName: string;
@@ -176,15 +183,27 @@ export type UpdateRefundCaseInput = {
   refundAmountCents?: number | null;
   manualRefundReference?: string | null;
   matchedNayaxTransactionId?: string | null;
+  matchedNayaxSiteId?: number | null;
+  matchedNayaxMachineAuthTime?: string | null;
+  matchedNayaxAmountCents?: number | null;
+  matchedNayaxCardLast4?: string | null;
+  matchedNayaxCurrencyCode?: string | null;
 };
 
 export type NayaxLookupCandidate = {
   transactionId: string;
   machineId: string;
+  siteId: number | null;
   authorizedAt: string;
+  machineAuthorizationTime: string;
   amountCents: number | null;
   cardLast4: string;
+  currencyCode: string;
+  cardBrand: string;
+  recognitionMethod: string;
   paymentStatus: string;
+  matchConfidence: number;
+  matchReason: string;
 };
 
 export type NayaxLookupResponse = {
@@ -252,6 +271,11 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     p_refund_amount_cents: input.refundAmountCents ?? null,
     p_manual_refund_reference: input.manualRefundReference ?? null,
     p_matched_nayax_transaction_id: input.matchedNayaxTransactionId ?? null,
+    p_matched_nayax_site_id: input.matchedNayaxSiteId ?? null,
+    p_matched_nayax_machine_auth_time: input.matchedNayaxMachineAuthTime ?? null,
+    p_matched_nayax_amount_cents: input.matchedNayaxAmountCents ?? null,
+    p_matched_nayax_card_last4: input.matchedNayaxCardLast4 ?? null,
+    p_matched_nayax_currency_code: input.matchedNayaxCurrencyCode ?? null,
   });
 
   if (error || !data) {
@@ -286,16 +310,43 @@ export const setMachineRefundManagersAdmin = async ({
   return data as Record<string, unknown>;
 };
 
+export const setMachineNayaxConfigAdmin = async ({
+  machineId,
+  nayaxMachineId,
+  nayaxAccountKey,
+  reason,
+}: {
+  machineId: string;
+  nayaxMachineId: string | null;
+  nayaxAccountKey: string | null;
+  reason: string;
+}) => {
+  const { data, error } = await supabaseClient.rpc('admin_set_reporting_machine_nayax_config', {
+    p_machine_id: machineId,
+    p_nayax_machine_id: nayaxMachineId,
+    p_nayax_account_key: nayaxAccountKey,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save Nayax setup.');
+  }
+
+  return data as Record<string, unknown>;
+};
+
 export const lookupNayaxTransactions = async ({
   machineId,
   incidentAt,
   amountCents,
   cardLast4,
+  cardWalletUsed,
 }: {
   machineId: string;
   incidentAt: string;
   amountCents: number | null;
   cardLast4: string | null;
+  cardWalletUsed: boolean;
 }): Promise<NayaxLookupResponse> =>
   invokeEdgeFunction<NayaxLookupResponse>(
     'nayax-transaction-lookup',
@@ -304,6 +355,7 @@ export const lookupNayaxTransactions = async ({
       incidentAt,
       amountCents,
       cardLast4,
+      cardWalletUsed,
     },
     {
       requireUserAuth: true,
