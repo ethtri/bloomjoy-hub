@@ -23,7 +23,9 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   });
 
 const sanitizeText = (value: unknown, maxLength = 300) =>
-  typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+  typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+    ? String(value).trim().slice(0, maxLength)
+    : "";
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -56,8 +58,22 @@ const integerValue = (value: unknown) => {
 
 const parseDateValue = (value: unknown) => {
   const raw = sanitizeText(value, 120);
-  const date = raw ? new Date(raw) : null;
-  return date && !Number.isNaN(date.getTime()) ? date : null;
+  if (!raw) return null;
+
+  const parseCandidates = [raw];
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw) &&
+    !/[zZ]$/.test(raw)
+  ) {
+    parseCandidates.unshift(`${raw}Z`);
+  }
+
+  for (const candidate of parseCandidates) {
+    const date = new Date(candidate);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  return null;
 };
 
 const extractLast4 = (value: unknown) => {
@@ -93,6 +109,21 @@ type NayaxCandidate = {
   matchReason: string;
 };
 
+const extractNayaxRecords = (payload: unknown): unknown[] => {
+  if (Array.isArray(payload)) return payload;
+
+  const record = typeof payload === "object" && payload !== null
+    ? payload as Record<string, unknown>
+    : {};
+
+  for (const key of ["data", "Data", "sales", "Sales", "result", "Result", "records", "Records"]) {
+    const value = record[key];
+    if (Array.isArray(value)) return value;
+  }
+
+  return [];
+};
+
 const normalizeNayaxSales = ({
   payload,
   requestAmountCents,
@@ -108,13 +139,7 @@ const normalizeNayaxSales = ({
   windowStart: Date;
   windowEnd: Date;
 }): NayaxCandidate[] => {
-  const records = Array.isArray(payload)
-    ? payload
-    : Array.isArray((payload as { data?: unknown[] } | null)?.data)
-      ? (payload as { data: unknown[] }).data
-      : Array.isArray((payload as { sales?: unknown[] } | null)?.sales)
-        ? (payload as { sales: unknown[] }).sales
-        : [];
+  const records = extractNayaxRecords(payload);
 
   return records
     .map((item) => {
@@ -192,6 +217,47 @@ const normalizeNayaxSales = ({
     .filter((candidate): candidate is NayaxCandidate => Boolean(candidate))
     .sort((left, right) => right.matchConfidence - left.matchConfidence)
     .slice(0, 10);
+};
+
+const summarizeNayaxRecords = ({
+  payload,
+  windowStart,
+  windowEnd,
+}: {
+  payload: unknown;
+  windowStart: Date;
+  windowEnd: Date;
+}) => {
+  let parseableRecordCount = 0;
+  let windowRecordCount = 0;
+
+  for (const item of extractNayaxRecords(payload)) {
+    const record = typeof item === "object" && item !== null
+      ? item as Record<string, unknown>
+      : {};
+    const transactionId = sanitizeText(
+      record.TransactionID ??
+        record.TransactionId ??
+        record.transactionId ??
+        record.transaction_id,
+      80
+    );
+    const authorizationDate =
+      parseDateValue(record.AuthorizationDateTimeGMT ?? record.AuthorizationDateTimeGmt) ??
+      parseDateValue(record.MachineAuthorizationTime);
+
+    if (!transactionId || !authorizationDate) continue;
+
+    parseableRecordCount += 1;
+    if (authorizationDate >= windowStart && authorizationDate <= windowEnd) {
+      windowRecordCount += 1;
+    }
+  }
+
+  return {
+    parseableRecordCount,
+    windowRecordCount,
+  };
 };
 
 serve(async (req) => {
@@ -296,16 +362,27 @@ serve(async (req) => {
     }
 
     const nayaxPayload = await response.json();
+    const providerRecordCount = extractNayaxRecords(nayaxPayload).length;
+    const providerSummary = summarizeNayaxRecords({
+      payload: nayaxPayload,
+      windowStart,
+      windowEnd,
+    });
+    const candidates = normalizeNayaxSales({
+      payload: nayaxPayload,
+      requestAmountCents: amountCents,
+      requestCardLast4: cardLast4,
+      cardWalletUsed,
+      windowStart,
+      windowEnd,
+    });
+
     return jsonResponse({
       configured: true,
-      candidates: normalizeNayaxSales({
-        payload: nayaxPayload,
-        requestAmountCents: amountCents,
-        requestCardLast4: cardLast4,
-        cardWalletUsed,
-        windowStart,
-        windowEnd,
-      }),
+      providerRecordCount,
+      providerParseableRecordCount: providerSummary.parseableRecordCount,
+      providerWindowRecordCount: providerSummary.windowRecordCount,
+      candidates,
     });
   } catch (error) {
     console.error("nayax-transaction-lookup error", {

@@ -357,7 +357,8 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Ensure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are available to functions
 3) Run the commerce release preflight before deploy:
    - Local env check: `npm run commerce:preflight`
-   - Remote secret presence check: `npm run commerce:preflight -- --project-ref <project-ref>`
+   - Refund operations local env check: `npm run commerce:preflight -- --include-refunds`
+   - Remote secret presence check: `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds`
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
@@ -374,6 +375,8 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve sunze-sales-sync --no-verify-jwt`
    - `supabase functions serve sunze-sales-ingest --no-verify-jwt`
    - `supabase functions serve refund-adjustment-sync --no-verify-jwt`
+   - `supabase functions serve refund-case-intake --no-verify-jwt`
+   - `supabase functions serve nayax-transaction-lookup --no-verify-jwt`
 5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 
 ## Stripe order backfill helper

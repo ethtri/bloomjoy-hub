@@ -204,6 +204,16 @@ const assertRefundOperationsSafety = () => {
   expectMigrationStatement(
     refundOperationsMigrationName,
     sql,
+    'p_clear_nayax_match boolean default false'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'Manager cleared Nayax transaction evidence for review.'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
     'Denied refund cases require a friendly decision reason'
   );
   expectMigrationStatement(
@@ -218,6 +228,14 @@ const assertRefundOperationsSafety = () => {
 
   if (compact.includes("'matched_sales_fact_id', after_row.matched_sales_fact_id")) {
     fail(`${refundOperationsMigrationName}: refund_case reporting payload still includes raw matched sales fact IDs.`);
+  }
+
+  if (compact.includes('or after_row.matched_nayax_site_id is null')) {
+    fail(`${refundOperationsMigrationName}: card completion should not require Nayax SiteID because Last Sales may omit it.`);
+  }
+
+  if (compact.includes('or refund_case_row.matched_nayax_site_id is null')) {
+    fail(`${refundOperationsMigrationName}: refund_case settlement write-through should not require Nayax SiteID because Last Sales may omit it.`);
   }
 
   if (/'refund_case'\s*,\s*after_row\.id::text\s*,\s*to_jsonb\(before_row\)\s*,\s*to_jsonb\(after_row\)/i.test(compact)) {

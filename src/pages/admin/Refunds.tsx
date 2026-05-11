@@ -276,10 +276,6 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
       issues.push('Card completion requires a Nayax transaction ID.');
     }
 
-    if (selectedCase.paymentMethod === 'card' && !editor.matchedNayaxSiteId.trim()) {
-      issues.push('Card completion requires a Nayax site ID from lookup evidence.');
-    }
-
     if (selectedCase.paymentMethod === 'card' && !editor.matchedNayaxMachineAuthTime.trim()) {
       issues.push('Card completion requires Nayax machine authorization time from lookup evidence.');
     }
@@ -406,6 +402,8 @@ export default function AdminRefundsPage() {
 
     setIsSaving(true);
     try {
+      const clearNayaxMatch = selectedCase.matchedNayaxTransactionId !== null &&
+        !editor.matchedNayaxTransactionId.trim();
       const nayaxSiteId = optionalPositiveInteger(editor.matchedNayaxSiteId);
       const nayaxAmountCents = centsFromCurrency(editor.matchedNayaxAmount);
       await updateRefundCaseAdmin({
@@ -417,6 +415,7 @@ export default function AdminRefundsPage() {
         internalNote: editor.internalNote.trim() || null,
         refundAmountCents,
         manualRefundReference: editor.manualRefundReference.trim() || null,
+        clearNayaxMatch,
         matchedNayaxTransactionId: editor.matchedNayaxTransactionId.trim() || null,
         matchedNayaxSiteId: nayaxSiteId,
         matchedNayaxMachineAuthTime: editor.matchedNayaxMachineAuthTime.trim() || null,
@@ -451,7 +450,16 @@ export default function AdminRefundsPage() {
       if (!result.configured) {
         toast.info(result.message || 'Nayax lookup is waiting on configuration.');
       } else if (!result.candidates.length) {
-        toast.info('No Nayax candidates returned for that window.');
+        const providerRecordCount = result.providerRecordCount ?? 0;
+        const providerWindowRecordCount = result.providerWindowRecordCount ?? 0;
+        toast.info(
+          providerWindowRecordCount > 0
+            ? `Nayax returned ${providerWindowRecordCount} sale records in the time window, but none produced selectable evidence.`
+            :
+          providerRecordCount > 0
+            ? `Nayax returned ${providerRecordCount} recent sale records, but none matched that time window.`
+            : 'No Nayax candidates returned for that window.'
+        );
       }
     } catch (lookupError) {
       const message = lookupError instanceof Error ? lookupError.message : 'Unable to run Nayax lookup.';
@@ -1065,7 +1073,7 @@ export default function AdminRefundsPage() {
                         )}
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
                           <div>
-                            <Label>Nayax site ID</Label>
+                            <Label>Nayax site ID <span className="font-normal text-muted-foreground">(optional)</span></Label>
                             <Input
                               value={editor.matchedNayaxSiteId}
                               onChange={(event) =>
@@ -1140,6 +1148,31 @@ export default function AdminRefundsPage() {
                             </div>
                           </div>
                         </div>
+                        {editor.matchedNayaxTransactionId && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="mt-2 px-0 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() =>
+                              setEditor((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      matchedNayaxTransactionId: '',
+                                      matchedNayaxSiteId: '',
+                                      matchedNayaxMachineAuthTime: '',
+                                      matchedNayaxAmount: '',
+                                      matchedNayaxCardLast4: '',
+                                      matchedNayaxCurrencyCode: '',
+                                    }
+                                  : current
+                              )
+                            }
+                          >
+                            Clear Nayax match
+                          </Button>
+                        )}
                       </div>
                     )}
 

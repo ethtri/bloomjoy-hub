@@ -183,6 +183,7 @@ export type UpdateRefundCaseInput = {
   internalNote?: string | null;
   refundAmountCents?: number | null;
   manualRefundReference?: string | null;
+  clearNayaxMatch?: boolean;
   matchedNayaxTransactionId?: string | null;
   matchedNayaxSiteId?: number | null;
   matchedNayaxMachineAuthTime?: string | null;
@@ -210,6 +211,9 @@ export type NayaxLookupCandidate = {
 export type NayaxLookupResponse = {
   error?: string;
   configured: boolean;
+  providerRecordCount?: number;
+  providerParseableRecordCount?: number;
+  providerWindowRecordCount?: number;
   candidates: NayaxLookupCandidate[];
   message?: string;
 };
@@ -271,6 +275,7 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     p_internal_note: input.internalNote ?? null,
     p_refund_amount_cents: input.refundAmountCents ?? null,
     p_manual_refund_reference: input.manualRefundReference ?? null,
+    p_clear_nayax_match: input.clearNayaxMatch ?? false,
     p_matched_nayax_transaction_id: input.matchedNayaxTransactionId ?? null,
     p_matched_nayax_site_id: input.matchedNayaxSiteId ?? null,
     p_matched_nayax_machine_auth_time: input.matchedNayaxMachineAuthTime ?? null,

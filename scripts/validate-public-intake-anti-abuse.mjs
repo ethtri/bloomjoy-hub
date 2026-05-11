@@ -7,6 +7,8 @@ const files = {
   migration: 'supabase/migrations/202604290003_public_intake_anti_abuse.sql',
   globalKeyMigration: 'supabase/migrations/202604290004_public_intake_global_key_type.sql',
   refundMigration: 'supabase/migrations/202605090001_refund_operations_mvp.sql',
+  productionRunbook: 'Docs/PRODUCTION_RUNBOOK.md',
+  localDev: 'Docs/LOCAL_DEV.md',
 };
 
 const read = (path) => readFileSync(path, 'utf8');
@@ -17,6 +19,8 @@ const refundIntakeFunction = read(files.refundIntakeFunction);
 const migration = read(files.migration);
 const globalKeyMigration = read(files.globalKeyMigration);
 const refundMigration = read(files.refundMigration);
+const productionRunbook = read(files.productionRunbook);
+const localDev = read(files.localDev);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -161,6 +165,46 @@ assert(
   refundIntakeFunction.includes('error_message: "customer_email_delivery_failed"'),
   'Refund email failures should persist a sanitized delivery failure code.'
 );
+
+for (const requiredRunbookText of [
+  'PUBLIC_INTAKE_ABUSE_HASH_SALT',
+  'NAYAX_LYNX_BASE_URL',
+  'NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB',
+  'NAYAX_LYNX_API_TOKEN',
+  'refund-case-intake',
+  'nayax-transaction-lookup',
+  'supabase functions deploy refund-case-intake',
+  'supabase functions deploy nayax-transaction-lookup',
+  'npm run commerce:preflight -- --project-ref <project-ref> --include-refunds',
+]) {
+  assert(
+    productionRunbook.includes(requiredRunbookText),
+    `Production runbook is missing refund deployment requirement: ${requiredRunbookText}`
+  );
+}
+
+for (const requiredPreflightText of [
+  '--include-refunds',
+  'PUBLIC_INTAKE_ABUSE_HASH_SALT',
+  'NAYAX_LYNX_BASE_URL',
+  'NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB',
+  'NAYAX_LYNX_API_TOKEN',
+]) {
+  assert(
+    read('scripts/commerce-preflight.mjs').includes(requiredPreflightText),
+    `Commerce preflight is missing refund deployment check: ${requiredPreflightText}`
+  );
+}
+
+for (const requiredLocalDevText of [
+  'supabase functions serve refund-case-intake',
+  'supabase functions serve nayax-transaction-lookup',
+]) {
+  assert(
+    localDev.includes(requiredLocalDevText),
+    `Local dev docs are missing refund function serve command: ${requiredLocalDevText}`
+  );
+}
 
 assert(
   migration.includes('public_intake_rate_limit_events'),

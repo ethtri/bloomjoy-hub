@@ -758,6 +758,26 @@ assert.match(
   /Completed refund cases require a manual refund reference/,
   'Completed refund cases must require manual refund evidence for card and cash paths.'
 );
+assert.match(
+  refundOperationsMigration,
+  /p_clear_nayax_match boolean default false/,
+  'admin_update_refund_case must support explicitly clearing a mistaken Nayax match.'
+);
+assert.match(
+  refundOperationsMigration,
+  /Manager cleared Nayax transaction evidence for review/,
+  'Cleared Nayax matches should move card cases back to review-safe correlation state.'
+);
+assert.equal(
+  refundOperationsMigration.includes('or after_row.matched_nayax_site_id is null'),
+  false,
+  'Completed card refund cases must not require Nayax SiteID because Last Sales may not provide it.'
+);
+assert.equal(
+  refundOperationsMigration.includes('or refund_case_row.matched_nayax_site_id is null'),
+  false,
+  'Refund case settlement write-through must not require Nayax SiteID because Last Sales may not provide it.'
+);
 assert.equal(
   refundOperationsMigration.includes('after_row.incident_at::date'),
   false,

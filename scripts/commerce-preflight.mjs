@@ -39,6 +39,11 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+
+    if (arg === '--include-refunds' || arg === '--refunds') {
+      parsed.includeRefunds = true;
+      continue;
+    }
   }
 
   if (parsed.envFiles.length === 0) {
@@ -194,6 +199,13 @@ function run() {
     'WECOM_ALERT_TO_USERIDS',
   ];
 
+  if (args.includeRefunds) {
+    requiredKeys.push(
+      'PUBLIC_INTAKE_ABUSE_HASH_SALT',
+      'NAYAX_LYNX_BASE_URL'
+    );
+  }
+
   for (const key of requiredKeys) {
     if (!env[key] || String(env[key]).trim() === '') {
       errors.push(`${key} is missing.`);
@@ -212,8 +224,31 @@ function run() {
     );
   }
 
+  if (
+    args.includeRefunds &&
+    !env.NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB &&
+    !env.NAYAX_LYNX_API_TOKEN
+  ) {
+    errors.push(
+      'Missing Nayax token. Set NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB or fallback NAYAX_LYNX_API_TOKEN.'
+    );
+  }
+
   if (!isRemoteSource && env.SUPABASE_URL && !isValidUrl(env.SUPABASE_URL)) {
     errors.push('SUPABASE_URL must be a valid absolute URL.');
+  }
+
+  if (!isRemoteSource && args.includeRefunds && env.NAYAX_LYNX_BASE_URL) {
+    if (!isValidUrl(env.NAYAX_LYNX_BASE_URL)) {
+      errors.push('NAYAX_LYNX_BASE_URL must be a valid absolute URL.');
+    } else if (
+      String(env.NAYAX_LYNX_BASE_URL).replace(/\/+$/, '') !==
+      'https://lynx.nayax.com/operational/v1'
+    ) {
+      warnings.push(
+        'NAYAX_LYNX_BASE_URL differs from the expected live Last Sales endpoint.'
+      );
+    }
   }
 
   if (
@@ -258,6 +293,16 @@ function run() {
     'Supabase service-role and anon keys configured',
   ]);
 
+  if (args.includeRefunds) {
+    printList('Required refund operations checks', [
+      'Public intake abuse-control salt configured',
+      'Nayax Lynx base URL configured',
+      'Nayax account-specific token or fallback token configured',
+      'Resend sender and API key configured for refund-case-intake',
+      'Supabase service-role key configured for refund Edge Functions',
+    ]);
+  }
+
   if (warnings.length > 0) {
     printList('Warnings', warnings);
   }
@@ -267,7 +312,9 @@ function run() {
     process.exit(1);
   }
 
-  console.log('\nCommerce preflight checks passed.');
+  console.log(args.includeRefunds
+    ? '\nCommerce and refund operations preflight checks passed.'
+    : '\nCommerce preflight checks passed.');
 }
 
 run();

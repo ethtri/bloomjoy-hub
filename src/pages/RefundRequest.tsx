@@ -159,8 +159,8 @@ export default function RefundRequestPage() {
                   <div>
                     <p className="font-semibold">Request received: {submittedReference}</p>
                     <p className="mt-1">
-                      We sent a confirmation email. Please keep the reference handy if you reply
-                      with more details.
+                      We will follow up by email. Please keep this reference handy if you reply
+                      with more details or do not see a confirmation.
                     </p>
                   </div>
                 </div>

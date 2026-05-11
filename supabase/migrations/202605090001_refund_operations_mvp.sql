@@ -584,7 +584,6 @@ begin
         or not public.is_review_safe_nayax_transaction_reference(
           refund_case_row.matched_nayax_transaction_id
         )
-        or refund_case_row.matched_nayax_site_id is null
         or refund_case_row.matched_nayax_machine_auth_time is null
       ) then
       raise exception 'Refund case card adjustments require complete Nayax transaction evidence'
@@ -1103,6 +1102,8 @@ begin
 end;
 $$;
 
+drop function if exists public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, text, integer, timestamp with time zone, integer, text, text);
+
 create or replace function public.admin_update_refund_case(
   p_case_id uuid,
   p_status text default null,
@@ -1112,6 +1113,7 @@ create or replace function public.admin_update_refund_case(
   p_internal_note text default null,
   p_refund_amount_cents integer default null,
   p_manual_refund_reference text default null,
+  p_clear_nayax_match boolean default false,
   p_matched_nayax_transaction_id text default null,
   p_matched_nayax_site_id integer default null,
   p_matched_nayax_machine_auth_time timestamptz default null,
@@ -1237,32 +1239,41 @@ begin
     raise exception 'Refund amount must be zero or greater';
   end if;
 
-  normalized_nayax_transaction_id := nullif(
-    trim(coalesce(p_matched_nayax_transaction_id, before_row.matched_nayax_transaction_id, '')),
-    ''
-  );
-  normalized_nayax_site_id := case
-    when normalized_nayax_transaction_id is null then null
-    else coalesce(p_matched_nayax_site_id, before_row.matched_nayax_site_id)
-  end;
-  normalized_nayax_machine_auth_time := case
-    when normalized_nayax_transaction_id is null then null
-    else coalesce(p_matched_nayax_machine_auth_time, before_row.matched_nayax_machine_auth_time)
-  end;
-  normalized_nayax_amount_cents := case
-    when normalized_nayax_transaction_id is null then null
-    else coalesce(p_matched_nayax_amount_cents, before_row.matched_nayax_amount_cents)
-  end;
-  normalized_nayax_card_last4 := case
-    when normalized_nayax_transaction_id is null then null
-    else nullif(trim(coalesce(p_matched_nayax_card_last4, before_row.matched_nayax_card_last4, '')), '')
-  end;
-  normalized_nayax_currency_code := case
-    when normalized_nayax_transaction_id is null then null
-    else nullif(upper(trim(coalesce(p_matched_nayax_currency_code, before_row.matched_nayax_currency_code, ''))), '')
-  end;
+  if p_clear_nayax_match then
+    normalized_nayax_transaction_id := null;
+    normalized_nayax_site_id := null;
+    normalized_nayax_machine_auth_time := null;
+    normalized_nayax_amount_cents := null;
+    normalized_nayax_card_last4 := null;
+    normalized_nayax_currency_code := null;
+  else
+    normalized_nayax_transaction_id := nullif(
+      trim(coalesce(p_matched_nayax_transaction_id, before_row.matched_nayax_transaction_id, '')),
+      ''
+    );
+    normalized_nayax_site_id := case
+      when normalized_nayax_transaction_id is null then null
+      else coalesce(p_matched_nayax_site_id, before_row.matched_nayax_site_id)
+    end;
+    normalized_nayax_machine_auth_time := case
+      when normalized_nayax_transaction_id is null then null
+      else coalesce(p_matched_nayax_machine_auth_time, before_row.matched_nayax_machine_auth_time)
+    end;
+    normalized_nayax_amount_cents := case
+      when normalized_nayax_transaction_id is null then null
+      else coalesce(p_matched_nayax_amount_cents, before_row.matched_nayax_amount_cents)
+    end;
+    normalized_nayax_card_last4 := case
+      when normalized_nayax_transaction_id is null then null
+      else nullif(trim(coalesce(p_matched_nayax_card_last4, before_row.matched_nayax_card_last4, '')), '')
+    end;
+    normalized_nayax_currency_code := case
+      when normalized_nayax_transaction_id is null then null
+      else nullif(upper(trim(coalesce(p_matched_nayax_currency_code, before_row.matched_nayax_currency_code, ''))), '')
+    end;
+  end if;
 
-  if p_matched_nayax_transaction_id is not null then
+  if not p_clear_nayax_match and p_matched_nayax_transaction_id is not null then
     if normalized_nayax_transaction_id is not null
       and not public.is_review_safe_nayax_transaction_reference(normalized_nayax_transaction_id) then
       raise exception 'Nayax transaction reference does not meet review-safe format requirements';
@@ -1338,21 +1349,29 @@ begin
     correlation_status = case
       when normalized_nayax_transaction_id is not null
         then 'matched'
+      when p_clear_nayax_match and before_row.matched_sales_fact_id is null
+        then 'needs_review'
       else correlation_status
     end,
     correlation_source = case
       when normalized_nayax_transaction_id is not null
         then 'nayax'
+      when p_clear_nayax_match and before_row.matched_sales_fact_id is null
+        then null
       else correlation_source
     end,
     correlation_confidence = case
       when normalized_nayax_transaction_id is not null
         then greatest(correlation_confidence, 0.95)
+      when p_clear_nayax_match and before_row.matched_sales_fact_id is null
+        then 0
       else correlation_confidence
     end,
     correlation_summary = case
       when normalized_nayax_transaction_id is not null
         then 'Manager selected sanitized Nayax transaction evidence before refund completion.'
+      when p_clear_nayax_match and before_row.matched_sales_fact_id is null
+        then 'Manager cleared Nayax transaction evidence for review.'
       else correlation_summary
     end,
     refund_completed_by = case when normalized_status = 'completed' then actor_user_id else refund_completed_by end,
@@ -1379,7 +1398,6 @@ begin
         after_row.payment_method <> 'card'
         or after_row.card_last4 is null
         or not public.is_review_safe_nayax_transaction_reference(after_row.matched_nayax_transaction_id)
-        or after_row.matched_nayax_site_id is null
         or after_row.matched_nayax_machine_auth_time is null
         or nullif(trim(coalesce(after_row.manual_refund_reference, '')), '') is null
       ) then
@@ -1634,7 +1652,7 @@ revoke execute on function public.admin_set_reporting_machine_refund_managers(uu
   from public, anon, authenticated;
 revoke execute on function public.admin_set_reporting_machine_nayax_config(uuid, text, text, text)
   from public, anon, authenticated;
-revoke execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, text, integer, timestamp with time zone, integer, text, text)
+revoke execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)
   from public, anon, authenticated;
 
 grant execute on function public.user_is_refund_manager(uuid) to service_role;
@@ -1650,7 +1668,7 @@ grant execute on function public.admin_set_reporting_machine_refund_managers(uui
   to authenticated;
 grant execute on function public.admin_set_reporting_machine_nayax_config(uuid, text, text, text)
   to authenticated;
-grant execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, text, integer, timestamp with time zone, integer, text, text)
+grant execute on function public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)
   to authenticated;
 
 select pg_notify('pgrst', 'reload schema');
