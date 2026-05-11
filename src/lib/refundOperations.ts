@@ -148,8 +148,7 @@ export type RefundAdminMachine = {
   machineLabel: string;
   machineType: string;
   sunzeMachineId: string | null;
-  nayaxMachineId: string | null;
-  nayaxAccountKey: string | null;
+  nayaxLookupConfigured: boolean;
   status: string;
   locationId: string;
   locationName: string;
@@ -194,7 +193,6 @@ export type UpdateRefundCaseInput = {
 
 export type NayaxLookupCandidate = {
   transactionId: string;
-  machineId: string;
   siteId: number | null;
   authorizedAt: string;
   machineAuthorizationTime: string;

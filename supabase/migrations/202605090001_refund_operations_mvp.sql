@@ -790,8 +790,7 @@ begin
           'machineLabel', machine.machine_label,
           'machineType', machine.machine_type,
           'sunzeMachineId', machine.sunze_machine_id,
-          'nayaxMachineId', machine.nayax_machine_id,
-          'nayaxAccountKey', machine.nayax_account_key,
+          'nayaxLookupConfigured', machine.nayax_machine_id is not null and btrim(machine.nayax_machine_id) <> '',
           'status', machine.status,
           'locationId', location.id,
           'locationName', location.name,
@@ -1078,12 +1077,12 @@ begin
     'reporting_machine',
     before_row.id::text,
     jsonb_build_object(
-      'nayax_machine_id', before_row.nayax_machine_id,
-      'nayax_account_key', before_row.nayax_account_key
+      'had_nayax_machine_id', before_row.nayax_machine_id is not null and btrim(before_row.nayax_machine_id) <> '',
+      'had_nayax_account_key', before_row.nayax_account_key is not null and btrim(before_row.nayax_account_key) <> ''
     ),
     jsonb_build_object(
-      'nayax_machine_id', after_row.nayax_machine_id,
-      'nayax_account_key', after_row.nayax_account_key
+      'has_nayax_machine_id', after_row.nayax_machine_id is not null and btrim(after_row.nayax_machine_id) <> '',
+      'has_nayax_account_key', after_row.nayax_account_key is not null and btrim(after_row.nayax_account_key) <> ''
     ),
     jsonb_build_object(
       'reason', normalized_reason,
@@ -1095,8 +1094,7 @@ begin
     'machine', jsonb_build_object(
       'id', after_row.id,
       'machineLabel', after_row.machine_label,
-      'nayaxMachineId', after_row.nayax_machine_id,
-      'nayaxAccountKey', after_row.nayax_account_key
+      'nayaxLookupConfigured', after_row.nayax_machine_id is not null and btrim(after_row.nayax_machine_id) <> ''
     )
   );
 end;
@@ -1196,6 +1194,12 @@ begin
   end if;
   if normalized_decision is not null and normalized_decision not in ('approved', 'denied') then
     raise exception 'Invalid refund decision: %', p_decision;
+  end if;
+
+  if p_clear_nayax_match then
+    normalized_status := 'needs_review';
+    normalized_decision := null;
+    supplied_decision := null;
   end if;
 
   if normalized_status in ('submitted', 'needs_review', 'waiting_on_customer', 'correlated') then
@@ -1350,7 +1354,7 @@ begin
       when normalized_nayax_transaction_id is not null
         then 'matched'
       when p_clear_nayax_match and before_row.matched_sales_fact_id is null
-        then 'needs_review'
+        then 'manual_review'
       else correlation_status
     end,
     correlation_source = case

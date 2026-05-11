@@ -95,7 +95,6 @@ const resolveNayaxToken = (accountKey: string) =>
 
 type NayaxCandidate = {
   transactionId: string;
-  machineId: string;
   siteId: number | null;
   authorizedAt: string;
   machineAuthorizationTime: string;
@@ -200,7 +199,6 @@ const normalizeNayaxSales = ({
 
       return {
         transactionId,
-        machineId: sanitizeText(record.MachineID ?? record.MachineId ?? record.machineId, 80),
         siteId: integerValue(record.SiteID ?? record.SiteId ?? record.siteId),
         authorizedAt: authorizationDate.toISOString(),
         machineAuthorizationTime: machineAuthorizationDate?.toISOString() ?? authorizationDate.toISOString(),

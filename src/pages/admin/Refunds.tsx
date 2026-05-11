@@ -327,8 +327,8 @@ export default function AdminRefundsPage() {
   }, [assignmentMachineId, overview.machines]);
 
   useEffect(() => {
-    setNayaxMachineId(assignmentMachine?.nayaxMachineId ?? '');
-    setNayaxAccountKey(assignmentMachine?.nayaxAccountKey ?? 'TGPACI_USA_DB');
+    setNayaxMachineId('');
+    setNayaxAccountKey('TGPACI_USA_DB');
   }, [assignmentMachine]);
 
   useEffect(() => {
@@ -408,9 +408,9 @@ export default function AdminRefundsPage() {
       const nayaxAmountCents = centsFromCurrency(editor.matchedNayaxAmount);
       await updateRefundCaseAdmin({
         caseId: selectedCase.id,
-        status: editor.status,
+        status: clearNayaxMatch ? 'needs_review' : editor.status,
         assignedManagerEmail: editor.assignedManagerEmail.trim() || null,
-        decision: editor.decision,
+        decision: clearNayaxMatch ? null : editor.decision,
         decisionReason: editor.decisionReason.trim() || null,
         internalNote: editor.internalNote.trim() || null,
         refundAmountCents,
@@ -514,6 +514,10 @@ export default function AdminRefundsPage() {
 
   const handleSaveNayaxSetup = async () => {
     if (!assignmentMachineId) return;
+    if (!nayaxMachineId.trim()) {
+      toast.error('Enter a Nayax machine ID to add or replace lookup setup.');
+      return;
+    }
 
     setIsSavingNayaxSetup(true);
     try {
@@ -1159,6 +1163,9 @@ export default function AdminRefundsPage() {
                                 current
                                   ? {
                                       ...current,
+                                      status: 'needs_review',
+                                      decision: null,
+                                      decisionReason: '',
                                       matchedNayaxTransactionId: '',
                                       matchedNayaxSiteId: '',
                                       matchedNayaxMachineAuthTime: '',
@@ -1250,7 +1257,7 @@ export default function AdminRefundsPage() {
                         {overview.machines.map((machine) => (
                           <option key={machine.id} value={machine.id}>
                             {machine.locationName} - {machine.machineLabel}
-                            {machine.nayaxMachineId ? ' - Nayax ready' : ''}
+                            {machine.nayaxLookupConfigured ? ' - Nayax ready' : ''}
                           </option>
                         ))}
                       </select>
@@ -1260,27 +1267,28 @@ export default function AdminRefundsPage() {
                         <div>
                           <p className="text-sm font-medium text-foreground">Nayax card lookup</p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {assignmentMachine?.nayaxMachineId
-                              ? `Mapped to ${assignmentMachine.nayaxMachineId}`
+                            {assignmentMachine?.nayaxLookupConfigured
+                              ? 'Mapped and ready for card lookup'
                               : 'Missing Nayax machine ID'}
                           </p>
                         </div>
                         <Badge
                           className={cn(
-                            assignmentMachine?.nayaxMachineId
+                            assignmentMachine?.nayaxLookupConfigured
                               ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                               : 'border-amber-200 bg-amber-50 text-amber-700'
                           )}
                         >
-                          {assignmentMachine?.nayaxMachineId ? 'Ready' : 'Setup needed'}
+                          {assignmentMachine?.nayaxLookupConfigured ? 'Ready' : 'Setup needed'}
                         </Badge>
                       </div>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
                         <div>
-                          <Label>Nayax machine ID</Label>
+                          <Label>New Nayax machine ID</Label>
                           <Input
                             value={nayaxMachineId}
                             onChange={(event) => setNayaxMachineId(event.target.value)}
+                            placeholder="Enter to add or replace"
                             className="mt-2 bg-white"
                           />
                         </div>
