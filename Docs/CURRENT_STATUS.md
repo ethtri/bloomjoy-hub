@@ -6,6 +6,18 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Nayax Lynx API discovery (2026-05-11)
+- Production Nayax token was added to Supabase project `ygbzkgxktzqsiygjlqyg` as server-only secret `NAYAX_LYNX_API_TOKEN`.
+- Current working production base path is `https://lynx.nayax.com/operational/v1`; tested `/operational/api/v1` paths returned `404` for current calls.
+- Verified live read access:
+  - `GET /machines?ResultsLimit=1000` returns `200` and exposed 43 machines in the tested account.
+  - `GET /machines/{MachineID}/lastSales` returns `200` for all 43 checked machines and provides recent transaction fields needed for a polling-based sales sync.
+- Still blocked by Nayax permissions:
+  - `GET /devices?pageSize=1` returns `403` with `You are not allowed to view this content`.
+  - `GET /dashboard/widgets?screenTypeId=1` and `screenTypeId=2` return `403`, so historical/reporting-widget access is not enabled yet.
+- Current conclusion: devices are not required for the first useful machine/sales sync. Reporting widgets are the more important next permission if Bloomjoy needs clean date-range revenue dashboards instead of polling recent `lastSales`.
+- Agent-facing details live in `Docs/NAYAX_LYNX_API.md`.
+
 ## Supply order notification hardening (2026-05-06)
 - Paid sugar and 5+ box branded-stick checkouts continue to persist in `orders`, send customer confirmations, and alert internal fulfillment through email plus WeCom when WeCom delivery is allowed.
 - Under-5 branded-stick requests and custom-stick requests now send internal procurement notifications from `lead-submission-intake`; those requests already persist as `lead_submissions`, and notification failures are recorded without losing the submission.
@@ -420,6 +432,7 @@ Execution order is based on launch risk and dependency overlap.
 - Clear support boundary copy must be reviewed early (to prevent support overload)
 - Production credential execution remains owner-controlled (Google/Supabase/SMTP/DNS changes must be completed in dashboard tools before launch sign-off).
 - Internal notification pipeline is restored for quote/procurement submissions and paid supply orders, but ongoing reliability still depends on keeping Resend/Supabase function secrets valid (`RESEND_API_KEY`, verified sender).
+- Nayax Lynx machine and recent-sales endpoints work with `NAYAX_LYNX_API_TOKEN`, but Nayax still needs to enable device access and reporting widget access if future scope requires hardware inventory or date-range dashboard rollups.
 - WeCom alert dispatch reliability now depends on owner-managed app policy as well as valid secrets/recipient scope; current live failure is `60020: not allow to access from your ip`.
 - WeChat onboarding concierge UX is live, but operational effectiveness still depends on documented referral-buddy process/SLA ownership (tracked in issue `#110`).
 - `#78` currently blocked on Supabase side: Custom Domain add-on is not enabled yet for project `ygbzkgxktzqsiygjlqyg`, so domain create/activate commands cannot run.
