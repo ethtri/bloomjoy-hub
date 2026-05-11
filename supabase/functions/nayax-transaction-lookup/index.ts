@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
-const defaultNayaxBaseUrl = "https://lynx.nayax.com/operational/api/v1";
+const defaultNayaxBaseUrl = "https://lynx.nayax.com/operational/v1";
 const defaultNayaxAccountKey = "TGPACI_USA_DB";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");

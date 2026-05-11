@@ -131,6 +131,22 @@ Notes:
 - Admins set up newly discovered Sunze IDs from `/admin/reporting` by choosing the report/partnership, confirming machine label/location/type/tax, and saving once. Pending rows for unconfigured machines are quarantined in normalized form and replayed into `machine_sales_facts` after the Sunze ID is connected to a report-ready machine.
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
+## Nayax Lynx API notes
+Use `Docs/NAYAX_LYNX_API.md` as the current agent-facing source for Nayax status, endpoint coverage, and permission gaps.
+
+Current server-only secret:
+- Supabase production project `ygbzkgxktzqsiygjlqyg`: `NAYAX_LYNX_API_TOKEN`
+
+Set or rotate it with:
+
+```bash
+supabase secrets set NAYAX_LYNX_API_TOKEN=... --project-ref ygbzkgxktzqsiygjlqyg
+```
+
+For local-only endpoint testing, store the token in your own `.env` as `NAYAX_LYNX_API_TOKEN` or another clearly named local key. Do not commit it, do not paste it into chat, and never prefix it with `VITE_`.
+
+As of 2026-05-11, `GET https://lynx.nayax.com/operational/v1/machines` and `GET /machines/{MachineID}/lastSales` work. `GET /devices` and dashboard widget endpoints return `403`, so future agents should not block a first machine/sales sync on device access.
+
 ## Training document upload helper
 Use this after the training experience migration is applied and `training-documents` exists.
 
@@ -229,7 +245,7 @@ Prereqs:
 - Local Supabase is running and the refund operations migration has been applied.
 - `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
-- For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/api/v1`. Do not use `VITE_` for Nayax secrets.
+- For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.
 - Admins must map each refund-ready machine to its Nayax machine ID from `/admin/refunds` before the lookup button can return card candidates.
 
 Steps:
