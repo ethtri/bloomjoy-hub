@@ -153,6 +153,14 @@ assert(
   !refundIntakeFunction.includes('console.error("refund-case-intake email failed", emailError)'),
   'Refund email errors should not log raw provider error objects.'
 );
+assert(
+  !refundIntakeFunction.includes('error_message: emailError instanceof Error'),
+  'Refund email failures must not persist raw provider error messages.'
+);
+assert(
+  refundIntakeFunction.includes('error_message: "customer_email_delivery_failed"'),
+  'Refund email failures should persist a sanitized delivery failure code.'
+);
 
 assert(
   migration.includes('public_intake_rate_limit_events'),

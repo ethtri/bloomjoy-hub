@@ -763,7 +763,7 @@ serve(async (req) => {
           .from("refund_case_messages")
           .update({
             status: "failed",
-            error_message: emailError instanceof Error ? emailError.message.slice(0, 500) : "Email failed.",
+            error_message: "customer_email_delivery_failed",
           })
           .eq("id", messageRow.id);
       }

@@ -93,6 +93,7 @@ export type RefundCaseMessage = {
   status: string;
   recipientEmail: string;
   subject: string;
+  body: string;
   sentAt: string | null;
   errorMessage: string | null;
   createdAt: string;

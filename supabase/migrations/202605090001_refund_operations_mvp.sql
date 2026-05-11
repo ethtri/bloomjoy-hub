@@ -765,6 +765,7 @@ begin
                 'status', message.status,
                 'recipientEmail', message.recipient_email,
                 'subject', message.subject,
+                'body', message.body,
                 'sentAt', message.sent_at,
                 'errorMessage', message.error_message,
                 'createdAt', message.created_at
@@ -1171,8 +1172,7 @@ begin
     'denied',
     'card_refund_pending',
     'cash_zelle_pending',
-    'completed',
-    'closed'
+    'completed'
   ) then
     raise exception 'Invalid refund case status: %', p_status;
   end if;
@@ -1208,6 +1208,11 @@ begin
       raise exception 'Denied refund cases require a denied decision';
     end if;
     normalized_decision := 'denied';
+  end if;
+
+  if normalized_decision = 'denied'
+    and nullif(trim(coalesce(p_decision_reason, before_row.decision_reason, '')), '') is null then
+    raise exception 'Denied refund cases require a friendly decision reason';
   end if;
 
   normalized_assigned_email := lower(trim(coalesce(p_assigned_manager_email, '')));
@@ -1385,6 +1390,10 @@ begin
       raise exception 'Completed refund cases require a positive refund amount';
     end if;
 
+    if nullif(trim(coalesce(after_row.manual_refund_reference, '')), '') is null then
+      raise exception 'Completed refund cases require a manual refund reference';
+    end if;
+
     insert into public.sales_adjustment_facts (
       reporting_machine_id,
       reporting_location_id,
@@ -1405,7 +1414,7 @@ begin
     values (
       after_row.reporting_machine_id,
       after_row.reporting_location_id,
-      after_row.incident_at::date,
+      after_row.refund_completed_at::date,
       'refund',
       coalesce(after_row.refund_amount_cents, after_row.payment_amount_cents, 0),
       1,
@@ -1496,9 +1505,44 @@ begin
     'refund_case.updated',
     'refund_case',
     after_row.id::text,
-    to_jsonb(before_row),
-    to_jsonb(after_row),
-    jsonb_build_object('internal_note_present', nullif(trim(coalesce(p_internal_note, '')), '') is not null)
+    jsonb_build_object(
+      'status', before_row.status,
+      'decision', before_row.decision,
+      'assigned_manager_present', before_row.assigned_manager_id is not null,
+      'refund_amount_cents', before_row.refund_amount_cents,
+      'manual_refund_reference_present',
+        nullif(trim(coalesce(before_row.manual_refund_reference, '')), '') is not null,
+      'correlation_status', before_row.correlation_status,
+      'correlation_source', before_row.correlation_source,
+      'correlation_confidence', before_row.correlation_confidence,
+      'matched_sales_fact_present', before_row.matched_sales_fact_id is not null,
+      'matched_nayax_transaction_present',
+        public.is_review_safe_nayax_transaction_reference(before_row.matched_nayax_transaction_id),
+      'matched_nayax_site_id_present', before_row.matched_nayax_site_id is not null,
+      'matched_nayax_machine_auth_time_present', before_row.matched_nayax_machine_auth_time is not null,
+      'reporting_adjustment_present', before_row.reporting_adjustment_id is not null
+    ),
+    jsonb_build_object(
+      'status', after_row.status,
+      'decision', after_row.decision,
+      'assigned_manager_present', after_row.assigned_manager_id is not null,
+      'refund_amount_cents', after_row.refund_amount_cents,
+      'manual_refund_reference_present',
+        nullif(trim(coalesce(after_row.manual_refund_reference, '')), '') is not null,
+      'correlation_status', after_row.correlation_status,
+      'correlation_source', after_row.correlation_source,
+      'correlation_confidence', after_row.correlation_confidence,
+      'matched_sales_fact_present', after_row.matched_sales_fact_id is not null,
+      'matched_nayax_transaction_present',
+        public.is_review_safe_nayax_transaction_reference(after_row.matched_nayax_transaction_id),
+      'matched_nayax_site_id_present', after_row.matched_nayax_site_id is not null,
+      'matched_nayax_machine_auth_time_present', after_row.matched_nayax_machine_auth_time is not null,
+      'reporting_adjustment_present', after_row.reporting_adjustment_id is not null
+    ),
+    jsonb_build_object(
+      'internal_note_present', nullif(trim(coalesce(p_internal_note, '')), '') is not null,
+      'audit_payload_redacted', true
+    )
   );
 
   return to_jsonb(after_row);

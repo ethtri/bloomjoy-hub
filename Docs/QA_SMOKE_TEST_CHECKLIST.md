@@ -45,7 +45,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin can assign up to 3 authenticated refund managers per machine; a fourth manager is blocked by validation/RPC.
 - [ ] Admin can save a server-side Nayax machine ID/account key per machine; card lookup stays blocked with a friendly setup message until the machine is mapped and the Edge Function secret exists.
 - [ ] Card lookup calls Nayax Last Sales for the mapped machine and returns only sanitized candidate evidence: transaction ID, site ID, machine authorization time, amount, currency, card brand/last 4, and match reason.
-- [ ] Manager denial path records a friendly decision reason and does not write to `sales_adjustment_facts`.
+- [ ] Manager denial path requires a friendly decision reason and does not write to `sales_adjustment_facts`; approval/completion/denial replies remain manual in MVP.
 - [ ] Approved manual card path records a Nayax transaction ID and manual refund reference before completion.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.
 - [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.

@@ -196,6 +196,21 @@ const assertRefundOperationsSafety = () => {
     sql,
     'Completed card refund cases require reviewed Nayax correlation plus a manual refund reference'
   );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'Completed refund cases require a manual refund reference'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'Denied refund cases require a friendly decision reason'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    "'audit_payload_redacted', true"
+  );
 
   if (compact.includes("'matched_nayax_transaction_id', after_row.matched_nayax_transaction_id")) {
     fail(`${refundOperationsMigrationName}: refund_case reporting payload still includes raw Nayax transaction identifiers.`);
@@ -203,6 +218,10 @@ const assertRefundOperationsSafety = () => {
 
   if (compact.includes("'matched_sales_fact_id', after_row.matched_sales_fact_id")) {
     fail(`${refundOperationsMigrationName}: refund_case reporting payload still includes raw matched sales fact IDs.`);
+  }
+
+  if (/'refund_case'\s*,\s*after_row\.id::text\s*,\s*to_jsonb\(before_row\)\s*,\s*to_jsonb\(after_row\)/i.test(compact)) {
+    fail(`${refundOperationsMigrationName}: refund_case audit payload must be redacted, not full before/after rows.`);
   }
 };
 
@@ -222,6 +241,10 @@ const assertNayaxLookupLogsAreSanitized = () => {
 
   if (!source.includes('"nayax-transaction-lookup provider failure"') || !source.includes('status: response.status')) {
     fail('nayax-transaction-lookup should log sanitized provider status context on lookup failure.');
+  }
+
+  if (!source.includes('[89ab][0-9a-f]{3}-[0-9a-f]{12}')) {
+    fail('nayax-transaction-lookup UUID validation must accept standard reporting_machines UUIDs.');
   }
 };
 

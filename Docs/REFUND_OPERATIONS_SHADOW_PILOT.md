@@ -43,9 +43,9 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 ### Customer Communication Lane
 - [ ] Review confirmation email tone.
 - [ ] Review more-info email tone.
-- [ ] Review approval/completion language.
-- [ ] Review denial language.
-- [ ] Confirm messages are empathetic, clear, and do not overpromise timing or approval.
+- [ ] Confirm approval and completion replies remain manual in MVP until a later email-automation phase.
+- [ ] Review denial decision reasons before managers send manual replies.
+- [ ] Confirm automated messages and manual-reply reasons are empathetic, clear, and do not overpromise timing or approval.
 
 ### Reporting And Settlement Lane
 - [ ] Confirm only manager-approved, fully correlated, completed cases write through with `source='refund_case'`.

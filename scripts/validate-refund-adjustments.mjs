@@ -748,6 +748,31 @@ assert.match(
   /normalized_status = 'denied'[\s\S]*?supplied_decision is not null and supplied_decision <> 'denied'[\s\S]*?normalized_decision := 'denied'/,
   'Denied refund cases must normalize to a denied decision in the guarded RPC.'
 );
+assert.match(
+  refundOperationsMigration,
+  /Denied refund cases require a friendly decision reason/,
+  'Denied refund cases must require a friendly decision reason before save.'
+);
+assert.match(
+  refundOperationsMigration,
+  /Completed refund cases require a manual refund reference/,
+  'Completed refund cases must require manual refund evidence for card and cash paths.'
+);
+assert.equal(
+  refundOperationsMigration.includes('after_row.incident_at::date'),
+  false,
+  'Refund case write-through must not backdate settlement adjustments to incident date.'
+);
+assert.match(
+  refundOperationsMigration,
+  /after_row\.refund_completed_at::date/,
+  'Refund case write-through should use refund completion date for settlement adjustment date.'
+);
+assert.equal(
+  /normalized_status not in \([\s\S]*?'closed'[\s\S]*?\)/.test(refundOperationsMigration),
+  false,
+  'admin_update_refund_case must not allow managers to save ambiguous closed status.'
+);
 assert.equal(
   refundOperationsMigration.includes("'matched_nayax_transaction_id', after_row.matched_nayax_transaction_id"),
   false,

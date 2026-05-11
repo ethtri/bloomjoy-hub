@@ -63,9 +63,9 @@ const noDecisionStatuses = new Set<RefundCaseStatus>([
 ]);
 
 const statusesByDecision: Record<'none' | 'approved' | 'denied', RefundCaseStatus[]> = {
-  none: ['submitted', 'needs_review', 'waiting_on_customer', 'correlated', 'closed'],
-  approved: ['approved', 'card_refund_pending', 'cash_zelle_pending', 'completed', 'closed'],
-  denied: ['denied', 'closed'],
+  none: ['submitted', 'needs_review', 'waiting_on_customer', 'correlated'],
+  approved: ['approved', 'card_refund_pending', 'cash_zelle_pending', 'completed'],
+  denied: ['denied'],
 };
 
 const openStatuses = new Set<RefundCaseStatus>([
@@ -189,7 +189,7 @@ const alignStatusForDecision = (
   }
 
   if (decision === 'denied') {
-    return currentStatus === 'closed' ? 'closed' : 'denied';
+    return 'denied';
   }
 
   return noDecisionStatuses.has(currentStatus) ? currentStatus : 'needs_review';
@@ -247,8 +247,16 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
     issues.push(`${statusLabel(editor.status)} requires a ${requiredDecision} decision.`);
   }
 
+  if (editor.status === 'closed') {
+    issues.push('Closed is a legacy terminal status. Choose denied or completed for refund cases.');
+  }
+
   if (noDecisionStatuses.has(editor.status) && editor.decision) {
     issues.push(`${statusLabel(editor.status)} is a review/follow-up status and cannot carry a final decision.`);
+  }
+
+  if (editor.decision === 'denied' && !editor.decisionReason.trim()) {
+    issues.push('Denied refund cases require a friendly decision reason.');
   }
 
   if (editor.status === 'completed') {
@@ -855,6 +863,9 @@ export default function AdminRefundsPage() {
                                 <p className="mt-2 break-words text-sm font-medium text-foreground">
                                   {message.subject}
                                 </p>
+                                <p className="mt-2 whitespace-pre-line break-words rounded-md bg-muted/40 p-2 text-xs leading-5 text-muted-foreground">
+                                  {message.body}
+                                </p>
                                 <p className="mt-1 break-words text-xs text-muted-foreground">
                                   To {message.recipientEmail} /{' '}
                                   {message.sentAt ? `sent ${formatDate(message.sentAt)}` : `created ${formatDate(message.createdAt)}`}
@@ -1035,12 +1046,13 @@ export default function AdminRefundsPage() {
                                       : current
                                   )
                                 }
-                                className="w-full rounded-md border border-sky-200 bg-white p-2 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100"
+                                className="w-full min-w-0 rounded-md border border-sky-200 bg-white p-2 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100"
                               >
-                                <span className="font-semibold">{candidate.transactionId}</span>
-                                <span className="ml-2 text-sky-700">
+                                <span className="block break-all font-semibold">{candidate.transactionId}</span>
+                                <span className="mt-1 block text-sky-700">
                                   {formatCurrency(candidate.amountCents)} / last4{' '}
-                                  {candidate.cardLast4 || 'n/a'} / site {candidate.siteId ?? 'n/a'} /{' '}
+                                  {candidate.cardLast4 || 'n/a'} / {candidate.cardBrand || 'card'} /{' '}
+                                  {candidate.currencyCode || 'n/a'} / site {candidate.siteId ?? 'n/a'} /{' '}
                                   {Math.round(candidate.matchConfidence * 100)}%
                                 </span>
                                 <span className="mt-1 block text-sky-700">
