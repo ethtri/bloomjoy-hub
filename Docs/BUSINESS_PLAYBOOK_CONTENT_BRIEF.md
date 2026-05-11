@@ -16,6 +16,7 @@ Plus-ready tool and template planning lives in `Docs/BUSINESS_PLAYBOOK_PLUS_TOOL
 - Keep the voice practical, confident, clear, and lightly playful where natural.
 - Avoid generic SEO filler, vague entrepreneurship advice, unrealistic ROI/profit claims, and legal/tax overconfidence.
 - Use official sources for business setup topics, especially SBA and IRS pages.
+- For ROI, sales, payback, or venue-term topics, use the public frame: "We will not promise monthly income, but we can help you pressure-test the assumptions that drive payback."
 - Make each article visually scannable with real Bloomjoy imagery plus at least one useful visual block.
 - Keep public articles indexable. Save downloadable templates, calculators, and deeper operator assets for future Plus work.
 - Flagship public articles should usually land around 1,000-1,800 words. Shorter pieces need a clear reason.
@@ -50,4 +51,13 @@ Each article should include:
 - For business structure topics, cite SBA business structure guidance.
 - For EIN topics, cite IRS EIN guidance and note that EIN applications are free through the IRS.
 - For licenses and permits, cite SBA license/permit guidance and remind readers that state, county, city, and venue requirements can vary.
+- For payback math, cite SBA startup-cost and break-even resources, and make clear the model uses user assumptions rather than Bloomjoy performance data.
+- For public claims, stay consistent with FTC truth-in-advertising principles: avoid unsubstantiated earnings, payback, location-performance, passive-income, turnkey, or guaranteed-result claims.
 - For SEO/content quality standards, follow Google Search Central's people-first content guidance.
+
+## Payback Planner Guardrails
+- Name the tool `Payback Scenario Planner`, not `ROI Calculator`.
+- Do not load fictional sample presets by default; the user must choose them.
+- Label every preset: "Fictional example only. Not Bloomjoy performance data, not expected sales, and not a promise of payback."
+- Include landed-cost fields for import fees, tariffs, shipping, duties, customs brokerage, delivery/setup, accessories/payment hardware, opening supplies, local readiness, and operating buffer.
+- Never send exact dollar amounts, serving counts, or sales assumptions to analytics; only send scenario type, bands, booleans, and preset labels.

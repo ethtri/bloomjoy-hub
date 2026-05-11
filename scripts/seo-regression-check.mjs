@@ -52,6 +52,7 @@ const expectedH1TextByRoute = {
   "/resources": "Before you buy the machine, plan the first location and the first Tuesday",
   "/resources/business-playbook": "Real startup notes for cotton candy operators",
   "/resources/business-playbook/planner": "Machine Fit + Startup Budget Planner",
+  "/resources/business-playbook/payback-planner": "Payback Scenario Planner",
   "/contact": "Contact Us",
   "/about": "About Bloomjoy",
   "/privacy": "Privacy Policy",

@@ -145,7 +145,7 @@ const sbaStartup: PlaybookCitation = {
 const sbaStructure: PlaybookCitation = {
   label: "Choose a business structure",
   source: "U.S. Small Business Administration",
-  url: "https://www.sba.gov/starting-business/choose-your-business-structure/",
+  url: "https://www.sba.gov/business-guide/launch-your-business/choose-business-structure",
 };
 
 const sbaLicensesPermits: PlaybookCitation = {
@@ -160,10 +160,28 @@ const sbaStartupCosts: PlaybookCitation = {
   url: "https://www.sba.gov/business-guide/plan-your-business/calculate-your-startup-costs",
 };
 
+const sbaBreakEven: PlaybookCitation = {
+  label: "Break-even point",
+  source: "U.S. Small Business Administration",
+  url: "https://www.sba.gov/business-guide/plan-your-business/calculate-your-startup-costs/break-even-point",
+};
+
 const irsEin: PlaybookCitation = {
   label: "Employer Identification Number guidance",
   source: "Internal Revenue Service",
   url: "https://www.irs.gov/businesses/employer-identification-number",
+};
+
+const ftcAdvertisingFaq: PlaybookCitation = {
+  label: "Advertising FAQ's: A Guide for Small Business",
+  source: "Federal Trade Commission",
+  url: "https://www.ftc.gov/business-guidance/resources/advertising-faqs-guide-small-business",
+};
+
+const ftcBusinessOpportunityGuidance: PlaybookCitation = {
+  label: "Selling a Work-at-Home or Other Business Opportunity? Revised Rule May Apply to You",
+  source: "Federal Trade Commission",
+  url: "https://www.ftc.gov/business-guidance/resources/selling-work-home-or-other-business-opportunity-revised-rule-may-apply-you-1",
 };
 
 export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
@@ -374,8 +392,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     citations: [sbaStartup, sbaStructure, sbaLicensesPermits, sbaStartupCosts, irsEin],
     relatedSlugs: [
       "startup-budget-checklist-cotton-candy-machine-business",
+      "cotton-candy-machine-roi-sales-payback-planning",
       "best-locations-for-cotton-candy-vending-machines",
-      "commercial-vending-vs-event-catering",
     ],
   },
   {
@@ -624,8 +642,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     citations: [sbaStartup, sbaLicensesPermits],
     relatedSlugs: [
       "how-to-pitch-location-owners",
+      "revenue-share-vs-rent-cotton-candy-machine-placement",
       "startup-budget-checklist-cotton-candy-machine-business",
-      "how-to-start-cotton-candy-vending-business",
     ],
   },
   {
@@ -849,8 +867,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     citations: [sbaStartup, sbaLicensesPermits],
     relatedSlugs: [
       "commercial-vending-vs-event-catering",
+      "cotton-candy-machine-roi-sales-payback-planning",
       "startup-budget-checklist-cotton-candy-machine-business",
-      "business-setup-basics-llc-ein-insurance-permits",
     ],
   },
   {
@@ -1086,8 +1104,290 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     citations: [sbaStartup, sbaStructure, sbaLicensesPermits, sbaStartupCosts],
     relatedSlugs: [
       "how-to-start-cotton-candy-vending-business",
+      "cotton-candy-machine-roi-sales-payback-planning",
       "business-setup-basics-llc-ein-insurance-permits",
-      "mini-micro-event-catering-business-guide",
+    ],
+  },
+  {
+    slug: "cotton-candy-machine-roi-sales-payback-planning",
+    title: "Cotton Candy Machine ROI: How to Think About Sales and Payback Without Guessing",
+    shortTitle: "ROI and Payback Planning",
+    description:
+      "A practical, no-promises guide to pressure-testing cotton candy machine sales assumptions, startup cost recovery, break-even math, landed costs, and venue terms.",
+    category: "budget",
+    audience: "Buyers asking about ROI, sales volume, and payback",
+    machineFit: "Commercial, Mini, and Micro",
+    updatedAt: "2026-05-11",
+    readingTime: "14 min read",
+    heroImage: commercialMachineImage,
+    heroImageAlt: "Bloomjoy Commercial Machine ready for payback planning and venue assumptions",
+    seoImagePath: "/seo/commercial-machine.jpg",
+    visualLabel: "Payback model",
+    keyTakeaways: [
+      "Do not start with a promised monthly number. Start with the assumptions that drive payback.",
+      "Commercial placements depend on family traffic, visibility, uptime, venue terms, and service access.",
+      "Mini and Micro event math depends on bookings, event size, service window, staffing, and competing sweet treats.",
+    ],
+    visualSummary: {
+      title: "Payback planning has three jobs",
+      items: [
+        {
+          label: "1",
+          value: "Recover",
+          description: "List the total startup cost you are trying to recover, not just machine price.",
+        },
+        {
+          label: "2",
+          value: "Model",
+          description: "Use contribution per serving, fixed costs, and conservative sales assumptions.",
+        },
+        {
+          label: "3",
+          value: "Verify",
+          description: "Replace guesses with quotes, site walks, event data, and venue terms.",
+        },
+      ],
+    },
+    primaryCta: {
+      label: "Open the Payback Scenario Planner",
+      href: "/resources/business-playbook/payback-planner",
+    },
+    secondaryCta: {
+      label: "Read the startup budget checklist",
+      href: "/resources/business-playbook/startup-budget-checklist-cotton-candy-machine-business",
+    },
+    sections: [
+      {
+        heading: "Start with pressure-testing, not a promised number",
+        body: [
+          "When someone asks, 'What is the ROI?' the honest answer is that we do not give canned monthly-sales numbers or payback dates. Your results will depend on the venue, audience, price, costs, uptime, service rhythm, seasonality, and how well the business is operated.",
+          "What we can do is help you pressure-test the assumptions. That is usually more useful anyway. A single optimistic number can make a weak plan look exciting; a good worksheet shows what has to be true before you spend money.",
+          "Think of this like a rehearsal. Before a machine arrives or an event is booked, you want to know which assumptions matter most, which ones you can verify now, and which ones need a pilot before you trust them.",
+        ],
+        callout: {
+          title: "The public frame",
+          body: "We will not promise monthly income, but we can help you pressure-test the assumptions that drive payback.",
+        },
+      },
+      {
+        heading: "Use landed startup cost, not sticker price",
+        body: [
+          "The first number in the model is the amount you are trying to recover. Machine price matters, but it is rarely the whole launch budget.",
+          "If a list price does not include import fees, tariffs, shipping, duties, customs brokerage, delivery, setup, payment hardware, accessories, sugar, sticks, local readiness, or a small operating buffer, those belong in the worksheet before you calculate payback.",
+          "This is especially important for machines or parts coming from China. Do not assume the quote and the landed cost are the same thing until shipping, tariff, duty, brokerage, and delivery terms are clear.",
+        ],
+        table: {
+          caption: "Startup-cost rows to confirm before using any payback model.",
+          columns: ["Cost row", "What to verify", "Why it matters"],
+          rows: [
+            [
+              "Machine/list or quote price",
+              "Model, configuration, accessories, payment setup, wrap or add-ons",
+              "This is the base, not always the final landed cost",
+            ],
+            [
+              "Import, tariffs, duties, brokerage",
+              "Who pays each fee, when it is due, and whether it is included",
+              "Unexpected landed-cost items can materially change recovery math",
+            ],
+            [
+              "Shipping, freight, delivery, setup",
+              "Origin, destination, liftgate/access needs, final-mile assumptions",
+              "A hard-to-access site can add work or cost",
+            ],
+            [
+              "Accessories and payment hardware",
+              "Card reader, mounts, extension cords, bins, signage, event kit",
+              "Small items are easy to miss and annoying to buy late",
+            ],
+            [
+              "Opening supplies",
+              "Sugar, sticks, cleaning basics, backup consumables",
+              "A machine cannot launch cleanly without inventory",
+            ],
+            [
+              "Operating buffer",
+              "Reserve for early restocks, travel, setup changes, and service needs",
+              "A buffer keeps normal surprises from derailing the launch",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Then separate contribution from fixed costs",
+        body: [
+          "The simplest useful payback model starts with contribution per serving: planned price per serving minus the costs that rise with each serving. For cotton candy, that can include sugar, sticks, packaging, payment fees, and any venue share tied directly to sales.",
+          "Then compare that contribution against monthly fixed costs such as rent, storage, insurance, software, service travel, staffing, financing, or recurring venue obligations. The SBA's break-even formula uses fixed costs divided by price minus variable cost to estimate the unit count needed to break even.",
+          "That formula is not a promise. It is a way to see whether your assumptions are even in the neighborhood before you call the plan healthy.",
+        ],
+        table: {
+          caption: "Plain-English planning formulas.",
+          columns: ["Planning output", "Formula", "How to use it"],
+          rows: [
+            [
+              "Contribution per serving",
+              "Price per serving - variable cost - payment fee - sale-based venue share",
+              "Shows how much each modeled serving contributes before fixed costs",
+            ],
+            [
+              "Monthly break-even servings",
+              "Monthly fixed costs / contribution per serving",
+              "Shows the serving count needed before startup recovery begins",
+            ],
+            [
+              "Monthly recovery amount",
+              "Modeled monthly sales dollars - variable costs - fixed costs - venue terms",
+              "Shows what is left in the model to recover startup cost",
+            ],
+            [
+              "Startup recovery period",
+              "Startup cost to recover / monthly recovery amount",
+              "A scenario output, not a guaranteed payback date",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Commercial placement math starts with family demand",
+        body: [
+          "For commercial machines, raw foot traffic is only one ingredient. A busy hallway full of rushing adults may be weaker than a smaller family entertainment lobby where parents are waiting and kids are already in treat mode.",
+          "A stronger commercial model looks at daily foot traffic, family or parent presence, visibility, dwell time, impulse capture rate, service hours, practical throughput, uptime, rent, revenue share, and service costs.",
+          "This is why site walks matter. Stand where the machine would sit. Watch who pauses. Notice whether parents have time to say yes, whether the machine is visible from a natural waiting point, and whether staff understand the service path.",
+        ],
+        table: {
+          caption: "Commercial assumptions to verify before trusting the model.",
+          columns: ["Assumption", "Useful question", "What can go wrong"],
+          rows: [
+            [
+              "Foot traffic",
+              "How many people pass during treat-ready hours?",
+              "Big traffic can be misleading if nobody stops",
+            ],
+            [
+              "Family/parent presence",
+              "What share of traffic includes kids, parents, caregivers, or celebration buyers?",
+              "A venue can be busy but not cotton-candy friendly",
+            ],
+            [
+              "Impulse capture",
+              "What share of likely buyers would realistically purchase?",
+              "Tiny changes here can swing the payback model",
+            ],
+            [
+              "Capacity and uptime",
+              "How many service hours and practical orders per hour are realistic?",
+              "The model can overstate volume if it ignores cycle time or restock windows",
+            ],
+            [
+              "Venue terms",
+              "Is the deal rent, revenue share, hybrid, or amenity-based?",
+              "A good-looking location can get expensive if terms are unclear",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Mini and Micro event math starts with the booking",
+        body: [
+          "For Mini and Micro, the sales question is less about daily foot traffic and more about booked events, event size, serving window, package structure, staffing, travel, and whether other sweet-treat vendors are nearby.",
+          "A birthday party with 60 guests and no dessert competition is not the same as a festival with several dessert vendors and a short service window. Both can be useful tests, but they should not use the same assumptions.",
+          "Event operators should model slow months too. A worksheet that only works during your busiest season is not a full plan; it is a best-case snapshot.",
+        ],
+        table: {
+          caption: "Event assumptions that change the math.",
+          columns: ["Assumption", "What to model", "Why it matters"],
+          rows: [
+            [
+              "Bookings per month",
+              "Confirmed or realistic event count, including seasonality",
+              "More events can also mean more travel, setup, and staffing",
+            ],
+            [
+              "Attendance and buyer fit",
+              "Guests who are actually in the mood or age group for cotton candy",
+              "A large adult-only event may be less useful than a smaller kid-heavy party",
+            ],
+            [
+              "Competing sweet treats",
+              "Dessert table, ice cream vendor, candy cart, or included treats",
+              "Competition can reduce servings even when attendance is strong",
+            ],
+            [
+              "Service window and throughput",
+              "Hours serving, practical orders per hour, line flow, and machine capability",
+              "A short window can cap sales even when interest is high",
+            ],
+            [
+              "Event costs",
+              "Travel, staffing, parking, table kit, cleaning, packaging, and admin time",
+              "Event revenue can look better than it feels if costs are missing",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Venue terms can change payback as much as demand",
+        body: [
+          "Rent and revenue share are not small footnotes. They can change the model as much as price or volume. A high-traffic placement with expensive fixed rent may be riskier than a lower-traffic pilot with terms that let both sides learn.",
+          "This is why we recommend modeling terms before negotiating them. Run the same placement as rent, revenue share, and hybrid minimums. Then ask which structure keeps incentives fair and gives the operator enough room to service the machine well.",
+          "Avoid treating any percentage or rent amount as 'standard.' Venue economics vary too much by location, audience, staffing expectations, utility access, and whether the machine is positioned as an amenity or a revenue source.",
+        ],
+        callout: {
+          title: "What this means in practice",
+          body: "A better question than 'What should I pay the venue?' is 'What terms let both sides learn from real performance without making the operator absorb all of the risk on day one?'",
+        },
+      },
+      {
+        heading: "Build three scenarios before you buy",
+        body: [
+          "One scenario is usually just a guess. Three scenarios force you to think. Build a conservative case, a base case, and a stress case before you request final quote details.",
+          "The conservative case should feel almost boring: lower demand, real landed costs, real service costs, and venue terms included. If the plan only works when every assumption is friendly, you have learned something important before spending.",
+          "After launch, replace assumptions with observed data. The first 30 days are not a verdict; they are a measurement period.",
+        ],
+        table: {
+          caption: "A simple scenario-planning structure.",
+          columns: ["Scenario", "How to set it", "Decision it helps with"],
+          rows: [
+            [
+              "Conservative",
+              "Lower demand, higher startup cost, full venue terms, realistic service costs",
+              "Can the plan survive ordinary disappointment?",
+            ],
+            [
+              "Base",
+              "Your best current estimate after quote, site walk, and event research",
+              "What has to be true for the plan to feel worth testing?",
+            ],
+            [
+              "Stress",
+              "Fewer servings, higher landed cost, slower ramp, or more service time",
+              "Which assumption would break the plan first?",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Bring better assumptions into the quote conversation",
+        body: [
+          "A quote call is much more useful when you bring the shape of your model. You do not need perfect numbers; you need thoughtful assumptions.",
+          "Tell Bloomjoy which machine path you are modeling, what costs are still unknown, whether the machine will be placed or staffed at events, and what terms you are trying to negotiate. That helps the conversation stay grounded.",
+        ],
+        checklist: [
+          "Machine path: Commercial placement, Mini events, Micro test, or unsure",
+          "Known startup costs and unknown landed-cost items",
+          "Target venue type or event customer",
+          "Planned price per serving or event package structure",
+          "Rent, revenue share, or venue-term questions",
+          "Opening sugar, sticks, accessories, payment hardware, and setup needs",
+          "First 30-day measurement plan after launch",
+        ],
+      },
+    ],
+    citations: [sbaStartupCosts, sbaBreakEven, ftcAdvertisingFaq, ftcBusinessOpportunityGuidance],
+    relatedSlugs: [
+      "startup-budget-checklist-cotton-candy-machine-business",
+      "revenue-share-vs-rent-cotton-candy-machine-placement",
+      "best-locations-for-cotton-candy-vending-machines",
     ],
   },
   {
@@ -1342,8 +1642,240 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     citations: [sbaStartup, sbaLicensesPermits],
     relatedSlugs: [
       "best-locations-for-cotton-candy-vending-machines",
+      "revenue-share-vs-rent-cotton-candy-machine-placement",
       "how-to-start-cotton-candy-vending-business",
-      "commercial-vending-vs-event-catering",
+    ],
+  },
+  {
+    slug: "revenue-share-vs-rent-cotton-candy-machine-placement",
+    title: "Revenue Share vs. Rent: How to Negotiate Cotton Candy Machine Placement Terms",
+    shortTitle: "Revenue Share vs. Rent",
+    description:
+      "A practical guide to rent, revenue share, hybrid minimums, amenity logic, pilot terms, reporting cadence, review dates, and exit terms for cotton candy machine placements.",
+    category: "locations",
+    audience: "Commercial operators negotiating venue terms",
+    machineFit: "Commercial Machine first; useful for event venue pilots too",
+    updatedAt: "2026-05-11",
+    readingTime: "13 min read",
+    heroImage: aboutFoundersImage,
+    heroImageAlt: "Bloomjoy team reviewing operator materials for venue placement terms",
+    seoImagePath: "/seo/about.jpg",
+    visualLabel: "Term sheet",
+    keyTakeaways: [
+      "Venue terms should match risk, service responsibility, and what the venue actually wants.",
+      "Rent, revenue share, hybrid minimums, and amenity logic can all work when the terms are clear.",
+      "The best first agreement is often a measured pilot with reporting, review dates, and clean exit terms.",
+    ],
+    visualSummary: {
+      title: "Good terms answer four questions",
+      items: [
+        {
+          label: "Who",
+          value: "Owns what",
+          description: "Service, cleaning, supplies, support path, access, and staff expectations.",
+        },
+        {
+          label: "How",
+          value: "Money flows",
+          description: "Rent, revenue share, hybrid minimum, or amenity logic in plain language.",
+        },
+        {
+          label: "When",
+          value: "You review",
+          description: "Pilot length, reporting cadence, review dates, and adjustment windows.",
+        },
+      ],
+    },
+    primaryCta: {
+      label: "Open the Payback Scenario Planner",
+      href: "/resources/business-playbook/payback-planner",
+    },
+    secondaryCta: {
+      label: "Read the location pitch guide",
+      href: "/resources/business-playbook/how-to-pitch-location-owners",
+    },
+    sections: [
+      {
+        heading: "Negotiate the operating relationship, not just the payment",
+        body: [
+          "When a venue asks about rent or revenue share, it is tempting to jump straight to a number. Slow down. The money term only makes sense after both sides understand placement, guest experience, service responsibility, reporting, access, and what happens if the pilot needs adjustment.",
+          "A cotton candy machine can be a revenue source, an amenity, a guest-experience upgrade, or a little bit of each. The right term structure depends on which story the venue believes.",
+          "This article does not give standard percentages or legal advice. It gives you a practical way to structure the conversation so you do not accidentally agree to vague terms that are hard to operate.",
+        ],
+        callout: {
+          title: "Operator mindset",
+          body: "If the venue wants the upside of the machine, they also need to understand the operating plan that protects the guest experience.",
+        },
+      },
+      {
+        heading: "Compare the main term structures",
+        body: [
+          "Most placement conversations fall into four buckets: fixed rent, revenue share, hybrid minimums, or amenity logic. None is automatically best.",
+          "Fixed rent gives the venue predictable payment but puts more demand risk on the operator. Revenue share aligns the venue with performance but requires clean reporting language. Hybrid terms can balance both, but only when the minimum is realistic. Amenity logic can work when the venue mostly wants a better guest experience.",
+        ],
+        table: {
+          caption: "Use this table to choose the conversation path, not to copy a number.",
+          columns: ["Structure", "How it works", "Watch-outs"],
+          rows: [
+            [
+              "Fixed rent",
+              "Operator pays a set amount for the placement period",
+              "Riskier before demand is proven; define access, utilities, and review dates",
+            ],
+            [
+              "Revenue share",
+              "Venue receives a share of agreed receipts or sales measure",
+              "Define gross/net treatment, reporting cadence, refunds, taxes, and payment timing",
+            ],
+            [
+              "Hybrid minimum",
+              "A lower fixed minimum plus a revenue share above a threshold",
+              "Can be fair, but the minimum should not make a pilot impossible to learn from",
+            ],
+            [
+              "Amenity logic",
+              "The venue prioritizes guest experience, dwell time, or party value over direct payment",
+              "Still define service duties, review dates, and what success means",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Start with a pilot when demand is unknown",
+        body: [
+          "A pilot is not a weak ask. It is a professional way to reduce risk for both sides. You are saying: let's test the placement, measure the right things, and decide with evidence.",
+          "The pilot should have a clear length, a specific machine location, service owner, reporting cadence, commercial term, review date, and exit path. If any of those are missing, the pilot can drift into confusion.",
+        ],
+        table: {
+          caption: "Plain-language pilot terms to put on one page.",
+          columns: ["Term", "What to define", "Why it matters"],
+          rows: [
+            [
+              "Pilot length",
+              "30, 60, or 90 days, with the review date already on the calendar",
+              "Prevents the test from becoming indefinite",
+            ],
+            [
+              "Placement",
+              "Exact location, power, visibility, access hours, and cleaning path",
+              "The same machine can perform differently in two spots",
+            ],
+            [
+              "Service owner",
+              "Who refills, cleans, monitors, supports, and responds to issues",
+              "Keeps venue staff from inheriting hidden work",
+            ],
+            [
+              "Commercial term",
+              "Rent, revenue share, hybrid minimum, or amenity logic",
+              "Makes the money conversation explicit before launch",
+            ],
+            [
+              "Reporting cadence",
+              "Weekly or monthly owner update with agreed fields",
+              "Turns the test into a managed experiment",
+            ],
+            [
+              "Exit and adjustment",
+              "How either side can pause, move, adjust, or remove the machine",
+              "Protects the relationship if the first version is not right",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Define revenue share before you say yes",
+        body: [
+          "Revenue share sounds simple until someone asks what counts as revenue. Is it gross sales before fees? Net of payment processing? Net of refunds? Before or after sales tax? What happens if the payment app has a reporting issue?",
+          "These questions are not awkward; they are normal business hygiene. A friendly agreement can still be precise.",
+        ],
+        checklist: [
+          "What sales measure is used for the share",
+          "Whether taxes, refunds, chargebacks, and payment fees are included or excluded",
+          "How often reports are sent",
+          "When the venue is paid",
+          "Who has access to reporting screenshots or exports",
+          "How disputes or reporting gaps are handled",
+        ],
+      },
+      {
+        heading: "Use scripts that sound like a partner",
+        body: [
+          "The goal is not to win a rent argument. The goal is to show that you understand the venue's priorities and that you will operate responsibly.",
+          "Use these as starting points, then make them specific to the venue. The best script includes one detail that proves you actually walked the space or studied the customer flow.",
+        ],
+        script: {
+          title: "Venue-term conversation starters",
+          lines: [
+            "If your main goal is predictable payment, we can talk through a fixed rent pilot, but I would like to keep the first term short enough that both sides can review real performance.",
+            "If you want the machine to feel more aligned with guest demand, a revenue-share pilot may fit better. We would define the reporting method and review date up front so it stays clean.",
+            "If the machine is mainly an amenity for families or birthday guests, we can frame success around guest response, placement, and service reliability, not only direct venue payment.",
+            "Before we pick terms, I want to confirm the placement, power, service access, and staff expectations. Those details affect the model as much as the payment structure.",
+          ],
+        },
+      },
+      {
+        heading: "Report like an operator after launch",
+        body: [
+          "Reporting is not only for money. It builds trust. A short update shows the venue that you are paying attention, keeping the area cared for, and using the pilot to learn.",
+          "Do not overwhelm the owner with a spreadsheet they did not ask for. Send a clean note with agreed metrics, service notes, issues, and the next adjustment.",
+        ],
+        table: {
+          caption: "Simple 30/60-day review cadence.",
+          columns: ["Timing", "What to review", "Possible adjustment"],
+          rows: [
+            [
+              "First week",
+              "Placement, visibility, staff questions, service access, early guest response",
+              "Move the machine angle, signage, or service timing",
+            ],
+            [
+              "30 days",
+              "Sales pattern, uptime, supplies, cleaning, staff feedback, customer questions",
+              "Adjust placement, reporting, menu, operating hours, or owner communication",
+            ],
+            [
+              "60 days",
+              "Whether terms still match performance and service effort",
+              "Continue, renegotiate, extend pilot, relocate, or exit cleanly",
+            ],
+          ],
+        },
+      },
+      {
+        heading: "Agree on exit terms before either side needs them",
+        body: [
+          "Exit terms are not negative. They are how professional partners protect the relationship if a placement is not right.",
+          "A good exit clause explains notice period, removal timing, final reporting, final payment, site cleanup, and who owns any signage or collateral. It also makes relocation easier if the first placement is weak but the venue relationship is still promising.",
+        ],
+        checklist: [
+          "Notice period for either side",
+          "Who can request relocation inside the venue",
+          "Removal timing and access window",
+          "Final report and final payment timing",
+          "Site condition and cleanup responsibility",
+          "What happens to signage, decals, or venue-specific materials",
+        ],
+      },
+      {
+        heading: "Bring term assumptions into your payback model",
+        body: [
+          "Before you agree to terms, run the placement through a simple payback model. Compare rent, revenue share, and hybrid structures using conservative demand assumptions.",
+          "If one term structure only works when traffic is excellent from day one, it may be a poor fit for a pilot. If another structure gives both sides a fair learning period, it may produce a healthier relationship.",
+        ],
+        bullets: [
+          "Model rent as a fixed monthly cost.",
+          "Model revenue share as a sale-based cost and define whether it is based on gross or net receipts.",
+          "Model hybrid minimums as both a fixed obligation and a sale-based upside.",
+          "Model service costs honestly, because a venue with difficult access can quietly change the economics.",
+        ],
+      },
+    ],
+    citations: [sbaStartup, sbaBreakEven],
+    relatedSlugs: [
+      "how-to-pitch-location-owners",
+      "best-locations-for-cotton-candy-vending-machines",
+      "cotton-candy-machine-roi-sales-payback-planning",
     ],
   },
   {
@@ -1534,8 +2066,8 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     citations: [sbaStartup, sbaLicensesPermits],
     relatedSlugs: [
       "how-to-start-cotton-candy-vending-business",
+      "cotton-candy-machine-roi-sales-payback-planning",
       "mini-micro-event-catering-business-guide",
-      "best-locations-for-cotton-candy-vending-machines",
     ],
   },
   {

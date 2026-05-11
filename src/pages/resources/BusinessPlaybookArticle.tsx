@@ -182,7 +182,7 @@ const ArticleCtaPanel = ({
       the quote conversation.
     </p>
     <div className="mt-4 grid gap-2">
-      <Button asChild>
+      <Button asChild className="h-auto min-h-10 w-full whitespace-normal text-center leading-snug">
         <Link
           to={article.primaryCta.href}
           onClick={() =>
@@ -200,7 +200,11 @@ const ArticleCtaPanel = ({
         </Link>
       </Button>
       {article.secondaryCta && (
-        <Button asChild variant="outline">
+        <Button
+          asChild
+          variant="outline"
+          className="h-auto min-h-10 w-full whitespace-normal text-center leading-snug"
+        >
           <Link
             to={article.secondaryCta.href}
             onClick={() =>

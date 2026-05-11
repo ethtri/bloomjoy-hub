@@ -81,7 +81,7 @@ export default function MicroPage() {
               <div className="mt-8 space-y-4">
                 <Button asChild variant="hero" size="xl" className="w-full">
                   <Link
-                    to="/contact?type=quote&interest=micro&source=/machines/micro"
+                    to="/contact?type=quote&interest=micro&source=%2Fmachines%2Fmicro"
                     onClick={handleQuoteRequest}
                   >
                     Request a Quote
@@ -115,6 +115,38 @@ export default function MicroPage() {
                       Compare vending, events, and Micro fit
                       <ArrowRight className="h-4 w-4" />
                     </Link>
+                    <div className="mt-2 grid gap-1">
+                      <Link
+                        to="/resources/business-playbook/payback-planner"
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'micro_machine_page',
+                            cta: 'micro_payback_scenario_planner',
+                            href: '/resources/business-playbook/payback-planner',
+                            machine: MACHINE_NAMES.micro,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Model Micro test assumptions
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                      <Link
+                        to="/resources/business-playbook/cotton-candy-machine-roi-sales-payback-planning"
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'micro_machine_page',
+                            cta: 'micro_roi_payback_guide',
+                            href: '/resources/business-playbook/cotton-candy-machine-roi-sales-payback-planning',
+                            machine: MACHINE_NAMES.micro,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Read the ROI and payback guide
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </div>

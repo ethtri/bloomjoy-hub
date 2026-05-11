@@ -25,8 +25,10 @@ Maintenance:
 | --- | --- | --- | --- |
 | How do I start a vending business? | [How to Start a Cotton Candy Vending Business](https://www.bloomjoyusa.com/resources/business-playbook/how-to-start-cotton-candy-vending-business) | Ask about target venue type, city/state, timeline, and whether they already have a location lead. | Recommend a quote call once they have a likely venue type, target launch window, or machine preference. Mention Plus later as the operator layer after machine purchase. |
 | What should I budget for? | [Startup Budget Checklist](https://www.bloomjoyusa.com/resources/business-playbook/startup-budget-checklist-cotton-candy-machine-business) | Ask which machine they are considering and whether they are planning vending, events, or both. | Recommend quote when they need machine, shipping, opening supplies, or configuration assumptions. Mention supplies because opening inventory affects the real launch budget. |
+| What ROI, monthly sales, or payback should I expect? | [Cotton Candy Machine ROI: How to Think About Sales and Payback Without Guessing](https://www.bloomjoyusa.com/resources/business-playbook/cotton-candy-machine-roi-sales-payback-planning) and [Payback Scenario Planner](https://www.bloomjoyusa.com/resources/business-playbook/payback-planner) | Use the safe frame: Bloomjoy cannot promise sales or payback, but can help pressure-test assumptions. Ask whether they are modeling Commercial placement, Mini events, or Micro testing. | Recommend quote when they need landed-cost assumptions, machine configuration, shipping/import/tariff context, opening supplies, or payment/accessory needs for the model. |
 | Where should I place a commercial machine? | [How to Find Good Locations](https://www.bloomjoyusa.com/resources/business-playbook/best-locations-for-cotton-candy-vending-machines) | Ask for the venue category, expected foot traffic, audience, and operating constraints. | Recommend Commercial quote when the location has steady dwell time, visibility, power, staff/maintenance access, and owner interest. |
 | How do I pitch a location owner? | [How to Pitch a Location Owner](https://www.bloomjoyusa.com/resources/business-playbook/how-to-pitch-location-owners) | Help them frame the venue benefit, then ask whether they need a simple intro script or machine spec context. | Recommend quote once the venue asks about footprint, power, wrap, support, setup, or commercial terms. |
+| Should I offer rent or revenue share to a venue? | [Revenue Share vs. Rent](https://www.bloomjoyusa.com/resources/business-playbook/revenue-share-vs-rent-cotton-candy-machine-placement) | Ask what the venue cares about: predictable payment, guest experience, aligned upside, pilot risk, reporting, or staff burden. | Recommend the Payback Scenario Planner before naming terms. Do not suggest standard percentages. Recommend quote if terms depend on machine footprint, support, payment reporting, placement, or delivery timing. |
 | Should I choose Commercial, Mini, or Micro? | [Commercial Vending vs. Event Catering](https://www.bloomjoyusa.com/resources/business-playbook/commercial-vending-vs-event-catering) | Ask whether their revenue path is unattended placement, staffed events, low-volume validation, or a mix. | Recommend quote when they need final machine fit. Mention Commercial for high-traffic placement, Mini for portable/event use, and Micro for basic-shape low-volume validation. |
 | Can I use Mini or Micro for events or catering? | [Mini/Micro Event Business Guide](https://www.bloomjoyusa.com/resources/business-playbook/mini-micro-event-catering-business-guide) | Ask what event types they want, expected servings per event, staffing, travel radius, and setup constraints. | Recommend Mini quote when portability and pattern capability matter. Recommend Micro only when basic shapes and lower-volume service are acceptable. |
 | What business setup steps should I research? | [Business Setup Basics](https://www.bloomjoyusa.com/resources/business-playbook/business-setup-basics-llc-ein-insurance-permits) | Tell them to verify entity, EIN, banking, insurance, permits, and venue requirements locally. | Do not provide legal/tax advice. Recommend quote only for machine fit; recommend local professional/government sources for setup requirements. |
@@ -81,6 +83,13 @@ This guide is the best starting point: [Startup Budget Checklist](https://www.bl
 
 If you tell me which model you are considering and whether this is for vending, events, or both, I can help you think through the right quote assumptions.
 
+### SNIP-02A: ROI, Sales, And Payback
+Great question, and it is one we want to answer carefully. We should not promise monthly sales, ROI, or a payback date because the result depends on location, family traffic, event mix, pricing, costs, uptime, venue terms, and execution.
+
+What we can do is help you pressure-test the assumptions. Start with this guide: [Cotton Candy Machine ROI: How to Think About Sales and Payback Without Guessing](https://www.bloomjoyusa.com/resources/business-playbook/cotton-candy-machine-roi-sales-payback-planning), then use the public planner here: [Payback Scenario Planner](https://www.bloomjoyusa.com/resources/business-playbook/payback-planner).
+
+Are you modeling a Commercial placement, Mini events, or a smaller Micro test first?
+
 ### SNIP-03: Commercial Location Fit
 For a commercial placement, we usually look for three things before getting excited: enough dwell time, a visible and easy-to-access machine location, and an owner/operator who sees the machine as an experience, not just a snack sale.
 
@@ -94,6 +103,13 @@ A good venue pitch should make the owner's life easier. Lead with why it fits th
 Here is a practical pitch guide with sample scripts: [How to Pitch a Location Owner](https://www.bloomjoyusa.com/resources/business-playbook/how-to-pitch-location-owners).
 
 If you want, send me the venue type and the owner's main concern, and I can point you to the strongest angle to lead with.
+
+### SNIP-04A: Revenue Share Or Rent
+There is not one standard term that fits every venue. Fixed rent, revenue share, hybrid minimums, and amenity-style placements can all make sense depending on traffic, family fit, service access, reporting, and how much risk each side is taking.
+
+This guide is the safest starting point: [Revenue Share vs. Rent](https://www.bloomjoyusa.com/resources/business-playbook/revenue-share-vs-rent-cotton-candy-machine-placement). I would also run the term assumptions through the [Payback Scenario Planner](https://www.bloomjoyusa.com/resources/business-playbook/payback-planner) before offering a number.
+
+What did the venue ask for: predictable rent, a share of sales, a short pilot, or more information first?
 
 ### SNIP-05: Choosing Commercial, Mini, Or Micro
 The best model depends less on "which machine is best" and more on the business model.
