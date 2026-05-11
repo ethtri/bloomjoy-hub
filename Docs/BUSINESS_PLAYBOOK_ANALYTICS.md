@@ -12,6 +12,8 @@ This tracking is intentionally light. Events should explain content performance 
 - `click_plus_preview_resource`: Fires when someone clicks a Plus preview resource action from the Resources page.
 - `click_buyer_flow_playbook_link`: Fires when someone clicks contextual Playbook links from buyer surfaces such as Machines, machine detail pages, and Contact success.
 - `submit_contact_from_playbook`: Fires after a contact submission succeeds when the request originated from a Business Playbook article.
+- `view_business_playbook_payback_planner`: Fires when the Payback Scenario Planner loads.
+- `update_business_playbook_payback_planner`: Fires when a visitor selects a scenario, applies a fictional preset, edits a planner input, copies a summary, or prints a plan.
 
 ## Allowed Properties
 - `surface`: The page area or funnel surface where the click happened.
@@ -24,17 +26,21 @@ This tracking is intentionally light. Events should explain content performance 
 - `source_page`: Normalized Playbook source path for successful contact submissions. Query strings, hashes, unknown slugs, and external URLs must not be sent.
 - `inquiry_type`: Contact inquiry type for successful Playbook-originated submissions.
 - `machine_interest`: Machine interest selected on a Playbook-originated quote request.
+- Payback planner properties may include `action`, `scenario_type`, `has_rent`, `has_revenue_share`, `demand_band`, `cost_band`, and `preset_id`.
 
 Do not add contact names, emails, free-form messages, phone numbers, addresses, uploaded files, or raw lead notes to analytics events.
+
+Payback planner analytics must not include exact dollar values, foot traffic, sales volume, serving count, price, cost, rent, revenue-share percentage, event size, or free-form notes. Use bands and booleans only.
 
 ## Current Surfaces
 - `/resources`: hero buttons, featured article cards, category cards, and Plus preview actions.
 - `/resources/business-playbook`: hero CTAs, featured article cards, category jump links, and article list cards.
 - `/resources/business-playbook/:slug`: article sidebar CTAs, related article cards, and all-guides CTA.
+- `/resources/business-playbook/payback-planner`: planner view, scenario selection, fictional preset selection, input updates, copy/print summary, article links, and quote CTA.
 - `/machines`: Business Playbook comparison CTA.
-- `/machines/commercial-robotic-machine`: Commercial location guide CTA.
-- `/machines/mini`: Mini event business guide CTA.
-- `/machines/micro`: vending/events/Micro-fit CTA.
+- `/machines/commercial-robotic-machine`: Commercial location guide, payback planner, and revenue-share/rent CTAs.
+- `/machines/mini`: Mini event business guide, payback planner, and ROI/payback guide CTAs.
+- `/machines/micro`: vending/events/Micro-fit, payback planner, and ROI/payback guide CTAs.
 - `/plus`: public Playbook CTA.
 - `/contact`: Playbook-originated successful submissions and post-submit Playbook links.
 

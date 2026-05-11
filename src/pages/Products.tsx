@@ -99,21 +99,38 @@ export default function ProductsPage() {
                 Read the Bloomjoy Business Playbook before you compare machines by price alone.
               </p>
             </div>
-            <Link
-              to="/resources/business-playbook/commercial-vending-vs-event-catering"
-              onClick={() =>
-                trackBuyerFlowPlaybookLinkClick({
-                  surface: 'machine_listing',
-                  cta: 'compare_vending_and_events',
-                  href: '/resources/business-playbook/commercial-vending-vs-event-catering',
-                  machine: 'all',
-                })
-              }
-              className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
-            >
-              Compare vending and events
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            <div className="grid gap-2 sm:justify-items-end">
+              <Link
+                to="/resources/business-playbook/commercial-vending-vs-event-catering"
+                onClick={() =>
+                  trackBuyerFlowPlaybookLinkClick({
+                    surface: 'machine_listing',
+                    cta: 'compare_vending_and_events',
+                    href: '/resources/business-playbook/commercial-vending-vs-event-catering',
+                    machine: 'all',
+                  })
+                }
+                className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+              >
+                Compare vending and events
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/resources/business-playbook/payback-planner"
+                onClick={() =>
+                  trackBuyerFlowPlaybookLinkClick({
+                    surface: 'machine_listing',
+                    cta: 'payback_scenario_planner',
+                    href: '/resources/business-playbook/payback-planner',
+                    machine: 'all',
+                  })
+                }
+                className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+              >
+                Plan payback scenarios
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>

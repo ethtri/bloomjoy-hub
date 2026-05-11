@@ -180,6 +180,38 @@ export default function CommercialRoboticPage() {
                       Read the Commercial location guide
                       <ArrowRight className="h-4 w-4" />
                     </Link>
+                    <div className="mt-2 grid gap-1">
+                      <Link
+                        to="/resources/business-playbook/payback-planner"
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'commercial_machine_page',
+                            cta: 'payback_scenario_planner',
+                            href: '/resources/business-playbook/payback-planner',
+                            machine: MACHINE_NAMES.commercial,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Pressure-test payback assumptions
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                      <Link
+                        to="/resources/business-playbook/revenue-share-vs-rent-cotton-candy-machine-placement"
+                        onClick={() =>
+                          trackBuyerFlowPlaybookLinkClick({
+                            surface: 'commercial_machine_page',
+                            cta: 'revenue_share_rent_terms',
+                            href: '/resources/business-playbook/revenue-share-vs-rent-cotton-candy-machine-placement',
+                            machine: MACHINE_NAMES.commercial,
+                          })
+                        }
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Compare revenue share and rent terms
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -209,7 +241,8 @@ export default function CommercialRoboticPage() {
               <div className="mt-8">
                 <h3 className="font-display text-lg font-semibold text-foreground">Ideal For</h3>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Theme parks, entertainment venues, event operations, high-traffic retail locations, and operators seeking maximum throughput with minimal manual intervention.
+                  Theme parks, entertainment venues, event operations, high-traffic retail locations,
+                  and operators seeking maximum throughput with a scheduled service rhythm.
                 </p>
               </div>
             </div>
