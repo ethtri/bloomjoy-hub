@@ -8,6 +8,7 @@
 
 ## Why a server-side surface exists (even with a SPA)
 Stripe Checkout session creation and webhook handling must run with **secret keys**.
+External operational APIs such as Nayax Lynx also use backend-only tokens.
 That means we need one of:
 - Serverless functions (Vercel/Netlify) OR
 - Supabase Edge Functions OR
@@ -63,6 +64,6 @@ Portal (auth-gated):
 
 ## Security baseline (non-negotiable)
 - Never commit secrets
-- Never expose Stripe secret keys to the client (no `VITE_` secret keys)
+- Never expose Stripe, Nayax, or other backend tokens to the client (no `VITE_` secret keys)
 - RLS policies for user-owned tables (Supabase)
 - Validate inputs on the server-side function endpoints
