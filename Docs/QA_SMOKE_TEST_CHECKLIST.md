@@ -29,7 +29,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mobile header/nav works (basic)
 
 ## Refund Operations MVP
-- [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` stays draft until the merge gate passes, and Google Form/AppSheet remains live until the cutover gate passes.
+- [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` is merged, and Google Form/AppSheet remains live until the cutover gate passes.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.
 - [ ] Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
 - [ ] Agent UAT server starts with `npm run dev:uat` and is tested at `http://127.0.0.1:8081`.

@@ -1,9 +1,9 @@
 # Refund Operations Shadow Pilot Runbook
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 ## Purpose
-Run the Refund Operations MVP through AI-orchestrated UAT and a manager-wide shadow pilot before merging PR `#410` or cutting over from the Google Form/AppSheet fallback.
+Run the merged Refund Operations MVP through production rollout readiness checks and a manager-wide shadow pilot before cutting over from the Google Form/AppSheet fallback.
 
 This runbook is the PM/PO control artifact for issues `#402`-`#409`.
 Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pilot script.
@@ -14,7 +14,7 @@ Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pi
 - Executive sponsor review is proof review, not first-pass UAT. Agents must validate seeded functional UAT or post-production shadow-mode flows and produce a pass/fail evidence packet before asking the sponsor to touch the feature.
 - Pilot scope is all current authenticated Machine Managers, still in shadow mode.
 - Keep the Google Form/AppSheet process live until cutover criteria pass.
-- Keep PR `#410` draft until live UAT, Nayax matching validation, manager feedback, customer communication review, and reporting guardrails pass.
+- PR `#410` is merged. Merge is not cutover; production rollout, manager feedback, customer communication review, and shadow-pilot results remain cutover gates.
 - Do not paste secrets, customer PII, raw refund exports, card digits, raw Nayax payloads, or complaint free text into docs, issues, PRs, screenshots, or chat.
 - Nayax refund execution remains out of MVP; managers continue manual card refunds in Nayax and manual cash/Zelle handling.
 
@@ -22,13 +22,14 @@ Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pi
 Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHub issues under epic `#402`.
 
 ### PM/PO Control Lane
-- [ ] Confirm PR `#410` is draft, merge-clean, and has green GitHub CI, Vercel, and Supabase migration checks.
-- [ ] Confirm issues `#402`-`#409` have current PM status comments.
+- [x] Confirm PR `#410` merged with green GitHub CI, Vercel, and Supabase migration checks.
+- [x] Confirm issues `#402`-`#409` have current PM status comments through the merge checkpoint.
 - [ ] Track one go/no-go summary covering Nayax lookup, manager access, customer communications, reporting write-through, and shadow-pilot results.
 - [ ] Confirm Google Form/AppSheet fallback remains live during pilot.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` before manager shadow UAT when the app is reachable.
 - [ ] Confirm demo mode is labeled `DEMO DATA - visual review only` and is never used as evidence that saves, access boundaries, Nayax lookup, or reporting write-through work.
 - [ ] Prepare an executive proof packet only after agent QA has passed or documented blockers.
+- [ ] Confirm production migrations, Edge Functions, and server-only secret names are deployed through the production runbook before public QR/direct-link promotion.
 
 ### Nayax Validation Lane
 - [ ] Verify target environment has server-only `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`.
@@ -71,13 +72,13 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Super-admin access.
 - [ ] Reporting write-through.
 
-## Merge Gate For PR `#410`
-Merge only when all are true:
-- GitHub CI, Vercel, and Supabase migration checks are green.
-- At least one real Nayax card lookup succeeds for mapped machines.
-- Manager-wide access boundaries are validated.
-- Customer communication copy is approved.
-- Reporting write-through is validated with no private data leakage.
+## Merged PR `#410` Evidence
+PR `#410` merged on 2026-05-12 after these gates passed:
+- GitHub CI, Vercel, and Supabase migration checks were green.
+- A real Nayax Edge lookup succeeded for a mapped UAT machine with sanitized evidence only.
+- Assigned-machine access boundaries and max-3 Machine Manager enforcement were validated with synthetic authenticated users.
+- Customer communication copy was approved for MVP scope.
+- Reporting write-through was validated with no private data leakage.
 
 ## Cutover Gate
 Cut over from the Google Form/AppSheet fallback only when all are true:
@@ -87,7 +88,7 @@ Cut over from the Google Form/AppSheet fallback only when all are true:
 - Google Form/AppSheet remains available as fallback until pilot evidence is clean.
 
 ## Evidence Template
-Use this template in PR `#410` and issue `#409` after each checkpoint.
+Use this template in issue `#409` or follow-up issues after each checkpoint.
 
 ```markdown
 ## Refund shadow pilot checkpoint

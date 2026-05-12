@@ -5,7 +5,7 @@ Last updated: 2026-05-12
 ## Purpose
 Use this script when Bloomjoy invites managers, operators, or partner operators into the new refund workflow during shadow mode. The goal is to confirm the workflow is easy to use before replacing the Google Form/AppSheet fallback.
 
-Keep the current Google Form/AppSheet flow live. Managers should not use the new workflow as the only operational source until PR `#410` passes the shadow-pilot go/no-go checklist.
+Keep the current Google Form/AppSheet flow live. Managers should not use the new workflow as the only operational source until the shadow-pilot go/no-go checklist passes.
 
 ## Before The Session
 - Use synthetic or owner-approved shadow-mode cases only.
