@@ -24,6 +24,8 @@ jobs:
         run: npm run seo:check
       - name: Provider Parser Regression Checks
         run: npm run reporting:validate-provider-parser
+      - name: Provider Diagnostic Regression Checks
+        run: npm run reporting:validate-sync-diagnostics
       - name: Refund Adjustment Regression Checks
         run: npm run reporting:validate-refund-adjustments
       - name: Edge URL Allowlist Checks

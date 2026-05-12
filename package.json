@@ -22,6 +22,7 @@
     "reporting:provider-sync": "node scripts/sunze/sync-orders.mjs",
     "reporting:provider-health": "node scripts/sunze/notify-health.mjs",
     "reporting:validate-provider-parser": "node scripts/sunze/validate-sunze-orders-parser.mjs",
+    "reporting:validate-sync-diagnostics": "node scripts/sunze/validate-sync-diagnostics.mjs",
     "reporting:validate-refund-adjustments": "node scripts/validate-refund-adjustments.mjs",
     "refunds:validate-machine-manager-uat": "node scripts/refunds/validate-machine-manager-uat.mjs",
     "refunds:validate-portal-uat": "node scripts/refunds/validate-refund-portal-uat.mjs",
