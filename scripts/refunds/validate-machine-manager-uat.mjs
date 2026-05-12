@@ -377,14 +377,15 @@ const run = async () => {
 
     await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Edit' }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
+    const machineDialog = page.getByLabel('Edit Machine');
 
     recorder.assert(
       'Machine Manager setup opens from Edit Machine',
-      await page.getByText('Select the people responsible for this machine.').isVisible()
+      await machineDialog.getByText('Select the people responsible for this machine.').isVisible()
     );
     recorder.assert(
       'Existing Machine Manager appears as removable chip',
-      await page.getByText(firstManagerEmail).isVisible()
+      await machineDialog.getByText(firstManagerEmail).isVisible()
     );
     recorder.assert(
       'Nayax setup status is absent from Machine Manager picker',
@@ -397,26 +398,44 @@ const run = async () => {
 
     await page.fill('#machine-manager-search', 'manager-two');
     await page.getByRole('button', { name: new RegExp(secondManagerEmail, 'i') }).click();
+    await page.getByText('Saved').waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Searchable user lookup adds a second Machine Manager',
-      await page.getByText('2 managers selected').isVisible()
+      await machineDialog.getByText('2 managers assigned').isVisible()
+    );
+    recorder.assert(
+      'Machine Manager changes autosave without a separate save button',
+      (await page.getByRole('button', { name: 'Save Machine Managers' }).count()) === 0
     );
 
-    await page.getByRole('button', { name: 'Save Machine Managers' }).click();
-    await page.getByText('Machine managers updated.').waitFor({ timeout: 10000 });
-
     recorder.assert(
-      'Save payload targets the edited machine',
+      'Autosave payload targets the edited machine',
       state.savePayload?.p_machine_id === machineId,
       JSON.stringify(state.savePayload)
     );
     recorder.assert(
-      'Save payload contains selected Machine Managers',
+      'Autosave payload contains selected Machine Managers',
       Array.isArray(state.savePayload?.p_manager_emails) &&
         state.savePayload.p_manager_emails.includes(firstManagerEmail) &&
         state.savePayload.p_manager_emails.includes(secondManagerEmail),
       JSON.stringify(state.savePayload)
+    );
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
+    await machineRow.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Saved Machine Managers are visible in the Machines list',
+      await machineRow.getByText(secondManagerEmail).isVisible()
+    );
+
+    await machineRow.getByRole('button', { name: 'Edit' }).click();
+    await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
+    const reopenedMachineDialog = page.getByLabel('Edit Machine');
+    recorder.assert(
+      'Saved Machine Managers remain visible after close and reopen',
+      await reopenedMachineDialog.getByText(secondManagerEmail).isVisible()
     );
 
     await page.screenshot({

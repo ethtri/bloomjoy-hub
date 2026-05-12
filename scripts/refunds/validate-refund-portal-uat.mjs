@@ -226,13 +226,22 @@ const buildMockRefundOverview = () => ({
   ],
 });
 
+const buildEmptyRefundOverview = () => ({
+  machines: [],
+  managerAssignments: [],
+  cases: [],
+});
+
 const jsonResponse = (body) => ({
   status: 200,
   contentType: 'application/json',
   body: JSON.stringify(body),
 });
 
-const installMockSupabaseRoutes = async (context) => {
+const installMockSupabaseRoutes = async (
+  context,
+  { refundOverview = buildMockRefundOverview } = {}
+) => {
   await context.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
 
@@ -337,7 +346,7 @@ const installMockSupabaseRoutes = async (context) => {
     }
 
     if (url.includes('/admin_get_refund_operations_overview')) {
-      return route.fulfill(jsonResponse(buildMockRefundOverview()));
+      return route.fulfill(jsonResponse(refundOverview()));
     }
 
     if (url.includes('/admin_update_refund_case')) {
@@ -346,6 +355,18 @@ const installMockSupabaseRoutes = async (context) => {
 
     return route.fulfill(jsonResponse({}));
   });
+};
+
+const signInRefundUser = async (page, appUrl) => {
+  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
+  await page.waitForSelector('#email-password', { timeout: 10000 });
+  await page.fill('#email-password', mockUser.email);
+  await page.fill('#password', 'mock-password');
+  await Promise.all([
+    page.waitForURL('**/portal/refunds*', { timeout: 20000 }),
+    page.getByRole('button', { name: /sign in/i }).click(),
+  ]);
 };
 
 const waitForServer = async (appUrl) => {
@@ -426,15 +447,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     consoleErrors.push(error.message);
   });
 
-  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'domcontentloaded' });
-  await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
-  await page.waitForSelector('#email-password', { timeout: 10000 });
-  await page.fill('#email-password', mockUser.email);
-  await page.fill('#password', 'mock-password');
-  await Promise.all([
-    page.waitForURL('**/portal/refunds', { timeout: 20000 }),
-    page.getByRole('button', { name: /sign in/i }).click(),
-  ]);
+  await signInRefundUser(page, appUrl);
   await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
 
   recorder.assert(
@@ -443,8 +456,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     page.url()
   );
   recorder.assert(
-    'Refund workflow heading is visible',
-    await page.getByRole('heading', { name: /refund workflow/i }).isVisible()
+    'Refunds heading is visible',
+    await page.getByRole('heading', { name: /^Refunds$/i }).isVisible()
   );
   recorder.assert(
     'Portal Refunds navigation link is visible',
@@ -532,6 +545,82 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await context.close();
 };
 
+const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview });
+
+  const page = await context.newPage();
+  const consoleErrors = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error) => {
+    consoleErrors.push(error.message);
+  });
+
+  await signInRefundUser(page, appUrl);
+  await page.getByText('Showing local UAT demo cases').waitFor({ timeout: 10000 });
+
+  recorder.assert(
+    'Empty local queue shows read-only demo fallback',
+    await page.getByText('2 visible of 3 total cases').isVisible()
+  );
+  recorder.assert(
+    'Demo fallback includes card and waiting cases in open queue',
+    (await page.getByText('RF-UAT-CARD').count()) > 0 &&
+      (await page.getByText('RF-UAT-WAIT').count()) > 0
+  );
+
+  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
+
+  recorder.assert(
+    'Demo Save Case action is disabled',
+    await page.getByRole('button', { name: /Save Case/i }).isDisabled()
+  );
+  recorder.assert(
+    'Demo Nayax lookup action is disabled',
+    await page.getByRole('button', { name: /^Lookup$/i }).isDisabled()
+  );
+  recorder.assert(
+    'Demo editor fields are disabled',
+    (await page.locator('select:disabled').count()) >= 2 &&
+      (await page.locator('input:disabled').count()) >= 5 &&
+      (await page.locator('textarea:disabled').count()) >= 2
+  );
+
+  await page.locator('select').first().selectOption('all');
+  await page.getByText('3 visible of 3 total cases').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Demo completed cash case appears under All cases',
+    (await page.getByText('RF-UAT-CASH').count()) > 0
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-demo-fallback.png'),
+    fullPage: true,
+  });
+
+  await page.goto(`${appUrl}/portal/refunds?demo=off`, { waitUntil: 'networkidle' });
+  await page.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Demo fallback can be disabled to show the true empty state',
+    await page.getByText('0 visible of 0 total cases').isVisible()
+  );
+  recorder.assert(
+    'No browser console/page errors during demo fallback QA pass',
+    consoleErrors.length === 0,
+    consoleErrors.slice(0, 3).join(' | ')
+  );
+
+  await context.close();
+};
+
 const run = async () => {
   const args = parseArgs(process.argv.slice(2));
   const recorder = createRecorder();
@@ -543,6 +632,12 @@ const run = async () => {
   try {
     await runUnauthenticatedChecks({ browser, appUrl: args.appUrl, recorder });
     await runRefundOnlyChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runDemoFallbackChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

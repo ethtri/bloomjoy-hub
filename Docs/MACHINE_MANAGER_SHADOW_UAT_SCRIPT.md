@@ -15,6 +15,7 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
   - Scoped admin: sees only scoped-machine refund cases.
   - Super admin: sees all refund cases and manages Machine Managers from Admin > Machines.
 - Confirm the tester knows refunds are still completed manually in Nayax or Zelle for MVP.
+- For local sponsor review, start the app with `npm run dev:uat` and use `http://127.0.0.1:8081`. If the connected queue is empty, the app may show clearly labeled read-only demo cases so UI review can continue without waiting on seeded data.
 
 ## Manager Script
 1. Sign in to the Bloomjoy operator app.
@@ -54,6 +55,18 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 - Denied cases require a friendly reason.
 - Completed cases require the correct manual refund reference and correlation evidence.
 - Nothing in the workflow suggests Bloomjoy automatically sends final approval, denial, or completion replies in MVP.
+
+## Super Admin Machine Manager Setup Check
+Use this only for super-admin/admin UAT, not for ordinary Machine Manager testers.
+
+1. Open `/admin/machines`.
+2. Edit a machine.
+3. In `Machine Managers`, search for an authenticated user by name or email.
+4. Add the user and confirm the status changes from saving to `Saved`.
+5. Confirm there is no separate `Save Machine Managers` button.
+6. Close the edit sheet and confirm the machine row shows the assigned manager email.
+7. Reopen the same machine and confirm the assigned manager is still shown.
+8. Confirm no machine can have more than 3 Machine Managers.
 
 ## Feedback Prompts
 Capture manager feedback in GitHub issues or PR comments using this format.

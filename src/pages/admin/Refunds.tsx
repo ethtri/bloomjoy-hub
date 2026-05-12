@@ -19,6 +19,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  buildLocalRefundDemoOverview,
+  canUseLocalRefundDemoData,
   createRefundAttachmentSignedUrl,
   fetchRefundOperationsOverview,
   lookupNayaxTransactions,
@@ -297,7 +299,7 @@ export default function AdminRefundsPage() {
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
 
   const {
-    data: overview = { cases: [], machines: [], managerAssignments: [] },
+    data: liveOverview = { cases: [], machines: [], managerAssignments: [] },
     isLoading,
     isFetching,
     error,
@@ -308,6 +310,15 @@ export default function AdminRefundsPage() {
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+  const isUsingDemoData =
+    canUseLocalRefundDemoData() &&
+    !isLoading &&
+    !error &&
+    liveOverview.cases.length === 0;
+  const overview = useMemo(
+    () => (isUsingDemoData ? buildLocalRefundDemoOverview() : liveOverview),
+    [isUsingDemoData, liveOverview]
+  );
 
   const filteredCases = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -378,6 +389,10 @@ export default function AdminRefundsPage() {
 
   const handleSaveCase = async () => {
     if (!selectedCase || !editor) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only. Seed local Supabase fixtures to test saving workflow changes.');
+      return;
+    }
 
     const refundAmountCents = centsFromCurrency(editor.refundAmount);
     if (editor.refundAmount && refundAmountCents === null) {
@@ -425,6 +440,10 @@ export default function AdminRefundsPage() {
 
   const handleNayaxLookup = async () => {
     if (!selectedCase) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases use static evidence. Seed local Supabase fixtures to test live Nayax lookup.');
+      return;
+    }
 
     setIsLookingUpNayax(true);
     try {
@@ -482,7 +501,7 @@ export default function AdminRefundsPage() {
                 Operations
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Refund workflow
+                Refunds
               </h1>
               <p className="mt-2 text-sm text-muted-foreground">
                 Work the queue, review matched evidence, and record the next refund decision.
@@ -518,6 +537,13 @@ export default function AdminRefundsPage() {
           {error && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               Failed to load refund operations.
+            </div>
+          )}
+
+          {isUsingDemoData && (
+            <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+              Showing local UAT demo cases because this environment has no assigned refund cases.
+              These cases are synthetic and read-only; use local Supabase fixtures for save/write-through testing.
             </div>
           )}
 
@@ -822,6 +848,7 @@ export default function AdminRefundsPage() {
                         <Label>Status</Label>
                         <select
                           value={editor.status}
+                          disabled={isUsingDemoData}
                           onChange={(event) =>
                             setEditor((current) =>
                               current
@@ -849,6 +876,7 @@ export default function AdminRefundsPage() {
                         <Label>Decision</Label>
                         <select
                           value={editor.decision ?? ''}
+                          disabled={isUsingDemoData}
                           onChange={(event) =>
                             setEditor((current) =>
                               current
@@ -878,6 +906,7 @@ export default function AdminRefundsPage() {
                         <Label>Refund amount</Label>
                         <Input
                           value={editor.refundAmount}
+                          disabled={isUsingDemoData}
                           onChange={(event) =>
                             setEditor((current) =>
                               current ? { ...current, refundAmount: event.target.value } : current
@@ -891,6 +920,7 @@ export default function AdminRefundsPage() {
                         <Label>Assigned manager email</Label>
                         <Input
                           value={editor.assignedManagerEmail}
+                          disabled={isUsingDemoData}
                           onChange={(event) =>
                             setEditor((current) =>
                               current
@@ -907,6 +937,7 @@ export default function AdminRefundsPage() {
                       <Label>Manual refund reference</Label>
                       <Input
                         value={editor.manualRefundReference}
+                        disabled={isUsingDemoData}
                         onChange={(event) =>
                           setEditor((current) =>
                             current ? { ...current, manualRefundReference: event.target.value } : current
@@ -932,7 +963,7 @@ export default function AdminRefundsPage() {
                             type="button"
                             variant="outline"
                             onClick={() => void handleNayaxLookup()}
-                            disabled={isLookingUpNayax}
+                            disabled={isLookingUpNayax || isUsingDemoData}
                           >
                             {isLookingUpNayax ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -948,6 +979,7 @@ export default function AdminRefundsPage() {
                               <button
                                 key={candidate.transactionId}
                                 type="button"
+                                disabled={isUsingDemoData}
                                 onClick={() =>
                                   setEditor((current) =>
                                     current
@@ -989,6 +1021,7 @@ export default function AdminRefundsPage() {
                             <Label>Machine auth time</Label>
                             <Input
                               value={editor.matchedNayaxMachineAuthTime}
+                              disabled={isUsingDemoData}
                               onChange={(event) =>
                                 setEditor((current) =>
                                   current
@@ -1004,6 +1037,7 @@ export default function AdminRefundsPage() {
                             <Label>Lookup amount</Label>
                             <Input
                               value={editor.matchedNayaxAmount}
+                              disabled={isUsingDemoData}
                               onChange={(event) =>
                                 setEditor((current) =>
                                   current
@@ -1020,6 +1054,7 @@ export default function AdminRefundsPage() {
                               <Label>Card last 4</Label>
                               <Input
                                 value={editor.matchedNayaxCardLast4}
+                                disabled={isUsingDemoData}
                                 onChange={(event) =>
                                   setEditor((current) =>
                                     current
@@ -1034,6 +1069,7 @@ export default function AdminRefundsPage() {
                               <Label>Currency</Label>
                               <Input
                                 value={editor.matchedNayaxCurrencyCode}
+                                disabled={isUsingDemoData}
                                 onChange={(event) =>
                                   setEditor((current) =>
                                     current
@@ -1052,6 +1088,7 @@ export default function AdminRefundsPage() {
                             type="button"
                             variant="ghost"
                             size="sm"
+                            disabled={isUsingDemoData}
                             className="mt-2 px-0 text-xs text-muted-foreground hover:text-foreground"
                             onClick={() =>
                               setEditor((current) =>
@@ -1083,6 +1120,7 @@ export default function AdminRefundsPage() {
                       <Label>Decision reason</Label>
                       <Textarea
                         value={editor.decisionReason}
+                        disabled={isUsingDemoData}
                         onChange={(event) =>
                           setEditor((current) =>
                             current ? { ...current, decisionReason: event.target.value } : current
@@ -1097,6 +1135,7 @@ export default function AdminRefundsPage() {
                       <Label>Internal note</Label>
                       <Textarea
                         value={editor.internalNote}
+                        disabled={isUsingDemoData}
                         onChange={(event) =>
                           setEditor((current) =>
                             current ? { ...current, internalNote: event.target.value } : current
@@ -1124,7 +1163,13 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
-                    <Button onClick={handleSaveCase} disabled={isSaving || saveIssues.length > 0}>
+                    {isUsingDemoData && (
+                      <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+                        Demo cases are read-only. To test updates, run the local refund UAT seed against a local Supabase instance.
+                      </div>
+                    )}
+
+                    <Button onClick={handleSaveCase} disabled={isSaving || isUsingDemoData || saveIssues.length > 0}>
                       {isSaving ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (

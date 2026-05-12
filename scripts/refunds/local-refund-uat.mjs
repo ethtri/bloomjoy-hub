@@ -27,7 +27,7 @@ const FIXTURE = {
 function parseArgs(argv) {
   const parsed = {
     email: 'refund-sponsor-uat@bloomjoy.localhost',
-    appUrl: 'http://localhost:8080',
+    appUrl: 'http://127.0.0.1:8081',
     envFiles: [...DEFAULT_ENV_FILES],
     explicitEnvFiles: [],
     dryRun: false,

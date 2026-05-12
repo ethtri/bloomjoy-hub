@@ -252,6 +252,238 @@ const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
 };
 
+const demoIsoHoursAgo = (hours: number) =>
+  new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+export const canUseLocalRefundDemoData = () => {
+  if (typeof window === 'undefined') return false;
+  if (!import.meta.env.DEV) return false;
+
+  const host = window.location.hostname;
+  const searchParams = new URLSearchParams(window.location.search);
+
+  return (
+    (host === 'localhost' || host === '127.0.0.1' || host === '::1') &&
+    searchParams.get('demo') !== 'off'
+  );
+};
+
+export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
+  const managerEmail = 'machine-manager@example.test';
+
+  return {
+    machines: [
+      {
+        id: 'demo-machine-card',
+        machineLabel: 'Cotton Candy 01',
+        locationName: 'Mall Atrium',
+        nayaxLookupConfigured: true,
+      },
+      {
+        id: 'demo-machine-cash',
+        machineLabel: 'Cotton Candy 02',
+        locationName: 'Arcade Hall',
+        nayaxLookupConfigured: false,
+      },
+    ],
+    managerAssignments: [
+      {
+        reportingMachineId: 'demo-machine-card',
+        managerEmail,
+      },
+      {
+        reportingMachineId: 'demo-machine-cash',
+        managerEmail,
+      },
+    ],
+    cases: [
+      {
+        id: 'demo-card-match',
+        publicReference: 'RF-UAT-CARD',
+        status: 'card_refund_pending',
+        priority: 'normal',
+        correlationStatus: 'matched',
+        correlationSource: 'nayax',
+        correlationConfidence: 0.97,
+        correlationSummary: 'Card sale matched inside the incident window.',
+        machineLabel: 'Cotton Candy 01',
+        locationName: 'Mall Atrium',
+        customerEmail: 'card-customer@example.test',
+        customerName: 'Card Customer',
+        customerPhone: null,
+        zellePaymentContact: null,
+        issueSummary: 'Machine spun but product did not dispense correctly.',
+        incidentAt: demoIsoHoursAgo(5),
+        paymentMethod: 'card',
+        paymentAmountCents: 700,
+        cardLast4: '4242',
+        cardWalletUsed: true,
+        hasMatchedSalesFact: false,
+        hasMatchedNayaxTransaction: true,
+        matchedNayaxMachineAuthTime: demoIsoHoursAgo(5),
+        matchedNayaxAmountCents: 700,
+        matchedNayaxCardLast4: '4242',
+        matchedNayaxCurrencyCode: 'USD',
+        assignedManagerEmail: managerEmail,
+        decision: 'approved',
+        decisionReason: 'Confirmed matching card transaction and customer report.',
+        decidedAt: demoIsoHoursAgo(4),
+        refundAmountCents: 700,
+        manualRefundReference: '',
+        hasReportingAdjustment: false,
+        createdAt: demoIsoHoursAgo(6),
+        updatedAt: demoIsoHoursAgo(2),
+        attachments: [],
+        events: [
+          {
+            id: 'demo-card-event-created',
+            eventType: 'created',
+            message: 'Case submitted from hosted refund form.',
+            createdAt: demoIsoHoursAgo(6),
+          },
+          {
+            id: 'demo-card-event-match',
+            eventType: 'nayax_match_selected',
+            message: 'Manager selected sanitized card lookup evidence.',
+            createdAt: demoIsoHoursAgo(4.5),
+          },
+        ],
+        messages: [
+          {
+            id: 'demo-card-message-confirmation',
+            messageType: 'confirmation',
+            status: 'sent',
+            recipientEmail: 'card-customer@example.test',
+            subject: 'We received your Bloomjoy refund request RF-UAT-CARD',
+            body: 'Thanks for reaching out. Our team will review this with care.',
+            sentAt: demoIsoHoursAgo(6),
+            errorMessage: null,
+            createdAt: demoIsoHoursAgo(6),
+          },
+        ],
+      },
+      {
+        id: 'demo-cash-waiting',
+        publicReference: 'RF-UAT-WAIT',
+        status: 'waiting_on_customer',
+        priority: 'normal',
+        correlationStatus: 'no_match',
+        correlationSource: 'sunze',
+        correlationConfidence: 0,
+        correlationSummary: 'No conservative cash match found for the reported time.',
+        machineLabel: 'Cotton Candy 02',
+        locationName: 'Arcade Hall',
+        customerEmail: 'cash-customer@example.test',
+        customerName: 'Cash Customer',
+        customerPhone: '555-0100',
+        zellePaymentContact: 'cash-customer@example.test',
+        issueSummary: 'Paid cash and the machine did not start.',
+        incidentAt: demoIsoHoursAgo(12),
+        paymentMethod: 'cash',
+        paymentAmountCents: 500,
+        cardLast4: null,
+        cardWalletUsed: false,
+        hasMatchedSalesFact: false,
+        hasMatchedNayaxTransaction: false,
+        matchedNayaxMachineAuthTime: null,
+        matchedNayaxAmountCents: null,
+        matchedNayaxCardLast4: null,
+        matchedNayaxCurrencyCode: null,
+        assignedManagerEmail: managerEmail,
+        decision: null,
+        decisionReason: null,
+        decidedAt: null,
+        refundAmountCents: null,
+        manualRefundReference: null,
+        hasReportingAdjustment: false,
+        createdAt: demoIsoHoursAgo(13),
+        updatedAt: demoIsoHoursAgo(11),
+        attachments: [],
+        events: [
+          {
+            id: 'demo-cash-event-created',
+            eventType: 'created',
+            message: 'Case submitted from hosted refund form.',
+            createdAt: demoIsoHoursAgo(13),
+          },
+          {
+            id: 'demo-cash-event-more-info',
+            eventType: 'more_info_requested',
+            message: 'More information email sent.',
+            createdAt: demoIsoHoursAgo(12.5),
+          },
+        ],
+        messages: [
+          {
+            id: 'demo-cash-message-more-info',
+            messageType: 'more_info',
+            status: 'sent',
+            recipientEmail: 'cash-customer@example.test',
+            subject: 'A little more information for RF-UAT-WAIT',
+            body: 'We want to make this right and need one more detail to find the transaction.',
+            sentAt: demoIsoHoursAgo(12.5),
+            errorMessage: null,
+            createdAt: demoIsoHoursAgo(12.5),
+          },
+        ],
+      },
+      {
+        id: 'demo-cash-completed',
+        publicReference: 'RF-UAT-CASH',
+        status: 'completed',
+        priority: 'normal',
+        correlationStatus: 'matched',
+        correlationSource: 'sunze',
+        correlationConfidence: 0.92,
+        correlationSummary: 'Single cash sale matched within one hour and amount matched.',
+        machineLabel: 'Cotton Candy 02',
+        locationName: 'Arcade Hall',
+        customerEmail: 'zelle-customer@example.test',
+        customerName: 'Zelle Customer',
+        customerPhone: '555-0101',
+        zellePaymentContact: 'zelle-customer@example.test',
+        issueSummary: 'Paid cash, product started, but did not finish correctly.',
+        incidentAt: demoIsoHoursAgo(28),
+        paymentMethod: 'cash',
+        paymentAmountCents: 600,
+        cardLast4: null,
+        cardWalletUsed: false,
+        hasMatchedSalesFact: true,
+        hasMatchedNayaxTransaction: false,
+        matchedNayaxMachineAuthTime: null,
+        matchedNayaxAmountCents: null,
+        matchedNayaxCardLast4: null,
+        matchedNayaxCurrencyCode: null,
+        assignedManagerEmail: managerEmail,
+        decision: 'approved',
+        decisionReason: 'Cash transaction matched and Zelle refund completed manually.',
+        decidedAt: demoIsoHoursAgo(24),
+        refundAmountCents: 600,
+        manualRefundReference: 'Zelle demo reference',
+        hasReportingAdjustment: true,
+        createdAt: demoIsoHoursAgo(30),
+        updatedAt: demoIsoHoursAgo(22),
+        attachments: [],
+        events: [
+          {
+            id: 'demo-zelle-event-created',
+            eventType: 'created',
+            message: 'Case submitted from hosted refund form.',
+            createdAt: demoIsoHoursAgo(30),
+          },
+          {
+            id: 'demo-zelle-event-completed',
+            eventType: 'completed',
+            message: 'Manual Zelle refund marked complete.',
+            createdAt: demoIsoHoursAgo(22),
+          },
+        ],
+        messages: [],
+      },
+    ],
+  };
+};
+
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
   const { data, error } = await supabaseClient.rpc('admin_get_refund_operations_overview');
 
