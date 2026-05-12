@@ -513,6 +513,14 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     page.url()
   );
 
+  await page.goto(`${appUrl}/admin/refunds?demo=on`, { waitUntil: 'networkidle' });
+  await page.waitForURL('**/portal/refunds?demo=on', { timeout: 10000 });
+  recorder.assert(
+    'Admin refund compatibility route preserves demo query redirect',
+    page.url().includes('/portal/refunds?demo=on'),
+    page.url()
+  );
+
   await page.goto(`${appUrl}/admin`, { waitUntil: 'networkidle' });
   recorder.assert(
     'Refund-only /admin redirects to /portal/refunds',

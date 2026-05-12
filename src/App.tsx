@@ -74,6 +74,12 @@ const RouteFallback = () => (
   <div className="container-page py-10 text-sm text-muted-foreground">Loading page...</div>
 );
 
+const RedirectWithSearch = ({ to }: { to: string }) => {
+  const location = useLocation();
+
+  return <Navigate to={`${to}${location.search}${location.hash}`} replace />;
+};
+
 const isAppLanguageSurface = (pathname: string) =>
   pathname === "/login" ||
   pathname === "/reset-password" ||
@@ -193,7 +199,7 @@ export const AppShell = () => (
               />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />
-              <Route path="/admin/refunds" element={<Navigate to="/portal/refunds" replace />} />
+              <Route path="/admin/refunds" element={<RedirectWithSearch to="/portal/refunds" />} />
               <Route
                 path="/admin/audit"
                 element={<Navigate to="/admin/access?tab=audit" replace />}
