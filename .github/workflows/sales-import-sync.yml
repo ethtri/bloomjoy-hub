@@ -121,10 +121,19 @@ jobs:
         if: ${{ success() && env.DRY_RUN != 'true' }}
         run: npm run reporting:provider-health -- --event freshness_check --stale-hours "$SALES_IMPORT_STALE_HOURS"
 
-      - name: Notify sales import failure
+      - name: Upload sales import diagnostics
         if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sales-import-sync-diagnostics-${{ github.run_id }}
+          path: sunze-sync-diagnostic.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Notify manual sales import failure
+        if: ${{ failure() && github.event_name == 'workflow_dispatch' && env.DRY_RUN != 'true' }}
         run: >
           npm run reporting:provider-health --
           --event failure
-          --message "Sales Import Sync workflow failed before a completed import."
+          --message "Manual Sales Import Sync workflow failed before a completed import."
           --stale-hours "$SALES_IMPORT_STALE_HOURS"

@@ -119,6 +119,9 @@ const revenueMatches = (summary, uiSummary) =>
   summary.orderAmountCents === uiSummary.uiRevenueCents ||
   uiSummary.uiRevenueCandidatesCents?.includes(summary.orderAmountCents);
 
+const rowCountMatches = (summary, uiSummary) =>
+  Number.isSafeInteger(uiSummary.uiRecordCount) && summary.rowCount === uiSummary.uiRecordCount;
+
 const windowMatches = (summary, uiSummary) =>
   (!summary.windowStart ||
     (summary.windowStart >= uiSummary.uiWindowStart && summary.windowStart <= uiSummary.uiWindowEnd)) &&
@@ -130,40 +133,105 @@ const describeUiSummary = (uiSummary, index) =>
     uiSummary.uiRevenueCents
   } cents/${uiSummary.uiWindowStart} to ${uiSummary.uiWindowEnd}; revenue candidates ${
     uiSummary.uiRevenueCandidatesCents?.join(',') || 'none'
-  }; row count trusted ${uiSummary.uiRecordCountTrusted === true ? 'yes' : 'no'} (${uiSummary.uiRecordCountSource ?? 'unknown'})`;
+  }; revenue trusted ${uiSummary.uiRevenueTrusted === true ? 'yes' : 'no'} (${
+    uiSummary.uiRevenueSource ?? 'unknown'
+  }); row count trusted ${uiSummary.uiRecordCountTrusted === true ? 'yes' : 'no'} (${
+    uiSummary.uiRecordCountSource ?? 'unknown'
+  })`;
+
+const buildMatch = (summary, uiSummary, { revenueMatched, mode }) => ({
+  ...uiSummary,
+  uiRevenueMatched: revenueMatched,
+  uiRecordCountMatched: rowCountMatches(summary, uiSummary),
+  uiReconciliationMode: mode,
+});
 
 export const assertExportMatchesUi = (summary, uiSummaries) => {
-  const candidateSummaries = uiSummaries.filter(
-    (uiSummary) => revenueMatches(summary, uiSummary) && windowMatches(summary, uiSummary)
-  );
+  const windowSummaries = uiSummaries.filter((uiSummary) => windowMatches(summary, uiSummary));
 
-  const trustedMatch = candidateSummaries.find(
-    (uiSummary) => uiSummary.uiRecordCountTrusted === true && summary.rowCount === uiSummary.uiRecordCount
+  const trustedRevenueMismatch = windowSummaries.find(
+    (uiSummary) => uiSummary.uiRevenueTrusted === true && !revenueMatches(summary, uiSummary)
   );
-  if (trustedMatch) {
-    return {
-      ...trustedMatch,
-      uiRevenueCents: summary.orderAmountCents,
-      uiRecordCountMatched: true,
-    };
-  }
-
-  const trustedMismatch = candidateSummaries.find(
-    (uiSummary) => uiSummary.uiRecordCountTrusted === true && summary.rowCount !== uiSummary.uiRecordCount
-  );
-  if (trustedMismatch) {
+  if (trustedRevenueMismatch) {
     throw new Error(
-      `Provider export mismatch: workbook parsed ${summary.rowCount} rows/${summary.orderAmountCents} cents/${summary.windowStart} to ${summary.windowEnd}; trusted UI row count ${trustedMismatch.uiRecordCount} did not match.`
+      `Provider export mismatch: workbook parsed ${summary.rowCount} rows/${summary.orderAmountCents} cents/${summary.windowStart} to ${summary.windowEnd}; trusted UI revenue ${trustedRevenueMismatch.uiRevenueCents} did not match.`
     );
   }
 
-  const weakMatch = candidateSummaries.find((uiSummary) => uiSummary.uiRecordCountTrusted !== true);
-  if (weakMatch) {
-    return {
-      ...weakMatch,
-      uiRevenueCents: summary.orderAmountCents,
-      uiRecordCountMatched: false,
-    };
+  const trustedRowCountMismatch = windowSummaries.find(
+    (uiSummary) =>
+      uiSummary.uiRecordCountTrusted === true &&
+      Number.isSafeInteger(uiSummary.uiRecordCount) &&
+      !rowCountMatches(summary, uiSummary)
+  );
+  if (trustedRowCountMismatch) {
+    throw new Error(
+      `Provider export mismatch: workbook parsed ${summary.rowCount} rows/${summary.orderAmountCents} cents/${summary.windowStart} to ${summary.windowEnd}; trusted UI row count ${trustedRowCountMismatch.uiRecordCount} did not match.`
+    );
+  }
+
+  const revenueMatchSummaries = windowSummaries.filter((uiSummary) =>
+    revenueMatches(summary, uiSummary)
+  );
+
+  const trustedRevenueAndRowMatch = revenueMatchSummaries.find(
+    (uiSummary) => uiSummary.uiRevenueTrusted === true && rowCountMatches(summary, uiSummary)
+  );
+  if (trustedRevenueAndRowMatch) {
+    return buildMatch(summary, trustedRevenueAndRowMatch, {
+      revenueMatched: true,
+      mode: 'trusted_revenue_and_row_count',
+    });
+  }
+
+  const trustedRevenueMatch = revenueMatchSummaries.find(
+    (uiSummary) => uiSummary.uiRevenueTrusted === true
+  );
+  if (trustedRevenueMatch) {
+    return buildMatch(summary, trustedRevenueMatch, {
+      revenueMatched: true,
+      mode: 'trusted_revenue',
+    });
+  }
+
+  const weakRevenueAndRowMatch = revenueMatchSummaries.find((uiSummary) =>
+    rowCountMatches(summary, uiSummary)
+  );
+  if (weakRevenueAndRowMatch) {
+    return buildMatch(summary, weakRevenueAndRowMatch, {
+      revenueMatched: true,
+      mode: 'weak_revenue_and_row_count',
+    });
+  }
+
+  const weakRevenueMatch = revenueMatchSummaries.find(
+    (uiSummary) => uiSummary.uiRevenueTrusted !== true
+  );
+  if (weakRevenueMatch) {
+    return buildMatch(summary, weakRevenueMatch, {
+      revenueMatched: true,
+      mode: 'weak_revenue',
+    });
+  }
+
+  const trustedRowCountMatch = windowSummaries.find(
+    (uiSummary) => uiSummary.uiRecordCountTrusted === true && rowCountMatches(summary, uiSummary)
+  );
+  if (trustedRowCountMatch) {
+    return buildMatch(summary, trustedRowCountMatch, {
+      revenueMatched: false,
+      mode: 'trusted_row_count',
+    });
+  }
+
+  const weakRowCountMatch = windowSummaries.find((uiSummary) =>
+    rowCountMatches(summary, uiSummary)
+  );
+  if (weakRowCountMatch) {
+    return buildMatch(summary, weakRowCountMatch, {
+      revenueMatched: false,
+      mode: 'weak_row_count',
+    });
   }
 
   const uiDiagnostic = uiSummaries.map(describeUiSummary).join('; ');

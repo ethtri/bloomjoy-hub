@@ -88,6 +88,15 @@ jobs:
         if: ${{ success() && env.DRY_RUN != 'true' }}
         run: npm run reporting:provider-health -- --event freshness_check --stale-hours "$SALES_IMPORT_STALE_HOURS"
 
+      - name: Upload sales import recovery diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sales-import-recovery-diagnostics-${{ github.run_id }}
+          path: sunze-sync-diagnostic.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Notify sales import recovery failure
         if: ${{ failure() && env.DRY_RUN != 'true' }}
         shell: bash
