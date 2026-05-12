@@ -298,24 +298,24 @@ export default function AdminRefundsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
+  const forceDemoData = isLocalUatDemoForced();
 
   const {
     data: liveOverview = { cases: [], machines: [], managerAssignments: [] },
-    isLoading,
-    isFetching,
+    isLoading: liveIsLoading,
+    isFetching: liveIsFetching,
     error,
   } = useQuery({
     queryKey: ['admin-refund-operations-overview'],
     queryFn: fetchRefundOperationsOverview,
+    enabled: !forceDemoData,
     staleTime: 1000 * 30,
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
-  const forceDemoData = isLocalUatDemoForced();
-  const isUsingDemoData =
-    canUseLocalRefundDemoData() &&
-    !isLoading &&
-    (forceDemoData || (!error && liveOverview.cases.length === 0));
+  const isUsingDemoData = canUseLocalRefundDemoData();
+  const pageIsLoading = isUsingDemoData ? false : liveIsLoading;
+  const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
   const overview = useMemo(
     () => (isUsingDemoData ? buildLocalRefundDemoOverview() : liveOverview),
     [isUsingDemoData, liveOverview]
@@ -508,8 +508,8 @@ export default function AdminRefundsPage() {
                 Work the queue, review matched evidence, and record the next refund decision.
               </p>
             </div>
-            <Button variant="outline" onClick={() => void refresh()} disabled={isFetching}>
-              {isFetching ? (
+            <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || isUsingDemoData}>
+              {pageIsFetching ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -585,12 +585,12 @@ export default function AdminRefundsPage() {
                 </p>
               </div>
               <div className="divide-y divide-border/70 lg:hidden">
-                {isLoading && (
+                {pageIsLoading && (
                   <div className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Loading refund queue...
                   </div>
                 )}
-                {!isLoading && filteredCases.length === 0 && (
+                {!pageIsLoading && filteredCases.length === 0 && (
                   <div className="px-4 py-10 text-center">
                     <p className="text-sm font-medium text-foreground">{emptyQueueTitle}</p>
                     <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
@@ -598,7 +598,7 @@ export default function AdminRefundsPage() {
                     </p>
                   </div>
                 )}
-                {!isLoading &&
+                {!pageIsLoading &&
                   filteredCases.map((refundCase) => (
                     <button
                       key={refundCase.id}
@@ -661,14 +661,14 @@ export default function AdminRefundsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {isLoading && (
+                  {pageIsLoading && (
                     <tr>
                       <td colSpan={4} className="px-4 py-10 text-center text-sm text-muted-foreground">
                         Loading refund queue...
                       </td>
                     </tr>
                   )}
-                  {!isLoading && filteredCases.length === 0 && (
+                  {!pageIsLoading && filteredCases.length === 0 && (
                     <tr>
                       <td colSpan={4} className="px-4 py-10 text-center">
                         <p className="text-sm font-medium text-foreground">{emptyQueueTitle}</p>
@@ -678,7 +678,7 @@ export default function AdminRefundsPage() {
                       </td>
                     </tr>
                   )}
-                  {!isLoading &&
+                  {!pageIsLoading &&
                     filteredCases.map((refundCase) => (
                       <tr
                         key={refundCase.id}

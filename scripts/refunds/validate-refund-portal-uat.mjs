@@ -240,7 +240,7 @@ const jsonResponse = (body) => ({
 
 const installMockSupabaseRoutes = async (
   context,
-  { refundOverview = buildMockRefundOverview } = {}
+  { refundOverview = buildMockRefundOverview, rpcCalls = [] } = {}
 ) => {
   await context.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
@@ -272,6 +272,8 @@ const installMockSupabaseRoutes = async (
 
   await context.route('**/rest/v1/rpc/**', async (route) => {
     const url = route.request().url();
+    const rpcName = new URL(url).pathname.split('/').pop() ?? '';
+    rpcCalls.push(rpcName);
 
     if (url.includes('/get_my_admin_access_context')) {
       return route.fulfill(
@@ -357,12 +359,13 @@ const installMockSupabaseRoutes = async (
   });
 };
 
-const signInRefundUser = async (page, appUrl) => {
-  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'domcontentloaded' });
+const signInRefundUser = async (page, appUrl, initialPath = '/portal/refunds', beforeSubmit) => {
+  await page.goto(`${appUrl}${initialPath}`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   await page.waitForSelector('#email-password', { timeout: 10000 });
   await page.fill('#email-password', mockUser.email);
   await page.fill('#password', 'mock-password');
+  beforeSubmit?.();
   await Promise.all([
     page.waitForURL('**/portal/refunds*', { timeout: 20000 }),
     page.getByRole('button', { name: /sign in/i }).click(),
@@ -549,21 +552,30 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
-  await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview });
+  const rpcCalls = [];
+  await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview, rpcCalls });
 
-  const page = await context.newPage();
+  let page = await context.newPage();
   const consoleErrors = [];
 
-  page.on('console', (message) => {
-    if (message.type() === 'error') {
-      consoleErrors.push(message.text());
-    }
-  });
-  page.on('pageerror', (error) => {
-    consoleErrors.push(error.message);
-  });
+  const trackErrors = (targetPage) => {
+    targetPage.on('console', (message) => {
+      if (message.type() === 'error') {
+        consoleErrors.push(message.text());
+      }
+    });
+    targetPage.on('pageerror', (error) => {
+      consoleErrors.push(error.message);
+    });
+  };
 
+  trackErrors(page);
   await signInRefundUser(page, appUrl);
+  await page.close();
+
+  rpcCalls.length = 0;
+  page = await context.newPage();
+  trackErrors(page);
   await page.goto(`${appUrl}/portal/refunds?demo=on`, { waitUntil: 'networkidle' });
   await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
 
@@ -606,6 +618,12 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     path: path.join(artifactDir, 'refund-portal-demo-fallback.png'),
     fullPage: true,
   });
+
+  recorder.assert(
+    'Explicit demo mode does not fetch live refund overview RPC data',
+    !rpcCalls.includes('admin_get_refund_operations_overview'),
+    rpcCalls.join(', ')
+  );
 
   await page.goto(`${appUrl}/portal/refunds?demo=off`, { waitUntil: 'networkidle' });
   await page.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });

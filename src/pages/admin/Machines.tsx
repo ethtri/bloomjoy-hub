@@ -255,29 +255,31 @@ export default function AdminMachinesPage() {
 
   const {
     data: liveSetup = emptySetup,
-    isLoading,
-    isFetching,
+    isLoading: liveIsLoading,
+    isFetching: liveIsFetching,
     error,
   } = useQuery({
     queryKey: setupQueryKey,
     queryFn: fetchPartnershipReportingSetup,
+    enabled: !isLocalDemoMode,
     staleTime: 1000 * 30,
   });
 
   const {
     data: liveRefundManagerSetup = emptyRefundManagerSetup,
-    isLoading: isRefundManagerSetupLoading,
+    isLoading: liveIsRefundManagerSetupLoading,
   } = useQuery({
     queryKey: refundManagerSetupQueryKey,
     queryFn: fetchRefundManagerSetup,
+    enabled: !isLocalDemoMode,
     staleTime: 1000 * 30,
   });
 
+  const isLoading = isLocalDemoMode ? false : liveIsLoading;
+  const isFetching = isLocalDemoMode ? false : liveIsFetching;
+  const isRefundManagerSetupLoading = isLocalDemoMode ? false : liveIsRefundManagerSetupLoading;
   const setup = useMemo(
-    () =>
-      isLocalDemoMode && liveSetup.machines.length === 0
-        ? buildLocalMachineManagerDemoSetup()
-        : liveSetup,
+    () => (isLocalDemoMode ? buildLocalMachineManagerDemoSetup() : liveSetup),
     [isLocalDemoMode, liveSetup]
   );
 
@@ -285,18 +287,13 @@ export default function AdminMachinesPage() {
     if (!isLocalDemoMode) return liveRefundManagerSetup;
 
     return {
-      machines: setup.machines.map((machine) => {
-        const savedMachine = liveRefundManagerSetup.machines.find((entry) => entry.id === machine.id);
-
-        return {
-          id: machine.id,
-          machineLabel: machine.machine_label,
-          locationName: machine.location_name,
-          nayaxLookupConfigured: savedMachine?.nayaxLookupConfigured ?? false,
-          managerEmails:
-            demoRefundManagerEmailsByMachineId[machine.id] ?? savedMachine?.managerEmails ?? [],
-        };
-      }),
+      machines: setup.machines.map((machine) => ({
+        id: machine.id,
+        machineLabel: machine.machine_label,
+        locationName: machine.location_name,
+        nayaxLookupConfigured: false,
+        managerEmails: demoRefundManagerEmailsByMachineId[machine.id] ?? [],
+      })),
     };
   }, [demoRefundManagerEmailsByMachineId, isLocalDemoMode, liveRefundManagerSetup, setup.machines]);
 

@@ -166,6 +166,8 @@ const installMockSupabaseRoutes = async (context, state) => {
 
   await context.route('**/rest/v1/rpc/**', async (route) => {
     const url = route.request().url();
+    const rpcName = new URL(url).pathname.split('/').pop() ?? '';
+    state.rpcCalls.push(rpcName);
 
     if (url.includes('/get_my_admin_access_context')) {
       return route.fulfill(
@@ -334,6 +336,7 @@ const run = async () => {
   const state = {
     managerEmails: [firstManagerEmail],
     savePayload: null,
+    rpcCalls: [],
   };
 
   await mkdir(args.artifactDir, { recursive: true });
@@ -440,6 +443,7 @@ const run = async () => {
 
     await page.getByRole('button', { name: 'Cancel' }).click();
     const savePayloadBeforeDemo = JSON.stringify(state.savePayload);
+    state.rpcCalls.length = 0;
 
     await page.goto(`${args.appUrl}/admin/machines?demo=on`, { waitUntil: 'networkidle' });
     await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
@@ -458,12 +462,19 @@ const run = async () => {
 
     recorder.assert(
       'Demo mode allows only listed demo Machine Manager accounts',
-      await demoMachineDialog.getByText('3 managers assigned').isVisible()
+      await demoMachineDialog.getByText('1 manager assigned').isVisible()
     );
     recorder.assert(
       'Demo mode Machine Manager save does not call the Supabase write RPC',
       JSON.stringify(state.savePayload) === savePayloadBeforeDemo,
       JSON.stringify(state.savePayload)
+    );
+    recorder.assert(
+      'Demo mode does not fetch live machine setup RPC data',
+      !state.rpcCalls.includes('admin_get_partnership_reporting_setup') &&
+        !state.rpcCalls.includes('admin_get_refund_manager_setup') &&
+        !state.rpcCalls.includes('admin_get_account_summaries'),
+      state.rpcCalls.join(', ')
     );
     recorder.assert(
       'Demo mode disables machine detail persistence',
