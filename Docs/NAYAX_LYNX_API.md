@@ -25,6 +25,8 @@ Edge Functions should read the token with:
 const nayaxToken = Deno.env.get("NAYAX_LYNX_API_TOKEN");
 ```
 
+Refund operations may use an account-scoped secret first, such as `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB`, then fall back to `NAYAX_LYNX_API_TOKEN`. Keep both server-only.
+
 ## Verified Endpoint Status
 Base path that works in production:
 

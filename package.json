@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:uat": "vite --host 127.0.0.1 --port 8081 --strictPort",
     "build": "vite build && node scripts/prerender-public-routes.mjs",
     "build:dev": "vite build --mode development && node scripts/prerender-public-routes.mjs",
     "seo:check": "node scripts/seo-regression-check.mjs",
@@ -22,6 +23,8 @@
     "reporting:provider-health": "node scripts/sunze/notify-health.mjs",
     "reporting:validate-provider-parser": "node scripts/sunze/validate-sunze-orders-parser.mjs",
     "reporting:validate-refund-adjustments": "node scripts/validate-refund-adjustments.mjs",
+    "refunds:validate-machine-manager-uat": "node scripts/refunds/validate-machine-manager-uat.mjs",
+    "refunds:validate-portal-uat": "node scripts/refunds/validate-refund-portal-uat.mjs",
     "reporting:validate-partner-effective-windows": "node scripts/validate-partner-effective-windows.mjs",
     "reporting:validate-partner-scheduled-export": "node scripts/validate-partner-report-scheduled-export.mjs",
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",

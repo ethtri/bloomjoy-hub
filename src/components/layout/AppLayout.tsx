@@ -65,6 +65,7 @@ type AdminDestination = {
   descriptionKey: TranslationKey;
   icon: LucideIcon;
   requiresSuperAdmin?: boolean;
+  surface?: 'access';
 };
 
 const adminDestinations: AdminDestination[] = [
@@ -110,6 +111,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Users, Plus Customer access, Corporate Partner access, global roles, reporting access, and audit history.',
     descriptionKey: 'admin.accessDescription',
     icon: Users,
+    surface: 'access',
   },
   {
     href: '/admin/partner-records',
@@ -128,7 +130,7 @@ const adminDestinations: AdminDestination[] = [
     labelKey: 'admin.machines',
     shortLabel: 'Machines',
     shortLabelKey: 'admin.machines',
-    description: 'Machine aliases, external machine IDs, assignment readiness, and tax rates.',
+    description: 'Machine aliases, external machine IDs, machine managers, and tax rates.',
     descriptionKey: 'admin.machinesDescription',
     icon: MonitorCog,
     requiresSuperAdmin: true,
@@ -203,7 +205,15 @@ const getAppContext = (
   };
 };
 
-const workspaceLinks = [
+type WorkspaceLink = {
+  href: string;
+  label: string;
+  labelKey: TranslationKey;
+  match: (pathname: string) => boolean;
+  requiresAdminWorkspace?: boolean;
+};
+
+const workspaceLinks: WorkspaceLink[] = [
   {
     href: '/portal',
     label: 'Portal',
@@ -215,7 +225,7 @@ const workspaceLinks = [
     label: 'Admin',
     labelKey: 'app.admin' as const,
     match: (pathname: string) => pathname.startsWith('/admin'),
-    requiresAdmin: true,
+    requiresAdminWorkspace: true,
   },
 ];
 
@@ -233,6 +243,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     portalAccessTier,
     signOut,
     user,
+    adminAccess,
   } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
@@ -247,9 +258,17 @@ export function AppLayout({ children }: AppLayoutProps) {
   const isAdminPath = location.pathname.startsWith('/admin');
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
-  const visibleAdminDestinations = adminDestinations.filter(
-    (item) => isSuperAdmin || !item.requiresSuperAdmin
-  );
+  const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
+  const visibleAdminDestinations = adminDestinations
+    .filter((item) => isSuperAdmin || !item.requiresSuperAdmin)
+    .filter((item) => {
+      if (!item.surface || isSuperAdmin || allowedAdminSurfaces.has('*')) {
+        return true;
+      }
+
+      return allowedAdminSurfaces.has(item.surface);
+    });
+  const canAccessAdminWorkspace = visibleAdminDestinations.length > 0;
 
   const handleSignOut = async () => {
     await signOut();
@@ -271,7 +290,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const renderWorkspaceLinks = (mobile = false) =>
     workspaceLinks
-      .filter((item) => !item.requiresAdmin || isAdmin)
+      .filter((item) => !item.requiresAdminWorkspace || canAccessAdminWorkspace)
       .map((item) => {
         if (mobile) {
           const isActive = item.match(location.pathname);
@@ -288,7 +307,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 )}
               >
                 <span>{t(item.labelKey)}</span>
-                {item.requiresAdmin && <Shield className="h-4 w-4" />}
+                {item.requiresAdminWorkspace && <Shield className="h-4 w-4" />}
               </Link>
             </SheetClose>
           );

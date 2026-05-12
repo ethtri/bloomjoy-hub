@@ -11,6 +11,15 @@ const repoRoot = path.resolve(__dirname, '..');
 const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
 const hardeningMigrationName = '202605060004_reduce_authenticated_rpc_advisor_surface.sql';
 const hardeningMigrationPath = path.join(migrationsDir, hardeningMigrationName);
+const refundOperationsMigrationName = '202605090001_refund_operations_mvp.sql';
+const refundOperationsMigrationPath = path.join(migrationsDir, refundOperationsMigrationName);
+const nayaxLookupFunctionPath = path.join(
+  repoRoot,
+  'supabase',
+  'functions',
+  'nayax-transaction-lookup',
+  'index.ts'
+);
 
 const serviceRoleOnlyFunctions = [
   {
@@ -131,6 +140,132 @@ const assertBrowserDoesNotCallServiceOnlyFunctions = () => {
   }
 };
 
+const assertBrowserDoesNotDirectlyUpdateRefundCases = () => {
+  const srcDir = path.join(repoRoot, 'src');
+  const sourceFiles = fs.existsSync(srcDir)
+    ? walkFiles(srcDir, (filePath) => /\.(ts|tsx|js|jsx)$/.test(filePath))
+    : [];
+  const directRefundUpdatePattern =
+    /\.from(?:<[^>]+>)?\(\s*['"`]refund_cases['"`]\s*\)[\s\S]{0,160}?\.update\s*\(/m;
+
+  for (const filePath of sourceFiles) {
+    const content = readText(filePath);
+    if (directRefundUpdatePattern.test(content)) {
+      fail(
+        `${path.relative(repoRoot, filePath)} directly updates refund_cases from browser code; use admin_update_refund_case instead.`
+      );
+    }
+  }
+};
+
+const assertRefundOperationsSafety = () => {
+  if (!fs.existsSync(refundOperationsMigrationPath)) {
+    fail(`Missing migration ${refundOperationsMigrationName}.`);
+  }
+
+  const sql = readText(refundOperationsMigrationPath);
+  const compact = compactSql(sql);
+
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'drop policy if exists "refund_cases_update_accessible" on public.refund_cases'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'revoke update on public.refund_cases from anon, authenticated'
+  );
+
+  if (/create\s+policy\s+"refund_cases_update_accessible"/i.test(sql)) {
+    fail(`${refundOperationsMigrationName}: direct browser update policy for refund_cases must not be recreated.`);
+  }
+
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'create or replace function public.is_review_safe_nayax_transaction_reference'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'Completed refund cases cannot move away from completed/approved through this RPC'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'Completed card refund cases require reviewed Nayax correlation plus a manual refund reference'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'Completed refund cases require a manual refund reference'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'p_clear_nayax_match boolean default false'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'Manager cleared Nayax transaction evidence for review.'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    'Denied refund cases require a friendly decision reason'
+  );
+  expectMigrationStatement(
+    refundOperationsMigrationName,
+    sql,
+    "'audit_payload_redacted', true"
+  );
+
+  if (compact.includes("'matched_nayax_transaction_id', after_row.matched_nayax_transaction_id")) {
+    fail(`${refundOperationsMigrationName}: refund_case reporting payload still includes raw Nayax transaction identifiers.`);
+  }
+
+  if (compact.includes("'matched_sales_fact_id', after_row.matched_sales_fact_id")) {
+    fail(`${refundOperationsMigrationName}: refund_case reporting payload still includes raw matched sales fact IDs.`);
+  }
+
+  if (compact.includes('or after_row.matched_nayax_site_id is null')) {
+    fail(`${refundOperationsMigrationName}: card completion should not require Nayax SiteID because Last Sales may omit it.`);
+  }
+
+  if (compact.includes('or refund_case_row.matched_nayax_site_id is null')) {
+    fail(`${refundOperationsMigrationName}: refund_case settlement write-through should not require Nayax SiteID because Last Sales may omit it.`);
+  }
+
+  if (/'refund_case'\s*,\s*after_row\.id::text\s*,\s*to_jsonb\(before_row\)\s*,\s*to_jsonb\(after_row\)/i.test(compact)) {
+    fail(`${refundOperationsMigrationName}: refund_case audit payload must be redacted, not full before/after rows.`);
+  }
+};
+
+const assertNayaxLookupLogsAreSanitized = () => {
+  if (!fs.existsSync(nayaxLookupFunctionPath)) {
+    fail('Missing nayax-transaction-lookup Edge Function.');
+  }
+
+  const source = readText(nayaxLookupFunctionPath);
+  if (source.includes('response.text()') || source.includes('errorBody')) {
+    fail('nayax-transaction-lookup must not read or log raw provider failure bodies.');
+  }
+
+  if (source.includes('console.error("nayax-transaction-lookup error", error)')) {
+    fail('nayax-transaction-lookup must not log raw error objects.');
+  }
+
+  if (!source.includes('"nayax-transaction-lookup provider failure"') || !source.includes('status: response.status')) {
+    fail('nayax-transaction-lookup should log sanitized provider status context on lookup failure.');
+  }
+
+  if (!source.includes('[89ab][0-9a-f]{3}-[0-9a-f]{12}')) {
+    fail('nayax-transaction-lookup UUID validation must accept standard reporting_machines UUIDs.');
+  }
+};
+
 const assertServiceOnlyMigrations = () => {
   if (!fs.existsSync(hardeningMigrationPath)) {
     fail(`Missing migration ${hardeningMigrationName}.`);
@@ -186,9 +321,12 @@ const main = () => {
   assertServiceOnlyMigrations();
   assertNoLaterAuthenticatedRegrant();
   assertBrowserDoesNotCallServiceOnlyFunctions();
+  assertBrowserDoesNotDirectlyUpdateRefundCases();
+  assertRefundOperationsSafety();
+  assertNayaxLookupLogsAreSanitized();
 
   console.log(
-    `RPC execute surface static checks passed: ${serviceRoleOnlyFunctions.length} service-role-only helper RPCs remain blocked from browser use.`
+    `RPC execute surface static checks passed: ${serviceRoleOnlyFunctions.length} service-role-only helper RPCs remain blocked from browser use, and refund case mutations remain RPC-gated.`
   );
 };
 

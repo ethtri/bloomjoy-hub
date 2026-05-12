@@ -6,6 +6,16 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Refund Operations MVP planning/implementation (2026-05-09)
+- Codex is acting as Bloomjoy PO/PM through the `bloomjoy-sprint-orchestrator` workflow for refund operations. PM tracking now uses epic `#402` plus implementation/QA issues `#403`-`#409`.
+- The MVP implementation branch starts the hosted refund system in parallel with the Google Form/AppSheet process: noindex `/refunds/request`, authenticated Portal > Refunds workflow at `/portal/refunds`, compatibility `/admin/refunds`, machine-level manager assignments, cash correlation against sales facts, customer confirmation/more-info emails, and reporting write-through for approved/completed correlated cases.
+- Access/UX direction for PR `#410`: machine managers use Portal > Refunds and do not see a separate top-level Refunds workspace, the Admin workspace/nav, or setup controls. Super admins manage Machine Manager assignments from Admin > Machines > Edit Machine so case processing and machine ownership setup stay separate.
+- Executive UAT is deferred until agents provide a pass/fail evidence packet. Repeatable refund portal and Machine Manager QA harnesses (`npm run refunds:validate-portal-uat`, `npm run refunds:validate-machine-manager-uat`) plus the manager-facing script (`Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md`) are the gate before executive proof review.
+- Owner-feedback correction on `2026-05-12`: Admin > Machines now treats Machine Manager assignment as autosaved machine ownership setup, removes the redundant `Save Machine Managers` action, shows assigned managers in the machine row after the edit sheet closes, and requires explicit `?demo=on` for local demo refund or Machine Manager data. Demo mode is labeled as visual-only and cannot be used as functional UAT evidence.
+- Nayax card lookup is activated for the official read-only Last Sales path behind server-only Edge Function configuration (`NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`, account-specific `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB`, or fallback `NAYAX_LYNX_API_TOKEN`) and per-machine Nayax IDs. Card refund execution remains out of MVP until lookup reliability is validated.
+- The next gate is AI-orchestrated manager-wide shadow UAT, not another planning meeting. Use `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md` as the go/no-go runbook; all current authenticated Machine Managers may participate, but the Google Form/AppSheet fallback stays live until cutover criteria pass.
+- Refund/reporting PR `#399` has merged into `main`; the refund operations branch has been synced from `main` and reporting validation should continue to be re-run after any further reporting-foundation changes.
+
 ## Nayax Lynx API discovery (2026-05-11)
 - Production Nayax token was added to Supabase project `ygbzkgxktzqsiygjlqyg` as server-only secret `NAYAX_LYNX_API_TOKEN`.
 - Current working production base path is `https://lynx.nayax.com/operational/v1`; tested `/operational/api/v1` paths returned `404` for current calls.

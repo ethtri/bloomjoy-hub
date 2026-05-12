@@ -62,12 +62,15 @@ export const translations = {
     'admin.partnerRecordsShort': 'Partner Records',
     'admin.partnerRecordsDescription': 'Reusable external organizations and reporting contacts.',
     'admin.machines': 'Machines',
-    'admin.machinesDescription': 'Machine aliases, external machine IDs, assignment readiness, and tax rates.',
+    'admin.machinesDescription': 'Machine aliases, external machine IDs, machine managers, and tax rates.',
     'admin.partnerships': 'Partnerships',
     'admin.partnershipsDescription':
       'Guided agreement setup, participants, assigned machines, split terms, and preview.',
     'admin.reporting': 'Reporting',
     'admin.reportingDescription': 'Report schedules, exports, and sync status.',
+    'admin.refunds': 'Refunds',
+    'admin.refundsDescription':
+      'Refund intake, correlation evidence, manager decisions, and settlement readiness.',
 
     'portal.memberPortal': 'Member Portal',
     'portal.description':
@@ -84,6 +87,7 @@ export const translations = {
     'portal.access.plus': 'Plus',
     'portal.access.support': 'Support',
     'portal.access.reporting': 'Reporting',
+    'portal.access.refunds': 'Refunds',
     'portal.access.open': 'Open',
 
     'portal.nav.dashboard': 'Dashboard',
@@ -96,6 +100,8 @@ export const translations = {
     'portal.nav.reportingDescription': 'Machine sales, location rollups, and available reporting views.',
     'portal.nav.reportingUpsell':
       'Sales reporting is available only for machines Bloomjoy has granted to this account.',
+    'portal.nav.refunds': 'Refunds',
+    'portal.nav.refundsDescription': 'Review assigned customer refund cases, evidence, and follow-up.',
     'portal.nav.training': 'Training',
     'portal.nav.trainingDescription': 'Task-first videos, quick aids, and operator guides.',
     'portal.nav.trainingUpsell': 'Unlock the operator hub, quick aids, and certificate path.',
@@ -630,7 +636,7 @@ export const translations = {
     'admin.partnerRecordsShort': '合作方',
     'admin.partnerRecordsDescription': '可复用的外部组织和报表联系人。',
     'admin.machines': '机器',
-    'admin.machinesDescription': '机器别名、外部机器 ID、分配就绪和税率。',
+    'admin.machinesDescription': '机器别名、外部机器 ID、机器负责人和税率。',
     'admin.partnerships': '合作设置',
     'admin.partnershipsDescription': '协议设置、参与方、分配机器、分账条款和预览。',
     'admin.reporting': '报表',
@@ -650,6 +656,7 @@ export const translations = {
     'portal.access.plus': 'Plus',
     'portal.access.support': '支持',
     'portal.access.reporting': '报表',
+    'portal.access.refunds': '退款',
     'portal.access.open': '开放',
 
     'portal.nav.dashboard': '仪表盘',
@@ -661,6 +668,8 @@ export const translations = {
     'portal.nav.reporting': '报表',
     'portal.nav.reportingDescription': '机器销售、地点汇总和可用报表视图。',
     'portal.nav.reportingUpsell': '销售报表仅对 Bloomjoy 授权给此账号的机器开放。',
+    'portal.nav.refunds': '退款',
+    'portal.nav.refundsDescription': '查看分配给你的客户退款案例、凭证和跟进。',
     'portal.nav.training': '培训',
     'portal.nav.trainingDescription': '按任务组织的视频、速查资料和操作指南。',
     'portal.nav.trainingUpsell': '解锁操作员中心、速查资料和证书路径。',

@@ -12,7 +12,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { MemberRoute } from "@/components/auth/MemberRoute";
-import { AdminRoute } from "@/components/auth/AdminRoute";
+import { AdminRoute, RefundOperationsRoute } from "@/components/auth/AdminRoute";
 import { HostRedirectGate } from "@/components/routing/HostRedirectGate";
 import { RouteErrorBoundary } from "@/components/routing/RouteErrorBoundary";
 import { RouteSeoManager } from "@/components/seo/RouteSeoManager";
@@ -45,6 +45,8 @@ const Privacy = lazyRoute(() => import("./pages/Privacy"));
 const Terms = lazyRoute(() => import("./pages/Terms"));
 const BillingCancellation = lazyRoute(() => import("./pages/BillingCancellation"));
 const Cart = lazyRoute(() => import("./pages/Cart"));
+const RefundRequest = lazyRoute(() => import("./pages/RefundRequest"));
+const RefundThankYou = lazyRoute(() => import("./pages/RefundThankYou"));
 const Login = lazyRoute(() => import("./pages/Login"));
 const ResetPassword = lazyRoute(() => import("./pages/ResetPassword"));
 const PortalDashboard = lazyRoute(() => import("./pages/portal/Dashboard"));
@@ -63,6 +65,7 @@ const AdminPartnerRecords = lazyRoute(() => import("./pages/admin/PartnerRecords
 const AdminMachines = lazyRoute(() => import("./pages/admin/Machines"));
 const AdminPartnerships = lazyRoute(() => import("./pages/admin/Partnerships"));
 const AdminReporting = lazyRoute(() => import("./pages/admin/Reporting"));
+const AdminRefunds = lazyRoute(() => import("./pages/admin/Refunds"));
 const NotFound = lazyRoute(() => import("./pages/NotFound"));
 
 const browserQueryClient = new QueryClient();
@@ -70,6 +73,12 @@ const browserQueryClient = new QueryClient();
 const RouteFallback = () => (
   <div className="container-page py-10 text-sm text-muted-foreground">Loading page...</div>
 );
+
+const RedirectWithSearch = ({ to }: { to: string }) => {
+  const location = useLocation();
+
+  return <Navigate to={`${to}${location.search}${location.hash}`} replace />;
+};
 
 const isAppLanguageSurface = (pathname: string) =>
   pathname === "/login" ||
@@ -158,11 +167,16 @@ export const AppShell = () => (
           <Route path="/terms" element={<Terms />} />
           <Route path="/billing-cancellation" element={<BillingCancellation />} />
           <Route path="/cart" element={<Cart />} />
+          <Route path="/refunds/request" element={<RefundRequest />} />
+          <Route path="/refunds/thank-you" element={<RefundThankYou />} />
           <Route path="/login" element={<Login />} />
           <Route path="/login/operator" element={<Navigate to="/login" replace />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/portal" element={<PortalDashboard />} />
+            <Route element={<RefundOperationsRoute />}>
+              <Route path="/portal/refunds" element={<AdminRefunds />} />
+            </Route>
             <Route element={<MemberRoute />}>
               <Route path="/portal/orders" element={<PortalOrders />} />
               <Route path="/portal/account" element={<PortalAccount />} />
@@ -185,6 +199,7 @@ export const AppShell = () => (
               />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />
+              <Route path="/admin/refunds" element={<RedirectWithSearch to="/portal/refunds" />} />
               <Route
                 path="/admin/audit"
                 element={<Navigate to="/admin/access?tab=audit" replace />}

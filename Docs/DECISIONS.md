@@ -1,5 +1,26 @@
 # Decisions
 
+## 2026-05-09 - Refund operations source-of-truth and shadow-mode rollout
+Refund inquiries will move from the Google Form/AppSheet process into Bloomjoy Hub as the operational source of truth, while the legacy process remains live during a shadow-mode pilot.
+
+**Canonical rule**
+- Customer intake uses the noindex hosted route `/refunds/request` for direct links and QR codes.
+- Managers remain the final approver for every refund. MVP automation may correlate, request more information, and prepare reporting adjustments, but it must not auto-approve.
+- Card correlation uses Nayax Lynx as the source of truth. Card refund execution remains manual until lookup reliability is proven.
+- Cash correlation uses imported sales facts as the source of truth, with conservative matching only by same machine, cash payment, incident time within +/- 1 hour, and exact amount when provided.
+- Approved/completed, fully correlated refund cases may write settlement adjustments with `source='refund_case'`; raw customer/payment/free-text intake must stay out of partner-facing reporting outputs.
+
+**Why this choice**
+- It reduces manager time spent reconciling requests while preserving human judgment for customer empathy and fraud/edge-case review.
+- It keeps payment-adjacent actions conservative until the Nayax lookup path is validated with real production evidence.
+- It allows QR/direct-link rollout by location without forcing a hard cutover from the existing Google/AppSheet fallback.
+
+**Implementation notes**
+- Track execution through issues `#402`-`#409` and call out overlap with existing refund/reporting PR `#399` on implementation PRs.
+- Shadow-mode acceptance requires hosted-intake cases to complete end to end while the Google Form/AppSheet process remains available.
+- The first pilot can include all current authenticated Machine Managers, but it remains a shadow pilot until `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md` merge and cutover gates pass.
+- Refund case processing belongs in the authenticated Portal (`/portal/refunds`), not as a separate top-level workspace tab. Machine Manager assignment belongs with machine setup in Admin > Machines, with up to 3 authenticated managers per machine.
+
 ## 2026-05-06 - Supply procurement notifications join the internal alert pipeline
 Supply procurement requests should use the same internal alert pattern as quote and paid order events.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   buildSanitizedRefundPayload,
   buildMachineProfiles,
@@ -16,6 +17,11 @@ import {
   refundReviewRowAppliesToPartnerScope,
   selectRemovedLiveSourceReviewRows,
 } from './refunds/refund-adjustment-utils.mjs';
+
+const refundOperationsMigration = readFileSync(
+  'supabase/migrations/202605090001_refund_operations_mvp.sql',
+  'utf8'
+);
 
 const machines = [
   {
@@ -707,6 +713,102 @@ const grossSplit = calculatePartnerSettlementTotals({
 assert.equal(grossSplit.splitBaseCents, 8000);
 assert.equal(grossSplit.amountOwedCents, 4000);
 
+assert.match(
+  refundOperationsMigration,
+  /check \(source in \('google_sheets', 'manual', 'refund_case'\)\)/,
+  'sales_adjustment_facts source check must allow reviewed refund_case write-through.'
+);
+assert.match(
+  refundOperationsMigration,
+  /if new\.source = 'refund_case'[\s\S]*?Refund case adjustments require an approved, completed, fully correlated case/,
+  'Refund case write-through must be guarded by completed/approved/correlated settlement checks.'
+);
+assert.match(
+  refundOperationsMigration,
+  /insert into public\.sales_adjustment_facts[\s\S]*?'refund_case'/,
+  'admin_update_refund_case must write completed cases through sales_adjustment_facts with source=refund_case.'
+);
+assert.match(
+  refundOperationsMigration,
+  /Completed refund cases cannot move away from completed\/approved through this RPC/,
+  'Completed refund cases must not be rolled back or denied while their adjustment remains settlement-active.'
+);
+assert.match(
+  refundOperationsMigration,
+  /normalized_status in \('submitted', 'needs_review', 'waiting_on_customer', 'correlated'\)[\s\S]*?normalized_decision := null;/,
+  'Review and follow-up refund statuses must clear stale approval/denial decisions in the guarded RPC.'
+);
+assert.match(
+  refundOperationsMigration,
+  /normalized_status in \('approved', 'card_refund_pending', 'cash_zelle_pending', 'completed'\)[\s\S]*?supplied_decision is not null and supplied_decision <> 'approved'[\s\S]*?normalized_decision := 'approved'/,
+  'Approved/pending/completed refund statuses must normalize to an approved decision in the guarded RPC.'
+);
+assert.match(
+  refundOperationsMigration,
+  /normalized_status = 'denied'[\s\S]*?supplied_decision is not null and supplied_decision <> 'denied'[\s\S]*?normalized_decision := 'denied'/,
+  'Denied refund cases must normalize to a denied decision in the guarded RPC.'
+);
+assert.match(
+  refundOperationsMigration,
+  /Denied refund cases require a friendly decision reason/,
+  'Denied refund cases must require a friendly decision reason before save.'
+);
+assert.match(
+  refundOperationsMigration,
+  /Completed refund cases require a manual refund reference/,
+  'Completed refund cases must require manual refund evidence for card and cash paths.'
+);
+assert.match(
+  refundOperationsMigration,
+  /p_clear_nayax_match boolean default false/,
+  'admin_update_refund_case must support explicitly clearing a mistaken Nayax match.'
+);
+assert.match(
+  refundOperationsMigration,
+  /Manager cleared Nayax transaction evidence for review/,
+  'Cleared Nayax matches should move card cases back to review-safe correlation state.'
+);
+assert.equal(
+  refundOperationsMigration.includes('or after_row.matched_nayax_site_id is null'),
+  false,
+  'Completed card refund cases must not require Nayax SiteID because Last Sales may not provide it.'
+);
+assert.equal(
+  refundOperationsMigration.includes('or refund_case_row.matched_nayax_site_id is null'),
+  false,
+  'Refund case settlement write-through must not require Nayax SiteID because Last Sales may not provide it.'
+);
+assert.equal(
+  refundOperationsMigration.includes('after_row.incident_at::date'),
+  false,
+  'Refund case write-through must not backdate settlement adjustments to incident date.'
+);
+assert.match(
+  refundOperationsMigration,
+  /after_row\.refund_completed_at::date/,
+  'Refund case write-through should use refund completion date for settlement adjustment date.'
+);
+assert.equal(
+  /normalized_status not in \([\s\S]*?'closed'[\s\S]*?\)/.test(refundOperationsMigration),
+  false,
+  'admin_update_refund_case must not allow managers to save ambiguous closed status.'
+);
+assert.equal(
+  refundOperationsMigration.includes("'matched_nayax_transaction_id', after_row.matched_nayax_transaction_id"),
+  false,
+  'Refund case reporting payload must not include raw Nayax transaction identifiers.'
+);
+assert.equal(
+  refundOperationsMigration.includes("'matched_sales_fact_id', after_row.matched_sales_fact_id"),
+  false,
+  'Refund case reporting payload must not include raw matched sales fact identifiers.'
+);
+assert.match(
+  refundOperationsMigration,
+  /'correlation_has_card_lookup'/,
+  'Refund case reporting payload should retain non-identifying card-correlation proof.'
+);
+
 console.log(
   JSON.stringify({
     status: 'ok',
@@ -749,6 +851,10 @@ console.log(
       partnerScopedOutOfScopeSuppressed: !outOfScopePhoneCaseDoesNotWarn,
       partnerScopedAmbiguousLabelSuppressed: !ambiguousLabelDoesNotWarn,
       refundReducesPartnerSettlement: true,
+      refundCaseWriteThroughGuarded: true,
+      completedRefundCaseRollbackDenied: true,
+      refundCaseDecisionStatusCoherence: true,
+      refundCaseReportingPayloadSanitized: true,
     },
   })
 );

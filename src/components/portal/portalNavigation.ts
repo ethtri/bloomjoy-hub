@@ -5,6 +5,7 @@ import {
   HeadphonesIcon,
   LayoutDashboard,
   ListChecks,
+  ReceiptText,
   Settings,
   ShoppingBag,
 } from 'lucide-react';
@@ -17,7 +18,8 @@ export type PortalAccessLevel =
   | 'training'
   | 'plus'
   | 'support'
-  | 'reporting';
+  | 'reporting'
+  | 'refunds';
 
 export interface PortalDestination {
   href: string;
@@ -78,6 +80,16 @@ export const portalDestinations: PortalDestination[] = [
     upsellCopyKey: 'portal.nav.reportingUpsell',
   },
   {
+    href: '/portal/refunds',
+    label: 'Refunds',
+    labelKey: 'portal.nav.refunds',
+    description: 'Review assigned customer refund cases, evidence, and follow-up.',
+    descriptionKey: 'portal.nav.refundsDescription',
+    icon: ReceiptText,
+    access: 'refunds',
+    mobileOrder: 5,
+  },
+  {
     href: '/portal/training',
     label: 'Training',
     labelKey: 'portal.nav.training',
@@ -85,7 +97,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.trainingDescription',
     icon: BookOpen,
     access: 'training',
-    mobileOrder: 5,
+    mobileOrder: 6,
     upsellCopy: 'Unlock the operator hub, quick aids, and certificate path.',
     upsellCopyKey: 'portal.nav.trainingUpsell',
   },
@@ -97,7 +109,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.onboardingDescription',
     icon: ListChecks,
     access: 'plus',
-    mobileOrder: 6,
+    mobileOrder: 7,
     upsellCopy: 'Unlock guided setup steps and first-spin milestones.',
     upsellCopyKey: 'portal.nav.onboardingUpsell',
   },
@@ -109,7 +121,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.supportDescription',
     icon: HeadphonesIcon,
     access: 'support',
-    mobileOrder: 7,
+    mobileOrder: 8,
     upsellCopy: 'Unlock guided support requests and concierge escalation.',
     upsellCopyKey: 'portal.nav.supportUpsell',
   },
@@ -126,7 +138,8 @@ export const canAccessPortalLevel = (
   accessTier: PortalAccessTier,
   accessLevel: PortalAccessLevel,
   hasReportingAccess = false,
-  capabilities: string[] = []
+  capabilities: string[] = [],
+  hasRefundOperationsAccess = false
 ): boolean => {
   const hasCapability = (capability: string) => capabilities.includes(capability);
 
@@ -152,6 +165,8 @@ export const canAccessPortalLevel = (
       return accessTier === 'plus' || hasCapability('support.request');
     case 'reporting':
       return hasReportingAccess || hasCapability('reports.partner.view');
+    case 'refunds':
+      return hasRefundOperationsAccess || hasCapability('refunds.manage');
     default:
       return false;
   }
@@ -169,6 +184,8 @@ export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
       return 'Support';
     case 'reporting':
       return 'Reporting';
+    case 'refunds':
+      return 'Refunds';
     case 'all':
     default:
       return 'Open';
@@ -187,6 +204,8 @@ export const getAccessLevelLabelKey = (accessLevel: PortalAccessLevel): Translat
       return 'portal.access.support';
     case 'reporting':
       return 'portal.access.reporting';
+    case 'refunds':
+      return 'portal.access.refunds';
     case 'all':
     default:
       return 'portal.access.open';

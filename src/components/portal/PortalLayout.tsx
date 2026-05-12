@@ -27,18 +27,28 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
-  const { capabilities, hasReportingAccess, isCorporatePartner, portalAccessTier } =
+  const { adminAccess, capabilities, hasReportingAccess, isCorporatePartner, isSuperAdmin, portalAccessTier } =
     useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const currentDestination = getPortalDestinationByPath(location.pathname);
+  const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
+  const hasRefundOperationsAccess =
+    isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
   const sortedDestinations = [...portalDestinations].sort(
     (left, right) => left.mobileOrder - right.mobileOrder
   );
   const canAccessDestination = (access: (typeof portalDestinations)[number]['access']) =>
-    canAccessPortalLevel(portalAccessTier, access, hasReportingAccess, capabilities);
+    canAccessPortalLevel(
+      portalAccessTier,
+      access,
+      hasReportingAccess,
+      capabilities,
+      hasRefundOperationsAccess
+    );
   const visibleDestinations = sortedDestinations
     .filter((destination) => destination.access !== 'reporting' || canAccessDestination(destination.access))
+    .filter((destination) => destination.access !== 'refunds' || canAccessDestination(destination.access))
     .filter((destination) =>
       portalAccessTier === 'training'
         ? canAccessDestination(destination.access)

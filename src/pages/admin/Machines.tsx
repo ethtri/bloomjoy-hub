@@ -1,8 +1,10 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
+  Check,
+  X,
   History,
   Loader2,
   Pencil,
@@ -41,7 +43,21 @@ import {
   type PartnershipSetupMachine,
   type ReportingMachineTaxRate,
 } from '@/lib/partnershipReporting';
-import { type ReportingMachineType, upsertReportingMachineAdmin } from '@/lib/reporting';
+import {
+  fetchAdminAccountSummaries,
+  type AdminAccountSummary,
+} from '@/lib/adminAccounts';
+import {
+  fetchRefundManagerSetup,
+  isLocalUatDemoForced,
+  setMachineRefundManagersAdmin,
+  type RefundManagerSetup,
+} from '@/lib/refundOperations';
+import {
+  lookupReportingUserByEmailAdmin,
+  type ReportingMachineType,
+  upsertReportingMachineAdmin,
+} from '@/lib/reporting';
 import { cn } from '@/lib/utils';
 import {
   formatLabel,
@@ -64,10 +80,12 @@ type MachineSetupRowViewModel = {
   taxStatus: TaxStatus;
   activeAssignments: PartnershipReportingSetup['assignments'];
   machineWarnings: PartnershipReportingSetup['warnings'];
+  machineManagerEmails: string[];
   draftValue: string;
 };
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
+const refundManagerSetupQueryKey = ['admin-refund-manager-setup'];
 const initialReportingTaxStartDate = '2026-01-01';
 const hiddenManualMachineAccountName = 'Manual Reporting Machines';
 const hiddenFallbackLocationName = 'Unmapped source machines';
@@ -82,6 +100,72 @@ const emptySetup: PartnershipReportingSetup = {
   financialRules: [],
   warnings: [],
 };
+
+const emptyRefundManagerSetup: RefundManagerSetup = {
+  machines: [],
+};
+
+const emptyAccountSummaries: AdminAccountSummary[] = [];
+const demoMachineManagerAccounts: AdminAccountSummary[] = [
+  {
+    user_id: 'demo-manager-1',
+    customer_email: 'manager-one@example.test',
+    membership_status: null,
+    current_period_end: null,
+    membership_cancel_at_period_end: false,
+    paid_subscription_active: false,
+    plus_access_source: 'none',
+    has_plus_access: false,
+    plus_grant_id: null,
+    plus_grant_starts_at: null,
+    plus_grant_expires_at: null,
+    plus_grant_active: false,
+    total_orders: 0,
+    last_order_at: null,
+    open_support_requests: 0,
+    total_machine_count: 0,
+    last_machine_update_at: null,
+  },
+  {
+    user_id: 'demo-manager-2',
+    customer_email: 'manager-two@example.test',
+    membership_status: null,
+    current_period_end: null,
+    membership_cancel_at_period_end: false,
+    paid_subscription_active: false,
+    plus_access_source: 'none',
+    has_plus_access: false,
+    plus_grant_id: null,
+    plus_grant_starts_at: null,
+    plus_grant_expires_at: null,
+    plus_grant_active: false,
+    total_orders: 0,
+    last_order_at: null,
+    open_support_requests: 0,
+    total_machine_count: 0,
+    last_machine_update_at: null,
+  },
+  {
+    user_id: 'demo-manager-3',
+    customer_email: 'operator-three@example.test',
+    membership_status: null,
+    current_period_end: null,
+    membership_cancel_at_period_end: false,
+    paid_subscription_active: false,
+    plus_access_source: 'none',
+    has_plus_access: false,
+    plus_grant_id: null,
+    plus_grant_starts_at: null,
+    plus_grant_expires_at: null,
+    plus_grant_active: false,
+    total_orders: 0,
+    last_order_at: null,
+    open_support_requests: 0,
+    total_machine_count: 0,
+    last_machine_update_at: null,
+  },
+];
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const emptyMachineForm = {
   machineId: null as string | null,
@@ -109,6 +193,39 @@ const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter =>
 };
 
 const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
+const uniqueEmails = (values: string[]) =>
+  Array.from(new Set(values.map(normalizeEmail).filter(Boolean)));
+
+const emailListsEqual = (left: string[], right: string[]) =>
+  left.length === right.length && left.every((email, index) => email === right[index]);
+
+const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
+  ...emptySetup,
+  machines: [
+    {
+      id: 'demo-machine-1',
+      machine_label: 'Refund UAT Cotton Candy 01',
+      machine_type: 'commercial',
+      sunze_machine_id: 'DEMO-SUNZE-01',
+      status: 'active',
+      account_name: 'Refund UAT Synthetic Account',
+      location_name: 'Refund UAT Mall',
+      latest_sale_date: today(),
+    },
+    {
+      id: 'demo-machine-2',
+      machine_label: 'Refund UAT Cotton Candy 02',
+      machine_type: 'commercial',
+      sunze_machine_id: 'DEMO-SUNZE-02',
+      status: 'active',
+      account_name: 'Refund UAT Synthetic Account',
+      location_name: 'Refund UAT Arcade',
+      latest_sale_date: today(),
+    },
+  ],
+});
 
 export default function AdminMachinesPage() {
   const queryClient = useQueryClient();
@@ -126,24 +243,78 @@ export default function AdminMachinesPage() {
   const [historyMachine, setHistoryMachine] = useState<PartnershipSetupMachine | null>(null);
   const [editingMachine, setEditingMachine] = useState<PartnershipSetupMachine | null>(null);
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
+  const [demoRefundManagerEmailsByMachineId, setDemoRefundManagerEmailsByMachineId] = useState<
+    Record<string, string[]>
+  >({});
 
   const highlightedMachineId = searchParams.get('machineId');
   const isMachineEditorRequested = searchParams.get('edit') === 'machine';
+  const isLocalDemoMode = isLocalUatDemoForced();
   const pendingSourceMachineId =
     searchParams.get('externalMachineId') ?? searchParams.get('sunzeMachineId');
 
   const {
-    data: setup = emptySetup,
-    isLoading,
-    isFetching,
+    data: liveSetup = emptySetup,
+    isLoading: liveIsLoading,
+    isFetching: liveIsFetching,
     error,
   } = useQuery({
     queryKey: setupQueryKey,
     queryFn: fetchPartnershipReportingSetup,
+    enabled: !isLocalDemoMode,
     staleTime: 1000 * 30,
   });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: setupQueryKey });
+  const {
+    data: liveRefundManagerSetup = emptyRefundManagerSetup,
+    isLoading: liveIsRefundManagerSetupLoading,
+  } = useQuery({
+    queryKey: refundManagerSetupQueryKey,
+    queryFn: fetchRefundManagerSetup,
+    enabled: !isLocalDemoMode,
+    staleTime: 1000 * 30,
+  });
+
+  const isLoading = isLocalDemoMode ? false : liveIsLoading;
+  const isFetching = isLocalDemoMode ? false : liveIsFetching;
+  const isRefundManagerSetupLoading = isLocalDemoMode ? false : liveIsRefundManagerSetupLoading;
+  const setup = useMemo(
+    () => (isLocalDemoMode ? buildLocalMachineManagerDemoSetup() : liveSetup),
+    [isLocalDemoMode, liveSetup]
+  );
+
+  const refundManagerSetup = useMemo<RefundManagerSetup>(() => {
+    if (!isLocalDemoMode) return liveRefundManagerSetup;
+
+    return {
+      machines: setup.machines.map((machine) => ({
+        id: machine.id,
+        machineLabel: machine.machine_label,
+        locationName: machine.location_name,
+        nayaxLookupConfigured: false,
+        managerEmails: demoRefundManagerEmailsByMachineId[machine.id] ?? [],
+      })),
+    };
+  }, [demoRefundManagerEmailsByMachineId, isLocalDemoMode, liveRefundManagerSetup, setup.machines]);
+
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: setupQueryKey }),
+      queryClient.invalidateQueries({ queryKey: refundManagerSetupQueryKey }),
+    ]);
+  };
+
+  const saveDemoMachineManagers = async (machineId: string, managerEmails: string[]) => {
+    setDemoRefundManagerEmailsByMachineId((current) => ({
+      ...current,
+      [machineId]: uniqueEmails(managerEmails),
+    }));
+  };
+
+  const refundManagerSetupByMachineId = useMemo(
+    () => new Map(refundManagerSetup.machines.map((machine) => [machine.id, machine])),
+    [refundManagerSetup.machines]
+  );
 
   const selectedMachineForEditor =
     editingMachine ??
@@ -169,6 +340,9 @@ export default function AdminMachinesPage() {
         const taxStatus = getTaxStatus(taxRate);
         const activeAssignments = getActiveMachineAssignments(setup, machine.id, currentDate);
         const machineWarnings = setup.warnings.filter((warning) => warning.machineId === machine.id);
+        const machineManagerEmails = uniqueEmails(
+          refundManagerSetupByMachineId.get(machine.id)?.managerEmails ?? []
+        );
 
         return {
           machine,
@@ -176,6 +350,7 @@ export default function AdminMachinesPage() {
           taxStatus,
           activeAssignments,
           machineWarnings,
+          machineManagerEmails,
           draftValue: taxDrafts[machine.id] ?? (taxRate ? String(Number(taxRate.tax_rate_percent)) : ''),
         };
       })
@@ -214,7 +389,7 @@ export default function AdminMachinesPage() {
         }
         return left.taxStatus.localeCompare(right.taxStatus);
       });
-  }, [assignmentFilter, search, setup, taxDrafts, taxFilter, sort]);
+  }, [assignmentFilter, refundManagerSetupByMachineId, search, setup, taxDrafts, taxFilter, sort]);
 
   const readinessCounts = useMemo(() => {
     const currentDate = today();
@@ -294,6 +469,11 @@ export default function AdminMachinesPage() {
   };
 
   const openTaxChangeDialog = (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => {
+    if (isLocalDemoMode) {
+      toast.info('Demo mode is visual only. Use seeded functional UAT to save reporting tax changes.');
+      return;
+    }
+
     setTaxChangeForm({
       machineId: machine.id,
       taxRatePercent: taxRate ? String(Number(taxRate.tax_rate_percent)) : '',
@@ -325,6 +505,11 @@ export default function AdminMachinesPage() {
     draftValue: string
   ) => {
     const parsedRate = Number(draftValue);
+
+    if (isLocalDemoMode) {
+      toast.info('Demo mode is visual only. Use seeded functional UAT to save reporting tax changes.');
+      return;
+    }
 
     if (!draftValue.trim() || Number.isNaN(parsedRate) || parsedRate < 0 || parsedRate > 100) {
       toast.error('Enter a tax rate from 0 to 100. Use 0 for explicit no-tax machines.');
@@ -358,6 +543,11 @@ export default function AdminMachinesPage() {
   const saveTaxChange = async () => {
     const machine = setup.machines.find((candidate) => candidate.id === taxChangeForm.machineId);
     const parsedRate = Number(taxChangeForm.taxRatePercent);
+
+    if (isLocalDemoMode) {
+      toast.info('Demo mode is visual only. Use seeded functional UAT to save reporting tax changes.');
+      return;
+    }
 
     if (!machine) {
       toast.error('Select a machine before recording a tax change.');
@@ -408,8 +598,8 @@ export default function AdminMachinesPage() {
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Machines</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage machine labels, external machine IDs, assignment readiness, and reporting
-                tax rates. Report membership is assigned from Partnerships.
+                Manage machine labels, external machine IDs, machine managers, assignment readiness,
+                and reporting tax rates. Report membership is assigned from Partnerships.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -417,16 +607,23 @@ export default function AdminMachinesPage() {
                 {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh
               </Button>
-              <Button onClick={openCreateMachine}>
+              <Button onClick={openCreateMachine} disabled={isLocalDemoMode}>
                 <Plus className="mr-2 h-4 w-4" />
                 New Manual Machine
               </Button>
             </div>
           </div>
 
-          {error && (
+          {error && !isLocalDemoMode && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               Unable to load machine setup.
+            </div>
+          )}
+
+          {isLocalDemoMode && (
+            <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+              DEMO DATA - visual review only. Machine Manager changes save in this browser only
+              and do not write to Supabase. Use seeded functional UAT to prove real persistence.
             </div>
           )}
 
@@ -575,6 +772,15 @@ export default function AdminMachinesPage() {
         onOpenChange={closeMachineDialog}
         machine={selectedMachineForEditor}
         machines={setup.machines}
+        refundManagerSetup={
+          selectedMachineForEditor
+            ? refundManagerSetupByMachineId.get(selectedMachineForEditor.id) ?? null
+            : null
+        }
+        isRefundManagerSetupLoading={isRefundManagerSetupLoading}
+        isLocalDemoMode={isLocalDemoMode}
+        demoManagerAccounts={demoMachineManagerAccounts}
+        onDemoMachineManagersSaved={saveDemoMachineManagers}
         onSaved={refresh}
       />
       <TaxChangeDialog
@@ -655,7 +861,7 @@ function MachineSetupRow({
   ) => void;
   onTaxDraftChange: (machineId: string, value: string) => void;
 }) {
-  const { machine, taxRate, taxStatus, activeAssignments, machineWarnings, draftValue } = row;
+  const { machine, taxRate, taxStatus, activeAssignments, machineWarnings, machineManagerEmails, draftValue } = row;
   const hasMissingRequiredTax = activeAssignments.length > 0 && taxStatus === 'missing';
   const hasAssignmentOverlap = machineWarnings.some(
     (warning) => warning.warningType === 'overlapping_partnership_assignments'
@@ -702,6 +908,12 @@ function MachineSetupRow({
           <div className="grid gap-0.5 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
             <dt className="font-medium text-foreground/70">Account</dt>
             <dd className="min-w-0 break-words">{machine.account_name || 'n/a'}</dd>
+          </div>
+          <div className="grid gap-0.5 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+            <dt className="font-medium text-foreground/70">Machine Managers</dt>
+            <dd className="min-w-0 break-words">
+              {machineManagerEmails.length > 0 ? machineManagerEmails.join(', ') : 'None assigned'}
+            </dd>
           </div>
         </dl>
       </div>
@@ -926,16 +1138,74 @@ function MachineDialog({
   onOpenChange,
   machine,
   machines,
+  refundManagerSetup,
+  isRefundManagerSetupLoading,
+  isLocalDemoMode,
+  demoManagerAccounts,
+  onDemoMachineManagersSaved,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   machine: PartnershipSetupMachine | null;
   machines: PartnershipSetupMachine[];
+  refundManagerSetup: RefundManagerSetup['machines'][number] | null;
+  isRefundManagerSetupLoading: boolean;
+  isLocalDemoMode: boolean;
+  demoManagerAccounts: AdminAccountSummary[];
+  onDemoMachineManagersSaved: (machineId: string, managerEmails: string[]) => Promise<unknown>;
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedMachineManagerEmails, setSelectedMachineManagerEmails] = useState<string[]>([]);
+  const [managerSearch, setManagerSearch] = useState('');
+  const [isAddingMachineManager, setIsAddingMachineManager] = useState(false);
+  const [isSavingMachineManagers, setIsSavingMachineManagers] = useState(false);
+  const [machineManagerSaveState, setMachineManagerSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
+  const loadedMachineManagerKeyRef = useRef('');
+  const savedMachineManagerEmails = useMemo(
+    () => uniqueEmails(refundManagerSetup?.managerEmails ?? []),
+    [refundManagerSetup]
+  );
+  const normalizedManagerSearch = normalizeEmail(managerSearch);
+  const selectedMachineManagerSet = useMemo(
+    () => new Set(selectedMachineManagerEmails),
+    [selectedMachineManagerEmails]
+  );
+  const {
+    data: remoteManagerSuggestions = emptyAccountSummaries,
+    isFetching: isSearchingRemoteMachineManagers,
+    error: remoteManagerSearchError,
+  } = useQuery({
+    queryKey: ['admin-machine-manager-search', normalizedManagerSearch],
+    queryFn: () => fetchAdminAccountSummaries(normalizedManagerSearch),
+    enabled:
+      !isLocalDemoMode &&
+      open &&
+      Boolean(form.machineId) &&
+      normalizedManagerSearch.length >= 3,
+    staleTime: 1000 * 30,
+  });
+  const managerSuggestions = useMemo(
+    () =>
+      isLocalDemoMode
+        ? demoManagerAccounts.filter((account) =>
+            normalizeEmail(account.customer_email ?? '').includes(normalizedManagerSearch)
+          )
+        : remoteManagerSuggestions,
+    [demoManagerAccounts, isLocalDemoMode, normalizedManagerSearch, remoteManagerSuggestions]
+  );
+  const isSearchingMachineManagers = !isLocalDemoMode && isSearchingRemoteMachineManagers;
+  const managerSearchError = isLocalDemoMode ? null : remoteManagerSearchError;
+  const visibleManagerSuggestions = useMemo(
+    () =>
+      managerSuggestions
+        .filter((account) => account.customer_email)
+        .filter((account) => !selectedMachineManagerSet.has(normalizeEmail(account.customer_email ?? '')))
+        .slice(0, 5),
+    [managerSuggestions, selectedMachineManagerSet]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -957,6 +1227,18 @@ function MachineDialog({
       sunzeMachineId: machine.sunze_machine_id ?? '',
     });
   }, [machine, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const nextLoadedKey = `${form.machineId ?? 'new'}:${savedMachineManagerEmails.join('\n')}`;
+    if (loadedMachineManagerKeyRef.current === nextLoadedKey) return;
+    loadedMachineManagerKeyRef.current = nextLoadedKey;
+    if (!emailListsEqual(selectedMachineManagerEmails, savedMachineManagerEmails)) {
+      setSelectedMachineManagerEmails(savedMachineManagerEmails);
+      setMachineManagerSaveState('idle');
+    }
+    setManagerSearch('');
+  }, [form.machineId, open, savedMachineManagerEmails, selectedMachineManagerEmails]);
 
   const saveMachine = async () => {
     if (!form.machineLabel.trim()) {
@@ -1001,6 +1283,115 @@ function MachineDialog({
       setIsSaving(false);
     }
   };
+
+  const persistMachineManagerEmails = async (
+    nextEmails: string[],
+    successMessage: string
+  ) => {
+    if (!form.machineId) return false;
+
+    if (nextEmails.length > 3) {
+      toast.error('Each machine can have up to 3 machine managers.');
+      return false;
+    }
+
+    const previousEmails = selectedMachineManagerEmails;
+    setSelectedMachineManagerEmails(nextEmails);
+    setIsSavingMachineManagers(true);
+    setMachineManagerSaveState('idle');
+
+    try {
+      if (isLocalDemoMode) {
+        await onDemoMachineManagersSaved(form.machineId, nextEmails);
+        setMachineManagerSaveState('saved');
+        toast.success(`${successMessage} Demo mode saved this assignment in the browser only.`);
+        return true;
+      }
+
+      await setMachineRefundManagersAdmin({
+        machineId: form.machineId,
+        managerEmails: nextEmails,
+        reason: 'Machine manager assignment updated from Admin Machines',
+      });
+      setMachineManagerSaveState('saved');
+      toast.success(successMessage);
+      await onSaved();
+      return true;
+    } catch (error) {
+      setSelectedMachineManagerEmails(previousEmails);
+      setMachineManagerSaveState('error');
+      const message = error instanceof Error ? error.message : 'Unable to save machine managers.';
+      toast.error(
+        message.includes('must be an authenticated user')
+          ? 'That person needs to sign in to Bloomjoy once before they can be assigned as a Machine Manager.'
+          : message
+      );
+      return false;
+    } finally {
+      setIsSavingMachineManagers(false);
+    }
+  };
+
+  const addMachineManagerEmail = async (email: string, options: { verifyAuthUser?: boolean } = {}) => {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail) return;
+
+    if (!emailPattern.test(normalizedEmail)) {
+      toast.error('Enter a valid manager email address.');
+      return;
+    }
+
+    if (selectedMachineManagerSet.has(normalizedEmail)) {
+      setManagerSearch('');
+      return;
+    }
+
+    if (selectedMachineManagerEmails.length >= 3) {
+      toast.error('Each machine can have up to 3 machine managers.');
+      return;
+    }
+
+    setIsAddingMachineManager(true);
+    try {
+      if (options.verifyAuthUser ?? true) {
+        if (isLocalDemoMode) {
+          const demoAccount = demoManagerAccounts.find(
+            (account) => normalizeEmail(account.customer_email ?? '') === normalizedEmail
+          );
+          if (!demoAccount) {
+            throw new Error('Use one of the demo users shown in Matching users for local UAT.');
+          }
+        } else {
+          const person = await lookupReportingUserByEmailAdmin(normalizedEmail);
+          if (!person.userEmail) {
+            throw new Error('This authenticated user does not have an email on file.');
+          }
+        }
+      }
+      const nextEmails = uniqueEmails([...selectedMachineManagerEmails, normalizedEmail]);
+      const saved = await persistMachineManagerEmails(nextEmails, 'Machine manager added.');
+      if (saved) {
+        setManagerSearch('');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to find an authenticated user for that email.';
+      toast.error(
+        message.startsWith('No user found')
+          ? 'That person needs to sign in to Bloomjoy once before they can be assigned as a Machine Manager.'
+          : message
+      );
+    } finally {
+      setIsAddingMachineManager(false);
+    }
+  };
+
+  const removeMachineManagerEmail = (email: string) => {
+    const nextEmails = selectedMachineManagerEmails.filter((entry) => entry !== email);
+    void persistMachineManagerEmails(nextEmails, 'Machine manager removed.');
+  };
+
+  const machineManagerCount = selectedMachineManagerEmails.length;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1055,13 +1446,179 @@ function MachineDialog({
             />
           </div>
         </div>
+        {form.machineId && (
+          <div className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="font-semibold text-foreground">Machine Managers</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Select the people responsible for this machine. They can handle customer
+                  inquiries, refund review, and machine follow-up from Portal &gt; Refunds.
+                </p>
+              </div>
+              <Badge variant="outline">
+                {machineManagerCount === 0
+                  ? 'No managers assigned'
+                  : machineManagerCount === 1
+                    ? '1 manager assigned'
+                    : `${machineManagerCount} managers assigned`}
+              </Badge>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {isSavingMachineManagers ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Saving changes...
+                </span>
+              ) : machineManagerSaveState === 'saved' ? (
+                <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Saved
+                </span>
+              ) : machineManagerSaveState === 'error' ? (
+                <span className="inline-flex items-center gap-1.5 text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Last change was not saved
+                </span>
+              ) : (
+                <span>Machine Manager changes save as soon as you add or remove someone.</span>
+              )}
+            </div>
+
+            <div className="mt-4 grid gap-4">
+              {isRefundManagerSetupLoading && (
+                <div className="rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+                  Loading current machine manager assignments...
+                </div>
+              )}
+              <div>
+                <Label htmlFor="machine-manager-search">People</Label>
+                <div className="mt-2 rounded-md border border-input bg-background p-2">
+                  {selectedMachineManagerEmails.length > 0 ? (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {selectedMachineManagerEmails.map((email) => (
+                        <span
+                          key={email}
+                          className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-medium text-primary"
+                        >
+                          <span className="truncate">{email}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeMachineManagerEmail(email)}
+                            disabled={isSavingMachineManagers || isAddingMachineManager}
+                            className="rounded-full p-0.5 text-primary/70 hover:bg-primary/15 hover:text-primary"
+                            aria-label={`Remove ${email}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mb-2 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                      No Machine Managers assigned yet.
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="relative min-w-0 flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="machine-manager-search"
+                        value={managerSearch}
+                        onChange={(event) => setManagerSearch(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            if (isAddingMachineManager || isSavingMachineManagers || machineManagerCount >= 3) {
+                              return;
+                            }
+                            void addMachineManagerEmail(managerSearch);
+                          }
+                        }}
+                        className="pl-9"
+                        placeholder="Search or enter an email"
+                        disabled={isAddingMachineManager || isSavingMachineManagers || machineManagerCount >= 3}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void addMachineManagerEmail(managerSearch)}
+                      disabled={
+                        isAddingMachineManager ||
+                        isSavingMachineManagers ||
+                        machineManagerCount >= 3 ||
+                        !managerSearch.trim()
+                      }
+                    >
+                      {isAddingMachineManager ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="mr-2 h-4 w-4" />
+                      )}
+                      Add
+                    </Button>
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  One manager is enough. Add up to three authenticated Bloomjoy users.
+                </p>
+                {managerSearchError && (
+                  <p className="mt-2 text-sm text-destructive">Unable to search matching users.</p>
+                )}
+                {managerSearch.trim().length >= 3 && (
+                  <div className="mt-2 rounded-md border border-border bg-background">
+                    <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Matching users
+                      </span>
+                      {isSearchingMachineManagers && (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                    </div>
+                    {visibleManagerSuggestions.length === 0 && !isSearchingMachineManagers ? (
+                      <p className="px-3 py-3 text-sm text-muted-foreground">
+                        No matching account user found. Enter the full email and choose Add if the
+                        person already has a Bloomjoy login.
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-border">
+                        {visibleManagerSuggestions.map((account) => {
+                          const email = normalizeEmail(account.customer_email ?? '');
+
+                          return (
+                            <button
+                              key={account.user_id}
+                              type="button"
+                              onClick={() => void addMachineManagerEmail(email, { verifyAuthUser: false })}
+                              disabled={isSavingMachineManagers || isAddingMachineManager}
+                              className="flex w-full min-w-0 items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-muted/30"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-foreground">
+                                  {email}
+                                </span>
+                                <span className="block text-xs text-muted-foreground">Bloomjoy user</span>
+                              </span>
+                              <Check className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={saveMachine} disabled={isSaving}>
+          <Button onClick={saveMachine} disabled={isSaving || isLocalDemoMode}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Save Machine
+            Save machine details
           </Button>
         </SheetFooter>
       </SheetContent>

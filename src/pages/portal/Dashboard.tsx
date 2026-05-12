@@ -113,10 +113,23 @@ export default function PortalDashboard() {
     canAccessTraining,
     capabilities,
     hasReportingAccess,
+    adminAccess,
+    isSuperAdmin,
     reportingMachineCount,
     reportingLocationCount,
     portalAccessTier,
   } = useAuth();
+  const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
+  const hasRefundOperationsAccess =
+    isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
+  const canAccessPortalAction = (access: PortalAccessLevel) =>
+    canAccessPortalLevel(
+      portalAccessTier,
+      access,
+      hasReportingAccess,
+      capabilities,
+      hasRefundOperationsAccess
+    );
   const onboardingProgress = getOnboardingProgress(user?.email);
   const { data: library = [] } = useTrainingLibrary(canAccessTraining);
   const { data: trackDefinitions = [] } = useTrainingTracks(canAccessTraining);
@@ -433,30 +446,19 @@ export default function PortalDashboard() {
               {dashboardActions
                 .filter((action) =>
                   action.access !== 'reporting' ||
-                  canAccessPortalLevel(
-                    portalAccessTier,
-                    action.access,
-                    hasReportingAccess,
-                    capabilities
-                  )
+                  canAccessPortalAction(action.access)
+                )
+                .filter((action) =>
+                  action.access !== 'refunds' ||
+                  canAccessPortalAction(action.access)
                 )
                 .filter((action) =>
                   portalAccessTier === 'training'
-                    ? canAccessPortalLevel(
-                        portalAccessTier,
-                        action.access,
-                        hasReportingAccess,
-                        capabilities
-                      )
+                    ? canAccessPortalAction(action.access)
                     : true
                 )
                 .map((action) => {
-                const locked = !canAccessPortalLevel(
-                  portalAccessTier,
-                  action.access,
-                  hasReportingAccess,
-                  capabilities
-                );
+                const locked = !canAccessPortalAction(action.access);
                 const ActionIcon = action.icon;
 
                 return (
