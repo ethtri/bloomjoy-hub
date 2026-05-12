@@ -1,6 +1,7 @@
 import { type FormEvent, useMemo, useState } from 'react';
-import { CheckCircle2, Loader2, Paperclip, ShieldCheck } from 'lucide-react';
+import { Loader2, Paperclip, ShieldCheck, Sparkles } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ const emptyForm = {
   customerName: '',
   customerEmail: '',
   customerPhone: '',
+  zellePaymentContact: '',
   incidentDate: '',
   incidentTime: '',
   paymentMethod: 'card' as RefundPaymentMethod,
@@ -45,10 +47,10 @@ const buildIncidentIso = (incidentDate: string, incidentTime: string) => {
 };
 
 export default function RefundRequestPage() {
+  const navigate = useNavigate();
   const [form, setForm] = useState(emptyForm);
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submittedReference, setSubmittedReference] = useState('');
 
   const {
     data: machines = [],
@@ -100,8 +102,23 @@ export default function RefundRequestPage() {
       return;
     }
 
+    if (!form.customerName.trim()) {
+      toast.error('Enter your name so we know who to help.');
+      return;
+    }
+
+    if (!form.paymentAmount.trim()) {
+      toast.error('Enter the amount you paid.');
+      return;
+    }
+
     if (form.paymentMethod === 'card' && !/^[0-9]{4}$/.test(form.cardLast4.trim())) {
       toast.error('Enter the last 4 digits shown for the card payment.');
+      return;
+    }
+
+    if (form.paymentMethod === 'cash' && !form.zellePaymentContact.trim()) {
+      toast.error('Enter the phone number or email connected to your Zelle account.');
       return;
     }
 
@@ -113,6 +130,8 @@ export default function RefundRequestPage() {
         customerName: form.customerName.trim(),
         customerEmail: form.customerEmail.trim().toLowerCase(),
         customerPhone: form.customerPhone.trim(),
+        zellePaymentContact:
+          form.paymentMethod === 'cash' ? form.zellePaymentContact.trim() : undefined,
         issueSummary: form.issueSummary.trim(),
         incidentAt,
         paymentMethod: form.paymentMethod,
@@ -122,10 +141,9 @@ export default function RefundRequestPage() {
         attachments,
       });
 
-      setSubmittedReference(refundCase?.publicReference ?? '');
       setForm(emptyForm);
       setFiles([]);
-      toast.success('Refund request submitted.');
+      navigate(`/refunds/thank-you?ref=${encodeURIComponent(refundCase?.publicReference ?? '')}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to submit refund request.';
       toast.error(message);
@@ -136,36 +154,23 @@ export default function RefundRequestPage() {
 
   return (
     <Layout>
-      <section className="section-padding bg-gradient-to-b from-background via-background to-muted/30">
+      <section className="section-padding bg-gradient-to-b from-pink-50 via-background to-background">
         <div className="container-page">
           <div className="mx-auto max-w-3xl">
-            <div className="mb-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="mb-6 rounded-2xl border border-pink-200 bg-white p-5 shadow-sm sm:p-6">
+              <div className="inline-flex items-center gap-2 rounded-full bg-pink-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-pink-700">
+                <Sparkles className="h-3.5 w-3.5" />
                 Bloomjoy Sweets
-              </p>
+              </div>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground sm:text-4xl">
-                Refund Request
+                Let us make this right
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Share the machine, timing, payment details, and what happened. The operations team
-                will review it with care and follow up by email.
+                We are sorry your Bloomjoy treat did not go the way it should have. Share a few
+                details below and our team will review your request with care. Most reviews are
+                completed within 5 business days.
               </p>
             </div>
-
-            {submittedReference && (
-              <div className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-                  <div>
-                    <p className="font-semibold">Request received: {submittedReference}</p>
-                    <p className="mt-1">
-                      We will follow up by email. Please keep this reference handy if you reply
-                      with more details or do not see a confirmation.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
               <div className="grid gap-5">
@@ -202,6 +207,7 @@ export default function RefundRequestPage() {
                       value={form.customerName}
                       onChange={(event) => updateForm('customerName', event.target.value)}
                       autoComplete="name"
+                      required
                       className="mt-2"
                     />
                   </div>
@@ -267,7 +273,6 @@ export default function RefundRequestPage() {
                     >
                       <option value="card">Credit card</option>
                       <option value="cash">Cash</option>
-                      <option value="unknown">Not sure</option>
                     </select>
                   </div>
                   <div>
@@ -278,16 +283,17 @@ export default function RefundRequestPage() {
                       placeholder="Example: 12.00"
                       value={form.paymentAmount}
                       onChange={(event) => updateForm('paymentAmount', event.target.value)}
+                      required
                       className="mt-2"
                     />
                   </div>
                 </div>
 
                 {form.paymentMethod === 'card' && (
-                  <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+                  <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
                     <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
                       <div>
-                        <Label htmlFor="card-last4">Last 4 digits</Label>
+                        <Label htmlFor="card-last4">Last 4 digits on the card charge</Label>
                         <Input
                           id="card-last4"
                           inputMode="numeric"
@@ -316,6 +322,26 @@ export default function RefundRequestPage() {
                   </div>
                 )}
 
+                {form.paymentMethod === 'cash' && (
+                  <div className="rounded-lg border border-pink-200 bg-pink-50 p-4 text-sm text-pink-950">
+                    <p className="leading-6">
+                      For cash refunds, approved refunds are sent through Zelle. Please enter the
+                      phone number or email connected to your Zelle account.
+                    </p>
+                    <div className="mt-4">
+                      <Label htmlFor="zelle-payment-contact">Zelle phone number or email</Label>
+                      <Input
+                        id="zelle-payment-contact"
+                        value={form.zellePaymentContact}
+                        onChange={(event) => updateForm('zellePaymentContact', event.target.value)}
+                        autoComplete="email"
+                        required
+                        className="mt-2 bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <Label htmlFor="issue-summary">What happened?</Label>
                   <Textarea
@@ -324,7 +350,7 @@ export default function RefundRequestPage() {
                     onChange={(event) => updateForm('issueSummary', event.target.value)}
                     required
                     rows={6}
-                    placeholder="Tell us what went wrong, whether cotton candy was dispensed, and anything visible on the machine screen."
+                    placeholder="Tell us what went wrong, whether cotton candy was dispensed, and anything visible on the machine screen. We appreciate the detail."
                     className="mt-2"
                   />
                 </div>

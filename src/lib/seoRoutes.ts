@@ -414,6 +414,19 @@ export const privateRoutes: PrivateRouteSeo[] = [
     lastmod: LASTMOD,
   },
   {
+    path: "/refunds/thank-you",
+    canonicalOrigin: MARKETING_ORIGIN,
+    title: "Refund Request Received | Bloomjoy",
+    description:
+      "Confirmation page for Bloomjoy refund and product issue requests.",
+    robots: PRIVATE_ROBOTS,
+    surface: "marketing",
+    ogType: "website",
+    ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
+    ogImageAlt: DEFAULT_IMAGE_ALT,
+    lastmod: LASTMOD,
+  },
+  {
     path: "/login/operator",
     canonicalOrigin: APP_ORIGIN,
     canonicalPath: "/login",

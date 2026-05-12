@@ -124,8 +124,8 @@
       "dest": "/$1.html"
     },
     {
-      "src": "/refunds/request/?",
-      "dest": "/refunds/request.html"
+      "src": "/refunds/(request|thank-you)/?",
+      "dest": "/refunds/$1.html"
     },
     {
       "src": "/portal(?:/.*)?/?",

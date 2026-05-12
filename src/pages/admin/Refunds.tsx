@@ -765,6 +765,44 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
 
+                    <div className="grid gap-3 rounded-lg border border-border bg-background p-3 text-sm sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Customer
+                        </p>
+                        <p className="mt-1 break-words font-medium text-foreground">
+                          {selectedCase.customerName || 'Name not provided'}
+                        </p>
+                        <p className="mt-1 break-words text-muted-foreground">
+                          {selectedCase.customerEmail}
+                        </p>
+                        {selectedCase.customerPhone && (
+                          <p className="mt-1 break-words text-muted-foreground">
+                            Phone: {selectedCase.customerPhone}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Refund path
+                        </p>
+                        <p className="mt-1 capitalize text-foreground">
+                          {selectedCase.paymentMethod === 'cash' ? 'Cash refund by Zelle' : 'Card refund by Nayax'}
+                        </p>
+                        {selectedCase.paymentMethod === 'cash' && (
+                          <p className="mt-1 break-words text-muted-foreground">
+                            Zelle: {selectedCase.zellePaymentContact || 'Not provided'}
+                          </p>
+                        )}
+                        {selectedCase.paymentMethod === 'card' && (
+                          <p className="mt-1 text-muted-foreground">
+                            Last 4: {selectedCase.cardLast4 || 'n/a'}
+                            {selectedCase.cardWalletUsed ? ' / wallet payment noted' : ''}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="rounded-lg border border-border bg-muted/25 p-3 text-sm">
                       <p className="font-medium text-foreground">
                         {selectedCase.locationName} - {selectedCase.machineLabel}

@@ -51,6 +51,7 @@ export type SubmitRefundRequestInput = {
   customerName?: string;
   customerEmail: string;
   customerPhone?: string;
+  zellePaymentContact?: string;
   issueSummary: string;
   incidentAt: string;
   paymentMethod: RefundPaymentMethod;
@@ -115,6 +116,7 @@ export type RefundCaseRecord = {
   customerEmail: string;
   customerName: string | null;
   customerPhone: string | null;
+  zellePaymentContact: string | null;
   issueSummary: string;
   incidentAt: string;
   paymentMethod: RefundPaymentMethod;

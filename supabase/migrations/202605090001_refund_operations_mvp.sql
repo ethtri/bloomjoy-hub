@@ -130,10 +130,11 @@ create table if not exists public.refund_cases (
   customer_email text not null,
   customer_name text,
   customer_phone text,
+  zelle_payment_contact text,
   issue_summary text not null,
   incident_at timestamptz not null,
   payment_method text not null
-    check (payment_method in ('card', 'cash', 'unknown')),
+    check (payment_method in ('card', 'cash')),
   payment_amount_cents integer check (payment_amount_cents is null or payment_amount_cents >= 0),
   card_last4 text,
   card_wallet_used boolean not null default false,
@@ -198,7 +199,11 @@ create table if not exists public.refund_cases (
   constraint refund_cases_public_reference_unique unique (public_reference),
   constraint refund_cases_customer_email_present check (length(trim(customer_email)) > 0),
   constraint refund_cases_issue_summary_present check (length(trim(issue_summary)) > 0),
-  constraint refund_cases_card_last4_format check (card_last4 is null or card_last4 ~ '^[0-9]{4}$')
+  constraint refund_cases_card_last4_format check (card_last4 is null or card_last4 ~ '^[0-9]{4}$'),
+  constraint refund_cases_cash_zelle_contact_present check (
+    payment_method <> 'cash'
+    or length(trim(coalesce(zelle_payment_contact, ''))) > 0
+  )
 );
 
 create index if not exists refund_cases_created_at_idx
@@ -704,6 +709,7 @@ begin
           'customerEmail', refund_case.customer_email,
           'customerName', refund_case.customer_name,
           'customerPhone', refund_case.customer_phone,
+          'zellePaymentContact', refund_case.zelle_payment_contact,
           'issueSummary', refund_case.issue_summary,
           'incidentAt', refund_case.incident_at,
           'paymentMethod', refund_case.payment_method,

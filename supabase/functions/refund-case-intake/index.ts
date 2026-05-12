@@ -186,6 +186,7 @@ const buildCustomerEmail = ({
   machineLabel,
   locationName,
   amountCents,
+  paymentMethod,
   needsMoreInfo,
 }: {
   publicReference: string;
@@ -193,6 +194,7 @@ const buildCustomerEmail = ({
   machineLabel: string;
   locationName: string;
   amountCents: number | null;
+  paymentMethod: string;
   needsMoreInfo: boolean;
 }) => {
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
@@ -208,6 +210,10 @@ const buildCustomerEmail = ({
   const safeLocationName = escapeHtml(locationName);
   const safeAmount = escapeHtml(formatCurrency(amountCents));
   const safeNextStep = escapeHtml(nextStep);
+  const paymentNote = paymentMethod === "cash"
+    ? "If approved, cash refunds are sent through Zelle using the contact information you shared."
+    : "If approved, card refunds are completed through our payment provider.";
+  const safePaymentNote = escapeHtml(paymentNote);
 
   const text = [
     greeting,
@@ -220,6 +226,8 @@ const buildCustomerEmail = ({
     `Reported amount: ${formatCurrency(amountCents)}`,
     "",
     nextStep,
+    paymentNote,
+    "Our target is to complete refund reviews within 5 business days.",
     "",
     "You can reply directly to this email. We will keep the review friendly, careful, and quick.",
     "",
@@ -252,6 +260,7 @@ const buildCustomerEmail = ({
                       <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Reported amount</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeAmount}</td></tr>
                     </table>
                     <p style="font-size:15px;line-height:24px;margin:0 0 18px;">${safeNextStep}</p>
+                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">${safePaymentNote} Our target is to complete refund reviews within 5 business days.</p>
                     <p style="font-size:14px;line-height:22px;margin:0;color:#756877;">You can reply directly to this email. We will keep the review friendly, careful, and quick.</p>
                     <p style="font-size:14px;line-height:22px;margin:20px 0 0;color:#756877;">Warmly,<br />The Bloomjoy Sweets Team</p>
                   </td>
@@ -407,6 +416,7 @@ serve(async (req) => {
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
+    const zellePaymentContact = sanitizeText(body?.zellePaymentContact, 160);
     const issueSummary = sanitizeText(body?.issueSummary, 2500);
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
     const amountCents = centsFromAmount(body?.paymentAmount);
@@ -435,6 +445,13 @@ serve(async (req) => {
       });
     }
 
+    if (!customerName) {
+      return new Response(JSON.stringify({ error: "Please enter your name." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!incidentAt) {
       return new Response(JSON.stringify({ error: "Please enter the incident date and time." }), {
         status: 400,
@@ -442,8 +459,15 @@ serve(async (req) => {
       });
     }
 
-    if (!["card", "cash", "unknown"].includes(paymentMethod)) {
+    if (!["card", "cash"].includes(paymentMethod)) {
       return new Response(JSON.stringify({ error: "Please choose a payment method." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (amountCents === null || amountCents <= 0) {
+      return new Response(JSON.stringify({ error: "Please enter the amount you paid." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -451,6 +475,13 @@ serve(async (req) => {
 
     if (paymentMethod === "card" && !/^[0-9]{4}$/.test(cardLast4)) {
       return new Response(JSON.stringify({ error: "Please enter the last 4 digits shown for the card payment." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (paymentMethod === "cash" && !zellePaymentContact) {
+      return new Response(JSON.stringify({ error: "Please enter your Zelle phone number or email." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -571,10 +602,6 @@ serve(async (req) => {
         correlationSource = "sunze";
         correlationSummary = "No cash Sunze sales fact matched this machine within +/- 1 hour.";
       }
-    } else {
-      status = "waiting_on_customer";
-      correlationStatus = "no_match";
-      correlationSummary = "Payment method was not specific enough for conservative matching.";
     }
 
     const serverDedupeWindowStartedAt = getPublicIntakeWindowStart(
@@ -607,6 +634,7 @@ serve(async (req) => {
         customer_email: customerEmail,
         customer_name: customerName || null,
         customer_phone: customerPhone || null,
+        zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
         issue_summary: issueSummary,
         incident_at: incidentAt.toISOString(),
         payment_method: paymentMethod,
@@ -688,6 +716,7 @@ serve(async (req) => {
       machineLabel: machineRecord.machine_label,
       locationName,
       amountCents,
+      paymentMethod,
       needsMoreInfo,
     });
 
