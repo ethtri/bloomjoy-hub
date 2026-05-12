@@ -51,7 +51,7 @@ end;
 $$;
 
 comment on function public.admin_get_refund_manager_setup() is
-  'Machine-level refund manager setup data without refund case/customer payloads.';
+  'Machine Manager setup data without refund case/customer payloads.';
 
 revoke execute on function public.admin_get_refund_manager_setup() from public;
 revoke execute on function public.admin_get_refund_manager_setup() from anon;

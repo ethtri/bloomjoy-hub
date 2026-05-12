@@ -130,7 +130,7 @@ const adminDestinations: AdminDestination[] = [
     labelKey: 'admin.machines',
     shortLabel: 'Machines',
     shortLabelKey: 'admin.machines',
-    description: 'Machine aliases, external machine IDs, refund managers, and tax rates.',
+    description: 'Machine aliases, external machine IDs, machine managers, and tax rates.',
     descriptionKey: 'admin.machinesDescription',
     icon: MonitorCog,
     requiresSuperAdmin: true,
@@ -259,17 +259,15 @@ export function AppLayout({ children }: AppLayoutProps) {
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
   const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
-  const visibleAdminDestinations = adminDestinations.filter((item) => {
-    if (item.requiresSuperAdmin && !isSuperAdmin) {
-      return false;
-    }
+  const visibleAdminDestinations = adminDestinations
+    .filter((item) => isSuperAdmin || !item.requiresSuperAdmin)
+    .filter((item) => {
+      if (!item.surface || isSuperAdmin || allowedAdminSurfaces.has('*')) {
+        return true;
+      }
 
-    if (!item.surface || isSuperAdmin || allowedAdminSurfaces.has('*')) {
-      return true;
-    }
-
-    return allowedAdminSurfaces.has(item.surface);
-  });
+      return allowedAdminSurfaces.has(item.surface);
+    });
   const canAccessAdminWorkspace = visibleAdminDestinations.length > 0;
 
   const handleSignOut = async () => {

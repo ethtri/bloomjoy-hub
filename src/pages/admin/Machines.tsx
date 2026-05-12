@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
+  Check,
+  X,
   History,
   Loader2,
   Pencil,
@@ -26,7 +28,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Sheet,
   SheetContent,
@@ -43,11 +44,19 @@ import {
   type ReportingMachineTaxRate,
 } from '@/lib/partnershipReporting';
 import {
+  fetchAdminAccountSummaries,
+  type AdminAccountSummary,
+} from '@/lib/adminAccounts';
+import {
   fetchRefundManagerSetup,
   setMachineRefundManagersAdmin,
   type RefundManagerSetup,
 } from '@/lib/refundOperations';
-import { type ReportingMachineType, upsertReportingMachineAdmin } from '@/lib/reporting';
+import {
+  lookupReportingUserByEmailAdmin,
+  type ReportingMachineType,
+  upsertReportingMachineAdmin,
+} from '@/lib/reporting';
 import { cn } from '@/lib/utils';
 import {
   formatLabel,
@@ -94,6 +103,9 @@ const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
 };
 
+const emptyAccountSummaries: AdminAccountSummary[] = [];
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const emptyMachineForm = {
   machineId: null as string | null,
   accountName: '',
@@ -120,6 +132,10 @@ const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter =>
 };
 
 const normalizeComparableText = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
+const uniqueEmails = (values: string[]) =>
+  Array.from(new Set(values.map(normalizeEmail).filter(Boolean)));
 
 export default function AdminMachinesPage() {
   const queryClient = useQueryClient();
@@ -438,7 +454,7 @@ export default function AdminMachinesPage() {
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Machines</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage machine labels, external machine IDs, refund managers, assignment readiness,
+                Manage machine labels, external machine IDs, machine managers, assignment readiness,
                 and reporting tax rates. Report membership is assigned from Partnerships.
               </p>
             </div>
@@ -976,12 +992,37 @@ function MachineDialog({
 }) {
   const [form, setForm] = useState(emptyMachineForm);
   const [isSaving, setIsSaving] = useState(false);
-  const [managerEmailsDraft, setManagerEmailsDraft] = useState('');
-  const [managerReason, setManagerReason] = useState('Machine refund manager assignment updated from Admin Machines');
+  const [selectedMachineManagerEmails, setSelectedMachineManagerEmails] = useState<string[]>([]);
+  const [managerSearch, setManagerSearch] = useState('');
+  const [managerReason, setManagerReason] = useState('Machine manager assignment updated from Admin Machines');
+  const [isAddingMachineManager, setIsAddingMachineManager] = useState(false);
   const [isSavingRefundManagers, setIsSavingRefundManagers] = useState(false);
-  const refundManagerEmailsValue = useMemo(
-    () => (refundManagerSetup?.managerEmails ?? []).join('\n'),
+  const savedMachineManagerEmails = useMemo(
+    () => uniqueEmails(refundManagerSetup?.managerEmails ?? []),
     [refundManagerSetup]
+  );
+  const normalizedManagerSearch = normalizeEmail(managerSearch);
+  const selectedMachineManagerSet = useMemo(
+    () => new Set(selectedMachineManagerEmails),
+    [selectedMachineManagerEmails]
+  );
+  const {
+    data: managerSuggestions = emptyAccountSummaries,
+    isFetching: isSearchingMachineManagers,
+    error: managerSearchError,
+  } = useQuery({
+    queryKey: ['admin-machine-manager-search', normalizedManagerSearch],
+    queryFn: () => fetchAdminAccountSummaries(normalizedManagerSearch),
+    enabled: open && Boolean(form.machineId) && normalizedManagerSearch.length >= 3,
+    staleTime: 1000 * 30,
+  });
+  const visibleManagerSuggestions = useMemo(
+    () =>
+      managerSuggestions
+        .filter((account) => account.customer_email)
+        .filter((account) => !selectedMachineManagerSet.has(normalizeEmail(account.customer_email ?? '')))
+        .slice(0, 5),
+    [managerSuggestions, selectedMachineManagerSet]
   );
 
   useEffect(() => {
@@ -1007,8 +1048,9 @@ function MachineDialog({
 
   useEffect(() => {
     if (!open) return;
-    setManagerEmailsDraft(refundManagerEmailsValue);
-  }, [open, refundManagerEmailsValue]);
+    setSelectedMachineManagerEmails(savedMachineManagerEmails);
+    setManagerSearch('');
+  }, [open, savedMachineManagerEmails]);
 
   const saveMachine = async () => {
     if (!form.machineLabel.trim()) {
@@ -1054,21 +1096,57 @@ function MachineDialog({
     }
   };
 
-  const saveRefundManagers = async () => {
+  const addMachineManagerEmail = async (email: string, options: { verifyAuthUser?: boolean } = {}) => {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail) return;
+
+    if (!emailPattern.test(normalizedEmail)) {
+      toast.error('Enter a valid manager email address.');
+      return;
+    }
+
+    if (selectedMachineManagerSet.has(normalizedEmail)) {
+      setManagerSearch('');
+      return;
+    }
+
+    if (selectedMachineManagerEmails.length >= 3) {
+      toast.error('Each machine can have up to 3 machine managers.');
+      return;
+    }
+
+    setIsAddingMachineManager(true);
+    try {
+      if (options.verifyAuthUser ?? true) {
+        const person = await lookupReportingUserByEmailAdmin(normalizedEmail);
+        if (!person.userEmail) {
+          throw new Error('This authenticated user does not have an email on file.');
+        }
+      }
+      setSelectedMachineManagerEmails((current) => uniqueEmails([...current, normalizedEmail]));
+      setManagerSearch('');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to find an authenticated user for that email.');
+    } finally {
+      setIsAddingMachineManager(false);
+    }
+  };
+
+  const removeMachineManagerEmail = (email: string) => {
+    setSelectedMachineManagerEmails((current) => current.filter((entry) => entry !== email));
+  };
+
+  const saveMachineManagers = async () => {
     if (!form.machineId) return;
 
-    const managerEmails = managerEmailsDraft
-      .split(/[\n,]+/)
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (managerEmails.length > 3) {
-      toast.error('Each machine can have at most 3 active refund managers.');
+    if (selectedMachineManagerEmails.length > 3) {
+      toast.error('Each machine can have up to 3 machine managers.');
       return;
     }
 
     if (!managerReason.trim()) {
-      toast.error('Enter a reason for the refund manager assignment change.');
+      toast.error('Enter a reason for the machine manager assignment change.');
       return;
     }
 
@@ -1076,22 +1154,19 @@ function MachineDialog({
     try {
       await setMachineRefundManagersAdmin({
         machineId: form.machineId,
-        managerEmails,
+        managerEmails: selectedMachineManagerEmails,
         reason: managerReason.trim(),
       });
-      toast.success('Refund managers updated.');
+      toast.success('Machine managers updated.');
       await onSaved();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save refund managers.');
+      toast.error(error instanceof Error ? error.message : 'Unable to save machine managers.');
     } finally {
       setIsSavingRefundManagers(false);
     }
   };
 
-  const refundManagerCount = managerEmailsDraft
-    .split(/[\n,]+/)
-    .map((email) => email.trim())
-    .filter(Boolean).length;
+  const machineManagerCount = selectedMachineManagerEmails.length;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1150,64 +1225,144 @@ function MachineDialog({
           <div className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="font-semibold text-foreground">Refund managers</h3>
+                <h3 className="font-semibold text-foreground">Machine Managers</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Assign up to 3 authenticated managers for this machine. These managers can review
-                  the machine's refund cases from Portal &gt; Refunds.
+                  Select the people responsible for this machine. They can handle customer
+                  inquiries, refund review, and machine follow-up from Portal &gt; Refunds.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">{refundManagerCount}/3 assigned</Badge>
-                <Badge
-                  className={cn(
-                    refundManagerSetup?.nayaxLookupConfigured
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-amber-200 bg-amber-50 text-amber-700'
-                  )}
-                >
-                  {refundManagerSetup?.nayaxLookupConfigured ? 'Nayax ready' : 'Nayax setup needed'}
-                </Badge>
-              </div>
+              <Badge variant="outline">
+                {machineManagerCount === 0
+                  ? 'No manager selected'
+                  : machineManagerCount === 1
+                    ? '1 manager selected'
+                    : `${machineManagerCount} managers selected`}
+              </Badge>
             </div>
 
             <div className="mt-4 grid gap-4">
               {isRefundManagerSetupLoading && (
                 <div className="rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-                  Loading current refund manager assignments...
+                  Loading current machine manager assignments...
                 </div>
               )}
               <div>
-                <Label htmlFor="refund-manager-emails">Manager emails</Label>
-                <Textarea
-                  id="refund-manager-emails"
-                  value={managerEmailsDraft}
-                  onChange={(event) => setManagerEmailsDraft(event.target.value)}
-                  rows={4}
-                  className="mt-2 bg-background"
-                  placeholder="one authenticated manager email per line"
-                />
+                <Label htmlFor="machine-manager-search">People</Label>
+                <div className="mt-2 rounded-md border border-input bg-background p-2">
+                  {selectedMachineManagerEmails.length > 0 ? (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {selectedMachineManagerEmails.map((email) => (
+                        <span
+                          key={email}
+                          className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-medium text-primary"
+                        >
+                          <span className="truncate">{email}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeMachineManagerEmail(email)}
+                            className="rounded-full p-0.5 text-primary/70 hover:bg-primary/15 hover:text-primary"
+                            aria-label={`Remove ${email}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mb-2 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                      No machine managers assigned yet.
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="relative min-w-0 flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="machine-manager-search"
+                        value={managerSearch}
+                        onChange={(event) => setManagerSearch(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void addMachineManagerEmail(managerSearch);
+                          }
+                        }}
+                        className="pl-9"
+                        placeholder="Search or enter an email"
+                        disabled={machineManagerCount >= 3}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void addMachineManagerEmail(managerSearch)}
+                      disabled={isAddingMachineManager || machineManagerCount >= 3 || !managerSearch.trim()}
+                    >
+                      {isAddingMachineManager ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="mr-2 h-4 w-4" />
+                      )}
+                      Add
+                    </Button>
+                  </div>
+                </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Managers must already have a Bloomjoy login before they can be assigned.
+                  One manager is enough. Add up to three authenticated Bloomjoy users.
                 </p>
-              </div>
-              <div>
-                <Label htmlFor="refund-manager-reason">Reason</Label>
-                <Input
-                  id="refund-manager-reason"
-                  value={managerReason}
-                  onChange={(event) => setManagerReason(event.target.value)}
-                  className="mt-2 bg-background"
-                />
+                {managerSearchError && (
+                  <p className="mt-2 text-sm text-destructive">Unable to search matching users.</p>
+                )}
+                {managerSearch.trim().length >= 3 && (
+                  <div className="mt-2 rounded-md border border-border bg-background">
+                    <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Matching users
+                      </span>
+                      {isSearchingMachineManagers && (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                    </div>
+                    {visibleManagerSuggestions.length === 0 && !isSearchingMachineManagers ? (
+                      <p className="px-3 py-3 text-sm text-muted-foreground">
+                        No matching account user found. Enter the full email and choose Add if the
+                        person already has a Bloomjoy login.
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-border">
+                        {visibleManagerSuggestions.map((account) => {
+                          const email = normalizeEmail(account.customer_email ?? '');
+
+                          return (
+                            <button
+                              key={account.user_id}
+                              type="button"
+                              onClick={() => void addMachineManagerEmail(email, { verifyAuthUser: false })}
+                              className="flex w-full min-w-0 items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-muted/30"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-foreground">
+                                  {email}
+                                </span>
+                                <span className="block text-xs text-muted-foreground">Bloomjoy user</span>
+                              </span>
+                              <Check className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={saveRefundManagers}
+                  onClick={saveMachineManagers}
                   disabled={isSavingRefundManagers || isRefundManagerSetupLoading}
                 >
                   {isSavingRefundManagers && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save Refund Managers
+                  Save Machine Managers
                 </Button>
               </div>
             </div>

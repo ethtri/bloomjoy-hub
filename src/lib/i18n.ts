@@ -62,7 +62,7 @@ export const translations = {
     'admin.partnerRecordsShort': 'Partner Records',
     'admin.partnerRecordsDescription': 'Reusable external organizations and reporting contacts.',
     'admin.machines': 'Machines',
-    'admin.machinesDescription': 'Machine aliases, external machine IDs, refund managers, and tax rates.',
+    'admin.machinesDescription': 'Machine aliases, external machine IDs, machine managers, and tax rates.',
     'admin.partnerships': 'Partnerships',
     'admin.partnershipsDescription':
       'Guided agreement setup, participants, assigned machines, split terms, and preview.',
@@ -636,7 +636,7 @@ export const translations = {
     'admin.partnerRecordsShort': '合作方',
     'admin.partnerRecordsDescription': '可复用的外部组织和报表联系人。',
     'admin.machines': '机器',
-    'admin.machinesDescription': '机器别名、外部机器 ID、退款经理和税率。',
+    'admin.machinesDescription': '机器别名、外部机器 ID、机器负责人和税率。',
     'admin.partnerships': '合作设置',
     'admin.partnershipsDescription': '协议设置、参与方、分配机器、分账条款和预览。',
     'admin.reporting': '报表',

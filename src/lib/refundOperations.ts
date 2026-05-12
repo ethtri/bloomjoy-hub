@@ -269,7 +269,7 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
   const { data, error } = await supabaseClient.rpc('admin_get_refund_manager_setup');
 
   if (error) {
-    throw new Error(error.message || 'Unable to load refund manager setup.');
+    throw new Error(error.message || 'Unable to load machine manager setup.');
   }
 
   return {
@@ -323,7 +323,7 @@ export const setMachineRefundManagersAdmin = async ({
   );
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to save refund managers.');
+    throw new Error(error?.message || 'Unable to save machine managers.');
   }
 
   return data as Record<string, unknown>;

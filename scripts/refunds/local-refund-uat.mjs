@@ -293,7 +293,7 @@ async function ensureManagerAssignment(supabase, sponsorUser, email) {
       .eq('status', 'active')
       .is('revoked_at', null)
       .maybeSingle(),
-    'Check local refund manager assignment'
+    'Check local machine manager assignment'
   );
 
   if (existing?.id) {
@@ -306,7 +306,7 @@ async function ensureManagerAssignment(supabase, sponsorUser, email) {
         })
         .eq('id', existing.id)
         .select('id'),
-      'Refresh local refund manager assignment'
+      'Refresh local machine manager assignment'
     );
     return;
   }
@@ -325,7 +325,7 @@ async function ensureManagerAssignment(supabase, sponsorUser, email) {
         granted_by: sponsorUser.id,
       },
     ],
-    'Seed local refund manager assignment'
+    'Seed local machine manager assignment'
   );
 }
 

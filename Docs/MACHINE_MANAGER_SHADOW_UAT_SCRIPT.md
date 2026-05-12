@@ -1,4 +1,4 @@
-# Refund Manager Shadow UAT Script
+# Machine Manager Shadow UAT Script
 
 Last updated: 2026-05-12
 
@@ -11,9 +11,9 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 - Use synthetic or owner-approved shadow-mode cases only.
 - Do not paste real customer names, emails, phone numbers, card digits, Zelle contacts, complaint text, screenshots, or raw provider data into GitHub, docs, chat, or feedback notes.
 - Confirm the tester has the right persona:
-  - Refund manager/operator: sees only assigned-machine refund cases at `/portal/refunds`.
+  - Machine Manager/operator: sees only assigned-machine refund cases at `/portal/refunds`.
   - Scoped admin: sees only scoped-machine refund cases.
-  - Super admin: sees all refund cases and manages machine-level refund managers from Admin > Machines.
+  - Super admin: sees all refund cases and manages Machine Managers from Admin > Machines.
 - Confirm the tester knows refunds are still completed manually in Nayax or Zelle for MVP.
 
 ## Manager Script
@@ -45,8 +45,8 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 14. On a phone-sized screen, confirm the queue and detail are readable without sideways scrolling.
 
 ## Expected Results
-- Refund-only managers can open `/portal/refunds`.
-- Refund-only managers do not see the Admin workspace, Admin tools, machine refund manager setup, Nayax setup controls, machine setup identifiers, or raw provider payloads.
+- Machine Managers can open `/portal/refunds`.
+- Machine Managers do not see the Admin workspace, Admin tools, Machine Manager setup, Nayax setup controls, machine setup identifiers, or raw provider payloads.
 - `/admin` and `/admin/refunds` redirect refund-only users back to `/portal/refunds`.
 - The queue is understandable at a glance.
 - The selected case shows the decision area before timeline and message history.
@@ -59,7 +59,7 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 Capture manager feedback in GitHub issues or PR comments using this format.
 
 ```md
-## Refund manager shadow feedback
+## Machine Manager shadow feedback
 - Tester persona:
 - Machine/location scope:
 - Device: Desktop / Mobile

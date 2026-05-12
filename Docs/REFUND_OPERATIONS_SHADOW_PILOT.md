@@ -6,12 +6,12 @@ Last updated: 2026-05-11
 Run the Refund Operations MVP through AI-orchestrated UAT and a manager-wide shadow pilot before merging PR `#410` or cutting over from the Google Form/AppSheet fallback.
 
 This runbook is the PM/PO control artifact for issues `#402`-`#409`.
-Use `Docs/REFUND_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pilot script.
+Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pilot script.
 
 ## Operating Rules
 - Codex acts as Bloomjoy PM/PO using the `bloomjoy-sprint-orchestrator` workflow.
 - No human planning session is required. Use this runbook, PR comments, issue comments, and owner go/no-go checkpoints.
-- Pilot scope is all current authenticated refund managers, still in shadow mode.
+- Pilot scope is all current authenticated Machine Managers, still in shadow mode.
 - Keep the Google Form/AppSheet process live until cutover criteria pass.
 - Keep PR `#410` draft until live UAT, Nayax matching validation, manager feedback, customer communication review, and reporting guardrails pass.
 - Do not paste secrets, customer PII, raw refund exports, card digits, raw Nayax payloads, or complaint free text into docs, issues, PRs, screenshots, or chat.
@@ -36,7 +36,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Confirm lookup responses show only sanitized candidate evidence in Bloomjoy Hub.
 
 ### Manager Workflow Lane
-- [ ] Enable all current authenticated refund managers through assigned-machine access.
+- [ ] Enable all current authenticated Machine Managers through assigned-machine access.
 - [ ] Confirm each manager sees only assigned-machine cases.
 - [ ] Confirm super-admins see all refund cases.
 - [ ] Validate approve, deny, waiting-on-customer, card-refund-pending, cash/Zelle-pending, and completed states.

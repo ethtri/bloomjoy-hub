@@ -53,7 +53,7 @@ create table if not exists public.reporting_machine_refund_managers (
   manager_email text not null,
   status text not null default 'active'
     check (status in ('active', 'revoked')),
-  grant_reason text not null default 'Refund manager assignment',
+  grant_reason text not null default 'Machine manager assignment',
   granted_by uuid references auth.users (id) on delete set null,
   revoked_at timestamptz,
   revoked_by uuid references auth.users (id) on delete set null,
@@ -105,7 +105,7 @@ begin
       and manager.id <> coalesce(new.id, '00000000-0000-0000-0000-000000000000'::uuid);
 
     if active_manager_count >= 3 then
-      raise exception 'Each machine can have at most 3 active refund managers'
+      raise exception 'Each machine can have at most 3 active Machine Managers'
         using errcode = '23514';
     end if;
   end if;
@@ -889,7 +889,7 @@ begin
   ) normalized;
 
   if coalesce(array_length(manager_emails, 1), 0) > 3 then
-    raise exception 'Each machine can have at most 3 active refund managers';
+    raise exception 'Each machine can have at most 3 active Machine Managers';
   end if;
 
   if not exists (
@@ -926,7 +926,7 @@ begin
     limit 1;
 
     if target_user_id is null then
-      raise exception 'Refund manager % must be an authenticated user', normalized_email;
+      raise exception 'Machine Manager % must be an authenticated user', normalized_email;
     end if;
 
     if not exists (
@@ -1640,7 +1640,7 @@ using (
 comment on table public.refund_cases is
   'Bloomjoy-hosted refund inquiry cases. Customer PII stays in this operational table and only approved/completed correlated cases write settlement adjustments.';
 comment on table public.reporting_machine_refund_managers is
-  'Authenticated manager assignments for refund operations; each machine is limited to 3 active managers.';
+  'Authenticated Machine Manager assignments for machine ownership and refund operations; each machine is limited to 3 active managers.';
 comment on function public.public_refund_machine_options() is
   'Public noindex refund intake machine/location selector. Exposes only active reporting machine labels and locations.';
 comment on function public.can_manage_refund_machine_current_user(uuid) is
@@ -1648,7 +1648,7 @@ comment on function public.can_manage_refund_machine_current_user(uuid) is
 comment on function public.can_manage_refund_case_current_user(uuid) is
   'RLS helper for current-user refund case access checks without exposing arbitrary user-id checks to browser callers.';
 comment on function public.admin_get_refund_operations_overview() is
-  'Refund operations queue for Super Admins, Scoped Admins inside scope, and active machine refund managers.';
+  'Refund operations queue for Super Admins, Scoped Admins inside scope, and active Machine Managers.';
 comment on function public.admin_set_reporting_machine_nayax_config(uuid, text, text, text) is
   'Admin RPC for mapping a Bloomjoy reporting machine to its server-side Nayax Lynx machine identifier.';
 

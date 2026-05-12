@@ -456,7 +456,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'Machine setup controls are hidden from the refund workflow',
-    (await page.getByText('Refund managers').count()) === 0
+    (await page.getByText('Machine Managers').count()) === 0
   );
   recorder.assert(
     'Refund queue count renders',

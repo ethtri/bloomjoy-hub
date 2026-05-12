@@ -31,7 +31,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Refund Operations MVP
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` stays draft until the merge gate passes, and Google Form/AppSheet remains live until the cutover gate passes.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.
-- [ ] Use `Docs/REFUND_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
+- [ ] Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
+- [ ] Run `npm run refunds:validate-machine-manager-uat -- --app-url http://127.0.0.1:8081` to exercise mocked Admin > Machines sample data, searchable Machine Manager lookup, and save payload.
 - [ ] Sponsor local UAT setup uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email sponsor-uat@bloomjoy.localhost --app-url http://localhost:8080`, open the printed one-click magic link, and confirm the sponsor reaches `/portal/refunds` without Google OAuth or a shared password.
 - [ ] Sponsor UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
 - [ ] Direct-load `/refunds/request` on desktop and mobile; page is noindex, not listed in `sitemap.xml`, and the form loads active machine/location options.
@@ -39,19 +40,19 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Submit a cash request that has one matching sales fact within +/- 1 hour and exact amount; case lands with matched cash correlation evidence and no auto-approval.
 - [ ] Submit a cash request with no conservative match; case lands in `waiting_on_customer` and logs the friendly more-info email.
 - [ ] Submit a request with multiple conservative cash candidates; case lands in manager review rather than writing a reporting adjustment.
-- [ ] Auth boundary: unauthenticated users cannot open `/portal/refunds`; refund-only managers can open `/portal/refunds` but do not see the Admin workspace/nav; `/admin/refunds` redirects to `/portal/refunds` or remains limited to super/scoped admins.
+- [ ] Auth boundary: unauthenticated users cannot open `/portal/refunds`; Machine Managers can open `/portal/refunds` but do not see the Admin workspace/nav; `/admin/refunds` redirects to `/portal/refunds` or remains limited to super/scoped admins.
 - [ ] Refund queue filters/searches cases, opens case details, shows customer issue text, photos, compact correlation evidence, decision/next action before history, and customer history behind readable sections.
 - [ ] Refund detail lets managers verify confirmation and more-info customer email state from `RF-UAT-WAIT` or an equivalent synthetic waiting-on-customer case.
 - [ ] Refund decision controls prevent incoherent combinations before submit: follow-up/review statuses clear final decisions, approved paths carry `approved`, denied paths carry `denied`, and `waiting_on_customer + approved` cannot be saved.
 - [ ] Mobile refund queue/detail at `390x844` has no clipped columns, hidden controls, or horizontal page overflow; queue rows stack as cards or scroll intentionally.
-- [ ] Super admins can assign up to 3 authenticated refund managers per machine from Admin > Machines > Edit Machine; ordinary refund managers/operators do not see assignment/setup controls in the refund workflow.
+- [ ] Super admins can assign up to 3 authenticated Machine Managers per machine from Admin > Machines > Edit Machine; ordinary machine managers/operators do not see assignment/setup controls in the refund workflow.
 - [ ] Server-side Nayax machine mapping state is visible to setup-capable users; card lookup stays blocked with a friendly setup message until the machine is mapped and the Edge Function secret exists.
 - [ ] Card lookup calls Nayax Last Sales for the mapped machine and returns only sanitized candidate evidence in the UI: machine authorization time, amount, currency, card brand/last 4, and match reason; raw provider IDs stay hidden.
 - [ ] Manager denial path requires a friendly decision reason and does not write to `sales_adjustment_facts`; approval/completion/denial replies remain manual in MVP.
 - [ ] Approved manual card path records selected card lookup evidence and a manual completion reference before completion without showing raw provider IDs in the UI.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.
 - [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.
-- [ ] Run manager-wide shadow-mode UAT with all current authenticated refund managers while the Google Form/AppSheet process remains available as fallback; do not cut over until pilot evidence is clean.
+- [ ] Run manager-wide shadow-mode UAT with all current authenticated Machine Managers while the Google Form/AppSheet process remains available as fallback; do not cut over until pilot evidence is clean.
 
 ## Public site
 - [ ] Home loads and key CTAs navigate correctly

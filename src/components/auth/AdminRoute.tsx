@@ -10,6 +10,8 @@ export function AdminRoute() {
   const allowedSurfaces = new Set(adminAccess.allowedSurfaces);
   const canAccessSurface = (surface: string) =>
     isSuperAdmin || allowedSurfaces.has('*') || allowedSurfaces.has(surface);
+  const isAdminAccessPath =
+    location.pathname === '/admin/access' || location.pathname.startsWith('/admin/access/');
 
   if (loading) {
     return (
@@ -30,7 +32,7 @@ export function AdminRoute() {
     return <Navigate to={redirectTarget} replace />;
   }
 
-  if (isScopedAdmin && canAccessSurface('access') && location.pathname.startsWith('/admin/access')) {
+  if (isScopedAdmin && canAccessSurface('access') && isAdminAccessPath) {
     return <Outlet />;
   }
 
@@ -97,7 +99,7 @@ export function RefundOperationsRoute() {
               Refund Workflow Access Required
             </h1>
             <p className="mt-3 text-muted-foreground">
-              This workflow is available to assigned refund managers and scoped operations admins.
+              This workflow is available to assigned machine managers and scoped operations admins.
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
               <Button asChild variant="outline">
