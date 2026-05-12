@@ -11,6 +11,7 @@ Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pi
 ## Operating Rules
 - Codex acts as Bloomjoy PM/PO using the `bloomjoy-sprint-orchestrator` workflow.
 - No human planning session is required. Use this runbook, PR comments, issue comments, and owner go/no-go checkpoints.
+- Executive sponsor review is proof review, not first-pass UAT. Agents must validate seeded functional UAT or post-production shadow-mode flows and produce a pass/fail evidence packet before asking the sponsor to touch the feature.
 - Pilot scope is all current authenticated Machine Managers, still in shadow mode.
 - Keep the Google Form/AppSheet process live until cutover criteria pass.
 - Keep PR `#410` draft until live UAT, Nayax matching validation, manager feedback, customer communication review, and reporting guardrails pass.
@@ -25,7 +26,9 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Confirm issues `#402`-`#409` have current PM status comments.
 - [ ] Track one go/no-go summary covering Nayax lookup, manager access, customer communications, reporting write-through, and shadow-pilot results.
 - [ ] Confirm Google Form/AppSheet fallback remains live during pilot.
-- [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` before owner or manager UAT when the app is reachable.
+- [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` before manager shadow UAT when the app is reachable.
+- [ ] Confirm demo mode is labeled `DEMO DATA - visual review only` and is never used as evidence that saves, access boundaries, Nayax lookup, or reporting write-through work.
+- [ ] Prepare an executive proof packet only after agent QA has passed or documented blockers.
 
 ### Nayax Validation Lane
 - [ ] Verify target environment has server-only `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`.

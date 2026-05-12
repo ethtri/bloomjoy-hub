@@ -255,17 +255,29 @@ const emptyRefundManagerSetup: RefundManagerSetup = {
 const demoIsoHoursAgo = (hours: number) =>
   new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
-export const canUseLocalRefundDemoData = () => {
+export const canUseLocalUatDemoMode = () => {
   if (typeof window === 'undefined') return false;
   if (!import.meta.env.DEV) return false;
 
   const host = window.location.hostname;
+
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+};
+
+export const isLocalUatDemoForced = () => {
+  if (!canUseLocalUatDemoMode()) return false;
+
   const searchParams = new URLSearchParams(window.location.search);
 
-  return (
-    (host === 'localhost' || host === '127.0.0.1' || host === '::1') &&
-    searchParams.get('demo') !== 'off'
-  );
+  return searchParams.get('demo') === 'on';
+};
+
+export const canUseLocalRefundDemoData = () => {
+  if (!canUseLocalUatDemoMode()) return false;
+
+  const searchParams = new URLSearchParams(window.location.search);
+
+  return searchParams.get('demo') === 'on';
 };
 
 export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {

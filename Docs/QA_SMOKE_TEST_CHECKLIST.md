@@ -1,4 +1,4 @@
-# QA Smoke Test Checklist (Sponsor)
+# QA Smoke Test Checklist
 
 Run these checks on localhost for each PR that adds a user-facing feature.
 
@@ -32,11 +32,13 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` stays draft until the merge gate passes, and Google Form/AppSheet remains live until the cutover gate passes.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.
 - [ ] Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
-- [ ] Sponsor UAT server starts with `npm run dev:uat` and is tested at `http://127.0.0.1:8081`.
+- [ ] Agent UAT server starts with `npm run dev:uat` and is tested at `http://127.0.0.1:8081`.
 - [ ] Run `npm run refunds:validate-machine-manager-uat -- --app-url http://127.0.0.1:8081` to exercise mocked Admin > Machines sample data, searchable Machine Manager lookup, autosave payload, and visible persistence in the machine row.
-- [ ] Sponsor local seeded UAT uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email sponsor-uat@bloomjoy.localhost`, open the printed one-click magic link, and confirm the sponsor reaches `/portal/refunds` without Google OAuth or a shared password.
-- [ ] Sponsor local read-only fallback: if the authenticated refund queue is empty on local dev, `/portal/refunds` shows clearly labeled demo cases `RF-UAT-CARD`, `RF-UAT-WAIT`, and `RF-UAT-CASH`; save/Nayax actions are disabled, and `?demo=off` returns to the true empty state.
-- [ ] Sponsor UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
+- [ ] Agent local seeded UAT uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`, open the printed one-click magic link, and confirm the QA actor reaches `/portal/refunds` without Google OAuth or a shared password.
+- [ ] Demo visual review is explicit: `/portal/refunds?demo=on` shows labeled cases `RF-UAT-CARD`, `RF-UAT-WAIT`, and `RF-UAT-CASH`; save/Nayax actions are disabled, and `/portal/refunds?demo=off` returns to the true empty state.
+- [ ] Demo Machine Manager visual review is explicit: `/admin/machines?demo=on` shows labeled demo-only Machine Manager data, allows only listed demo users, saves in browser only, and does not claim Supabase persistence.
+- [ ] Agent UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
+- [ ] Executive proof review is held until agent QA supplies pass/fail evidence for seeded functional UAT or post-production shadow-mode UAT; demo mode alone is not sufficient.
 - [ ] Direct-load `/refunds/request` on desktop and mobile; page is noindex, not listed in `sitemap.xml`, and the form loads active machine/location options.
 - [ ] Submit a hosted refund request with card payment, amount, last 4, Apple Pay/wallet checked, issue description, and optional photo; customer confirmation email is logged in `refund_case_messages`.
 - [ ] Submit a cash request that has one matching sales fact within +/- 1 hour and exact amount; case lands with matched cash correlation evidence and no auto-approval.

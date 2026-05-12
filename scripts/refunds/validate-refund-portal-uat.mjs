@@ -564,14 +564,15 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   });
 
   await signInRefundUser(page, appUrl);
-  await page.getByText('Showing local UAT demo cases').waitFor({ timeout: 10000 });
+  await page.goto(`${appUrl}/portal/refunds?demo=on`, { waitUntil: 'networkidle' });
+  await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
 
   recorder.assert(
-    'Empty local queue shows read-only demo fallback',
+    'Explicit local demo mode shows read-only visual cases',
     await page.getByText('2 visible of 3 total cases').isVisible()
   );
   recorder.assert(
-    'Demo fallback includes card and waiting cases in open queue',
+    'Demo visual review includes card and waiting cases in open queue',
     (await page.getByText('RF-UAT-CARD').count()) > 0 &&
       (await page.getByText('RF-UAT-WAIT').count()) > 0
   );
@@ -597,7 +598,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   await page.locator('select').first().selectOption('all');
   await page.getByText('3 visible of 3 total cases').waitFor({ timeout: 10000 });
   recorder.assert(
-    'Demo completed cash case appears under All cases',
+    'Demo visual review completed cash case appears under All cases',
     (await page.getByText('RF-UAT-CASH').count()) > 0
   );
 
@@ -609,11 +610,11 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   await page.goto(`${appUrl}/portal/refunds?demo=off`, { waitUntil: 'networkidle' });
   await page.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
   recorder.assert(
-    'Demo fallback can be disabled to show the true empty state',
+    'Demo mode off shows the true empty state',
     await page.getByText('0 visible of 0 total cases').isVisible()
   );
   recorder.assert(
-    'No browser console/page errors during demo fallback QA pass',
+    'No browser console/page errors during explicit demo QA pass',
     consoleErrors.length === 0,
     consoleErrors.slice(0, 3).join(' | ')
   );

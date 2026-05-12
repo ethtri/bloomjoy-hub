@@ -26,7 +26,7 @@ const FIXTURE = {
 
 function parseArgs(argv) {
   const parsed = {
-    email: 'refund-sponsor-uat@bloomjoy.localhost',
+    email: 'refund-agent-uat@bloomjoy.localhost',
     appUrl: 'http://127.0.0.1:8081',
     envFiles: [...DEFAULT_ENV_FILES],
     explicitEnvFiles: [],
@@ -238,12 +238,12 @@ async function ensureSponsorUser(supabase, email) {
     email,
     email_confirm: true,
     user_metadata: {
-      name: 'Refund UAT Sponsor',
+      name: 'Refund UAT Agent',
       fixture: 'refund-operations-local-uat',
     },
   });
 
-  if (error) throw new Error(`Create sponsor user: ${error.message}`);
+  if (error) throw new Error(`Create QA user: ${error.message}`);
   return data.user;
 }
 
@@ -302,7 +302,7 @@ async function ensureManagerAssignment(supabase, sponsorUser, email) {
         .from('reporting_machine_refund_managers')
         .update({
           manager_email: email,
-          grant_reason: 'Local refund operations sponsor UAT fixture',
+          grant_reason: 'Local refund operations agent UAT fixture',
         })
         .eq('id', existing.id)
         .select('id'),
@@ -321,7 +321,7 @@ async function ensureManagerAssignment(supabase, sponsorUser, email) {
         manager_user_id: sponsorUser.id,
         manager_email: email,
         status: 'active',
-        grant_reason: 'Local refund operations sponsor UAT fixture',
+        grant_reason: 'Local refund operations agent UAT fixture',
         granted_by: sponsorUser.id,
       },
     ],
@@ -343,7 +343,7 @@ async function seedFixtures(supabase, sponsorUser, email) {
         name: 'Refund UAT Synthetic Account',
         account_type: 'internal',
         status: 'active',
-        notes: 'Local synthetic fixture for refund operations sponsor UAT. No real customer data.',
+        notes: 'Local synthetic fixture for refund operations agent UAT. No real customer data.',
         created_by: sponsorUser.id,
       },
     ],
@@ -437,7 +437,7 @@ async function seedFixtures(supabase, sponsorUser, email) {
         correlation_status: 'matched',
         correlation_source: 'nayax',
         correlation_confidence: 0.96,
-        correlation_summary: 'Synthetic Nayax match found for sponsor UAT review.',
+        correlation_summary: 'Synthetic Nayax match found for agent UAT review.',
         matched_nayax_transaction_id: 'UAT-NAYAX-410',
         assigned_manager_id: sponsorUser.id,
         decision: 'approved',
@@ -659,7 +659,7 @@ async function run() {
   console.log(`- Supabase URL: ${supabaseUrl}`);
   console.log(`- Target: ${args.target}`);
   console.log(`- Supabase project ref: ${getSupabaseProjectRef(supabaseUrl) || 'local'}`);
-  console.log(`- Sponsor email: ${args.email}`);
+  console.log(`- QA actor email: ${args.email}`);
   console.log(`- App URL: ${args.appUrl}`);
   console.log('- Data policy: synthetic fixture only; no real customer/payment/free-text export data.');
 

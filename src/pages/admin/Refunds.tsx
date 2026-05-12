@@ -23,6 +23,7 @@ import {
   canUseLocalRefundDemoData,
   createRefundAttachmentSignedUrl,
   fetchRefundOperationsOverview,
+  isLocalUatDemoForced,
   lookupNayaxTransactions,
   updateRefundCaseAdmin,
   type NayaxLookupCandidate,
@@ -310,11 +311,11 @@ export default function AdminRefundsPage() {
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+  const forceDemoData = isLocalUatDemoForced();
   const isUsingDemoData =
     canUseLocalRefundDemoData() &&
     !isLoading &&
-    !error &&
-    liveOverview.cases.length === 0;
+    (forceDemoData || (!error && liveOverview.cases.length === 0));
   const overview = useMemo(
     () => (isUsingDemoData ? buildLocalRefundDemoOverview() : liveOverview),
     [isUsingDemoData, liveOverview]
@@ -534,7 +535,7 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
-          {error && (
+          {error && !isUsingDemoData && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               Failed to load refund operations.
             </div>
@@ -542,8 +543,9 @@ export default function AdminRefundsPage() {
 
           {isUsingDemoData && (
             <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-              Showing local UAT demo cases because this environment has no assigned refund cases.
-              These cases are synthetic and read-only; use local Supabase fixtures for save/write-through testing.
+              DEMO DATA - visual review only. These synthetic cases do not save changes, run live
+              Nayax lookup, or write reporting adjustments. Use seeded functional UAT for real state
+              transitions.
             </div>
           )}
 

@@ -49,6 +49,7 @@ import {
 } from '@/lib/adminAccounts';
 import {
   fetchRefundManagerSetup,
+  isLocalUatDemoForced,
   setMachineRefundManagersAdmin,
   type RefundManagerSetup,
 } from '@/lib/refundOperations';
@@ -105,6 +106,65 @@ const emptyRefundManagerSetup: RefundManagerSetup = {
 };
 
 const emptyAccountSummaries: AdminAccountSummary[] = [];
+const demoMachineManagerAccounts: AdminAccountSummary[] = [
+  {
+    user_id: 'demo-manager-1',
+    customer_email: 'manager-one@example.test',
+    membership_status: null,
+    current_period_end: null,
+    membership_cancel_at_period_end: false,
+    paid_subscription_active: false,
+    plus_access_source: 'none',
+    has_plus_access: false,
+    plus_grant_id: null,
+    plus_grant_starts_at: null,
+    plus_grant_expires_at: null,
+    plus_grant_active: false,
+    total_orders: 0,
+    last_order_at: null,
+    open_support_requests: 0,
+    total_machine_count: 0,
+    last_machine_update_at: null,
+  },
+  {
+    user_id: 'demo-manager-2',
+    customer_email: 'manager-two@example.test',
+    membership_status: null,
+    current_period_end: null,
+    membership_cancel_at_period_end: false,
+    paid_subscription_active: false,
+    plus_access_source: 'none',
+    has_plus_access: false,
+    plus_grant_id: null,
+    plus_grant_starts_at: null,
+    plus_grant_expires_at: null,
+    plus_grant_active: false,
+    total_orders: 0,
+    last_order_at: null,
+    open_support_requests: 0,
+    total_machine_count: 0,
+    last_machine_update_at: null,
+  },
+  {
+    user_id: 'demo-manager-3',
+    customer_email: 'operator-three@example.test',
+    membership_status: null,
+    current_period_end: null,
+    membership_cancel_at_period_end: false,
+    paid_subscription_active: false,
+    plus_access_source: 'none',
+    has_plus_access: false,
+    plus_grant_id: null,
+    plus_grant_starts_at: null,
+    plus_grant_expires_at: null,
+    plus_grant_active: false,
+    total_orders: 0,
+    last_order_at: null,
+    open_support_requests: 0,
+    total_machine_count: 0,
+    last_machine_update_at: null,
+  },
+];
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const emptyMachineForm = {
@@ -141,6 +201,32 @@ const uniqueEmails = (values: string[]) =>
 const emailListsEqual = (left: string[], right: string[]) =>
   left.length === right.length && left.every((email, index) => email === right[index]);
 
+const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
+  ...emptySetup,
+  machines: [
+    {
+      id: 'demo-machine-1',
+      machine_label: 'Refund UAT Cotton Candy 01',
+      machine_type: 'commercial',
+      sunze_machine_id: 'DEMO-SUNZE-01',
+      status: 'active',
+      account_name: 'Refund UAT Synthetic Account',
+      location_name: 'Refund UAT Mall',
+      latest_sale_date: today(),
+    },
+    {
+      id: 'demo-machine-2',
+      machine_label: 'Refund UAT Cotton Candy 02',
+      machine_type: 'commercial',
+      sunze_machine_id: 'DEMO-SUNZE-02',
+      status: 'active',
+      account_name: 'Refund UAT Synthetic Account',
+      location_name: 'Refund UAT Arcade',
+      latest_sale_date: today(),
+    },
+  ],
+});
+
 export default function AdminMachinesPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -157,14 +243,18 @@ export default function AdminMachinesPage() {
   const [historyMachine, setHistoryMachine] = useState<PartnershipSetupMachine | null>(null);
   const [editingMachine, setEditingMachine] = useState<PartnershipSetupMachine | null>(null);
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
+  const [demoRefundManagerEmailsByMachineId, setDemoRefundManagerEmailsByMachineId] = useState<
+    Record<string, string[]>
+  >({});
 
   const highlightedMachineId = searchParams.get('machineId');
   const isMachineEditorRequested = searchParams.get('edit') === 'machine';
+  const isLocalDemoMode = isLocalUatDemoForced();
   const pendingSourceMachineId =
     searchParams.get('externalMachineId') ?? searchParams.get('sunzeMachineId');
 
   const {
-    data: setup = emptySetup,
+    data: liveSetup = emptySetup,
     isLoading,
     isFetching,
     error,
@@ -175,7 +265,7 @@ export default function AdminMachinesPage() {
   });
 
   const {
-    data: refundManagerSetup = emptyRefundManagerSetup,
+    data: liveRefundManagerSetup = emptyRefundManagerSetup,
     isLoading: isRefundManagerSetupLoading,
   } = useQuery({
     queryKey: refundManagerSetupQueryKey,
@@ -183,11 +273,45 @@ export default function AdminMachinesPage() {
     staleTime: 1000 * 30,
   });
 
+  const setup = useMemo(
+    () =>
+      isLocalDemoMode && liveSetup.machines.length === 0
+        ? buildLocalMachineManagerDemoSetup()
+        : liveSetup,
+    [isLocalDemoMode, liveSetup]
+  );
+
+  const refundManagerSetup = useMemo<RefundManagerSetup>(() => {
+    if (!isLocalDemoMode) return liveRefundManagerSetup;
+
+    return {
+      machines: setup.machines.map((machine) => {
+        const savedMachine = liveRefundManagerSetup.machines.find((entry) => entry.id === machine.id);
+
+        return {
+          id: machine.id,
+          machineLabel: machine.machine_label,
+          locationName: machine.location_name,
+          nayaxLookupConfigured: savedMachine?.nayaxLookupConfigured ?? false,
+          managerEmails:
+            demoRefundManagerEmailsByMachineId[machine.id] ?? savedMachine?.managerEmails ?? [],
+        };
+      }),
+    };
+  }, [demoRefundManagerEmailsByMachineId, isLocalDemoMode, liveRefundManagerSetup, setup.machines]);
+
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: setupQueryKey }),
       queryClient.invalidateQueries({ queryKey: refundManagerSetupQueryKey }),
     ]);
+  };
+
+  const saveDemoMachineManagers = async (machineId: string, managerEmails: string[]) => {
+    setDemoRefundManagerEmailsByMachineId((current) => ({
+      ...current,
+      [machineId]: uniqueEmails(managerEmails),
+    }));
   };
 
   const refundManagerSetupByMachineId = useMemo(
@@ -348,6 +472,11 @@ export default function AdminMachinesPage() {
   };
 
   const openTaxChangeDialog = (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => {
+    if (isLocalDemoMode) {
+      toast.info('Demo mode is visual only. Use seeded functional UAT to save reporting tax changes.');
+      return;
+    }
+
     setTaxChangeForm({
       machineId: machine.id,
       taxRatePercent: taxRate ? String(Number(taxRate.tax_rate_percent)) : '',
@@ -379,6 +508,11 @@ export default function AdminMachinesPage() {
     draftValue: string
   ) => {
     const parsedRate = Number(draftValue);
+
+    if (isLocalDemoMode) {
+      toast.info('Demo mode is visual only. Use seeded functional UAT to save reporting tax changes.');
+      return;
+    }
 
     if (!draftValue.trim() || Number.isNaN(parsedRate) || parsedRate < 0 || parsedRate > 100) {
       toast.error('Enter a tax rate from 0 to 100. Use 0 for explicit no-tax machines.');
@@ -412,6 +546,11 @@ export default function AdminMachinesPage() {
   const saveTaxChange = async () => {
     const machine = setup.machines.find((candidate) => candidate.id === taxChangeForm.machineId);
     const parsedRate = Number(taxChangeForm.taxRatePercent);
+
+    if (isLocalDemoMode) {
+      toast.info('Demo mode is visual only. Use seeded functional UAT to save reporting tax changes.');
+      return;
+    }
 
     if (!machine) {
       toast.error('Select a machine before recording a tax change.');
@@ -471,16 +610,23 @@ export default function AdminMachinesPage() {
                 {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh
               </Button>
-              <Button onClick={openCreateMachine}>
+              <Button onClick={openCreateMachine} disabled={isLocalDemoMode}>
                 <Plus className="mr-2 h-4 w-4" />
                 New Manual Machine
               </Button>
             </div>
           </div>
 
-          {error && (
+          {error && !isLocalDemoMode && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               Unable to load machine setup.
+            </div>
+          )}
+
+          {isLocalDemoMode && (
+            <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+              DEMO DATA - visual review only. Machine Manager changes save in this browser only
+              and do not write to Supabase. Use seeded functional UAT to prove real persistence.
             </div>
           )}
 
@@ -635,6 +781,9 @@ export default function AdminMachinesPage() {
             : null
         }
         isRefundManagerSetupLoading={isRefundManagerSetupLoading}
+        isLocalDemoMode={isLocalDemoMode}
+        demoManagerAccounts={demoMachineManagerAccounts}
+        onDemoMachineManagersSaved={saveDemoMachineManagers}
         onSaved={refresh}
       />
       <TaxChangeDialog
@@ -994,6 +1143,9 @@ function MachineDialog({
   machines,
   refundManagerSetup,
   isRefundManagerSetupLoading,
+  isLocalDemoMode,
+  demoManagerAccounts,
+  onDemoMachineManagersSaved,
   onSaved,
 }: {
   open: boolean;
@@ -1002,6 +1154,9 @@ function MachineDialog({
   machines: PartnershipSetupMachine[];
   refundManagerSetup: RefundManagerSetup['machines'][number] | null;
   isRefundManagerSetupLoading: boolean;
+  isLocalDemoMode: boolean;
+  demoManagerAccounts: AdminAccountSummary[];
+  onDemoMachineManagersSaved: (machineId: string, managerEmails: string[]) => Promise<unknown>;
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
@@ -1022,15 +1177,30 @@ function MachineDialog({
     [selectedMachineManagerEmails]
   );
   const {
-    data: managerSuggestions = emptyAccountSummaries,
-    isFetching: isSearchingMachineManagers,
-    error: managerSearchError,
+    data: remoteManagerSuggestions = emptyAccountSummaries,
+    isFetching: isSearchingRemoteMachineManagers,
+    error: remoteManagerSearchError,
   } = useQuery({
     queryKey: ['admin-machine-manager-search', normalizedManagerSearch],
     queryFn: () => fetchAdminAccountSummaries(normalizedManagerSearch),
-    enabled: open && Boolean(form.machineId) && normalizedManagerSearch.length >= 3,
+    enabled:
+      !isLocalDemoMode &&
+      open &&
+      Boolean(form.machineId) &&
+      normalizedManagerSearch.length >= 3,
     staleTime: 1000 * 30,
   });
+  const managerSuggestions = useMemo(
+    () =>
+      isLocalDemoMode
+        ? demoManagerAccounts.filter((account) =>
+            normalizeEmail(account.customer_email ?? '').includes(normalizedManagerSearch)
+          )
+        : remoteManagerSuggestions,
+    [demoManagerAccounts, isLocalDemoMode, normalizedManagerSearch, remoteManagerSuggestions]
+  );
+  const isSearchingMachineManagers = !isLocalDemoMode && isSearchingRemoteMachineManagers;
+  const managerSearchError = isLocalDemoMode ? null : remoteManagerSearchError;
   const visibleManagerSuggestions = useMemo(
     () =>
       managerSuggestions
@@ -1134,6 +1304,13 @@ function MachineDialog({
     setMachineManagerSaveState('idle');
 
     try {
+      if (isLocalDemoMode) {
+        await onDemoMachineManagersSaved(form.machineId, nextEmails);
+        setMachineManagerSaveState('saved');
+        toast.success(`${successMessage} Demo mode saved this assignment in the browser only.`);
+        return true;
+      }
+
       await setMachineRefundManagersAdmin({
         machineId: form.machineId,
         managerEmails: nextEmails,
@@ -1146,7 +1323,12 @@ function MachineDialog({
     } catch (error) {
       setSelectedMachineManagerEmails(previousEmails);
       setMachineManagerSaveState('error');
-      toast.error(error instanceof Error ? error.message : 'Unable to save machine managers.');
+      const message = error instanceof Error ? error.message : 'Unable to save machine managers.';
+      toast.error(
+        message.includes('must be an authenticated user')
+          ? 'That person needs to sign in to Bloomjoy once before they can be assigned as a Machine Manager.'
+          : message
+      );
       return false;
     } finally {
       setIsSavingMachineManagers(false);
@@ -1176,9 +1358,18 @@ function MachineDialog({
     setIsAddingMachineManager(true);
     try {
       if (options.verifyAuthUser ?? true) {
-        const person = await lookupReportingUserByEmailAdmin(normalizedEmail);
-        if (!person.userEmail) {
-          throw new Error('This authenticated user does not have an email on file.');
+        if (isLocalDemoMode) {
+          const demoAccount = demoManagerAccounts.find(
+            (account) => normalizeEmail(account.customer_email ?? '') === normalizedEmail
+          );
+          if (!demoAccount) {
+            throw new Error('Use one of the demo users shown in Matching users for local UAT.');
+          }
+        } else {
+          const person = await lookupReportingUserByEmailAdmin(normalizedEmail);
+          if (!person.userEmail) {
+            throw new Error('This authenticated user does not have an email on file.');
+          }
         }
       }
       const nextEmails = uniqueEmails([...selectedMachineManagerEmails, normalizedEmail]);
@@ -1187,7 +1378,12 @@ function MachineDialog({
         setManagerSearch('');
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to find an authenticated user for that email.');
+      const message = error instanceof Error ? error.message : 'Unable to find an authenticated user for that email.';
+      toast.error(
+        message.startsWith('No user found')
+          ? 'That person needs to sign in to Bloomjoy once before they can be assigned as a Machine Manager.'
+          : message
+      );
     } finally {
       setIsAddingMachineManager(false);
     }
@@ -1423,7 +1619,7 @@ function MachineDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={saveMachine} disabled={isSaving}>
+          <Button onClick={saveMachine} disabled={isSaving || isLocalDemoMode}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save machine details
           </Button>

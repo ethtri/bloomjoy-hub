@@ -238,8 +238,10 @@ To use all login methods in local dev:
      - `http://localhost:8080/reset-password`
 
 
-## Refund operations local UAT (sponsor-ready)
-Use this path for local executive review of `/refunds/request` and `/portal/refunds` without Google OAuth and without sharing a password.
+## Refund operations agent QA and proof review
+Use this path for agent-run QA of `/refunds/request`, `/portal/refunds`, and Admin > Machines without Google OAuth and without sharing a password.
+
+Executive proof review happens only after agent QA has a pass/fail evidence packet. The executive sponsor should not be the first person to discover broken saves, missing test data, or access-boundary defects.
 
 For manager-wide shadow-pilot go/no-go tracking, use `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`.
 
@@ -251,11 +253,11 @@ Prereqs:
 - Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/portal/refunds` for case processing and do not see setup controls.
 
 Steps:
-1) Start the sponsor UAT server from the worktree:
+1) Start the agent UAT server from the worktree:
    - `npm run dev:uat`
    - Open `http://127.0.0.1:8081`.
 2) Seed synthetic fixtures and generate a one-click local magic link:
-   - `node scripts/refunds/local-refund-uat.mjs --email sponsor-uat@bloomjoy.localhost`
+   - `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`
    - Add `--open` to open the generated link automatically.
 3) Open the printed magic link. It should land on `/portal/refunds` as a local super-admin/Machine Manager. `/admin/refunds` is only a compatibility path.
 4) Review the synthetic queue cases:
@@ -267,12 +269,15 @@ Steps:
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081`
    - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data.
 
-Two UAT modes:
+Three validation modes:
+- `DEMO DATA - visual review only`: append `?demo=on` on localhost/127.0.0.1 for synthetic, browser-only visual review. Demo mode must not be used as evidence that saves, Nayax lookup, access scope, or reporting write-through work.
 - Seeded functional UAT: use the local Supabase helper above. This is the path for save/write-through and real state-transition testing.
-- Read-only UI review: if the local app is connected to a remote or otherwise empty Supabase queue, `/portal/refunds` shows local demo cases on `localhost`/`127.0.0.1` in Vite dev mode. This fallback is only for executive UI review when seeded fixtures are not available; it is clearly labeled in the app and disables save/Nayax actions. Add `?demo=off` to the URL to confirm the true empty state.
+- Post-production shadow mode: use live authenticated Machine Managers with the Google Form/AppSheet fallback still active. Agents capture pass/fail evidence and exceptions before any executive proof review.
 
 Admin > Machines Machine Manager UAT:
-- Open `/admin/machines`, edit a machine, and use the Machine Managers people lookup to search/add an authenticated user email.
+- For visual review without remote data, open `/admin/machines?demo=on`; use the listed `example.test` demo users only. Demo assignments save in the browser and do not write to Supabase.
+- For functional UAT, open `/admin/machines`, edit a machine, and use the Machine Managers people lookup to search/add an authenticated user email.
+- The target person must have signed in to Bloomjoy at least once before assignment can save. If the person is not an authenticated user yet, the UI should explain that they need to sign in once first.
 - Machine Manager changes autosave immediately. There is no separate `Save Machine Managers` button.
 - After adding or removing a manager, confirm the status changes to `Saved`, close the sheet, and confirm the manager email is visible in the machine row.
 - The bottom `Save machine details` button is only for machine identity/tax fields, not Machine Manager assignment.

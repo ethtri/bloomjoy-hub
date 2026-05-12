@@ -438,6 +438,38 @@ const run = async () => {
       await reopenedMachineDialog.getByText(secondManagerEmail).isVisible()
     );
 
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    const savePayloadBeforeDemo = JSON.stringify(state.savePayload);
+
+    await page.goto(`${args.appUrl}/admin/machines?demo=on`, { waitUntil: 'networkidle' });
+    await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
+    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Edit' }).click();
+    await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
+    const demoMachineDialog = page.getByLabel('Edit Machine');
+
+    recorder.assert(
+      'Machine Manager demo mode is clearly labeled as visual-only',
+      await page.getByText(/Machine Manager changes save in this browser only/i).isVisible()
+    );
+
+    await page.fill('#machine-manager-search', 'operator-three');
+    await page.getByRole('button', { name: /operator-three@example\.test/i }).click();
+    await demoMachineDialog.getByText('Saved', { exact: true }).waitFor({ timeout: 10000 });
+
+    recorder.assert(
+      'Demo mode allows only listed demo Machine Manager accounts',
+      await demoMachineDialog.getByText('3 managers assigned').isVisible()
+    );
+    recorder.assert(
+      'Demo mode Machine Manager save does not call the Supabase write RPC',
+      JSON.stringify(state.savePayload) === savePayloadBeforeDemo,
+      JSON.stringify(state.savePayload)
+    );
+    recorder.assert(
+      'Demo mode disables machine detail persistence',
+      await demoMachineDialog.getByRole('button', { name: 'Save machine details' }).isDisabled()
+    );
+
     await page.screenshot({
       path: path.join(args.artifactDir, 'admin-machines-machine-managers.png'),
       fullPage: true,
