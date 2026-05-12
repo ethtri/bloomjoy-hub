@@ -6,6 +6,7 @@ Last updated: 2026-05-11
 Run the Refund Operations MVP through AI-orchestrated UAT and a manager-wide shadow pilot before merging PR `#410` or cutting over from the Google Form/AppSheet fallback.
 
 This runbook is the PM/PO control artifact for issues `#402`-`#409`.
+Use `Docs/REFUND_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pilot script.
 
 ## Operating Rules
 - Codex acts as Bloomjoy PM/PO using the `bloomjoy-sprint-orchestrator` workflow.
@@ -24,6 +25,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Confirm issues `#402`-`#409` have current PM status comments.
 - [ ] Track one go/no-go summary covering Nayax lookup, manager access, customer communications, reporting write-through, and shadow-pilot results.
 - [ ] Confirm Google Form/AppSheet fallback remains live during pilot.
+- [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` before owner or manager UAT when the app is reachable.
 
 ### Nayax Validation Lane
 - [ ] Verify target environment has server-only `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`.

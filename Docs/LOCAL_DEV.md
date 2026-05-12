@@ -261,6 +261,9 @@ Steps:
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
    - `RF-UAT-CASH`: correlated cash path with one synthetic sales fact and no final decision.
 5) Open `/refunds/request` separately to review the public customer intake form against the same synthetic location/machine options.
+6) Run the mocked refund-only portal QA harness against the running app:
+   - `npm run refunds:validate-portal-uat -- --app-url http://localhost:8080`
+   - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data.
 
 Privacy guardrails:
 - The helper writes only synthetic `example.test` customer records and synthetic machine/sales/refund data.

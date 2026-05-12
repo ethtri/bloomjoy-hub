@@ -30,6 +30,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Refund Operations MVP
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` stays draft until the merge gate passes, and Google Form/AppSheet remains live until the cutover gate passes.
+- [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.
+- [ ] Use `Docs/REFUND_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
 - [ ] Sponsor local UAT setup uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email sponsor-uat@bloomjoy.localhost --app-url http://localhost:8080`, open the printed one-click magic link, and confirm the sponsor reaches `/portal/refunds` without Google OAuth or a shared password.
 - [ ] Sponsor UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
 - [ ] Direct-load `/refunds/request` on desktop and mobile; page is noindex, not listed in `sitemap.xml`, and the form loads active machine/location options.
