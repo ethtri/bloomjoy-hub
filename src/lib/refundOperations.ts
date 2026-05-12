@@ -109,9 +109,7 @@ export type RefundCaseRecord = {
   correlationSource: 'nayax' | 'sunze' | 'manual' | null;
   correlationConfidence: number;
   correlationSummary: string | null;
-  reportingMachineId: string;
   machineLabel: string;
-  reportingLocationId: string;
   locationName: string;
   customerEmail: string;
   customerName: string | null;
@@ -123,21 +121,19 @@ export type RefundCaseRecord = {
   paymentAmountCents: number | null;
   cardLast4: string | null;
   cardWalletUsed: boolean;
-  matchedSalesFactId: string | null;
-  matchedNayaxTransactionId: string | null;
-  matchedNayaxSiteId: number | null;
+  hasMatchedSalesFact: boolean;
+  hasMatchedNayaxTransaction: boolean;
   matchedNayaxMachineAuthTime: string | null;
   matchedNayaxAmountCents: number | null;
   matchedNayaxCardLast4: string | null;
   matchedNayaxCurrencyCode: string | null;
-  assignedManagerId: string | null;
   assignedManagerEmail: string | null;
   decision: RefundDecision;
   decisionReason: string | null;
   decidedAt: string | null;
   refundAmountCents: number | null;
   manualRefundReference: string | null;
-  reportingAdjustmentId: string | null;
+  hasReportingAdjustment: boolean;
   createdAt: string;
   updatedAt: string;
   attachments: RefundCaseAttachment[];
@@ -148,25 +144,13 @@ export type RefundCaseRecord = {
 export type RefundAdminMachine = {
   id: string;
   machineLabel: string;
-  machineType: string;
-  sunzeMachineId: string | null;
   nayaxLookupConfigured: boolean;
-  status: string;
-  locationId: string;
   locationName: string;
-  accountId: string;
-  accountName: string;
 };
 
 export type RefundManagerAssignment = {
-  id: string;
   reportingMachineId: string;
-  machineLabel: string;
-  managerUserId: string;
   managerEmail: string;
-  status: string;
-  grantReason: string;
-  createdAt: string;
 };
 
 export type RefundOperationsOverview = {
@@ -342,13 +326,13 @@ export const setMachineNayaxConfigAdmin = async ({
 };
 
 export const lookupNayaxTransactions = async ({
-  machineId,
+  caseId,
   incidentAt,
   amountCents,
   cardLast4,
   cardWalletUsed,
 }: {
-  machineId: string;
+  caseId: string;
   incidentAt: string;
   amountCents: number | null;
   cardLast4: string | null;
@@ -357,7 +341,7 @@ export const lookupNayaxTransactions = async ({
   invokeEdgeFunction<NayaxLookupResponse>(
     'nayax-transaction-lookup',
     {
-      machineId,
+      caseId,
       incidentAt,
       amountCents,
       cardLast4,

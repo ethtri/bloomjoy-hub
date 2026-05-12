@@ -284,27 +284,42 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const machineId = sanitizeText(body?.machineId, 80);
+    const caseId = sanitizeText(body?.caseId, 80);
     const incidentAt = parseIncidentAt(body?.incidentAt);
     const amountCents = sanitizeInputCents(body?.amountCents);
     const cardLast4 = extractLast4(body?.cardLast4);
     const cardWalletUsed = Boolean(body?.cardWalletUsed);
 
-    if (!isUuid(machineId) || !incidentAt) {
-      return jsonResponse({ error: "Machine and incident time are required." }, 400);
+    if (!isUuid(caseId) || !incidentAt) {
+      return jsonResponse({ error: "Refund case and incident time are required." }, 400);
     }
 
-    const { data: canManage, error: accessError } = await supabase.rpc(
-      "can_manage_refund_machine",
-      { p_user_id: user.id, p_machine_id: machineId },
+    const { data: canManageCase, error: accessError } = await supabase.rpc(
+      "can_manage_refund_case",
+      { p_user_id: user.id, p_refund_case_id: caseId },
     );
 
     if (accessError) {
       throw accessError;
     }
 
-    if (!canManage) {
-      return jsonResponse({ error: "Refund machine access required." }, 403);
+    if (!canManageCase) {
+      return jsonResponse({ error: "Refund case access required." }, 403);
+    }
+
+    const { data: refundCase, error: refundCaseError } = await supabase
+      .from("refund_cases")
+      .select("id, reporting_machine_id")
+      .eq("id", caseId)
+      .maybeSingle();
+
+    if (refundCaseError) {
+      throw refundCaseError;
+    }
+
+    const machineId = sanitizeText(refundCase?.reporting_machine_id, 80);
+    if (!isUuid(machineId)) {
+      return jsonResponse({ error: "Refund case machine is not available." }, 400);
     }
 
     const { data: machine, error: machineError } = await supabase

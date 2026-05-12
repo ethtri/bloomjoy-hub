@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -24,7 +24,6 @@ import {
   createRefundAttachmentSignedUrl,
   fetchRefundOperationsOverview,
   lookupNayaxTransactions,
-  setMachineNayaxConfigAdmin,
   setMachineRefundManagersAdmin,
   updateRefundCaseAdmin,
   type NayaxLookupCandidate,
@@ -91,6 +90,7 @@ type EditorState = {
   matchedNayaxAmount: string;
   matchedNayaxCardLast4: string;
   matchedNayaxCurrencyCode: string;
+  clearNayaxMatch: boolean;
   internalNote: string;
 };
 
@@ -106,9 +106,8 @@ const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
         ? (refundCase.paymentAmountCents / 100).toFixed(2)
         : '',
   manualRefundReference: refundCase.manualRefundReference ?? '',
-  matchedNayaxTransactionId: refundCase.matchedNayaxTransactionId ?? '',
-  matchedNayaxSiteId:
-    typeof refundCase.matchedNayaxSiteId === 'number' ? String(refundCase.matchedNayaxSiteId) : '',
+  matchedNayaxTransactionId: '',
+  matchedNayaxSiteId: '',
   matchedNayaxMachineAuthTime: refundCase.matchedNayaxMachineAuthTime ?? '',
   matchedNayaxAmount:
     typeof refundCase.matchedNayaxAmountCents === 'number'
@@ -116,6 +115,7 @@ const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
       : '',
   matchedNayaxCardLast4: refundCase.matchedNayaxCardLast4 ?? '',
   matchedNayaxCurrencyCode: refundCase.matchedNayaxCurrencyCode ?? '',
+  clearNayaxMatch: false,
   internalNote: '',
 });
 
@@ -222,7 +222,11 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
   const hasCorrelation =
     selectedCase.correlationStatus === 'matched' &&
     Boolean(selectedCase.correlationSource) &&
-    (Boolean(selectedCase.matchedSalesFactId) || Boolean(editor.matchedNayaxTransactionId.trim()));
+    (selectedCase.hasMatchedSalesFact ||
+      selectedCase.hasMatchedNayaxTransaction ||
+      Boolean(editor.matchedNayaxTransactionId.trim()));
+  const hasNayaxEvidence =
+    selectedCase.hasMatchedNayaxTransaction || Boolean(editor.matchedNayaxTransactionId.trim());
 
   if (editor.matchedNayaxSiteId.trim() && nayaxSiteId === null) {
     issues.push('Nayax site ID must be a whole number.');
@@ -272,8 +276,8 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
       issues.push('Completion requires a manual refund reference.');
     }
 
-    if (selectedCase.paymentMethod === 'card' && !editor.matchedNayaxTransactionId.trim()) {
-      issues.push('Card completion requires a Nayax transaction ID.');
+    if (selectedCase.paymentMethod === 'card' && !hasNayaxEvidence) {
+      issues.push('Card completion requires Nayax lookup evidence.');
     }
 
     if (selectedCase.paymentMethod === 'card' && !editor.matchedNayaxMachineAuthTime.trim()) {
@@ -287,6 +291,7 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const { isSuperAdmin, isScopedAdmin } = useAuth();
+  const detailPanelRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | RefundCaseStatus>('open');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -298,10 +303,6 @@ export default function AdminRefundsPage() {
   const [assignmentEmails, setAssignmentEmails] = useState('');
   const [assignmentReason, setAssignmentReason] = useState('Refund operations manager update');
   const [isSavingManagers, setIsSavingManagers] = useState(false);
-  const [nayaxMachineId, setNayaxMachineId] = useState('');
-  const [nayaxAccountKey, setNayaxAccountKey] = useState('TGPACI_USA_DB');
-  const [nayaxSetupReason, setNayaxSetupReason] = useState('Refund operations Nayax lookup setup');
-  const [isSavingNayaxSetup, setIsSavingNayaxSetup] = useState(false);
 
   const {
     data: overview = { cases: [], machines: [], managerAssignments: [] },
@@ -325,11 +326,6 @@ export default function AdminRefundsPage() {
       setAssignmentMachineId(overview.machines[0].id);
     }
   }, [assignmentMachineId, overview.machines]);
-
-  useEffect(() => {
-    setNayaxMachineId('');
-    setNayaxAccountKey('TGPACI_USA_DB');
-  }, [assignmentMachine]);
 
   useEffect(() => {
     const selectedMachineAssignments = overview.managerAssignments.filter(
@@ -371,9 +367,18 @@ export default function AdminRefundsPage() {
     };
   }, [overview.cases]);
 
-  const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ??
-    overview.cases.find((refundCase) => refundCase.id === selectedId) ??
-    null;
+  useEffect(() => {
+    if (!selectedId) return;
+
+    const selectedCaseIsVisible = filteredCases.some((refundCase) => refundCase.id === selectedId);
+    if (selectedCaseIsVisible) return;
+
+    setSelectedId(null);
+    setEditor(null);
+    setNayaxCandidates([]);
+  }, [filteredCases, selectedId]);
+
+  const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
   const saveIssues = useMemo(
     () => (selectedCase && editor ? getCaseSaveIssues(selectedCase, editor) : []),
     [editor, selectedCase]
@@ -383,6 +388,12 @@ export default function AdminRefundsPage() {
     setSelectedId(refundCase.id);
     setEditor(toEditorState(refundCase));
     setNayaxCandidates([]);
+
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+      window.setTimeout(() => {
+        detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
+    }
   };
 
   const handleSaveCase = async () => {
@@ -402,8 +413,7 @@ export default function AdminRefundsPage() {
 
     setIsSaving(true);
     try {
-      const clearNayaxMatch = selectedCase.matchedNayaxTransactionId !== null &&
-        !editor.matchedNayaxTransactionId.trim();
+      const clearNayaxMatch = editor.clearNayaxMatch;
       const nayaxSiteId = optionalPositiveInteger(editor.matchedNayaxSiteId);
       const nayaxAmountCents = centsFromCurrency(editor.matchedNayaxAmount);
       await updateRefundCaseAdmin({
@@ -416,7 +426,7 @@ export default function AdminRefundsPage() {
         refundAmountCents,
         manualRefundReference: editor.manualRefundReference.trim() || null,
         clearNayaxMatch,
-        matchedNayaxTransactionId: editor.matchedNayaxTransactionId.trim() || null,
+        matchedNayaxTransactionId: editor.matchedNayaxTransactionId.trim() || undefined,
         matchedNayaxSiteId: nayaxSiteId,
         matchedNayaxMachineAuthTime: editor.matchedNayaxMachineAuthTime.trim() || null,
         matchedNayaxAmountCents: nayaxAmountCents,
@@ -439,7 +449,7 @@ export default function AdminRefundsPage() {
     setIsLookingUpNayax(true);
     try {
       const result = await lookupNayaxTransactions({
-        machineId: selectedCase.reportingMachineId,
+        caseId: selectedCase.id,
         incidentAt: selectedCase.incidentAt,
         amountCents: selectedCase.paymentAmountCents,
         cardLast4: selectedCase.cardLast4,
@@ -509,31 +519,6 @@ export default function AdminRefundsPage() {
       toast.error(message);
     } finally {
       setIsSavingManagers(false);
-    }
-  };
-
-  const handleSaveNayaxSetup = async () => {
-    if (!assignmentMachineId) return;
-    if (!nayaxMachineId.trim()) {
-      toast.error('Enter a Nayax machine ID to add or replace lookup setup.');
-      return;
-    }
-
-    setIsSavingNayaxSetup(true);
-    try {
-      await setMachineNayaxConfigAdmin({
-        machineId: assignmentMachineId,
-        nayaxMachineId: nayaxMachineId.trim() || null,
-        nayaxAccountKey: nayaxAccountKey.trim() || null,
-        reason: nayaxSetupReason.trim(),
-      });
-      toast.success('Nayax lookup setup saved.');
-      await refresh();
-    } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : 'Unable to save Nayax setup.';
-      toast.error(message);
-    } finally {
-      setIsSavingNayaxSetup(false);
     }
   };
 
@@ -614,7 +599,7 @@ export default function AdminRefundsPage() {
             </select>
           </div>
 
-          <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+          <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(440px,0.9fr)]">
             <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
               <div className="divide-y divide-border/70 lg:hidden">
                 {isLoading && (
@@ -668,8 +653,14 @@ export default function AdminRefundsPage() {
                   ))}
               </div>
 
-              <div className="hidden overflow-x-auto lg:block">
-              <table className="min-w-[720px] w-full">
+              <div className="hidden lg:block">
+              <table className="w-full table-fixed">
+                <colgroup>
+                  <col className="w-[42%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[20%]" />
+                  <col className="w-[20%]" />
+                </colgroup>
                 <thead className="border-b border-border bg-muted/40">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -712,13 +703,13 @@ export default function AdminRefundsPage() {
                         )}
                       >
                         <td className="px-4 py-3 align-top">
-                          <div className="text-sm font-semibold text-foreground">
+                          <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
                           </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
+                          <div className="mt-1 truncate text-xs text-muted-foreground">
                             {refundCase.customerEmail}
                           </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
+                          <div className="mt-1 truncate text-xs text-muted-foreground">
                             {refundCase.locationName} - {refundCase.machineLabel}
                           </div>
                         </td>
@@ -729,7 +720,7 @@ export default function AdminRefundsPage() {
                         </td>
                         <td className="px-4 py-3 align-top text-sm text-muted-foreground">
                           <div className="capitalize">{statusLabel(refundCase.correlationStatus)}</div>
-                          <div className="mt-1 text-xs">
+                          <div className="mt-1 truncate text-xs">
                             {refundCase.correlationSource ?? 'no source'} /{' '}
                             {Math.round(refundCase.correlationConfidence * 100)}%
                           </div>
@@ -744,7 +735,7 @@ export default function AdminRefundsPage() {
               </div>
             </div>
 
-            <div className="min-w-0 space-y-5">
+            <div ref={detailPanelRef} className="scroll-mt-4 min-w-0 space-y-5">
               <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
@@ -823,13 +814,13 @@ export default function AdminRefundsPage() {
                           </p>
                           <p className="mt-2 break-words text-xs text-muted-foreground">
                             Source: {selectedCase.correlationSource ?? 'n/a'} / Status:{' '}
-                            {statusLabel(selectedCase.correlationStatus)} / Sales fact:{' '}
-                            {selectedCase.matchedSalesFactId ?? 'n/a'} / Nayax:{' '}
-                            {selectedCase.matchedNayaxTransactionId ?? 'n/a'}
+                            {statusLabel(selectedCase.correlationStatus)} / Sales record:{' '}
+                            {selectedCase.hasMatchedSalesFact ? 'matched' : 'not matched'} / Nayax lookup:{' '}
+                            {selectedCase.hasMatchedNayaxTransaction ? 'selected' : 'not selected'}
                           </p>
-                          {selectedCase.matchedNayaxTransactionId && (
+                          {selectedCase.hasMatchedNayaxTransaction && (
                             <p className="mt-1 break-words text-xs text-muted-foreground">
-                              Site: {selectedCase.matchedNayaxSiteId ?? 'n/a'} / Machine auth:{' '}
+                              Machine authorization:{' '}
                               {selectedCase.matchedNayaxMachineAuthTime
                                 ? formatDate(selectedCase.matchedNayaxMachineAuthTime)
                                 : 'n/a'}
@@ -1042,20 +1033,14 @@ export default function AdminRefundsPage() {
 
                     {selectedCase.paymentMethod === 'card' && (
                       <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex-1">
-                            <Label>Nayax transaction ID</Label>
-                            <Input
-                              value={editor.matchedNayaxTransactionId}
-                              onChange={(event) =>
-                                setEditor((current) =>
-                                  current
-                                    ? { ...current, matchedNayaxTransactionId: event.target.value }
-                                    : current
-                                )
-                              }
-                              className="mt-2 bg-white"
-                            />
+                            <p className="text-sm font-medium text-sky-950">Nayax lookup evidence</p>
+                            <p className="mt-1 text-xs text-sky-800">
+                              {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxTransactionId
+                                ? 'Lookup evidence selected for this card refund.'
+                                : 'Run lookup to select a sanitized card-sale candidate.'}
+                            </p>
                           </div>
                           <Button
                             type="button"
@@ -1098,15 +1083,15 @@ export default function AdminRefundsPage() {
                                 }
                                 className="w-full min-w-0 rounded-md border border-sky-200 bg-white p-2 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100"
                               >
-                                <span className="block break-all font-semibold">{candidate.transactionId}</span>
+                                <span className="block font-semibold">
+                                  Nayax sale candidate - {formatDate(candidate.machineAuthorizationTime)}
+                                </span>
                                 <span className="mt-1 block text-sky-700">
                                   {formatCurrency(candidate.amountCents)} / last4{' '}
                                   {candidate.cardLast4 || 'n/a'} / {candidate.cardBrand || 'card'} /{' '}
-                                  {candidate.currencyCode || 'n/a'} / site {candidate.siteId ?? 'n/a'} /{' '}
-                                  {Math.round(candidate.matchConfidence * 100)}%
+                                  {candidate.currencyCode || 'n/a'} / {Math.round(candidate.matchConfidence * 100)}%
                                 </span>
                                 <span className="mt-1 block text-sky-700">
-                                  {formatDate(candidate.machineAuthorizationTime)} /{' '}
                                   {candidate.matchReason || candidate.paymentStatus || 'review candidate'}
                                 </span>
                               </button>
@@ -1114,20 +1099,6 @@ export default function AdminRefundsPage() {
                           </div>
                         )}
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <Label>Nayax site ID <span className="font-normal text-muted-foreground">(optional)</span></Label>
-                            <Input
-                              value={editor.matchedNayaxSiteId}
-                              onChange={(event) =>
-                                setEditor((current) =>
-                                  current
-                                    ? { ...current, matchedNayaxSiteId: event.target.value }
-                                    : current
-                                )
-                              }
-                              className="mt-2 bg-white"
-                            />
-                          </div>
                           <div>
                             <Label>Machine auth time</Label>
                             <Input
@@ -1190,7 +1161,7 @@ export default function AdminRefundsPage() {
                             </div>
                           </div>
                         </div>
-                        {editor.matchedNayaxTransactionId && (
+                        {(selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxTransactionId) && (
                           <Button
                             type="button"
                             variant="ghost"
@@ -1204,6 +1175,7 @@ export default function AdminRefundsPage() {
                                       status: 'needs_review',
                                       decision: null,
                                       decisionReason: '',
+                                      clearNayaxMatch: true,
                                       matchedNayaxTransactionId: '',
                                       matchedNayaxSiteId: '',
                                       matchedNayaxMachineAuthTime: '',
@@ -1303,13 +1275,13 @@ export default function AdminRefundsPage() {
                     <div className="rounded-lg border border-border bg-muted/25 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <p className="text-sm font-medium text-foreground">Nayax card lookup</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {assignmentMachine?.nayaxLookupConfigured
-                              ? 'Mapped and ready for card lookup'
-                              : 'Missing Nayax machine ID'}
-                          </p>
-                        </div>
+                        <p className="text-sm font-medium text-foreground">Nayax card lookup</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {assignmentMachine?.nayaxLookupConfigured
+                            ? 'Mapped and ready for card lookup'
+                            : 'Needs setup outside the manager workflow'}
+                        </p>
+                      </div>
                         <Badge
                           className={cn(
                             assignmentMachine?.nayaxLookupConfigured
@@ -1320,43 +1292,6 @@ export default function AdminRefundsPage() {
                           {assignmentMachine?.nayaxLookupConfigured ? 'Ready' : 'Setup needed'}
                         </Badge>
                       </div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <Label>New Nayax machine ID</Label>
-                          <Input
-                            value={nayaxMachineId}
-                            onChange={(event) => setNayaxMachineId(event.target.value)}
-                            placeholder="Enter to add or replace"
-                            className="mt-2 bg-white"
-                          />
-                        </div>
-                        <div>
-                          <Label>Nayax account key</Label>
-                          <Input
-                            value={nayaxAccountKey}
-                            onChange={(event) => setNayaxAccountKey(event.target.value)}
-                            className="mt-2 bg-white"
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-3">
-                        <Label>Setup reason</Label>
-                        <Input
-                          value={nayaxSetupReason}
-                          onChange={(event) => setNayaxSetupReason(event.target.value)}
-                          className="mt-2 bg-white"
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleSaveNayaxSetup()}
-                        disabled={isSavingNayaxSetup || !assignmentMachineId}
-                        className="mt-3"
-                      >
-                        {isSavingNayaxSetup && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Save Nayax Setup
-                      </Button>
                     </div>
                     <div>
                       <Label>Manager emails</Label>
