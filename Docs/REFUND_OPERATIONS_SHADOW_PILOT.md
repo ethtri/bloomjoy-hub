@@ -28,7 +28,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 ### Nayax Validation Lane
 - [ ] Verify target environment has server-only `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`.
 - [ ] Verify target environment has server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or fallback `NAYAX_LYNX_API_TOKEN` by name only, never by value.
-- [ ] Map refund-ready machines to Nayax machine IDs in `/admin/refunds`.
+- [ ] Confirm refund-ready machines are mapped to server-side Nayax machine IDs before managers use `/portal/refunds` for card lookup.
 - [ ] Validate at least one real card case against `GET /machines/{MachineID}/lastSales`.
 - [ ] Validate Apple Pay/wallet last-four mismatch behavior with real or owner-approved test evidence.
 - [ ] Confirm lookup responses show only sanitized candidate evidence in Bloomjoy Hub.

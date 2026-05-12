@@ -21,8 +21,14 @@ export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { getItemCount } = useCart();
-  const { isAuthenticated, isAdmin } = useAuth();
+  const { adminAccess, isAuthenticated, isAdmin, isScopedAdmin, isSuperAdmin } = useAuth();
   const itemCount = getItemCount();
+  const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
+  const canOpenAdminWorkspace =
+    isAdmin &&
+    (isSuperAdmin ||
+      allowedAdminSurfaces.has('*') ||
+      (isScopedAdmin && allowedAdminSurfaces.has('access')));
   const currentLocation = typeof window === 'undefined' ? undefined : window.location;
   const operatorAppUrl = getCanonicalUrlForSurface('app', '/portal', '', '', currentLocation);
   const operatorLoginUrl = getCanonicalUrlForSurface('app', '/login', '', '', currentLocation);
@@ -82,7 +88,7 @@ export function Navbar() {
           </Link>
           {isAuthenticated ? (
             <>
-              {isAdmin && (
+              {canOpenAdminWorkspace && (
                 <a href={adminAppUrl}>
                   <Button variant="outline" size="sm">
                     Admin App
@@ -155,7 +161,7 @@ export function Navbar() {
               <div className="mt-2 border-t border-border pt-4">
                 {isAuthenticated ? (
                   <div className="flex flex-col gap-2">
-                    {isAdmin && (
+                    {canOpenAdminWorkspace && (
                       <a href={adminAppUrl} onClick={() => setMobileMenuOpen(false)}>
                         <Button variant="outline" className="w-full">
                           Admin App

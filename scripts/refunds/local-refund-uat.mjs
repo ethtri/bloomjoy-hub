@@ -526,7 +526,7 @@ async function seedFixtures(supabase, sponsorUser, email) {
 }
 
 async function generateMagicLink(supabase, email, appUrl) {
-  const redirectTo = `${appUrl}/admin/refunds`;
+  const redirectTo = `${appUrl}/portal/refunds`;
   const { data, error } = await supabase.auth.admin.generateLink({
     type: 'magiclink',
     email,
@@ -598,7 +598,7 @@ async function run() {
   const actionLink = await generateMagicLink(supabase, args.email, args.appUrl);
 
   console.log('\nSeeded synthetic refund UAT data.');
-  console.log('Open this one-click local magic link to review /admin/refunds:');
+  console.log('Open this one-click local magic link to review /portal/refunds:');
   console.log(actionLink);
 
   if (args.open) {

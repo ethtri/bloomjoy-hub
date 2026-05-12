@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Loader2,
   Mail,
-  MessageSquareText,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -229,22 +228,22 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
     selectedCase.hasMatchedNayaxTransaction || Boolean(editor.matchedNayaxTransactionId.trim());
 
   if (editor.matchedNayaxSiteId.trim() && nayaxSiteId === null) {
-    issues.push('Nayax site ID must be a whole number.');
+    issues.push('Card lookup site value must be a whole number.');
   }
 
   if (editor.matchedNayaxAmount.trim() && nayaxAmountCents === null) {
-    issues.push('Nayax matched amount must be a valid dollar amount.');
+    issues.push('Card lookup amount must be a valid dollar amount.');
   }
 
   if (editor.matchedNayaxCardLast4.trim() && !/^[0-9]{4}$/.test(editor.matchedNayaxCardLast4.trim())) {
-    issues.push('Nayax matched last 4 must be exactly 4 digits.');
+    issues.push('Card lookup last 4 must be exactly 4 digits.');
   }
 
   if (
     editor.matchedNayaxCurrencyCode.trim() &&
     !/^[A-Za-z]{3}$/.test(editor.matchedNayaxCurrencyCode.trim())
   ) {
-    issues.push('Nayax currency code must be 3 letters.');
+    issues.push('Card lookup currency code must be 3 letters.');
   }
 
   if (requiredDecision && editor.decision !== requiredDecision) {
@@ -290,7 +289,11 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
 
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
-  const { isSuperAdmin, isScopedAdmin } = useAuth();
+  const { adminAccess, isSuperAdmin, isScopedAdmin } = useAuth();
+  const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
+  const canManageRefundSetup =
+    isSuperAdmin ||
+    (isScopedAdmin && (allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds')));
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | RefundCaseStatus>('open');
@@ -529,14 +532,13 @@ export default function AdminRefundsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Admin
+                Operations
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Refund Operations
+                Refund workflow
               </h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                Review customer refund inquiries, correlation evidence, manager ownership, and
-                reporting write-through readiness.
+                Work the queue, review matched evidence, and record the next refund decision.
               </p>
             </div>
             <Button variant="outline" onClick={() => void refresh()} disabled={isFetching}>
@@ -578,7 +580,7 @@ export default function AdminRefundsPage() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search reference, customer, machine, or issue"
+                placeholder="Search cases"
                 className="pl-9"
               />
             </div>
@@ -599,8 +601,14 @@ export default function AdminRefundsPage() {
             </select>
           </div>
 
-          <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(440px,0.9fr)]">
+          <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(320px,0.82fr)_minmax(520px,1.18fr)]">
             <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+              <div className="border-b border-border bg-muted/30 px-4 py-3">
+                <h2 className="text-sm font-semibold text-foreground">Queue</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {filteredCases.length} visible of {overview.cases.length} total cases
+                </p>
+              </div>
               <div className="divide-y divide-border/70 lg:hidden">
                 {isLoading && (
                   <div className="px-4 py-10 text-center text-sm text-muted-foreground">
@@ -627,9 +635,6 @@ export default function AdminRefundsPage() {
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-foreground">
                             {refundCase.publicReference}
-                          </div>
-                          <div className="mt-1 break-words text-xs text-muted-foreground">
-                            {refundCase.customerEmail}
                           </div>
                         </div>
                         <Badge className={cn('shrink-0 capitalize', statusBadgeClass(refundCase.status))}>
@@ -720,10 +725,6 @@ export default function AdminRefundsPage() {
                         </td>
                         <td className="px-4 py-3 align-top text-sm text-muted-foreground">
                           <div className="capitalize">{statusLabel(refundCase.correlationStatus)}</div>
-                          <div className="mt-1 truncate text-xs">
-                            {refundCase.correlationSource ?? 'no source'} /{' '}
-                            {Math.round(refundCase.correlationConfidence * 100)}%
-                          </div>
                         </td>
                         <td className="px-4 py-3 align-top text-sm text-muted-foreground">
                           {formatDate(refundCase.createdAt)}
@@ -812,12 +813,20 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 text-muted-foreground">
                             {selectedCase.correlationSummary || 'No correlation summary recorded.'}
                           </p>
-                          <p className="mt-2 break-words text-xs text-muted-foreground">
-                            Source: {selectedCase.correlationSource ?? 'n/a'} / Status:{' '}
-                            {statusLabel(selectedCase.correlationStatus)} / Sales record:{' '}
-                            {selectedCase.hasMatchedSalesFact ? 'matched' : 'not matched'} / Nayax lookup:{' '}
-                            {selectedCase.hasMatchedNayaxTransaction ? 'selected' : 'not selected'}
-                          </p>
+                          <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                            <div className="rounded-md border border-border bg-muted/30 p-2">
+                              <span className="block font-medium text-foreground">Status</span>
+                              <span className="capitalize">{statusLabel(selectedCase.correlationStatus)}</span>
+                            </div>
+                            <div className="rounded-md border border-border bg-muted/30 p-2">
+                              <span className="block font-medium text-foreground">Sales record</span>
+                              <span>{selectedCase.hasMatchedSalesFact ? 'Matched' : 'Not matched'}</span>
+                            </div>
+                            <div className="rounded-md border border-border bg-muted/30 p-2">
+                              <span className="block font-medium text-foreground">Card lookup</span>
+                              <span>{selectedCase.hasMatchedNayaxTransaction ? 'Selected' : 'Not selected'}</span>
+                            </div>
+                          </div>
                           {selectedCase.hasMatchedNayaxTransaction && (
                             <p className="mt-1 break-words text-xs text-muted-foreground">
                               Machine authorization:{' '}
@@ -853,77 +862,9 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      <div className="rounded-lg border border-border bg-background p-3">
-                        <div className="flex items-center gap-2">
-                          <Clock3 className="h-4 w-4 text-primary" />
-                          <p className="text-sm font-medium text-foreground">Event timeline</p>
-                        </div>
-                        <div className="mt-3 space-y-3">
-                          {selectedCase.events.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No case events have been recorded.</p>
-                          ) : (
-                            selectedCase.events.map((event) => (
-                              <div key={event.id} className="border-l border-border pl-3">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Badge variant="outline">{eventLabel(event.eventType)}</Badge>
-                                  <span className="text-xs text-muted-foreground">
-                                    {formatDate(event.createdAt)}
-                                  </span>
-                                </div>
-                                <p className="mt-1 break-words text-sm text-muted-foreground">
-                                  {event.message || 'No event note recorded.'}
-                                </p>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-border bg-background p-3">
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-4 w-4 text-primary" />
-                          <p className="text-sm font-medium text-foreground">Customer messages</p>
-                        </div>
-                        <div className="mt-3 space-y-3">
-                          {selectedCase.messages.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">
-                              No customer email records have been logged.
-                            </p>
-                          ) : (
-                            selectedCase.messages.map((message) => (
-                              <div key={message.id} className="rounded-md border border-border/80 p-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Badge variant="outline" className="capitalize">
-                                    {statusLabel(message.messageType)}
-                                  </Badge>
-                                  <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
-                                    {message.status}
-                                  </Badge>
-                                </div>
-                                <p className="mt-2 break-words text-sm font-medium text-foreground">
-                                  {message.subject}
-                                </p>
-                                <p className="mt-2 whitespace-pre-line break-words rounded-md bg-muted/40 p-2 text-xs leading-5 text-muted-foreground">
-                                  {message.body}
-                                </p>
-                                <p className="mt-1 break-words text-xs text-muted-foreground">
-                                  To {message.recipientEmail} /{' '}
-                                  {message.sentAt ? `sent ${formatDate(message.sentAt)}` : `created ${formatDate(message.createdAt)}`}
-                                </p>
-                                {message.errorMessage && (
-                                  <p className="mt-1 break-words text-xs text-destructive">
-                                    {message.errorMessage}
-                                  </p>
-                                )}
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-4 rounded-lg border border-border bg-background p-3">
+                      <h3 className="text-sm font-semibold text-foreground">Decision and next action</h3>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <div>
                         <Label>Status</Label>
                         <select
@@ -979,14 +920,6 @@ export default function AdminRefundsPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-start gap-2 rounded-lg border border-muted bg-muted/25 p-3 text-xs text-muted-foreground">
-                      <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                      <p>
-                        Decision changes keep the status list coherent. Follow-up statuses clear the
-                        final decision; approved and denied paths set the matching decision before submit.
-                      </p>
-                    </div>
-
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
                         <Label>Refund amount</Label>
@@ -1027,7 +960,7 @@ export default function AdminRefundsPage() {
                           )
                         }
                         className="mt-2"
-                        placeholder="Nayax refund ID, Zelle note, or internal reference"
+                        placeholder="Completion note or internal reference"
                       />
                     </div>
 
@@ -1035,7 +968,7 @@ export default function AdminRefundsPage() {
                       <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-sky-950">Nayax lookup evidence</p>
+                            <p className="text-sm font-medium text-sky-950">Card lookup evidence</p>
                             <p className="mt-1 text-xs text-sky-800">
                               {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxTransactionId
                                 ? 'Lookup evidence selected for this card refund.'
@@ -1084,7 +1017,7 @@ export default function AdminRefundsPage() {
                                 className="w-full min-w-0 rounded-md border border-sky-200 bg-white p-2 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100"
                               >
                                 <span className="block font-semibold">
-                                  Nayax sale candidate - {formatDate(candidate.machineAuthorizationTime)}
+                                  Sale candidate - {formatDate(candidate.machineAuthorizationTime)}
                                 </span>
                                 <span className="mt-1 block text-sky-700">
                                   {formatCurrency(candidate.amountCents)} / last4{' '}
@@ -1115,7 +1048,7 @@ export default function AdminRefundsPage() {
                             />
                           </div>
                           <div>
-                            <Label>Nayax amount</Label>
+                            <Label>Lookup amount</Label>
                             <Input
                               value={editor.matchedNayaxAmount}
                               onChange={(event) =>
@@ -1131,7 +1064,7 @@ export default function AdminRefundsPage() {
                           </div>
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <Label>Nayax last 4</Label>
+                              <Label>Card last 4</Label>
                               <Input
                                 value={editor.matchedNayaxCardLast4}
                                 onChange={(event) =>
@@ -1187,7 +1120,7 @@ export default function AdminRefundsPage() {
                               )
                             }
                           >
-                            Clear Nayax match
+                            Clear card lookup match
                           </Button>
                         )}
                       </div>
@@ -1246,11 +1179,84 @@ export default function AdminRefundsPage() {
                       )}
                       Save Case
                     </Button>
+                    </div>
+
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <details className="rounded-lg border border-border bg-background p-3">
+                        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-foreground">
+                          <Clock3 className="h-4 w-4 text-primary" />
+                          Event timeline ({selectedCase.events.length})
+                        </summary>
+                        <div className="mt-3 space-y-3">
+                          {selectedCase.events.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No case events have been recorded.</p>
+                          ) : (
+                            selectedCase.events.map((event) => (
+                              <div key={event.id} className="border-l border-border pl-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline">{eventLabel(event.eventType)}</Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatDate(event.createdAt)}
+                                  </span>
+                                </div>
+                                <p className="mt-1 break-words text-sm text-muted-foreground">
+                                  {event.message || 'No event note recorded.'}
+                                </p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </details>
+
+                      <details className="rounded-lg border border-border bg-background p-3">
+                        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-foreground">
+                          <Mail className="h-4 w-4 text-primary" />
+                          Customer messages ({selectedCase.messages.length})
+                        </summary>
+                        <div className="mt-3 space-y-3">
+                          {selectedCase.messages.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              No customer email records have been logged.
+                            </p>
+                          ) : (
+                            selectedCase.messages.map((message) => (
+                              <div key={message.id} className="rounded-md border border-border/80 p-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline" className="capitalize">
+                                    {statusLabel(message.messageType)}
+                                  </Badge>
+                                  <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
+                                    {message.status}
+                                  </Badge>
+                                </div>
+                                <p className="mt-2 break-words text-sm font-medium text-foreground">
+                                  {message.subject}
+                                </p>
+                                <p className="mt-2 whitespace-pre-line break-words rounded-md bg-muted/40 p-2 text-xs leading-5 text-muted-foreground">
+                                  {message.body}
+                                </p>
+                                <p className="mt-1 break-words text-xs text-muted-foreground">
+                                  To {message.recipientEmail} /{' '}
+                                  {message.sentAt
+                                    ? `sent ${formatDate(message.sentAt)}`
+                                    : `created ${formatDate(message.createdAt)}`}
+                                </p>
+                                {message.errorMessage && (
+                                  <p className="mt-1 break-words text-xs text-destructive">
+                                    {message.errorMessage}
+                                  </p>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </details>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {(isSuperAdmin || isScopedAdmin) && (
+              {canManageRefundSetup && (
                 <div className="rounded-xl border border-border bg-card p-5">
                   <h2 className="font-semibold text-foreground">Machine refund managers</h2>
                   <p className="mt-1 text-sm text-muted-foreground">

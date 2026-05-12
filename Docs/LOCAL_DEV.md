@@ -239,7 +239,7 @@ To use all login methods in local dev:
 
 
 ## Refund operations local UAT (sponsor-ready)
-Use this path for local executive review of `/refunds/request` and `/admin/refunds` without Google OAuth and without sharing a password.
+Use this path for local executive review of `/refunds/request` and `/portal/refunds` without Google OAuth and without sharing a password.
 
 For manager-wide shadow-pilot go/no-go tracking, use `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`.
 
@@ -248,14 +248,14 @@ Prereqs:
 - `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
 - For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.
-- Admins must map each refund-ready machine to its Nayax machine ID from `/admin/refunds` before the lookup button can return card candidates.
+- Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Refund-only managers use `/portal/refunds` for case processing and do not see setup controls.
 
 Steps:
 1) Start the app from the worktree: `npm run dev`
 2) Seed synthetic fixtures and generate a one-click local magic link:
    - `node scripts/refunds/local-refund-uat.mjs --email sponsor-uat@bloomjoy.localhost --app-url http://localhost:8080`
    - Add `--open` to open the generated link automatically.
-3) Open the printed magic link. It should land on `/admin/refunds` as a local super-admin/refund manager.
+3) Open the printed magic link. It should land on `/portal/refunds` as a local super-admin/refund manager. `/admin/refunds` is only a compatibility path.
 4) Review the synthetic queue cases:
    - `RF-UAT-CARD`: approved card path with matched transaction evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.

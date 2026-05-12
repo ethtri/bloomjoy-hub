@@ -12,7 +12,6 @@ import {
   LogOut,
   Menu,
   MonitorCog,
-  ReceiptText,
   Settings,
   Shield,
   ShoppingBag,
@@ -66,7 +65,7 @@ type AdminDestination = {
   descriptionKey: TranslationKey;
   icon: LucideIcon;
   requiresSuperAdmin?: boolean;
-  surface?: 'access' | 'refunds';
+  surface?: 'access';
 };
 
 const adminDestinations: AdminDestination[] = [
@@ -158,17 +157,6 @@ const adminDestinations: AdminDestination[] = [
     icon: BarChart3,
     requiresSuperAdmin: true,
   },
-  {
-    href: '/admin/refunds',
-    label: 'Refunds',
-    labelKey: 'admin.refunds',
-    shortLabel: 'Refunds',
-    shortLabelKey: 'admin.refunds',
-    description: 'Refund intake, correlation evidence, manager decisions, and settlement readiness.',
-    descriptionKey: 'admin.refundsDescription',
-    icon: ReceiptText,
-    surface: 'refunds',
-  },
 ];
 
 const getAdminContext = (
@@ -192,6 +180,13 @@ const getAppContext = (
   pathname: string,
   t: (key: TranslationKey) => string
 ): AppContext => {
+  if (pathname.startsWith('/portal/refunds')) {
+    return {
+      title: t('admin.refunds'),
+      description: t('admin.refundsDescription'),
+    };
+  }
+
   if (pathname.startsWith('/portal')) {
     const currentDestination = getPortalDestinationByPath(pathname);
     return {
@@ -217,19 +212,36 @@ const getAppContext = (
   };
 };
 
-const workspaceLinks = [
+type WorkspaceLink = {
+  href: string;
+  label: string;
+  labelKey: TranslationKey;
+  match: (pathname: string) => boolean;
+  requiresAdminWorkspace?: boolean;
+  requiresRefundOperations?: boolean;
+};
+
+const workspaceLinks: WorkspaceLink[] = [
   {
     href: '/portal',
     label: 'Portal',
     labelKey: 'app.portal' as const,
-    match: (pathname: string) => pathname.startsWith('/portal'),
+    match: (pathname: string) =>
+      pathname.startsWith('/portal') && !pathname.startsWith('/portal/refunds'),
+  },
+  {
+    href: '/portal/refunds',
+    label: 'Refunds',
+    labelKey: 'admin.refunds' as const,
+    match: (pathname: string) => pathname.startsWith('/portal/refunds'),
+    requiresRefundOperations: true,
   },
   {
     href: '/admin',
     label: 'Admin',
     labelKey: 'app.admin' as const,
     match: (pathname: string) => pathname.startsWith('/admin'),
-    requiresAdmin: true,
+    requiresAdminWorkspace: true,
   },
 ];
 
@@ -263,6 +275,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
   const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
+  const canAccessRefundOperations =
+    isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
   const visibleAdminDestinations = adminDestinations.filter((item) => {
     if (item.requiresSuperAdmin && !isSuperAdmin) {
       return false;
@@ -274,6 +288,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
     return allowedAdminSurfaces.has(item.surface);
   });
+  const canAccessAdminWorkspace = visibleAdminDestinations.length > 0;
 
   const handleSignOut = async () => {
     await signOut();
@@ -295,7 +310,8 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const renderWorkspaceLinks = (mobile = false) =>
     workspaceLinks
-      .filter((item) => !item.requiresAdmin || isAdmin)
+      .filter((item) => !item.requiresAdminWorkspace || canAccessAdminWorkspace)
+      .filter((item) => !item.requiresRefundOperations || canAccessRefundOperations)
       .map((item) => {
         if (mobile) {
           const isActive = item.match(location.pathname);
@@ -312,7 +328,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 )}
               >
                 <span>{t(item.labelKey)}</span>
-                {item.requiresAdmin && <Shield className="h-4 w-4" />}
+                {item.requiresAdminWorkspace && <Shield className="h-4 w-4" />}
               </Link>
             </SheetClose>
           );

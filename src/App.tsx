@@ -12,7 +12,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { MemberRoute } from "@/components/auth/MemberRoute";
-import { AdminRoute } from "@/components/auth/AdminRoute";
+import { AdminRoute, RefundOperationsRoute } from "@/components/auth/AdminRoute";
 import { HostRedirectGate } from "@/components/routing/HostRedirectGate";
 import { RouteErrorBoundary } from "@/components/routing/RouteErrorBoundary";
 import { RouteSeoManager } from "@/components/seo/RouteSeoManager";
@@ -168,6 +168,9 @@ export const AppShell = () => (
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/portal" element={<PortalDashboard />} />
+            <Route element={<RefundOperationsRoute />}>
+              <Route path="/portal/refunds" element={<AdminRefunds />} />
+            </Route>
             <Route element={<MemberRoute />}>
               <Route path="/portal/orders" element={<PortalOrders />} />
               <Route path="/portal/account" element={<PortalAccount />} />
@@ -190,7 +193,7 @@ export const AppShell = () => (
               />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />
-              <Route path="/admin/refunds" element={<AdminRefunds />} />
+              <Route path="/admin/refunds" element={<Navigate to="/portal/refunds" replace />} />
               <Route
                 path="/admin/audit"
                 element={<Navigate to="/admin/access?tab=audit" replace />}

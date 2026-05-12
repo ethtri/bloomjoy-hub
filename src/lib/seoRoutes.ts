@@ -445,6 +445,7 @@ export const privateRoutes: PrivateRouteSeo[] = [
     "/portal/orders",
     "/portal/account",
     "/portal/reports",
+    "/portal/refunds",
     "/portal/training",
     "/portal/support",
     "/portal/onboarding",
