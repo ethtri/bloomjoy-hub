@@ -40,6 +40,14 @@ Set the following values before launch.
 | `NAYAX_LYNX_BASE_URL` | Server-only | `nayax-transaction-lookup` | `https://lynx.nayax.com/operational/v1` | Technical owner |
 | `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` | Server-only | `nayax-transaction-lookup` | Nayax Lynx token for TGPACI USA DB | Technical owner |
 | `NAYAX_LYNX_API_TOKEN` | Server-only fallback | `nayax-transaction-lookup` | Fallback Nayax Lynx token only when account-specific token names are not used | Technical owner |
+| `NAYAX_REFUND_EXECUTION_ENABLED` | Server-only | `nayax-card-refund` | Keep `false` until explicit card-refund execution go/no-go | Release owner |
+| `NAYAX_REFUND_EXECUTION_DRY_RUN` | Server-only | `nayax-card-refund` | Keep `true` until controlled provider validation | Release owner |
+| `NAYAX_REFUND_EXECUTION_KILL_SWITCH` | Server-only | `nayax-card-refund` | Keep `true` except during approved execution pilot | Release owner |
+| `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` | Server-only | `nayax-card-refund` | Set only after sponsor approval for live execution | Release owner |
+| `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED` | Server-only | `nayax-card-refund` | Set only after Nayax refund endpoint contract is validated | Technical owner |
+| `NAYAX_REFUND_MAX_AMOUNT_CENTS` | Server-only | `nayax-card-refund` | Global per-refund cap for first execution pilot | Release owner |
+| `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Generated HMAC secret for execution idempotency | Technical owner |
+| `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Scheduler secret; may match `REPORT_SCHEDULER_SECRET` | Technical owner |
 | `REPORT_SCHEDULER_SECRET` | Server-only | `sales-report-scheduler`, `refund-adjustment-sync` | Generated secret stored in function secrets | Technical owner |
 | `REPORTING_INGEST_TOKEN` | Server-only + GitHub Actions secret | `sunze-sales-ingest`, Sunze sync workflow | Generated ingest token | Technical owner |
 | `REPORTING_ROW_HASH_SALT` | Server-only | `sunze-sales-ingest` | Generated secret stored in function secrets | Technical owner |
@@ -136,6 +144,14 @@ supabase secrets set NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1
 supabase secrets set NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB=...
 # Fallback only if account-specific token names are not used:
 supabase secrets set NAYAX_LYNX_API_TOKEN=...
+supabase secrets set NAYAX_REFUND_EXECUTION_ENABLED=false
+supabase secrets set NAYAX_REFUND_EXECUTION_DRY_RUN=true
+supabase secrets set NAYAX_REFUND_EXECUTION_KILL_SWITCH=true
+supabase secrets set NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO=
+supabase secrets set NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false
+supabase secrets set NAYAX_REFUND_MAX_AMOUNT_CENTS=1000
+supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
+supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
 ```
 
 Before continuing, run:
@@ -175,6 +191,9 @@ supabase functions deploy sunze-sales-sync --no-verify-jwt
 supabase functions deploy refund-adjustment-sync --no-verify-jwt
 supabase functions deploy refund-case-intake --no-verify-jwt
 supabase functions deploy nayax-transaction-lookup --no-verify-jwt
+supabase functions deploy refund-case-admin-update --no-verify-jwt
+supabase functions deploy refund-case-automation-sweep --no-verify-jwt
+supabase functions deploy nayax-card-refund --no-verify-jwt
 ```
 
 Refund sync validation:

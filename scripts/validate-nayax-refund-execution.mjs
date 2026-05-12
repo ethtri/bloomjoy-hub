@@ -1,0 +1,110 @@
+#!/usr/bin/env node
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '..');
+
+const files = {
+  migration: 'supabase/migrations/202605120002_refund_full_automation_foundation.sql',
+  function: 'supabase/functions/nayax-card-refund/index.ts',
+  config: 'supabase/config.toml',
+  envExample: '.env.example',
+  commercePreflight: 'scripts/commerce-preflight.mjs',
+};
+
+const read = (relativePath) =>
+  fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+
+const assert = (condition, message) => {
+  if (!condition) {
+    console.error(`FAIL: ${message}`);
+    process.exit(1);
+  }
+};
+
+const migration = read(files.migration);
+const fn = read(files.function);
+const config = read(files.config);
+const envExample = read(files.envExample);
+const preflight = read(files.commercePreflight);
+
+assert(
+  migration.includes('refund_case_nayax_refund_attempts'),
+  'Migration must create a durable Nayax refund attempt table.'
+);
+assert(
+  migration.includes('idempotency_key text not null') &&
+    migration.includes('refund_case_nayax_attempt_idempotency_unique'),
+  'Nayax attempts must include a unique idempotency key.'
+);
+assert(
+  migration.includes('nayax_refunds_enabled boolean not null default false') &&
+    migration.includes('nayax_refund_max_amount_cents'),
+  'Machine-level Nayax refund allowlist and cap fields are required.'
+);
+assert(
+  migration.includes('can_prepare_nayax_refund_execution') &&
+    migration.includes('public.is_super_admin(p_user_id)'),
+  'Execution readiness must require the super-admin gate.'
+);
+assert(
+  migration.includes('revoke execute on function public.can_prepare_nayax_refund_execution(uuid, uuid)') &&
+    migration.includes('from public, anon, authenticated') &&
+    migration.includes('grant execute on function public.can_prepare_nayax_refund_execution(uuid, uuid)') &&
+    migration.includes('to service_role'),
+  'Execution readiness RPC must be service-role-only and not browser-callable.'
+);
+assert(
+  migration.includes('refund_case_nayax_one_live_attempt_per_case_idx') &&
+    migration.includes("status in ('in_progress', 'requested', 'approved', 'succeeded')"),
+  'Nayax attempts must prevent more than one live execution attempt per refund case.'
+);
+assert(
+  migration.includes('refund_business_fingerprint') &&
+    migration.includes('Potential duplicate refund settlement adjustment requires review'),
+  'Cross-workflow refund duplicate fingerprint guard is required.'
+);
+assert(
+  fn.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
+    fn.includes('NAYAX_REFUND_EXECUTION_ENABLED') &&
+    fn.includes('NAYAX_REFUND_EXECUTION_DRY_RUN') &&
+    fn.includes('NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO') &&
+    fn.includes('NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED') &&
+    fn.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
+    fn.includes('NAYAX_REFUND_DAILY_COUNT_CAP'),
+  'Nayax execution function must be gated by all fail-closed execution flags.'
+);
+assert(
+  fn.includes('provider_execution_not_yet_enabled') &&
+    !fn.includes('/payment/refund-request') &&
+    !fn.includes('/payment/refund-approve'),
+  'This release must not call live Nayax refund endpoints.'
+);
+assert(
+  fn.includes('card_wallet_used') &&
+    fn.includes('manual_review'),
+  'Wallet/Apple Pay last-four mismatch must stay manual-review for v1 execution.'
+);
+assert(
+  config.includes('[functions.nayax-card-refund]') &&
+    config.includes('[functions.refund-case-admin-update]') &&
+    config.includes('[functions.refund-case-automation-sweep]'),
+  'Supabase config must list the refund automation Edge Functions.'
+);
+assert(
+  envExample.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH=true') &&
+    envExample.includes('NAYAX_REFUND_EXECUTION_DRY_RUN=true') &&
+    envExample.includes('NAYAX_REFUND_EXECUTION_ENABLED=false'),
+  '.env.example must document fail-closed Nayax refund defaults.'
+);
+assert(
+  preflight.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
+    preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET'),
+  'Commerce preflight must validate refund automation configuration.'
+);
+
+console.log('Nayax refund execution guardrails validated.');

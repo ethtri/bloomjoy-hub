@@ -25,6 +25,10 @@ export function AdminRoute() {
     return <Outlet />;
   }
 
+  if (!isSuperAdmin && canAccessSurface('refunds') && location.pathname === '/admin') {
+    return <Navigate to="/portal/refunds" replace />;
+  }
+
   if (!isSuperAdmin && isAdmin && location.pathname === '/admin') {
     const redirectTarget = canAccessSurface('refunds')
       ? '/portal/refunds'

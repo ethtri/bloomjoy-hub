@@ -478,7 +478,7 @@ const run = async () => {
     );
     recorder.assert(
       'Demo mode disables machine detail persistence',
-      await demoMachineDialog.getByRole('button', { name: 'Save machine details' }).isDisabled()
+      await demoMachineDialog.getByRole('button', { name: 'Save machine identity' }).isDisabled()
     );
 
     await page.screenshot({

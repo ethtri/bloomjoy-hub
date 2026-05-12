@@ -6,6 +6,14 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Refund Operations full-automation sprint (2026-05-12)
+- Active branch/worktree: `agent/refund-full-automation` in `C:\Repos\wt-refund-full-automation`, using the `bloomjoy-sprint-orchestrator` workflow with Codex as PO/PM.
+- This sprint moves beyond the merged MVP by adding fail-closed automation foundations: customer message automation for manager status changes, reminder/escalation sweep, cross-workflow duplicate settlement fingerprinting, explicit public-intake machine enablement, and a gated Nayax card-refund execution surface.
+- Nayax card refund execution is still not live by default. The new execution endpoint must remain blocked by dry-run, kill switch, provider-contract validation, per-machine allowlist, amount caps, idempotency, and sponsor go/no-go before any real provider call is allowed.
+- Current branch QA evidence: refund Edge Functions pass Deno checks, refund-specific static validators pass, browser UAT harnesses pass for Portal > Refunds and Admin > Machines on `http://127.0.0.1:8092`, and the public refund request/thank-you demo pass confirms card/cash-only payment selection, cash Zelle collection, card last-four collection, mobile overflow safety, and 5-business-day reassurance copy.
+- Current release blockers: production commerce preflight shows missing remote secrets (`PUBLIC_INTAKE_ABUSE_HASH_SALT`, `NAYAX_LYNX_BASE_URL`, `NAYAX_REFUND_EXECUTION_ENABLED`, `NAYAX_REFUND_EXECUTION_DRY_RUN`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH`), and local migration apply validation is blocked by Docker Desktop returning a 500 before SQL is applied.
+- Executive review remains proof review only. Agent/internal QA must validate seeded/demo UAT, access/privacy boundaries, automation messages, duplicate guards, and fail-closed Nayax execution before asking the sponsor to test.
+
 ## Refund Operations MVP post-merge shadow pilot (2026-05-12)
 - Codex is acting as Bloomjoy PO/PM through the `bloomjoy-sprint-orchestrator` workflow for refund operations. PM tracking uses epic `#402` plus implementation/QA issues `#403`-`#409`; issue `#409` remains the active post-merge shadow-pilot and cutover control issue.
 - PR `#410` merged into `main` with merge commit `c080adff4e852c15a91156f9f3a7f6a652699a1e`. The MVP is implemented but not cut over: the hosted flow runs in parallel with the Google Form/AppSheet fallback until shadow-pilot criteria pass.

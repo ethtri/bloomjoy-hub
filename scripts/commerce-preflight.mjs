@@ -202,7 +202,10 @@ function run() {
   if (args.includeRefunds) {
     requiredKeys.push(
       'PUBLIC_INTAKE_ABUSE_HASH_SALT',
-      'NAYAX_LYNX_BASE_URL'
+      'NAYAX_LYNX_BASE_URL',
+      'NAYAX_REFUND_EXECUTION_ENABLED',
+      'NAYAX_REFUND_EXECUTION_DRY_RUN',
+      'NAYAX_REFUND_EXECUTION_KILL_SWITCH'
     );
   }
 
@@ -234,6 +237,16 @@ function run() {
     );
   }
 
+  if (
+    args.includeRefunds &&
+    !env.REFUND_AUTOMATION_SWEEP_SECRET &&
+    !env.REPORT_SCHEDULER_SECRET
+  ) {
+    errors.push(
+      'Missing refund automation scheduler secret. Set REFUND_AUTOMATION_SWEEP_SECRET or fallback REPORT_SCHEDULER_SECRET.'
+    );
+  }
+
   if (!isRemoteSource && env.SUPABASE_URL && !isValidUrl(env.SUPABASE_URL)) {
     errors.push('SUPABASE_URL must be a valid absolute URL.');
   }
@@ -247,6 +260,25 @@ function run() {
     ) {
       warnings.push(
         'NAYAX_LYNX_BASE_URL differs from the expected live Last Sales endpoint.'
+      );
+    }
+  }
+
+  if (!isRemoteSource && args.includeRefunds) {
+    const booleanKeys = [
+      'NAYAX_REFUND_EXECUTION_ENABLED',
+      'NAYAX_REFUND_EXECUTION_DRY_RUN',
+      'NAYAX_REFUND_EXECUTION_KILL_SWITCH',
+    ];
+    for (const key of booleanKeys) {
+      if (env[key] && !['true', 'false'].includes(String(env[key]).trim().toLowerCase())) {
+        errors.push(`${key} must be true or false.`);
+      }
+    }
+
+    if (String(env.NAYAX_REFUND_EXECUTION_KILL_SWITCH || '').trim().toLowerCase() !== 'true') {
+      warnings.push(
+        'NAYAX_REFUND_EXECUTION_KILL_SWITCH is not true. Live card refund execution must stay disabled until explicit go/no-go.'
       );
     }
   }
@@ -298,6 +330,8 @@ function run() {
       'Public intake abuse-control salt configured',
       'Nayax Lynx base URL configured',
       'Nayax account-specific token or fallback token configured',
+      'Nayax refund execution flags configured fail-closed',
+      'Refund reminder/escalation scheduler secret configured',
       'Resend sender and API key configured for refund-case-intake',
       'Supabase service-role key configured for refund Edge Functions',
     ]);

@@ -36,6 +36,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Run `npm run refunds:validate-machine-manager-uat -- --app-url http://127.0.0.1:8081` to exercise mocked Admin > Machines sample data, searchable Machine Manager lookup, autosave payload, and visible persistence in the machine row.
 - [ ] Agent local seeded UAT uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`, open the printed one-click magic link, and confirm the QA actor reaches `/portal/refunds` without Google OAuth or a shared password.
 - [ ] Demo visual review is explicit: `/portal/refunds?demo=on` shows labeled cases `RF-UAT-CARD`, `RF-UAT-WAIT`, and `RF-UAT-CASH`; save/Nayax actions are disabled, and `/portal/refunds?demo=off` returns to the true empty state.
+- [ ] Public intake demo visual review is explicit: `/refunds/request?demo=on` shows synthetic machine/location options and redirects to a demo thank-you page without creating a real refund case.
 - [ ] Demo Machine Manager visual review is explicit: `/admin/machines?demo=on` shows labeled demo-only Machine Manager data, allows only listed demo users, saves in browser only, and does not claim Supabase persistence.
 - [ ] Agent UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
 - [ ] Executive proof review is held until agent QA supplies pass/fail evidence for seeded functional UAT or post-production shadow-mode UAT; demo mode alone is not sufficient.
@@ -52,7 +53,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super admins can assign up to 3 authenticated Machine Managers per machine from Admin > Machines > Edit Machine; assignment autosaves, the machine row shows assigned managers after closing the edit sheet, and ordinary machine managers/operators do not see assignment/setup controls in the refund workflow.
 - [ ] Server-side Nayax machine mapping state is visible to setup-capable users; card lookup stays blocked with a friendly setup message until the machine is mapped and the Edge Function secret exists.
 - [ ] Card lookup calls Nayax Last Sales for the mapped machine and returns only sanitized candidate evidence in the UI: machine authorization time, amount, currency, card brand/last 4, and match reason; raw provider IDs stay hidden.
-- [ ] Manager denial path requires a friendly decision reason and does not write to `sales_adjustment_facts`; approval/completion/denial replies remain manual in MVP.
+- [ ] Manager denial path requires a friendly decision reason and does not write to `sales_adjustment_facts`; approval, completion, denial, and more-info state changes send/log the automated customer message through the refund admin Edge wrapper.
+- [ ] Manager status changes through `refund-case-admin-update` log/send appropriate customer messages for more-info, approved, denied, and completed states without exposing private payloads.
+- [ ] `refund-case-automation-sweep` sends reminder/escalation messages from synthetic stale cases and returns only redacted aggregate output.
+- [ ] `npm run refunds:validate-nayax-execution` passes and proves `nayax-card-refund` fails closed by default without calling live Nayax refund endpoints.
+- [ ] Cross-workflow duplicate guard blocks likely duplicate settlement adjustments between a hosted refund case and legacy Google/AppSheet refund row.
 - [ ] Approved manual card path records selected card lookup evidence and a manual completion reference before completion without showing raw provider IDs in the UI.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.
 - [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.

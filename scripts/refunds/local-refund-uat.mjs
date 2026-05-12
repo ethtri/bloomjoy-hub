@@ -22,6 +22,7 @@ const FIXTURE = {
   cardCaseId: '41000000-0000-4000-8000-000000000101',
   waitingCaseId: '41000000-0000-4000-8000-000000000102',
   cashCaseId: '41000000-0000-4000-8000-000000000103',
+  cashAdjustmentId: '41000000-0000-4000-8000-000000000104',
 };
 
 function parseArgs(argv) {
@@ -163,7 +164,12 @@ function getSupabaseProjectRef(value) {
 function isProductionAppHost(value) {
   try {
     const hostname = new URL(value).hostname.toLowerCase();
-    return hostname === 'bloomjoysweets.com' || hostname.endsWith('.bloomjoysweets.com');
+    return (
+      hostname === 'bloomjoysweets.com' ||
+      hostname.endsWith('.bloomjoysweets.com') ||
+      hostname === 'bloomjoyusa.com' ||
+      hostname.endsWith('.bloomjoyusa.com')
+    );
   } catch {
     return false;
   }
@@ -381,6 +387,8 @@ async function seedFixtures(supabase, sponsorUser, email) {
         machine_type: 'commercial',
         sunze_machine_id: 'refund-uat-kiosk-local',
         status: 'active',
+        refund_intake_enabled: true,
+        refund_public_display_label: 'Refund UAT Kiosk',
         installed_at: today,
         notes: 'Synthetic local UAT machine.',
       },
@@ -487,12 +495,12 @@ async function seedFixtures(supabase, sponsorUser, email) {
         customer_name: 'Synthetic Cash Customer',
         customer_phone: '555-0102',
         zelle_payment_contact: 'cash-zelle-uat@example.test',
-        issue_summary: 'Synthetic cash request with one conservative sales match and no manager decision yet.',
+        issue_summary: 'Synthetic cash request with one conservative sales match and completed Zelle refund.',
         incident_at: isoMinutesAgo(15),
         payment_method: 'cash',
         payment_amount_cents: 1200,
         card_wallet_used: false,
-        status: 'correlated',
+        status: 'completed',
         priority: 'high',
         correlation_status: 'matched',
         correlation_source: 'sunze',
@@ -500,8 +508,14 @@ async function seedFixtures(supabase, sponsorUser, email) {
         correlation_summary: 'Synthetic exact cash amount match within the one-hour review window.',
         matched_sales_fact_id: FIXTURE.salesFactId,
         assigned_manager_id: sponsorUser.id,
-        decision: null,
+        decision: 'approved',
+        decision_reason: 'Synthetic cash transaction matched and Zelle refund was completed manually.',
+        decided_by: sponsorUser.id,
+        decided_at: isoMinutesAgo(10),
         refund_amount_cents: 1200,
+        manual_refund_reference: 'Zelle UAT reference',
+        refund_completed_by: sponsorUser.id,
+        refund_completed_at: isoMinutesAgo(8),
         intake_meta: {
           fixture: 'refund-operations-local-uat',
           privacy: 'synthetic-no-real-customer-data',
@@ -509,6 +523,51 @@ async function seedFixtures(supabase, sponsorUser, email) {
       },
     ],
     'Seed synthetic refund cases'
+  );
+
+  await upsertRows(
+    supabase,
+    'sales_adjustment_facts',
+    [
+      {
+        id: FIXTURE.cashAdjustmentId,
+        reporting_machine_id: FIXTURE.machineId,
+        reporting_location_id: FIXTURE.locationId,
+        adjustment_date: today,
+        adjustment_type: 'refund',
+        amount_cents: 1200,
+        complaint_count: 1,
+        source: 'refund_case',
+        source_row_hash: FIXTURE.cashCaseId,
+        source_reference: 'refund_cases',
+        source_row_reference: 'RF-UAT-CASH',
+        refund_case_id: FIXTURE.cashCaseId,
+        match_status: 'applied',
+        match_confidence: 0.9,
+        notes: 'Bloomjoy synthetic refund case RF-UAT-CASH.',
+        raw_payload: {
+          refund_case_id: FIXTURE.cashCaseId,
+          refund_case_reference: 'RF-UAT-CASH',
+          refund_case_status: 'completed',
+          refund_case_decision: 'approved',
+          payment_method: 'cash',
+          correlation_source: 'sunze',
+          correlation_has_sales_fact: true,
+          fixture: 'refund-operations-local-uat',
+          privacy: 'synthetic-no-real-customer-data',
+        },
+      },
+    ],
+    'Seed synthetic completed cash reporting adjustment'
+  );
+
+  assertSupabase(
+    await supabase
+      .from('refund_cases')
+      .update({ reporting_adjustment_id: FIXTURE.cashAdjustmentId })
+      .eq('id', FIXTURE.cashCaseId)
+      .select('id'),
+    'Link synthetic completed cash case to reporting adjustment'
   );
 
   await upsertRows(
@@ -536,11 +595,11 @@ async function seedFixtures(supabase, sponsorUser, email) {
       {
         id: '41000000-0000-4000-8000-000000000203',
         refund_case_id: FIXTURE.cashCaseId,
-        actor_user_id: null,
-        event_type: 'cash_correlation_matched',
-        message: 'Synthetic exact cash sales match found for manager review.',
+        actor_user_id: sponsorUser.id,
+        event_type: 'completed',
+        message: 'Synthetic cash refund completed and linked to reporting write-through evidence.',
         metadata: { fixture: 'refund-operations-local-uat' },
-        created_at: isoMinutesAgo(12),
+        created_at: isoMinutesAgo(8),
       },
     ],
     'Seed synthetic refund timeline events'
@@ -565,6 +624,19 @@ async function seedFixtures(supabase, sponsorUser, email) {
       },
       {
         id: '41000000-0000-4000-8000-000000000302',
+        refund_case_id: FIXTURE.cardCaseId,
+        message_type: 'approved',
+        status: 'sent',
+        recipient_email: 'customer-card-uat@example.test',
+        subject: 'Your Bloomjoy refund request RF-UAT-CARD was approved',
+        body: 'Synthetic approved body for local UAT only.',
+        template_key: 'refund_approved_v1',
+        sent_at: isoMinutesAgo(24),
+        created_by: sponsorUser.id,
+        created_at: isoMinutesAgo(25),
+      },
+      {
+        id: '41000000-0000-4000-8000-000000000303',
         refund_case_id: FIXTURE.waitingCaseId,
         message_type: 'confirmation',
         status: 'sent',
@@ -577,7 +649,7 @@ async function seedFixtures(supabase, sponsorUser, email) {
         created_at: isoMinutesAgo(179),
       },
       {
-        id: '41000000-0000-4000-8000-000000000303',
+        id: '41000000-0000-4000-8000-000000000304',
         refund_case_id: FIXTURE.waitingCaseId,
         message_type: 'more_info',
         status: 'sent',
@@ -590,7 +662,20 @@ async function seedFixtures(supabase, sponsorUser, email) {
         created_at: isoMinutesAgo(161),
       },
       {
-        id: '41000000-0000-4000-8000-000000000304',
+        id: '41000000-0000-4000-8000-000000000305',
+        refund_case_id: FIXTURE.waitingCaseId,
+        message_type: 'reminder',
+        status: 'sent',
+        recipient_email: 'customer-waiting-uat@example.test',
+        subject: 'A gentle reminder about refund request RF-UAT-WAIT',
+        body: 'Synthetic reminder body for local UAT only.',
+        template_key: 'refund_reminder_v1',
+        sent_at: isoMinutesAgo(80),
+        created_by: sponsorUser.id,
+        created_at: isoMinutesAgo(81),
+      },
+      {
+        id: '41000000-0000-4000-8000-000000000306',
         refund_case_id: FIXTURE.cashCaseId,
         message_type: 'confirmation',
         status: 'sent',
@@ -601,6 +686,19 @@ async function seedFixtures(supabase, sponsorUser, email) {
         sent_at: isoMinutesAgo(14),
         created_by: sponsorUser.id,
         created_at: isoMinutesAgo(15),
+      },
+      {
+        id: '41000000-0000-4000-8000-000000000307',
+        refund_case_id: FIXTURE.cashCaseId,
+        message_type: 'completed',
+        status: 'sent',
+        recipient_email: 'customer-cash-uat@example.test',
+        subject: 'Your Bloomjoy refund request RF-UAT-CASH is complete',
+        body: 'Synthetic completed body for local UAT only.',
+        template_key: 'refund_completed_v1',
+        sent_at: isoMinutesAgo(7),
+        created_by: sponsorUser.id,
+        created_at: isoMinutesAgo(8),
       },
     ],
     'Seed synthetic customer message history'

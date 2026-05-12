@@ -280,6 +280,23 @@ export const canUseLocalRefundDemoData = () => {
   return searchParams.get('demo') === 'on';
 };
 
+export const buildLocalRefundMachineOptions = (): RefundMachineOption[] => [
+  {
+    machineId: '41000000-0000-4000-8000-000000000003',
+    machineLabel: 'Refund UAT Cotton Candy 01',
+    locationId: '41000000-0000-4000-8000-000000000002',
+    locationName: 'Refund UAT Mall',
+    locationTimezone: 'America/Los_Angeles',
+  },
+  {
+    machineId: '41000000-0000-4000-8000-000000000013',
+    machineLabel: 'Refund UAT Cotton Candy 02',
+    locationId: '41000000-0000-4000-8000-000000000012',
+    locationName: 'Refund UAT Arcade',
+    locationTimezone: 'America/Los_Angeles',
+  },
+];
+
 export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   const managerEmail = 'machine-manager@example.test';
 
@@ -523,29 +540,20 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
 };
 
 export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
-  const { data, error } = await supabaseClient.rpc('admin_update_refund_case', {
-    p_case_id: input.caseId,
-    p_status: input.status,
-    p_assigned_manager_email: input.assignedManagerEmail ?? null,
-    p_decision: input.decision ?? null,
-    p_decision_reason: input.decisionReason ?? null,
-    p_internal_note: input.internalNote ?? null,
-    p_refund_amount_cents: input.refundAmountCents ?? null,
-    p_manual_refund_reference: input.manualRefundReference ?? null,
-    p_clear_nayax_match: input.clearNayaxMatch ?? false,
-    p_matched_nayax_transaction_id: input.matchedNayaxTransactionId ?? null,
-    p_matched_nayax_site_id: input.matchedNayaxSiteId ?? null,
-    p_matched_nayax_machine_auth_time: input.matchedNayaxMachineAuthTime ?? null,
-    p_matched_nayax_amount_cents: input.matchedNayaxAmountCents ?? null,
-    p_matched_nayax_card_last4: input.matchedNayaxCardLast4 ?? null,
-    p_matched_nayax_currency_code: input.matchedNayaxCurrencyCode ?? null,
+  const data = await invokeEdgeFunction<{
+    error?: string;
+    refundCase?: Record<string, unknown>;
+    customerMessage?: { type: string; status: string } | null;
+  }>('refund-case-admin-update', input, {
+    requireUserAuth: true,
+    authErrorMessage: 'Log in to update refund cases.',
   });
 
-  if (error || !data) {
-    throw new Error(error?.message || 'Unable to update refund case.');
+  if (!data.refundCase) {
+    throw new Error(data.error || 'Unable to update refund case.');
   }
 
-  return data as Record<string, unknown>;
+  return data.refundCase;
 };
 
 export const setMachineRefundManagersAdmin = async ({

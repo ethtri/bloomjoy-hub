@@ -15,7 +15,7 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
   - Scoped admin: sees only scoped-machine refund cases.
   - Super admin: sees all refund cases and manages Machine Managers from Admin > Machines.
 - Confirm the tester knows refunds are still completed manually in Nayax or Zelle for MVP.
-- For agent visual QA, start the app with `npm run dev:uat` and use `http://127.0.0.1:8081`. Append `?demo=on` for clearly labeled demo-only review. Demo mode is not evidence that saves, access scope, Nayax lookup, or reporting write-through work.
+- For agent visual QA, start the app with `npm run dev:uat` and use `http://127.0.0.1:8081`. Append `?demo=on` for clearly labeled demo-only review on `/refunds/request`, `/portal/refunds`, and `/admin/machines`. Demo mode is not evidence that saves, access scope, Nayax lookup, automation emails, or reporting write-through work.
 - For functional QA, use seeded synthetic users/cases or post-production shadow-mode data with authenticated Machine Managers. The executive sponsor does not need to run this script before agents prove it works.
 
 ## Manager Script

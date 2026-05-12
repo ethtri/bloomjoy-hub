@@ -52,6 +52,21 @@ const serviceRoleOnlyFunctions = [
     name: 'partner_report_scheduler_preview_partner_period_report',
     migrationName: '202605070001_partner_report_scheduler_pdf_export.sql',
   },
+  {
+    signature: 'public.can_prepare_nayax_refund_execution(uuid, uuid)',
+    name: 'can_prepare_nayax_refund_execution',
+    migrationName: '202605120002_refund_full_automation_foundation.sql',
+  },
+  {
+    signature: 'public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)',
+    name: 'admin_update_refund_case',
+    migrationName: '202605120002_refund_full_automation_foundation.sql',
+  },
+  {
+    signature: 'public.service_update_refund_case_as_actor(uuid, uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)',
+    name: 'service_update_refund_case_as_actor',
+    migrationName: '202605120002_refund_full_automation_foundation.sql',
+  },
 ];
 
 const protectedAuthenticatedFunctions = [
@@ -152,7 +167,7 @@ const assertBrowserDoesNotDirectlyUpdateRefundCases = () => {
     const content = readText(filePath);
     if (directRefundUpdatePattern.test(content)) {
       fail(
-        `${path.relative(repoRoot, filePath)} directly updates refund_cases from browser code; use admin_update_refund_case instead.`
+        `${path.relative(repoRoot, filePath)} directly updates refund_cases from browser code; use refund-case-admin-update instead.`
       );
     }
   }

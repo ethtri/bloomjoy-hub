@@ -129,6 +129,20 @@ Recommended first slice:
 
 Do not build browser-side Nayax calls, and do not expose Nayax raw responses in public or customer-facing pages without a privacy review.
 
+## Refund Execution Guardrails
+Refund execution is separate from read-only Last Sales lookup.
+
+The current full-automation foundation adds `nayax-card-refund` as a backend-only, fail-closed execution surface. It does not call live Nayax refund endpoints until all of these are true:
+- Sponsor go/no-go is recorded outside secrets and mirrored by server-only env.
+- `NAYAX_REFUND_EXECUTION_ENABLED=true`
+- `NAYAX_REFUND_EXECUTION_DRY_RUN=false`
+- `NAYAX_REFUND_EXECUTION_KILL_SWITCH=false`
+- `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=true`
+- The machine is explicitly allowlisted for Nayax refunds and the refund is below configured caps.
+- The case is card-only, manager-approved, `card_refund_pending`, matched to sanitized Nayax evidence, and has no prior settlement adjustment.
+
+First automated execution remains full-refund only, USD only, and super-admin initiated. Apple Pay or wallet last-four mismatches remain manual-review until a later decision changes that rule.
+
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.
 

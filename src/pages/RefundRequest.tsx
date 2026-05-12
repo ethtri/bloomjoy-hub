@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   fetchRefundMachineOptions,
+  buildLocalRefundMachineOptions,
+  isLocalUatDemoForced,
   submitRefundRequest,
   type RefundAttachmentInput,
   type RefundPaymentMethod,
@@ -51,16 +53,19 @@ export default function RefundRequestPage() {
   const [form, setForm] = useState(emptyForm);
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isDemoMode = isLocalUatDemoForced();
 
   const {
-    data: machines = [],
+    data: liveMachines = [],
     isLoading: isLoadingMachines,
     error: machineError,
   } = useQuery({
     queryKey: ['public-refund-machine-options'],
     queryFn: fetchRefundMachineOptions,
+    enabled: !isDemoMode,
     staleTime: 1000 * 60 * 5,
   });
+  const machines = isDemoMode ? buildLocalRefundMachineOptions() : liveMachines;
 
   const selectedMachine = useMemo(
     () => machines.find((machine) => machine.machineId === form.machineId) ?? null,
@@ -72,8 +77,13 @@ export default function RefundRequestPage() {
   };
 
   const handleFilesChange = (nextFiles: FileList | null) => {
-    const validFiles = Array.from(nextFiles ?? []).slice(0, maxAttachments);
+    const selectedFiles = Array.from(nextFiles ?? []);
+    const validFiles = selectedFiles.slice(0, maxAttachments);
     const oversized = validFiles.find((file) => file.size > maxAttachmentBytes);
+
+    if (selectedFiles.length > maxAttachments) {
+      toast.info('Only the first 3 photos were attached.');
+    }
 
     if (oversized) {
       toast.error('Each photo must be 5MB or smaller.');
@@ -124,6 +134,11 @@ export default function RefundRequestPage() {
 
     setIsSubmitting(true);
     try {
+      if (isDemoMode) {
+        navigate('/refunds/thank-you?ref=RF-DEMO-REQUEST&demo=on');
+        return;
+      }
+
       const attachments = await buildAttachments();
       const refundCase = await submitRefundRequest({
         machineId: form.machineId,
@@ -171,6 +186,13 @@ export default function RefundRequestPage() {
                 completed within 5 business days.
               </p>
             </div>
+
+            {isDemoMode && (
+              <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                DEMO DATA - visual review only. This form uses synthetic locations and redirects
+                to a demo thank-you page instead of creating a real refund case.
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
               <div className="grid gap-5">

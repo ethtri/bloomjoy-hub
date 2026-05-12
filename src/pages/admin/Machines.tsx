@@ -598,7 +598,7 @@ export default function AdminMachinesPage() {
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Machines</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage machine labels, external machine IDs, machine managers, assignment readiness,
+                Manage machine labels, external machine IDs, Machine Managers, assignment readiness,
                 and reporting tax rates. Report membership is assigned from Partnerships.
               </p>
             </div>
@@ -1291,7 +1291,7 @@ function MachineDialog({
     if (!form.machineId) return false;
 
     if (nextEmails.length > 3) {
-      toast.error('Each machine can have up to 3 machine managers.');
+      toast.error('Each machine can have up to 3 Machine Managers.');
       return false;
     }
 
@@ -1320,7 +1320,7 @@ function MachineDialog({
     } catch (error) {
       setSelectedMachineManagerEmails(previousEmails);
       setMachineManagerSaveState('error');
-      const message = error instanceof Error ? error.message : 'Unable to save machine managers.';
+      const message = error instanceof Error ? error.message : 'Unable to save Machine Managers.';
       toast.error(
         message.includes('must be an authenticated user')
           ? 'That person needs to sign in to Bloomjoy once before they can be assigned as a Machine Manager.'
@@ -1348,7 +1348,7 @@ function MachineDialog({
     }
 
     if (selectedMachineManagerEmails.length >= 3) {
-      toast.error('Each machine can have up to 3 machine managers.');
+      toast.error('Each machine can have up to 3 Machine Managers.');
       return;
     }
 
@@ -1481,7 +1481,7 @@ function MachineDialog({
                   Last change was not saved
                 </span>
               ) : (
-                <span>Machine Manager changes save as soon as you add or remove someone.</span>
+                <span>Machine Manager assignments autosave as soon as you add or remove someone.</span>
               )}
             </div>
 
@@ -1561,7 +1561,7 @@ function MachineDialog({
                   </div>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  One manager is enough. Add up to three authenticated Bloomjoy users.
+                  One Machine Manager is enough. Add up to 3 Machine Managers per machine.
                 </p>
                 {managerSearchError && (
                   <p className="mt-2 text-sm text-destructive">Unable to search matching users.</p>
@@ -1618,7 +1618,7 @@ function MachineDialog({
           </Button>
           <Button onClick={saveMachine} disabled={isSaving || isLocalDemoMode}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Save machine details
+            Save machine identity
           </Button>
         </SheetFooter>
       </SheetContent>
