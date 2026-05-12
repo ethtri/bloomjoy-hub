@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Sheet,
   SheetContent,
@@ -41,6 +42,11 @@ import {
   type PartnershipSetupMachine,
   type ReportingMachineTaxRate,
 } from '@/lib/partnershipReporting';
+import {
+  fetchRefundManagerSetup,
+  setMachineRefundManagersAdmin,
+  type RefundManagerSetup,
+} from '@/lib/refundOperations';
 import { type ReportingMachineType, upsertReportingMachineAdmin } from '@/lib/reporting';
 import { cn } from '@/lib/utils';
 import {
@@ -68,6 +74,7 @@ type MachineSetupRowViewModel = {
 };
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
+const refundManagerSetupQueryKey = ['admin-refund-manager-setup'];
 const initialReportingTaxStartDate = '2026-01-01';
 const hiddenManualMachineAccountName = 'Manual Reporting Machines';
 const hiddenFallbackLocationName = 'Unmapped source machines';
@@ -81,6 +88,10 @@ const emptySetup: PartnershipReportingSetup = {
   taxRates: [],
   financialRules: [],
   warnings: [],
+};
+
+const emptyRefundManagerSetup: RefundManagerSetup = {
+  machines: [],
 };
 
 const emptyMachineForm = {
@@ -143,7 +154,26 @@ export default function AdminMachinesPage() {
     staleTime: 1000 * 30,
   });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: setupQueryKey });
+  const {
+    data: refundManagerSetup = emptyRefundManagerSetup,
+    isLoading: isRefundManagerSetupLoading,
+  } = useQuery({
+    queryKey: refundManagerSetupQueryKey,
+    queryFn: fetchRefundManagerSetup,
+    staleTime: 1000 * 30,
+  });
+
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: setupQueryKey }),
+      queryClient.invalidateQueries({ queryKey: refundManagerSetupQueryKey }),
+    ]);
+  };
+
+  const refundManagerSetupByMachineId = useMemo(
+    () => new Map(refundManagerSetup.machines.map((machine) => [machine.id, machine])),
+    [refundManagerSetup.machines]
+  );
 
   const selectedMachineForEditor =
     editingMachine ??
@@ -408,8 +438,8 @@ export default function AdminMachinesPage() {
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Machines</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage machine labels, external machine IDs, assignment readiness, and reporting
-                tax rates. Report membership is assigned from Partnerships.
+                Manage machine labels, external machine IDs, refund managers, assignment readiness,
+                and reporting tax rates. Report membership is assigned from Partnerships.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -575,6 +605,12 @@ export default function AdminMachinesPage() {
         onOpenChange={closeMachineDialog}
         machine={selectedMachineForEditor}
         machines={setup.machines}
+        refundManagerSetup={
+          selectedMachineForEditor
+            ? refundManagerSetupByMachineId.get(selectedMachineForEditor.id) ?? null
+            : null
+        }
+        isRefundManagerSetupLoading={isRefundManagerSetupLoading}
         onSaved={refresh}
       />
       <TaxChangeDialog
@@ -926,16 +962,27 @@ function MachineDialog({
   onOpenChange,
   machine,
   machines,
+  refundManagerSetup,
+  isRefundManagerSetupLoading,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   machine: PartnershipSetupMachine | null;
   machines: PartnershipSetupMachine[];
+  refundManagerSetup: RefundManagerSetup['machines'][number] | null;
+  isRefundManagerSetupLoading: boolean;
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [managerEmailsDraft, setManagerEmailsDraft] = useState('');
+  const [managerReason, setManagerReason] = useState('Machine refund manager assignment updated from Admin Machines');
+  const [isSavingRefundManagers, setIsSavingRefundManagers] = useState(false);
+  const refundManagerEmailsValue = useMemo(
+    () => (refundManagerSetup?.managerEmails ?? []).join('\n'),
+    [refundManagerSetup]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -957,6 +1004,11 @@ function MachineDialog({
       sunzeMachineId: machine.sunze_machine_id ?? '',
     });
   }, [machine, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setManagerEmailsDraft(refundManagerEmailsValue);
+  }, [open, refundManagerEmailsValue]);
 
   const saveMachine = async () => {
     if (!form.machineLabel.trim()) {
@@ -1001,6 +1053,45 @@ function MachineDialog({
       setIsSaving(false);
     }
   };
+
+  const saveRefundManagers = async () => {
+    if (!form.machineId) return;
+
+    const managerEmails = managerEmailsDraft
+      .split(/[\n,]+/)
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (managerEmails.length > 3) {
+      toast.error('Each machine can have at most 3 active refund managers.');
+      return;
+    }
+
+    if (!managerReason.trim()) {
+      toast.error('Enter a reason for the refund manager assignment change.');
+      return;
+    }
+
+    setIsSavingRefundManagers(true);
+    try {
+      await setMachineRefundManagersAdmin({
+        machineId: form.machineId,
+        managerEmails,
+        reason: managerReason.trim(),
+      });
+      toast.success('Refund managers updated.');
+      await onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save refund managers.');
+    } finally {
+      setIsSavingRefundManagers(false);
+    }
+  };
+
+  const refundManagerCount = managerEmailsDraft
+    .split(/[\n,]+/)
+    .map((email) => email.trim())
+    .filter(Boolean).length;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1055,6 +1146,73 @@ function MachineDialog({
             />
           </div>
         </div>
+        {form.machineId && (
+          <div className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="font-semibold text-foreground">Refund managers</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Assign up to 3 authenticated managers for this machine. These managers can review
+                  the machine's refund cases from Portal &gt; Refunds.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">{refundManagerCount}/3 assigned</Badge>
+                <Badge
+                  className={cn(
+                    refundManagerSetup?.nayaxLookupConfigured
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-amber-200 bg-amber-50 text-amber-700'
+                  )}
+                >
+                  {refundManagerSetup?.nayaxLookupConfigured ? 'Nayax ready' : 'Nayax setup needed'}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4">
+              {isRefundManagerSetupLoading && (
+                <div className="rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+                  Loading current refund manager assignments...
+                </div>
+              )}
+              <div>
+                <Label htmlFor="refund-manager-emails">Manager emails</Label>
+                <Textarea
+                  id="refund-manager-emails"
+                  value={managerEmailsDraft}
+                  onChange={(event) => setManagerEmailsDraft(event.target.value)}
+                  rows={4}
+                  className="mt-2 bg-background"
+                  placeholder="one authenticated manager email per line"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Managers must already have a Bloomjoy login before they can be assigned.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="refund-manager-reason">Reason</Label>
+                <Input
+                  id="refund-manager-reason"
+                  value={managerReason}
+                  onChange={(event) => setManagerReason(event.target.value)}
+                  className="mt-2 bg-background"
+                />
+              </div>
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={saveRefundManagers}
+                  disabled={isSavingRefundManagers || isRefundManagerSetupLoading}
+                >
+                  {isSavingRefundManagers && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Refund Managers
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel

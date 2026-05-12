@@ -267,6 +267,7 @@ Steps:
 
 Privacy guardrails:
 - The helper writes only synthetic `example.test` customer records and synthetic machine/sales/refund data.
+- Remote preview seeding is blocked unless the target is explicitly confirmed as `preview-uat`, the Supabase project ref is supplied twice, and the app URL is not a Bloomjoy production host. Do not use remote seeding against the production Supabase project.
 - Do not paste real customer names, emails, card digits, payment IDs, source exports, or free-text complaint content into local fixtures, docs, PRs, issues, or chat.
 - Do not commit `.env` files or service-role keys. Never put service-role keys in `VITE_` variables.
 

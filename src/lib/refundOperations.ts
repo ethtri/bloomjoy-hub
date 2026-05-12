@@ -159,6 +159,18 @@ export type RefundOperationsOverview = {
   managerAssignments: RefundManagerAssignment[];
 };
 
+export type RefundManagerSetupMachine = {
+  id: string;
+  machineLabel: string;
+  locationName: string;
+  nayaxLookupConfigured: boolean;
+  managerEmails: string[];
+};
+
+export type RefundManagerSetup = {
+  machines: RefundManagerSetupMachine[];
+};
+
 export type UpdateRefundCaseInput = {
   caseId: string;
   status: RefundCaseStatus;
@@ -236,6 +248,10 @@ const emptyOverview: RefundOperationsOverview = {
   managerAssignments: [],
 };
 
+const emptyRefundManagerSetup: RefundManagerSetup = {
+  machines: [],
+};
+
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
   const { data, error } = await supabaseClient.rpc('admin_get_refund_operations_overview');
 
@@ -246,6 +262,19 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   return {
     ...emptyOverview,
     ...((data as Partial<RefundOperationsOverview> | null) ?? {}),
+  };
+};
+
+export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_refund_manager_setup');
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load refund manager setup.');
+  }
+
+  return {
+    ...emptyRefundManagerSetup,
+    ...((data as Partial<RefundManagerSetup> | null) ?? {}),
   };
 };
 

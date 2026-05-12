@@ -44,7 +44,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Refund detail lets managers verify confirmation and more-info customer email state from `RF-UAT-WAIT` or an equivalent synthetic waiting-on-customer case.
 - [ ] Refund decision controls prevent incoherent combinations before submit: follow-up/review statuses clear final decisions, approved paths carry `approved`, denied paths carry `denied`, and `waiting_on_customer + approved` cannot be saved.
 - [ ] Mobile refund queue/detail at `390x844` has no clipped columns, hidden controls, or horizontal page overflow; queue rows stack as cards or scroll intentionally.
-- [ ] Super/scoped admins can assign up to 3 authenticated refund managers per machine in the separate setup panel; ordinary refund managers/operators do not see assignment/setup controls.
+- [ ] Super admins can assign up to 3 authenticated refund managers per machine from Admin > Machines > Edit Machine; ordinary refund managers/operators do not see assignment/setup controls in the refund workflow.
 - [ ] Server-side Nayax machine mapping state is visible to setup-capable users; card lookup stays blocked with a friendly setup message until the machine is mapped and the Edge Function secret exists.
 - [ ] Card lookup calls Nayax Last Sales for the mapped machine and returns only sanitized candidate evidence in the UI: machine authorization time, amount, currency, card brand/last 4, and match reason; raw provider IDs stay hidden.
 - [ ] Manager denial path requires a friendly decision reason and does not write to `sales_adjustment_facts`; approval/completion/denial replies remain manual in MVP.

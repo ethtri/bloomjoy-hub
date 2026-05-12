@@ -12,18 +12,16 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AppLayout } from '@/components/layout/AppLayout';
+import { PortalLayout } from '@/components/portal/PortalLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useAuth } from '@/contexts/AuthContext';
 import {
   createRefundAttachmentSignedUrl,
   fetchRefundOperationsOverview,
   lookupNayaxTransactions,
-  setMachineRefundManagersAdmin,
   updateRefundCaseAdmin,
   type NayaxLookupCandidate,
   type RefundCaseRecord,
@@ -289,11 +287,6 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
 
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
-  const { adminAccess, isSuperAdmin, isScopedAdmin } = useAuth();
-  const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
-  const canManageRefundSetup =
-    isSuperAdmin ||
-    (isScopedAdmin && (allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds')));
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | RefundCaseStatus>('open');
@@ -302,10 +295,6 @@ export default function AdminRefundsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
-  const [assignmentMachineId, setAssignmentMachineId] = useState('');
-  const [assignmentEmails, setAssignmentEmails] = useState('');
-  const [assignmentReason, setAssignmentReason] = useState('Refund operations manager update');
-  const [isSavingManagers, setIsSavingManagers] = useState(false);
 
   const {
     data: overview = { cases: [], machines: [], managerAssignments: [] },
@@ -319,23 +308,6 @@ export default function AdminRefundsPage() {
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
-  const assignmentMachine = useMemo(
-    () => overview.machines.find((machine) => machine.id === assignmentMachineId) ?? null,
-    [assignmentMachineId, overview.machines]
-  );
-
-  useEffect(() => {
-    if (!assignmentMachineId && overview.machines.length > 0) {
-      setAssignmentMachineId(overview.machines[0].id);
-    }
-  }, [assignmentMachineId, overview.machines]);
-
-  useEffect(() => {
-    const selectedMachineAssignments = overview.managerAssignments.filter(
-      (assignment) => assignment.reportingMachineId === assignmentMachineId
-    );
-    setAssignmentEmails(selectedMachineAssignments.map((assignment) => assignment.managerEmail).join('\n'));
-  }, [assignmentMachineId, overview.managerAssignments]);
 
   const filteredCases = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -369,6 +341,11 @@ export default function AdminRefundsPage() {
       completed: overview.cases.filter((refundCase) => refundCase.status === 'completed').length,
     };
   }, [overview.cases]);
+  const hasAnyCases = overview.cases.length > 0;
+  const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
+  const emptyQueueDescription = hasAnyCases
+    ? 'Try another status filter or search term.'
+    : 'For UAT, this environment needs synthetic refund cases or a real shadow-mode submission before the queue will show work.';
 
   useEffect(() => {
     if (!selectedId) return;
@@ -495,38 +472,8 @@ export default function AdminRefundsPage() {
     }
   };
 
-  const handleSaveManagers = async () => {
-    if (!assignmentMachineId) return;
-
-    const managerEmails = assignmentEmails
-      .split(/[\n,]+/)
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (managerEmails.length > 3) {
-      toast.error('Each machine can have at most 3 active refund managers.');
-      return;
-    }
-
-    setIsSavingManagers(true);
-    try {
-      await setMachineRefundManagersAdmin({
-        machineId: assignmentMachineId,
-        managerEmails,
-        reason: assignmentReason.trim(),
-      });
-      toast.success('Refund manager assignments saved.');
-      await refresh();
-    } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : 'Unable to save refund managers.';
-      toast.error(message);
-    } finally {
-      setIsSavingManagers(false);
-    }
-  };
-
   return (
-    <AppLayout>
+    <PortalLayout>
       <section className="section-padding">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -616,8 +563,11 @@ export default function AdminRefundsPage() {
                   </div>
                 )}
                 {!isLoading && filteredCases.length === 0 && (
-                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    No refund cases found.
+                  <div className="px-4 py-10 text-center">
+                    <p className="text-sm font-medium text-foreground">{emptyQueueTitle}</p>
+                    <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                      {emptyQueueDescription}
+                    </p>
                   </div>
                 )}
                 {!isLoading &&
@@ -692,8 +642,11 @@ export default function AdminRefundsPage() {
                   )}
                   {!isLoading && filteredCases.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                        No refund cases found.
+                      <td colSpan={4} className="px-4 py-10 text-center">
+                        <p className="text-sm font-medium text-foreground">{emptyQueueTitle}</p>
+                        <p className="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">
+                          {emptyQueueDescription}
+                        </p>
                       </td>
                     </tr>
                   )}
@@ -1256,78 +1209,10 @@ export default function AdminRefundsPage() {
                 )}
               </div>
 
-              {canManageRefundSetup && (
-                <div className="rounded-xl border border-border bg-card p-5">
-                  <h2 className="font-semibold text-foreground">Machine refund managers</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Assign up to 3 authenticated managers to a machine.
-                  </p>
-                  <div className="mt-4 space-y-3">
-                    <div>
-                      <Label>Machine</Label>
-                      <select
-                        value={assignmentMachineId}
-                        onChange={(event) => setAssignmentMachineId(event.target.value)}
-                        className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      >
-                        {overview.machines.map((machine) => (
-                          <option key={machine.id} value={machine.id}>
-                            {machine.locationName} - {machine.machineLabel}
-                            {machine.nayaxLookupConfigured ? ' - Nayax ready' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="rounded-lg border border-border bg-muted/25 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                        <p className="text-sm font-medium text-foreground">Nayax card lookup</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {assignmentMachine?.nayaxLookupConfigured
-                            ? 'Mapped and ready for card lookup'
-                            : 'Needs setup outside the manager workflow'}
-                        </p>
-                      </div>
-                        <Badge
-                          className={cn(
-                            assignmentMachine?.nayaxLookupConfigured
-                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                              : 'border-amber-200 bg-amber-50 text-amber-700'
-                          )}
-                        >
-                          {assignmentMachine?.nayaxLookupConfigured ? 'Ready' : 'Setup needed'}
-                        </Badge>
-                      </div>
-                    </div>
-                    <div>
-                      <Label>Manager emails</Label>
-                      <Textarea
-                        value={assignmentEmails}
-                        onChange={(event) => setAssignmentEmails(event.target.value)}
-                        rows={4}
-                        className="mt-2"
-                        placeholder="one manager email per line"
-                      />
-                    </div>
-                    <div>
-                      <Label>Reason</Label>
-                      <Input
-                        value={assignmentReason}
-                        onChange={(event) => setAssignmentReason(event.target.value)}
-                        className="mt-2"
-                      />
-                    </div>
-                    <Button onClick={handleSaveManagers} disabled={isSavingManagers || !assignmentMachineId}>
-                      {isSavingManagers && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Save Managers
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
       </section>
-    </AppLayout>
+    </PortalLayout>
   );
 }

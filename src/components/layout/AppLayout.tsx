@@ -130,7 +130,7 @@ const adminDestinations: AdminDestination[] = [
     labelKey: 'admin.machines',
     shortLabel: 'Machines',
     shortLabelKey: 'admin.machines',
-    description: 'Machine aliases, external machine IDs, assignment readiness, and tax rates.',
+    description: 'Machine aliases, external machine IDs, refund managers, and tax rates.',
     descriptionKey: 'admin.machinesDescription',
     icon: MonitorCog,
     requiresSuperAdmin: true,
@@ -180,13 +180,6 @@ const getAppContext = (
   pathname: string,
   t: (key: TranslationKey) => string
 ): AppContext => {
-  if (pathname.startsWith('/portal/refunds')) {
-    return {
-      title: t('admin.refunds'),
-      description: t('admin.refundsDescription'),
-    };
-  }
-
   if (pathname.startsWith('/portal')) {
     const currentDestination = getPortalDestinationByPath(pathname);
     return {
@@ -218,7 +211,6 @@ type WorkspaceLink = {
   labelKey: TranslationKey;
   match: (pathname: string) => boolean;
   requiresAdminWorkspace?: boolean;
-  requiresRefundOperations?: boolean;
 };
 
 const workspaceLinks: WorkspaceLink[] = [
@@ -226,15 +218,7 @@ const workspaceLinks: WorkspaceLink[] = [
     href: '/portal',
     label: 'Portal',
     labelKey: 'app.portal' as const,
-    match: (pathname: string) =>
-      pathname.startsWith('/portal') && !pathname.startsWith('/portal/refunds'),
-  },
-  {
-    href: '/portal/refunds',
-    label: 'Refunds',
-    labelKey: 'admin.refunds' as const,
-    match: (pathname: string) => pathname.startsWith('/portal/refunds'),
-    requiresRefundOperations: true,
+    match: (pathname: string) => pathname.startsWith('/portal'),
   },
   {
     href: '/admin',
@@ -275,8 +259,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
   const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
-  const canAccessRefundOperations =
-    isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
   const visibleAdminDestinations = adminDestinations.filter((item) => {
     if (item.requiresSuperAdmin && !isSuperAdmin) {
       return false;
@@ -311,7 +293,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   const renderWorkspaceLinks = (mobile = false) =>
     workspaceLinks
       .filter((item) => !item.requiresAdminWorkspace || canAccessAdminWorkspace)
-      .filter((item) => !item.requiresRefundOperations || canAccessRefundOperations)
       .map((item) => {
         if (mobile) {
           const isActive = item.match(location.pathname);

@@ -397,7 +397,8 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, recorder }) => {
   });
   const page = await context.newPage();
 
-  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'networkidle' });
+  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   recorder.assert(
     'Unauthenticated /portal/refunds redirects to login',
     pathname(page) === '/login',
@@ -426,17 +427,14 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
 
   await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'domcontentloaded' });
-  const overviewResponse = page.waitForResponse(
-    (response) => response.url().includes('/admin_get_refund_operations_overview'),
-    { timeout: 20000 }
-  );
+  await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
+  await page.waitForSelector('#email-password', { timeout: 10000 });
   await page.fill('#email-password', mockUser.email);
   await page.fill('#password', 'mock-password');
   await Promise.all([
     page.waitForURL('**/portal/refunds', { timeout: 20000 }),
     page.getByRole('button', { name: /sign in/i }).click(),
   ]);
-  await overviewResponse;
   await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
 
   recorder.assert(
@@ -449,7 +447,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByRole('heading', { name: /refund workflow/i }).isVisible()
   );
   recorder.assert(
-    'Refund workspace link is visible',
+    'Portal Refunds navigation link is visible',
     (await countLinksByName(page, /^Refunds$/)) > 0
   );
   recorder.assert(
@@ -457,8 +455,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     (await countLinksByName(page, /^Admin$/)) === 0
   );
   recorder.assert(
-    'Manager setup panel is hidden for refund-only user',
-    (await page.getByText('Machine refund managers').count()) === 0
+    'Machine setup controls are hidden from the refund workflow',
+    (await page.getByText('Refund managers').count()) === 0
   );
   recorder.assert(
     'Refund queue count renders',

@@ -9,6 +9,8 @@ import { createClient } from '@supabase/supabase-js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..', '..');
+const PRODUCTION_SUPABASE_PROJECT_REFS = new Set(['ygbzkgxktzqsiygjlqyg']);
+const DEFAULT_ENV_FILES = ['.env', '.env.local'];
 
 const FIXTURE = {
   accountId: '41000000-0000-4000-8000-000000000001',
@@ -26,10 +28,14 @@ function parseArgs(argv) {
   const parsed = {
     email: 'refund-sponsor-uat@bloomjoy.localhost',
     appUrl: 'http://localhost:8080',
-    envFiles: ['.env', '.env.local'],
+    envFiles: [...DEFAULT_ENV_FILES],
+    explicitEnvFiles: [],
     dryRun: false,
     open: false,
     allowRemote: false,
+    target: 'local',
+    projectRef: '',
+    confirmProjectRef: '',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -50,6 +56,7 @@ function parseArgs(argv) {
 
     if (arg === '--env-file' && next) {
       parsed.envFiles.push(next);
+      parsed.explicitEnvFiles.push(next);
       index += 1;
       continue;
     }
@@ -66,6 +73,24 @@ function parseArgs(argv) {
 
     if (arg === '--allow-remote') {
       parsed.allowRemote = true;
+      continue;
+    }
+
+    if (arg === '--target' && next) {
+      parsed.target = next.trim();
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--project-ref' && next) {
+      parsed.projectRef = next.trim();
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--confirm-project-ref' && next) {
+      parsed.confirmProjectRef = next.trim();
+      index += 1;
     }
   }
 
@@ -122,6 +147,63 @@ function isLocalSupabaseUrl(value) {
     return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
   } catch {
     return false;
+  }
+}
+
+function getSupabaseProjectRef(value) {
+  try {
+    const url = new URL(value);
+    const match = url.hostname.match(/^([a-z0-9]+)\.supabase\.co$/i);
+    return match?.[1] ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function isProductionAppHost(value) {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'bloomjoysweets.com' || hostname.endsWith('.bloomjoysweets.com');
+  } catch {
+    return false;
+  }
+}
+
+function assertRemoteSeedSafety(args, supabaseUrl) {
+  const projectRef = getSupabaseProjectRef(supabaseUrl);
+
+  if (args.target !== 'preview-uat') {
+    throw new Error(
+      'Refusing remote seed without --target preview-uat. Use local Supabase by default.'
+    );
+  }
+
+  if (!args.allowRemote) {
+    throw new Error('Remote preview UAT seeding requires --allow-remote.');
+  }
+
+  if (!args.projectRef || args.projectRef !== args.confirmProjectRef) {
+    throw new Error('Remote preview UAT seeding requires matching --project-ref and --confirm-project-ref.');
+  }
+
+  if (!projectRef || projectRef !== args.projectRef) {
+    throw new Error(
+      `Supabase URL project ref (${projectRef || 'unknown'}) does not match --project-ref ${args.projectRef}.`
+    );
+  }
+
+  if (PRODUCTION_SUPABASE_PROJECT_REFS.has(projectRef)) {
+    throw new Error(`Refusing to seed known production Supabase project ${projectRef}.`);
+  }
+
+  if (isProductionAppHost(args.appUrl)) {
+    throw new Error(`Refusing to create UAT magic links for production app host ${args.appUrl}.`);
+  }
+
+  if (args.explicitEnvFiles.length === 0) {
+    throw new Error(
+      'Remote preview UAT seeding requires an explicit --env-file for the preview branch.'
+    );
   }
 }
 
@@ -568,15 +650,15 @@ async function run() {
     );
   }
 
-  if (!args.allowRemote && !isLocalSupabaseUrl(supabaseUrl)) {
-    throw new Error(
-      `Refusing to seed non-local Supabase URL ${supabaseUrl}. Use a local Supabase URL for sponsor UAT.`
-    );
+  if (!isLocalSupabaseUrl(supabaseUrl)) {
+    assertRemoteSeedSafety(args, supabaseUrl);
   }
 
   console.log('Refund Operations local UAT setup');
   console.log(`- Env files loaded: ${loadedFiles.length ? loadedFiles.join(', ') : 'process env only'}`);
   console.log(`- Supabase URL: ${supabaseUrl}`);
+  console.log(`- Target: ${args.target}`);
+  console.log(`- Supabase project ref: ${getSupabaseProjectRef(supabaseUrl) || 'local'}`);
   console.log(`- Sponsor email: ${args.email}`);
   console.log(`- App URL: ${args.appUrl}`);
   console.log('- Data policy: synthetic fixture only; no real customer/payment/free-text export data.');

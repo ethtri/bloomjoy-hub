@@ -12,14 +12,14 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 - Do not paste real customer names, emails, phone numbers, card digits, Zelle contacts, complaint text, screenshots, or raw provider data into GitHub, docs, chat, or feedback notes.
 - Confirm the tester has the right persona:
   - Refund manager/operator: sees only assigned-machine refund cases at `/portal/refunds`.
-  - Scoped admin: sees only scoped-machine refund cases and setup controls for scoped machines.
-  - Super admin: sees all refund cases and setup controls.
+  - Scoped admin: sees only scoped-machine refund cases.
+  - Super admin: sees all refund cases and manages machine-level refund managers from Admin > Machines.
 - Confirm the tester knows refunds are still completed manually in Nayax or Zelle for MVP.
 
 ## Manager Script
 1. Sign in to the Bloomjoy operator app.
 2. Open `/portal/refunds`.
-3. Confirm you see a `Refunds` workspace link, not an Admin-only workflow.
+3. Confirm `Refunds` appears inside the Portal navigation, not as a top-level workspace tab.
 4. Confirm the queue only shows refund cases for machines you manage.
 5. Search for a known test case or select the first visible case.
 6. Review the case summary:
@@ -46,7 +46,7 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 
 ## Expected Results
 - Refund-only managers can open `/portal/refunds`.
-- Refund-only managers do not see the Admin workspace, Admin tools, manager assignment setup, Nayax setup controls, machine setup identifiers, or raw provider payloads.
+- Refund-only managers do not see the Admin workspace, Admin tools, machine refund manager setup, Nayax setup controls, machine setup identifiers, or raw provider payloads.
 - `/admin` and `/admin/refunds` redirect refund-only users back to `/portal/refunds`.
 - The queue is understandable at a glance.
 - The selected case shows the decision area before timeline and message history.
