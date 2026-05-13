@@ -29,7 +29,7 @@ on:
         required: false
         default: 'false'
       summary_machine_codes:
-        description: 'Optional comma-separated source machine codes to summarize in logs'
+        description: 'Optional comma-separated source machine codes to count with neutral labels in logs'
         required: false
       ingest_chunk_size:
         description: 'Rows per Supabase ingest request'

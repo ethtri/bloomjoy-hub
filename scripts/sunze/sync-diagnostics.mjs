@@ -26,6 +26,36 @@ export const sanitizeUiSummaryForDiagnostic = (uiSummary) =>
       }
     : null;
 
+export const summarizeRowsByDateForLog = (rows, machineCodes = []) => {
+  const summaryMachines = machineCodes.map((machineCode, index) => ({
+    machineCode,
+    label: `summaryMachine${index + 1}`,
+  }));
+  const summaryLabelsByMachineCode = new Map(
+    summaryMachines.map(({ machineCode, label }) => [machineCode, label])
+  );
+  const byDate = new Map();
+
+  for (const row of rows) {
+    if (!byDate.has(row.saleDate)) {
+      byDate.set(row.saleDate, {
+        date: row.saleDate,
+        rowCount: 0,
+        machineCounts: Object.fromEntries(summaryMachines.map(({ label }) => [label, 0])),
+      });
+    }
+
+    const dateSummary = byDate.get(row.saleDate);
+    dateSummary.rowCount += 1;
+    const summaryLabel = summaryLabelsByMachineCode.get(row.machineCode);
+    if (summaryLabel) {
+      dateSummary.machineCounts[summaryLabel] += 1;
+    }
+  }
+
+  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
+};
+
 const getFailureName = (error) =>
   sanitizeDiagnosticMessage(error instanceof Error ? error.name : 'Error') || 'Error';
 

@@ -5,6 +5,7 @@ import {
   buildSanitizedFailureError,
   sanitizeDiagnosticMessage,
   sanitizeUiSummaryForDiagnostic,
+  summarizeRowsByDateForLog,
 } from './sync-diagnostics.mjs';
 
 const rawFailure =
@@ -101,9 +102,48 @@ assert.equal('details' in safeError, false);
 assert.equal(String(safeError).includes('17525706476037914545569'), false);
 assert.equal(JSON.stringify(safeError).includes('17525706476037914545569'), false);
 
+const rowsByDate = summarizeRowsByDateForLog(
+  [
+    { saleDate: '2026-05-12', machineCode: '17525706476037914545569' },
+    { saleDate: '2026-05-12', machineCode: '17525706476037914545569' },
+    { saleDate: '2026-05-12', machineCode: 'abcdef1234567890abcdef' },
+    { saleDate: '2026-05-13', machineCode: 'untracked-machine-code' },
+  ],
+  ['17525706476037914545569', 'abcdef1234567890abcdef']
+);
+assert.deepEqual(rowsByDate, [
+  {
+    date: '2026-05-12',
+    rowCount: 3,
+    machineCounts: {
+      summaryMachine1: 2,
+      summaryMachine2: 1,
+    },
+  },
+  {
+    date: '2026-05-13',
+    rowCount: 1,
+    machineCounts: {
+      summaryMachine1: 0,
+      summaryMachine2: 0,
+    },
+  },
+]);
+const rowsByDateSerialized = JSON.stringify(rowsByDate);
+assert.equal(rowsByDateSerialized.includes('17525706476037914545569'), false);
+assert.equal(rowsByDateSerialized.includes('abcdef1234567890abcdef'), false);
+
 console.log(
   JSON.stringify(
-    { ok: true, cases: ['failure message redaction', 'ui summary allowlist', 'sanitized rethrow'] },
+    {
+      ok: true,
+      cases: [
+        'failure message redaction',
+        'ui summary allowlist',
+        'sanitized rethrow',
+        'summary machine log redaction',
+      ],
+    },
     null,
     2
   )

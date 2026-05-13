@@ -101,7 +101,7 @@ Use these after the sales reporting migration has been applied.
      `npm run reporting:provider-sync -- --env-file path/to/local.env --date-start 2026-01-01 --date-end 2026-01-31 --dry-run`
    - Manual monthly backfill from a Sunze Export Task `.zip`/`.xlsx`, using the same parser/date-window/ingest validation:
      `npm run reporting:provider-sync -- --env-file path/to/local.env --parse-file path/to/sunze-2026-01.zip --date-start 2026-01-01 --date-end 2026-01-31 --dry-run`
-   - Add `--summary-machine-codes <comma-separated-sunze-ids>` when you need date-level counts for specific machines without logging raw order rows.
+   - Add `--summary-machine-codes <comma-separated-sunze-ids>` when you need date-level counts for specific machines; logs use neutral `summaryMachine#` labels instead of raw source IDs or raw order rows.
    - Daily automation remains on `Last 7 Days`. Historical backfills should use explicit monthly `--date-start` / `--date-end` chunks, then verify parsed `windowStart`/`windowEnd` before running without `--dry-run`.
    - The GitHub `Sales Import Sync` manual dispatch defaults to `dry_run=true`; manual live imports require `dry_run=false` and `confirm_live=true`.
    - Scheduled `Sales Import Sync` runs a primary live `Last 7 Days` replay at `13:30 UTC` plus a backup replay at `17:30 UTC`. The monthly `14:45 UTC` run on the first day of the month is the only scheduled sync that defaults to `Last Month`.

@@ -20,6 +20,7 @@ import {
   buildSanitizedFailureError,
   sanitizeDiagnosticMessage,
   sanitizeUiSummaryForDiagnostic,
+  summarizeRowsByDateForLog,
 } from './sync-diagnostics.mjs';
 
 const args = process.argv.slice(2);
@@ -557,29 +558,6 @@ const summaryMachineCodes = [
       .filter(Boolean)
   ),
 ].sort();
-
-const summarizeRowsByDate = (rows, machineCodes = []) => {
-  const summaryMachineCodeSet = new Set(machineCodes);
-  const byDate = new Map();
-
-  for (const row of rows) {
-    if (!byDate.has(row.saleDate)) {
-      byDate.set(row.saleDate, {
-        date: row.saleDate,
-        rowCount: 0,
-        machineCounts: Object.fromEntries(machineCodes.map((machineCode) => [machineCode, 0])),
-      });
-    }
-
-    const dateSummary = byDate.get(row.saleDate);
-    dateSummary.rowCount += 1;
-    if (summaryMachineCodeSet.has(row.machineCode)) {
-      dateSummary.machineCounts[row.machineCode] += 1;
-    }
-  }
-
-  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
-};
 
 const clickNextMachineListPage = async (page) =>
   page.evaluate(() => {
@@ -1951,7 +1929,7 @@ try {
       visibleSourceMachineCount: visibleSunzeMachineCount,
       machineCoverageVerified,
       machineCoverageIssue,
-      rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
+      rowsByDate: summarizeRowsByDateForLog(rows, summaryMachineCodes),
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
       ignoredUnmappedMachineCount: ingestValidation?.ignoredUnmappedMachineCount ?? null,
       newlyPendingUnmappedMachineCount: ingestValidation?.newlyPendingUnmappedMachineCount ?? null,
@@ -1987,7 +1965,7 @@ try {
       uiReconciliationMode: matchedUiSummary?.uiReconciliationMode ?? null,
       machineCoverageVerified,
       machineCoverageIssue,
-      rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
+      rowsByDate: summarizeRowsByDateForLog(rows, summaryMachineCodes),
       importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
       importRunIds: result.importRunIds ?? null,
       ingestChunkCount: result.chunkCount ?? null,
