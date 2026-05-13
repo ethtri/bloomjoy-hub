@@ -68,6 +68,42 @@ export const isRetryableProviderExportError = (error) => {
   );
 };
 
+const toIsoOrNull = (value) => {
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+};
+
+export const buildExportTaskDownloadDiagnostic = ({
+  timeoutMs,
+  taskMasked = null,
+  taskCreatedAtMs = null,
+  taskStatus = null,
+} = {}) => ({
+  timeoutMs,
+  taskMasked,
+  taskCreatedAt: toIsoOrNull(taskCreatedAtMs),
+  taskStatus,
+});
+
+export const buildExportTaskWaitDiagnostic = ({
+  requestedAtMs,
+  timeoutMs,
+  pollCount,
+  pinnedTaskMasked = null,
+  pinnedTaskCreatedAtMs = null,
+  pinnedTaskLastStatus = null,
+  visibleTaskCount = 0,
+} = {}) => ({
+  requestedAt: toIsoOrNull(requestedAtMs),
+  timeoutMs,
+  pollCount,
+  pinnedTask: Boolean(pinnedTaskMasked),
+  pinnedTaskMasked,
+  pinnedTaskCreatedAt: toIsoOrNull(pinnedTaskCreatedAtMs),
+  pinnedTaskLastStatus,
+  visibleTaskCount,
+});
+
 const getFailureName = (error) =>
   sanitizeDiagnosticMessage(error instanceof Error ? error.name : 'Error') || 'Error';
 

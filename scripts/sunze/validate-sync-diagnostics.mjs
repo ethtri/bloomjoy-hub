@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import {
+  buildExportTaskDownloadDiagnostic,
+  buildExportTaskWaitDiagnostic,
   buildFailureDiagnostic,
   buildSanitizedFailureError,
   isRetryableProviderExportError,
@@ -148,6 +150,50 @@ assert.equal(
 );
 assert.equal(isRetryableProviderExportError(new Error('Missing required environment variable: REPORTING_INGEST_URL')), false);
 
+const exportTaskWait = buildExportTaskWaitDiagnostic({
+  requestedAtMs: Date.parse('2026-05-13T16:04:59.000Z'),
+  timeoutMs: 300000,
+  pollCount: 54,
+  pinnedTaskMasked: '3e2c...[id]',
+  pinnedTaskCreatedAtMs: Date.parse('2026-05-13T16:05:01.000Z'),
+  pinnedTaskLastStatus: 'Processing',
+  visibleTaskCount: 5,
+});
+assert.deepEqual(exportTaskWait, {
+  requestedAt: '2026-05-13T16:04:59.000Z',
+  timeoutMs: 300000,
+  pollCount: 54,
+  pinnedTask: true,
+  pinnedTaskMasked: '3e2c...[id]',
+  pinnedTaskCreatedAt: '2026-05-13T16:05:01.000Z',
+  pinnedTaskLastStatus: 'Processing',
+  visibleTaskCount: 5,
+});
+
+const unpinnedExportTaskWait = buildExportTaskWaitDiagnostic({
+  requestedAtMs: Date.parse('2026-05-13T16:04:59.000Z'),
+  timeoutMs: 300000,
+  pollCount: 54,
+  visibleTaskCount: 5,
+});
+assert.equal(unpinnedExportTaskWait.pinnedTask, false);
+assert.equal(unpinnedExportTaskWait.pinnedTaskMasked, null);
+
+assert.deepEqual(
+  buildExportTaskDownloadDiagnostic({
+    timeoutMs: 120000,
+    taskMasked: '3e2c...[id]',
+    taskCreatedAtMs: Date.parse('2026-05-13T16:05:01.000Z'),
+    taskStatus: 'Completed',
+  }),
+  {
+    timeoutMs: 120000,
+    taskMasked: '3e2c...[id]',
+    taskCreatedAt: '2026-05-13T16:05:01.000Z',
+    taskStatus: 'Completed',
+  }
+);
+
 console.log(
   JSON.stringify(
     {
@@ -158,6 +204,7 @@ console.log(
         'sanitized rethrow',
         'summary machine log redaction',
         'export task timeout retry classification',
+        'export task diagnostic field shape',
       ],
     },
     null,

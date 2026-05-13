@@ -16,6 +16,8 @@ import {
   extractUiRecordCount,
 } from './reconcile-orders-export.mjs';
 import {
+  buildExportTaskDownloadDiagnostic,
+  buildExportTaskWaitDiagnostic,
   buildFailureDiagnostic,
   buildSanitizedFailureError,
   isRetryableProviderExportError,
@@ -1517,12 +1519,12 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignored
         download = await downloadWaiter.promise;
       } catch (error) {
         updateDiagnostic({
-          exportTaskDownload: {
+          exportTaskDownload: buildExportTaskDownloadDiagnostic({
             timeoutMs: exportDownloadTimeoutMs,
             taskMasked: task.taskNoMasked ?? targetTaskNoMasked,
-            taskCreatedAt: task.createdAtMs ? new Date(task.createdAtMs).toISOString() : null,
+            taskCreatedAtMs: task.createdAtMs,
             taskStatus: task.status ?? null,
-          },
+          }),
         });
         throw error;
       }
@@ -1545,16 +1547,15 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignored
     )
     .join(' | ');
   updateDiagnostic({
-    exportTaskWait: {
-      requestedAt: new Date(requestedAtMs).toISOString(),
+    exportTaskWait: buildExportTaskWaitDiagnostic({
+      requestedAtMs,
       timeoutMs: exportTaskTimeoutMs,
       pollCount,
-      pinnedTask: Boolean(targetTaskNo),
       pinnedTaskMasked: targetTaskNoMasked,
-      pinnedTaskCreatedAt: targetTaskCreatedAtMs ? new Date(targetTaskCreatedAtMs).toISOString() : null,
+      pinnedTaskCreatedAtMs: targetTaskCreatedAtMs,
       pinnedTaskLastStatus: targetTaskLastStatus,
       visibleTaskCount: lastTaskDiagnostic?.visibleTasks?.length ?? 0,
-    },
+    }),
   });
   throw new Error(
     visibleTasks
