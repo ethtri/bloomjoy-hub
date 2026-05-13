@@ -56,6 +56,18 @@ export const summarizeRowsByDateForLog = (rows, machineCodes = []) => {
   return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
 };
 
+export const isRetryableProviderExportError = (error) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return (
+    /Sheet "Order" not found/i.test(message) ||
+    /end of central directory|invalid zip|corrupt|unexpected end|contains no workbook files/i.test(message) ||
+    /Provider export mismatch/i.test(message) ||
+    /Unable to verify the selected provider order date range/i.test(message) ||
+    /Provider export task did not complete within \d+ms/i.test(message) ||
+    /Provider export task download did not start within \d+ms/i.test(message)
+  );
+};
+
 const getFailureName = (error) =>
   sanitizeDiagnosticMessage(error instanceof Error ? error.name : 'Error') || 'Error';
 

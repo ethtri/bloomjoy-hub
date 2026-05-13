@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildFailureDiagnostic,
   buildSanitizedFailureError,
+  isRetryableProviderExportError,
   sanitizeDiagnosticMessage,
   sanitizeUiSummaryForDiagnostic,
   summarizeRowsByDateForLog,
@@ -133,6 +134,20 @@ const rowsByDateSerialized = JSON.stringify(rowsByDate);
 assert.equal(rowsByDateSerialized.includes('17525706476037914545569'), false);
 assert.equal(rowsByDateSerialized.includes('abcdef1234567890abcdef'), false);
 
+assert.equal(
+  isRetryableProviderExportError(
+    new Error(
+      'Provider export task did not complete within 300000ms after 54 poll(s); requestedAt 2026-05-13T16:04:59.000Z; pinnedTask none.'
+    )
+  ),
+  true
+);
+assert.equal(
+  isRetryableProviderExportError(new Error('Provider export task download did not start within 120000ms.')),
+  true
+);
+assert.equal(isRetryableProviderExportError(new Error('Missing required environment variable: REPORTING_INGEST_URL')), false);
+
 console.log(
   JSON.stringify(
     {
@@ -142,6 +157,7 @@ console.log(
         'ui summary allowlist',
         'sanitized rethrow',
         'summary machine log redaction',
+        'export task timeout retry classification',
       ],
     },
     null,
