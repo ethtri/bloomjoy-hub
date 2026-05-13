@@ -160,6 +160,8 @@ Before continuing, run:
 npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
 ```
 
+For Refund Full Automation PR `#432`, use `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` as the merge-readiness checklist before moving the PR out of draft.
+
 WeCom note:
 - If token auth succeeds but live sends fail with `60020: not allow to access from your ip`, the remaining issue is WeCom-side network/IP policy, not the secret values. Fix the app/network restriction in WeCom admin, then re-run a live smoke order.
 

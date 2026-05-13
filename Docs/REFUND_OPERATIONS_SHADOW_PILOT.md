@@ -7,6 +7,7 @@ Run the merged Refund Operations MVP through production rollout readiness checks
 
 This runbook is the PM/PO control artifact for issues `#402`-`#409`.
 Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pilot script.
+Use `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` for PR `#432` production setup and merge-readiness gates.
 
 ## Operating Rules
 - Codex acts as Bloomjoy PM/PO using the `bloomjoy-sprint-orchestrator` workflow.

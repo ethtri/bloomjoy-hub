@@ -205,7 +205,12 @@ function run() {
       'NAYAX_LYNX_BASE_URL',
       'NAYAX_REFUND_EXECUTION_ENABLED',
       'NAYAX_REFUND_EXECUTION_DRY_RUN',
-      'NAYAX_REFUND_EXECUTION_KILL_SWITCH'
+      'NAYAX_REFUND_EXECUTION_KILL_SWITCH',
+      'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED',
+      'NAYAX_REFUND_MAX_AMOUNT_CENTS',
+      'NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS',
+      'NAYAX_REFUND_DAILY_COUNT_CAP',
+      'NAYAX_REFUND_IDEMPOTENCY_SECRET'
     );
   }
 
@@ -269,6 +274,7 @@ function run() {
       'NAYAX_REFUND_EXECUTION_ENABLED',
       'NAYAX_REFUND_EXECUTION_DRY_RUN',
       'NAYAX_REFUND_EXECUTION_KILL_SWITCH',
+      'NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED',
     ];
     for (const key of booleanKeys) {
       if (env[key] && !['true', 'false'].includes(String(env[key]).trim().toLowerCase())) {
@@ -330,7 +336,7 @@ function run() {
       'Public intake abuse-control salt configured',
       'Nayax Lynx base URL configured',
       'Nayax account-specific token or fallback token configured',
-      'Nayax refund execution flags configured fail-closed',
+      'Nayax refund execution flags, caps, and idempotency secret configured fail-closed',
       'Refund reminder/escalation scheduler secret configured',
       'Resend sender and API key configured for refund-case-intake',
       'Supabase service-role key configured for refund Edge Functions',
