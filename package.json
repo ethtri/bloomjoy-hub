@@ -27,6 +27,7 @@
     "refunds:validate-machine-manager-uat": "node scripts/refunds/validate-machine-manager-uat.mjs",
     "refunds:validate-portal-uat": "node scripts/refunds/validate-refund-portal-uat.mjs",
     "refunds:validate-nayax-execution": "node scripts/validate-nayax-refund-execution.mjs",
+    "refunds:pilot-readiness": "node scripts/refunds/pilot-readiness.mjs",
     "reporting:validate-partner-effective-windows": "node scripts/validate-partner-effective-windows.mjs",
     "reporting:validate-partner-scheduled-export": "node scripts/validate-partner-report-scheduled-export.mjs",
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",
