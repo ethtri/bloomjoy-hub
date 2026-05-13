@@ -19,6 +19,37 @@ The audit writes local-only files under `output/refund-pilot-readiness/`:
 
 Do not commit the output files. Do not paste customer PII, card digits, raw Nayax payloads, Zelle details, or secrets into GitHub, docs, screenshots, or chat.
 
+## Cohort Setup Template
+
+Generate a local editable pilot cohort template from the readiness audit:
+
+```powershell
+npm run refunds:pilot-cohort-config -- --create-template --readiness-dir output/refund-pilot-readiness
+```
+
+This creates `output/refund-pilot-readiness/pilot-cohort-config-template.csv`. Fill in only the machines selected for the shadow pilot:
+
+- `selected_for_pilot`: set to `yes` only for selected pilot machines.
+- `manager_email_1`, `manager_email_2`, `manager_email_3`: one to three authenticated Machine Managers.
+- `nayax_machine_id_to_apply`: the reviewed Nayax machine ID for card lookup.
+- `public_display_label_to_apply`: customer-facing label shown on `/refunds/request`.
+
+The template may include high-confidence Nayax suggestions from the read-only inventory audit, but every selected row still needs human review before apply.
+
+Dry-run the filled template before any production setup write:
+
+```powershell
+npm run refunds:pilot-cohort-config -- --file output/refund-pilot-readiness/pilot-cohort-config-template.csv --env-file C:\Repos\Bloomjoy_hub\.env --project-ref ygbzkgxktzqsiygjlqyg
+```
+
+Apply only after the dry-run is clean and the selected rows are intentional:
+
+```powershell
+npm run refunds:pilot-cohort-config -- --file output/refund-pilot-readiness/pilot-cohort-config-template.csv --env-file C:\Repos\Bloomjoy_hub\.env --project-ref ygbzkgxktzqsiygjlqyg --apply --confirm-project-ref ygbzkgxktzqsiygjlqyg --actor-email <super-admin-email> --reason "Refund shadow pilot cohort setup"
+```
+
+The apply path refuses missing authenticated Machine Managers, refuses more than three managers, refuses missing Nayax IDs unless explicitly overridden, requires a confirmed project ref, requires an active super-admin actor, writes an admin audit entry, and never enables live Nayax refund execution.
+
 ## Readiness Rule
 
 A machine is ready for card-capable refund shadow UAT only when:

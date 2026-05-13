@@ -13,7 +13,7 @@ Use this packet to decide when PR `#432` can move from draft to merge-ready and 
 - Nayax lookup evidence is tokenized before it reaches the browser. Raw Nayax provider transaction IDs stay server-side and are resolved only by the refund admin Edge Function.
 - The Admin > Machines refund-readiness setup migration was applied to production on 2026-05-13. Post-apply dry-run reports the remote database is up to date.
 - Production data-readiness smoke currently shows 26 active reporting machines, but 0 refund-intake-enabled machines, 0 Nayax lookup mappings, 0 active Machine Manager assignments, and 0 refund cases. Manager-wide shadow UAT is blocked until machine setup data is added.
-- The read-only pilot readiness audit now has a repeatable command and setup runbook in `Docs/REFUND_PRODUCTION_SHADOW_SETUP.md`. Latest sanitized production audit result: 26 active reporting machines, 0 refund-intake-enabled machines, 0 public refund selector options, 0 Nayax lookup mappings, 0 active Machine Manager assignments, 0 refund cases, 43 Nayax inventory machines fetched, and 38 local mapping-candidate rows generated. No production data was changed.
+- The read-only pilot readiness audit and cohort config helper now have repeatable commands in `Docs/REFUND_PRODUCTION_SHADOW_SETUP.md`. Latest sanitized production audit result: 26 active reporting machines, 0 refund-intake-enabled machines, 0 public refund selector options, 0 Nayax lookup mappings, 0 active Machine Manager assignments, 0 refund cases, 43 Nayax inventory machines fetched, 38 local mapping-candidate rows generated, and a 26-row local pilot cohort template generated/dry-run with no selected rows. No production data was changed.
 
 ## Latest Production Preflight Result
 `npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds` was refreshed after production secret setup on 2026-05-13 and passed. Remote secret inspection validates presence only; fail-closed values were set during setup and live execution remains disabled.
@@ -58,8 +58,9 @@ Set or verify these server-only Supabase secrets by name only; do not paste valu
 7. Run post-deploy smoke with sanitized output only. Basic reachability complete 2026-05-13.
 8. Apply Admin > Machines refund-readiness setup migration. Complete 2026-05-13.
 9. Run the read-only pilot readiness audit and generate the local setup packet. Complete 2026-05-13.
-10. Configure machine readiness data from Admin > Machines and run functional shadow UAT.
-11. Keep Google Form/AppSheet fallback live and begin manager-wide shadow pilot only after functional smoke passes.
+10. Fill and dry-run the pilot cohort config template, or configure the same data manually from Admin > Machines.
+11. Apply/configure machine readiness data and run functional shadow UAT.
+12. Keep Google Form/AppSheet fallback live and begin manager-wide shadow pilot only after functional smoke passes.
 
 ## Post-Deploy Smoke
 Use sanitized evidence only:
