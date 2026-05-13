@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {
   buildFailureDiagnostic,
+  buildSanitizedFailureError,
   sanitizeDiagnosticMessage,
   sanitizeUiSummaryForDiagnostic,
 } from './sync-diagnostics.mjs';
@@ -87,4 +88,23 @@ assert.equal(serialized.includes('17525706476037914545569'), false);
 assert.equal(serialized.includes('987654321'), false);
 assert.equal(serialized.includes('abcdef1234567890abcdef'), false);
 
-console.log(JSON.stringify({ ok: true, cases: ['failure message redaction', 'ui summary allowlist'] }, null, 2));
+const rawError = new Error(rawFailure);
+rawError.details = {
+  email: 'ethan@example.com',
+  machineCode: '17525706476037914545569',
+  rawOrderNumber: '987654321',
+};
+const safeError = buildSanitizedFailureError(rawError);
+assert.equal(safeError.name, 'Error');
+assert.equal(safeError.message, sanitizedMessage);
+assert.equal('details' in safeError, false);
+assert.equal(String(safeError).includes('17525706476037914545569'), false);
+assert.equal(JSON.stringify(safeError).includes('17525706476037914545569'), false);
+
+console.log(
+  JSON.stringify(
+    { ok: true, cases: ['failure message redaction', 'ui summary allowlist', 'sanitized rethrow'] },
+    null,
+    2
+  )
+);

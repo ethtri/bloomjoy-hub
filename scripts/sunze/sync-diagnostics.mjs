@@ -26,12 +26,25 @@ export const sanitizeUiSummaryForDiagnostic = (uiSummary) =>
       }
     : null;
 
+const getFailureName = (error) =>
+  sanitizeDiagnosticMessage(error instanceof Error ? error.name : 'Error') || 'Error';
+
+const getFailureMessage = (error) =>
+  sanitizeDiagnosticMessage(error instanceof Error ? error.message : String(error ?? 'Unknown error')) ||
+  'Sunze sync failed. See sanitized diagnostic artifact.';
+
+export const buildSanitizedFailureError = (error) => {
+  const safeError = new Error(getFailureMessage(error));
+  safeError.name = getFailureName(error);
+  return safeError;
+};
+
 export const buildFailureDiagnostic = ({ error, diagnostic, generatedAt = new Date().toISOString() }) => ({
   ...(diagnostic ?? {}),
   ok: false,
   generatedAt,
   failure: {
-    name: error instanceof Error ? error.name : 'Error',
-    message: sanitizeDiagnosticMessage(error instanceof Error ? error.message : String(error ?? 'Unknown error')),
+    name: getFailureName(error),
+    message: getFailureMessage(error),
   },
 });

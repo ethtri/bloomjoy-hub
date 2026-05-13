@@ -17,6 +17,7 @@ import {
 } from './reconcile-orders-export.mjs';
 import {
   buildFailureDiagnostic,
+  buildSanitizedFailureError,
   sanitizeDiagnosticMessage,
   sanitizeUiSummaryForDiagnostic,
 } from './sync-diagnostics.mjs';
@@ -410,7 +411,7 @@ const writeFailureDiagnostic = async (error) => {
   } catch (writeError) {
     console.warn(
       `Unable to write Sunze sync diagnostic: ${
-        writeError instanceof Error ? sanitizeDiagnosticMessage(writeError.message) : String(writeError)
+        sanitizeDiagnosticMessage(writeError instanceof Error ? writeError.message : String(writeError))
       }`
     );
   }
@@ -1804,7 +1805,9 @@ const loadOrdersSource = async () => {
       }
 
       console.warn(
-        `Provider export validation failed after attempt ${attempt}/${maxAttempts}; retrying export. ${error instanceof Error ? error.message : String(error)}`
+        `Provider export validation failed after attempt ${attempt}/${maxAttempts}; retrying export. ${sanitizeDiagnosticMessage(
+          error instanceof Error ? error.message : String(error)
+        )}`
       );
     }
   }
@@ -2020,7 +2023,7 @@ try {
   }
 } catch (error) {
   await writeFailureDiagnostic(error);
-  throw error;
+  throw buildSanitizedFailureError(error);
 } finally {
   if (cleanupTarget) {
     await cleanupExportSource({
