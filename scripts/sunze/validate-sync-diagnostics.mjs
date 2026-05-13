@@ -178,6 +178,7 @@ const unpinnedExportTaskWait = buildExportTaskWaitDiagnostic({
 });
 assert.equal(unpinnedExportTaskWait.pinnedTask, false);
 assert.equal(unpinnedExportTaskWait.pinnedTaskMasked, null);
+assert.equal(unpinnedExportTaskWait.pinnedTaskCreatedAt, null);
 
 assert.deepEqual(
   buildExportTaskDownloadDiagnostic({
@@ -193,6 +194,7 @@ assert.deepEqual(
     taskStatus: 'Completed',
   }
 );
+assert.equal(buildExportTaskDownloadDiagnostic({ timeoutMs: 120000 }).taskCreatedAt, null);
 
 console.log(
   JSON.stringify(

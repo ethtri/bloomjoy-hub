@@ -69,6 +69,7 @@ export const isRetryableProviderExportError = (error) => {
 };
 
 const toIsoOrNull = (value) => {
+  if (value === null || value === undefined || value === '') return null;
   const timestamp = Number(value);
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 };
