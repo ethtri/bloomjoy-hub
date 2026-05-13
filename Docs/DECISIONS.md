@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-05-13 - Refund workflow card last-four visibility policy (`#436`)
+Authorized refund workflow users may see the customer-provided card last four inside `/portal/refunds` when they are allowed to manage that refund case.
+
+**Approved visibility**
+- Machine Managers assigned to the machine, scoped admins for that machine scope, and super admins may view the submitted card last four and sanitized Nayax candidate evidence for cases they can manage.
+- Sanitized Nayax evidence may include authorization time, amount, currency, card brand, card last four, and match reason when returned by the server-side lookup.
+
+**Privacy boundaries**
+- Partner-facing reporting, exports, settlement payloads, issue notes, PR descriptions, logs, and screenshots must not include real card digits, payment IDs, raw Nayax transaction IDs, raw Nayax payloads, customer free-text complaint details, or customer PII.
+- Raw provider IDs and payloads stay server-side/tokenized. The manager UI may show only the minimum evidence needed to correlate and manually process the refund.
+- Live Nayax refund execution remains disabled unless separately approved through the refund execution safety gates.
+
+**Why this choice**
+- Manual card refunds in Nayax require the last four as an operational lookup clue.
+- Hiding the last four from assigned managers would preserve privacy at the expense of forcing ordinary card cases back into manual Nayax searching and out-of-band communication.
+- Limiting visibility to authenticated, case-authorized users keeps the pilot practical while preserving the reporting and export privacy guardrails.
+
 ## 2026-05-13 - Refund machine portfolio source separation
 Refund operations must distinguish Bloomjoy Commercial/Mini machines from Snapcase machines by data source, not just by location name.
 
