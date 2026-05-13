@@ -181,8 +181,7 @@ export type UpdateRefundCaseInput = {
   refundAmountCents?: number | null;
   manualRefundReference?: string | null;
   clearNayaxMatch?: boolean;
-  matchedNayaxTransactionId?: string | null;
-  matchedNayaxSiteId?: number | null;
+  matchedNayaxCandidateToken?: string | null;
   matchedNayaxMachineAuthTime?: string | null;
   matchedNayaxAmountCents?: number | null;
   matchedNayaxCardLast4?: string | null;
@@ -190,8 +189,7 @@ export type UpdateRefundCaseInput = {
 };
 
 export type NayaxLookupCandidate = {
-  transactionId: string;
-  siteId: number | null;
+  candidateToken: string;
   authorizedAt: string;
   machineAuthorizationTime: string;
   amountCents: number | null;

@@ -54,6 +54,15 @@ type RefundCaseRow = {
   reporting_locations?: { name: string | null } | null;
 };
 
+type NayaxLookupCandidateRow = {
+  provider_transaction_id: string;
+  site_id: number | null;
+  machine_authorization_time: string;
+  amount_cents: number | null;
+  card_last4: string | null;
+  currency_code: string | null;
+};
+
 const selectCaseQuery = `
   id,
   public_reference,
@@ -82,6 +91,27 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseRow | null> => {
 
   if (error) throw error;
   return data as RefundCaseRow | null;
+};
+
+const getNayaxLookupCandidate = async (
+  caseId: string,
+  candidateToken: string,
+): Promise<NayaxLookupCandidateRow | null> => {
+  if (!supabase || !candidateToken) return null;
+  if (!isUuid(candidateToken)) return null;
+
+  const { data, error } = await supabase
+    .from("refund_nayax_lookup_candidates")
+    .select(
+      "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code",
+    )
+    .eq("token", candidateToken)
+    .eq("refund_case_id", caseId)
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as NayaxLookupCandidateRow | null;
 };
 
 const resolveMessageType = (
@@ -305,6 +335,16 @@ serve(async (req) => {
       return jsonResponse({ error: "Refund case access required." }, 403);
     }
 
+    const nayaxCandidateToken = sanitizeText(body?.matchedNayaxCandidateToken, 80);
+    const clearNayaxMatch = Boolean(body?.clearNayaxMatch);
+    const nayaxCandidate = !clearNayaxMatch && nayaxCandidateToken
+      ? await getNayaxLookupCandidate(caseId, nayaxCandidateToken)
+      : null;
+
+    if (!clearNayaxMatch && nayaxCandidateToken && !nayaxCandidate) {
+      return jsonResponse({ error: "Nayax lookup evidence expired. Run lookup again." }, 400);
+    }
+
     const { data: updatedCase, error: updateError } = await supabase.rpc(
       "service_update_refund_case_as_actor",
       {
@@ -317,13 +357,13 @@ serve(async (req) => {
         p_internal_note: sanitizeText(body?.internalNote, 1200) || null,
         p_refund_amount_cents: centsFromInput(body?.refundAmountCents),
         p_manual_refund_reference: sanitizeText(body?.manualRefundReference, 160) || null,
-        p_clear_nayax_match: Boolean(body?.clearNayaxMatch),
-        p_matched_nayax_transaction_id: sanitizeText(body?.matchedNayaxTransactionId, 120) || null,
-        p_matched_nayax_site_id: centsFromInput(body?.matchedNayaxSiteId),
-        p_matched_nayax_machine_auth_time: sanitizeText(body?.matchedNayaxMachineAuthTime, 120) || null,
-        p_matched_nayax_amount_cents: centsFromInput(body?.matchedNayaxAmountCents),
-        p_matched_nayax_card_last4: sanitizeText(body?.matchedNayaxCardLast4, 4) || null,
-        p_matched_nayax_currency_code: sanitizeText(body?.matchedNayaxCurrencyCode, 3).toUpperCase() || null,
+        p_clear_nayax_match: clearNayaxMatch,
+        p_matched_nayax_transaction_id: nayaxCandidate?.provider_transaction_id ?? null,
+        p_matched_nayax_site_id: nayaxCandidate?.site_id ?? null,
+        p_matched_nayax_machine_auth_time: nayaxCandidate?.machine_authorization_time ?? null,
+        p_matched_nayax_amount_cents: nayaxCandidate?.amount_cents ?? null,
+        p_matched_nayax_card_last4: nayaxCandidate?.card_last4 ?? null,
+        p_matched_nayax_currency_code: nayaxCandidate?.currency_code ?? null,
       },
     );
 

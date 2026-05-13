@@ -56,7 +56,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Manager denial path requires a friendly decision reason and does not write to `sales_adjustment_facts`; approval, completion, denial, and more-info state changes send/log the automated customer message through the refund admin Edge wrapper.
 - [ ] Manager status changes through `refund-case-admin-update` log/send appropriate customer messages for more-info, approved, denied, and completed states without exposing private payloads.
 - [ ] `refund-case-automation-sweep` sends reminder/escalation messages from synthetic stale cases and returns only redacted aggregate output.
-- [ ] `npm run refunds:validate-nayax-execution` passes and proves `nayax-card-refund` fails closed by default without calling live Nayax refund endpoints.
+- [ ] `npm run refunds:validate-nayax-execution` passes as a static guardrail check, and post-deploy smoke proves `nayax-card-refund` fails closed by default without calling live Nayax refund endpoints.
 - [ ] Cross-workflow duplicate guard blocks likely duplicate settlement adjustments between a hosted refund case and legacy Google/AppSheet refund row.
 - [ ] Approved manual card path records selected card lookup evidence and a manual completion reference before completion without showing raw provider IDs in the UI.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.

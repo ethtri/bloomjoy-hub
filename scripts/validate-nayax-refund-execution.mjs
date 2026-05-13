@@ -14,6 +14,11 @@ const files = {
   config: 'supabase/config.toml',
   envExample: '.env.example',
   commercePreflight: 'scripts/commerce-preflight.mjs',
+  nayaxLookup: 'supabase/functions/nayax-transaction-lookup/index.ts',
+  refundAdminUpdate: 'supabase/functions/refund-case-admin-update/index.ts',
+  refundOperationsLib: 'src/lib/refundOperations.ts',
+  refundOperationsUi: 'src/pages/admin/Refunds.tsx',
+  nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
 };
 
 const read = (relativePath) =>
@@ -31,6 +36,11 @@ const fn = read(files.function);
 const config = read(files.config);
 const envExample = read(files.envExample);
 const preflight = read(files.commercePreflight);
+const nayaxLookup = read(files.nayaxLookup);
+const refundAdminUpdate = read(files.refundAdminUpdate);
+const refundOperationsLib = read(files.refundOperationsLib);
+const refundOperationsUi = read(files.refundOperationsUi);
+const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
 
 assert(
   migration.includes('refund_case_nayax_refund_attempts'),
@@ -105,6 +115,33 @@ assert(
   preflight.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
     preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET'),
   'Commerce preflight must validate refund automation configuration.'
+);
+assert(
+  nayaxLookup.includes('refund_nayax_lookup_candidates') &&
+    nayaxLookup.includes('candidateToken') &&
+    nayaxLookup.includes('Omit<NayaxProviderCandidate, "transactionId" | "siteId">'),
+  'Nayax lookup must return opaque candidate tokens, not raw provider transaction IDs.'
+);
+assert(
+  nayaxCandidateTokenMigration.includes('refund_nayax_lookup_candidates') &&
+    nayaxCandidateTokenMigration.includes('revoke all on public.refund_nayax_lookup_candidates from authenticated') &&
+    nayaxCandidateTokenMigration.includes('grant select, insert, update, delete on public.refund_nayax_lookup_candidates to service_role'),
+  'Tokenized Nayax lookup candidates must be stored in a service-role-only table.'
+);
+assert(
+  refundAdminUpdate.includes('matchedNayaxCandidateToken') &&
+    refundAdminUpdate.includes('refund_nayax_lookup_candidates'),
+  'Refund admin updates must resolve Nayax evidence tokens server-side.'
+);
+assert(
+  !refundOperationsLib.includes('transactionId: string') &&
+    !refundOperationsLib.includes('matchedNayaxTransactionId'),
+  'Browser refund operation types must not expose raw Nayax transaction IDs.'
+);
+assert(
+  !refundOperationsUi.includes('candidate.transactionId') &&
+    !refundOperationsUi.includes('matchedNayaxTransactionId'),
+  'Browser refund UI must not store or submit raw Nayax transaction IDs.'
 );
 
 console.log('Nayax refund execution guardrails validated.');

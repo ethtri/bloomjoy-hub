@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-04-25
+Last updated: 2026-05-13
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -33,7 +33,7 @@ Set the following values before launch.
 | `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_AGENT_SECRET` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
-| `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions, `refund-adjustment-sync`, `refund-case-intake`, `nayax-transaction-lookup` | Supabase project URL | Technical owner |
+| `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions, `refund-adjustment-sync`, `refund-case-intake`, `refund-case-admin-update`, `refund-case-automation-sweep`, `nayax-transaction-lookup`, `nayax-card-refund` | Supabase project URL | Technical owner |
 | `SUPABASE_ANON_KEY` | Server-only | `stripe-sugar-checkout`, `stripe-plus-checkout`, `stripe-customer-portal` | Supabase project anon key | Technical owner |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake`, `access-invite`, `refund-adjustment-sync`, `refund-case-intake`, `nayax-transaction-lookup` | Supabase service role key | Technical owner |
 | `PUBLIC_INTAKE_ABUSE_HASH_SALT` | Server-only | `refund-case-intake` | Generated server-only salt | Technical owner |
@@ -43,9 +43,11 @@ Set the following values before launch.
 | `NAYAX_REFUND_EXECUTION_ENABLED` | Server-only | `nayax-card-refund` | Keep `false` until explicit card-refund execution go/no-go | Release owner |
 | `NAYAX_REFUND_EXECUTION_DRY_RUN` | Server-only | `nayax-card-refund` | Keep `true` until controlled provider validation | Release owner |
 | `NAYAX_REFUND_EXECUTION_KILL_SWITCH` | Server-only | `nayax-card-refund` | Keep `true` except during approved execution pilot | Release owner |
-| `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` | Server-only | `nayax-card-refund` | Set only after sponsor approval for live execution | Release owner |
+| `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` | Server-only | `nayax-card-refund` | Leave unset during shadow-mode setup; set only after sponsor approval for live execution | Release owner |
 | `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED` | Server-only | `nayax-card-refund` | Set only after Nayax refund endpoint contract is validated | Technical owner |
 | `NAYAX_REFUND_MAX_AMOUNT_CENTS` | Server-only | `nayax-card-refund` | Global per-refund cap for first execution pilot | Release owner |
+| `NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS` | Server-only | `nayax-card-refund` | Global daily amount cap for first execution pilot | Release owner |
+| `NAYAX_REFUND_DAILY_COUNT_CAP` | Server-only | `nayax-card-refund` | Global daily count cap for first execution pilot | Release owner |
 | `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Generated HMAC secret for execution idempotency | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Scheduler secret; may match `REPORT_SCHEDULER_SECRET` | Technical owner |
 | `REPORT_SCHEDULER_SECRET` | Server-only | `sales-report-scheduler`, `refund-adjustment-sync` | Generated secret stored in function secrets | Technical owner |
@@ -87,30 +89,9 @@ Security rule:
 ## 4) Deploy sequence (launch day)
 Use this order exactly.
 
-### Step A: Deploy database migrations
-Apply all `supabase/migrations/*.sql` not already applied, oldest to newest.
+### Step A: Set/refresh Edge Function secrets and run preflight
+Set secrets before applying the refund automation migration train so preflight can fail fast without touching production schema.
 
-Recommended:
-1) Validate migration SQL against a disposable local database:
-   - `npm run db:validate-migrations`
-2) Link Supabase project:
-   - `supabase link --project-ref <project-ref>`
-3) Preview pending migration history:
-   - `supabase db push --dry-run`
-4) Push migrations:
-   - `supabase db push`
-5) If a migration adds or replaces frontend-facing RPCs, confirm PostgREST schema visibility:
-   - Changed RPCs do not return `404` or `PGRST202`.
-   - Admin/reporting examples: `admin_get_account_summaries`, `admin_set_user_machine_reporting_access`, and `admin_get_partnership_reporting_setup`.
-
-Validation note:
-- `supabase db push --dry-run` checks migration history and lists what would be pushed to the linked project, but it does not execute the SQL. Use `npm run db:validate-migrations` first because it actually applies repo migrations to disposable local Postgres and catches SQL parse/apply errors without production data or secrets.
-
-Migration repair rule:
-- Do not edit an already-applied migration and expect production to replay it.
-- If production is missing schema from an already-applied migration, add a later forward-only, idempotent repair migration and include `select pg_notify('pgrst', 'reload schema');`.
-
-### Step B: Set/refresh Edge Function secrets
 Run once per environment or when values rotate:
 
 ```bash
@@ -147,12 +128,15 @@ supabase secrets set NAYAX_LYNX_API_TOKEN=...
 supabase secrets set NAYAX_REFUND_EXECUTION_ENABLED=false
 supabase secrets set NAYAX_REFUND_EXECUTION_DRY_RUN=true
 supabase secrets set NAYAX_REFUND_EXECUTION_KILL_SWITCH=true
-supabase secrets set NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO=
 supabase secrets set NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false
 supabase secrets set NAYAX_REFUND_MAX_AMOUNT_CENTS=1000
+supabase secrets set NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS=5000
+supabase secrets set NAYAX_REFUND_DAILY_COUNT_CAP=10
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
 ```
+
+Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved.
 
 Before continuing, run:
 
@@ -160,7 +144,32 @@ Before continuing, run:
 npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
 ```
 
+Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, and `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`.
+
 For Refund Full Automation PR `#432`, use `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` as the merge-readiness checklist before moving the PR out of draft.
+
+### Step B: Deploy database migrations
+Apply all `supabase/migrations/*.sql` not already applied, oldest to newest.
+
+Recommended:
+1) Validate migration SQL against a disposable local database:
+   - `npm run db:validate-migrations`
+2) Link Supabase project:
+   - `supabase link --project-ref <project-ref>`
+3) Preview pending migration history:
+   - `supabase db push --dry-run`
+4) Push migrations:
+   - `supabase db push`
+5) If a migration adds or replaces frontend-facing RPCs, confirm PostgREST schema visibility:
+   - Changed RPCs do not return `404` or `PGRST202`.
+   - Admin/reporting examples: `admin_get_account_summaries`, `admin_set_user_machine_reporting_access`, and `admin_get_partnership_reporting_setup`.
+
+Validation note:
+- `supabase db push --dry-run` checks migration history and lists what would be pushed to the linked project, but it does not execute the SQL. Use `npm run db:validate-migrations` first because it actually applies repo migrations to disposable local Postgres and catches SQL parse/apply errors without production data or secrets.
+
+Migration repair rule:
+- Do not edit an already-applied migration and expect production to replay it.
+- If production is missing schema from an already-applied migration, add a later forward-only, idempotent repair migration and include `select pg_notify('pgrst', 'reload schema');`.
 
 WeCom note:
 - If token auth succeeds but live sends fail with `60020: not allow to access from your ip`, the remaining issue is WeCom-side network/IP policy, not the secret values. Fix the app/network restriction in WeCom admin, then re-run a live smoke order.
@@ -172,7 +181,7 @@ Refund source note:
 ### Step C: Deploy Supabase Edge Functions
 Deploy all current checkout, submission, invite, and reporting functions:
 
-Before deploying reporting functions, confirm Step A has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
+Before deploying reporting functions, confirm Step B has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt

@@ -8,8 +8,9 @@ Use this packet to decide when PR `#432` can move from draft to merge-ready and 
 ## Current Status
 - PR `#432` is draft by design because production Supabase setup must happen in a controlled order.
 - GitHub CI, Vercel, and the GitHub Supabase migration workflow are green for the PR head SHA.
-- Local agent/browser UAT passed for public refund intake, thank-you page, Portal > Refunds, and Admin > Machines Machine Manager setup.
+- Local mocked/demo browser UAT passed for public refund intake, thank-you page, Portal > Refunds, and Admin > Machines Machine Manager setup. This is useful visual evidence, but seeded functional UAT or post-deploy shadow smoke is still required for real saves, automated messages, access boundaries, Nayax lookup, and reporting write-through.
 - No production migration push, Edge Function deploy, secret mutation, or live Nayax refund execution has been performed for this sprint slice.
+- Nayax lookup evidence is tokenized before it reaches the browser. Raw Nayax provider transaction IDs stay server-side and are resolved only by the refund admin Edge Function.
 
 ## Latest Production Preflight Result
 `npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds` was refreshed on 2026-05-13. Commerce baseline checks are present, but refund operations remain blocked by these missing production server-only secrets:
@@ -34,6 +35,7 @@ Move PR `#432` out of draft only after all of these are true:
   - `nayax-card-refund`
   - plus the already required `refund-case-intake` and `nayax-transaction-lookup`
 - Post-deploy smoke confirms manager refund updates call `refund-case-admin-update` successfully.
+- Post-deploy smoke confirms real state changes, automated customer message logging, tokenized Nayax evidence selection, and reporting write-through with synthetic or approved shadow-mode cases.
 - Sponsor gives explicit production rollout go/no-go.
 
 ## Required Production Secret Names
