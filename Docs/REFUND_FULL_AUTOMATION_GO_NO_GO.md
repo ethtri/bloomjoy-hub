@@ -1,6 +1,6 @@
 # Refund Full Automation Go/No-Go Packet
 
-Last updated: 2026-05-12
+Last updated: 2026-05-13
 
 ## Purpose
 Use this packet to decide when PR `#432` can move from draft to merge-ready and when production shadow-mode rollout may begin. This is not a cutover approval; Google Form/AppSheet remains the fallback until the shadow pilot is clean.
@@ -10,6 +10,19 @@ Use this packet to decide when PR `#432` can move from draft to merge-ready and 
 - GitHub CI, Vercel, and the GitHub Supabase migration workflow are green for the PR head SHA.
 - Local agent/browser UAT passed for public refund intake, thank-you page, Portal > Refunds, and Admin > Machines Machine Manager setup.
 - No production migration push, Edge Function deploy, secret mutation, or live Nayax refund execution has been performed for this sprint slice.
+
+## Latest Production Preflight Result
+`npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds` was refreshed on 2026-05-13. Commerce baseline checks are present, but refund operations remain blocked by these missing production server-only secrets:
+- `PUBLIC_INTAKE_ABUSE_HASH_SALT`
+- `NAYAX_LYNX_BASE_URL`
+- `NAYAX_REFUND_EXECUTION_ENABLED`
+- `NAYAX_REFUND_EXECUTION_DRY_RUN`
+- `NAYAX_REFUND_EXECUTION_KILL_SWITCH`
+- `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED`
+- `NAYAX_REFUND_MAX_AMOUNT_CENTS`
+- `NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS`
+- `NAYAX_REFUND_DAILY_COUNT_CAP`
+- `NAYAX_REFUND_IDEMPOTENCY_SECRET`
 
 ## Merge-Ready Gates
 Move PR `#432` out of draft only after all of these are true:
