@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 export default function RefundThankYouPage() {
   const [searchParams] = useSearchParams();
   const reference = searchParams.get('ref')?.trim() ?? '';
+  const isDemo = searchParams.get('demo') === 'on';
 
   return (
     <Layout>
@@ -28,21 +29,32 @@ export default function RefundThankYouPage() {
               complete refund reviews within 5 business days.
             </p>
 
-            {reference && (
-              <div className="mx-auto mt-6 max-w-sm rounded-xl border border-pink-200 bg-pink-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pink-700">
-                  Reference
+            <div className="mx-auto mt-6 max-w-sm rounded-xl border border-pink-200 bg-pink-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pink-700">
+                Reference
+              </p>
+              <p className="mt-1 font-mono text-lg font-semibold text-foreground">
+                {reference || 'Sent by email'}
+              </p>
+              {isDemo && (
+                <p className="mt-2 text-xs text-pink-800">
+                  Demo mode did not create a real refund case.
                 </p>
-                <p className="mt-1 font-mono text-lg font-semibold text-foreground">{reference}</p>
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="mx-auto mt-6 flex max-w-xl items-start gap-3 rounded-xl border border-border bg-muted/25 p-4 text-left text-sm text-muted-foreground">
               <Mail className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <p>
-                If we need one more detail, we will ask by email. You can reply directly to that
-                message and include any photos or timing details that might help us review quickly.
-              </p>
+              <div className="space-y-2">
+                <p>
+                  Keep this reference handy. If we need one more detail, we will ask by email and
+                  you can reply directly with timing details or photos.
+                </p>
+                <p>
+                  Card requests are reviewed against payment records. Approved cash refunds are
+                  sent through Zelle using the contact information provided.
+                </p>
+              </div>
             </div>
 
             <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">

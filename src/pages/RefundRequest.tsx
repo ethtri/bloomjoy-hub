@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   fetchRefundMachineOptions,
+  buildLocalRefundMachineOptions,
+  isLocalUatDemoForced,
   submitRefundRequest,
   type RefundAttachmentInput,
   type RefundPaymentMethod,
@@ -51,16 +53,21 @@ export default function RefundRequestPage() {
   const [form, setForm] = useState(emptyForm);
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isDemoMode = isLocalUatDemoForced();
 
   const {
-    data: machines = [],
+    data: liveMachines = [],
     isLoading: isLoadingMachines,
     error: machineError,
   } = useQuery({
     queryKey: ['public-refund-machine-options'],
     queryFn: fetchRefundMachineOptions,
+    enabled: !isDemoMode,
     staleTime: 1000 * 60 * 5,
   });
+  const machines = isDemoMode ? buildLocalRefundMachineOptions() : liveMachines;
+  const hasAvailableMachines = machines.length > 0;
+  const hasNoLiveMachineOptions = !isDemoMode && !isLoadingMachines && !machineError && !hasAvailableMachines;
 
   const selectedMachine = useMemo(
     () => machines.find((machine) => machine.machineId === form.machineId) ?? null,
@@ -72,8 +79,13 @@ export default function RefundRequestPage() {
   };
 
   const handleFilesChange = (nextFiles: FileList | null) => {
-    const validFiles = Array.from(nextFiles ?? []).slice(0, maxAttachments);
+    const selectedFiles = Array.from(nextFiles ?? []);
+    const validFiles = selectedFiles.slice(0, maxAttachments);
     const oversized = validFiles.find((file) => file.size > maxAttachmentBytes);
+
+    if (selectedFiles.length > maxAttachments) {
+      toast.info('Only the first 3 photos were attached.');
+    }
 
     if (oversized) {
       toast.error('Each photo must be 5MB or smaller.');
@@ -95,6 +107,16 @@ export default function RefundRequestPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (hasNoLiveMachineOptions) {
+      toast.error('This refund form is not open for customer submissions yet.');
+      return;
+    }
+
+    if (!form.machineId) {
+      toast.error('Choose the machine location so we can route your request.');
+      return;
+    }
 
     const incidentAt = buildIncidentIso(form.incidentDate, form.incidentTime);
     if (!incidentAt) {
@@ -124,6 +146,11 @@ export default function RefundRequestPage() {
 
     setIsSubmitting(true);
     try {
+      if (isDemoMode) {
+        navigate('/refunds/thank-you?ref=RF-DEMO-REQUEST&demo=on');
+        return;
+      }
+
       const attachments = await buildAttachments();
       const refundCase = await submitRefundRequest({
         machineId: form.machineId,
@@ -172,6 +199,27 @@ export default function RefundRequestPage() {
               </p>
             </div>
 
+            {isDemoMode && (
+              <div className="mb-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                DEMO DATA - visual review only. This form uses synthetic locations and redirects
+                to a demo thank-you page instead of creating a real refund case.
+              </div>
+            )}
+
+            {hasNoLiveMachineOptions && (
+              <div className="mb-4 rounded-md border border-pink-200 bg-pink-50 px-4 py-3 text-sm text-pink-950">
+                We are getting this new Bloomjoy refund form ready for selected machines. For now,
+                please use the{' '}
+                <a
+                  href="https://forms.gle/qQDt2V7dFBFPqjyW6"
+                  className="font-semibold underline underline-offset-2"
+                >
+                  current customer service form
+                </a>{' '}
+                and our team will review your request with care.
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
               <div className="grid gap-5">
                 <div>
@@ -181,10 +229,15 @@ export default function RefundRequestPage() {
                     value={form.machineId}
                     onChange={(event) => updateForm('machineId', event.target.value)}
                     required
+                    disabled={isLoadingMachines || hasNoLiveMachineOptions}
                     className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                   >
                     <option value="">
-                      {isLoadingMachines ? 'Loading locations...' : 'Choose a location'}
+                      {isLoadingMachines
+                        ? 'Loading locations...'
+                        : hasNoLiveMachineOptions
+                          ? 'Refund form is not open yet'
+                          : 'Choose a location'}
                     </option>
                     {machines.map((machine) => (
                       <option key={machine.machineId} value={machine.machineId}>
@@ -399,7 +452,7 @@ export default function RefundRequestPage() {
                         : 'Your request goes to the Bloomjoy operations team.'}
                     </span>
                   </div>
-                  <Button type="submit" disabled={isSubmitting || isLoadingMachines}>
+                  <Button type="submit" disabled={isSubmitting || isLoadingMachines || hasNoLiveMachineOptions}>
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

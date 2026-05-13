@@ -15,7 +15,7 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
   - Scoped admin: sees only scoped-machine refund cases.
   - Super admin: sees all refund cases and manages Machine Managers from Admin > Machines.
 - Confirm the tester knows refunds are still completed manually in Nayax or Zelle for MVP.
-- For agent visual QA, start the app with `npm run dev:uat` and use `http://127.0.0.1:8081`. Append `?demo=on` for clearly labeled demo-only review. Demo mode is not evidence that saves, access scope, Nayax lookup, or reporting write-through work.
+- For agent visual QA, start the app with `npm run dev:uat` and use `http://127.0.0.1:8081`. Append `?demo=on` for clearly labeled demo-only review on `/refunds/request`, `/portal/refunds`, and `/admin/machines`. Demo mode is not evidence that saves, access scope, Nayax lookup, automation emails, or reporting write-through work.
 - For functional QA, use seeded synthetic users/cases or post-production shadow-mode data with authenticated Machine Managers. The executive sponsor does not need to run this script before agents prove it works.
 
 ## Manager Script
@@ -57,7 +57,7 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 - Completed cases require the correct manual refund reference and correlation evidence.
 - Nothing in the workflow suggests Bloomjoy automatically sends final approval, denial, or completion replies in MVP.
 
-## Super Admin Machine Manager Setup Check
+## Super Admin Machine Setup Check
 Use this only for super-admin/admin UAT, not for ordinary Machine Manager testers.
 
 1. Open `/admin/machines`.
@@ -68,6 +68,11 @@ Use this only for super-admin/admin UAT, not for ordinary Machine Manager tester
 6. Close the edit sheet and confirm the machine row shows the assigned manager email.
 7. Reopen the same machine and confirm the assigned manager is still shown.
 8. Confirm no machine can have more than 3 Machine Managers.
+9. In `Customer Refund Setup`, turn on `Show on refund request form` only for pilot machines.
+10. Optionally set a customer-facing refund form label.
+11. Enter the Nayax machine ID/account key only when read-only card lookup should work for that machine.
+12. Save refund setup and confirm the row shows `Intake enabled` and `Card lookup ready` when both are configured.
+13. Confirm the setup copy says live card refund execution remains disabled/manual.
 
 Functional UAT note: a Machine Manager email must belong to a user who has signed in to Bloomjoy at least once. If a non-authenticated email is entered, the UI should explain that the person needs to sign in once before assignment.
 

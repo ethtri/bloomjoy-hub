@@ -962,7 +962,28 @@ const importRows = async (
             .single();
 
           if (adjustmentError || !adjustment) {
-            throw new Error(adjustmentError?.message || "Unable to apply refund adjustment.");
+            const adjustmentMessage = adjustmentError?.message || "Unable to apply refund adjustment.";
+            if (adjustmentMessage.includes("Potential duplicate refund settlement adjustment requires review")) {
+              const { error: duplicateUpdateError } = await supabase
+                .from("refund_adjustment_review_rows")
+                .update({
+                  match_status: "duplicate",
+                  match_reason: "duplicate_refund_business_fingerprint",
+                  applied_adjustment_id: null,
+                  resolution_status: "unresolved",
+                })
+                .eq("id", staged.id);
+
+              if (duplicateUpdateError) {
+                throw new Error(duplicateUpdateError.message || "Unable to mark duplicate refund row for review.");
+              }
+
+              counts.rowsDuplicate += 1;
+              counts.rowsReview += 1;
+              continue;
+            }
+
+            throw new Error(adjustmentMessage);
           }
 
           const { error: reviewUpdateError } = await supabase

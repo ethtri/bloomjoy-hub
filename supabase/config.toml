@@ -48,3 +48,18 @@ verify_jwt = false
 
 [functions.refund-adjustment-sync]
 verify_jwt = false
+
+[functions.refund-case-intake]
+verify_jwt = false
+
+[functions.nayax-transaction-lookup]
+verify_jwt = false
+
+[functions.refund-case-admin-update]
+verify_jwt = false
+
+[functions.refund-case-automation-sweep]
+verify_jwt = false
+
+[functions.nayax-card-refund]
+verify_jwt = false

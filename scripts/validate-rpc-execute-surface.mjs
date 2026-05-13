@@ -52,6 +52,21 @@ const serviceRoleOnlyFunctions = [
     name: 'partner_report_scheduler_preview_partner_period_report',
     migrationName: '202605070001_partner_report_scheduler_pdf_export.sql',
   },
+  {
+    signature: 'public.can_prepare_nayax_refund_execution(uuid, uuid)',
+    name: 'can_prepare_nayax_refund_execution',
+    migrationName: '202605120002_refund_full_automation_foundation.sql',
+  },
+  {
+    signature: 'public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)',
+    name: 'admin_update_refund_case',
+    migrationName: '202605120002_refund_full_automation_foundation.sql',
+  },
+  {
+    signature: 'public.service_update_refund_case_as_actor(uuid, uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)',
+    name: 'service_update_refund_case_as_actor',
+    migrationName: '202605120002_refund_full_automation_foundation.sql',
+  },
 ];
 
 const protectedAuthenticatedFunctions = [
@@ -152,7 +167,7 @@ const assertBrowserDoesNotDirectlyUpdateRefundCases = () => {
     const content = readText(filePath);
     if (directRefundUpdatePattern.test(content)) {
       fail(
-        `${path.relative(repoRoot, filePath)} directly updates refund_cases from browser code; use admin_update_refund_case instead.`
+        `${path.relative(repoRoot, filePath)} directly updates refund_cases from browser code; use refund-case-admin-update instead.`
       );
     }
   }
@@ -263,6 +278,26 @@ const assertNayaxLookupLogsAreSanitized = () => {
 
   if (!source.includes('[89ab][0-9a-f]{3}-[0-9a-f]{12}')) {
     fail('nayax-transaction-lookup UUID validation must accept standard reporting_machines UUIDs.');
+  }
+
+  if (
+    source.includes('parseIncidentAt(body?.incidentAt)') ||
+    source.includes('sanitizeInputCents(body?.amountCents)') ||
+    source.includes('extractLast4(body?.cardLast4)')
+  ) {
+    fail('nayax-transaction-lookup must derive lookup inputs from the persisted refund case, not caller-supplied fields.');
+  }
+
+  for (const requiredCaseField of [
+    'incident_at',
+    'payment_method',
+    'payment_amount_cents',
+    'card_last4',
+    'card_wallet_used',
+  ]) {
+    if (!source.includes(requiredCaseField)) {
+      fail(`nayax-transaction-lookup must load refund case field ${requiredCaseField} server-side.`);
+    }
   }
 };
 

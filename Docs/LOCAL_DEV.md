@@ -250,6 +250,7 @@ Prereqs:
 - `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
 - For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.
+- Nayax card refund execution defaults to disabled/dry-run/kill-switch-on. Use `npm run refunds:validate-nayax-execution` to verify the fail-closed foundation; do not run real provider execution without sponsor go/no-go.
 - Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/portal/refunds` for case processing and do not see setup controls.
 
 Steps:
@@ -264,7 +265,7 @@ Steps:
    - `RF-UAT-CARD`: approved card path with matched transaction evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
    - `RF-UAT-CASH`: correlated cash/Zelle path marked completed with reporting write-through evidence.
-5) Open `/refunds/request` separately to review the public customer intake form against the same synthetic location/machine options.
+5) Open `/refunds/request?demo=on` separately to review the public customer intake form against synthetic location/machine options without creating a real case.
 6) Run the mocked refund-only portal QA harness against the running app:
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081`
    - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data.
@@ -280,7 +281,7 @@ Admin > Machines Machine Manager UAT:
 - The target person must have signed in to Bloomjoy at least once before assignment can save. If the person is not an authenticated user yet, the UI should explain that they need to sign in once first.
 - Machine Manager changes autosave immediately. There is no separate `Save Machine Managers` button.
 - After adding or removing a manager, confirm the status changes to `Saved`, close the sheet, and confirm the manager email is visible in the machine row.
-- The bottom `Save machine details` button is only for machine identity/tax fields, not Machine Manager assignment.
+- The bottom `Save machine identity` button is only for machine identity/tax fields, not Machine Manager assignment.
 
 Privacy guardrails:
 - The helper writes only synthetic `example.test` customer records and synthetic machine/sales/refund data.
@@ -397,6 +398,9 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve sunze-sales-ingest --no-verify-jwt`
    - `supabase functions serve refund-adjustment-sync --no-verify-jwt`
    - `supabase functions serve refund-case-intake --no-verify-jwt`
+   - `supabase functions serve refund-case-admin-update --no-verify-jwt`
+   - `supabase functions serve refund-case-automation-sweep --no-verify-jwt`
+   - `supabase functions serve nayax-card-refund --no-verify-jwt`
    - `supabase functions serve nayax-transaction-lookup --no-verify-jwt`
 5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
 

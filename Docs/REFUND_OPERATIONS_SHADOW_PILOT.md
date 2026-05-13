@@ -3,20 +3,21 @@
 Last updated: 2026-05-12
 
 ## Purpose
-Run the merged Refund Operations MVP through production rollout readiness checks and a manager-wide shadow pilot before cutting over from the Google Form/AppSheet fallback.
+Run the merged Refund Operations MVP through production rollout readiness checks and a selected Commercial/Mini shadow pilot before cutting over from the Google Form/AppSheet fallback.
 
 This runbook is the PM/PO control artifact for issues `#402`-`#409`.
 Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pilot script.
+Use `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` for PR `#432` production setup and merge-readiness gates.
 
 ## Operating Rules
 - Codex acts as Bloomjoy PM/PO using the `bloomjoy-sprint-orchestrator` workflow.
 - No human planning session is required. Use this runbook, PR comments, issue comments, and owner go/no-go checkpoints.
 - Executive sponsor review is proof review, not first-pass UAT. Agents must validate seeded functional UAT or post-production shadow-mode flows and produce a pass/fail evidence packet before asking the sponsor to touch the feature.
-- Pilot scope is all current authenticated Machine Managers, still in shadow mode.
+- Pilot scope is selected authenticated Machine Managers assigned to configured Bloomjoy Commercial/Mini pilot machines, still in shadow mode. Broader manager-wide rollout follows only after this selected pilot produces clean evidence.
 - Keep the Google Form/AppSheet process live until cutover criteria pass.
 - PR `#410` is merged. Merge is not cutover; production rollout, manager feedback, customer communication review, and shadow-pilot results remain cutover gates.
 - Do not paste secrets, customer PII, raw refund exports, card digits, raw Nayax payloads, or complaint free text into docs, issues, PRs, screenshots, or chat.
-- Nayax refund execution remains out of MVP; managers continue manual card refunds in Nayax and manual cash/Zelle handling.
+- Nayax refund execution remains fail-closed until the separate full-automation gates pass; managers continue manual card refunds in Nayax and manual cash/Zelle handling during shadow mode.
 
 ## Lane Checklist
 Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHub issues under epic `#402`.
@@ -40,7 +41,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Confirm lookup responses show only sanitized candidate evidence in Bloomjoy Hub.
 
 ### Manager Workflow Lane
-- [ ] Enable all current authenticated Machine Managers through assigned-machine access.
+- [ ] Enable selected authenticated Machine Managers through assigned-machine access for configured Commercial/Mini pilot machines.
 - [ ] Confirm each manager sees only assigned-machine cases.
 - [ ] Confirm super-admins see all refund cases.
 - [ ] Validate approve, deny, waiting-on-customer, card-refund-pending, cash/Zelle-pending, and completed states.
@@ -49,9 +50,16 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 ### Customer Communication Lane
 - [ ] Review confirmation email tone.
 - [ ] Review more-info email tone.
-- [ ] Confirm approval and completion replies remain manual in MVP until a later email-automation phase.
+- [ ] Confirm approval, denial, completion, reminder, and escalation automation sends only after agent QA validates message rows and redacted logs.
 - [ ] Review denial decision reasons before managers send manual replies.
 - [ ] Confirm automated messages and manual-reply reasons are empathetic, clear, and do not overpromise timing or approval.
+
+### Full Automation Lane
+- [ ] Confirm `refund-case-admin-update` wraps manager updates and logs customer messages.
+- [ ] Confirm `refund-case-automation-sweep` sends reminders/escalations with redacted evidence only.
+- [ ] Confirm `nayax-card-refund` fails closed with default env and records only sanitized attempt metadata.
+- [ ] Confirm cross-workflow duplicate fingerprints block likely duplicate settlement write-through between hosted cases and Google/AppSheet rows.
+- [ ] Do not enable live Nayax refund execution until sponsor go/no-go, provider-contract validation, amount caps, per-machine allowlist, and kill-switch tests pass.
 
 ### Reporting And Settlement Lane
 - [ ] Confirm only manager-approved, fully correlated, completed cases write through with `source='refund_case'`.
@@ -71,6 +79,10 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Manager access boundary.
 - [ ] Super-admin access.
 - [ ] Reporting write-through.
+- [ ] Automated approval/denial/completion customer messages.
+- [ ] Reminder/escalation sweep.
+- [ ] Nayax execution preflight blocked by default flags.
+- [ ] Legacy Google/AppSheet duplicate reconciliation.
 
 ## Merged PR `#410` Evidence
 PR `#410` merged on 2026-05-12 after these gates passed:

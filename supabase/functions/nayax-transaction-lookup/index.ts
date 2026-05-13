@@ -93,7 +93,7 @@ const resolveNayaxToken = (accountKey: string) =>
   Deno.env.get("NAYAX_LYNX_API_TOKEN") ||
   "";
 
-type NayaxCandidate = {
+type NayaxProviderCandidate = {
   transactionId: string;
   siteId: number | null;
   authorizedAt: string;
@@ -106,6 +106,10 @@ type NayaxCandidate = {
   paymentStatus: string;
   matchConfidence: number;
   matchReason: string;
+};
+
+type NayaxResponseCandidate = Omit<NayaxProviderCandidate, "transactionId" | "siteId"> & {
+  candidateToken: string;
 };
 
 const extractNayaxRecords = (payload: unknown): unknown[] => {
@@ -137,7 +141,7 @@ const normalizeNayaxSales = ({
   cardWalletUsed: boolean;
   windowStart: Date;
   windowEnd: Date;
-}): NayaxCandidate[] => {
+}): NayaxProviderCandidate[] => {
   const records = extractNayaxRecords(payload);
 
   return records
@@ -212,9 +216,70 @@ const normalizeNayaxSales = ({
         matchReason: reasons.join("; "),
       };
     })
-    .filter((candidate): candidate is NayaxCandidate => Boolean(candidate))
+    .filter((candidate): candidate is NayaxProviderCandidate => Boolean(candidate))
     .sort((left, right) => right.matchConfidence - left.matchConfidence)
     .slice(0, 10);
+};
+
+const persistNayaxLookupCandidates = async ({
+  caseId,
+  actorUserId,
+  candidates,
+}: {
+  caseId: string;
+  actorUserId: string;
+  candidates: NayaxProviderCandidate[];
+}): Promise<NayaxResponseCandidate[]> => {
+  if (!supabase || candidates.length === 0) return [];
+
+  const nowIso = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  await supabase.from("refund_nayax_lookup_candidates").delete().lt("expires_at", nowIso);
+
+  const tokenizedCandidates = candidates.map((candidate) => ({
+    token: crypto.randomUUID(),
+    candidate,
+  }));
+
+  const { error } = await supabase.from("refund_nayax_lookup_candidates").insert(
+    tokenizedCandidates.map(({ token, candidate }) => ({
+      token,
+      refund_case_id: caseId,
+      actor_user_id: actorUserId,
+      provider_transaction_id: candidate.transactionId,
+      site_id: candidate.siteId,
+      machine_authorization_time: candidate.machineAuthorizationTime,
+      amount_cents: candidate.amountCents,
+      card_last4: candidate.cardLast4 || null,
+      currency_code: candidate.currencyCode || null,
+      evidence_summary: {
+        match_confidence: candidate.matchConfidence,
+        match_reason: candidate.matchReason,
+        card_brand_present: Boolean(candidate.cardBrand),
+        recognition_method_present: Boolean(candidate.recognitionMethod),
+        payment_status_present: Boolean(candidate.paymentStatus),
+      },
+      expires_at: expiresAt,
+    })),
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  return tokenizedCandidates.map(({ token, candidate }) => ({
+    candidateToken: token,
+    authorizedAt: candidate.authorizedAt,
+    machineAuthorizationTime: candidate.machineAuthorizationTime,
+    amountCents: candidate.amountCents,
+    currencyCode: candidate.currencyCode,
+    cardLast4: candidate.cardLast4,
+    cardBrand: candidate.cardBrand,
+    recognitionMethod: candidate.recognitionMethod,
+    paymentStatus: candidate.paymentStatus,
+    matchConfidence: candidate.matchConfidence,
+    matchReason: candidate.matchReason,
+  }));
 };
 
 const summarizeNayaxRecords = ({
@@ -285,13 +350,9 @@ serve(async (req) => {
 
     const body = await req.json();
     const caseId = sanitizeText(body?.caseId, 80);
-    const incidentAt = parseIncidentAt(body?.incidentAt);
-    const amountCents = sanitizeInputCents(body?.amountCents);
-    const cardLast4 = extractLast4(body?.cardLast4);
-    const cardWalletUsed = Boolean(body?.cardWalletUsed);
 
-    if (!isUuid(caseId) || !incidentAt) {
-      return jsonResponse({ error: "Refund case and incident time are required." }, 400);
+    if (!isUuid(caseId)) {
+      return jsonResponse({ error: "Refund case is required." }, 400);
     }
 
     const { data: canManageCase, error: accessError } = await supabase.rpc(
@@ -309,12 +370,27 @@ serve(async (req) => {
 
     const { data: refundCase, error: refundCaseError } = await supabase
       .from("refund_cases")
-      .select("id, reporting_machine_id")
+      .select(
+        "id, reporting_machine_id, incident_at, payment_method, payment_amount_cents, card_last4, card_wallet_used",
+      )
       .eq("id", caseId)
       .maybeSingle();
 
     if (refundCaseError) {
       throw refundCaseError;
+    }
+
+    if (refundCase?.payment_method !== "card") {
+      return jsonResponse({ error: "Nayax lookup is only available for card refund cases." }, 400);
+    }
+
+    const incidentAt = parseIncidentAt(refundCase?.incident_at);
+    const amountCents = sanitizeInputCents(refundCase?.payment_amount_cents);
+    const cardLast4 = extractLast4(refundCase?.card_last4);
+    const cardWalletUsed = Boolean(refundCase?.card_wallet_used);
+
+    if (!incidentAt) {
+      return jsonResponse({ error: "Refund case incident time is required." }, 400);
     }
 
     const machineId = sanitizeText(refundCase?.reporting_machine_id, 80);
@@ -381,13 +457,18 @@ serve(async (req) => {
       windowStart,
       windowEnd,
     });
-    const candidates = normalizeNayaxSales({
+    const providerCandidates = normalizeNayaxSales({
       payload: nayaxPayload,
       requestAmountCents: amountCents,
       requestCardLast4: cardLast4,
       cardWalletUsed,
       windowStart,
       windowEnd,
+    });
+    const candidates = await persistNayaxLookupCandidates({
+      caseId,
+      actorUserId: user.id,
+      candidates: providerCandidates,
     });
 
     return jsonResponse({

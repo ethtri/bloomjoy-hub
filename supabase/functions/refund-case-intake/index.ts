@@ -523,9 +523,11 @@ serve(async (req) => {
 
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
-      .select("id, machine_label, location_id, reporting_locations(id, name, timezone)")
+      .select("id, machine_label, machine_type, location_id, reporting_locations(id, name, timezone)")
       .eq("id", machineId)
       .eq("status", "active")
+      .in("machine_type", ["commercial", "mini"])
+      .eq("refund_intake_enabled", true)
       .single();
 
     if (machineError || !machine) {
@@ -535,13 +537,20 @@ serve(async (req) => {
       });
     }
 
-    const machineRecord = machine as {
+    const machineRecord = machine as unknown as {
       id: string;
       machine_label: string;
+      machine_type: string;
       location_id: string;
-      reporting_locations?: { id: string; name: string; timezone: string } | null;
+      reporting_locations?:
+        | { id: string; name: string; timezone: string }
+        | { id: string; name: string; timezone: string }[]
+        | null;
     };
-    const locationName = machineRecord.reporting_locations?.name ?? "Bloomjoy location";
+    const locationRecord = Array.isArray(machineRecord.reporting_locations)
+      ? machineRecord.reporting_locations[0] ?? null
+      : machineRecord.reporting_locations ?? null;
+    const locationName = locationRecord?.name ?? "Bloomjoy location";
 
     let status = "submitted";
     let correlationStatus = "not_started";

@@ -1,5 +1,40 @@
 # Decisions
 
+## 2026-05-13 - Refund machine portfolio source separation
+Refund operations must distinguish Bloomjoy Commercial/Mini machines from Snapcase machines by data source, not just by location name.
+
+**Canonical rule**
+- Sunze-backed sales/import data covers Bloomjoy cotton-candy machines only: Bloomjoy Commercial and Bloomjoy Mini.
+- Snapcase machines are part of the broader Bloomjoy/Snapcase portfolio but are not currently represented by the Sunze sales facts used for refund correlation.
+- Current refund shadow-pilot setup and cash correlation should treat active Sunze-backed `reporting_machines` as Commercial/Mini only unless a machine is explicitly modeled otherwise.
+- Snapcase refund intake, manager routing, payment correlation, and settlement reporting need a separate source-of-truth decision before being included in this workflow.
+- Manager roster rows from the broader portfolio should not cause Snapcase locations to be inferred into Sunze-backed refund readiness or partner reporting.
+
+**Why this choice**
+- The refund MVP relies on source-specific correlation: Nayax for card lookup and Sunze sales facts for cash matching.
+- Mixing Snapcase locations into Sunze-backed machine readiness would create false confidence for transaction matching and reporting write-through.
+
+## 2026-05-12 - Refund operations full-automation goal and gated Nayax execution
+Bloomjoy will continue toward a fully automated refund operations system, but payment execution is gated separately from manager approval and transaction correlation.
+
+**Canonical rule**
+- Bloomjoy Hub remains the target operational source of truth for refund intake, manager workflow, customer communication, and settlement adjustment write-through.
+- Managers remain the business approver. Automation may send status/customer emails, remind/escalate stale cases, and prepare payment execution only after manager approval.
+- Nayax card refund execution must run through a backend-only Edge Function with feature flags, kill switch, dry-run default, explicit sponsor go/no-go, per-machine allowlist, amount caps, idempotency, and redacted audit attempts.
+- Wallet/Apple Pay last-four mismatches stay manual-review for the first automated execution release.
+- Zelle payouts remain manual until Bloomjoy approves a payout provider and records a separate decision.
+- Public refund intake exposes only machines explicitly enabled for refund intake, not every active reporting machine.
+- Hosted refund cases and legacy Google/AppSheet refund rows share a business-fingerprint guard so likely duplicates stay review-only instead of writing duplicate settlement adjustments.
+
+**Why this choice**
+- It advances the full-automation goal without letting a UI click, duplicate submission, legacy sheet row, or ambiguous provider response create an unsafe refund or reporting adjustment.
+- It keeps the executive sponsor in the go/no-go role for real payment execution while allowing agents to build and QA the fail-closed foundation.
+
+**Implementation notes**
+- `refund-case-admin-update` is the preferred manager update path because it can wrap the existing update RPC and send customer messages.
+- `refund-case-automation-sweep` owns reminder/escalation automation and must log redacted evidence only.
+- `nayax-card-refund` must fail closed until provider contract validation and sponsor go/no-go are complete; this release must not call live Nayax refund endpoints.
+
 ## 2026-05-09 - Refund operations source-of-truth and shadow-mode rollout
 Refund inquiries will move from the Google Form/AppSheet process into Bloomjoy Hub as the operational source of truth, while the legacy process remains live during a shadow-mode pilot.
 

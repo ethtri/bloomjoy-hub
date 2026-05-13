@@ -117,14 +117,18 @@ const buildMockSetup = () => ({
   warnings: [],
 });
 
-const buildMockRefundManagerSetup = (managerEmails) => ({
+const buildMockRefundManagerSetup = (state) => ({
   machines: [
     {
       id: machineId,
       machineLabel: 'Cotton Candy 01',
       locationName: 'Mall Atrium',
-      nayaxLookupConfigured: false,
-      managerEmails,
+      refundIntakeEnabled: state.refundSetup.refundIntakeEnabled,
+      refundPublicDisplayLabel: state.refundSetup.refundPublicDisplayLabel,
+      nayaxLookupConfigured: Boolean(state.refundSetup.nayaxMachineId),
+      nayaxMachineId: state.refundSetup.nayaxMachineId,
+      nayaxAccountKey: state.refundSetup.nayaxAccountKey,
+      managerEmails: state.managerEmails,
     },
   ],
 });
@@ -246,7 +250,7 @@ const installMockSupabaseRoutes = async (context, state) => {
     }
 
     if (url.includes('/admin_get_refund_manager_setup')) {
-      return route.fulfill(jsonResponse(buildMockRefundManagerSetup(state.managerEmails)));
+      return route.fulfill(jsonResponse(buildMockRefundManagerSetup(state)));
     }
 
     if (url.includes('/admin_get_account_summaries')) {
@@ -283,6 +287,22 @@ const installMockSupabaseRoutes = async (context, state) => {
       const body = route.request().postDataJSON();
       state.savePayload = body;
       state.managerEmails = body?.p_manager_emails ?? [];
+      return route.fulfill(jsonResponse({ ok: true }));
+    }
+
+    if (url.includes('/admin_set_reporting_machine_refund_intake_config')) {
+      const body = route.request().postDataJSON();
+      state.refundIntakePayload = body;
+      state.refundSetup.refundIntakeEnabled = Boolean(body?.p_refund_intake_enabled);
+      state.refundSetup.refundPublicDisplayLabel = body?.p_refund_public_display_label ?? null;
+      return route.fulfill(jsonResponse({ ok: true }));
+    }
+
+    if (url.includes('/admin_set_reporting_machine_nayax_config')) {
+      const body = route.request().postDataJSON();
+      state.nayaxPayload = body;
+      state.refundSetup.nayaxMachineId = body?.p_nayax_machine_id ?? null;
+      state.refundSetup.nayaxAccountKey = body?.p_nayax_account_key ?? null;
       return route.fulfill(jsonResponse({ ok: true }));
     }
 
@@ -336,6 +356,14 @@ const run = async () => {
   const state = {
     managerEmails: [firstManagerEmail],
     savePayload: null,
+    refundIntakePayload: null,
+    nayaxPayload: null,
+    refundSetup: {
+      refundIntakeEnabled: false,
+      refundPublicDisplayLabel: null,
+      nayaxMachineId: null,
+      nayaxAccountKey: null,
+    },
     rpcCalls: [],
   };
 
@@ -398,6 +426,14 @@ const run = async () => {
       'Quota copy does not imply three managers are required',
       !(await page.locator('body').innerText()).includes('0/3 assigned')
     );
+    recorder.assert(
+      'Customer Refund Setup is managed from Admin > Machines',
+      await machineDialog.getByRole('heading', { name: 'Customer Refund Setup' }).isVisible()
+    );
+    recorder.assert(
+      'Refund setup copy keeps live card refunds disabled',
+      await machineDialog.getByText(/Live card refund execution stays disabled/i).isVisible()
+    );
 
     await page.fill('#machine-manager-search', 'manager-two');
     await page.getByRole('button', { name: new RegExp(secondManagerEmail, 'i') }).click();
@@ -425,12 +461,38 @@ const run = async () => {
       JSON.stringify(state.savePayload)
     );
 
+    await machineDialog.getByLabel('Show this machine on the refund request form').click();
+    await page.fill('#refund-display-label', 'Mall Atrium Cotton Candy');
+    await page.fill('#nayax-machine-id', 'NAYAX-UAT-001');
+    await page.fill('#nayax-account-key', 'TGPACI_USA_DB');
+    await machineDialog.getByRole('button', { name: 'Save refund setup' }).click();
+    await page.getByText('Refund setup saved.').waitFor({ timeout: 10000 });
+
+    recorder.assert(
+      'Refund intake setup save targets the edited machine',
+      state.refundIntakePayload?.p_machine_id === machineId &&
+        state.refundIntakePayload?.p_refund_intake_enabled === true,
+      JSON.stringify(state.refundIntakePayload)
+    );
+    recorder.assert(
+      'Nayax lookup setup save targets the edited machine without enabling live refunds',
+      state.nayaxPayload?.p_machine_id === machineId &&
+        state.nayaxPayload?.p_nayax_machine_id === 'NAYAX-UAT-001' &&
+        state.nayaxPayload?.p_nayax_account_key === 'TGPACI_USA_DB',
+      JSON.stringify(state.nayaxPayload)
+    );
+
     await page.getByRole('button', { name: 'Cancel' }).click();
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
     await machineRow.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
     recorder.assert(
       'Saved Machine Managers are visible in the Machines list',
       await machineRow.getByText(secondManagerEmail).isVisible()
+    );
+    recorder.assert(
+      'Saved refund readiness is visible in the Machines list',
+      (await machineRow.getByText(/Intake enabled/i).isVisible()) &&
+        (await machineRow.getByText(/Card lookup ready/i).isVisible())
     );
 
     await machineRow.getByRole('button', { name: 'Edit' }).click();
@@ -439,6 +501,12 @@ const run = async () => {
     recorder.assert(
       'Saved Machine Managers remain visible after close and reopen',
       await reopenedMachineDialog.getByText(secondManagerEmail).isVisible()
+    );
+    recorder.assert(
+      'Saved refund readiness remains visible after close and reopen',
+      (await reopenedMachineDialog.getByLabel('Show this machine on the refund request form').isChecked()) &&
+        (await reopenedMachineDialog.locator('#refund-display-label').inputValue()) === 'Mall Atrium Cotton Candy' &&
+        (await reopenedMachineDialog.locator('#nayax-machine-id').inputValue()) === 'NAYAX-UAT-001'
     );
 
     await page.getByRole('button', { name: 'Cancel' }).click();
@@ -478,7 +546,7 @@ const run = async () => {
     );
     recorder.assert(
       'Demo mode disables machine detail persistence',
-      await demoMachineDialog.getByRole('button', { name: 'Save machine details' }).isDisabled()
+      await demoMachineDialog.getByRole('button', { name: 'Save machine identity' }).isDisabled()
     );
 
     await page.screenshot({

@@ -84,8 +84,7 @@ type EditorState = {
   decisionReason: string;
   refundAmount: string;
   manualRefundReference: string;
-  matchedNayaxTransactionId: string;
-  matchedNayaxSiteId: string;
+  matchedNayaxCandidateToken: string;
   matchedNayaxMachineAuthTime: string;
   matchedNayaxAmount: string;
   matchedNayaxCardLast4: string;
@@ -106,8 +105,7 @@ const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
         ? (refundCase.paymentAmountCents / 100).toFixed(2)
         : '',
   manualRefundReference: refundCase.manualRefundReference ?? '',
-  matchedNayaxTransactionId: '',
-  matchedNayaxSiteId: '',
+  matchedNayaxCandidateToken: '',
   matchedNayaxMachineAuthTime: refundCase.matchedNayaxMachineAuthTime ?? '',
   matchedNayaxAmount:
     typeof refundCase.matchedNayaxAmountCents === 'number'
@@ -144,13 +142,6 @@ const centsFromCurrency = (value: string) => {
   const numeric = Number(normalized);
   if (!Number.isFinite(numeric) || numeric < 0) return null;
   return Math.round(numeric * 100);
-};
-
-const optionalPositiveInteger = (value: string) => {
-  const normalized = value.trim();
-  if (!normalized) return null;
-  const numeric = Number(normalized);
-  return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
 };
 
 const statusLabel = (value: string) => value.replace(/_/g, ' ');
@@ -217,20 +208,15 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
   const issues: string[] = [];
   const requiredDecision = statusDecisionMap[editor.status];
   const refundAmountCents = centsFromCurrency(editor.refundAmount);
-  const nayaxSiteId = optionalPositiveInteger(editor.matchedNayaxSiteId);
   const nayaxAmountCents = centsFromCurrency(editor.matchedNayaxAmount);
+  const hasNewNayaxEvidence = Boolean(editor.matchedNayaxCandidateToken.trim());
   const hasCorrelation =
-    selectedCase.correlationStatus === 'matched' &&
-    Boolean(selectedCase.correlationSource) &&
-    (selectedCase.hasMatchedSalesFact ||
-      selectedCase.hasMatchedNayaxTransaction ||
-      Boolean(editor.matchedNayaxTransactionId.trim()));
+    hasNewNayaxEvidence ||
+    (selectedCase.correlationStatus === 'matched' &&
+      Boolean(selectedCase.correlationSource) &&
+      (selectedCase.hasMatchedSalesFact || selectedCase.hasMatchedNayaxTransaction));
   const hasNayaxEvidence =
-    selectedCase.hasMatchedNayaxTransaction || Boolean(editor.matchedNayaxTransactionId.trim());
-
-  if (editor.matchedNayaxSiteId.trim() && nayaxSiteId === null) {
-    issues.push('Card lookup site value must be a whole number.');
-  }
+    selectedCase.hasMatchedNayaxTransaction || hasNewNayaxEvidence;
 
   if (editor.matchedNayaxAmount.trim() && nayaxAmountCents === null) {
     issues.push('Card lookup amount must be a valid dollar amount.');
@@ -410,7 +396,6 @@ export default function AdminRefundsPage() {
     setIsSaving(true);
     try {
       const clearNayaxMatch = editor.clearNayaxMatch;
-      const nayaxSiteId = optionalPositiveInteger(editor.matchedNayaxSiteId);
       const nayaxAmountCents = centsFromCurrency(editor.matchedNayaxAmount);
       await updateRefundCaseAdmin({
         caseId: selectedCase.id,
@@ -422,8 +407,7 @@ export default function AdminRefundsPage() {
         refundAmountCents,
         manualRefundReference: editor.manualRefundReference.trim() || null,
         clearNayaxMatch,
-        matchedNayaxTransactionId: editor.matchedNayaxTransactionId.trim() || undefined,
-        matchedNayaxSiteId: nayaxSiteId,
+        matchedNayaxCandidateToken: editor.matchedNayaxCandidateToken.trim() || undefined,
         matchedNayaxMachineAuthTime: editor.matchedNayaxMachineAuthTime.trim() || null,
         matchedNayaxAmountCents: nayaxAmountCents,
         matchedNayaxCardLast4: editor.matchedNayaxCardLast4.trim() || null,
@@ -450,10 +434,6 @@ export default function AdminRefundsPage() {
     try {
       const result = await lookupNayaxTransactions({
         caseId: selectedCase.id,
-        incidentAt: selectedCase.incidentAt,
-        amountCents: selectedCase.paymentAmountCents,
-        cardLast4: selectedCase.cardLast4,
-        cardWalletUsed: selectedCase.cardWalletUsed,
       });
 
       setNayaxCandidates(result.candidates ?? []);
@@ -956,7 +936,7 @@ export default function AdminRefundsPage() {
                           <div className="flex-1">
                             <p className="text-sm font-medium text-sky-950">Card lookup evidence</p>
                             <p className="mt-1 text-xs text-sky-800">
-                              {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxTransactionId
+                              {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken
                                 ? 'Lookup evidence selected for this card refund.'
                                 : 'Run lookup to select a sanitized card-sale candidate.'}
                             </p>
@@ -979,7 +959,7 @@ export default function AdminRefundsPage() {
                           <div className="mt-3 space-y-2">
                             {nayaxCandidates.map((candidate) => (
                               <button
-                                key={candidate.transactionId}
+                                key={candidate.candidateToken}
                                 type="button"
                                 disabled={isUsingDemoData}
                                 onClick={() =>
@@ -987,9 +967,7 @@ export default function AdminRefundsPage() {
                                     current
                                       ? {
                                           ...current,
-                                          matchedNayaxTransactionId: candidate.transactionId,
-                                          matchedNayaxSiteId:
-                                            typeof candidate.siteId === 'number' ? String(candidate.siteId) : '',
+                                          matchedNayaxCandidateToken: candidate.candidateToken,
                                           matchedNayaxMachineAuthTime: candidate.machineAuthorizationTime,
                                           matchedNayaxAmount:
                                             typeof candidate.amountCents === 'number'
@@ -1085,7 +1063,7 @@ export default function AdminRefundsPage() {
                             </div>
                           </div>
                         </div>
-                        {(selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxTransactionId) && (
+                        {(selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken) && (
                           <Button
                             type="button"
                             variant="ghost"
@@ -1101,8 +1079,7 @@ export default function AdminRefundsPage() {
                                       decision: null,
                                       decisionReason: '',
                                       clearNayaxMatch: true,
-                                      matchedNayaxTransactionId: '',
-                                      matchedNayaxSiteId: '',
+                                      matchedNayaxCandidateToken: '',
                                       matchedNayaxMachineAuthTime: '',
                                       matchedNayaxAmount: '',
                                       matchedNayaxCardLast4: '',
