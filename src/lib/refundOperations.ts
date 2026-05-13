@@ -163,7 +163,11 @@ export type RefundManagerSetupMachine = {
   id: string;
   machineLabel: string;
   locationName: string;
+  refundIntakeEnabled: boolean;
+  refundPublicDisplayLabel: string | null;
   nayaxLookupConfigured: boolean;
+  nayaxMachineId: string | null;
+  nayaxAccountKey: string | null;
   managerEmails: string[];
 };
 
@@ -574,6 +578,34 @@ export const setMachineRefundManagersAdmin = async ({
 
   if (error || !data) {
     throw new Error(error?.message || 'Unable to save machine managers.');
+  }
+
+  return data as Record<string, unknown>;
+};
+
+export const setMachineRefundIntakeConfigAdmin = async ({
+  machineId,
+  refundIntakeEnabled,
+  refundPublicDisplayLabel,
+  reason,
+}: {
+  machineId: string;
+  refundIntakeEnabled: boolean;
+  refundPublicDisplayLabel: string | null;
+  reason: string;
+}) => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_set_reporting_machine_refund_intake_config',
+    {
+      p_machine_id: machineId,
+      p_refund_intake_enabled: refundIntakeEnabled,
+      p_refund_public_display_label: refundPublicDisplayLabel,
+      p_reason: reason,
+    }
+  );
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save refund intake setup.');
   }
 
   return data as Record<string, unknown>;

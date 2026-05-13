@@ -36,6 +36,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
 import {
   fetchPartnershipReportingSetup,
   setReportingMachineTaxRateAdmin,
@@ -50,6 +51,8 @@ import {
 import {
   fetchRefundManagerSetup,
   isLocalUatDemoForced,
+  setMachineNayaxConfigAdmin,
+  setMachineRefundIntakeConfigAdmin,
   setMachineRefundManagersAdmin,
   type RefundManagerSetup,
 } from '@/lib/refundOperations';
@@ -81,6 +84,8 @@ type MachineSetupRowViewModel = {
   activeAssignments: PartnershipReportingSetup['assignments'];
   machineWarnings: PartnershipReportingSetup['warnings'];
   machineManagerEmails: string[];
+  refundIntakeEnabled: boolean;
+  nayaxLookupConfigured: boolean;
   draftValue: string;
 };
 
@@ -291,7 +296,11 @@ export default function AdminMachinesPage() {
         id: machine.id,
         machineLabel: machine.machine_label,
         locationName: machine.location_name,
+        refundIntakeEnabled: false,
+        refundPublicDisplayLabel: null,
         nayaxLookupConfigured: false,
+        nayaxMachineId: null,
+        nayaxAccountKey: null,
         managerEmails: demoRefundManagerEmailsByMachineId[machine.id] ?? [],
       })),
     };
@@ -340,8 +349,9 @@ export default function AdminMachinesPage() {
         const taxStatus = getTaxStatus(taxRate);
         const activeAssignments = getActiveMachineAssignments(setup, machine.id, currentDate);
         const machineWarnings = setup.warnings.filter((warning) => warning.machineId === machine.id);
+        const refundSetup = refundManagerSetupByMachineId.get(machine.id);
         const machineManagerEmails = uniqueEmails(
-          refundManagerSetupByMachineId.get(machine.id)?.managerEmails ?? []
+          refundSetup?.managerEmails ?? []
         );
 
         return {
@@ -351,6 +361,8 @@ export default function AdminMachinesPage() {
           activeAssignments,
           machineWarnings,
           machineManagerEmails,
+          refundIntakeEnabled: refundSetup?.refundIntakeEnabled ?? false,
+          nayaxLookupConfigured: refundSetup?.nayaxLookupConfigured ?? false,
           draftValue: taxDrafts[machine.id] ?? (taxRate ? String(Number(taxRate.tax_rate_percent)) : ''),
         };
       })
@@ -861,7 +873,17 @@ function MachineSetupRow({
   ) => void;
   onTaxDraftChange: (machineId: string, value: string) => void;
 }) {
-  const { machine, taxRate, taxStatus, activeAssignments, machineWarnings, machineManagerEmails, draftValue } = row;
+  const {
+    machine,
+    taxRate,
+    taxStatus,
+    activeAssignments,
+    machineWarnings,
+    machineManagerEmails,
+    refundIntakeEnabled,
+    nayaxLookupConfigured,
+    draftValue,
+  } = row;
   const hasMissingRequiredTax = activeAssignments.length > 0 && taxStatus === 'missing';
   const hasAssignmentOverlap = machineWarnings.some(
     (warning) => warning.warningType === 'overlapping_partnership_assignments'
@@ -913,6 +935,13 @@ function MachineSetupRow({
             <dt className="font-medium text-foreground/70">Machine Managers</dt>
             <dd className="min-w-0 break-words">
               {machineManagerEmails.length > 0 ? machineManagerEmails.join(', ') : 'None assigned'}
+            </dd>
+          </div>
+          <div className="grid gap-0.5 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
+            <dt className="font-medium text-foreground/70">Refunds</dt>
+            <dd className="min-w-0 break-words">
+              {refundIntakeEnabled ? 'Intake enabled' : 'Intake off'} -{' '}
+              {nayaxLookupConfigured ? 'Card lookup ready' : 'Card lookup not mapped'}
             </dd>
           </div>
         </dl>
@@ -1163,6 +1192,12 @@ function MachineDialog({
   const [isAddingMachineManager, setIsAddingMachineManager] = useState(false);
   const [isSavingMachineManagers, setIsSavingMachineManagers] = useState(false);
   const [machineManagerSaveState, setMachineManagerSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [refundIntakeEnabled, setRefundIntakeEnabled] = useState(false);
+  const [refundPublicDisplayLabel, setRefundPublicDisplayLabel] = useState('');
+  const [nayaxMachineId, setNayaxMachineId] = useState('');
+  const [nayaxAccountKey, setNayaxAccountKey] = useState('TGPACI_USA_DB');
+  const [isSavingRefundReadiness, setIsSavingRefundReadiness] = useState(false);
+  const [refundReadinessSaveState, setRefundReadinessSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
   const loadedMachineManagerKeyRef = useRef('');
   const savedMachineManagerEmails = useMemo(
     () => uniqueEmails(refundManagerSetup?.managerEmails ?? []),
@@ -1239,6 +1274,23 @@ function MachineDialog({
     }
     setManagerSearch('');
   }, [form.machineId, open, savedMachineManagerEmails, selectedMachineManagerEmails]);
+
+  useEffect(() => {
+    if (!open || !form.machineId) return;
+
+    setRefundIntakeEnabled(refundManagerSetup?.refundIntakeEnabled ?? false);
+    setRefundPublicDisplayLabel(refundManagerSetup?.refundPublicDisplayLabel ?? '');
+    setNayaxMachineId(refundManagerSetup?.nayaxMachineId ?? '');
+    setNayaxAccountKey(refundManagerSetup?.nayaxAccountKey ?? 'TGPACI_USA_DB');
+    setRefundReadinessSaveState('idle');
+  }, [
+    form.machineId,
+    open,
+    refundManagerSetup?.refundIntakeEnabled,
+    refundManagerSetup?.refundPublicDisplayLabel,
+    refundManagerSetup?.nayaxMachineId,
+    refundManagerSetup?.nayaxAccountKey,
+  ]);
 
   const saveMachine = async () => {
     if (!form.machineLabel.trim()) {
@@ -1391,6 +1443,51 @@ function MachineDialog({
     void persistMachineManagerEmails(nextEmails, 'Machine manager removed.');
   };
 
+  const saveRefundReadiness = async () => {
+    if (!form.machineId) return;
+
+    const displayLabel = refundPublicDisplayLabel.trim();
+    const normalizedNayaxMachineId = nayaxMachineId.trim();
+    const normalizedNayaxAccountKey = nayaxAccountKey.trim() || 'TGPACI_USA_DB';
+
+    if (displayLabel.length > 120) {
+      toast.error('Refund display label must be 120 characters or fewer.');
+      return;
+    }
+
+    setIsSavingRefundReadiness(true);
+    setRefundReadinessSaveState('idle');
+
+    try {
+      if (isLocalDemoMode) {
+        setRefundReadinessSaveState('saved');
+        toast.success('Demo mode saved this refund setup in the browser only.');
+        return;
+      }
+
+      await setMachineRefundIntakeConfigAdmin({
+        machineId: form.machineId,
+        refundIntakeEnabled,
+        refundPublicDisplayLabel: displayLabel || null,
+        reason: 'Refund intake readiness updated from Admin Machines',
+      });
+      await setMachineNayaxConfigAdmin({
+        machineId: form.machineId,
+        nayaxMachineId: normalizedNayaxMachineId || null,
+        nayaxAccountKey: normalizedNayaxMachineId ? normalizedNayaxAccountKey : null,
+        reason: 'Nayax card lookup setup updated from Admin Machines',
+      });
+      setRefundReadinessSaveState('saved');
+      toast.success('Refund setup saved.');
+      await onSaved();
+    } catch (error) {
+      setRefundReadinessSaveState('error');
+      toast.error(error instanceof Error ? error.message : 'Unable to save refund setup.');
+    } finally {
+      setIsSavingRefundReadiness(false);
+    }
+  };
+
   const machineManagerCount = selectedMachineManagerEmails.length;
 
   return (
@@ -1447,6 +1544,7 @@ function MachineDialog({
           </div>
         </div>
         {form.machineId && (
+          <>
           <div className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -1611,6 +1709,113 @@ function MachineDialog({
               </div>
             </div>
           </div>
+          <div className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="font-semibold text-foreground">Customer Refund Setup</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Choose whether this machine appears on the hosted refund form and configure
+                  read-only Nayax card lookup for manager review.
+                </p>
+              </div>
+              <Badge variant={refundIntakeEnabled ? 'default' : 'outline'}>
+                {refundIntakeEnabled ? 'Intake enabled' : 'Intake off'}
+              </Badge>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {isSavingRefundReadiness ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Saving refund setup...
+                </span>
+              ) : refundReadinessSaveState === 'saved' ? (
+                <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Saved
+                </span>
+              ) : refundReadinessSaveState === 'error' ? (
+                <span className="inline-flex items-center gap-1.5 text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Last change was not saved
+                </span>
+              ) : (
+                <span>Live card refund execution stays disabled. This setup only supports intake and lookup.</span>
+              )}
+            </div>
+            <div className="mt-4 grid gap-4">
+              <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-background px-3 py-3">
+                <div className="min-w-0">
+                  <Label htmlFor="refund-intake-enabled">Show on refund request form</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Turn this on only for machines included in the shadow pilot.
+                  </p>
+                </div>
+                <Switch
+                  id="refund-intake-enabled"
+                  checked={refundIntakeEnabled}
+                  onCheckedChange={setRefundIntakeEnabled}
+                  disabled={isSavingRefundReadiness}
+                  aria-label="Show this machine on the refund request form"
+                />
+              </div>
+              <div>
+                <Label htmlFor="refund-display-label">Customer-facing label</Label>
+                <Input
+                  id="refund-display-label"
+                  value={refundPublicDisplayLabel}
+                  onChange={(event) => setRefundPublicDisplayLabel(event.target.value)}
+                  placeholder={form.machineLabel || 'Optional display label'}
+                  maxLength={120}
+                  disabled={isSavingRefundReadiness}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Optional. Leave blank to use the machine label from this page.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                <div>
+                  <Label htmlFor="nayax-machine-id">Nayax machine ID</Label>
+                  <Input
+                    id="nayax-machine-id"
+                    value={nayaxMachineId}
+                    onChange={(event) => setNayaxMachineId(event.target.value)}
+                    placeholder="Required for card lookup"
+                    disabled={isSavingRefundReadiness}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Card lookup remains unavailable until this is mapped.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="nayax-account-key">Nayax account</Label>
+                  <Input
+                    id="nayax-account-key"
+                    value={nayaxAccountKey}
+                    onChange={(event) => setNayaxAccountKey(event.target.value)}
+                    placeholder="TGPACI_USA_DB"
+                    disabled={isSavingRefundReadiness || !nayaxMachineId.trim()}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Defaults to the Bloomjoy USA account key.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Zelle cash payouts and Nayax card refunds still require manager/manual completion.
+                </p>
+                <Button type="button" onClick={saveRefundReadiness} disabled={isSavingRefundReadiness}>
+                  {isSavingRefundReadiness ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                  )}
+                  Save refund setup
+                </Button>
+              </div>
+            </div>
+          </div>
+          </>
         )}
         <SheetFooter className="mt-6 gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
