@@ -2,6 +2,8 @@
 
 Use this runbook after the refund platform migrations/functions are deployed but before managers are invited to process live shadow-mode cases. This setup does not cut over from the Google Form/AppSheet fallback and does not enable live Nayax refund execution.
 
+Scope note: this runbook currently covers Sunze-backed Bloomjoy Commercial and Bloomjoy Mini machines. Snapcase is a separate machine portfolio and is not covered by the Sunze sales facts used for cash refund correlation. Do not infer Snapcase readiness from Sunze-backed reporting machines or include Snapcase in this pilot until its payment/source-of-truth path is explicitly modeled.
+
 ## Read-Only Readiness Audit
 
 Run the local-only audit from the refund worktree:

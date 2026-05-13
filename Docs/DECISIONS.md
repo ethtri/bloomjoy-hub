@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-05-13 - Refund machine portfolio source separation
+Refund operations must distinguish Bloomjoy Commercial/Mini machines from Snapcase machines by data source, not just by location name.
+
+**Canonical rule**
+- Sunze-backed sales/import data covers Bloomjoy cotton-candy machines only: Bloomjoy Commercial and Bloomjoy Mini.
+- Snapcase machines are part of the broader Bloomjoy/Snapcase portfolio but are not currently represented by the Sunze sales facts used for refund correlation.
+- Current refund shadow-pilot setup and cash correlation should treat active Sunze-backed `reporting_machines` as Commercial/Mini only unless a machine is explicitly modeled otherwise.
+- Snapcase refund intake, manager routing, payment correlation, and settlement reporting need a separate source-of-truth decision before being included in this workflow.
+- Manager roster rows from the broader portfolio should not cause Snapcase locations to be inferred into Sunze-backed refund readiness or partner reporting.
+
+**Why this choice**
+- The refund MVP relies on source-specific correlation: Nayax for card lookup and Sunze sales facts for cash matching.
+- Mixing Snapcase locations into Sunze-backed machine readiness would create false confidence for transaction matching and reporting write-through.
+
 ## 2026-05-12 - Refund operations full-automation goal and gated Nayax execution
 Bloomjoy will continue toward a fully automated refund operations system, but payment execution is gated separately from manager approval and transaction correlation.
 
