@@ -28,9 +28,6 @@ on:
         description: 'Required as true for manual non-dry-run imports'
         required: false
         default: 'false'
-      summary_machine_codes:
-        description: 'Optional comma-separated source machine codes to count with neutral labels in logs'
-        required: false
       ingest_chunk_size:
         description: 'Rows per Supabase ingest request'
         required: false
@@ -59,7 +56,7 @@ jobs:
       CONFIRM_LIVE: ${{ inputs.confirm_live || 'false' }}
       GITHUB_EVENT_NAME: ${{ github.event_name }}
       GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
-      SUNZE_SUMMARY_MACHINE_CODES: ${{ inputs.summary_machine_codes || '' }}
+      SUNZE_SUMMARY_MACHINE_CODES: ${{ secrets.SUNZE_SUMMARY_MACHINE_CODES || '' }}
       PROVIDER_INGEST_CHUNK_SIZE: ${{ inputs.ingest_chunk_size || vars.SUNZE_INGEST_CHUNK_SIZE || '1000' }}
       PROVIDER_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
       SALES_IMPORT_STALE_HOURS: '30'
