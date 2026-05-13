@@ -6,37 +6,28 @@ Last updated: 2026-05-13
 Use this packet to decide when PR `#432` can move from draft to merge-ready and when production shadow-mode rollout may begin. This is not a cutover approval; Google Form/AppSheet remains the fallback until the shadow pilot is clean.
 
 ## Current Status
-- PR `#432` is draft by design because production Supabase setup must happen in a controlled order.
+- PR `#432` is draft by design because production shadow-mode proof still needs real operational data and functional UAT.
 - GitHub CI, Vercel, and the GitHub Supabase migration workflow are green for the PR head SHA.
 - Local mocked/demo browser UAT passed for public refund intake, thank-you page, Portal > Refunds, and Admin > Machines Machine Manager setup. This is useful visual evidence, but seeded functional UAT or post-deploy shadow smoke is still required for real saves, automated messages, access boundaries, Nayax lookup, and reporting write-through.
-- No production migration push, Edge Function deploy, secret mutation, or live Nayax refund execution has been performed for this sprint slice.
+- Production shadow-mode setup was approved and executed on 2026-05-13: refund secrets are present, the approved migration train was applied, and refund Edge Functions were deployed. No live Nayax refund execution was enabled.
 - Nayax lookup evidence is tokenized before it reaches the browser. Raw Nayax provider transaction IDs stay server-side and are resolved only by the refund admin Edge Function.
+- Production data-readiness smoke currently shows 26 active reporting machines, but 0 refund-intake-enabled machines, 0 Nayax lookup mappings, 0 active Machine Manager assignments, and 0 refund cases. Manager-wide shadow UAT is blocked until machine setup data is added.
 
 ## Latest Production Preflight Result
-`npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds` was refreshed on 2026-05-13. Commerce baseline checks are present, but refund operations remain blocked by these missing production server-only secrets:
-- `PUBLIC_INTAKE_ABUSE_HASH_SALT`
-- `NAYAX_LYNX_BASE_URL`
-- `NAYAX_REFUND_EXECUTION_ENABLED`
-- `NAYAX_REFUND_EXECUTION_DRY_RUN`
-- `NAYAX_REFUND_EXECUTION_KILL_SWITCH`
-- `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED`
-- `NAYAX_REFUND_MAX_AMOUNT_CENTS`
-- `NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS`
-- `NAYAX_REFUND_DAILY_COUNT_CAP`
-- `NAYAX_REFUND_IDEMPOTENCY_SECRET`
+`npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds` was refreshed after production secret setup on 2026-05-13 and passed. Remote secret inspection validates presence only; fail-closed values were set during setup and live execution remains disabled.
 
 ## Merge-Ready Gates
 Move PR `#432` out of draft only after all of these are true:
-- Production remote secrets pass `npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds`.
-- `supabase db push --dry-run --project-ref ygbzkgxktzqsiygjlqyg` shows the expected migration train and no unexpected drift.
-- The new refund Edge Functions are deployed to the target Supabase project:
+- Production remote secrets pass `npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds`. Complete 2026-05-13.
+- `supabase db push --dry-run --linked` shows no pending migrations after the approved apply. Complete 2026-05-13.
+- The new refund Edge Functions are deployed to the target Supabase project. Complete 2026-05-13:
   - `refund-case-admin-update`
   - `refund-case-automation-sweep`
   - `nayax-card-refund`
   - plus the already required `refund-case-intake` and `nayax-transaction-lookup`
-- Post-deploy smoke confirms manager refund updates call `refund-case-admin-update` successfully.
-- Post-deploy smoke confirms real state changes, automated customer message logging, tokenized Nayax evidence selection, and reporting write-through with synthetic or approved shadow-mode cases.
-- Sponsor gives explicit production rollout go/no-go.
+- Post-deploy smoke confirms deployed functions are reachable and guarded. Complete 2026-05-13.
+- Machine readiness must be configured: enable selected refund-intake machines, add up to 3 Machine Managers per machine, and add Nayax machine IDs where card lookup should work.
+- Functional shadow UAT must prove real manager saves, automated customer message logging, tokenized Nayax evidence selection, access boundaries, automation sweep redaction, and reporting write-through with synthetic or approved shadow-mode cases.
 
 ## Required Production Secret Names
 Set or verify these server-only Supabase secrets by name only; do not paste values into GitHub, docs, chat, screenshots, or logs:
@@ -56,14 +47,15 @@ Set or verify these server-only Supabase secrets by name only; do not paste valu
 `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` stays unset until a later live card-refund execution pilot is explicitly approved.
 
 ## Production Order Of Operations
-1. Confirm sponsor go/no-go for production shadow-mode setup.
-2. Set missing server-only secrets.
-3. Run commerce/refund preflight against production.
-4. Run production migration dry-run and confirm expected migration list.
-5. Apply migrations during an approved window.
-6. Deploy refund Edge Functions.
-7. Run post-deploy smoke with sanitized output only.
-8. Keep Google Form/AppSheet fallback live and begin manager-wide shadow pilot only after smoke passes.
+1. Confirm sponsor go/no-go for production shadow-mode setup. Complete 2026-05-13.
+2. Set missing server-only secrets. Complete 2026-05-13.
+3. Run commerce/refund preflight against production. Complete 2026-05-13.
+4. Run production migration dry-run and confirm expected migration list. Complete 2026-05-13.
+5. Apply migrations during an approved window. Complete 2026-05-13.
+6. Deploy refund Edge Functions. Complete 2026-05-13.
+7. Run post-deploy smoke with sanitized output only. Basic reachability complete 2026-05-13.
+8. Configure machine readiness data and run functional shadow UAT.
+9. Keep Google Form/AppSheet fallback live and begin manager-wide shadow pilot only after functional smoke passes.
 
 ## Post-Deploy Smoke
 Use sanitized evidence only:
