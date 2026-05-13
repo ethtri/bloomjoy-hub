@@ -56,6 +56,55 @@ export const summarizeRowsByDateForLog = (rows, machineCodes = []) => {
   return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
 };
 
+export const isRetryableProviderExportError = (error) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return (
+    /Sheet "Order" not found/i.test(message) ||
+    /end of central directory|invalid zip|corrupt|unexpected end|contains no workbook files/i.test(message) ||
+    /Provider export mismatch/i.test(message) ||
+    /Unable to verify the selected provider order date range/i.test(message) ||
+    /Provider export task did not complete within \d+ms/i.test(message) ||
+    /Provider export task download did not start within \d+ms/i.test(message)
+  );
+};
+
+const toIsoOrNull = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const timestamp = Number(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+};
+
+export const buildExportTaskDownloadDiagnostic = ({
+  timeoutMs,
+  taskMasked = null,
+  taskCreatedAtMs = null,
+  taskStatus = null,
+} = {}) => ({
+  timeoutMs,
+  taskMasked,
+  taskCreatedAt: toIsoOrNull(taskCreatedAtMs),
+  taskStatus,
+});
+
+export const buildExportTaskWaitDiagnostic = ({
+  requestedAtMs,
+  timeoutMs,
+  pollCount,
+  pinnedTaskMasked = null,
+  pinnedTaskCreatedAtMs = null,
+  pinnedTaskLastStatus = null,
+  visibleTaskCount = 0,
+} = {}) => ({
+  requestedAt: toIsoOrNull(requestedAtMs),
+  timeoutMs,
+  pollCount,
+  pinnedTask: Boolean(pinnedTaskMasked),
+  pinnedTaskMasked,
+  pinnedTaskCreatedAt: toIsoOrNull(pinnedTaskCreatedAtMs),
+  pinnedTaskLastStatus,
+  visibleTaskCount,
+});
+
 const getFailureName = (error) =>
   sanitizeDiagnosticMessage(error instanceof Error ? error.name : 'Error') || 'Error';
 

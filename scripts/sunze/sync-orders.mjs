@@ -16,8 +16,11 @@ import {
   extractUiRecordCount,
 } from './reconcile-orders-export.mjs';
 import {
+  buildExportTaskDownloadDiagnostic,
+  buildExportTaskWaitDiagnostic,
   buildFailureDiagnostic,
   buildSanitizedFailureError,
+  isRetryableProviderExportError,
   sanitizeDiagnosticMessage,
   sanitizeUiSummaryForDiagnostic,
   summarizeRowsByDateForLog,
@@ -1455,8 +1458,13 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignored
   const deadline = Date.now() + exportTaskTimeoutMs;
   let lastTaskDiagnostic = null;
   let targetTaskNo = null;
+  let targetTaskNoMasked = null;
+  let targetTaskCreatedAtMs = null;
+  let targetTaskLastStatus = null;
+  let pollCount = 0;
 
   while (Date.now() < deadline) {
+    pollCount += 1;
     await page.goto(taskListUrl, { waitUntil: 'domcontentloaded' });
     assertAllowedSunzeRoute(page);
     await page.waitForLoadState('networkidle').catch(() => {});
@@ -1471,11 +1479,17 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignored
 
     if (!targetTaskNo && task.taskNo) {
       targetTaskNo = task.taskNo;
+      targetTaskNoMasked = task.taskNoMasked ?? null;
+      targetTaskCreatedAtMs = task.createdAtMs ?? null;
+      targetTaskLastStatus = task.status ?? null;
       console.warn(
         `Pinned provider export task ${task.taskNoMasked || '[id]'} created at ${new Date(
           task.createdAtMs
         ).toISOString()} with status ${task.status || 'Unknown'}.`
       );
+    }
+    if (targetTaskNo && task.taskNo === targetTaskNo) {
+      targetTaskLastStatus = task.status ?? targetTaskLastStatus;
     }
 
     if (targetTaskNo && task.status === 'Failed') {
@@ -1500,8 +1514,23 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignored
         throw error;
       }
 
+      let download = null;
+      try {
+        download = await downloadWaiter.promise;
+      } catch (error) {
+        updateDiagnostic({
+          exportTaskDownload: buildExportTaskDownloadDiagnostic({
+            timeoutMs: exportDownloadTimeoutMs,
+            taskMasked: task.taskNoMasked ?? targetTaskNoMasked,
+            taskCreatedAtMs: task.createdAtMs,
+            taskStatus: task.status ?? null,
+          }),
+        });
+        throw error;
+      }
+
       return {
-        download: await downloadWaiter.promise,
+        download,
         task,
       };
     }
@@ -1517,10 +1546,25 @@ const downloadCompletedExportTask = async (page, baseUrl, requestedAtMs, ignored
         }`
     )
     .join(' | ');
+  updateDiagnostic({
+    exportTaskWait: buildExportTaskWaitDiagnostic({
+      requestedAtMs,
+      timeoutMs: exportTaskTimeoutMs,
+      pollCount,
+      pinnedTaskMasked: targetTaskNoMasked,
+      pinnedTaskCreatedAtMs: targetTaskCreatedAtMs,
+      pinnedTaskLastStatus: targetTaskLastStatus,
+      visibleTaskCount: lastTaskDiagnostic?.visibleTasks?.length ?? 0,
+    }),
+  });
   throw new Error(
     visibleTasks
-      ? `Provider export task did not complete within ${exportTaskTimeoutMs}ms. Recent task diagnostics: ${visibleTasks}`
-      : `Provider export task did not complete within ${exportTaskTimeoutMs}ms.`
+      ? `Provider export task did not complete within ${exportTaskTimeoutMs}ms after ${pollCount} poll(s); requestedAt ${new Date(
+          requestedAtMs
+        ).toISOString()}; pinnedTask ${targetTaskNoMasked || 'none'}. Recent task diagnostics: ${visibleTasks}`
+      : `Provider export task did not complete within ${exportTaskTimeoutMs}ms after ${pollCount} poll(s); requestedAt ${new Date(
+          requestedAtMs
+        ).toISOString()}; pinnedTask ${targetTaskNoMasked || 'none'}.`
   );
 };
 
@@ -1686,16 +1730,6 @@ const cleanupExportSource = async (source) => {
     recursive: source.cleanupMode === 'directory',
     force: true,
   });
-};
-
-const isRetryableProviderExportError = (error) => {
-  const message = error instanceof Error ? error.message : String(error ?? '');
-  return (
-    /Sheet "Order" not found/i.test(message) ||
-    /end of central directory|invalid zip|corrupt|unexpected end|contains no workbook files/i.test(message) ||
-    /Provider export mismatch/i.test(message) ||
-    /Unable to verify the selected provider order date range/i.test(message)
-  );
 };
 
 const parseOrdersSourceRows = async (source) => {
