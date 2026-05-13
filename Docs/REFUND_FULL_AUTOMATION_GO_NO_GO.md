@@ -3,33 +3,40 @@
 Last updated: 2026-05-13
 
 ## Purpose
-Use this packet to decide when PR `#432` can move from draft to merge-ready and when production shadow-mode rollout may begin. This is not a cutover approval; Google Form/AppSheet remains the fallback until the shadow pilot is clean.
+Use this packet to separate PR `#432` code-merge readiness from production shadow-pilot and cutover readiness. Merging the PR is not cutover approval; Google Form/AppSheet remains the fallback until the shadow pilot is clean.
 
 ## Current Status
-- PR `#432` is draft by design because production shadow-mode proof still needs real operational data and functional UAT.
+- PR `#432` is code-merge ready after QA hardening, green GitHub/Vercel checks, and PM/PO closeout. Production shadow-mode proof still needs real operational data and functional UAT before sponsor proof review or cutover.
 - GitHub CI, Vercel, and the GitHub Supabase migration workflow are green for the PR head SHA.
 - Local mocked/demo browser UAT passed for public refund intake, thank-you page, Portal > Refunds, and Admin > Machines Machine Manager setup. The latest Admin > Machines harness also proves the setup-capable flow for enabling selected machines on the public refund form, setting an optional customer-facing label, and saving read-only Nayax lookup IDs without enabling live card refunds. This is useful visual evidence, but seeded functional UAT or post-deploy shadow smoke is still required for real saves, automated messages, access boundaries, Nayax lookup, and reporting write-through.
 - Independent QA on 2026-05-13 returned no-go findings for public-intake readiness gates, Snapcase/Commercial-Mini scope enforcement, and caller-supplied Nayax lookup fields. The branch now hardens those paths with a forward migration, Edge Function scope checks, UI readiness blocks, and static validators. Re-run GitHub CI and Docker-backed migration validation after this patch lands.
 - Production shadow-mode setup was approved and executed on 2026-05-13: refund secrets are present, the approved migration train was applied, and refund Edge Functions were deployed. No live Nayax refund execution was enabled.
 - Nayax lookup evidence is tokenized before it reaches the browser. Raw Nayax provider transaction IDs stay server-side and are resolved only by the refund admin Edge Function.
 - The Admin > Machines refund-readiness setup migration was applied to production on 2026-05-13. Post-apply dry-run reports the remote database is up to date.
-- The new refund scope/readiness hardening migration is pending after QA. It must be migration-validated and applied before any public intake enablement.
+- The new refund scope/readiness hardening migration is pending after QA. GitHub migration validation is green; apply it before any public intake enablement.
 - Production data-readiness smoke currently shows 26 active Sunze-backed Commercial/Mini reporting machines, but 0 refund-intake-enabled machines, 0 Nayax lookup mappings, 0 active Machine Manager assignments, and 0 refund cases. Selected shadow UAT is blocked until machine setup data is added.
 - The read-only pilot readiness audit and cohort config helper now have repeatable commands in `Docs/REFUND_PRODUCTION_SHADOW_SETUP.md`. Latest sanitized production audit result: 26 active reporting machines, 0 refund-intake-enabled machines, 0 public refund selector options, 0 Nayax lookup mappings, 0 active Machine Manager assignments, 0 refund cases, 43 Nayax inventory machines fetched, 38 local mapping-candidate rows generated, and a 26-row local pilot cohort template generated/dry-run with no selected rows. Sponsor-provided manager mapping has also been reconciled locally: 14 rows have proposed Nayax IDs, 12 rows still need Nayax IDs before card-capable intake, and the Annie/Steve manager accounts need to authenticate before roster apply can pass. No production data was changed.
 
 ## Latest Production Preflight Result
 `npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds` was refreshed after production secret setup on 2026-05-13 and passed. Remote secret inspection validates presence only; fail-closed values were set during setup and live execution remains disabled.
 
-## Merge-Ready Gates
+## PR Merge-Ready Gates
 Move PR `#432` out of draft only after all of these are true:
 - Production remote secrets pass `npm run commerce:preflight -- --project-ref ygbzkgxktzqsiygjlqyg --include-refunds`. Complete 2026-05-13.
-- `supabase db push --dry-run --linked` shows no pending migrations after the approved apply. Complete 2026-05-13.
+- GitHub CI, Vercel, and GitHub Supabase migration validation are green on the final PR head. Complete 2026-05-13.
+- `npm ci`, build, lint, test, SEO, security/public-intake, RPC surface, reporting, Nayax execution, and browser UAT checks are recorded. Complete 2026-05-13.
 - The new refund Edge Functions are deployed to the target Supabase project. Complete 2026-05-13:
   - `refund-case-admin-update`
   - `refund-case-automation-sweep`
   - `nayax-card-refund`
   - plus the already required `refund-case-intake` and `nayax-transaction-lookup`
 - Post-deploy smoke confirms deployed functions are reachable and guarded. Complete 2026-05-13.
+- Live Nayax refund execution remains disabled. Complete 2026-05-13.
+- The PR body, this packet, and issue `#409` record that merge is not cutover and not executive UAT readiness. Complete 2026-05-13.
+
+## Shadow-Pilot Gates
+Do not enable public intake, ask managers to process real cases, or send sponsor proof review until all of these are true:
+- The new refund scope/readiness hardening migration is applied and post-apply dry-run is clean.
 - Machine readiness must be configured through Admin > Machines: enable selected refund-intake machines, add up to 3 Machine Managers per machine, and add Nayax machine IDs where card lookup should work.
 - Public intake enablement must remain blocked unless the machine is Commercial/Mini, has at least one Machine Manager, has a Nayax machine ID, and has an active location.
 - Functional shadow UAT must prove real manager saves, automated customer message logging, tokenized Nayax evidence selection, access boundaries, automation sweep redaction, and reporting write-through with synthetic or approved shadow-mode cases.
