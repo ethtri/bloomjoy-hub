@@ -279,6 +279,26 @@ const assertNayaxLookupLogsAreSanitized = () => {
   if (!source.includes('[89ab][0-9a-f]{3}-[0-9a-f]{12}')) {
     fail('nayax-transaction-lookup UUID validation must accept standard reporting_machines UUIDs.');
   }
+
+  if (
+    source.includes('parseIncidentAt(body?.incidentAt)') ||
+    source.includes('sanitizeInputCents(body?.amountCents)') ||
+    source.includes('extractLast4(body?.cardLast4)')
+  ) {
+    fail('nayax-transaction-lookup must derive lookup inputs from the persisted refund case, not caller-supplied fields.');
+  }
+
+  for (const requiredCaseField of [
+    'incident_at',
+    'payment_method',
+    'payment_amount_cents',
+    'card_last4',
+    'card_wallet_used',
+  ]) {
+    if (!source.includes(requiredCaseField)) {
+      fail(`nayax-transaction-lookup must load refund case field ${requiredCaseField} server-side.`);
+    }
+  }
 };
 
 const assertServiceOnlyMigrations = () => {

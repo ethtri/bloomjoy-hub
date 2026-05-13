@@ -540,7 +540,7 @@ async function validatePlansAgainstSupabase(supabase, plans, args) {
         await supabase
           .from('reporting_machines')
           .select(
-            'id, machine_label, status, refund_intake_enabled, refund_public_display_label, nayax_machine_id, nayax_account_key, nayax_refunds_enabled'
+            'id, machine_label, machine_type, status, refund_intake_enabled, refund_public_display_label, nayax_machine_id, nayax_account_key, nayax_refunds_enabled'
           )
           .in('id', machineIds),
         'Read selected machines'
@@ -557,6 +557,12 @@ async function validatePlansAgainstSupabase(supabase, plans, args) {
 
     if (machine.status !== 'active') {
       errors.push(`Row ${plan.rowNumber}: machine is not active.`);
+    }
+
+    if (!['commercial', 'mini'].includes(machine.machine_type)) {
+      errors.push(
+        `Row ${plan.rowNumber}: ${machine.machine_label} is ${machine.machine_type}; refund intake setup currently supports Commercial and Mini machines only.`
+      );
     }
 
     if (machine.nayax_refunds_enabled) {

@@ -523,9 +523,10 @@ serve(async (req) => {
 
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
-      .select("id, machine_label, location_id, reporting_locations(id, name, timezone)")
+      .select("id, machine_label, machine_type, location_id, reporting_locations(id, name, timezone)")
       .eq("id", machineId)
       .eq("status", "active")
+      .in("machine_type", ["commercial", "mini"])
       .eq("refund_intake_enabled", true)
       .single();
 
@@ -539,6 +540,7 @@ serve(async (req) => {
     const machineRecord = machine as unknown as {
       id: string;
       machine_label: string;
+      machine_type: string;
       location_id: string;
       reporting_locations?:
         | { id: string; name: string; timezone: string }

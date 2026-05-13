@@ -162,6 +162,7 @@ export type RefundOperationsOverview = {
 export type RefundManagerSetupMachine = {
   id: string;
   machineLabel: string;
+  machineType: string;
   locationName: string;
   refundIntakeEnabled: boolean;
   refundPublicDisplayLabel: string | null;
@@ -636,28 +637,10 @@ export const setMachineNayaxConfigAdmin = async ({
   return data as Record<string, unknown>;
 };
 
-export const lookupNayaxTransactions = async ({
-  caseId,
-  incidentAt,
-  amountCents,
-  cardLast4,
-  cardWalletUsed,
-}: {
-  caseId: string;
-  incidentAt: string;
-  amountCents: number | null;
-  cardLast4: string | null;
-  cardWalletUsed: boolean;
-}): Promise<NayaxLookupResponse> =>
+export const lookupNayaxTransactions = async ({ caseId }: { caseId: string }): Promise<NayaxLookupResponse> =>
   invokeEdgeFunction<NayaxLookupResponse>(
     'nayax-transaction-lookup',
-    {
-      caseId,
-      incidentAt,
-      amountCents,
-      cardLast4,
-      cardWalletUsed,
-    },
+    { caseId },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to look up Nayax transactions.',

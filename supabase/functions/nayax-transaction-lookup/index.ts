@@ -350,13 +350,9 @@ serve(async (req) => {
 
     const body = await req.json();
     const caseId = sanitizeText(body?.caseId, 80);
-    const incidentAt = parseIncidentAt(body?.incidentAt);
-    const amountCents = sanitizeInputCents(body?.amountCents);
-    const cardLast4 = extractLast4(body?.cardLast4);
-    const cardWalletUsed = Boolean(body?.cardWalletUsed);
 
-    if (!isUuid(caseId) || !incidentAt) {
-      return jsonResponse({ error: "Refund case and incident time are required." }, 400);
+    if (!isUuid(caseId)) {
+      return jsonResponse({ error: "Refund case is required." }, 400);
     }
 
     const { data: canManageCase, error: accessError } = await supabase.rpc(
@@ -374,12 +370,27 @@ serve(async (req) => {
 
     const { data: refundCase, error: refundCaseError } = await supabase
       .from("refund_cases")
-      .select("id, reporting_machine_id")
+      .select(
+        "id, reporting_machine_id, incident_at, payment_method, payment_amount_cents, card_last4, card_wallet_used",
+      )
       .eq("id", caseId)
       .maybeSingle();
 
     if (refundCaseError) {
       throw refundCaseError;
+    }
+
+    if (refundCase?.payment_method !== "card") {
+      return jsonResponse({ error: "Nayax lookup is only available for card refund cases." }, 400);
+    }
+
+    const incidentAt = parseIncidentAt(refundCase?.incident_at);
+    const amountCents = sanitizeInputCents(refundCase?.payment_amount_cents);
+    const cardLast4 = extractLast4(refundCase?.card_last4);
+    const cardWalletUsed = Boolean(refundCase?.card_wallet_used);
+
+    if (!incidentAt) {
+      return jsonResponse({ error: "Refund case incident time is required." }, 400);
     }
 
     const machineId = sanitizeText(refundCase?.reporting_machine_id, 80);

@@ -7,6 +7,7 @@ const files = {
   migration: 'supabase/migrations/202604290003_public_intake_anti_abuse.sql',
   globalKeyMigration: 'supabase/migrations/202604290004_public_intake_global_key_type.sql',
   refundMigration: 'supabase/migrations/202605090001_refund_operations_mvp.sql',
+  refundScopeHardeningMigration: 'supabase/migrations/202605130003_refund_scope_and_readiness_hardening.sql',
   productionRunbook: 'Docs/PRODUCTION_RUNBOOK.md',
   localDev: 'Docs/LOCAL_DEV.md',
 };
@@ -19,6 +20,7 @@ const refundIntakeFunction = read(files.refundIntakeFunction);
 const migration = read(files.migration);
 const globalKeyMigration = read(files.globalKeyMigration);
 const refundMigration = read(files.refundMigration);
+const refundScopeHardeningMigration = read(files.refundScopeHardeningMigration);
 const productionRunbook = read(files.productionRunbook);
 const localDev = read(files.localDev);
 
@@ -165,6 +167,10 @@ assert(
   refundIntakeFunction.includes('error_message: "customer_email_delivery_failed"'),
   'Refund email failures should persist a sanitized delivery failure code.'
 );
+assert(
+  refundIntakeFunction.includes('.in("machine_type", ["commercial", "mini"])'),
+  'Refund intake must reject non-Commercial/Mini machines at the Edge Function boundary.'
+);
 
 for (const requiredRunbookText of [
   'PUBLIC_INTAKE_ABUSE_HASH_SALT',
@@ -235,6 +241,15 @@ assert(
   refundMigration.includes('server_dedupe_key text') &&
     refundMigration.includes('refund_cases_server_dedupe_key_idx'),
   'Refund case migration must include server-side dedupe storage and a unique dedupe index.'
+);
+assert(
+  refundScopeHardeningMigration.includes("machine.machine_type in ('commercial', 'mini')"),
+  'Refund public selector/admin setup must be scoped to Commercial/Mini machines.'
+);
+assert(
+  refundScopeHardeningMigration.includes('Assign at least one Machine Manager') &&
+    refundScopeHardeningMigration.includes('Nayax machine ID is required'),
+  'Refund intake enablement must require Machine Manager and Nayax readiness.'
 );
 
 console.log('Public intake anti-abuse validation passed.');

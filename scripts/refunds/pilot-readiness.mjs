@@ -506,7 +506,11 @@ async function run() {
       'nayax_refunds_enabled',
       'nayax_refund_max_amount_cents',
     ].join(','),
-    (query) => query.eq('status', 'active').order('machine_label', { ascending: true })
+    (query) =>
+      query
+        .eq('status', 'active')
+        .in('machine_type', ['commercial', 'mini'])
+        .order('machine_label', { ascending: true })
   );
   const locations = await fetchAllRows(
     supabase,

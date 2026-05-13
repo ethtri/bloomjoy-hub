@@ -9,10 +9,12 @@ Use this packet to decide when PR `#432` can move from draft to merge-ready and 
 - PR `#432` is draft by design because production shadow-mode proof still needs real operational data and functional UAT.
 - GitHub CI, Vercel, and the GitHub Supabase migration workflow are green for the PR head SHA.
 - Local mocked/demo browser UAT passed for public refund intake, thank-you page, Portal > Refunds, and Admin > Machines Machine Manager setup. The latest Admin > Machines harness also proves the setup-capable flow for enabling selected machines on the public refund form, setting an optional customer-facing label, and saving read-only Nayax lookup IDs without enabling live card refunds. This is useful visual evidence, but seeded functional UAT or post-deploy shadow smoke is still required for real saves, automated messages, access boundaries, Nayax lookup, and reporting write-through.
+- Independent QA on 2026-05-13 returned no-go findings for public-intake readiness gates, Snapcase/Commercial-Mini scope enforcement, and caller-supplied Nayax lookup fields. The branch now hardens those paths with a forward migration, Edge Function scope checks, UI readiness blocks, and static validators. Re-run GitHub CI and Docker-backed migration validation after this patch lands.
 - Production shadow-mode setup was approved and executed on 2026-05-13: refund secrets are present, the approved migration train was applied, and refund Edge Functions were deployed. No live Nayax refund execution was enabled.
 - Nayax lookup evidence is tokenized before it reaches the browser. Raw Nayax provider transaction IDs stay server-side and are resolved only by the refund admin Edge Function.
 - The Admin > Machines refund-readiness setup migration was applied to production on 2026-05-13. Post-apply dry-run reports the remote database is up to date.
-- Production data-readiness smoke currently shows 26 active reporting machines, but 0 refund-intake-enabled machines, 0 Nayax lookup mappings, 0 active Machine Manager assignments, and 0 refund cases. Manager-wide shadow UAT is blocked until machine setup data is added.
+- The new refund scope/readiness hardening migration is pending after QA. It must be migration-validated and applied before any public intake enablement.
+- Production data-readiness smoke currently shows 26 active Sunze-backed Commercial/Mini reporting machines, but 0 refund-intake-enabled machines, 0 Nayax lookup mappings, 0 active Machine Manager assignments, and 0 refund cases. Selected shadow UAT is blocked until machine setup data is added.
 - The read-only pilot readiness audit and cohort config helper now have repeatable commands in `Docs/REFUND_PRODUCTION_SHADOW_SETUP.md`. Latest sanitized production audit result: 26 active reporting machines, 0 refund-intake-enabled machines, 0 public refund selector options, 0 Nayax lookup mappings, 0 active Machine Manager assignments, 0 refund cases, 43 Nayax inventory machines fetched, 38 local mapping-candidate rows generated, and a 26-row local pilot cohort template generated/dry-run with no selected rows. Sponsor-provided manager mapping has also been reconciled locally: 14 rows have proposed Nayax IDs, 12 rows still need Nayax IDs before card-capable intake, and the Annie/Steve manager accounts need to authenticate before roster apply can pass. No production data was changed.
 
 ## Latest Production Preflight Result
@@ -29,6 +31,7 @@ Move PR `#432` out of draft only after all of these are true:
   - plus the already required `refund-case-intake` and `nayax-transaction-lookup`
 - Post-deploy smoke confirms deployed functions are reachable and guarded. Complete 2026-05-13.
 - Machine readiness must be configured through Admin > Machines: enable selected refund-intake machines, add up to 3 Machine Managers per machine, and add Nayax machine IDs where card lookup should work.
+- Public intake enablement must remain blocked unless the machine is Commercial/Mini, has at least one Machine Manager, has a Nayax machine ID, and has an active location.
 - Functional shadow UAT must prove real manager saves, automated customer message logging, tokenized Nayax evidence selection, access boundaries, automation sweep redaction, and reporting write-through with synthetic or approved shadow-mode cases.
 
 ## Required Production Secret Names
@@ -60,7 +63,7 @@ Set or verify these server-only Supabase secrets by name only; do not paste valu
 9. Run the read-only pilot readiness audit and generate the local setup packet. Complete 2026-05-13.
 10. Fill and dry-run the pilot cohort config template, or configure the same data manually from Admin > Machines.
 11. Apply/configure machine readiness data and run functional shadow UAT.
-12. Keep Google Form/AppSheet fallback live and begin manager-wide shadow pilot only after functional smoke passes.
+12. Keep Google Form/AppSheet fallback live and begin the selected Commercial/Mini shadow pilot only after functional smoke passes.
 
 ## Post-Deploy Smoke
 Use sanitized evidence only:

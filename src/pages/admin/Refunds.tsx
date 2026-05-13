@@ -434,10 +434,6 @@ export default function AdminRefundsPage() {
     try {
       const result = await lookupNayaxTransactions({
         caseId: selectedCase.id,
-        incidentAt: selectedCase.incidentAt,
-        amountCents: selectedCase.paymentAmountCents,
-        cardLast4: selectedCase.cardLast4,
-        cardWalletUsed: selectedCase.cardWalletUsed,
       });
 
       setNayaxCandidates(result.candidates ?? []);

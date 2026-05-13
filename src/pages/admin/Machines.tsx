@@ -1449,9 +1449,25 @@ function MachineDialog({
     const displayLabel = refundPublicDisplayLabel.trim();
     const normalizedNayaxMachineId = nayaxMachineId.trim();
     const normalizedNayaxAccountKey = nayaxAccountKey.trim() || 'TGPACI_USA_DB';
+    const supportsHostedRefundIntake = form.machineType === 'commercial' || form.machineType === 'mini';
 
     if (displayLabel.length > 120) {
       toast.error('Refund display label must be 120 characters or fewer.');
+      return;
+    }
+
+    if (refundIntakeEnabled && !supportsHostedRefundIntake) {
+      toast.error('Hosted refund intake currently supports Bloomjoy Commercial and Mini machines only.');
+      return;
+    }
+
+    if (refundIntakeEnabled && machineManagerCount < 1) {
+      toast.error('Assign at least one Machine Manager before showing this machine on the refund form.');
+      return;
+    }
+
+    if (refundIntakeEnabled && !normalizedNayaxMachineId) {
+      toast.error('Add the Nayax machine ID before showing this machine on the refund form.');
       return;
     }
 
@@ -1465,17 +1481,17 @@ function MachineDialog({
         return;
       }
 
-      await setMachineRefundIntakeConfigAdmin({
-        machineId: form.machineId,
-        refundIntakeEnabled,
-        refundPublicDisplayLabel: displayLabel || null,
-        reason: 'Refund intake readiness updated from Admin Machines',
-      });
       await setMachineNayaxConfigAdmin({
         machineId: form.machineId,
         nayaxMachineId: normalizedNayaxMachineId || null,
         nayaxAccountKey: normalizedNayaxMachineId ? normalizedNayaxAccountKey : null,
         reason: 'Nayax card lookup setup updated from Admin Machines',
+      });
+      await setMachineRefundIntakeConfigAdmin({
+        machineId: form.machineId,
+        refundIntakeEnabled,
+        refundPublicDisplayLabel: displayLabel || null,
+        reason: 'Refund intake readiness updated from Admin Machines',
       });
       setRefundReadinessSaveState('saved');
       toast.success('Refund setup saved.');
@@ -1489,6 +1505,12 @@ function MachineDialog({
   };
 
   const machineManagerCount = selectedMachineManagerEmails.length;
+  const supportsHostedRefundIntake = form.machineType === 'commercial' || form.machineType === 'mini';
+  const refundReadinessBlocks = [
+    supportsHostedRefundIntake ? null : 'Only Bloomjoy Commercial and Mini machines can be shown on the hosted refund form right now.',
+    machineManagerCount > 0 ? null : 'Assign at least one Machine Manager.',
+    nayaxMachineId.trim() ? null : 'Add the Nayax machine ID for card lookup.',
+  ].filter(Boolean) as string[];
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1758,6 +1780,21 @@ function MachineDialog({
                   aria-label="Show this machine on the refund request form"
                 />
               </div>
+              {refundReadinessBlocks.length > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+                  <div className="flex gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="font-medium">Before this machine can appear on the refund form:</p>
+                      <ul className="mt-1 list-disc space-y-1 pl-5">
+                        {refundReadinessBlocks.map((block) => (
+                          <li key={block}>{block}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div>
                 <Label htmlFor="refund-display-label">Customer-facing label</Label>
                 <Input
@@ -1804,7 +1841,11 @@ function MachineDialog({
                 <p className="text-xs text-muted-foreground">
                   Zelle cash payouts and Nayax card refunds still require manager/manual completion.
                 </p>
-                <Button type="button" onClick={saveRefundReadiness} disabled={isSavingRefundReadiness}>
+                <Button
+                  type="button"
+                  onClick={saveRefundReadiness}
+                  disabled={isSavingRefundReadiness || (refundIntakeEnabled && refundReadinessBlocks.length > 0)}
+                >
                   {isSavingRefundReadiness ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (

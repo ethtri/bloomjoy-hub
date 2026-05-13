@@ -3,7 +3,7 @@
 Last updated: 2026-05-12
 
 ## Purpose
-Run the merged Refund Operations MVP through production rollout readiness checks and a manager-wide shadow pilot before cutting over from the Google Form/AppSheet fallback.
+Run the merged Refund Operations MVP through production rollout readiness checks and a selected Commercial/Mini shadow pilot before cutting over from the Google Form/AppSheet fallback.
 
 This runbook is the PM/PO control artifact for issues `#402`-`#409`.
 Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pilot script.
@@ -13,7 +13,7 @@ Use `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` for PR `#432` production setup and
 - Codex acts as Bloomjoy PM/PO using the `bloomjoy-sprint-orchestrator` workflow.
 - No human planning session is required. Use this runbook, PR comments, issue comments, and owner go/no-go checkpoints.
 - Executive sponsor review is proof review, not first-pass UAT. Agents must validate seeded functional UAT or post-production shadow-mode flows and produce a pass/fail evidence packet before asking the sponsor to touch the feature.
-- Pilot scope is all current authenticated Machine Managers, still in shadow mode.
+- Pilot scope is selected authenticated Machine Managers assigned to configured Bloomjoy Commercial/Mini pilot machines, still in shadow mode. Broader manager-wide rollout follows only after this selected pilot produces clean evidence.
 - Keep the Google Form/AppSheet process live until cutover criteria pass.
 - PR `#410` is merged. Merge is not cutover; production rollout, manager feedback, customer communication review, and shadow-pilot results remain cutover gates.
 - Do not paste secrets, customer PII, raw refund exports, card digits, raw Nayax payloads, or complaint free text into docs, issues, PRs, screenshots, or chat.
@@ -41,7 +41,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Confirm lookup responses show only sanitized candidate evidence in Bloomjoy Hub.
 
 ### Manager Workflow Lane
-- [ ] Enable all current authenticated Machine Managers through assigned-machine access.
+- [ ] Enable selected authenticated Machine Managers through assigned-machine access for configured Commercial/Mini pilot machines.
 - [ ] Confirm each manager sees only assigned-machine cases.
 - [ ] Confirm super-admins see all refund cases.
 - [ ] Validate approve, deny, waiting-on-customer, card-refund-pending, cash/Zelle-pending, and completed states.
