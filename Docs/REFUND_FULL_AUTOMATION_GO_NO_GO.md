@@ -11,7 +11,7 @@ Use this packet to decide when PR `#432` can move from draft to merge-ready and 
 - Local mocked/demo browser UAT passed for public refund intake, thank-you page, Portal > Refunds, and Admin > Machines Machine Manager setup. The latest Admin > Machines harness also proves the setup-capable flow for enabling selected machines on the public refund form, setting an optional customer-facing label, and saving read-only Nayax lookup IDs without enabling live card refunds. This is useful visual evidence, but seeded functional UAT or post-deploy shadow smoke is still required for real saves, automated messages, access boundaries, Nayax lookup, and reporting write-through.
 - Production shadow-mode setup was approved and executed on 2026-05-13: refund secrets are present, the approved migration train was applied, and refund Edge Functions were deployed. No live Nayax refund execution was enabled.
 - Nayax lookup evidence is tokenized before it reaches the browser. Raw Nayax provider transaction IDs stay server-side and are resolved only by the refund admin Edge Function.
-- This branch now includes one additional setup migration for Admin > Machines refund readiness configuration. It has not been applied to production yet; production dry-run shows only `202605130002_admin_machine_refund_readiness_config.sql` pending.
+- The Admin > Machines refund-readiness setup migration was applied to production on 2026-05-13. Post-apply dry-run reports the remote database is up to date.
 - Production data-readiness smoke currently shows 26 active reporting machines, but 0 refund-intake-enabled machines, 0 Nayax lookup mappings, 0 active Machine Manager assignments, and 0 refund cases. Manager-wide shadow UAT is blocked until machine setup data is added.
 
 ## Latest Production Preflight Result
@@ -27,7 +27,7 @@ Move PR `#432` out of draft only after all of these are true:
   - `nayax-card-refund`
   - plus the already required `refund-case-intake` and `nayax-transaction-lookup`
 - Post-deploy smoke confirms deployed functions are reachable and guarded. Complete 2026-05-13.
-- Machine readiness must be configured through Admin > Machines after this branch deploys: enable selected refund-intake machines, add up to 3 Machine Managers per machine, and add Nayax machine IDs where card lookup should work.
+- Machine readiness must be configured through Admin > Machines: enable selected refund-intake machines, add up to 3 Machine Managers per machine, and add Nayax machine IDs where card lookup should work.
 - Functional shadow UAT must prove real manager saves, automated customer message logging, tokenized Nayax evidence selection, access boundaries, automation sweep redaction, and reporting write-through with synthetic or approved shadow-mode cases.
 
 ## Required Production Secret Names
@@ -55,8 +55,9 @@ Set or verify these server-only Supabase secrets by name only; do not paste valu
 5. Apply migrations during an approved window. Complete 2026-05-13.
 6. Deploy refund Edge Functions. Complete 2026-05-13.
 7. Run post-deploy smoke with sanitized output only. Basic reachability complete 2026-05-13.
-8. Configure machine readiness data from Admin > Machines and run functional shadow UAT.
-9. Keep Google Form/AppSheet fallback live and begin manager-wide shadow pilot only after functional smoke passes.
+8. Apply Admin > Machines refund-readiness setup migration. Complete 2026-05-13.
+9. Configure machine readiness data from Admin > Machines and run functional shadow UAT.
+10. Keep Google Form/AppSheet fallback live and begin manager-wide shadow pilot only after functional smoke passes.
 
 ## Post-Deploy Smoke
 Use sanitized evidence only:
