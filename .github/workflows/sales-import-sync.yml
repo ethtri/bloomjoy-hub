@@ -59,7 +59,7 @@ jobs:
       CONFIRM_LIVE: ${{ inputs.confirm_live || 'false' }}
       GITHUB_EVENT_NAME: ${{ github.event_name }}
       GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
-      SUMMARY_MACHINE_CODES: ${{ inputs.summary_machine_codes || '' }}
+      SUNZE_SUMMARY_MACHINE_CODES: ${{ inputs.summary_machine_codes || '' }}
       PROVIDER_INGEST_CHUNK_SIZE: ${{ inputs.ingest_chunk_size || vars.SUNZE_INGEST_CHUNK_SIZE || '1000' }}
       PROVIDER_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
       SALES_IMPORT_STALE_HOURS: '30'
@@ -111,9 +111,6 @@ jobs:
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$CONFIRM_LIVE" != "true" ]]; then
             echo "Manual live sales imports require confirm_live=true." >&2
             exit 1
-          fi
-          if [[ -n "$SUMMARY_MACHINE_CODES" ]]; then
-            args+=(--summary-machine-codes "$SUMMARY_MACHINE_CODES")
           fi
           npm run reporting:provider-sync -- "${args[@]}"
 
