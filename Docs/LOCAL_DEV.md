@@ -281,7 +281,7 @@ Admin > Machines Machine Manager UAT:
 - The target person must have signed in to Bloomjoy at least once before assignment can save. If the person is not an authenticated user yet, the UI should explain that they need to sign in once first.
 - Machine Manager changes autosave immediately. There is no separate `Save Machine Managers` button.
 - After adding or removing a manager, confirm the status changes to `Saved`, close the sheet, and confirm the manager email is visible in the machine row.
-- The bottom `Save machine identity` button is only for machine identity/tax fields, not Machine Manager assignment.
+- The bottom `Save machine changes` button saves machine identity plus customer-refund setup fields. Machine Manager assignment autosaves separately when a person is added or removed.
 
 Privacy guardrails:
 - The helper writes only synthetic `example.test` customer records and synthetic machine/sales/refund data.

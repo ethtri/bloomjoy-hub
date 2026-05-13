@@ -71,7 +71,7 @@ Use this only for super-admin/admin UAT, not for ordinary Machine Manager tester
 9. In `Customer Refund Setup`, turn on `Show on refund request form` only for pilot machines.
 10. Optionally set a customer-facing refund form label.
 11. Enter the Nayax machine ID/account key only when read-only card lookup should work for that machine.
-12. Save refund setup and confirm the row shows `Intake enabled` and `Card lookup ready` when both are configured.
+12. Save machine changes and confirm the row shows `Intake enabled` and `Card lookup ready` when both are configured.
 13. Confirm the setup copy says live card refund execution remains disabled/manual.
 
 Functional UAT note: a Machine Manager email must belong to a user who has signed in to Bloomjoy at least once. If a non-authenticated email is entered, the UI should explain that the person needs to sign in once before assignment.
