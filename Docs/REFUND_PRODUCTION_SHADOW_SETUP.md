@@ -35,6 +35,7 @@ This creates `output/refund-pilot-readiness/pilot-cohort-config-template.csv`. F
 - `public_display_label_to_apply`: customer-facing label shown on `/refunds/request`.
 
 The template may include high-confidence Nayax suggestions from the read-only inventory audit, but every selected row still needs human review before apply.
+If a machine should receive Machine Managers now but should not appear on public refund intake yet, keep `selected_for_pilot=yes` and set `enable_refund_intake=no`. Rows with public intake enabled require a Nayax machine ID unless the operator explicitly uses `--allow-missing-nayax`.
 
 Dry-run the filled template before any production setup write:
 

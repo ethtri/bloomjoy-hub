@@ -480,8 +480,10 @@ function parseSelectedPlans(rows, args) {
       }
     }
 
-    if (!args.allowMissingNayax && !nayaxMachineId) {
-      errors.push(`Row ${rowNumber}: Nayax machine ID is required for card-capable shadow UAT.`);
+    if (!args.allowMissingNayax && enableRefundIntake && !nayaxMachineId) {
+      errors.push(
+        `Row ${rowNumber}: Nayax machine ID is required when refund intake is enabled for card-capable shadow UAT.`
+      );
     }
 
     if (!validNayaxMachineId(nayaxMachineId)) {
