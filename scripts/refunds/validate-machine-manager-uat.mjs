@@ -253,6 +253,23 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse(buildMockRefundManagerSetup(state)));
     }
 
+    if (url.includes('/admin_upsert_reporting_machine')) {
+      const body = route.request().postDataJSON();
+      state.machineSavePayload = body;
+      return route.fulfill(
+        jsonResponse({
+          id: body?.p_machine_id ?? machineId,
+          machine_label: body?.p_machine_label ?? 'Cotton Candy 01',
+          machine_type: body?.p_machine_type ?? 'commercial',
+          sunze_machine_id: body?.p_sunze_machine_id ?? 'SUNZE-CC-001',
+          status: 'active',
+          account_name: body?.p_account_name ?? 'Bloomjoy UAT',
+          location_name: body?.p_location_name ?? 'Mall Atrium',
+          latest_sale_date: '2026-05-11',
+        })
+      );
+    }
+
     if (url.includes('/admin_get_account_summaries')) {
       const body = route.request().postDataJSON();
       const search = String(body?.p_search ?? '').toLowerCase();
@@ -356,6 +373,7 @@ const run = async () => {
   const state = {
     managerEmails: [firstManagerEmail],
     savePayload: null,
+    machineSavePayload: null,
     refundIntakePayload: null,
     nayaxPayload: null,
     refundSetup: {
@@ -465,8 +483,18 @@ const run = async () => {
     await page.fill('#refund-display-label', 'Mall Atrium Cotton Candy');
     await page.fill('#nayax-machine-id', 'NAYAX-UAT-001');
     await page.fill('#nayax-account-key', 'TGPACI_USA_DB');
-    await machineDialog.getByRole('button', { name: 'Save refund setup' }).click();
-    await page.getByText('Refund setup saved.').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Refund setup no longer has a redundant section-level save button',
+      (await machineDialog.getByRole('button', { name: 'Save refund setup' }).count()) === 0
+    );
+    await machineDialog.getByRole('button', { name: 'Save machine changes' }).click();
+    await page.getByText('Machine and refund setup saved.').waitFor({ timeout: 10000 });
+
+    recorder.assert(
+      'Machine save payload targets the edited machine',
+      state.machineSavePayload?.p_machine_id === machineId,
+      JSON.stringify(state.machineSavePayload)
+    );
 
     recorder.assert(
       'Refund intake setup save targets the edited machine',
@@ -481,8 +509,6 @@ const run = async () => {
         state.nayaxPayload?.p_nayax_account_key === 'TGPACI_USA_DB',
       JSON.stringify(state.nayaxPayload)
     );
-
-    await page.getByRole('button', { name: 'Cancel' }).click();
     const machineRow = page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' });
     await machineRow.getByText(secondManagerEmail).waitFor({ timeout: 10000 });
     recorder.assert(
@@ -546,7 +572,7 @@ const run = async () => {
     );
     recorder.assert(
       'Demo mode disables machine detail persistence',
-      await demoMachineDialog.getByRole('button', { name: 'Save machine identity' }).isDisabled()
+      await demoMachineDialog.getByRole('button', { name: 'Save machine changes' }).isDisabled()
     );
 
     await page.screenshot({

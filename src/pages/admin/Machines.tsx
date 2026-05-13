@@ -89,6 +89,19 @@ type MachineSetupRowViewModel = {
   draftValue: string;
 };
 
+type RefundReadinessDraft = {
+  displayLabel: string;
+  normalizedNayaxMachineId: string;
+  normalizedNayaxAccountKey: string;
+};
+
+type DemoRefundReadiness = {
+  refundIntakeEnabled: boolean;
+  refundPublicDisplayLabel: string | null;
+  nayaxMachineId: string | null;
+  nayaxAccountKey: string | null;
+};
+
 const setupQueryKey = ['admin-partnership-reporting-setup'];
 const refundManagerSetupQueryKey = ['admin-refund-manager-setup'];
 const initialReportingTaxStartDate = '2026-01-01';
@@ -251,6 +264,9 @@ export default function AdminMachinesPage() {
   const [demoRefundManagerEmailsByMachineId, setDemoRefundManagerEmailsByMachineId] = useState<
     Record<string, string[]>
   >({});
+  const [demoRefundReadinessByMachineId, setDemoRefundReadinessByMachineId] = useState<
+    Record<string, DemoRefundReadiness>
+  >({});
 
   const highlightedMachineId = searchParams.get('machineId');
   const isMachineEditorRequested = searchParams.get('edit') === 'machine';
@@ -292,19 +308,34 @@ export default function AdminMachinesPage() {
     if (!isLocalDemoMode) return liveRefundManagerSetup;
 
     return {
-      machines: setup.machines.map((machine) => ({
-        id: machine.id,
-        machineLabel: machine.machine_label,
-        locationName: machine.location_name,
-        refundIntakeEnabled: false,
-        refundPublicDisplayLabel: null,
-        nayaxLookupConfigured: false,
-        nayaxMachineId: null,
-        nayaxAccountKey: null,
-        managerEmails: demoRefundManagerEmailsByMachineId[machine.id] ?? [],
-      })),
+      machines: setup.machines.map((machine) => {
+        const demoReadiness = demoRefundReadinessByMachineId[machine.id] ?? {
+          refundIntakeEnabled: false,
+          refundPublicDisplayLabel: null,
+          nayaxMachineId: null,
+          nayaxAccountKey: null,
+        };
+
+        return {
+          id: machine.id,
+          machineLabel: machine.machine_label,
+          locationName: machine.location_name,
+          refundIntakeEnabled: demoReadiness.refundIntakeEnabled,
+          refundPublicDisplayLabel: demoReadiness.refundPublicDisplayLabel,
+          nayaxLookupConfigured: Boolean(demoReadiness.nayaxMachineId),
+          nayaxMachineId: demoReadiness.nayaxMachineId,
+          nayaxAccountKey: demoReadiness.nayaxAccountKey,
+          managerEmails: demoRefundManagerEmailsByMachineId[machine.id] ?? [],
+        };
+      }),
     };
-  }, [demoRefundManagerEmailsByMachineId, isLocalDemoMode, liveRefundManagerSetup, setup.machines]);
+  }, [
+    demoRefundManagerEmailsByMachineId,
+    demoRefundReadinessByMachineId,
+    isLocalDemoMode,
+    liveRefundManagerSetup,
+    setup.machines,
+  ]);
 
   const refresh = async () => {
     await Promise.all([
@@ -317,6 +348,13 @@ export default function AdminMachinesPage() {
     setDemoRefundManagerEmailsByMachineId((current) => ({
       ...current,
       [machineId]: uniqueEmails(managerEmails),
+    }));
+  };
+
+  const saveDemoRefundReadiness = async (machineId: string, readiness: DemoRefundReadiness) => {
+    setDemoRefundReadinessByMachineId((current) => ({
+      ...current,
+      [machineId]: readiness,
     }));
   };
 
@@ -793,6 +831,7 @@ export default function AdminMachinesPage() {
         isLocalDemoMode={isLocalDemoMode}
         demoManagerAccounts={demoMachineManagerAccounts}
         onDemoMachineManagersSaved={saveDemoMachineManagers}
+        onDemoRefundReadinessSaved={saveDemoRefundReadiness}
         onSaved={refresh}
       />
       <TaxChangeDialog
@@ -1172,6 +1211,7 @@ function MachineDialog({
   isLocalDemoMode,
   demoManagerAccounts,
   onDemoMachineManagersSaved,
+  onDemoRefundReadinessSaved,
   onSaved,
 }: {
   open: boolean;
@@ -1183,6 +1223,7 @@ function MachineDialog({
   isLocalDemoMode: boolean;
   demoManagerAccounts: AdminAccountSummary[];
   onDemoMachineManagersSaved: (machineId: string, managerEmails: string[]) => Promise<unknown>;
+  onDemoRefundReadinessSaved: (machineId: string, readiness: DemoRefundReadiness) => Promise<unknown>;
   onSaved: () => Promise<unknown>;
 }) {
   const [form, setForm] = useState(emptyMachineForm);
@@ -1241,6 +1282,89 @@ function MachineDialog({
         .slice(0, 5),
     [managerSuggestions, selectedMachineManagerSet]
   );
+
+  const buildRefundReadinessDraft = (): RefundReadinessDraft | null => {
+    const displayLabel = refundPublicDisplayLabel.trim();
+    const normalizedNayaxMachineId = nayaxMachineId.trim();
+    const normalizedNayaxAccountKey = nayaxAccountKey.trim() || 'TGPACI_USA_DB';
+    const supportsHostedRefundIntake = form.machineType === 'commercial' || form.machineType === 'mini';
+
+    if (displayLabel.length > 120) {
+      toast.error('Refund display label must be 120 characters or fewer.');
+      return null;
+    }
+
+    if (refundIntakeEnabled && !supportsHostedRefundIntake) {
+      toast.error('Hosted refund intake currently supports Bloomjoy Commercial and Mini machines only.');
+      return null;
+    }
+
+    if (refundIntakeEnabled && selectedMachineManagerEmails.length < 1) {
+      toast.error('Assign at least one Machine Manager before showing this machine on the refund form.');
+      return null;
+    }
+
+    if (refundIntakeEnabled && !normalizedNayaxMachineId) {
+      toast.error('Add the Nayax machine ID before showing this machine on the refund form.');
+      return null;
+    }
+
+    return {
+      displayLabel,
+      normalizedNayaxMachineId,
+      normalizedNayaxAccountKey,
+    };
+  };
+
+  const savedRefundPublicDisplayLabel = refundManagerSetup?.refundPublicDisplayLabel ?? '';
+  const savedNayaxMachineId = refundManagerSetup?.nayaxMachineId ?? '';
+  const savedNayaxAccountKey = refundManagerSetup?.nayaxAccountKey ?? 'TGPACI_USA_DB';
+  const refundReadinessHasChanges = Boolean(form.machineId) && (
+    refundIntakeEnabled !== (refundManagerSetup?.refundIntakeEnabled ?? false) ||
+    refundPublicDisplayLabel.trim() !== savedRefundPublicDisplayLabel ||
+    nayaxMachineId.trim() !== savedNayaxMachineId ||
+    (nayaxMachineId.trim() ? nayaxAccountKey.trim() || 'TGPACI_USA_DB' : '') !==
+      (savedNayaxMachineId ? savedNayaxAccountKey || 'TGPACI_USA_DB' : '')
+  );
+
+  const persistRefundReadinessDraft = async (draft: RefundReadinessDraft) => {
+    if (!form.machineId) return;
+
+    setIsSavingRefundReadiness(true);
+    setRefundReadinessSaveState('idle');
+
+    try {
+      if (isLocalDemoMode) {
+        await onDemoRefundReadinessSaved(form.machineId, {
+          refundIntakeEnabled,
+          refundPublicDisplayLabel: draft.displayLabel || null,
+          nayaxMachineId: draft.normalizedNayaxMachineId || null,
+          nayaxAccountKey: draft.normalizedNayaxMachineId ? draft.normalizedNayaxAccountKey : null,
+        });
+        setRefundReadinessSaveState('saved');
+        return;
+      }
+
+      await setMachineNayaxConfigAdmin({
+        machineId: form.machineId,
+        nayaxMachineId: draft.normalizedNayaxMachineId || null,
+        nayaxAccountKey: draft.normalizedNayaxMachineId ? draft.normalizedNayaxAccountKey : null,
+        reason: 'Nayax card lookup setup updated from Admin Machines',
+      });
+      await setMachineRefundIntakeConfigAdmin({
+        machineId: form.machineId,
+        refundIntakeEnabled,
+        refundPublicDisplayLabel: draft.displayLabel || null,
+        reason: 'Refund intake readiness updated from Admin Machines',
+      });
+      setRefundReadinessSaveState('saved');
+    } catch (error) {
+      setRefundReadinessSaveState('error');
+      throw error;
+    } finally {
+      setIsSavingRefundReadiness(false);
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -1316,8 +1440,26 @@ function MachineDialog({
       return;
     }
 
+    const refundReadinessDraft = form.machineId ? buildRefundReadinessDraft() : null;
+    if (form.machineId && !refundReadinessDraft) {
+      return;
+    }
+
     setIsSaving(true);
     try {
+      if (isLocalDemoMode) {
+        if (refundReadinessDraft && refundReadinessHasChanges) {
+          await persistRefundReadinessDraft(refundReadinessDraft);
+        }
+        toast.success(
+          refundReadinessHasChanges
+            ? 'Demo mode saved this refund setup in the browser only.'
+            : 'Demo mode is visual only for machine identity changes.'
+        );
+        onOpenChange(false);
+        return;
+      }
+
       await upsertReportingMachineAdmin({
         ...form,
         accountName,
@@ -1326,7 +1468,16 @@ function MachineDialog({
         sunzeMachineId: sunzeMachineId || null,
         reason: form.machineId ? 'Reporting machine identity updated' : 'Reporting machine created',
       });
-      toast.success(form.machineId ? 'Machine updated.' : 'Machine created.');
+      if (refundReadinessDraft && refundReadinessHasChanges) {
+        await persistRefundReadinessDraft(refundReadinessDraft);
+      }
+      toast.success(
+        form.machineId
+          ? refundReadinessHasChanges
+            ? 'Machine and refund setup saved.'
+            : 'Machine updated.'
+          : 'Machine created.'
+      );
       onOpenChange(false);
       await onSaved();
     } catch (error) {
@@ -1443,69 +1594,9 @@ function MachineDialog({
     void persistMachineManagerEmails(nextEmails, 'Machine manager removed.');
   };
 
-  const saveRefundReadiness = async () => {
-    if (!form.machineId) return;
-
-    const displayLabel = refundPublicDisplayLabel.trim();
-    const normalizedNayaxMachineId = nayaxMachineId.trim();
-    const normalizedNayaxAccountKey = nayaxAccountKey.trim() || 'TGPACI_USA_DB';
-    const supportsHostedRefundIntake = form.machineType === 'commercial' || form.machineType === 'mini';
-
-    if (displayLabel.length > 120) {
-      toast.error('Refund display label must be 120 characters or fewer.');
-      return;
-    }
-
-    if (refundIntakeEnabled && !supportsHostedRefundIntake) {
-      toast.error('Hosted refund intake currently supports Bloomjoy Commercial and Mini machines only.');
-      return;
-    }
-
-    if (refundIntakeEnabled && machineManagerCount < 1) {
-      toast.error('Assign at least one Machine Manager before showing this machine on the refund form.');
-      return;
-    }
-
-    if (refundIntakeEnabled && !normalizedNayaxMachineId) {
-      toast.error('Add the Nayax machine ID before showing this machine on the refund form.');
-      return;
-    }
-
-    setIsSavingRefundReadiness(true);
-    setRefundReadinessSaveState('idle');
-
-    try {
-      if (isLocalDemoMode) {
-        setRefundReadinessSaveState('saved');
-        toast.success('Demo mode saved this refund setup in the browser only.');
-        return;
-      }
-
-      await setMachineNayaxConfigAdmin({
-        machineId: form.machineId,
-        nayaxMachineId: normalizedNayaxMachineId || null,
-        nayaxAccountKey: normalizedNayaxMachineId ? normalizedNayaxAccountKey : null,
-        reason: 'Nayax card lookup setup updated from Admin Machines',
-      });
-      await setMachineRefundIntakeConfigAdmin({
-        machineId: form.machineId,
-        refundIntakeEnabled,
-        refundPublicDisplayLabel: displayLabel || null,
-        reason: 'Refund intake readiness updated from Admin Machines',
-      });
-      setRefundReadinessSaveState('saved');
-      toast.success('Refund setup saved.');
-      await onSaved();
-    } catch (error) {
-      setRefundReadinessSaveState('error');
-      toast.error(error instanceof Error ? error.message : 'Unable to save refund setup.');
-    } finally {
-      setIsSavingRefundReadiness(false);
-    }
-  };
-
   const machineManagerCount = selectedMachineManagerEmails.length;
   const supportsHostedRefundIntake = form.machineType === 'commercial' || form.machineType === 'mini';
+  const isSavingMachineChanges = isSaving || isSavingRefundReadiness;
   const refundReadinessBlocks = [
     supportsHostedRefundIntake ? null : 'Only Bloomjoy Commercial and Mini machines can be shown on the hosted refund form right now.',
     machineManagerCount > 0 ? null : 'Assign at least one Machine Manager.',
@@ -1760,6 +1851,8 @@ function MachineDialog({
                   <AlertTriangle className="h-3.5 w-3.5" />
                   Last change was not saved
                 </span>
+              ) : refundReadinessHasChanges ? (
+                <span>Refund setup changes will save with the machine changes below.</span>
               ) : (
                 <span>Live card refund execution stays disabled. This setup only supports intake and lookup.</span>
               )}
@@ -1776,7 +1869,7 @@ function MachineDialog({
                   id="refund-intake-enabled"
                   checked={refundIntakeEnabled}
                   onCheckedChange={setRefundIntakeEnabled}
-                  disabled={isSavingRefundReadiness}
+                  disabled={isSavingMachineChanges}
                   aria-label="Show this machine on the refund request form"
                 />
               </div>
@@ -1803,7 +1896,7 @@ function MachineDialog({
                   onChange={(event) => setRefundPublicDisplayLabel(event.target.value)}
                   placeholder={form.machineLabel || 'Optional display label'}
                   maxLength={120}
-                  disabled={isSavingRefundReadiness}
+                  disabled={isSavingMachineChanges}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
                   Optional. Leave blank to use the machine label from this page.
@@ -1817,7 +1910,7 @@ function MachineDialog({
                     value={nayaxMachineId}
                     onChange={(event) => setNayaxMachineId(event.target.value)}
                     placeholder="Required for card lookup"
-                    disabled={isSavingRefundReadiness}
+                    disabled={isSavingMachineChanges}
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
                     Card lookup remains unavailable until this is mapped.
@@ -1830,30 +1923,16 @@ function MachineDialog({
                     value={nayaxAccountKey}
                     onChange={(event) => setNayaxAccountKey(event.target.value)}
                     placeholder="TGPACI_USA_DB"
-                    disabled={isSavingRefundReadiness || !nayaxMachineId.trim()}
+                    disabled={isSavingMachineChanges || !nayaxMachineId.trim()}
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
                     Defaults to the Bloomjoy USA account key.
                   </p>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Zelle cash payouts and Nayax card refunds still require manager/manual completion.
-                </p>
-                <Button
-                  type="button"
-                  onClick={saveRefundReadiness}
-                  disabled={isSavingRefundReadiness || (refundIntakeEnabled && refundReadinessBlocks.length > 0)}
-                >
-                  {isSavingRefundReadiness ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                  )}
-                  Save refund setup
-                </Button>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Zelle cash payouts and Nayax card refunds still require manager/manual completion. Refund setup saves with the machine changes button below.
+              </p>
             </div>
           </div>
           </>
@@ -1862,9 +1941,13 @@ function MachineDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={saveMachine} disabled={isSaving || isLocalDemoMode}>
-            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Save machine identity
+          <Button onClick={saveMachine} disabled={isSavingMachineChanges || isLocalDemoMode}>
+            {isSavingMachineChanges ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+            )}
+            Save machine changes
           </Button>
         </SheetFooter>
       </SheetContent>

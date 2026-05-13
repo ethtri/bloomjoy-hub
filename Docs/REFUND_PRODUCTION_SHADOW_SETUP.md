@@ -21,6 +21,8 @@ The audit writes local-only files under `output/refund-pilot-readiness/`:
 
 Do not commit the output files. Do not paste customer PII, card digits, raw Nayax payloads, Zelle details, or secrets into GitHub, docs, screenshots, or chat.
 
+The Nayax dashboard export and the Lynx machine inventory API both expose the operational mapping needed for card lookup review: Nayax machine ID, machine name, and operator machine number. When the Nayax name clearly matches the Bloomjoy machine alias or location, that is sufficient for shadow-pilot mapping. Escalate only genuinely ambiguous or missing rows to the executive sponsor instead of blocking the whole cohort.
+
 ## Cohort Setup Template
 
 Generate a local editable pilot cohort template from the readiness audit:
@@ -36,7 +38,7 @@ This creates `output/refund-pilot-readiness/pilot-cohort-config-template.csv`. F
 - `nayax_machine_id_to_apply`: the reviewed Nayax machine ID for card lookup.
 - `public_display_label_to_apply`: customer-facing label shown on `/refunds/request`.
 
-The template may include high-confidence Nayax suggestions from the read-only inventory audit, but every selected row still needs human review before apply.
+The template may include high-confidence Nayax suggestions from the read-only inventory audit. Review selected rows for clear name/location alignment before apply; only ambiguous or missing rows need sponsor resolution.
 If a machine should receive Machine Managers now but should not appear on public refund intake yet, keep `selected_for_pilot=yes` and set `enable_refund_intake=no`. Rows with public intake enabled require a Nayax machine ID unless the operator explicitly uses `--allow-missing-nayax`.
 
 Dry-run the filled template before any production setup write:
