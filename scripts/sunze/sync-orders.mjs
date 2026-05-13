@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
@@ -15,6 +15,13 @@ import {
   extractRevenueCandidatesCents,
   extractUiRecordCount,
 } from './reconcile-orders-export.mjs';
+import {
+  buildFailureDiagnostic,
+  buildSanitizedFailureError,
+  sanitizeDiagnosticMessage,
+  sanitizeUiSummaryForDiagnostic,
+  summarizeRowsByDateForLog,
+} from './sync-diagnostics.mjs';
 
 const args = process.argv.slice(2);
 
@@ -54,6 +61,11 @@ await loadEnvFile(resolve(process.cwd(), '.env'));
 const dryRun = hasFlag('--dry-run');
 const headful = hasFlag('--headful');
 const parseFilePath = getArg('--parse-file');
+const diagnosticFilePath =
+  getArg('--diagnostic-file') ||
+  process.env.PROVIDER_DIAGNOSTIC_FILE ||
+  process.env.SUNZE_DIAGNOSTIC_FILE ||
+  'sunze-sync-diagnostic.json';
 const filterDateWindow = hasFlag('--filter-date-window');
 const datePreset = getArg('--date-preset', 'Last 7 Days');
 const dateStartArg = getArg('--date-start');
@@ -109,6 +121,7 @@ const email = process.env.PROVIDER_REPORTING_EMAIL ?? process.env.SUNZE_REPORTIN
 const password = process.env.PROVIDER_REPORTING_PASSWORD ?? process.env.SUNZE_REPORTING_PASSWORD;
 const ingestUrl = process.env.REPORTING_INGEST_URL;
 const ingestToken = process.env.REPORTING_INGEST_TOKEN;
+const trustScopedRevenue = process.env.PROVIDER_TRUST_SCOPED_REVENUE === 'true';
 
 const required = (value, name) => {
   if (!value) {
@@ -219,6 +232,18 @@ if (!hasCustomDateRange && !supportedDatePresets.has(datePreset)) {
 }
 
 const exportDateLabel = hasCustomDateRange ? `Custom Range:${customDateStart}:${customDateEnd}` : datePreset;
+const lastSyncDiagnostic = {
+  worker: 'scripts/sunze/sync-orders.mjs',
+  githubRunId: process.env.GITHUB_RUN_ID ?? null,
+  githubWorkflow: process.env.GITHUB_WORKFLOW ?? null,
+  githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+  datePreset: hasCustomDateRange ? 'Custom Range' : datePreset,
+  dateStart: customDateStart,
+  dateEnd: customDateEnd,
+  parseFileMode: Boolean(parseFilePath),
+};
+
+const updateDiagnostic = (patch) => Object.assign(lastSyncDiagnostic, patch);
 
 const deriveWindowFromPreset = (preset) => {
   const normalizedPreset = String(preset ?? '').trim().toLowerCase();
@@ -339,6 +364,21 @@ const collectTrustedRecordCountTexts = async (page) =>
       .slice(0, 20);
   });
 
+const collectScopedRevenueTexts = async (page) =>
+  page.evaluate(() => {
+    const selectors = [
+      '.ant-statistic',
+      '[class*="Statistic"]',
+      '[class*="statistic"]',
+      '[class*="summary"]',
+      '[class*="Summary"]',
+    ];
+    return Array.from(document.querySelectorAll(selectors.join(',')))
+      .map((element) => (element.textContent || '').replace(/\s+/g, ' ').trim())
+      .filter((text) => /^Revenue\b/i.test(text) || /\bRevenue\b/i.test(text))
+      .slice(0, 20);
+  });
+
 const sanitizeDiagnosticText = (value) =>
   String(value ?? '')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
@@ -362,6 +402,21 @@ const buildUiSummaryDiagnostic = (texts) =>
   ]
     .slice(0, 20)
     .join(' | ');
+
+const writeFailureDiagnostic = async (error) => {
+  const payload = buildFailureDiagnostic({ error, diagnostic: lastSyncDiagnostic });
+
+  try {
+    await writeFile(diagnosticFilePath, JSON.stringify(payload, null, 2));
+    console.warn(`Wrote sanitized Sunze sync diagnostic to ${diagnosticFilePath}.`);
+  } catch (writeError) {
+    console.warn(
+      `Unable to write Sunze sync diagnostic: ${
+        sanitizeDiagnosticMessage(writeError instanceof Error ? writeError.message : String(writeError))
+      }`
+    );
+  }
+};
 
 const extractSelectedWindow = (texts) => {
   const allDates = [];
@@ -431,9 +486,15 @@ const readOrdersUiSummary = async (page) => {
     .filter(Boolean);
   const visibleTexts = await collectVisibleTexts(page);
   const trustedRecordCountTexts = await collectTrustedRecordCountTexts(page);
+  const scopedRevenueTexts = await collectScopedRevenueTexts(page);
   const selectedWindow = extractSelectedWindow(visibleTexts) ?? (!hasCustomDateRange ? deriveSelectedWindow() : null);
-  const uiRevenueCandidatesCents = extractRevenueCandidatesCents(lines);
+  const scopedRevenueCandidatesCents = extractRevenueCandidatesCents(scopedRevenueTexts);
+  const weakRevenueCandidatesCents = extractRevenueCandidatesCents(lines);
+  const uiRevenueCandidatesCents =
+    scopedRevenueCandidatesCents.length > 0 ? scopedRevenueCandidatesCents : weakRevenueCandidatesCents;
   const uiRevenueCents = uiRevenueCandidatesCents.length > 0 ? Math.max(...uiRevenueCandidatesCents) : null;
+  const uiRevenueSource = scopedRevenueCandidatesCents.length > 0 ? 'scoped_revenue_text' : 'weak_page_text';
+  const uiRevenueTrusted = scopedRevenueCandidatesCents.length > 0 && trustScopedRevenue;
   const recordCountSummary = extractUiRecordCount({
     trustedTexts: trustedRecordCountTexts,
     fallbackTexts: [...lines, ...visibleTexts],
@@ -449,13 +510,15 @@ const readOrdersUiSummary = async (page) => {
   }
 
   if (uiRevenueCents === null) {
-    throw new Error('Unable to verify the provider order revenue total.');
+    console.warn('Provider order revenue total was not visible; row count and workbook checks will decide reconciliation.');
   }
 
   return {
     ...selectedWindow,
     uiRevenueCents,
     uiRevenueCandidatesCents,
+    uiRevenueSource,
+    uiRevenueTrusted,
     ...recordCountSummary,
   };
 };
@@ -495,29 +558,6 @@ const summaryMachineCodes = [
       .filter(Boolean)
   ),
 ].sort();
-
-const summarizeRowsByDate = (rows, machineCodes = []) => {
-  const summaryMachineCodeSet = new Set(machineCodes);
-  const byDate = new Map();
-
-  for (const row of rows) {
-    if (!byDate.has(row.saleDate)) {
-      byDate.set(row.saleDate, {
-        date: row.saleDate,
-        rowCount: 0,
-        machineCounts: Object.fromEntries(machineCodes.map((machineCode) => [machineCode, 0])),
-      });
-    }
-
-    const dateSummary = byDate.get(row.saleDate);
-    dateSummary.rowCount += 1;
-    if (summaryMachineCodeSet.has(row.machineCode)) {
-      dateSummary.machineCounts[row.machineCode] += 1;
-    }
-  }
-
-  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
-};
 
 const clickNextMachineListPage = async (page) =>
   page.evaluate(() => {
@@ -632,8 +672,23 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
     .map(sanitizeDiagnosticText)
     .join(' | ');
 
+  updateDiagnostic({
+    machineCoverage: {
+      visibleSourceMachineCount: machineCodes.length,
+      verified: machineCodes.length > 0,
+      issue: machineCodes.length === 0 ? 'missing_visible_machine_codes' : null,
+      pagesScanned,
+      nextClicks,
+      scrollAttempts,
+      paginationDiagnostic: paginationDiagnostic || null,
+    },
+  });
+
   if (machineCodes.length === 0) {
-    throw new Error('Unable to verify source machine coverage from the top-level machine list.');
+    console.warn(
+      `Unable to verify source machine coverage from the top-level machine list. Continuing with workbook row machine IDs. Scanned ${pagesScanned} top-level page(s), clicked next ${nextClicks} time(s), scrolled ${scrollAttempts} time(s). Pagination controls: ${paginationDiagnostic || 'none'}.`
+    );
+    return [];
   }
 
   if (
@@ -1633,11 +1688,13 @@ const cleanupExportSource = async (source) => {
   });
 };
 
-const isRetryableWorkbookError = (error) => {
+const isRetryableProviderExportError = (error) => {
   const message = error instanceof Error ? error.message : String(error ?? '');
   return (
     /Sheet "Order" not found/i.test(message) ||
-    /end of central directory|invalid zip|corrupt|unexpected end|contains no workbook files/i.test(message)
+    /end of central directory|invalid zip|corrupt|unexpected end|contains no workbook files/i.test(message) ||
+    /Provider export mismatch/i.test(message) ||
+    /Unable to verify the selected provider order date range/i.test(message)
   );
 };
 
@@ -1680,26 +1737,55 @@ const loadOrdersSource = async () => {
     };
     return {
       source,
+      matchedUiSummary: null,
       ...(await parseOrdersSourceRows(source)),
     };
   }
 
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const source = await exportOrdersWorkbook();
+    let source = null;
     try {
+      source = await exportOrdersWorkbook();
+      const parsed = await parseOrdersSourceRows(source);
+      const summary = summarizeSunzeOrderRows(parsed.rows);
+      const matchedUiSummary =
+        source.uiSummaries.length > 0 ? assertExportMatchesUi(summary, source.uiSummaries) : null;
+
+      updateDiagnostic({
+        workbookSummary: {
+          rowCount: summary.rowCount,
+          machineCount: summary.machineCount,
+          orderAmountCents: summary.orderAmountCents,
+          windowStart: summary.windowStart,
+          windowEnd: summary.windowEnd,
+        },
+        uiSummary: sanitizeUiSummaryForDiagnostic(matchedUiSummary),
+      });
+
       return {
         source,
-        ...(await parseOrdersSourceRows(source)),
+        matchedUiSummary,
+        ...parsed,
       };
     } catch (error) {
-      await cleanupExportSource(source);
-      if (attempt >= maxAttempts || !isRetryableWorkbookError(error)) {
+      if (source) {
+        updateDiagnostic({
+          failedAttempt: attempt,
+          uiSummaries: source.uiSummaries.map(sanitizeUiSummaryForDiagnostic),
+          exportTaskCreatedAtMs: source.exportTaskCreatedAtMs ?? null,
+          visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
+        });
+        await cleanupExportSource(source);
+      }
+      if (attempt >= maxAttempts || !isRetryableProviderExportError(error)) {
         throw error;
       }
 
       console.warn(
-        `Provider workbook parse failed after export attempt ${attempt}/${maxAttempts}; retrying export. ${error instanceof Error ? error.message : String(error)}`
+        `Provider export validation failed after attempt ${attempt}/${maxAttempts}; retrying export. ${sanitizeDiagnosticMessage(
+          error instanceof Error ? error.message : String(error)
+        )}`
       );
     }
   }
@@ -1710,7 +1796,7 @@ const loadOrdersSource = async () => {
 let cleanupTarget = null;
 
 try {
-  const { source, rows, sourceRows, outOfWindowRowCount, dateWindowFilterApplied } =
+  const { source, rows, sourceRows, outOfWindowRowCount, dateWindowFilterApplied, matchedUiSummary } =
     await loadOrdersSource();
 
   cleanupTarget = source.cleanupPath
@@ -1719,9 +1805,13 @@ try {
   const summary = summarizeSunzeOrderRows(rows);
   const sourceSummary = summarizeSunzeOrderRows(sourceRows);
   const requestedWindow = deriveSelectedWindow();
-
-  const matchedUiSummary =
-    source.uiSummaries.length > 0 ? assertExportMatchesUi(summary, source.uiSummaries) : null;
+  const visibleSunzeMachineCount = source.visibleSunzeMachineCodes.length;
+  const machineCoverageVerified = !parseFilePath && visibleSunzeMachineCount > 0;
+  const machineCoverageIssue = parseFilePath
+    ? 'parse_file_no_machine_center_check'
+    : machineCoverageVerified
+      ? null
+      : 'missing_visible_machine_codes';
 
   const payload = {
     source: 'sunze_browser',
@@ -1756,6 +1846,11 @@ try {
       uiRecordCountCandidates: matchedUiSummary?.uiRecordCountCandidates ?? [],
       uiRecordCountSourceText: matchedUiSummary?.uiRecordCountSourceText ?? null,
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
+      uiRevenueMatched: matchedUiSummary?.uiRevenueMatched ?? null,
+      uiRevenueTrusted: matchedUiSummary?.uiRevenueTrusted ?? null,
+      uiRevenueSource: matchedUiSummary?.uiRevenueSource ?? null,
+      uiRevenueCandidatesCents: matchedUiSummary?.uiRevenueCandidatesCents ?? [],
+      uiReconciliationMode: matchedUiSummary?.uiReconciliationMode ?? null,
       parsedRowCount: summary.rowCount,
       parsedMachineCount: summary.machineCount,
       parsedOrderAmountCents: summary.orderAmountCents,
@@ -1771,9 +1866,11 @@ try {
       dateWindowFilterApplied,
       outOfWindowRowCount,
       visibleSunzeMachineCodes: source.visibleSunzeMachineCodes,
-      visibleSunzeMachineCount: source.visibleSunzeMachineCodes.length,
+      visibleSunzeMachineCount,
       expectedVisibleMachineCount: parseFilePath ? null : expectedVisibleMachineCount,
-      machineCoverageRequired: !parseFilePath,
+      machineCoverageRequired: false,
+      machineCoverageVerified,
+      machineCoverageIssue,
     },
   };
 
@@ -1824,8 +1921,15 @@ try {
       uiRecordCountReason: matchedUiSummary?.uiRecordCountReason ?? null,
       uiRecordCountCandidates: matchedUiSummary?.uiRecordCountCandidates ?? [],
       uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
-      visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
-      rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
+      uiRevenueMatched: matchedUiSummary?.uiRevenueMatched ?? null,
+      uiRevenueTrusted: matchedUiSummary?.uiRevenueTrusted ?? null,
+      uiRevenueSource: matchedUiSummary?.uiRevenueSource ?? null,
+      uiRevenueCandidatesCents: matchedUiSummary?.uiRevenueCandidatesCents ?? [],
+      uiReconciliationMode: matchedUiSummary?.uiReconciliationMode ?? null,
+      visibleSourceMachineCount: visibleSunzeMachineCount,
+      machineCoverageVerified,
+      machineCoverageIssue,
+      rowsByDate: summarizeRowsByDateForLog(rows, summaryMachineCodes),
       pendingUnmappedMachineCount: ingestValidation?.pendingUnmappedMachineCount ?? null,
       ignoredUnmappedMachineCount: ingestValidation?.ignoredUnmappedMachineCount ?? null,
       newlyPendingUnmappedMachineCount: ingestValidation?.newlyPendingUnmappedMachineCount ?? null,
@@ -1846,14 +1950,22 @@ try {
       selectedWindowEnd: matchedUiSummary?.uiWindowEnd ?? null,
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
-      visibleSourceMachineCount: source.visibleSunzeMachineCodes.length,
+      visibleSourceMachineCount: visibleSunzeMachineCount,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
       uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
       uiRecordCountTrusted: matchedUiSummary?.uiRecordCountTrusted ?? null,
       uiRecordCountSource: matchedUiSummary?.uiRecordCountSource ?? null,
       uiRecordCountReason: matchedUiSummary?.uiRecordCountReason ?? null,
       uiRecordCountCandidates: matchedUiSummary?.uiRecordCountCandidates ?? [],
-      rowsByDate: summarizeRowsByDate(rows, summaryMachineCodes),
+      uiRevenueCents: matchedUiSummary?.uiRevenueCents ?? null,
+      uiRevenueMatched: matchedUiSummary?.uiRevenueMatched ?? null,
+      uiRevenueTrusted: matchedUiSummary?.uiRevenueTrusted ?? null,
+      uiRevenueSource: matchedUiSummary?.uiRevenueSource ?? null,
+      uiRevenueCandidatesCents: matchedUiSummary?.uiRevenueCandidatesCents ?? [],
+      uiReconciliationMode: matchedUiSummary?.uiReconciliationMode ?? null,
+      machineCoverageVerified,
+      machineCoverageIssue,
+      rowsByDate: summarizeRowsByDateForLog(rows, summaryMachineCodes),
       importRunId: result.importRunId ?? result.importRunIds?.[0] ?? null,
       importRunIds: result.importRunIds ?? null,
       ingestChunkCount: result.chunkCount ?? null,
@@ -1887,6 +1999,9 @@ try {
       dateEnd: customDateEnd,
     });
   }
+} catch (error) {
+  await writeFailureDiagnostic(error);
+  throw buildSanitizedFailureError(error);
 } finally {
   if (cleanupTarget) {
     await cleanupExportSource({

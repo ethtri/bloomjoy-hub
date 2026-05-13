@@ -173,6 +173,30 @@ try {
   assert.equal(trustedRecordCountSummary.uiRecordCount, 6729);
   assert.equal(trustedRecordCountSummary.uiRecordCountTrusted, true);
   assert.equal(trustedRecordCountSummary.uiRecordCountMatched, true);
+  const trustedRowCountFallbackSummary = assertExportMatchesUi(monthlyExportSummary, [
+    {
+      uiWindowStart: '2026-02-28',
+      uiWindowEnd: '2026-05-01',
+      uiRevenueCents: null,
+      uiRevenueCandidatesCents: [],
+      ...extractUiRecordCount({ trustedTexts: ['Total 6,729 items'] }),
+    },
+  ]);
+  assert.equal(trustedRowCountFallbackSummary.uiRevenueMatched, false);
+  assert.equal(trustedRowCountFallbackSummary.uiReconciliationMode, 'trusted_row_count');
+  const weakRowCountFallbackSummary = assertExportMatchesUi(monthlyExportSummary, [
+    {
+      uiWindowStart: '2026-02-28',
+      uiWindowEnd: '2026-05-01',
+      uiRevenueCents: 100,
+      uiRevenueCandidatesCents: [100],
+      uiRevenueTrusted: false,
+      uiRevenueSource: 'weak_page_text',
+      ...extractUiRecordCount({ fallbackTexts: ['Total 6,729 items'] }),
+    },
+  ]);
+  assert.equal(weakRowCountFallbackSummary.uiRevenueMatched, false);
+  assert.equal(weakRowCountFallbackSummary.uiReconciliationMode, 'weak_row_count');
   assert.throws(
     () =>
       assertExportMatchesUi(monthlyExportSummary, [
@@ -185,6 +209,21 @@ try {
         },
       ]),
     /trusted UI row count 1 did not match/
+  );
+  assert.throws(
+    () =>
+      assertExportMatchesUi(monthlyExportSummary, [
+        {
+          uiWindowStart: '2026-02-28',
+          uiWindowEnd: '2026-05-01',
+          uiRevenueCents: 100,
+          uiRevenueCandidatesCents: [100],
+          uiRevenueTrusted: true,
+          uiRevenueSource: 'scoped_revenue_text',
+          ...extractUiRecordCount({ trustedTexts: ['Total 6,729 items'] }),
+        },
+      ]),
+    /trusted UI revenue 100 did not match/
   );
   assert.throws(
     () =>
@@ -388,7 +427,10 @@ try {
           'trade item quantity parsing',
           'weak UI row count reconciliation',
           'trusted UI row count reconciliation',
+          'trusted row count fallback reconciliation',
+          'weak row count fallback reconciliation',
           'trusted UI row count mismatch rejection',
+          'trusted UI revenue mismatch rejection',
           'revenue mismatch rejection',
           'duplicate order preservation',
           'midnight date boundary',

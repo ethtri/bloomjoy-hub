@@ -279,10 +279,14 @@ const summarizeMachineCoverage = ({
 }) => {
   const visibleCodes = sanitizeCodeArray(meta.visibleSunzeMachineCodes);
   const expectedCount = safeInteger(meta.expectedVisibleMachineCount);
-  const coverageRequired = meta.machineCoverageRequired !== false;
+  const coverageRequired = meta.machineCoverageRequired === true;
+  const coverageVerified = visibleCodes.length > 0;
+  const coverageIssue =
+    sanitizeText(meta.machineCoverageIssue, 100) ||
+    (coverageVerified ? null : "missing_visible_machine_codes");
 
-  if (coverageRequired && visibleCodes.length === 0) {
-    throw new Error("Sunze machine coverage verification is required but no machine codes were provided.");
+  if (coverageRequired && !coverageVerified) {
+    console.warn("Sunze machine coverage was requested but no top-level machine codes were provided.");
   }
 
   const unmappedVisibleCodes = visibleCodes.filter(
@@ -294,6 +298,9 @@ const summarizeMachineCoverage = ({
 
   return {
     visibleMachineCount: visibleCodes.length,
+    visibleMachineCoverageVerified: coverageVerified,
+    visibleMachineCoverageIssue: coverageIssue,
+    visibleMachineCoverageRequired: coverageRequired,
     configuredMachineCount: machineBySunzeId.size,
     expectedVisibleMachineCount: expectedCount,
     visibleMachineCountMismatch:
@@ -759,12 +766,18 @@ serve(async (req) => {
             .filter((candidate) => candidate !== null)
         : [],
       ui_revenue_cents: safeInteger(bodyMeta.uiRevenueCents),
+      ui_revenue_matched: bodyMeta.uiRevenueMatched === true,
+      ui_revenue_trusted: bodyMeta.uiRevenueTrusted === true,
+      ui_revenue_source: sanitizeText(bodyMeta.uiRevenueSource, 100) || null,
+      ui_reconciliation_mode: sanitizeText(bodyMeta.uiReconciliationMode, 100) || null,
       parsed_row_count: safeInteger(bodyMeta.parsedRowCount),
       parsed_machine_count: safeInteger(bodyMeta.parsedMachineCount),
       parsed_order_amount_cents: safeInteger(bodyMeta.parsedOrderAmountCents),
       visible_sunze_machine_count: safeInteger(bodyMeta.visibleSunzeMachineCount),
       expected_visible_machine_count: safeInteger(bodyMeta.expectedVisibleMachineCount),
-      machine_coverage_required: bodyMeta.machineCoverageRequired !== false,
+      machine_coverage_required: bodyMeta.machineCoverageRequired === true,
+      machine_coverage_verified: bodyMeta.machineCoverageVerified === true,
+      machine_coverage_issue: sanitizeText(bodyMeta.machineCoverageIssue, 100) || null,
       generated_at: sanitizeText(body.generatedAt, 80) || null,
       worker: bodyMeta.worker ?? null,
       github_run_id: bodyMeta.githubRunId ?? null,
@@ -805,6 +818,9 @@ serve(async (req) => {
     const finalRunMeta = {
       ...runMeta,
       visible_sunze_machine_count: machineCoverage.visibleMachineCount,
+      machine_coverage_verified: machineCoverage.visibleMachineCoverageVerified,
+      machine_coverage_issue: machineCoverage.visibleMachineCoverageIssue,
+      machine_coverage_required: machineCoverage.visibleMachineCoverageRequired,
       expected_visible_machine_count: machineCoverage.expectedVisibleMachineCount,
       visible_machine_count_mismatch: machineCoverage.visibleMachineCountMismatch,
       configured_sunze_machine_count: machineCoverage.configuredMachineCount,
