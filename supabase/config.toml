@@ -58,6 +58,9 @@ verify_jwt = false
 [functions.refund-case-admin-update]
 verify_jwt = false
 
+[functions.refund-case-message-send]
+verify_jwt = false
+
 [functions.refund-case-automation-sweep]
 verify_jwt = false
 

@@ -15,7 +15,9 @@ const files = {
   envExample: '.env.example',
   commercePreflight: 'scripts/commerce-preflight.mjs',
   nayaxLookup: 'supabase/functions/nayax-transaction-lookup/index.ts',
+  nayaxLookupShared: 'supabase/functions/_shared/nayax-lookup.ts',
   refundAdminUpdate: 'supabase/functions/refund-case-admin-update/index.ts',
+  refundCaseMessageSend: 'supabase/functions/refund-case-message-send/index.ts',
   refundOperationsLib: 'src/lib/refundOperations.ts',
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
@@ -37,7 +39,9 @@ const config = read(files.config);
 const envExample = read(files.envExample);
 const preflight = read(files.commercePreflight);
 const nayaxLookup = read(files.nayaxLookup);
+const nayaxLookupShared = read(files.nayaxLookupShared);
 const refundAdminUpdate = read(files.refundAdminUpdate);
+const refundCaseMessageSend = read(files.refundCaseMessageSend);
 const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
@@ -102,7 +106,8 @@ assert(
 assert(
   config.includes('[functions.nayax-card-refund]') &&
     config.includes('[functions.refund-case-admin-update]') &&
-    config.includes('[functions.refund-case-automation-sweep]'),
+    config.includes('[functions.refund-case-automation-sweep]') &&
+    config.includes('[functions.refund-case-message-send]'),
   'Supabase config must list the refund automation Edge Functions.'
 );
 assert(
@@ -117,9 +122,11 @@ assert(
   'Commerce preflight must validate refund automation configuration.'
 );
 assert(
-  nayaxLookup.includes('refund_nayax_lookup_candidates') &&
-    nayaxLookup.includes('candidateToken') &&
-    nayaxLookup.includes('Omit<NayaxProviderCandidate, "transactionId" | "siteId">'),
+  nayaxLookup.includes('lookupNayaxCandidatesForRefundCase') &&
+    nayaxLookupShared.includes('refund_nayax_lookup_candidates') &&
+    nayaxLookupShared.includes('candidateToken') &&
+    nayaxLookupShared.includes('Omit<NayaxProviderCandidate, "transactionId" | "siteId">') &&
+    nayaxLookupShared.includes('defaultLookupWindowHours = 6'),
   'Nayax lookup must return opaque candidate tokens, not raw provider transaction IDs.'
 );
 assert(
@@ -132,6 +139,13 @@ assert(
   refundAdminUpdate.includes('matchedNayaxCandidateToken') &&
     refundAdminUpdate.includes('refund_nayax_lookup_candidates'),
   'Refund admin updates must resolve Nayax evidence tokens server-side.'
+);
+assert(
+  refundCaseMessageSend.includes('can_manage_refund_case') &&
+    refundCaseMessageSend.includes('buildEditableRefundCustomerEmail') &&
+    refundCaseMessageSend.includes('replyTo: getRefundReplyToEmail()') &&
+    refundCaseMessageSend.includes('created_by: user.id'),
+  'Portal customer messaging must be authorized, logged, editable from approved templates, and reply-to the support inbox.'
 );
 assert(
   !refundOperationsLib.includes('transactionId: string') &&

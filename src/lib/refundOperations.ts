@@ -127,6 +127,7 @@ export type RefundCaseRecord = {
   matchedNayaxAmountCents: number | null;
   matchedNayaxCardLast4: string | null;
   matchedNayaxCurrencyCode: string | null;
+  nayaxLookupCandidates: NayaxLookupCandidate[];
   assignedManagerEmail: string | null;
   decision: RefundDecision;
   decisionReason: string | null;
@@ -205,6 +206,8 @@ export type NayaxLookupCandidate = {
   paymentStatus: string;
   matchConfidence: number;
   matchReason: string;
+  expiresAt?: string;
+  createdAt?: string;
 };
 
 export type NayaxLookupResponse = {
@@ -215,6 +218,21 @@ export type NayaxLookupResponse = {
   providerWindowRecordCount?: number;
   candidates: NayaxLookupCandidate[];
   message?: string;
+  windowHours?: number;
+};
+
+export type RefundCustomerPortalMessageType =
+  | 'more_info'
+  | 'status_update'
+  | 'approved'
+  | 'denied'
+  | 'completed';
+
+export type SendRefundCaseMessageInput = {
+  caseId: string;
+  messageType: RefundCustomerPortalMessageType;
+  subject?: string;
+  body?: string;
 };
 
 export const fetchRefundMachineOptions = async (): Promise<RefundMachineOption[]> => {
@@ -356,6 +374,23 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         matchedNayaxAmountCents: 700,
         matchedNayaxCardLast4: '4242',
         matchedNayaxCurrencyCode: 'USD',
+        nayaxLookupCandidates: [
+          {
+            candidateToken: '41000000-0000-4000-8000-000000000031',
+            authorizedAt: demoIsoHoursAgo(5),
+            machineAuthorizationTime: demoIsoHoursAgo(5),
+            amountCents: 700,
+            cardLast4: '4242',
+            currencyCode: 'USD',
+            cardBrand: 'Visa',
+            recognitionMethod: 'tap',
+            paymentStatus: 'Card',
+            matchConfidence: 0.97,
+            matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches; last 4 matches',
+            expiresAt: demoIsoHoursAgo(-18),
+            createdAt: demoIsoHoursAgo(4.5),
+          },
+        ],
         assignedManagerEmail: managerEmail,
         decision: 'approved',
         decisionReason: 'Confirmed matching card transaction and customer report.',
@@ -421,6 +456,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         matchedNayaxAmountCents: null,
         matchedNayaxCardLast4: null,
         matchedNayaxCurrencyCode: null,
+        nayaxLookupCandidates: [],
         assignedManagerEmail: managerEmail,
         decision: null,
         decisionReason: null,
@@ -486,6 +522,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         matchedNayaxAmountCents: null,
         matchedNayaxCardLast4: null,
         matchedNayaxCurrencyCode: null,
+        nayaxLookupCandidates: [],
         assignedManagerEmail: managerEmail,
         decision: 'approved',
         decisionReason: 'Cash transaction matched and Zelle refund completed manually.',
@@ -557,6 +594,22 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
   }
 
   return data.refundCase;
+};
+
+export const sendRefundCaseMessage = async (input: SendRefundCaseMessageInput) => {
+  const data = await invokeEdgeFunction<{
+    error?: string;
+    message?: { id: string; type: string; status: string; subject: string };
+  }>('refund-case-message-send', input, {
+    requireUserAuth: true,
+    authErrorMessage: 'Log in to message refund customers.',
+  });
+
+  if (!data.message) {
+    throw new Error(data.error || 'Unable to send customer email.');
+  }
+
+  return data.message;
 };
 
 export const setMachineRefundManagersAdmin = async ({

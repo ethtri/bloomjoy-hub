@@ -12,7 +12,7 @@ const parseRecipients = (value: string | undefined | null): string[] => {
     .filter(Boolean);
 };
 
-const getRecipients = (): string[] => {
+export const getInternalNotificationRecipients = (): string[] => {
   const configuredRecipients = parseRecipients(
     Deno.env.get("INTERNAL_NOTIFICATION_RECIPIENTS")
   );
@@ -29,6 +29,7 @@ export type TransactionalEmailInput = {
   subject: string;
   text: string;
   html?: string;
+  replyTo?: string | string[] | null;
 };
 
 const getResendConfig = () => {
@@ -54,6 +55,7 @@ export async function sendTransactionalEmail({
   subject,
   text,
   html,
+  replyTo,
 }: TransactionalEmailInput) {
   const { resendApiKey, fromEmail } = getResendConfig();
 
@@ -78,6 +80,18 @@ export async function sendTransactionalEmail({
     payload.html = html;
   }
 
+  const replyToRecipients = Array.isArray(replyTo)
+    ? replyTo.map((value) => value.trim().toLowerCase()).filter(Boolean)
+    : typeof replyTo === "string" && replyTo.trim()
+      ? [replyTo.trim().toLowerCase()]
+      : [];
+
+  if (replyToRecipients.length === 1) {
+    payload.reply_to = replyToRecipients[0];
+  } else if (replyToRecipients.length > 1) {
+    payload.reply_to = replyToRecipients;
+  }
+
   const response = await fetch(RESEND_API_BASE_URL, {
     method: "POST",
     headers: {
@@ -96,7 +110,7 @@ export async function sendTransactionalEmail({
 }
 
 export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
-  const recipients = getRecipients();
+  const recipients = getInternalNotificationRecipients();
 
   if (!recipients.length) {
     throw new Error("No internal email recipients configured.");

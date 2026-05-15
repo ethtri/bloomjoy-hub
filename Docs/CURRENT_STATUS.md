@@ -6,6 +6,11 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Refund manager workflow hardening sprint (2026-05-15)
+- Active branch/worktree: `agent/refund-manager-hardening` in `C:\Repos\wt-refund-manager-hardening`, using `bloomjoy-sprint-orchestrator` with Codex as PO/PM.
+- Sprint scope preserves the customer intake experience while hardening the manager side: redacted new-case notifications to assigned Machine Managers plus ops fallback, shared server-only Nayax lookup with a +/- 6 hour window, longer-lived tokenized card-sale candidates, a guided `/portal/refunds` manager workbench, and portal-sent customer emails with Bloomjoy templates and `info@bloomjoysweets.com` reply-to.
+- Live Nayax refund execution remains disabled. Managers still complete approved card refunds manually in Nayax and cash refunds through Zelle during shadow mode.
+
 ## Refund Operations full-automation sprint (2026-05-12)
 - Active branch/worktree: `agent/refund-full-automation` in `C:\Repos\wt-refund-full-automation`, using the `bloomjoy-sprint-orchestrator` workflow with Codex as PO/PM.
 - This sprint moves beyond the merged MVP by adding fail-closed automation foundations: customer message automation for manager status changes, reminder/escalation sweep, cross-workflow duplicate settlement fingerprinting, explicit public-intake machine enablement, tokenized Nayax lookup evidence, and a gated Nayax card-refund execution surface.

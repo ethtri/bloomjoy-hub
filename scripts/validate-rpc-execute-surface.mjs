@@ -20,6 +20,13 @@ const nayaxLookupFunctionPath = path.join(
   'nayax-transaction-lookup',
   'index.ts'
 );
+const nayaxLookupSharedPath = path.join(
+  repoRoot,
+  'supabase',
+  'functions',
+  '_shared',
+  'nayax-lookup.ts'
+);
 
 const serviceRoleOnlyFunctions = [
   {
@@ -262,8 +269,11 @@ const assertNayaxLookupLogsAreSanitized = () => {
   if (!fs.existsSync(nayaxLookupFunctionPath)) {
     fail('Missing nayax-transaction-lookup Edge Function.');
   }
+  if (!fs.existsSync(nayaxLookupSharedPath)) {
+    fail('Missing shared Nayax lookup helper.');
+  }
 
-  const source = readText(nayaxLookupFunctionPath);
+  const source = `${readText(nayaxLookupFunctionPath)}\n${readText(nayaxLookupSharedPath)}`;
   if (source.includes('response.text()') || source.includes('errorBody')) {
     fail('nayax-transaction-lookup must not read or log raw provider failure bodies.');
   }
@@ -272,7 +282,7 @@ const assertNayaxLookupLogsAreSanitized = () => {
     fail('nayax-transaction-lookup must not log raw error objects.');
   }
 
-  if (!source.includes('"nayax-transaction-lookup provider failure"') || !source.includes('status: response.status')) {
+  if (!source.includes('"nayax lookup provider failure"') || !source.includes('status: response.status')) {
     fail('nayax-transaction-lookup should log sanitized provider status context on lookup failure.');
   }
 

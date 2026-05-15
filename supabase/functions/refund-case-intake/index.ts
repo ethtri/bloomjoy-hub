@@ -1,7 +1,11 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
-import { sendTransactionalEmail } from "../_shared/internal-email.ts";
+import {
+  getInternalNotificationRecipients,
+  sendTransactionalEmail,
+} from "../_shared/internal-email.ts";
+import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
 import {
   buildPublicIntakeDedupeKey,
   buildPublicIntakeKeyHashes,
@@ -274,6 +278,130 @@ const buildCustomerEmail = ({
   `;
 
   return { subject, text, html };
+};
+
+const getPortalBaseUrl = () =>
+  (Deno.env.get("BLOOMJOY_APP_URL") || Deno.env.get("PUBLIC_APP_URL") || "https://app.bloomjoyusa.com")
+    .replace(/\/+$/, "");
+
+const buildManagerNotificationText = ({
+  publicReference,
+  machineLabel,
+  locationName,
+  amountCents,
+  paymentMethod,
+  incidentAt,
+  status,
+  caseId,
+}: {
+  publicReference: string;
+  machineLabel: string;
+  locationName: string;
+  amountCents: number | null;
+  paymentMethod: string;
+  incidentAt: Date;
+  status: string;
+  caseId: string;
+}) => [
+  "A new Bloomjoy refund request is ready for manager review.",
+  "",
+  `Reference: ${publicReference}`,
+  `Machine: ${machineLabel}`,
+  `Location: ${locationName}`,
+  `Reported amount: ${formatCurrency(amountCents)}`,
+  `Incident time: ${incidentAt.toISOString()}`,
+  `Payment method: ${paymentMethod}`,
+  `Current status: ${status}`,
+  "",
+  `Open the case: ${getPortalBaseUrl()}/portal/refunds?case=${encodeURIComponent(caseId)}`,
+  "",
+  "This operational notification intentionally omits card digits, Zelle details, customer complaint text, and provider payloads.",
+].join("\n");
+
+const sendManagerIntakeNotification = async ({
+  refundCaseId,
+  publicReference,
+  machineId,
+  machineLabel,
+  locationName,
+  amountCents,
+  paymentMethod,
+  incidentAt,
+  status,
+}: {
+  refundCaseId: string;
+  publicReference: string;
+  machineId: string;
+  machineLabel: string;
+  locationName: string;
+  amountCents: number | null;
+  paymentMethod: string;
+  incidentAt: Date;
+  status: string;
+}) => {
+  if (!supabase) return;
+
+  try {
+    const { data: managerRows, error: managerError } = await supabase
+      .from("reporting_machine_refund_managers")
+      .select("manager_email")
+      .eq("reporting_machine_id", machineId)
+      .eq("status", "active")
+      .is("revoked_at", null);
+
+    if (managerError) {
+      throw managerError;
+    }
+
+    const managerRecipients = ((managerRows ?? []) as Array<{ manager_email?: string | null }>)
+      .map((row) => sanitizeEmail(row.manager_email))
+      .filter(Boolean);
+    const recipients = Array.from(
+      new Set([...managerRecipients, ...getInternalNotificationRecipients()])
+    );
+
+    const text = buildManagerNotificationText({
+      publicReference,
+      machineLabel,
+      locationName,
+      amountCents,
+      paymentMethod,
+      incidentAt,
+      status,
+      caseId: refundCaseId,
+    });
+
+    await sendTransactionalEmail({
+      to: recipients,
+      subject: `New Bloomjoy refund request ${publicReference}`,
+      text,
+    });
+
+    await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "manager_notification_sent",
+      message: "New refund request notification sent to Machine Managers and Bloomjoy ops fallback.",
+      metadata: {
+        recipient_count: recipients.length,
+        machine_manager_recipient_count: managerRecipients.length,
+        payload_redacted: true,
+      },
+    });
+  } catch (notificationError) {
+    console.error("refund-case-intake manager notification failed", {
+      errorType: notificationError instanceof Error ? notificationError.name : typeof notificationError,
+    });
+
+    await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "manager_notification_failed",
+      message: "New refund request notification could not be sent. Customer submission was not blocked.",
+      metadata: {
+        error_type: notificationError instanceof Error ? notificationError.name : typeof notificationError,
+        payload_redacted: true,
+      },
+    });
+  }
 };
 
 const prepareAttachments = (
@@ -718,6 +846,18 @@ serve(async (req) => {
       },
     });
 
+    await sendManagerIntakeNotification({
+      refundCaseId: refundCase.id,
+      publicReference: refundCase.public_reference,
+      machineId: machineRecord.id,
+      machineLabel: machineRecord.machine_label,
+      locationName,
+      amountCents,
+      paymentMethod,
+      incidentAt,
+      status,
+    });
+
     const needsMoreInfo = status === "waiting_on_customer";
     const email = buildCustomerEmail({
       publicReference: refundCase.public_reference,
@@ -784,6 +924,7 @@ serve(async (req) => {
         subject: email.subject,
         text: email.text,
         html: email.html,
+        replyTo: getRefundReplyToEmail(),
       });
 
       if (messageRow?.id) {

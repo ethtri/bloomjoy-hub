@@ -37,6 +37,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Verify target environment has server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or fallback `NAYAX_LYNX_API_TOKEN` by name only, never by value.
 - [ ] Confirm refund-ready machines are mapped to server-side Nayax machine IDs before managers use `/portal/refunds` for card lookup.
 - [ ] Validate at least one real card case against `GET /machines/{MachineID}/lastSales`.
+- [ ] Confirm manager workbench and automation sweep use the approved +/- 6 hour Nayax lookup window and only expose tokenized candidate evidence.
 - [ ] Validate Apple Pay/wallet last-four mismatch behavior with real or owner-approved test evidence.
 - [ ] Confirm lookup responses show only sanitized candidate evidence in Bloomjoy Hub.
 
@@ -45,6 +46,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Confirm each manager sees only assigned-machine cases.
 - [ ] Confirm super-admins see all refund cases.
 - [ ] Validate approve, deny, waiting-on-customer, card-refund-pending, cash/Zelle-pending, and completed states.
+- [ ] Validate the guided manager workbench sections: case summary, suggested transaction match, next action, customer message, refund completion/reference, and collapsed timeline/history.
 - [ ] Capture manager friction as GitHub issues, not private notes.
 
 ### Customer Communication Lane
@@ -53,6 +55,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Confirm approval, denial, completion, reminder, and escalation automation sends only after agent QA validates message rows and redacted logs.
 - [ ] Review denial decision reasons before managers send manual replies.
 - [ ] Confirm automated messages and manual-reply reasons are empathetic, clear, and do not overpromise timing or approval.
+- [ ] Confirm portal-sent customer messages use editable Bloomjoy-approved templates, include the case reference, and reply to `info@bloomjoysweets.com` during pilot.
 
 ### Full Automation Lane
 - [ ] Confirm `refund-case-admin-update` wraps manager updates and logs customer messages.

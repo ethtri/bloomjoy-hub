@@ -34,6 +34,9 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
+export const getRefundReplyToEmail = () =>
+  sanitizeText(Deno.env.get("REFUND_REPLY_TO_EMAIL"), 320) || "info@bloomjoysweets.com";
+
 export const sanitizeRefundMessageType = (value: unknown): RefundCustomerMessageType | null => {
   const normalized = sanitizeText(value, 80).toLowerCase();
   if (
@@ -242,6 +245,99 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
   return { subject, text, html };
 };
 
+export const buildEditableRefundCustomerEmail = ({
+  input,
+  subject,
+  body,
+}: {
+  input: RefundCustomerEmailInput;
+  subject: string;
+  body: string;
+}) => {
+  const publicReference = sanitizeText(input.publicReference, 80);
+  const customerName = sanitizeText(input.customerName, 160);
+  const machineLabel = sanitizeText(input.machineLabel, 180) || "Bloomjoy machine";
+  const locationName = sanitizeText(input.locationName, 180) || "Bloomjoy location";
+  const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
+  const safeSubjectBase = sanitizeText(subject, 180) || getSubject(input.messageType, publicReference);
+  const finalSubject = safeSubjectBase.toLowerCase().includes(publicReference.toLowerCase())
+    ? safeSubjectBase
+    : `${safeSubjectBase} - ${publicReference}`;
+  const sanitizedBody = sanitizeText(body, 4000);
+  const paragraphs = sanitizedBody
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const details = [
+    `Reference: ${publicReference}`,
+    `Machine: ${machineLabel}`,
+    `Location: ${locationName}`,
+  ];
+  const refundAmount = formatCurrency(input.refundAmountCents);
+  if (refundAmount) {
+    details.push(`Refund amount: ${refundAmount}`);
+  }
+
+  const text = [
+    greeting,
+    "",
+    ...paragraphs.flatMap((paragraph) => [paragraph, ""]),
+    ...details,
+    "",
+    "Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.",
+    "",
+    "Warmly,",
+    "The Bloomjoy Sweets Team",
+  ].join("\n");
+
+  const htmlParagraphs = paragraphs
+    .map((paragraph) =>
+      `<p style="font-size:15px;line-height:24px;margin:0 0 16px;">${escapeHtml(paragraph)}</p>`
+    )
+    .join("");
+  const detailRows = details
+    .map((detail) => {
+      const [label, ...valueParts] = detail.split(": ");
+      return `<tr><td style="font-size:13px;color:#756877;padding:4px 0;">${escapeHtml(label)}</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${escapeHtml(valueParts.join(": "))}</td></tr>`;
+    })
+    .join("");
+
+  const html = `
+    <!doctype html>
+    <html lang="en">
+      <body style="margin:0;padding:0;background:#fff7f9;font-family:Arial,Helvetica,sans-serif;color:#2f2430;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7f9;padding:28px 0;">
+          <tr>
+            <td align="center" style="padding:0 16px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
+                <tr>
+                  <td style="background:#e96b8f;color:#ffffff;padding:26px 28px;">
+                    <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">Bloomjoy refund request</div>
+                    <div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">${escapeHtml(getHeadline(input.messageType))}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:28px;">
+                    <p style="font-size:15px;line-height:24px;margin:0 0 16px;">${escapeHtml(greeting)}</p>
+                    ${htmlParagraphs}
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #f1d6de;border-radius:16px;background:#fff3f7;padding:16px;margin:0 0 18px;">
+                      ${detailRows}
+                    </table>
+                    <p style="font-size:14px;line-height:22px;margin:0;color:#756877;">Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.</p>
+                    <p style="font-size:14px;line-height:22px;margin:20px 0 0;color:#756877;">Warmly,<br />The Bloomjoy Sweets Team</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `;
+
+  return { subject: finalSubject, text, html };
+};
+
 export const sendRefundCustomerEmail = async (input: RefundCustomerEmailInput) => {
   const email = buildRefundCustomerEmail(input);
   await sendTransactionalEmail({
@@ -249,6 +345,7 @@ export const sendRefundCustomerEmail = async (input: RefundCustomerEmailInput) =
     subject: email.subject,
     text: email.text,
     html: email.html,
+    replyTo: getRefundReplyToEmail(),
   });
 
   return email;
