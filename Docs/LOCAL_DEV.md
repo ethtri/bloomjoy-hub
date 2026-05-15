@@ -399,6 +399,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve refund-adjustment-sync --no-verify-jwt`
    - `supabase functions serve refund-case-intake --no-verify-jwt`
    - `supabase functions serve refund-case-admin-update --no-verify-jwt`
+   - `supabase functions serve refund-case-message-send --no-verify-jwt`
    - `supabase functions serve refund-case-automation-sweep --no-verify-jwt`
    - `supabase functions serve nayax-card-refund --no-verify-jwt`
    - `supabase functions serve nayax-transaction-lookup --no-verify-jwt`

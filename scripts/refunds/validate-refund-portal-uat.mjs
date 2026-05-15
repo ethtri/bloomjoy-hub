@@ -120,6 +120,21 @@ const buildMockRefundOverview = () => ({
       matchedNayaxAmountCents: 700,
       matchedNayaxCardLast4: '4242',
       matchedNayaxCurrencyCode: 'USD',
+      nayaxLookupCandidates: [
+        {
+          candidateToken: '41000000-0000-4000-8000-000000000101',
+          authorizedAt: isoHoursAgo(5),
+          machineAuthorizationTime: isoHoursAgo(5),
+          amountCents: 700,
+          currencyCode: 'USD',
+          cardLast4: '4242',
+          cardBrand: 'Visa',
+          recognitionMethod: 'tap',
+          paymentStatus: 'Card',
+          matchConfidence: 0.97,
+          matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches; last 4 matches',
+        },
+      ],
       assignedManagerEmail: mockUser.email,
       decision: 'approved',
       decisionReason: 'Confirmed matching card transaction and customer report.',
@@ -185,6 +200,7 @@ const buildMockRefundOverview = () => ({
       matchedNayaxAmountCents: null,
       matchedNayaxCardLast4: null,
       matchedNayaxCurrencyCode: null,
+      nayaxLookupCandidates: [],
       assignedManagerEmail: mockUser.email,
       decision: null,
       decisionReason: null,
@@ -232,6 +248,66 @@ const buildEmptyRefundOverview = () => ({
   cases: [],
 });
 
+const buildPendingNayaxRefundOverview = () => ({
+  machines: [
+    {
+      id: 'machine-unconfigured',
+      machineLabel: 'Cotton Candy 03',
+      locationName: 'Unmapped Arcade',
+      nayaxLookupConfigured: false,
+    },
+  ],
+  managerAssignments: [
+    {
+      reportingMachineId: 'machine-unconfigured',
+      managerEmail: mockUser.email,
+    },
+  ],
+  cases: [
+    {
+      id: 'case-card-pending',
+      publicReference: 'RF-UAT-PENDING',
+      status: 'needs_review',
+      priority: 'normal',
+      correlationStatus: 'needs_nayax',
+      correlationSource: null,
+      correlationConfidence: 0,
+      correlationSummary: 'Card lookup has not completed yet.',
+      machineLabel: 'Cotton Candy 03',
+      locationName: 'Unmapped Arcade',
+      customerEmail: 'customer-pending@example.test',
+      customerName: 'Pending Card Customer',
+      customerPhone: null,
+      zellePaymentContact: null,
+      issueSummary: 'Card was charged but cotton candy was not dispensed.',
+      incidentAt: isoHoursAgo(3),
+      paymentMethod: 'card',
+      paymentAmountCents: 700,
+      cardLast4: '0000',
+      cardWalletUsed: false,
+      hasMatchedSalesFact: false,
+      hasMatchedNayaxTransaction: false,
+      matchedNayaxMachineAuthTime: null,
+      matchedNayaxAmountCents: null,
+      matchedNayaxCardLast4: null,
+      matchedNayaxCurrencyCode: null,
+      nayaxLookupCandidates: [],
+      assignedManagerEmail: mockUser.email,
+      decision: null,
+      decisionReason: null,
+      decidedAt: null,
+      refundAmountCents: null,
+      manualRefundReference: null,
+      hasReportingAdjustment: false,
+      createdAt: isoHoursAgo(4),
+      updatedAt: isoHoursAgo(2),
+      attachments: [],
+      events: [],
+      messages: [],
+    },
+  ],
+});
+
 const jsonResponse = (body) => ({
   status: 200,
   contentType: 'application/json',
@@ -240,7 +316,13 @@ const jsonResponse = (body) => ({
 
 const installMockSupabaseRoutes = async (
   context,
-  { refundOverview = buildMockRefundOverview, rpcCalls = [] } = {}
+  {
+    refundOverview = buildMockRefundOverview,
+    rpcCalls = [],
+    functionCalls = [],
+    functionBodies = [],
+    nayaxLookupResponse = null,
+  } = {}
 ) => {
   await context.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
@@ -268,6 +350,77 @@ const installMockSupabaseRoutes = async (
     return route.fulfill(
       jsonResponse({ user_id: mockUser.id, language_preference: 'en' })
     );
+  });
+
+  await context.route('**/functions/v1/**', async (route) => {
+    const functionName = new URL(route.request().url()).pathname.split('/').pop() ?? '';
+    functionCalls.push(functionName);
+    if (route.request().method() !== 'GET') {
+      let body = null;
+      try {
+        body = route.request().postDataJSON();
+      } catch {
+        body = route.request().postData();
+      }
+      functionBodies.push({ functionName, body });
+    }
+
+    if (functionName === 'nayax-transaction-lookup') {
+      return route.fulfill(
+        jsonResponse(nayaxLookupResponse ?? {
+          configured: true,
+          providerRecordCount: 2,
+          providerParseableRecordCount: 2,
+          providerWindowRecordCount: 1,
+          windowHours: 6,
+          candidates: [
+            {
+              candidateToken: '41000000-0000-4000-8000-000000000102',
+              authorizedAt: isoHoursAgo(5),
+              machineAuthorizationTime: isoHoursAgo(5),
+              amountCents: 700,
+              currencyCode: 'USD',
+              cardLast4: '4242',
+              cardBrand: 'Visa',
+              recognitionMethod: 'tap',
+              paymentStatus: 'Card',
+              matchConfidence: 0.97,
+              matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches; last 4 matches',
+            },
+          ],
+        })
+      );
+    }
+
+    if (functionName === 'refund-case-message-send') {
+      return route.fulfill(
+        jsonResponse({
+          message: {
+            id: 'message-sent-1',
+            type: 'status_update',
+            status: 'sent',
+            subject: 'We are still reviewing your Bloomjoy refund request RF-UAT-CARD',
+          },
+        })
+      );
+    }
+
+    if (functionName === 'refund-case-admin-update') {
+      return route.fulfill(
+        jsonResponse({
+          refundCase: {
+            id: 'case-card-1',
+            publicReference: 'RF-UAT-CARD',
+            status: 'card_refund_pending',
+            decision: 'approved',
+          },
+          customerMessage: null,
+          updateApplied: true,
+        })
+      );
+    }
+
+    return route.fulfill(jsonResponse({}));
   });
 
   await context.route('**/rest/v1/rpc/**', async (route) => {
@@ -362,7 +515,21 @@ const installMockSupabaseRoutes = async (
 const signInRefundUser = async (page, appUrl, initialPath = '/portal/refunds', beforeSubmit) => {
   await page.goto(`${appUrl}${initialPath}`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
-  await page.waitForSelector('#email-password', { timeout: 10000 });
+  try {
+    await page.waitForSelector('#email-password', { timeout: 10000 });
+  } catch (error) {
+    const bodyText = await page.locator('body').innerText({ timeout: 1000 }).catch(() => '');
+    throw new Error(
+      [
+        'Login form was not visible during refund portal UAT.',
+        'Ensure the dev server started with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY for local mocked auth.',
+        bodyText ? `Page body excerpt: ${bodyText.slice(0, 300)}` : '',
+        error instanceof Error ? error.message : String(error),
+      ]
+        .filter(Boolean)
+        .join(' ')
+    );
+  }
   await page.fill('#email-password', mockUser.email);
   await page.fill('#password', 'mock-password');
   beforeSubmit?.();
@@ -436,7 +603,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
   });
-  await installMockSupabaseRoutes(context);
+  const functionCalls = [];
+  const functionBodies = [];
+  await installMockSupabaseRoutes(context, { functionCalls, functionBodies });
 
   const page = await context.newPage();
   const consoleErrors = [];
@@ -459,8 +628,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     page.url()
   );
   recorder.assert(
-    'Refunds heading is visible',
-    await page.getByRole('heading', { name: /^Refunds$/i }).isVisible()
+    'Refund Review Queue heading is visible',
+    await page.getByRole('heading', { name: /^Refund Review Queue$/i }).isVisible()
   );
   recorder.assert(
     'Portal Refunds navigation link is visible',
@@ -485,8 +654,28 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByRole('heading', { name: 'RF-UAT-CARD' }).isVisible()
   );
   recorder.assert(
-    'Decision panel appears before history',
-    await page.getByText('Decision and next action').isVisible()
+    'Case action panel appears before history',
+    await page.getByText('Case action').isVisible()
+  );
+  recorder.assert(
+    'Primary action is explicit for matched card case',
+    (await page.getByText('Mark card refund complete').count()) >= 1
+  );
+  recorder.assert(
+    'Guided Nayax auto-match workbench is visible',
+    await page.getByText('Nayax auto-match').isVisible()
+  );
+  recorder.assert(
+    'Selected Nayax copy avoids manual search language',
+    await page.getByText('Automatic Nayax evidence is selected for this card refund.').isVisible()
+  );
+  recorder.assert(
+    'Email preview is available without dominating the workbench',
+    await page.getByText('Email preview').isVisible()
+  );
+  recorder.assert(
+    'Card refund reference label is contextual',
+    await page.getByText('Nayax refund confirmation/reference').isVisible()
   );
   recorder.assert(
     'Event timeline is collapsed behind summary',
@@ -499,6 +688,36 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Raw provider transaction IDs are absent from the workflow body',
     !(await page.locator('body').innerText()).includes('hidden-provider-id-for-selection-only')
+  );
+
+  await page.getByText('Email preview').click();
+  await page.getByRole('button', { name: /Send customer email/i }).click();
+  await page.waitForTimeout(300);
+  recorder.assert(
+    'Portal customer message sends through Edge Function',
+    functionCalls.includes('refund-case-message-send'),
+    functionCalls.join(', ')
+  );
+
+  await page.getByTestId('nayax-candidate-option').first().click();
+  await page.getByTestId('refund-reference-input').fill('NAYAX-UAT-REF-1');
+  await page.getByTestId('refund-save-case').click();
+  await page.waitForTimeout(300);
+
+  const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
+  const lastSaveBody = saveBodies.at(-1)?.body ?? {};
+  recorder.assert(
+    'Save Case sends completed card update through Edge Function',
+    functionCalls.includes('refund-case-admin-update') &&
+      lastSaveBody.status === 'completed' &&
+      lastSaveBody.manualRefundReference === 'NAYAX-UAT-REF-1',
+    JSON.stringify(lastSaveBody)
+  );
+  recorder.assert(
+    'Save Case confirms tokenized Nayax candidate without manual evidence bypass',
+    Boolean(lastSaveBody.matchedNayaxCandidateToken) &&
+      !Object.prototype.hasOwnProperty.call(lastSaveBody, 'manualNayaxConfirmation'),
+    JSON.stringify(lastSaveBody)
   );
 
   await page.screenshot({
@@ -531,10 +750,28 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'networkidle' });
   await page.locator('button', { hasText: 'RF-UAT-CARD' }).click();
+  await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-mobile.png'),
-    fullPage: true,
+    fullPage: false,
   });
+
+  const mobileStacking = await page.evaluate(() => {
+    const header = document.querySelector('header')?.getBoundingClientRect();
+    const selectedHeading = Array.from(document.querySelectorAll('h2')).find((element) =>
+      element.textContent?.includes('RF-UAT-CARD')
+    )?.getBoundingClientRect();
+
+    return {
+      headerBottom: header?.bottom ?? 0,
+      selectedHeadingTop: selectedHeading?.top ?? 0,
+    };
+  });
+  recorder.assert(
+    'Mobile selected case is not hidden under sticky portal chrome',
+    mobileStacking.selectedHeadingTop >= mobileStacking.headerBottom,
+    JSON.stringify(mobileStacking)
+  );
 
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -551,6 +788,58 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'No browser console/page errors during mocked QA pass',
     consoleErrors.length === 0,
     consoleErrors.slice(0, 3).join(' | ')
+  );
+
+  await context.close();
+};
+
+const runNayaxLookupNoticeChecks = async ({ browser, appUrl, recorder }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const functionCalls = [];
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildPendingNayaxRefundOverview,
+    functionCalls,
+    nayaxLookupResponse: {
+      configured: false,
+      providerRecordCount: 0,
+      providerParseableRecordCount: 0,
+      providerWindowRecordCount: 0,
+      windowHours: 6,
+      message: 'Nayax lookup is waiting on configuration for this machine.',
+      candidates: [],
+    },
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).click();
+  await page.getByText('Nayax lookup is waiting on configuration for this machine.').waitFor({
+    timeout: 10000,
+  });
+
+  recorder.assert(
+    'Card case open auto-runs Nayax lookup when evidence is pending',
+    functionCalls.includes('nayax-transaction-lookup'),
+    functionCalls.join(', ')
+  );
+  recorder.assert(
+    'Nayax setup/no-candidate state is visible in the manager workbench',
+    await page.getByText('Nayax lookup is waiting on configuration for this machine.').isVisible()
+  );
+  recorder.assert(
+    'No-match card case defaults to customer follow-up action',
+    (await page.getByText('Ask customer for more info').count()) >= 1
+  );
+  recorder.assert(
+    'Pending Nayax copy explains automatic correlation',
+    await page.getByText('The system checks Nayax automatically when the case opens and during the background sweep.').isVisible()
+  );
+  recorder.assert(
+    'Nayax setup notice does not expose raw provider IDs',
+    !(await page.locator('body').innerText()).includes('providerTransactionId')
   );
 
   await context.close();
@@ -601,12 +890,13 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
 
   recorder.assert(
-    'Demo Save Case action is disabled',
-    await page.getByRole('button', { name: /Save Case/i }).isDisabled()
+    'Demo primary action is disabled',
+    await page.getByRole('button', { name: /Mark card refund complete/i }).isDisabled()
   );
   recorder.assert(
-    'Demo Nayax lookup action is disabled',
-    await page.getByRole('button', { name: /^Lookup$/i }).isDisabled()
+    'Demo hides advanced Nayax rerun action by default',
+    await page.getByText('Advanced Nayax controls').isVisible() &&
+      (await page.getByRole('button', { name: /Re-run automatic Nayax check/i }).count()) === 0
   );
   recorder.assert(
     'Demo editor fields are disabled',
@@ -662,6 +952,11 @@ const run = async () => {
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runNayaxLookupNoticeChecks({
+      browser,
+      appUrl: args.appUrl,
       recorder,
     });
     await runDemoFallbackChecks({

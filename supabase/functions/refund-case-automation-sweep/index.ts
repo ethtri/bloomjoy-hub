@@ -3,6 +3,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
 import {
+  lookupNayaxCandidatesForRefundCase,
+  NayaxLookupRequestError,
+} from "../_shared/nayax-lookup.ts";
+import {
   buildRefundCustomerEmail,
   sendRefundCustomerEmail,
   type RefundCustomerMessageType,
@@ -159,7 +163,7 @@ const sendCustomerSweepMessage = async (
         customer_last_contacted_at: new Date().toISOString(),
         last_customer_message_type: messageType,
         automation_follow_up_due_at:
-          messageType === "reminder"
+          messageType === "more_info" || messageType === "reminder"
             ? new Date(Date.now() + reminderDelayDays * 24 * 60 * 60 * 1000).toISOString()
             : null,
       })
@@ -239,6 +243,173 @@ const escalateStaleCase = async (refundCase: RefundSweepCase) => {
   }
 };
 
+const runCardNayaxLookupSweep = async () => {
+  if (!supabase) {
+    return {
+      nayaxLookupsRun: 0,
+      nayaxCandidatesFound: 0,
+      nayaxNoMatchMovedToWaiting: 0,
+      nayaxLookupFailures: 0,
+      nayaxSetupNeeded: 0,
+    };
+  }
+
+  const { data: lookupCases, error: lookupCasesError } = await supabase
+    .from("refund_cases")
+    .select(caseSelect)
+    .eq("payment_method", "card")
+    .eq("status", "needs_review")
+    .in("correlation_status", ["not_started", "needs_nayax", "nayax_not_configured"])
+    .limit(10);
+
+  if (lookupCasesError) throw lookupCasesError;
+
+  let nayaxLookupsRun = 0;
+  let nayaxCandidatesFound = 0;
+  let nayaxNoMatchMovedToWaiting = 0;
+  let nayaxLookupFailures = 0;
+  let nayaxSetupNeeded = 0;
+
+  for (const rawRefundCase of (lookupCases ?? []) as unknown as RawRefundSweepCase[]) {
+    const refundCase = normalizeRefundSweepCase(rawRefundCase);
+
+    try {
+      const lookupResult = await lookupNayaxCandidatesForRefundCase({
+        supabase,
+        caseId: refundCase.id,
+        actorUserId: null,
+      });
+
+      nayaxLookupsRun += 1;
+
+      if (!lookupResult.configured) {
+        nayaxSetupNeeded += 1;
+        await supabase.from("refund_cases")
+          .update({
+            correlation_status: "nayax_not_configured",
+            correlation_source: "nayax",
+            correlation_confidence: 0,
+            correlation_summary: lookupResult.message || "Nayax lookup needs setup before card matching can run.",
+            automation_state: "under_review",
+          })
+          .eq("id", refundCase.id);
+
+        await supabase.from("refund_case_events").insert({
+          refund_case_id: refundCase.id,
+          event_type: "nayax_auto_lookup_setup_needed",
+          message: "Automated Nayax lookup could not run because setup is incomplete.",
+          metadata: {
+            configured: false,
+            payload_redacted: true,
+          },
+        });
+        continue;
+      }
+
+      if (lookupResult.candidates.length > 0) {
+        nayaxCandidatesFound += lookupResult.candidates.length;
+        await supabase.from("refund_cases")
+          .update({
+            status: "needs_review",
+            correlation_status: "manual_review",
+            correlation_source: "nayax",
+            correlation_confidence: Math.max(0.01, lookupResult.candidates[0]?.matchConfidence ?? 0.01),
+            correlation_summary:
+              `Nayax lookup found ${lookupResult.candidates.length} candidate(s) inside +/- ${lookupResult.windowHours} hours. Manager must confirm the match.`,
+            automation_state: "under_review",
+          })
+          .eq("id", refundCase.id);
+
+        await supabase.from("refund_case_events").insert({
+          refund_case_id: refundCase.id,
+          event_type: "nayax_auto_lookup_candidates_found",
+          message: "Automated Nayax lookup found sanitized card-sale candidate evidence for manager review.",
+          metadata: {
+            candidate_count: lookupResult.candidates.length,
+            window_hours: lookupResult.windowHours,
+            provider_record_count: lookupResult.providerRecordCount ?? null,
+            provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
+            payload_redacted: true,
+          },
+        });
+        continue;
+      }
+
+      const moreInfoResult = await sendCustomerSweepMessage(
+        {
+          ...refundCase,
+          status: "waiting_on_customer",
+          automation_state: "more_info_needed",
+        },
+        "more_info",
+      );
+
+      if (moreInfoResult === "sent") {
+        await supabase.from("refund_cases")
+          .update({
+            status: "waiting_on_customer",
+            correlation_status: "no_match",
+            correlation_source: "nayax",
+            correlation_confidence: 0,
+            correlation_summary:
+              `No Nayax card sale candidate was found inside +/- ${lookupResult.windowHours} hours. More information requested from the customer.`,
+            automation_state: "more_info_needed",
+            automation_follow_up_due_at: new Date(Date.now() + reminderDelayDays * 24 * 60 * 60 * 1000).toISOString(),
+          })
+          .eq("id", refundCase.id);
+
+        nayaxNoMatchMovedToWaiting += 1;
+        await supabase.from("refund_case_events").insert({
+          refund_case_id: refundCase.id,
+          event_type: "nayax_auto_lookup_no_match",
+          message: "Automated Nayax lookup found no candidate, so the customer was asked for more information.",
+          metadata: {
+            window_hours: lookupResult.windowHours,
+            provider_record_count: lookupResult.providerRecordCount ?? null,
+            provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
+            payload_redacted: true,
+          },
+        });
+      } else {
+        await supabase.from("refund_case_events").insert({
+          refund_case_id: refundCase.id,
+          event_type: "nayax_auto_lookup_no_match_message_failed",
+          message: "Automated Nayax lookup found no candidate, but customer email failed so the case remains in manager review.",
+          metadata: {
+            window_hours: lookupResult.windowHours,
+            provider_record_count: lookupResult.providerRecordCount ?? null,
+            provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
+            payload_redacted: true,
+          },
+        });
+      }
+    } catch (error) {
+      nayaxLookupFailures += 1;
+      console.error("refund-case-automation-sweep Nayax lookup failed", {
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+
+      await supabase.from("refund_case_events").insert({
+        refund_case_id: refundCase.id,
+        event_type: "nayax_auto_lookup_failed",
+        message: "Automated Nayax lookup failed and the case remains in manager review.",
+        metadata: {
+          error_type: error instanceof NayaxLookupRequestError ? error.name : error instanceof Error ? error.name : typeof error,
+          payload_redacted: true,
+        },
+      });
+    }
+  }
+
+  return {
+    nayaxLookupsRun,
+    nayaxCandidatesFound,
+    nayaxNoMatchMovedToWaiting,
+    nayaxLookupFailures,
+    nayaxSetupNeeded,
+  };
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -260,6 +431,7 @@ serve(async (req) => {
     const dueCutoff = new Date().toISOString();
     const reminderCutoff = daysAgoIso(Number.isFinite(reminderDelayDays) ? reminderDelayDays : 2);
     const escalationCutoff = daysAgoIso(Number.isFinite(escalationDays) ? escalationDays : 5);
+    const nayaxSweep = await runCardNayaxLookupSweep();
 
     const { data: reminderCases, error: reminderError } = await supabase
       .from("refund_cases")
@@ -306,6 +478,7 @@ serve(async (req) => {
     }
 
     return jsonResponse({
+      ...nayaxSweep,
       remindersSent,
       remindersFailed,
       escalationsSent,
