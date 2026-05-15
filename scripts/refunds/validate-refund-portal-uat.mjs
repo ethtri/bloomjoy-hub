@@ -628,8 +628,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     page.url()
   );
   recorder.assert(
-    'Refunds heading is visible',
-    await page.getByRole('heading', { name: /^Refunds$/i }).isVisible()
+    'Refund Review Queue heading is visible',
+    await page.getByRole('heading', { name: /^Refund Review Queue$/i }).isVisible()
   );
   recorder.assert(
     'Portal Refunds navigation link is visible',
@@ -654,8 +654,12 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByRole('heading', { name: 'RF-UAT-CARD' }).isVisible()
   );
   recorder.assert(
-    'Decision panel appears before history',
-    await page.getByText('Decision and next action').isVisible()
+    'Case action panel appears before history',
+    await page.getByText('Case action').isVisible()
+  );
+  recorder.assert(
+    'Primary action is explicit for matched card case',
+    (await page.getByText('Mark card refund complete').count()) >= 1
   );
   recorder.assert(
     'Guided Nayax auto-match workbench is visible',
@@ -666,8 +670,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByText('Automatic Nayax evidence is selected for this card refund.').isVisible()
   );
   recorder.assert(
-    'Customer message workbench is visible',
-    await page.getByRole('button', { name: /Send customer email/i }).isVisible()
+    'Email preview is available without dominating the workbench',
+    await page.getByText('Email preview').isVisible()
   );
   recorder.assert(
     'Card refund reference label is contextual',
@@ -686,6 +690,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     !(await page.locator('body').innerText()).includes('hidden-provider-id-for-selection-only')
   );
 
+  await page.getByText('Email preview').click();
   await page.getByRole('button', { name: /Send customer email/i }).click();
   await page.waitForTimeout(300);
   recorder.assert(
@@ -695,7 +700,6 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
 
   await page.getByTestId('nayax-candidate-option').first().click();
-  await page.getByTestId('refund-status-select').selectOption('completed');
   await page.getByTestId('refund-reference-input').fill('NAYAX-UAT-REF-1');
   await page.getByTestId('refund-save-case').click();
   await page.waitForTimeout(300);
@@ -826,6 +830,10 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, recorder }) => {
     await page.getByText('Nayax lookup is waiting on configuration for this machine.').isVisible()
   );
   recorder.assert(
+    'No-match card case defaults to customer follow-up action',
+    (await page.getByText('Ask customer for more info').count()) >= 1
+  );
+  recorder.assert(
     'Pending Nayax copy explains automatic correlation',
     await page.getByText('The system checks Nayax automatically when the case opens and during the background sweep.').isVisible()
   );
@@ -882,8 +890,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
 
   recorder.assert(
-    'Demo Save Case action is disabled',
-    await page.getByRole('button', { name: /Save Case/i }).isDisabled()
+    'Demo primary action is disabled',
+    await page.getByRole('button', { name: /Mark card refund complete/i }).isDisabled()
   );
   recorder.assert(
     'Demo hides advanced Nayax rerun action by default',
