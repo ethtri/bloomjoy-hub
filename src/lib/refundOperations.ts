@@ -100,6 +100,33 @@ export type RefundCaseMessage = {
   createdAt: string;
 };
 
+export type RefundCustomerCommunicationStatus =
+  | 'not_contacted'
+  | 'sent'
+  | 'pending'
+  | 'failed'
+  | 'skipped';
+
+export type RefundNayaxLookupStatus =
+  | 'not_applicable'
+  | 'not_started'
+  | 'checking'
+  | 'match_found'
+  | 'multiple_matches'
+  | 'no_match'
+  | 'setup_needed'
+  | 'lookup_failed';
+
+export type RefundNayaxLookupSummary = {
+  lookupStatus: RefundNayaxLookupStatus;
+  lastCheckedAt: string | null;
+  windowHours: number | null;
+  providerWindowRecordCount: number | null;
+  candidateCount: number;
+  summary: string;
+  recommendedAction: string;
+};
+
 export type RefundCaseRecord = {
   id: string;
   publicReference: string;
@@ -140,6 +167,11 @@ export type RefundCaseRecord = {
   attachments: RefundCaseAttachment[];
   events: RefundCaseEvent[];
   messages: RefundCaseMessage[];
+  customerCommunicationStatus?: RefundCustomerCommunicationStatus;
+  latestCustomerMessageStatus?: string | null;
+  latestCustomerMessageType?: string | null;
+  latestCustomerMessageAt?: string | null;
+  nayaxLookupSummary?: RefundNayaxLookupSummary | null;
 };
 
 export type RefundAdminMachine = {
@@ -192,6 +224,7 @@ export type UpdateRefundCaseInput = {
   matchedNayaxAmountCents?: number | null;
   matchedNayaxCardLast4?: string | null;
   matchedNayaxCurrencyCode?: string | null;
+  customerMessageType?: RefundCustomerPortalMessageType | null;
 };
 
 export type NayaxLookupCandidate = {
@@ -213,12 +246,17 @@ export type NayaxLookupCandidate = {
 export type NayaxLookupResponse = {
   error?: string;
   configured: boolean;
+  lookupStatus?: RefundNayaxLookupStatus;
+  lastCheckedAt?: string;
   providerRecordCount?: number;
   providerParseableRecordCount?: number;
   providerWindowRecordCount?: number;
+  candidateCount?: number;
   candidates: NayaxLookupCandidate[];
   message?: string;
   windowHours?: number;
+  summary?: string;
+  recommendedAction?: string;
 };
 
 export type RefundCustomerPortalMessageType =
@@ -593,7 +631,7 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     throw new Error(data.error || 'Unable to update refund case.');
   }
 
-  return data.refundCase;
+  return data;
 };
 
 export const sendRefundCaseMessage = async (input: SendRefundCaseMessageInput) => {

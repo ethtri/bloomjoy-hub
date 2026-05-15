@@ -4,6 +4,7 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   buildRefundCustomerEmail,
+  sanitizeRefundMessageType,
   sendRefundCustomerEmail,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
@@ -79,6 +80,14 @@ const selectCaseQuery = `
   reporting_machines(machine_label),
   reporting_locations(name)
 `;
+
+const managerActionMessageTypes = new Set<RefundCustomerMessageType>([
+  "more_info",
+  "status_update",
+  "approved",
+  "denied",
+  "completed",
+]);
 
 const getRefundCase = async (caseId: string): Promise<RefundCaseRow | null> => {
   if (!supabase) return null;
@@ -157,7 +166,7 @@ const syncAutomationState = async (
     status_update: "under_review",
   }[messageType];
 
-  await supabase
+  const { error } = await supabase
     .from("refund_cases")
     .update({
       automation_state: nextAutomationState,
@@ -168,6 +177,8 @@ const syncAutomationState = async (
         : null,
     })
     .eq("id", refundCaseId);
+
+  if (error) throw error;
 };
 
 const logCustomerMessage = async ({
@@ -219,6 +230,8 @@ const sendAndLogCustomerMessage = async (
   refundCase: RefundCaseRow,
   messageType: RefundCustomerMessageType,
 ) => {
+  if (!supabase) return { type: messageType, status: "failed" };
+
   if (!refundCase.customer_email) {
     await logCustomerMessage({
       refundCase,
@@ -226,6 +239,21 @@ const sendAndLogCustomerMessage = async (
       status: "skipped",
       errorMessage: "missing_customer_email",
     });
+    return { type: messageType, status: "skipped" };
+  }
+
+  const { data: existingMessage, error: existingMessageError } = await supabase
+    .from("refund_case_messages")
+    .select("id,status")
+    .eq("refund_case_id", refundCase.id)
+    .eq("message_type", messageType)
+    .in("status", ["sent", "pending"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingMessageError) throw existingMessageError;
+  if (existingMessage) {
     return { type: messageType, status: "skipped" };
   }
 
@@ -249,15 +277,16 @@ const sendAndLogCustomerMessage = async (
     });
 
     if (messageId) {
-      await supabase
-        ?.from("refund_case_messages")
+      const { error: sentUpdateError } = await supabase
+        .from("refund_case_messages")
         .update({ status: "sent", sent_at: new Date().toISOString() })
         .eq("id", messageId);
+      if (sentUpdateError) throw sentUpdateError;
     }
 
     await syncAutomationState(refundCase.id, messageType);
 
-    await supabase?.from("refund_case_events").insert({
+    const { error: eventError } = await supabase.from("refund_case_events").insert({
       refund_case_id: refundCase.id,
       event_type: "customer_message_sent",
       message: `Automated ${messageType.replaceAll("_", " ")} email sent.`,
@@ -267,6 +296,7 @@ const sendAndLogCustomerMessage = async (
         payload_redacted: true,
       },
     });
+    if (eventError) throw eventError;
 
     return { type: messageType, status: "sent" };
   } catch (emailError) {
@@ -276,13 +306,34 @@ const sendAndLogCustomerMessage = async (
     });
 
     if (messageId) {
-      await supabase
-        ?.from("refund_case_messages")
+      const { error: failedUpdateError } = await supabase
+        .from("refund_case_messages")
         .update({
           status: "failed",
           error_message: "customer_email_delivery_failed",
         })
         .eq("id", messageId);
+      if (failedUpdateError) {
+        console.error("refund-case-admin-update failed to mark customer email failed", {
+          errorType: failedUpdateError instanceof Error ? failedUpdateError.name : typeof failedUpdateError,
+        });
+      }
+    }
+
+    const { error: failedEventError } = await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCase.id,
+      event_type: "customer_message_failed",
+      message: `Automated ${messageType.replaceAll("_", " ")} email failed. Case update remains recorded, but customer contact still needs retry.`,
+      metadata: {
+        message_type: messageType,
+        message_id: messageId,
+        payload_redacted: true,
+      },
+    });
+    if (failedEventError) {
+      console.error("refund-case-admin-update failed to record customer email failure event", {
+        errorType: failedEventError instanceof Error ? failedEventError.name : typeof failedEventError,
+      });
     }
 
     return { type: messageType, status: "failed" };
@@ -345,6 +396,11 @@ serve(async (req) => {
       return jsonResponse({ error: "Nayax lookup evidence expired. Run lookup again." }, 400);
     }
 
+    const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
+    if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
+      return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
+    }
+
     const { data: updatedCase, error: updateError } = await supabase.rpc(
       "service_update_refund_case_as_actor",
       {
@@ -380,7 +436,7 @@ serve(async (req) => {
       return jsonResponse({ error: "Refund case was updated but could not be reloaded." }, 500);
     }
 
-    const messageType = resolveMessageType(beforeRow, afterRow);
+    const messageType = requestedMessageType ?? resolveMessageType(beforeRow, afterRow);
     const customerMessage = messageType
       ? await sendAndLogCustomerMessage(afterRow, messageType)
       : null;

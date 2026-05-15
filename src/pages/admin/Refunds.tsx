@@ -32,6 +32,8 @@ import {
   updateRefundCaseAdmin,
   type NayaxLookupCandidate,
   type RefundCaseRecord,
+  type RefundNayaxLookupStatus,
+  type RefundNayaxLookupSummary,
   type RefundCaseStatus,
   type RefundCustomerPortalMessageType,
   type RefundDecision,
@@ -124,12 +126,18 @@ type NayaxLookupNotice = {
 
 type QueueFilter = 'needs_action' | 'waiting_on_customer' | 'ready_to_pay' | 'completed' | 'all';
 
+type CustomerMessageResult = {
+  type: string;
+  status: string;
+} | null;
+
 type PrimaryActionConfig = {
   label: string;
   helper: string;
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
+  mode?: 'case_update' | 'retry_message';
   disabled?: boolean;
 };
 
@@ -198,6 +206,26 @@ const InfoHint = ({ children }: { children: ReactNode }) => (
   </p>
 );
 
+const StepHeader = ({
+  step,
+  title,
+  children,
+}: {
+  step: number;
+  title: string;
+  children?: ReactNode;
+}) => (
+  <div data-testid={`refund-step-${step}`} className="flex items-start gap-3">
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+      {step}
+    </span>
+    <div>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      {children ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{children}</p> : null}
+    </div>
+  </div>
+);
+
 const nayaxLookupNoticeClass = (tone: NayaxLookupNotice['tone']) =>
   cn(
     'mt-3 rounded-md border p-2 text-xs',
@@ -226,7 +254,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
       return 'No card-sale match is recorded. Ask the customer for more detail before deciding.';
     }
 
-      return 'Nayax auto-match runs when this case opens. Confirm a candidate before completion.';
+      return 'The card sale check runs when this case opens. Confirm a candidate before completion.';
   }
 
   if (refundCase.decision === 'approved' && refundCase.status !== 'completed') {
@@ -243,6 +271,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
 };
 
 const taskLabel = (refundCase: RefundCaseRecord) => {
+  if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 'Customer email failed';
   if (refundCase.status === 'completed') return 'Done';
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'Closed';
   if (refundCase.status === 'waiting_on_customer') return 'Needs customer info';
@@ -255,6 +284,7 @@ const taskLabel = (refundCase: RefundCaseRecord) => {
 };
 
 const taskBadgeClass = (refundCase: RefundCaseRecord) => {
+  if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
   if (refundCase.status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'border-slate-200 bg-slate-50 text-slate-700';
   if (refundCase.status === 'waiting_on_customer') return 'border-amber-200 bg-amber-50 text-amber-700';
@@ -262,9 +292,192 @@ const taskBadgeClass = (refundCase: RefundCaseRecord) => {
   return 'border-primary/20 bg-primary/10 text-primary';
 };
 
+const getLatestCustomerMessage = (refundCase: RefundCaseRecord) =>
+  refundCase.messages?.[0] ?? null;
+
+const getCustomerCommunicationLabel = (refundCase: RefundCaseRecord) => {
+  const latest = getLatestCustomerMessage(refundCase);
+  if (!latest) return 'No customer email yet';
+  if (latest.status === 'failed') return `Email failed: ${statusLabel(latest.messageType)}`;
+  if (latest.status === 'sent') return `Last email sent: ${statusLabel(latest.messageType)}`;
+  if (latest.status === 'pending') return `Email pending: ${statusLabel(latest.messageType)}`;
+  return `Customer email ${latest.status}: ${statusLabel(latest.messageType)}`;
+};
+
+const confidenceLabel = (confidence: number) => {
+  if (confidence >= 0.9) return 'strong match';
+  if (confidence >= 0.75) return 'good match';
+  return 'possible match';
+};
+
+const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
+  `${formatCurrency(candidate.amountCents)} card sale, ${candidate.cardBrand || 'card'} ending ${
+    candidate.cardLast4 || 'n/a'
+  }, ${formatDate(candidate.machineAuthorizationTime)}, ${confidenceLabel(candidate.matchConfidence)}`;
+
+const getFallbackNayaxLookupSummary = (
+  refundCase: RefundCaseRecord,
+  candidates: NayaxLookupCandidate[],
+  isLookingUp: boolean,
+  notice: NayaxLookupNotice | null
+): RefundNayaxLookupSummary => {
+  if (refundCase.paymentMethod !== 'card') {
+    return {
+      lookupStatus: 'not_applicable',
+      lastCheckedAt: null,
+      windowHours: null,
+      providerWindowRecordCount: null,
+      candidateCount: 0,
+      summary: 'Nayax lookup is only used for card refunds.',
+      recommendedAction: 'Use the cash sale match and Zelle workflow for this case.',
+    };
+  }
+
+  if (isLookingUp) {
+    return {
+      lookupStatus: 'checking',
+      lastCheckedAt: null,
+      windowHours: 6,
+      providerWindowRecordCount: null,
+      candidateCount: candidates.length,
+      summary: 'Checking Nayax Last Sales around the reported incident time.',
+      recommendedAction: 'Wait for the transaction check to finish before deciding.',
+    };
+  }
+
+  if (notice?.tone === 'error') {
+    return {
+      lookupStatus: 'lookup_failed',
+      lastCheckedAt: null,
+      windowHours: 6,
+      providerWindowRecordCount: null,
+      candidateCount: candidates.length,
+      summary: notice.message,
+      recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+    };
+  }
+
+  if (hasSelectedCardEvidence(refundCase, toEditorState(refundCase))) {
+    return {
+      lookupStatus: 'match_found',
+      lastCheckedAt: candidates[0]?.createdAt ?? null,
+      windowHours: 6,
+      providerWindowRecordCount: null,
+      candidateCount: Math.max(candidates.length, 1),
+      summary: transactionMatchSummary(refundCase, toEditorState(refundCase), candidates),
+      recommendedAction: 'Complete the manual Nayax refund, then mark the case complete.',
+    };
+  }
+
+  if (candidates.length === 1) {
+    return {
+      lookupStatus: 'match_found',
+      lastCheckedAt: candidates[0]?.createdAt ?? null,
+      windowHours: 6,
+      providerWindowRecordCount: null,
+      candidateCount: 1,
+      summary: 'Nayax found one likely card sale. Confirm it before approving or completing the refund.',
+      recommendedAction: 'Select the candidate if it matches the request, then confirm this card sale.',
+    };
+  }
+
+  if (candidates.length > 1) {
+    return {
+      lookupStatus: 'multiple_matches',
+      lastCheckedAt: candidates[0]?.createdAt ?? null,
+      windowHours: 6,
+      providerWindowRecordCount: null,
+      candidateCount: candidates.length,
+      summary: `Nayax found ${candidates.length} possible card sales. Confirm the correct one before completion.`,
+      recommendedAction: 'Choose the card sale that matches the customer request.',
+    };
+  }
+
+  if (refundCase.correlationStatus === 'nayax_not_configured' || refundCase.correlationStatus === 'needs_nayax') {
+    return {
+      lookupStatus: 'setup_needed',
+      lastCheckedAt: null,
+      windowHours: 6,
+      providerWindowRecordCount: null,
+      candidateCount: 0,
+      summary: 'This machine needs Nayax setup before card lookup can run.',
+      recommendedAction: 'Ask an admin to add the Nayax machine ID in Admin > Machines.',
+    };
+  }
+
+  if (refundCase.correlationStatus === 'no_match') {
+    return {
+      lookupStatus: 'no_match',
+      lastCheckedAt: null,
+      windowHours: 6,
+      providerWindowRecordCount: null,
+      candidateCount: 0,
+      summary: 'No matching card sale is selected yet.',
+      recommendedAction: 'Ask the customer for one more detail before deciding.',
+    };
+  }
+
+  return {
+    lookupStatus: 'not_started',
+    lastCheckedAt: null,
+    windowHours: 6,
+    providerWindowRecordCount: null,
+    candidateCount: 0,
+    summary: 'Nayax will check the selected machine around the reported incident time.',
+    recommendedAction: 'Open the case and wait for the automatic transaction check.',
+  };
+};
+
+const nayaxStatusLabel = (status: RefundNayaxLookupStatus) => {
+  switch (status) {
+    case 'checking':
+      return 'Checking';
+    case 'match_found':
+      return 'Match found';
+    case 'multiple_matches':
+      return 'Multiple possible matches';
+    case 'no_match':
+      return 'No match found';
+    case 'setup_needed':
+      return 'Setup needed';
+    case 'lookup_failed':
+      return 'Lookup failed';
+    case 'not_applicable':
+      return 'Not needed';
+    case 'not_started':
+    default:
+      return 'Not checked yet';
+  }
+};
+
+const nayaxStatusClass = (status: RefundNayaxLookupStatus, hasSelectedMatch = false) =>
+  cn(
+    'w-fit',
+    status === 'match_found' &&
+      (hasSelectedMatch ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-sky-200 bg-sky-50 text-sky-700'),
+    status === 'multiple_matches' && 'border-sky-200 bg-sky-50 text-sky-700',
+    status === 'no_match' && 'border-amber-200 bg-amber-50 text-amber-800',
+    status === 'setup_needed' && 'border-amber-200 bg-amber-50 text-amber-800',
+    status === 'lookup_failed' && 'border-destructive/30 bg-destructive/10 text-destructive',
+    (status === 'checking' || status === 'not_started' || status === 'not_applicable') &&
+      'border-slate-200 bg-slate-50 text-slate-700'
+  );
+
 const hasSelectedCardEvidence = (refundCase: RefundCaseRecord, editor: EditorState) =>
   refundCase.paymentMethod === 'card' &&
   (refundCase.hasMatchedNayaxTransaction || Boolean(editor.matchedNayaxCandidateToken.trim()));
+
+const nayaxDisplayStatusLabel = (
+  summary: RefundNayaxLookupSummary,
+  refundCase: RefundCaseRecord,
+  editor: EditorState
+) => {
+  if (summary.lookupStatus === 'match_found' && refundCase.paymentMethod === 'card') {
+    return hasSelectedCardEvidence(refundCase, editor) ? 'Match selected' : 'Candidate found';
+  }
+
+  return nayaxStatusLabel(summary.lookupStatus);
+};
 
 const hasTransactionMatch = (refundCase: RefundCaseRecord, editor: EditorState) =>
   refundCase.hasMatchedSalesFact ||
@@ -327,7 +540,7 @@ const transactionMatchSummary = (
       return 'No matching card sale is selected yet. Ask the customer for one more detail before deciding.';
     }
 
-    return 'Nayax auto-match checks the reported machine and time window. A manager confirms the match before completion.';
+    return 'The card sale check uses the reported machine and time window. A manager confirms the match before completion.';
   }
 
   if (refundCase.hasMatchedSalesFact || refundCase.correlationStatus === 'matched') {
@@ -346,6 +559,16 @@ const primaryActionConfig = (
   editor: EditorState,
   candidates: NayaxLookupCandidate[]
 ): PrimaryActionConfig => {
+  const latestMessage = getLatestCustomerMessage(refundCase);
+  if (latestMessage?.status === 'failed') {
+    return {
+      label: 'Retry customer email',
+      helper: `The last ${statusLabel(latestMessage.messageType)} email failed. Retry it before treating the customer as contacted.`,
+      messageType: latestMessage.messageType as RefundCustomerPortalMessageType,
+      mode: 'retry_message',
+    };
+  }
+
   if (refundCase.status === 'completed' || editor.status === 'completed') {
     return {
       label: 'Case complete',
@@ -361,58 +584,77 @@ const primaryActionConfig = (
       targetStatus: 'denied',
       targetDecision: 'denied',
       messageType: 'denied',
+      mode: 'case_update',
     };
   }
 
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
+  const waitingOnCustomer = refundCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
+  const customerAlreadyAsked =
+    waitingOnCustomer &&
+    latestMessage?.messageType === 'more_info' &&
+    ['sent', 'pending'].includes(latestMessage.status);
 
-  if (refundCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer' || noMatch) {
+  if (customerAlreadyAsked) {
     return {
-      label: 'Ask customer for more info',
-      helper: 'Move this case to customer follow-up and use the email preview to send a friendly request.',
+      label: 'Waiting on customer',
+      helper: 'The customer has already been asked for more detail. Keep the case parked here until they reply or use the manual retry path only if needed.',
+      disabled: true,
+    };
+  }
+
+  if (waitingOnCustomer || noMatch) {
+    return {
+      label: 'Ask customer for details',
+      helper: 'Move this case to customer follow-up and send the friendly detail-request email in one step.',
       targetStatus: 'waiting_on_customer',
       targetDecision: null,
       messageType: 'more_info',
+      mode: 'case_update',
     };
   }
 
   if (refundCase.paymentMethod === 'card') {
     if (editor.decision === 'approved' || editor.status === 'card_refund_pending' || refundCase.status === 'card_refund_pending') {
       return {
-        label: 'Mark card refund complete',
-        helper: 'Complete the refund manually in Nayax first, then enter the confirmation reference.',
+        label: 'Mark Nayax refund complete',
+        helper: 'Complete the refund manually in Nayax first, then enter the confirmation reference. The completion email sends automatically.',
         targetStatus: 'completed',
         targetDecision: 'approved',
         messageType: 'completed',
+        mode: 'case_update',
       };
     }
 
     return {
-      label: 'Approve refund',
-      helper: 'Approve the request and move it to manual Nayax refund completion.',
+      label: 'Confirm this card sale',
+      helper: 'Confirm the card sale and send the approval email. The next step is manual Nayax refund completion.',
       targetStatus: 'card_refund_pending',
       targetDecision: 'approved',
       messageType: 'approved',
+      mode: 'case_update',
     };
   }
 
   if (editor.decision === 'approved' || editor.status === 'cash_zelle_pending' || refundCase.status === 'cash_zelle_pending') {
     return {
       label: 'Mark Zelle refund complete',
-      helper: 'Send the Zelle refund first, then enter the Zelle confirmation/reference.',
+      helper: 'Send the Zelle refund first, then enter the Zelle confirmation/reference. The completion email sends automatically.',
       targetStatus: 'completed',
       targetDecision: 'approved',
       messageType: 'completed',
+      mode: 'case_update',
     };
   }
 
   return {
     label: 'Approve cash refund',
-    helper: 'Approve the request and move it to manual Zelle payout.',
+    helper: 'Approve the request and send the approval email. The next step is manual Zelle payout.',
     targetStatus: 'cash_zelle_pending',
     targetDecision: 'approved',
     messageType: 'approved',
+    mode: 'case_update',
   };
 };
 
@@ -424,9 +666,15 @@ const editorForPrimaryAction = (editor: EditorState, action: PrimaryActionConfig
 
 const getCustomerMessageDraft = (
   refundCase: RefundCaseRecord,
-  messageType: RefundCustomerPortalMessageType
+  messageType: RefundCustomerPortalMessageType,
+  editor?: EditorState | null
 ) => {
-  const amount = formatMessageAmount(refundCase);
+  const editedRefundAmountCents = editor?.refundAmount ? centsFromCurrency(editor.refundAmount) : null;
+  const amount = typeof editedRefundAmountCents === 'number' ? formatCurrency(editedRefundAmountCents) : formatMessageAmount(refundCase);
+  const decisionReason =
+    editor?.decisionReason.trim() ||
+    refundCase.decisionReason ||
+    'If any of the details were submitted incorrectly, please reply and we will take another careful look.';
   switch (messageType) {
     case 'more_info':
       return {
@@ -453,7 +701,7 @@ const getCustomerMessageDraft = (
         subject: `Update on your Bloomjoy refund request ${refundCase.publicReference}`,
         body: [
           'Thank you for giving us the chance to review this. We were not able to approve the refund based on the transaction and machine information available.',
-          refundCase.decisionReason || 'If any of the details were submitted incorrectly, please reply and we will take another careful look.',
+          decisionReason,
           'We are sorry this visit was frustrating, and we appreciate you reaching out.',
         ].join('\n\n'),
       };
@@ -617,6 +865,7 @@ export default function AdminRefundsPage() {
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
+  const [nayaxLookupSummary, setNayaxLookupSummary] = useState<RefundNayaxLookupSummary | null>(null);
   const [messageType, setMessageType] = useState<RefundCustomerPortalMessageType>('status_update');
   const [messageSubject, setMessageSubject] = useState('');
   const [messageBody, setMessageBody] = useState('');
@@ -699,6 +948,7 @@ export default function AdminRefundsPage() {
     setEditor(null);
     setNayaxCandidates([]);
     setNayaxLookupNotice(null);
+    setNayaxLookupSummary(null);
     setMessageSubject('');
     setMessageBody('');
   }, [filteredCases, selectedId]);
@@ -713,8 +963,22 @@ export default function AdminRefundsPage() {
     [editor, primaryAction]
   );
   const primaryActionIssues = useMemo(
-    () => (selectedCase && primaryActionEditor ? getCaseSaveIssues(selectedCase, primaryActionEditor) : []),
-    [primaryActionEditor, selectedCase]
+    () =>
+      primaryAction?.mode === 'retry_message'
+        ? []
+        : selectedCase && primaryActionEditor
+          ? getCaseSaveIssues(selectedCase, primaryActionEditor)
+          : [],
+    [primaryAction, primaryActionEditor, selectedCase]
+  );
+  const selectedNayaxSummary = useMemo(
+    () =>
+      selectedCase
+        ? nayaxLookupSummary ??
+          selectedCase.nayaxLookupSummary ??
+          getFallbackNayaxLookupSummary(selectedCase, nayaxCandidates, isLookingUpNayax, nayaxLookupNotice)
+        : null,
+    [isLookingUpNayax, nayaxCandidates, nayaxLookupNotice, nayaxLookupSummary, selectedCase]
   );
 
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
@@ -722,6 +986,7 @@ export default function AdminRefundsPage() {
     setEditor(toEditorState(refundCase));
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
     setNayaxLookupNotice(null);
+    setNayaxLookupSummary(refundCase.nayaxLookupSummary ?? null);
     const draft = getCustomerMessageDraft(refundCase, 'status_update');
     setMessageType('status_update');
     setMessageSubject(draft.subject);
@@ -734,31 +999,34 @@ export default function AdminRefundsPage() {
     }
   };
 
-  const handleSaveCase = async (editorOverride?: EditorState) => {
-    if (!selectedCase || !editor) return;
+  const handleSaveCase = async (
+    editorOverride?: EditorState,
+    customerMessageType?: RefundCustomerPortalMessageType | null
+  ): Promise<CustomerMessageResult> => {
+    if (!selectedCase || !editor) return null;
     const nextEditor = editorOverride ?? editor;
     if (isUsingDemoData) {
       toast.info('Demo cases are read-only. Seed local Supabase fixtures to test saving workflow changes.');
-      return;
+      return null;
     }
 
     const refundAmountCents = centsFromCurrency(nextEditor.refundAmount);
     if (nextEditor.refundAmount && refundAmountCents === null) {
       toast.error('Refund amount must be a valid dollar amount.');
-      return;
+      return null;
     }
 
     const issues = getCaseSaveIssues(selectedCase, nextEditor);
     if (issues.length > 0) {
       toast.error(issues[0]);
-      return;
+      return null;
     }
 
     setIsSaving(true);
     try {
       const clearNayaxMatch = nextEditor.clearNayaxMatch;
       const nayaxAmountCents = centsFromCurrency(nextEditor.matchedNayaxAmount);
-      await updateRefundCaseAdmin({
+      const result = await updateRefundCaseAdmin({
         caseId: selectedCase.id,
         status: clearNayaxMatch ? 'needs_review' : nextEditor.status,
         assignedManagerEmail: nextEditor.assignedManagerEmail.trim() || null,
@@ -773,12 +1041,21 @@ export default function AdminRefundsPage() {
         matchedNayaxAmountCents: nayaxAmountCents,
         matchedNayaxCardLast4: nextEditor.matchedNayaxCardLast4.trim() || null,
         matchedNayaxCurrencyCode: nextEditor.matchedNayaxCurrencyCode.trim().toUpperCase() || null,
+        customerMessageType,
       });
-      toast.success('Refund case updated.');
+      if (result.customerMessage?.status === 'failed') {
+        toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
+      } else if (result.customerMessage?.status === 'sent') {
+        toast.success('Refund case updated and customer email sent.');
+      } else {
+        toast.success('Refund case updated.');
+      }
       await refresh();
+      return result.customerMessage ?? null;
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Unable to update refund case.';
       toast.error(message);
+      return null;
     } finally {
       setIsSaving(false);
     }
@@ -786,11 +1063,15 @@ export default function AdminRefundsPage() {
 
   const handlePrimaryAction = async () => {
     if (!editor || !primaryAction || !primaryActionEditor) return;
+    if (primaryAction.mode === 'retry_message') {
+      await handleSendCustomerMessage(primaryAction.messageType);
+      return;
+    }
     if (primaryAction.messageType && primaryAction.messageType !== messageType) {
       handleMessageTypeChange(primaryAction.messageType);
     }
     setEditor(primaryActionEditor);
-    await handleSaveCase(primaryActionEditor);
+    await handleSaveCase(primaryActionEditor, primaryAction.messageType ?? null);
   };
 
   const handleNayaxLookup = async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -817,10 +1098,32 @@ export default function AdminRefundsPage() {
       });
 
       setNayaxCandidates(result.candidates ?? []);
+      const nextSummary: RefundNayaxLookupSummary = {
+        lookupStatus:
+          result.lookupStatus ??
+          (!result.configured
+            ? 'setup_needed'
+            : (result.candidates?.length ?? 0) > 1
+              ? 'multiple_matches'
+              : (result.candidates?.length ?? 0) === 1
+                ? 'match_found'
+                : 'no_match'),
+        lastCheckedAt: result.lastCheckedAt ?? new Date().toISOString(),
+        windowHours: result.windowHours ?? 6,
+        providerWindowRecordCount: result.providerWindowRecordCount ?? null,
+        candidateCount: result.candidateCount ?? result.candidates?.length ?? 0,
+        summary: result.summary || result.message || 'Nayax lookup finished.',
+        recommendedAction:
+          result.recommendedAction ||
+          ((result.candidates?.length ?? 0) > 0
+            ? 'Confirm the correct card sale before completing the case.'
+            : 'Ask the customer for one more detail before deciding this card case.'),
+      };
+      setNayaxLookupSummary(nextSummary);
       if (!result.configured) {
         setNayaxLookupNotice({
           tone: 'warning',
-          message: result.message || 'Nayax lookup is waiting on configuration for this machine.',
+          message: nextSummary.summary || 'Nayax lookup is waiting on configuration for this machine.',
         });
         if (!silent) {
           toast.info(result.message || 'Nayax lookup is waiting on configuration.');
@@ -836,13 +1139,13 @@ export default function AdminRefundsPage() {
               : 'No Nayax candidates returned for the +/- 6 hour window. Use the customer message section to request more detail.';
         setNayaxLookupNotice({
           tone: 'info',
-          message: noMatchMessage,
+          message: result.summary || noMatchMessage,
         });
         if (!silent) {
           toast.info(noMatchMessage);
         }
       } else {
-        const foundMessage = `Nayax found ${result.candidates.length} candidate(s) inside +/- ${
+        const foundMessage = result.summary || `Nayax found ${result.candidates.length} candidate(s) inside +/- ${
           result.windowHours ?? 6
         } hours. Confirm the right transaction before completing the case.`;
         setNayaxLookupNotice({
@@ -855,6 +1158,15 @@ export default function AdminRefundsPage() {
       }
     } catch (lookupError) {
       const message = lookupError instanceof Error ? lookupError.message : 'Unable to run Nayax lookup.';
+      setNayaxLookupSummary({
+        lookupStatus: 'lookup_failed',
+        lastCheckedAt: new Date().toISOString(),
+        windowHours: 6,
+        providerWindowRecordCount: null,
+        candidateCount: 0,
+        summary: `${message} Keep the case in review or ask the customer for more detail, then try again.`,
+        recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+      });
       setNayaxLookupNotice({
         tone: 'error',
         message: `${message} Keep the case in review or ask the customer for more detail, then try again.`,
@@ -926,14 +1238,19 @@ export default function AdminRefundsPage() {
     setMessageBody(draft.body);
   };
 
-  const handleSendCustomerMessage = async () => {
+  const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null) => {
     if (!selectedCase) return;
     if (isUsingDemoData) {
       toast.info('Demo cases are read-only. Seed local Supabase fixtures to test outbound customer email.');
       return;
     }
 
-    if (!messageBody.trim()) {
+    const nextMessageType = messageTypeOverride ?? messageType;
+    const draft = messageTypeOverride ? getCustomerMessageDraft(selectedCase, messageTypeOverride) : null;
+    const subject = draft?.subject ?? messageSubject;
+    const body = draft?.body ?? messageBody;
+
+    if (!body.trim()) {
       toast.error('Customer message body is required.');
       return;
     }
@@ -942,9 +1259,9 @@ export default function AdminRefundsPage() {
     try {
       await sendRefundCaseMessage({
         caseId: selectedCase.id,
-        messageType,
-        subject: messageSubject.trim(),
-        body: messageBody.trim(),
+        messageType: nextMessageType,
+        subject: subject.trim(),
+        body: body.trim(),
       });
       toast.success('Customer email sent from Bloomjoy.');
       await refresh();
@@ -955,6 +1272,202 @@ export default function AdminRefundsPage() {
       setIsSendingCustomerMessage(false);
     }
   };
+
+  const renderCardSaleCandidates = () => {
+    if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
+
+    return (
+      <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-sky-950">Card sale candidates</p>
+            <p className="mt-1 text-xs text-sky-800">
+              {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken
+                ? 'A card sale is selected for this refund.'
+                : isLookingUpNayax
+                  ? 'Checking card sales using the reported machine and incident time.'
+                  : 'Choose a candidate only when it matches the customer request.'}
+            </p>
+          </div>
+          <Badge className="w-fit border-sky-200 bg-white text-sky-800">
+            {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken
+              ? 'Match selected'
+              : nayaxCandidates.length > 0
+                ? 'Candidates ready'
+                : isLookingUpNayax
+                  ? 'Checking'
+                  : 'Auto-check enabled'}
+          </Badge>
+        </div>
+        <InfoHint>
+          Raw Nayax transaction IDs stay server-side. Managers see only the sale details needed to decide.
+        </InfoHint>
+        {nayaxLookupNotice && (
+          <div className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
+            {nayaxLookupNotice.message}
+          </div>
+        )}
+        {nayaxCandidates.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {nayaxCandidates.map((candidate, index) => (
+              <button
+                key={candidate.candidateToken}
+                data-testid="nayax-candidate-option"
+                type="button"
+                disabled={isUsingDemoData}
+                onClick={() =>
+                  setEditor((current) =>
+                    current
+                      ? {
+                          ...current,
+                          matchedNayaxCandidateToken: candidate.candidateToken,
+                          matchedNayaxMachineAuthTime: candidate.machineAuthorizationTime,
+                          matchedNayaxAmount:
+                            typeof candidate.amountCents === 'number'
+                              ? (candidate.amountCents / 100).toFixed(2)
+                              : '',
+                          matchedNayaxCardLast4: candidate.cardLast4,
+                          matchedNayaxCurrencyCode: candidate.currencyCode,
+                        }
+                      : current
+                  )
+                }
+                className={cn(
+                  'w-full min-w-0 rounded-md border bg-white p-2 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100',
+                  editor.matchedNayaxCandidateToken === candidate.candidateToken
+                    ? 'border-sky-500 ring-2 ring-sky-200'
+                    : 'border-sky-200'
+                )}
+              >
+                <span className="flex flex-wrap items-center gap-2 font-semibold">
+                  <span>{index === 0 ? 'Recommended candidate' : 'Alternate candidate'}</span>
+                  <span className="font-normal text-sky-700">
+                    {formatDate(candidate.machineAuthorizationTime)}
+                  </span>
+                </span>
+                <span className="mt-1 block text-sky-700">
+                  {formatCandidateSummary(candidate)}
+                </span>
+                <span className="mt-1 block text-sky-700">
+                  {candidate.matchReason || candidate.paymentStatus || 'review candidate'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {nayaxCandidates.length === 0 && !isLookingUpNayax && (
+          <div className="mt-3 rounded-md border border-sky-200 bg-white/80 p-2 text-xs text-sky-800">
+            No selectable card-sale candidates are currently loaded. If the result is no match, use the primary action to ask the customer for details.
+          </div>
+        )}
+        <details className="mt-3 rounded-md border border-sky-200 bg-white/70 p-2">
+          <summary className="cursor-pointer text-xs font-medium text-sky-950">
+            Advanced Nayax controls
+          </summary>
+          <div className="mt-3 space-y-2">
+            <p className="text-xs leading-5 text-sky-800">
+              Use refresh only if the result looks stale or new provider data may now be available.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleNayaxLookup()}
+              disabled={isLookingUpNayax || isUsingDemoData}
+            >
+              {isLookingUpNayax ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Refresh result
+            </Button>
+            {(selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={isUsingDemoData}
+                className="px-0 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() =>
+                  setEditor((current) =>
+                    current
+                      ? {
+                          ...current,
+                          status: 'needs_review',
+                          decision: null,
+                          decisionReason: '',
+                          clearNayaxMatch: true,
+                          matchedNayaxCandidateToken: '',
+                          matchedNayaxMachineAuthTime: '',
+                          matchedNayaxAmount: '',
+                          matchedNayaxCardLast4: '',
+                          matchedNayaxCurrencyCode: '',
+                        }
+                      : current
+                  )
+                }
+              >
+                Clear card lookup match
+              </Button>
+            )}
+          </div>
+        </details>
+        <details className="mt-3 rounded-md border border-sky-200 bg-white/70 p-2">
+          <summary className="cursor-pointer text-xs font-medium text-sky-950">
+            Selected evidence details
+          </summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label>Machine auth time</Label>
+              <Input
+                value={editor.matchedNayaxMachineAuthTime}
+                disabled
+                className="mt-2 bg-white"
+                placeholder="Select a Nayax candidate"
+              />
+            </div>
+            <div>
+              <Label>Matched amount</Label>
+              <Input
+                value={editor.matchedNayaxAmount}
+                disabled
+                className="mt-2 bg-white"
+                placeholder="Select a Nayax candidate"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>Card last 4</Label>
+                <Input
+                  value={editor.matchedNayaxCardLast4}
+                  disabled
+                  className="mt-2 bg-white"
+                />
+              </div>
+              <div>
+                <Label>Currency</Label>
+                <Input
+                  value={editor.matchedNayaxCurrencyCode}
+                  disabled
+                  className="mt-2 bg-white"
+                  placeholder="Select"
+                />
+              </div>
+            </div>
+          </div>
+          <InfoHint>
+            These values populate from tokenized Nayax candidates only. If lookup fails, keep the case in review or ask the customer for more information.
+          </InfoHint>
+        </details>
+      </div>
+    );
+  };
+
+  const nextCustomerDraft =
+    selectedCase && editor && primaryAction?.messageType
+      ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
+      : null;
 
   return (
     <PortalLayout>
@@ -1211,67 +1724,143 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
 
-                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
-                      <div className="flex items-start gap-2">
-                        <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                        <div>
-                          <p className="font-medium text-foreground">Next action</p>
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Recommended next action
+                          </p>
+                          <p className="mt-1 text-lg font-semibold text-foreground">
+                            {primaryAction?.label ?? 'Review case'}
+                          </p>
                           <p className="mt-1 text-muted-foreground">
                             {primaryAction?.helper ?? getSuggestedNextAction(selectedCase, nayaxCandidates)}
                           </p>
                         </div>
+                        <Badge className="w-fit border-primary/20 bg-background text-primary">
+                          {getCustomerCommunicationLabel(selectedCase)}
+                        </Badge>
                       </div>
+                      {primaryAction && (
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <Button
+                            type="button"
+                            size="sm"
+                            data-testid="refund-primary-action-top"
+                            onClick={() => void handlePrimaryAction()}
+                            disabled={
+                              isSaving ||
+                              isUsingDemoData ||
+                              primaryAction.disabled ||
+                              primaryActionIssues.length > 0
+                            }
+                          >
+                            {isSaving ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="mr-2 h-4 w-4" />
+                            )}
+                            {primaryAction.label}
+                          </Button>
+                          {primaryActionIssues.length > 0 && (
+                            <span className="text-xs text-amber-700">
+                              Resolve the action checklist below first.
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="grid gap-3 rounded-lg border border-border bg-background p-3 text-sm sm:grid-cols-2">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Customer
-                        </p>
-                        <p className="mt-1 break-words font-medium text-foreground">
-                          {selectedCase.customerName || 'Name not provided'}
-                        </p>
-                        <p className="mt-1 break-words text-muted-foreground">
-                          {selectedCase.customerEmail}
-                        </p>
-                        {selectedCase.customerPhone && (
+                    <div className="space-y-3 rounded-lg border border-border bg-background p-4">
+                      <StepHeader step={1} title="Request">
+                        Confirm who contacted us, where it happened, and the refund path.
+                      </StepHeader>
+                      <div className="grid gap-3 text-sm sm:grid-cols-2">
+                        <div className="rounded-md border border-border bg-muted/20 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Customer
+                          </p>
+                          <p className="mt-1 break-words font-medium text-foreground">
+                            {selectedCase.customerName || 'Name not provided'}
+                          </p>
                           <p className="mt-1 break-words text-muted-foreground">
-                            Phone: {selectedCase.customerPhone}
+                            {selectedCase.customerEmail}
                           </p>
-                        )}
+                          {selectedCase.customerPhone && (
+                            <p className="mt-1 break-words text-muted-foreground">
+                              Phone: {selectedCase.customerPhone}
+                            </p>
+                          )}
+                        </div>
+                        <div className="rounded-md border border-border bg-muted/20 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Refund path
+                          </p>
+                          <p className="mt-1 capitalize text-foreground">
+                            {selectedCase.paymentMethod === 'cash' ? 'Cash refund by Zelle' : 'Card refund by Nayax'}
+                          </p>
+                          {selectedCase.paymentMethod === 'cash' && (
+                            <p className="mt-1 break-words text-muted-foreground">
+                              Zelle: {selectedCase.zellePaymentContact || 'Not provided'}
+                            </p>
+                          )}
+                          {selectedCase.paymentMethod === 'card' && (
+                            <p className="mt-1 text-muted-foreground">
+                              Last 4: {selectedCase.cardLast4 || 'n/a'}
+                              {selectedCase.cardWalletUsed ? ' / wallet payment noted' : ''}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Refund path
+                      <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
+                        <p className="font-medium text-foreground">
+                          {selectedCase.locationName} - {selectedCase.machineLabel}
                         </p>
-                        <p className="mt-1 capitalize text-foreground">
-                          {selectedCase.paymentMethod === 'cash' ? 'Cash refund by Zelle' : 'Card refund by Nayax'}
+                        <p className="mt-1 text-muted-foreground">
+                          Incident: {formatDate(selectedCase.incidentAt)}
                         </p>
-                        {selectedCase.paymentMethod === 'cash' && (
-                          <p className="mt-1 break-words text-muted-foreground">
-                            Zelle: {selectedCase.zellePaymentContact || 'Not provided'}
-                          </p>
-                        )}
-                        {selectedCase.paymentMethod === 'card' && (
-                          <p className="mt-1 text-muted-foreground">
-                            Last 4: {selectedCase.cardLast4 || 'n/a'}
-                            {selectedCase.cardWalletUsed ? ' / wallet payment noted' : ''}
-                          </p>
-                        )}
+                        <p className="mt-3 break-words text-muted-foreground">{selectedCase.issueSummary}</p>
                       </div>
                     </div>
 
-                    <div className="rounded-lg border border-border bg-muted/25 p-3 text-sm">
-                      <p className="font-medium text-foreground">
-                        {selectedCase.locationName} - {selectedCase.machineLabel}
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        Incident: {formatDate(selectedCase.incidentAt)}
-                      </p>
-                      <p className="mt-3 break-words text-muted-foreground">{selectedCase.issueSummary}</p>
-                    </div>
-
-                    <div className="rounded-lg border border-border bg-background p-3 text-sm">
+                    <div className="rounded-lg border border-border bg-background p-4 text-sm">
+                      <StepHeader step={2} title="Transaction check">
+                        Review the match result before approving, denying, or asking for more detail.
+                      </StepHeader>
+                      <div className="mt-3">
+                        {selectedCase.paymentMethod === 'card' && selectedNayaxSummary && (
+                          <div data-testid="nayax-result-card" className="mb-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-sky-950">Nayax result</p>
+                                <p className="mt-1 text-sm text-sky-900">{selectedNayaxSummary.summary}</p>
+                              </div>
+                              <Badge className={nayaxStatusClass(selectedNayaxSummary.lookupStatus, hasSelectedCardEvidence(selectedCase, editor))}>
+                                {nayaxDisplayStatusLabel(selectedNayaxSummary, selectedCase, editor)}
+                              </Badge>
+                            </div>
+                            <div className="mt-3 grid gap-2 text-xs text-sky-900 sm:grid-cols-3">
+                              <div className="rounded-md border border-sky-200 bg-white/80 p-2">
+                                <span className="block font-medium text-sky-950">Searched window</span>
+                                <span>
+                                  +/- {selectedNayaxSummary.windowHours ?? 6} hours around incident time
+                                </span>
+                              </div>
+                              <div className="rounded-md border border-sky-200 bg-white/80 p-2">
+                                <span className="block font-medium text-sky-950">Last checked</span>
+                                <span>{formatDate(selectedNayaxSummary.lastCheckedAt)}</span>
+                              </div>
+                              <div className="rounded-md border border-sky-200 bg-white/80 p-2">
+                                <span className="block font-medium text-sky-950">Records in window</span>
+                                <span>{selectedNayaxSummary.providerWindowRecordCount ?? 'n/a'}</span>
+                              </div>
+                            </div>
+                            <p className="mt-3 text-xs font-medium text-sky-950">
+                              Next: {selectedNayaxSummary.recommendedAction}
+                            </p>
+                          </div>
+                        )}
+                        {renderCardSaleCandidates()}
                       <div className="flex items-start gap-2">
                         <ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
                         <div>
@@ -1314,6 +1903,7 @@ export default function AdminRefundsPage() {
                         </div>
                       </div>
                     </div>
+                    </div>
 
                     {selectedCase.attachments.length > 0 && (
                       <div>
@@ -1338,13 +1928,10 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
-                    <div className="space-y-4 rounded-lg border border-border bg-background p-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-foreground">Case action</h3>
-                        <InfoHint>
-                          Work from the primary action. Advanced status fields are available only when support needs a manual correction.
-                        </InfoHint>
-                      </div>
+                    <div className="space-y-4 rounded-lg border border-border bg-background p-4">
+                      <StepHeader step={3} title="Decision">
+                        Use the recommended action. Customer email sends with the action when a message is required.
+                      </StepHeader>
 
                       {primaryAction && (
                         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
@@ -1358,7 +1945,10 @@ export default function AdminRefundsPage() {
                         </div>
                       )}
 
-                    <div className="grid gap-3">
+                    <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3">
+                      <StepHeader step={4} title="Refund completion">
+                        Enter payout proof only when marking a Nayax or Zelle refund complete.
+                      </StepHeader>
                       <div>
                         <Label>Refund amount</Label>
                         <Input
@@ -1373,8 +1963,6 @@ export default function AdminRefundsPage() {
                           placeholder="12.00"
                         />
                       </div>
-                    </div>
-
                     <div>
                       <Label>{getRefundReferenceLabel(selectedCase)}</Label>
                       <Input
@@ -1392,6 +1980,7 @@ export default function AdminRefundsPage() {
                       <InfoHint>
                         Required only when marking a refund complete. This is the manual payout proof managers can find later.
                       </InfoHint>
+                    </div>
                     </div>
 
                     <details className="rounded-lg border border-border bg-muted/20 p-3">
@@ -1456,228 +2045,47 @@ export default function AdminRefundsPage() {
                           </select>
                         </div>
                         <div className="sm:col-span-2">
-                          <Label>Assigned manager email</Label>
-                          <Input
-                            value={editor.assignedManagerEmail}
-                            disabled={isUsingDemoData}
-                            onChange={(event) =>
-                              setEditor((current) =>
-                                current
-                                  ? { ...current, assignedManagerEmail: event.target.value }
-                                  : current
-                              )
-                            }
-                            className="mt-2"
-                          />
+                          <Label>Case owner</Label>
+                          <div className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+                            {editor.assignedManagerEmail || 'Unassigned'}
+                          </div>
                           <InfoHint>
-                            Machine Manager ownership is managed from Admin &gt; Machines; this records who is handling this case.
+                            Machine Manager ownership is managed from Admin &gt; Machines. Case owner changes should happen through machine assignment, not refund processing.
                           </InfoHint>
                         </div>
                       </div>
                     </details>
 
-                    {selectedCase.paymentMethod === 'card' && (
-                      <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-sky-950">Nayax auto-match</p>
-                            <p className="mt-1 text-xs text-sky-800">
-                              {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken
-                                ? 'Automatic Nayax evidence is selected for this card refund.'
-                                : isLookingUpNayax
-                                  ? 'Checking Nayax Last Sales automatically using a +/- 6 hour window.'
-                                  : 'The system checks Nayax automatically when the case opens and during the background sweep.'}
+                    <div className="space-y-3 rounded-lg border border-border bg-background p-4">
+                      <StepHeader step={5} title="Customer update">
+                        The matching customer email sends automatically with the primary action. Replies go to info@bloomjoysweets.com.
+                      </StepHeader>
+                      <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
+                        <div className="flex items-start gap-2">
+                          <Mail className="mt-0.5 h-4 w-4 text-primary" />
+                          <div>
+                            <p className="font-medium text-foreground">{getCustomerCommunicationLabel(selectedCase)}</p>
+                            <p className="mt-1 text-muted-foreground">
+                              Next email template: {primaryAction?.messageType ? statusLabel(primaryAction.messageType) : 'none'}
                             </p>
                           </div>
-                          <Badge className="w-fit border-sky-200 bg-white text-sky-800">
-                            {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken
-                              ? 'Match selected'
-                              : nayaxCandidates.length > 0
-                                ? 'Candidates ready'
-                                : isLookingUpNayax
-                                  ? 'Checking'
-                                  : 'Auto-check enabled'}
-                          </Badge>
                         </div>
-                        <InfoHint>
-                          Managers only confirm the right sanitized candidate before card completion. Raw Nayax transaction IDs stay server-side.
-                        </InfoHint>
-                        {nayaxLookupNotice && (
-                          <div className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
-                            {nayaxLookupNotice.message}
-                          </div>
-                        )}
-                        {nayaxCandidates.length > 0 && (
-                          <div className="mt-3 space-y-2">
-                            {nayaxCandidates.map((candidate, index) => (
-                              <button
-                                key={candidate.candidateToken}
-                                data-testid="nayax-candidate-option"
-                                type="button"
-                                disabled={isUsingDemoData}
-                                onClick={() =>
-                                  setEditor((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          matchedNayaxCandidateToken: candidate.candidateToken,
-                                          matchedNayaxMachineAuthTime: candidate.machineAuthorizationTime,
-                                          matchedNayaxAmount:
-                                            typeof candidate.amountCents === 'number'
-                                              ? (candidate.amountCents / 100).toFixed(2)
-                                              : '',
-                                          matchedNayaxCardLast4: candidate.cardLast4,
-                                          matchedNayaxCurrencyCode: candidate.currencyCode,
-                                        }
-                                      : current
-                                  )
-                                }
-                                className={cn(
-                                  'w-full min-w-0 rounded-md border bg-white p-2 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100',
-                                  editor.matchedNayaxCandidateToken === candidate.candidateToken
-                                    ? 'border-sky-500 ring-2 ring-sky-200'
-                                    : 'border-sky-200'
-                                )}
-                              >
-                                <span className="flex flex-wrap items-center gap-2 font-semibold">
-                                  <span>{index === 0 ? 'Recommended match' : 'Alternate match'}</span>
-                                  <span className="font-normal text-sky-700">
-                                    {formatDate(candidate.machineAuthorizationTime)}
-                                  </span>
-                                </span>
-                                <span className="mt-1 block text-sky-700">
-                                  {formatCurrency(candidate.amountCents)} / last4{' '}
-                                  {candidate.cardLast4 || 'n/a'} / {candidate.cardBrand || 'card'} /{' '}
-                                  {candidate.currencyCode || 'n/a'} / {Math.round(candidate.matchConfidence * 100)}%
-                                </span>
-                                <span className="mt-1 block text-sky-700">
-                                  {candidate.matchReason || candidate.paymentStatus || 'review candidate'}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {nayaxCandidates.length === 0 && !isLookingUpNayax && (
-                          <div className="mt-3 rounded-md border border-sky-200 bg-white/80 p-2 text-xs text-sky-800">
-                            No selectable Nayax candidates are currently loaded. If auto-match finds no match, use the customer message section to request more detail.
-                          </div>
-                        )}
-                        <details className="mt-3 rounded-md border border-sky-200 bg-white/70 p-2">
-                          <summary className="cursor-pointer text-xs font-medium text-sky-950">
-                            Advanced Nayax controls
-                          </summary>
-                          <div className="mt-3 space-y-2">
-                            <p className="text-xs leading-5 text-sky-800">
-                              Auto-match runs without manager action. Use this only if new Nayax data was added or a support review asks you to rerun the check.
-                            </p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleNayaxLookup()}
-                              disabled={isLookingUpNayax || isUsingDemoData}
-                            >
-                              {isLookingUpNayax ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              ) : (
-                                <RefreshCw className="mr-2 h-4 w-4" />
-                              )}
-                              Re-run automatic Nayax check
-                            </Button>
-                            {(selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken) && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                disabled={isUsingDemoData}
-                                className="px-0 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() =>
-                                  setEditor((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          status: 'needs_review',
-                                          decision: null,
-                                          decisionReason: '',
-                                          clearNayaxMatch: true,
-                                          matchedNayaxCandidateToken: '',
-                                          matchedNayaxMachineAuthTime: '',
-                                          matchedNayaxAmount: '',
-                                          matchedNayaxCardLast4: '',
-                                          matchedNayaxCurrencyCode: '',
-                                        }
-                                      : current
-                                  )
-                                }
-                              >
-                                Clear card lookup match
-                              </Button>
-                            )}
-                          </div>
-                        </details>
-                        <details className="mt-3 rounded-md border border-sky-200 bg-white/70 p-2">
-                          <summary className="cursor-pointer text-xs font-medium text-sky-950">
-                            Selected evidence details
-                          </summary>
-                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                            <div>
-                              <Label>Machine auth time</Label>
-                              <Input
-                                value={editor.matchedNayaxMachineAuthTime}
-                                disabled
-                                className="mt-2 bg-white"
-                                placeholder="Select a Nayax candidate"
-                              />
-                            </div>
-                            <div>
-                              <Label>Matched amount</Label>
-                              <Input
-                                value={editor.matchedNayaxAmount}
-                                disabled
-                                className="mt-2 bg-white"
-                                placeholder="Select a Nayax candidate"
-                              />
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <Label>Card last 4</Label>
-                                <Input
-                                  value={editor.matchedNayaxCardLast4}
-                                  disabled
-                                  className="mt-2 bg-white"
-                                />
-                              </div>
-                              <div>
-                                <Label>Currency</Label>
-                                <Input
-                                  value={editor.matchedNayaxCurrencyCode}
-                                  disabled
-                                  className="mt-2 bg-white"
-                                  placeholder="Select"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <InfoHint>
-                            These values populate from tokenized Nayax candidates only. If lookup fails, keep the case in review or ask the customer for more information.
-                          </InfoHint>
-                        </details>
                       </div>
-                    )}
-
-                    <details
-                      className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
-                      open={primaryAction?.messageType === 'more_info'}
-                    >
-                      <summary className="flex cursor-pointer list-none items-start gap-2">
-                        <MessageSquare className="mt-0.5 h-4 w-4 text-primary" />
-                        <div>
-                          <h3 className="text-sm font-semibold text-foreground">Email preview</h3>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Template follows the selected action. Replies go to info@bloomjoysweets.com and the reference stays in the message.
+                      {nextCustomerDraft && (
+                        <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Customer will receive
+                          </p>
+                          <p className="mt-2 font-medium text-foreground">{nextCustomerDraft.subject}</p>
+                          <p className="mt-2 whitespace-pre-line text-muted-foreground">
+                            {nextCustomerDraft.body}
                           </p>
                         </div>
-                      </summary>
+                      )}
+                      <details className="rounded-md border border-border bg-muted/20 p-3">
+                        <summary className="cursor-pointer text-sm font-medium text-foreground">
+                          Advanced email preview and retry
+                        </summary>
                       <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
                         <div>
                           <Label>Template</Label>
@@ -1733,9 +2141,10 @@ export default function AdminRefundsPage() {
                         ) : (
                           <Send className="mr-2 h-4 w-4" />
                         )}
-                        Send customer email
+                        Send manual/retry email
                       </Button>
-                    </details>
+                      </details>
+                    </div>
 
                     {(editor.decision === 'denied' || editor.status === 'denied') && (
                       <div>
@@ -1821,6 +2230,10 @@ export default function AdminRefundsPage() {
                     </Button>
                     </div>
 
+                    <div className="space-y-3 rounded-lg border border-border bg-background p-4">
+                      <StepHeader step={6} title="History">
+                        Audit trail and customer message records stay collapsed unless you need detail.
+                      </StepHeader>
                     <div className="grid gap-3 lg:grid-cols-2">
                       <details className="rounded-lg border border-border bg-background p-3">
                         <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-foreground">
@@ -1891,6 +2304,7 @@ export default function AdminRefundsPage() {
                           )}
                         </div>
                       </details>
+                    </div>
                     </div>
                   </div>
                 )}

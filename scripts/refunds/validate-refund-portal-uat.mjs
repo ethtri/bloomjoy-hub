@@ -248,6 +248,33 @@ const buildEmptyRefundOverview = () => ({
   cases: [],
 });
 
+const buildFailedCommsRefundOverview = () => {
+  const overview = buildMockRefundOverview();
+  overview.cases[0] = {
+    ...overview.cases[0],
+    status: 'card_refund_pending',
+    latestCustomerMessageStatus: 'failed',
+    latestCustomerMessageType: 'approved',
+    latestCustomerMessageAt: isoHoursAgo(0.5),
+    customerCommunicationStatus: 'failed',
+    messages: [
+      {
+        id: 'msg-failed-1',
+        messageType: 'approved',
+        status: 'failed',
+        recipientEmail: 'customer-card@example.test',
+        subject: 'Your Bloomjoy refund request RF-UAT-CARD was approved',
+        body: 'Good news: our team approved your refund request.',
+        sentAt: null,
+        errorMessage: 'customer_email_delivery_failed',
+        createdAt: isoHoursAgo(0.5),
+      },
+      ...overview.cases[0].messages,
+    ],
+  };
+  return overview;
+};
+
 const buildPendingNayaxRefundOverview = () => ({
   machines: [
     {
@@ -322,6 +349,7 @@ const installMockSupabaseRoutes = async (
     functionCalls = [],
     functionBodies = [],
     nayaxLookupResponse = null,
+    adminUpdateResponse = null,
   } = {}
 ) => {
   await context.route('**/auth/v1/**', async (route) => {
@@ -369,10 +397,15 @@ const installMockSupabaseRoutes = async (
       return route.fulfill(
         jsonResponse(nayaxLookupResponse ?? {
           configured: true,
+          lookupStatus: 'match_found',
+          lastCheckedAt: now.toISOString(),
           providerRecordCount: 2,
           providerParseableRecordCount: 2,
           providerWindowRecordCount: 1,
+          candidateCount: 1,
           windowHours: 6,
+          summary: 'Nayax found 1 possible card sale in the +/- 6 hour window.',
+          recommendedAction: 'Review the recommended card sale and confirm the matching transaction before completion.',
           candidates: [
             {
               candidateToken: '41000000-0000-4000-8000-000000000102',
@@ -407,14 +440,14 @@ const installMockSupabaseRoutes = async (
 
     if (functionName === 'refund-case-admin-update') {
       return route.fulfill(
-        jsonResponse({
+        jsonResponse(adminUpdateResponse ?? {
           refundCase: {
             id: 'case-card-1',
             publicReference: 'RF-UAT-CARD',
             status: 'card_refund_pending',
             decision: 'approved',
           },
-          customerMessage: null,
+          customerMessage: { type: 'completed', status: 'sent' },
           updateApplied: true,
         })
       );
@@ -654,24 +687,41 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByRole('heading', { name: 'RF-UAT-CARD' }).isVisible()
   );
   recorder.assert(
-    'Case action panel appears before history',
-    await page.getByText('Case action').isVisible()
+    'Guided case steps appear before history',
+    (await page.getByTestId('refund-step-1').isVisible()) &&
+      (await page.getByTestId('refund-step-2').isVisible()) &&
+      (await page.getByTestId('refund-step-3').isVisible()) &&
+      (await page.getByTestId('refund-step-4').isVisible()) &&
+      (await page.getByTestId('refund-step-5').isVisible()) &&
+      (await page.getByTestId('refund-step-1').boundingBox()).y <
+        (await page.getByTestId('refund-step-6').boundingBox()).y &&
+      (await page.getByTestId('refund-step-5').boundingBox()).y <
+        (await page.getByTestId('refund-step-6').boundingBox()).y
   );
   recorder.assert(
     'Primary action is explicit for matched card case',
-    (await page.getByText('Mark card refund complete').count()) >= 1
+    (await page.getByText('Mark Nayax refund complete').count()) >= 1
   );
   recorder.assert(
-    'Guided Nayax auto-match workbench is visible',
-    await page.getByText('Nayax auto-match').isVisible()
+    'Nayax result card is visible and explicit',
+    await page.getByTestId('nayax-result-card').isVisible() &&
+      await page.getByText('Nayax result').isVisible() &&
+      await page.getByTestId('nayax-result-card').getByText('Match selected').isVisible()
   );
   recorder.assert(
-    'Selected Nayax copy avoids manual search language',
-    await page.getByText('Automatic Nayax evidence is selected for this card refund.').isVisible()
+    'Card-sale candidates are inside the transaction step before decision',
+    (await page.getByText('Card sale candidates').isVisible()) &&
+      (await page.getByText('Card sale candidates').boundingBox()).y <
+        (await page.getByTestId('refund-step-3').boundingBox()).y
   );
   recorder.assert(
-    'Email preview is available without dominating the workbench',
-    await page.getByText('Email preview').isVisible()
+    'Selected Nayax copy avoids search-button language',
+    await page.getByText('A card sale is selected for this refund.').isVisible() &&
+      (await page.getByRole('button', { name: /transaction search/i }).count()) === 0
+  );
+  recorder.assert(
+    'Customer update explains automatic email',
+    await page.getByText('The matching customer email sends automatically with the primary action.').isVisible()
   );
   recorder.assert(
     'Card refund reference label is contextual',
@@ -690,12 +740,10 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     !(await page.locator('body').innerText()).includes('hidden-provider-id-for-selection-only')
   );
 
-  await page.getByText('Email preview').click();
-  await page.getByRole('button', { name: /Send customer email/i }).click();
-  await page.waitForTimeout(300);
   recorder.assert(
-    'Portal customer message sends through Edge Function',
-    functionCalls.includes('refund-case-message-send'),
+    'Normal path does not require separate customer email send',
+    !functionCalls.includes('refund-case-message-send') &&
+      (await page.getByRole('button', { name: /send.*email/i }).count()) === 0,
     functionCalls.join(', ')
   );
 
@@ -707,17 +755,23 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
   const lastSaveBody = saveBodies.at(-1)?.body ?? {};
   recorder.assert(
-    'Save Case sends completed card update through Edge Function',
+    'Primary action sends completed card update through Edge Function',
     functionCalls.includes('refund-case-admin-update') &&
       lastSaveBody.status === 'completed' &&
-      lastSaveBody.manualRefundReference === 'NAYAX-UAT-REF-1',
+      lastSaveBody.manualRefundReference === 'NAYAX-UAT-REF-1' &&
+      lastSaveBody.customerMessageType === 'completed',
     JSON.stringify(lastSaveBody)
   );
   recorder.assert(
-    'Save Case confirms tokenized Nayax candidate without manual evidence bypass',
+    'Primary action confirms tokenized Nayax candidate without manual evidence bypass',
     Boolean(lastSaveBody.matchedNayaxCandidateToken) &&
       !Object.prototype.hasOwnProperty.call(lastSaveBody, 'manualNayaxConfirmation'),
     JSON.stringify(lastSaveBody)
+  );
+  recorder.assert(
+    'Primary action does not call the separate customer message function',
+    !functionCalls.includes('refund-case-message-send'),
+    functionCalls.join(', ')
   );
 
   await page.screenshot({
@@ -803,11 +857,16 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, recorder }) => {
     functionCalls,
     nayaxLookupResponse: {
       configured: false,
+      lookupStatus: 'setup_needed',
+      lastCheckedAt: now.toISOString(),
       providerRecordCount: 0,
       providerParseableRecordCount: 0,
       providerWindowRecordCount: 0,
+      candidateCount: 0,
       windowHours: 6,
       message: 'Nayax lookup is waiting on configuration for this machine.',
+      summary: 'Setup needed before Nayax can check this card refund.',
+      recommendedAction: 'Ask an admin to verify Nayax setup before deciding this card case.',
       candidates: [],
     },
   });
@@ -816,7 +875,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, recorder }) => {
   await signInRefundUser(page, appUrl);
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
   await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).click();
-  await page.getByText('Nayax lookup is waiting on configuration for this machine.').waitFor({
+  await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').waitFor({
     timeout: 10000,
   });
 
@@ -827,19 +886,195 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, recorder }) => {
   );
   recorder.assert(
     'Nayax setup/no-candidate state is visible in the manager workbench',
-    await page.getByText('Nayax lookup is waiting on configuration for this machine.').isVisible()
+    await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').isVisible()
   );
   recorder.assert(
     'No-match card case defaults to customer follow-up action',
-    (await page.getByText('Ask customer for more info').count()) >= 1
+    (await page.getByText('Ask customer for details').count()) >= 1
   );
   recorder.assert(
-    'Pending Nayax copy explains automatic correlation',
-    await page.getByText('The system checks Nayax automatically when the case opens and during the background sweep.').isVisible()
+    'Pending Nayax result explains setup state',
+    await page.getByTestId('nayax-result-card').getByText('Setup needed', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').isVisible()
   );
   recorder.assert(
     'Nayax setup notice does not expose raw provider IDs',
     !(await page.locator('body').innerText()).includes('providerTransactionId')
+  );
+
+  await context.close();
+};
+
+const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, recorder }) => {
+  const scenarios = [
+    {
+      name: 'no match',
+      response: {
+        configured: true,
+        lookupStatus: 'no_match',
+        lastCheckedAt: now.toISOString(),
+        providerRecordCount: 3,
+        providerParseableRecordCount: 3,
+        providerWindowRecordCount: 1,
+        candidateCount: 0,
+        windowHours: 6,
+        summary: 'Nayax found 1 sale record in the +/- 6 hour window, but none matched the submitted details closely enough.',
+        recommendedAction: 'Ask the customer for one more detail before deciding this card case.',
+        candidates: [],
+      },
+      expectedBadge: 'No match found',
+      expectedAction: 'Ask customer for details',
+    },
+    {
+      name: 'multiple candidates',
+      response: {
+        configured: true,
+        lookupStatus: 'multiple_matches',
+        lastCheckedAt: now.toISOString(),
+        providerRecordCount: 4,
+        providerParseableRecordCount: 4,
+        providerWindowRecordCount: 2,
+        candidateCount: 2,
+        windowHours: 6,
+        summary: 'Nayax found 2 possible card sales in the +/- 6 hour window.',
+        recommendedAction: 'Review the possible card sales and confirm the matching transaction before completion.',
+        candidates: [
+          {
+            candidateToken: '41000000-0000-4000-8000-000000000201',
+            authorizedAt: isoHoursAgo(3.1),
+            machineAuthorizationTime: isoHoursAgo(3.1),
+            amountCents: 700,
+            currencyCode: 'USD',
+            cardLast4: '0000',
+            cardBrand: 'Visa',
+            recognitionMethod: 'contactless',
+            paymentStatus: 'approved',
+            matchConfidence: 0.88,
+            matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches',
+          },
+          {
+            candidateToken: '41000000-0000-4000-8000-000000000202',
+            authorizedAt: isoHoursAgo(2.9),
+            machineAuthorizationTime: isoHoursAgo(2.9),
+            amountCents: 700,
+            currencyCode: 'USD',
+            cardLast4: '0000',
+            cardBrand: 'Mastercard',
+            recognitionMethod: 'contactless',
+            paymentStatus: 'approved',
+            matchConfidence: 0.82,
+            matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches',
+          },
+        ],
+      },
+      expectedBadge: 'Multiple possible matches',
+      expectedAction: 'Confirm this card sale',
+      expectedCandidateCount: 2,
+    },
+    {
+      name: 'lookup failed',
+      response: {
+        configured: true,
+        lookupStatus: 'lookup_failed',
+        lastCheckedAt: now.toISOString(),
+        providerRecordCount: null,
+        providerParseableRecordCount: null,
+        providerWindowRecordCount: null,
+        candidateCount: 0,
+        windowHours: 6,
+        summary: 'Nayax lookup failed. No raw provider details were exposed.',
+        recommendedAction: 'Retry the transaction check or ask the customer for more detail.',
+        candidates: [],
+      },
+      expectedBadge: 'Lookup failed',
+      expectedAction: 'Ask customer for details',
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 1000 },
+    });
+    const functionCalls = [];
+    await installMockSupabaseRoutes(context, {
+      refundOverview: buildPendingNayaxRefundOverview,
+      functionCalls,
+      nayaxLookupResponse: scenario.response,
+    });
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    const pendingRow = page.locator('tr', { hasText: 'RF-UAT-PENDING' });
+    await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
+    await pendingRow.click();
+    await page.getByTestId('nayax-result-card').getByText(scenario.expectedBadge, { exact: true }).waitFor({ timeout: 10000 });
+
+    recorder.assert(
+      `Nayax ${scenario.name} status is explicit`,
+      await page.getByTestId('nayax-result-card').getByText(scenario.expectedBadge, { exact: true }).isVisible() &&
+        await page.getByTestId('nayax-result-card').getByText(scenario.response.summary).isVisible() &&
+        functionCalls.includes('nayax-transaction-lookup'),
+      functionCalls.join(', ')
+    );
+    recorder.assert(
+      `Nayax ${scenario.name} gives the right next action`,
+      (await page.getByText(scenario.expectedAction).count()) >= 1
+    );
+    if (scenario.expectedCandidateCount) {
+      recorder.assert(
+        `Nayax ${scenario.name} renders candidate choices`,
+        (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount
+      );
+    }
+    recorder.assert(
+      `Nayax ${scenario.name} output hides raw provider IDs`,
+      !(await page.locator('body').innerText()).includes('providerTransactionId')
+    );
+
+    await context.close();
+  }
+};
+
+const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const functionCalls = [];
+  const functionBodies = [];
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildFailedCommsRefundOverview,
+    functionCalls,
+    functionBodies,
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  const failedCommsBodyText = await page.locator('body').innerText();
+
+  recorder.assert(
+    'Failed customer email is visible as unresolved work',
+    failedCommsBodyText.includes('Customer email failed') &&
+      failedCommsBodyText.includes('Email failed: approved')
+  );
+  recorder.assert(
+    'Failed customer email promotes retry as the primary action',
+    await page.getByRole('button', { name: /Retry customer email/i }).first().isVisible()
+  );
+
+  await page.getByRole('button', { name: /Retry customer email/i }).first().click();
+  await page.waitForTimeout(300);
+
+  const sendBody = functionBodies.find((entry) => entry.functionName === 'refund-case-message-send')?.body ?? {};
+  recorder.assert(
+    'Retry uses the customer message Edge Function with the failed message type',
+    functionCalls.includes('refund-case-message-send') && sendBody.messageType === 'approved',
+    JSON.stringify(sendBody)
+  );
+  recorder.assert(
+    'Retry does not falsely update the case through admin update',
+    !functionCalls.includes('refund-case-admin-update'),
+    functionCalls.join(', ')
   );
 
   await context.close();
@@ -891,12 +1126,12 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
 
   recorder.assert(
     'Demo primary action is disabled',
-    await page.getByRole('button', { name: /Mark card refund complete/i }).isDisabled()
+    await page.getByTestId('refund-save-case').isDisabled()
   );
   recorder.assert(
     'Demo hides advanced Nayax rerun action by default',
     await page.getByText('Advanced Nayax controls').isVisible() &&
-      (await page.getByRole('button', { name: /Re-run automatic Nayax check/i }).count()) === 0
+      (await page.getByRole('button', { name: /Refresh result/i }).count()) === 0
   );
   recorder.assert(
     'Demo editor fields are disabled',
@@ -955,6 +1190,16 @@ const run = async () => {
       recorder,
     });
     await runNayaxLookupNoticeChecks({
+      browser,
+      appUrl: args.appUrl,
+      recorder,
+    });
+    await runNayaxLookupStatusMatrixChecks({
+      browser,
+      appUrl: args.appUrl,
+      recorder,
+    });
+    await runCustomerCommsFailureChecks({
       browser,
       appUrl: args.appUrl,
       recorder,

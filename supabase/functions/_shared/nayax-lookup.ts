@@ -16,6 +16,40 @@ const sanitizeText = (value: unknown, maxLength = 300) =>
     ? String(value).trim().slice(0, maxLength)
     : "";
 
+const normalizeCardBrand = (value: unknown) => {
+  const normalized = sanitizeText(value, 80).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.includes("visa")) return "Visa";
+  if (normalized.includes("mastercard") || normalized.includes("master card") || normalized === "mc") return "Mastercard";
+  if (normalized.includes("american express") || normalized.includes("amex")) return "American Express";
+  if (normalized.includes("discover")) return "Discover";
+  if (normalized.includes("debit")) return "Debit card";
+  if (normalized.includes("credit")) return "Credit card";
+  return "Card";
+};
+
+const normalizeRecognitionMethod = (value: unknown) => {
+  const normalized = sanitizeText(value, 80).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.includes("apple") || normalized.includes("google") || normalized.includes("wallet")) return "wallet";
+  if (normalized.includes("contactless") || normalized.includes("tap")) return "contactless";
+  if (normalized.includes("chip") || normalized.includes("emv")) return "chip";
+  if (normalized.includes("swipe") || normalized.includes("mag")) return "swipe";
+  return "present";
+};
+
+const normalizePaymentStatus = (value: unknown) => {
+  const normalized = sanitizeText(value, 80).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (["approved", "paid", "success", "successful", "completed", "settled", "sale"].some((token) => normalized.includes(token))) {
+    return "approved";
+  }
+  if (["declined", "denied", "failed", "cancel", "void"].some((token) => normalized.includes(token))) {
+    return "not approved";
+  }
+  return "recorded";
+};
+
 const parseNumberEnv = (value: string | undefined | null, fallback: number, minimum: number, maximum: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -125,12 +159,17 @@ export type NayaxResponseCandidate = Omit<NayaxProviderCandidate, "transactionId
 
 export type NayaxLookupResult = {
   configured: boolean;
+  lookupStatus: "match_found" | "multiple_matches" | "no_match" | "setup_needed" | "lookup_failed";
+  lastCheckedAt: string;
   message?: string;
   providerRecordCount?: number;
   providerParseableRecordCount?: number;
   providerWindowRecordCount?: number;
+  candidateCount: number;
   candidates: NayaxResponseCandidate[];
   windowHours: number;
+  summary: string;
+  recommendedAction: string;
   refundCase?: {
     id: string;
     publicReference: string;
@@ -244,9 +283,9 @@ const normalizeNayaxSales = ({
         amountCents,
         currencyCode: sanitizeText(record.CurrencyCode ?? record.currencyCode, 3).toUpperCase(),
         cardLast4,
-        cardBrand: sanitizeText(record.CardBrand ?? record.cardBrand, 40),
-        recognitionMethod: sanitizeText(record.RecognitionMethod ?? record.recognitionMethod, 80),
-        paymentStatus: sanitizeText(record.PaymentMethod ?? record.Status ?? record.status, 80),
+        cardBrand: normalizeCardBrand(record.CardBrand ?? record.cardBrand),
+        recognitionMethod: normalizeRecognitionMethod(record.RecognitionMethod ?? record.recognitionMethod),
+        paymentStatus: normalizePaymentStatus(record.PaymentMethod ?? record.Status ?? record.status),
         matchConfidence: Math.max(0, Math.min(0.99, Number(matchConfidence.toFixed(2)))),
         matchReason: reasons.join("; "),
       };
@@ -392,6 +431,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   nayaxBaseUrl?: string;
   windowHours?: number;
 }): Promise<NayaxLookupResult> => {
+  const lastCheckedAt = new Date().toISOString();
   const { data: refundCase, error: refundCaseError } = await (supabase
     .from("refund_cases")
     .select(
@@ -476,20 +516,30 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   if (!nayaxMachineId) {
     return {
       configured: false,
+      lookupStatus: "setup_needed",
+      lastCheckedAt,
       candidates: [],
+      candidateCount: 0,
       windowHours,
       refundCase: caseSnapshot,
       message: "This machine needs a Nayax machine ID before card lookup can run.",
+      summary: "Setup needed before Nayax can check this card refund.",
+      recommendedAction: "Ask an admin to add the Nayax machine ID in Admin > Machines before deciding this card case.",
     };
   }
 
   if (!nayaxApiToken) {
     return {
       configured: false,
+      lookupStatus: "setup_needed",
+      lastCheckedAt,
       candidates: [],
+      candidateCount: 0,
       windowHours,
       refundCase: caseSnapshot,
       message: "Nayax Lynx lookup is waiting on a server-only API token for this account.",
+      summary: "Setup needed before Nayax can check this card refund.",
+      recommendedAction: "Ask an admin to verify the server-only Nayax token before deciding this card case.",
     };
   }
 
@@ -538,14 +588,32 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     actorUserId,
     candidates: providerCandidates,
   });
+  const lookupStatus = candidates.length > 1
+    ? "multiple_matches"
+    : candidates.length === 1
+      ? "match_found"
+      : "no_match";
+  const summary = candidates.length > 0
+    ? `Nayax found ${candidates.length} possible card sale${candidates.length === 1 ? "" : "s"} in the +/- ${windowHours} hour window.`
+    : providerSummary.windowRecordCount > 0
+      ? `Nayax found ${providerSummary.windowRecordCount} sale record${providerSummary.windowRecordCount === 1 ? "" : "s"} in the +/- ${windowHours} hour window, but none matched the submitted details closely enough.`
+      : `Nayax found no card sales in the +/- ${windowHours} hour window.`;
+  const recommendedAction = candidates.length > 0
+    ? "Review the recommended card sale and confirm the matching transaction before completion."
+    : "Ask the customer for one more detail before deciding this card case.";
 
   return {
     configured: true,
+    lookupStatus,
+    lastCheckedAt,
     providerRecordCount,
     providerParseableRecordCount: providerSummary.parseableRecordCount,
     providerWindowRecordCount: providerSummary.windowRecordCount,
+    candidateCount: candidates.length,
     candidates,
     windowHours,
+    summary,
+    recommendedAction,
     refundCase: caseSnapshot,
   };
 };
