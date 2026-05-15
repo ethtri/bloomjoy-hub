@@ -31,6 +31,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 ## Refund Operations MVP
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` is merged, and Google Form/AppSheet remains live until the cutover gate passes.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.
+- [ ] Run `npm run refunds:validate-customer-comms` and confirm primary refund actions send/log customer emails, failures surface as retry work, and the normal path has no separate send-email step.
 - [ ] Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
 - [ ] Agent UAT server starts with `npm run dev:uat` and is tested at `http://127.0.0.1:8081`.
 - [ ] Run `npm run refunds:validate-machine-manager-uat -- --app-url http://127.0.0.1:8081` to exercise mocked Admin > Machines sample data, searchable Machine Manager lookup, autosave payload, customer-refund setup, read-only Nayax lookup setup, and visible persistence in the machine row.
@@ -47,7 +48,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Submit a request with multiple conservative cash candidates; case lands in manager review rather than writing a reporting adjustment.
 - [ ] Auth boundary: unauthenticated users cannot open `/portal/refunds`; Machine Managers can open `/portal/refunds` but do not see the Admin workspace/nav; `/admin/refunds` redirects to `/portal/refunds` or remains limited to super/scoped admins.
 - [ ] Refund queue filters/searches cases, opens case details, shows customer issue text, photos, compact correlation evidence, decision/next action before history, and customer history behind readable sections.
-- [ ] Portal > Refunds uses the guided manager workbench: case summary, suggested transaction match, next action, editable customer message, refund completion/reference, and collapsed timeline/history.
+- [ ] Portal > Refunds uses the guided manager workbench: case summary, explicit Nayax/cash transaction result, candidate confirmation before decision, one recommended next action, customer-email preview, refund completion/reference, and collapsed timeline/history.
 - [ ] New refund submissions send a redacted manager notification to assigned Machine Managers plus Bloomjoy ops fallback with reference, machine, amount, incident time, payment method, case link, and status only.
 - [ ] Refund detail lets managers verify confirmation and more-info customer email state from `RF-UAT-WAIT` or an equivalent synthetic waiting-on-customer case.
 - [ ] Manager can send editable more-info/status/approval/denial/completion customer email from the portal; the message logs in `refund_case_messages`, uses `Reply-To: info@bloomjoysweets.com`, and includes the case reference.

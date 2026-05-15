@@ -35,6 +35,9 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  let caseIdForAudit = "";
+  let actorUserIdForAudit = "";
+
   try {
     if (req.method !== "POST") {
       return jsonResponse({ error: "Method not allowed." }, 405);
@@ -54,9 +57,11 @@ serve(async (req) => {
     if (authError || !user) {
       return jsonResponse({ error: "Unauthorized." }, 401);
     }
+    actorUserIdForAudit = user.id;
 
     const body = await req.json();
     const caseId = sanitizeText(body?.caseId, 80);
+    caseIdForAudit = caseId;
 
     if (!isUuid(caseId)) {
       return jsonResponse({ error: "Refund case is required." }, 400);
@@ -100,6 +105,7 @@ serve(async (req) => {
         event_type: "nayax_lookup_candidates_found",
         message: "Nayax lookup found sanitized card-sale candidate evidence for manager review.",
         metadata: {
+          lookup_status: result.lookupStatus,
           candidate_count: result.candidates.length,
           window_hours: result.windowHours,
           provider_record_count: result.providerRecordCount ?? null,
@@ -109,16 +115,81 @@ serve(async (req) => {
       });
     }
 
+    if (result.configured && result.candidates.length === 0) {
+      await supabase.from("refund_cases")
+        .update({
+          correlation_status: "no_match",
+          correlation_source: "nayax",
+          correlation_confidence: 0,
+          correlation_summary: result.summary,
+          automation_state: "more_info_needed",
+        })
+        .eq("id", caseId);
+
+      await supabase.from("refund_case_events").insert({
+        refund_case_id: caseId,
+        actor_user_id: user.id,
+        event_type: "nayax_lookup_no_candidates",
+        message: "Nayax lookup found no card-sale candidate for the submitted details.",
+        metadata: {
+          lookup_status: result.lookupStatus,
+          window_hours: result.windowHours,
+          provider_record_count: result.providerRecordCount ?? null,
+          provider_window_record_count: result.providerWindowRecordCount ?? null,
+          payload_redacted: true,
+        },
+      });
+    }
+
+    if (!result.configured) {
+      await supabase.from("refund_case_events").insert({
+        refund_case_id: caseId,
+        actor_user_id: user.id,
+        event_type: "nayax_lookup_setup_needed",
+        message: "Nayax lookup could not run because setup is incomplete.",
+        metadata: {
+          lookup_status: result.lookupStatus,
+          window_hours: result.windowHours,
+          configured: false,
+          payload_redacted: true,
+        },
+      });
+    }
+
     return jsonResponse({
       configured: result.configured,
+      lookupStatus: result.lookupStatus,
       message: result.message,
+      lastCheckedAt: result.lastCheckedAt,
       providerRecordCount: result.providerRecordCount,
       providerParseableRecordCount: result.providerParseableRecordCount,
       providerWindowRecordCount: result.providerWindowRecordCount,
+      candidateCount: result.candidateCount,
       candidates: result.candidates,
       windowHours: result.windowHours,
+      summary: result.summary,
+      recommendedAction: result.recommendedAction,
     });
   } catch (error) {
+    if (supabase && isUuid(caseIdForAudit)) {
+      try {
+        await supabase.from("refund_case_events").insert({
+          refund_case_id: caseIdForAudit,
+          actor_user_id: actorUserIdForAudit || null,
+          event_type: "nayax_lookup_failed",
+          message: "Nayax lookup failed and the case remains in manager review.",
+          metadata: {
+            error_type: error instanceof Error ? error.name : typeof error,
+            payload_redacted: true,
+          },
+        });
+      } catch (auditError) {
+        console.error("nayax-transaction-lookup audit insert failed", {
+          errorType: auditError instanceof Error ? auditError.name : typeof auditError,
+        });
+      }
+    }
+
     if (error instanceof NayaxLookupRequestError) {
       return jsonResponse({ error: error.message }, error.status);
     }
