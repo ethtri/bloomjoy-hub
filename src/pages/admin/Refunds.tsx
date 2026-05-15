@@ -228,7 +228,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
       return 'No card-sale match is recorded. Ask the customer for more detail before deciding.';
     }
 
-    return 'Nayax lookup will run automatically when this case opens. Confirm a candidate before completion.';
+      return 'Nayax auto-match runs when this case opens. Confirm a candidate before completion.';
   }
 
   if (refundCase.decision === 'approved' && refundCase.status !== 'completed') {
@@ -423,7 +423,7 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
     }
 
     if (selectedCase.paymentMethod === 'card' && !hasNayaxEvidence) {
-      issues.push('Card completion requires Nayax lookup evidence.');
+      issues.push('Card completion requires Nayax match evidence.');
     }
 
     if (selectedCase.paymentMethod === 'card' && !editor.matchedNayaxMachineAuthTime.trim()) {
@@ -1087,7 +1087,7 @@ export default function AdminRefundsPage() {
                               <span>{selectedCase.hasMatchedSalesFact ? 'Matched' : 'Not matched'}</span>
                             </div>
                             <div className="rounded-md border border-border bg-muted/30 p-2">
-                              <span className="block font-medium text-foreground">Card lookup</span>
+                              <span className="block font-medium text-foreground">Nayax match</span>
                               <span>{selectedCase.hasMatchedNayaxTransaction ? 'Selected' : 'Not selected'}</span>
                             </div>
                           </div>
@@ -1254,33 +1254,29 @@ export default function AdminRefundsPage() {
 
                     {selectedCase.paymentMethod === 'card' && (
                       <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-sky-950">Suggested transaction match</p>
+                            <p className="text-sm font-medium text-sky-950">Nayax auto-match</p>
                             <p className="mt-1 text-xs text-sky-800">
                               {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken
-                                ? 'Lookup evidence selected for this card refund.'
+                                ? 'Automatic Nayax evidence is selected for this card refund.'
                                 : isLookingUpNayax
                                   ? 'Checking Nayax Last Sales automatically using a +/- 6 hour window.'
-                                  : 'Nayax lookup runs automatically when the case opens. Refresh only if you need a newer lookup.'}
+                                  : 'The system checks Nayax automatically when the case opens and during the background sweep.'}
                             </p>
                           </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => void handleNayaxLookup()}
-                            disabled={isLookingUpNayax || isUsingDemoData}
-                          >
-                            {isLookingUpNayax ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <Search className="mr-2 h-4 w-4" />
-                            )}
-                            Refresh lookup
-                          </Button>
+                          <Badge className="w-fit border-sky-200 bg-white text-sky-800">
+                            {selectedCase.hasMatchedNayaxTransaction || editor.matchedNayaxCandidateToken
+                              ? 'Match selected'
+                              : nayaxCandidates.length > 0
+                                ? 'Candidates ready'
+                                : isLookingUpNayax
+                                  ? 'Checking'
+                                  : 'Auto-check enabled'}
+                          </Badge>
                         </div>
                         <InfoHint>
-                          Managers confirm a sanitized candidate before card completion. Raw Nayax transaction IDs stay server-side.
+                          Managers only confirm the right sanitized candidate before card completion. Raw Nayax transaction IDs stay server-side.
                         </InfoHint>
                         {nayaxLookupNotice && (
                           <div className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
@@ -1339,9 +1335,33 @@ export default function AdminRefundsPage() {
                         )}
                         {nayaxCandidates.length === 0 && !isLookingUpNayax && (
                           <div className="mt-3 rounded-md border border-sky-200 bg-white/80 p-2 text-xs text-sky-800">
-                            No selectable Nayax candidates are currently loaded. If automatic lookup finds no match, use the customer message section to request more detail.
+                            No selectable Nayax candidates are currently loaded. If auto-match finds no match, use the customer message section to request more detail.
                           </div>
                         )}
+                        <details className="mt-3 rounded-md border border-sky-200 bg-white/70 p-2">
+                          <summary className="cursor-pointer text-xs font-medium text-sky-950">
+                            Advanced Nayax controls
+                          </summary>
+                          <div className="mt-3 space-y-2">
+                            <p className="text-xs leading-5 text-sky-800">
+                              Auto-match runs without manager action. Use this only if new Nayax data was added or a support review asks you to rerun the check.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleNayaxLookup()}
+                              disabled={isLookingUpNayax || isUsingDemoData}
+                            >
+                              {isLookingUpNayax ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                              )}
+                              Re-run automatic Nayax check
+                            </Button>
+                          </div>
+                        </details>
                         <details className="mt-3 rounded-md border border-sky-200 bg-white/70 p-2">
                           <summary className="cursor-pointer text-xs font-medium text-sky-950">
                             Selected evidence details
@@ -1357,7 +1377,7 @@ export default function AdminRefundsPage() {
                               />
                             </div>
                             <div>
-                              <Label>Lookup amount</Label>
+                              <Label>Matched amount</Label>
                               <Input
                                 value={editor.matchedNayaxAmount}
                                 disabled

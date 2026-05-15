@@ -658,8 +658,12 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByText('Decision and next action').isVisible()
   );
   recorder.assert(
-    'Guided transaction match workbench is visible',
-    await page.getByText('Suggested transaction match').isVisible()
+    'Guided Nayax auto-match workbench is visible',
+    await page.getByText('Nayax auto-match').isVisible()
+  );
+  recorder.assert(
+    'Selected Nayax copy avoids manual search language',
+    await page.getByText('Automatic Nayax evidence is selected for this card refund.').isVisible()
   );
   recorder.assert(
     'Customer message workbench is visible',
@@ -822,6 +826,10 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, recorder }) => {
     await page.getByText('Nayax lookup is waiting on configuration for this machine.').isVisible()
   );
   recorder.assert(
+    'Pending Nayax copy explains automatic correlation',
+    await page.getByText('The system checks Nayax automatically when the case opens and during the background sweep.').isVisible()
+  );
+  recorder.assert(
     'Nayax setup notice does not expose raw provider IDs',
     !(await page.locator('body').innerText()).includes('providerTransactionId')
   );
@@ -878,8 +886,9 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     await page.getByRole('button', { name: /Save Case/i }).isDisabled()
   );
   recorder.assert(
-    'Demo Nayax lookup action is disabled',
-    await page.getByRole('button', { name: /Refresh lookup/i }).isDisabled()
+    'Demo hides advanced Nayax rerun action by default',
+    await page.getByText('Advanced Nayax controls').isVisible() &&
+      (await page.getByRole('button', { name: /Re-run automatic Nayax check/i }).count()) === 0
   );
   recorder.assert(
     'Demo editor fields are disabled',
