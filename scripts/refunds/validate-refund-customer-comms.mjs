@@ -44,12 +44,14 @@ const run = async () => {
     !portalPage.includes('Send customer email')
   );
   assert(
-    'Focused UAT covers success, failure, and retry wiring',
+    'Focused UAT covers guarded completion, failure, and retry wiring',
     includesAll(portalUat, [
       'runCustomerCommsFailureChecks',
       'refund-case-message-send',
+      'nayax-card-refund',
+      'Successful guarded Nayax execution completes case through admin update',
       'messageType ===',
-      'customerMessageType ===',
+      'customer was not contacted',
     ])
   );
 

@@ -349,6 +349,8 @@ const installMockSupabaseRoutes = async (
     functionCalls = [],
     functionBodies = [],
     nayaxLookupResponse = null,
+    nayaxCardRefundResponse = null,
+    nayaxCardRefundStatus = 409,
     adminUpdateResponse = null,
   } = {}
 ) => {
@@ -436,6 +438,24 @@ const installMockSupabaseRoutes = async (
           },
         })
       );
+    }
+
+    if (functionName === 'nayax-card-refund') {
+      return route.fulfill({
+        status: nayaxCardRefundStatus,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          nayaxCardRefundResponse ?? {
+            executed: false,
+            status: 'preflight_blocked',
+            errorCode: 'feature_disabled',
+            blocks: ['feature_disabled'],
+            dryRun: true,
+            killSwitchActive: true,
+            message: 'Nayax refund execution is disabled for this pilot environment.',
+          }
+        ),
+      });
     }
 
     if (functionName === 'refund-case-admin-update') {
@@ -645,7 +665,10 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
-      consoleErrors.push(message.text());
+      const text = message.text();
+      if (!text.includes('Failed to load resource: the server responded with a status of 409 (Conflict)')) {
+        consoleErrors.push(text);
+      }
     }
   });
   page.on('pageerror', (error) => {
@@ -700,7 +723,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'Primary action is explicit for matched card case',
-    (await page.getByText('Save completion and email customer').count()) >= 1
+    (await page.getByText('Run Nayax refund in Bloomjoy Hub').count()) >= 1
   );
   recorder.assert(
     'Nayax result card is visible and explicit',
@@ -719,13 +742,16 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'Customer update explains automatic email',
-    await page.getByText('The matching customer email sends automatically with the primary action.').isVisible()
+    await page.getByText('The matching customer email sends only after the primary action succeeds.').isVisible()
   );
   recorder.assert(
-    'Card refund reference label is contextual',
-    await page.getByText('Nayax refund confirmation/reference').isVisible() &&
-      await page.getByText('Action happens outside Bloomjoy Hub.').isVisible() &&
-      await page.getByText('Open Nayax and refund the matched card sale.').isVisible()
+    'Card completion is an in-app Nayax execution flow',
+    await page.getByText('Confirm refund amount').isVisible() &&
+      await page.getByText('Matched sale amount').isVisible() &&
+      await page.getByTestId('refund-run-nayax-refund').isVisible() &&
+      (await page.getByText('Action happens outside Bloomjoy Hub.').count()) === 0 &&
+      (await page.getByText('Open Nayax and refund the matched card sale.').count()) === 0 &&
+      (await page.getByText('Nayax refund confirmation/reference').count()) === 0
   );
   recorder.assert(
     'Transaction check does not imply required action in Step 2',
@@ -752,30 +778,36 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     functionCalls.join(', ')
   );
 
-  await page.getByTestId('refund-reference-input').fill('NAYAX-UAT-REF-1');
-  await page.getByTestId('refund-save-case').click();
+  await page.getByTestId('refund-amount-input').fill('7.00');
+  await page.getByTestId('refund-run-nayax-refund').click();
   await page.waitForTimeout(300);
 
   const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
   const lastSaveBody = saveBodies.at(-1)?.body ?? {};
   recorder.assert(
-    'Primary action sends completed card update through Edge Function',
-    functionCalls.includes('refund-case-admin-update') &&
-      lastSaveBody.status === 'completed' &&
-      lastSaveBody.manualRefundReference === 'NAYAX-UAT-REF-1' &&
-      lastSaveBody.customerMessageType === 'completed',
-    JSON.stringify(lastSaveBody)
+    'Primary action attempts guarded Nayax refund before completion',
+    functionCalls.includes('nayax-card-refund') &&
+      !saveBodies.some((entry) => entry.body?.status === 'completed') &&
+      await page.getByText('Nayax refund execution is disabled for this pilot environment.').isVisible(),
+    JSON.stringify({ functionCalls, lastSaveBody })
   );
   recorder.assert(
-    'Primary action keeps selected Nayax evidence without manual evidence bypass',
-    lastSaveBody.matchedNayaxCardLast4 === '4242' &&
-      !Object.prototype.hasOwnProperty.call(lastSaveBody, 'manualNayaxConfirmation'),
+    'Blocked Nayax execution does not use manual evidence bypass',
+    !Object.prototype.hasOwnProperty.call(lastSaveBody, 'manualNayaxConfirmation') &&
+      !Object.prototype.hasOwnProperty.call(lastSaveBody, 'manualRefundReference'),
     JSON.stringify(lastSaveBody)
   );
   recorder.assert(
     'Primary action does not call the separate customer message function',
     !functionCalls.includes('refund-case-message-send'),
     functionCalls.join(', ')
+  );
+  recorder.assert(
+    'Blocked Nayax execution leaves customer uncontacted',
+    !saveBodies.some((entry) => entry.body?.customerMessageType === 'completed') &&
+      !functionCalls.includes('refund-case-message-send') &&
+      await page.getByText('Nayax refund was not completed. The customer was not contacted.').isVisible(),
+    JSON.stringify({ functionCalls, saveBodies })
   );
 
   await page.screenshot({
@@ -1084,6 +1116,54 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
   await context.close();
 };
 
+const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, recorder }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const functionCalls = [];
+  const functionBodies = [];
+  await installMockSupabaseRoutes(context, {
+    functionCalls,
+    functionBodies,
+    nayaxCardRefundStatus: 200,
+    nayaxCardRefundResponse: {
+      executed: true,
+      status: 'succeeded',
+      providerReference: 'NAYAX-PROVIDER-REF-1',
+      message: 'Nayax refund completed.',
+    },
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  await page.getByTestId('refund-amount-input').fill('7.00');
+  await page.getByTestId('refund-run-nayax-refund').click();
+  await page.waitForTimeout(300);
+
+  const adminUpdateBodies = functionBodies
+    .filter((entry) => entry.functionName === 'refund-case-admin-update')
+    .map((entry) => entry.body ?? {});
+  const completionBody = adminUpdateBodies.find((body) => body.status === 'completed') ?? {};
+
+  recorder.assert(
+    'Successful guarded Nayax execution completes case through admin update',
+    functionCalls.includes('nayax-card-refund') &&
+      completionBody.status === 'completed' &&
+      completionBody.manualRefundReference === 'NAYAX-PROVIDER-REF-1' &&
+      completionBody.customerMessageType === 'completed',
+    JSON.stringify({ functionCalls, completionBody })
+  );
+  recorder.assert(
+    'Successful guarded Nayax execution still avoids standalone customer message send',
+    !functionCalls.includes('refund-case-message-send'),
+    functionCalls.join(', ')
+  );
+
+  await context.close();
+};
+
 const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -1129,8 +1209,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
 
   recorder.assert(
-    'Demo primary action is disabled',
-    await page.getByTestId('refund-save-case').isDisabled()
+    'Demo Nayax execution action is disabled',
+    await page.getByTestId('refund-run-nayax-refund').isDisabled()
   );
   recorder.assert(
     'Demo hides advanced Nayax rerun action by default',
@@ -1138,8 +1218,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       (await page.getByRole('button', { name: /Refresh result/i }).count()) === 0
   );
   recorder.assert(
-    'Demo completion fields are disabled',
-    await page.getByTestId('refund-reference-input').isDisabled() &&
+    'Demo amount confirmation fields are disabled',
+    await page.getByTestId('refund-amount-input').isDisabled() &&
       (await page.locator('input:disabled').count()) >= 2
   );
 
@@ -1203,6 +1283,11 @@ const run = async () => {
       recorder,
     });
     await runCustomerCommsFailureChecks({
+      browser,
+      appUrl: args.appUrl,
+      recorder,
+    });
+    await runNayaxExecutionSuccessChecks({
       browser,
       appUrl: args.appUrl,
       recorder,
