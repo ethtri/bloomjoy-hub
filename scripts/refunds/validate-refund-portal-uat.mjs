@@ -694,29 +694,27 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       (await page.getByTestId('refund-step-4').isVisible()) &&
       (await page.getByTestId('refund-step-5').isVisible()) &&
       (await page.getByTestId('refund-step-1').boundingBox()).y <
-        (await page.getByTestId('refund-step-6').boundingBox()).y &&
-      (await page.getByTestId('refund-step-5').boundingBox()).y <
-        (await page.getByTestId('refund-step-6').boundingBox()).y
+        (await page.getByTestId('refund-step-5').boundingBox()).y &&
+      (await page.getByTestId('refund-step-4').boundingBox()).y <
+        (await page.getByTestId('refund-step-5').boundingBox()).y
   );
   recorder.assert(
     'Primary action is explicit for matched card case',
-    (await page.getByText('Mark Nayax refund complete').count()) >= 1
+    (await page.getByText('Save completion and email customer').count()) >= 1
   );
   recorder.assert(
     'Nayax result card is visible and explicit',
     await page.getByTestId('nayax-result-card').isVisible() &&
-      await page.getByText('Nayax result').isVisible() &&
+      await page.getByText('Card transaction found').isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Match selected').isVisible()
   );
   recorder.assert(
-    'Card-sale candidates are inside the transaction step before decision',
-    (await page.getByText('Card sale candidates').isVisible()) &&
-      (await page.getByText('Card sale candidates').boundingBox()).y <
-        (await page.getByTestId('refund-step-3').boundingBox()).y
+    'Selected card match keeps candidate chooser out of the normal path',
+    (await page.getByText('Choose the matching card sale').count()) === 0
   );
   recorder.assert(
     'Selected Nayax copy avoids search-button language',
-    await page.getByText('A card sale is selected for this refund.').isVisible() &&
+    await page.getByText('Card transaction found').isVisible() &&
       (await page.getByRole('button', { name: /transaction search/i }).count()) === 0
   );
   recorder.assert(
@@ -725,7 +723,14 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'Card refund reference label is contextual',
-    await page.getByText('Nayax refund confirmation/reference').isVisible()
+    await page.getByText('Nayax refund confirmation/reference').isVisible() &&
+      await page.getByText('Action happens outside Bloomjoy Hub.').isVisible() &&
+      await page.getByText('Open Nayax and refund the matched card sale.').isVisible()
+  );
+  recorder.assert(
+    'Transaction check does not imply required action in Step 2',
+    await page.getByText('Sale match confirmed. No action is needed in this section.').isVisible() &&
+      await page.getByText('No action is required in Step 2.').isVisible()
   );
   recorder.assert(
     'Event timeline is collapsed behind summary',
@@ -747,7 +752,6 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     functionCalls.join(', ')
   );
 
-  await page.getByTestId('nayax-candidate-option').first().click();
   await page.getByTestId('refund-reference-input').fill('NAYAX-UAT-REF-1');
   await page.getByTestId('refund-save-case').click();
   await page.waitForTimeout(300);
@@ -763,8 +767,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     JSON.stringify(lastSaveBody)
   );
   recorder.assert(
-    'Primary action confirms tokenized Nayax candidate without manual evidence bypass',
-    Boolean(lastSaveBody.matchedNayaxCandidateToken) &&
+    'Primary action keeps selected Nayax evidence without manual evidence bypass',
+    lastSaveBody.matchedNayaxCardLast4 === '4242' &&
       !Object.prototype.hasOwnProperty.call(lastSaveBody, 'manualNayaxConfirmation'),
     JSON.stringify(lastSaveBody)
   );
@@ -1130,14 +1134,13 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   );
   recorder.assert(
     'Demo hides advanced Nayax rerun action by default',
-    await page.getByText('Advanced Nayax controls').isVisible() &&
+    await page.getByText('Advanced lookup tools (optional)').isVisible() &&
       (await page.getByRole('button', { name: /Refresh result/i }).count()) === 0
   );
   recorder.assert(
-    'Demo editor fields are disabled',
-    (await page.locator('select:disabled').count()) >= 2 &&
-      (await page.locator('input:disabled').count()) >= 5 &&
-      (await page.locator('textarea:disabled').count()) >= 2
+    'Demo completion fields are disabled',
+    await page.getByTestId('refund-reference-input').isDisabled() &&
+      (await page.locator('input:disabled').count()) >= 2
   );
 
   await page.locator('select').first().selectOption('all');

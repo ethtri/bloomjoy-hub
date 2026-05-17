@@ -6,6 +6,11 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Refund portal simplification sprint (2026-05-17)
+- Active branch/worktree: `agent/refund-portal-simplify` in `C:\Repos\wt-refund-portal-simplify`, using `bloomjoy-sprint-orchestrator` with Codex as PO/PM.
+- This focused rescue addresses manager feedback that `/portal/refunds` was too busy and unclear: the card transaction panel now answers whether Nayax found the sale, selected matches hide candidate clutter, advanced lookup controls are collapsed, and the manual Nayax/Zelle completion action is consolidated into one visible Step 3 with the reference field and save button.
+- Current local evidence: `npm run build`, `npm test --if-present`, `npm run lint --if-present` (existing Fast Refresh warnings only), `npm run refunds:validate-customer-comms`, and `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8083` pass. Local UAT server is running at `http://127.0.0.1:8083` from this branch.
+
 ## Refund manager workflow hardening sprint (2026-05-15)
 - Active branch/worktree: `agent/refund-manager-hardening` in `C:\Repos\wt-refund-manager-hardening`, using `bloomjoy-sprint-orchestrator` with Codex as PO/PM.
 - Sprint scope preserves the customer intake experience while hardening the manager side: redacted new-case notifications to assigned Machine Managers plus ops fallback, shared server-only Nayax lookup with a +/- 6 hour window, longer-lived tokenized card-sale candidates, a guided `/portal/refunds` manager workbench, and portal-sent customer emails with Bloomjoy templates and `info@bloomjoysweets.com` reply-to.
