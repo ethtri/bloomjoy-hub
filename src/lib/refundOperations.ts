@@ -1,4 +1,8 @@
-import { invokeEdgeFunction } from '@/lib/edgeFunctions';
+import {
+  invokeEdgeFunction,
+  isEdgeFunctionError,
+  type EdgeFunctionError,
+} from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
@@ -258,6 +262,65 @@ export type NayaxLookupResponse = {
   summary?: string;
   recommendedAction?: string;
 };
+
+export type NayaxCardRefundExecutionBlock =
+  | 'authorization_failed'
+  | 'validation_rejected'
+  | 'manual_review'
+  | 'configuration_missing'
+  | 'feature_disabled'
+  | 'kill_switch_active'
+  | 'already_refunded'
+  | 'amount_cap_exceeded'
+  | 'daily_amount_cap_exceeded'
+  | 'daily_count_cap_exceeded'
+  | (string & {});
+
+export type NayaxCardRefundExecutionErrorCode =
+  | 'authorization_failed'
+  | 'validation_rejected'
+  | 'manual_review'
+  | 'configuration_missing'
+  | 'feature_disabled'
+  | 'kill_switch_active'
+  | 'already_refunded'
+  | 'amount_cap_exceeded'
+  | 'provider_contract_unconfirmed'
+  | 'provider_execution_not_yet_enabled'
+  | (string & {});
+
+export type NayaxCardRefundExecutionStatus =
+  | 'preflight_blocked'
+  | 'manual_review'
+  | 'in_progress'
+  | 'requested'
+  | 'approved'
+  | 'declined'
+  | 'succeeded'
+  | 'failed'
+  | (string & {});
+
+export type ExecuteNayaxCardRefundInput = {
+  caseId: string;
+  refundAmountCents?: number;
+};
+
+export type NayaxCardRefundExecutionResponse = {
+  error?: string;
+  errorCode?: NayaxCardRefundExecutionErrorCode;
+  message?: string;
+  executed?: boolean;
+  status?: NayaxCardRefundExecutionStatus;
+  blocks?: NayaxCardRefundExecutionBlock[];
+  dryRun?: boolean;
+  killSwitchActive?: boolean;
+  refundReference?: string | null;
+  providerReference?: string | null;
+  manualRefundReference?: string | null;
+};
+
+export type NayaxCardRefundExecutionError =
+  EdgeFunctionError<NayaxCardRefundExecutionResponse>;
 
 export type RefundCustomerPortalMessageType =
   | 'more_info'
@@ -735,6 +798,24 @@ export const lookupNayaxTransactions = async ({ caseId }: { caseId: string }): P
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to look up Nayax transactions.',
+    }
+  );
+
+export const isNayaxCardRefundExecutionError = (
+  error: unknown
+): error is NayaxCardRefundExecutionError =>
+  isEdgeFunctionError<NayaxCardRefundExecutionResponse>(error);
+
+export const executeNayaxCardRefund = async ({
+  caseId,
+  refundAmountCents,
+}: ExecuteNayaxCardRefundInput): Promise<NayaxCardRefundExecutionResponse> =>
+  invokeEdgeFunction<NayaxCardRefundExecutionResponse>(
+    'nayax-card-refund',
+    { caseId, refundAmountCents },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to execute Nayax card refunds.',
     }
   );
 

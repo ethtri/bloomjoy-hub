@@ -3,9 +3,29 @@ import { supabaseClient } from '@/lib/supabaseClient';
 
 export const EDGE_FUNCTION_AUTH_HEADER = 'x-supabase-auth-token';
 
-type EdgeFunctionResponse = {
+export type EdgeFunctionResponse = {
   error?: string;
+  errorCode?: string;
+  message?: string;
+  blocks?: string[];
+  [key: string]: unknown;
 };
+
+export class EdgeFunctionError<T extends EdgeFunctionResponse = EdgeFunctionResponse> extends Error {
+  status: number;
+  data: T | null;
+
+  constructor(message: string, status: number, data: T | null) {
+    super(message);
+    this.name = 'EdgeFunctionError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
+export const isEdgeFunctionError = <T extends EdgeFunctionResponse = EdgeFunctionResponse>(
+  error: unknown
+): error is EdgeFunctionError<T> => error instanceof EdgeFunctionError;
 
 type InvokeEdgeFunctionOptions = {
   requireUserAuth?: boolean;
@@ -69,7 +89,11 @@ export const invokeEdgeFunction = async <T extends EdgeFunctionResponse>(
   }
 
   if (!response.ok) {
-    throw new Error(data?.error || `Request failed with status ${response.status}.`);
+    throw new EdgeFunctionError(
+      data?.error || data?.message || data?.errorCode || `Request failed with status ${response.status}.`,
+      response.status,
+      data
+    );
   }
 
   return data;
