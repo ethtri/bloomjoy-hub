@@ -66,6 +66,29 @@ export const commercialMachineFaqs = [
   },
 ];
 
+export const miniMachineFaqs = [
+  {
+    q: "How many servings can the Mini Machine make per hour?",
+    a: "Owner-provided guidance is roughly one candy every 90 seconds, or about 40 candies per hour of machine-cycle capacity. Real serving throughput depends on manual stick feeding, pattern choice, staffing, guest/payment flow, setup, and how much interaction is part of the service.",
+  },
+  {
+    q: "What are the Mini Machine dimensions and power requirements?",
+    a: "Mini specs are 430 x 555 x 1582 mm, 83.9 kg, AC 110V/220V rated voltage, 2400W maximum power, and 100W standby power. Final placement and power details should be confirmed during quote review.",
+  },
+  {
+    q: "Can the Mini Machine work in a spa, salon, or hospitality environment?",
+    a: "Mini can be evaluated as a staffed guest-experience amenity for smaller hospitality spaces, but it still needs approved power, stable placement, service access, a cleaning path, and review of operating sound, motion, and cotton-candy aroma against the customer experience.",
+  },
+  {
+    q: "How much staff training and maintenance should Mini operators plan for?",
+    a: "Mini is a staffed machine because each stick is manually fed. Bloomjoy Plus includes task-based training, setup guides, cleaning checklists, troubleshooting references, and the Operator Essentials certificate path. For routine maintenance planning, use the Commercial rhythm of about every 15 days and roughly 20-30 minutes, then confirm Mini-specific details during onboarding.",
+  },
+  {
+    q: "What warranty and support apply to the Mini Machine?",
+    a: "Mini follows the same public warranty posture as the Commercial Machine: up to 1.5-year machine warranty, manufacturer 24/7 first-line technical support via WeChat, and a replacement-part workflow. Bloomjoy adds onboarding, concierge guidance, and translation/escalation support during US business hours.",
+  },
+];
+
 export const machineBuyerFaqs = [
   {
     q: "Which Bloomjoy machine should I compare first?",
@@ -102,7 +125,15 @@ export const resourcesFaqs = [
   },
   {
     q: "What is the difference between the Commercial, Mini, and Micro machines?",
-    a: "Commercial is full-size with automatic stick dispensing and the deepest pattern set. Mini is portable with manual stick feeding. Micro is the entry-level machine for basic shapes only.",
+    a: "Commercial is full-size with automatic stick dispensing and the deepest pattern set. Mini is portable with manual stick feeding, most complex pattern capability, and roughly 90-second cycle guidance. Micro is the entry-level machine for basic shapes only.",
+  },
+  {
+    q: "Can Mini fit a spa, salon, or hospitality setting?",
+    a: "Mini can be evaluated for staffed hospitality activations where a compact footprint matters. Confirm the 430 x 555 x 1582 mm cabinet, 2400W maximum power, cleaning path, operator staffing, guest flow, and sensitivity to operating sound and cotton-candy aroma during quote review.",
+  },
+  {
+    q: "How should I think about Mini throughput and cost per serving?",
+    a: "Use roughly one candy every 90 seconds as the machine-cycle planning input, then model real throughput and cost per serving with staff pace, manual stick feeding, sugar, sticks, packaging, payment fees, event/site costs, and opening supplies. Bloomjoy does not promise sales volume, ROI, or payback dates.",
   },
   {
     q: "Can Bloomjoy help my team learn daily operation?",
@@ -237,7 +268,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/machines/mini",
     title: "Mini Robotic Cotton Candy Machine | Bloomjoy",
     description:
-      "Explore the Bloomjoy Mini Machine, a portable robotic cotton candy option with most complex patterns, manual stick feeding, and quote-led ordering.",
+      "Explore Bloomjoy Mini Machine specs, proof clips, 90-second cycle guidance, spa and hospitality fit, support, and quote-led ordering.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/mini-machine.jpg",
@@ -523,6 +554,9 @@ const getRouteFaqs = (route: RouteSeo) => {
   if (route.path === "/machines/commercial-robotic-machine") {
     return commercialMachineFaqs;
   }
+  if (route.path === "/machines/mini") {
+    return miniMachineFaqs;
+  }
   return [];
 };
 
@@ -549,7 +583,7 @@ const machineProductDataByPath: Record<string, Record<string, unknown>> = {
     name: "Bloomjoy Sweets Mini Machine",
     brand: { "@type": "Brand", name: "Bloomjoy" },
     description:
-      "Portable robotic cotton candy machine at one-fifth the size of the commercial unit, with most complex patterns and manual stick feeding.",
+      "Portable robotic cotton candy machine at one-fifth the size of the commercial unit, with most complex patterns, manual stick feeding, and roughly 90-second cycle guidance.",
     image: `${MARKETING_ORIGIN}/seo/mini-machine.jpg`,
     url: `${MARKETING_ORIGIN}/machines/mini`,
     category: "Robotic cotton candy machine",
