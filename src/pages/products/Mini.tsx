@@ -424,12 +424,12 @@ export default function MiniPage() {
           <div className="mt-6 grid gap-5 lg:grid-cols-3">
             {proofClips.map((clip) => (
               <figure key={clip.title} className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
-                <div className="aspect-video bg-muted">
+                <div className="mx-auto aspect-[9/16] max-h-[620px] bg-muted sm:max-h-[720px]">
                   <video
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-contain"
                     controls
                     playsInline
-                    preload="metadata"
+                    preload="none"
                     poster={clip.poster}
                   >
                     <source src={clip.src} type="video/mp4" />

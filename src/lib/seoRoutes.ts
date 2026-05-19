@@ -268,7 +268,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/machines/mini",
     title: "Mini Robotic Cotton Candy Machine | Bloomjoy",
     description:
-      "Explore Bloomjoy Mini Machine specs, proof clips, 90-second cycle guidance, spa and hospitality fit, support, and quote-led ordering.",
+      "Explore Bloomjoy Mini Machine specs, a proof clip, 90-second cycle guidance, spa and hospitality fit, support, and quote-led ordering.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/mini-machine.jpg",
