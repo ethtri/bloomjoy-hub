@@ -41,6 +41,7 @@
     "operator-payouts:validate-revenue-snapshots": "node scripts/validate-operator-revenue-snapshots.mjs",
     "operator-payouts:validate-calculation": "node scripts/validate-operator-payout-calculation.mjs",
     "operator-payouts:validate-review": "node scripts/validate-operator-payout-review.mjs",
+    "operator-payouts:validate-statements": "node scripts/validate-operator-pay-statements.mjs",
     "reporting:validate-partner-effective-windows": "node scripts/validate-partner-effective-windows.mjs",
     "reporting:validate-partner-scheduled-export": "node scripts/validate-partner-report-scheduled-export.mjs",
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",

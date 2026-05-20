@@ -4,7 +4,9 @@ import {
   AlertTriangle,
   CalendarClock,
   Clock3,
+  Download,
   Edit3,
+  FileText,
   Loader2,
   Plus,
   RefreshCw,
@@ -25,13 +27,17 @@ import {
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import {
+  downloadOperatorPayStatementHtml,
+  fetchMyOperatorPayStatementContext,
   fetchMyOperatorTimekeepingContext,
+  fetchPayStatementArtifact,
   paidMinutesToHours,
   roundOperatorPaidMinutes,
   submitOperatorTimeEntry,
   updateOperatorTimeEntry,
   voidOperatorTimeEntry,
   type OperatorAssignedMachine,
+  type OperatorPayStatementSummary,
   type OperatorTimeEntry,
   type OperatorTimekeepingContext,
   type OperatorTimekeepingProfileContext,
@@ -78,6 +84,12 @@ const formatPaidHours = (minutes: number) =>
   `${paidMinutesToHours(minutes).toLocaleString(undefined, {
     maximumFractionDigits: 2,
   })} paid hr${minutes === 60 ? '' : 's'}`;
+
+const formatCurrency = (cents: number | null | undefined) =>
+  new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+  }).format((cents ?? 0) / 100);
 
 const timeToMinutes = (value: string) => {
   const [hour, minute] = value.split(':').map(Number);
@@ -138,12 +150,14 @@ const getMachineLabel = (entry: OperatorTimeEntry) =>
   `${entry.machineLabel} - ${entry.locationName}`;
 
 const getContextQueryKey = ['operator-timekeeping'] as const;
+const getPayStatementsQueryKey = ['operator-pay-statements'] as const;
 const emptyProfiles: OperatorTimekeepingProfileContext[] = [];
 
 export default function PortalTimePage() {
   const queryClient = useQueryClient();
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [downloadingStatementId, setDownloadingStatementId] = useState<string | null>(null);
   const [form, setForm] = useState<TimeEntryForm>(() => defaultForm());
 
   const {
@@ -155,6 +169,16 @@ export default function PortalTimePage() {
     queryKey: getContextQueryKey,
     queryFn: () => fetchMyOperatorTimekeepingContext(),
     staleTime: 1000 * 20,
+  });
+
+  const {
+    data: statementContext,
+    isFetching: isFetchingStatements,
+    error: statementError,
+  } = useQuery({
+    queryKey: getPayStatementsQueryKey,
+    queryFn: fetchMyOperatorPayStatementContext,
+    staleTime: 1000 * 30,
   });
 
   const profiles = context?.profiles ?? emptyProfiles;
@@ -169,6 +193,14 @@ export default function PortalTimePage() {
     () => profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0],
     [profiles, selectedProfileId]
   );
+  const selectedStatementProfile = useMemo(
+    () =>
+      selectedProfile
+        ? statementContext?.profiles.find((profile) => profile.id === selectedProfile.id)
+        : statementContext?.profiles[0],
+    [selectedProfile, statementContext?.profiles]
+  );
+  const issuedStatements = selectedStatementProfile?.statements ?? [];
 
   const effectiveMachines = useMemo(() => {
     if (!selectedProfile) return [];
@@ -294,7 +326,25 @@ export default function PortalTimePage() {
   });
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: getContextQueryKey });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: getContextQueryKey }),
+      queryClient.invalidateQueries({ queryKey: getPayStatementsQueryKey }),
+    ]);
+  };
+
+  const downloadStatement = async (statement: OperatorPayStatementSummary) => {
+    setDownloadingStatementId(statement.id);
+    try {
+      const artifact = await fetchPayStatementArtifact(statement.id);
+      downloadOperatorPayStatementHtml(artifact);
+      toast.success('Pay statement downloaded.');
+    } catch (downloadError) {
+      toast.error(
+        downloadError instanceof Error ? downloadError.message : 'Unable to download statement.'
+      );
+    } finally {
+      setDownloadingStatementId(null);
+    }
   };
 
   const startEditing = (entry: OperatorTimeEntry) => {
@@ -565,6 +615,14 @@ export default function PortalTimePage() {
               </div>
 
               <div className="space-y-6">
+                <PayStatementsPanel
+                  statements={issuedStatements}
+                  isRefreshing={isFetchingStatements}
+                  error={statementError}
+                  downloadingStatementId={downloadingStatementId}
+                  onDownload={downloadStatement}
+                />
+
                 <TimeEntriesPanel
                   title="Current Period"
                   description={`${formatDate(
@@ -593,6 +651,101 @@ export default function PortalTimePage() {
         </div>
       </section>
     </PortalLayout>
+  );
+}
+
+function PayStatementsPanel({
+  statements,
+  isRefreshing,
+  error,
+  downloadingStatementId,
+  onDownload,
+}: {
+  statements: OperatorPayStatementSummary[];
+  isRefreshing: boolean;
+  error: unknown;
+  downloadingStatementId: string | null;
+  onDownload: (statement: OperatorPayStatementSummary) => void;
+}) {
+  return (
+    <div className="card-elevated overflow-hidden">
+      <div className="border-b border-border px-4 py-4 sm:px-5">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
+            <FileText className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Pay Statements</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Latest issued statements for finalized payout periods.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="px-4 py-6 text-sm text-destructive">
+          Unable to load pay statements. Refresh and try again.
+        </div>
+      ) : statements.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+          {isRefreshing ? 'Loading pay statements...' : 'No issued pay statements yet.'}
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {statements.map((statement) => (
+            <article key={statement.id} className="px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="break-words font-semibold text-foreground">
+                      {statement.statementLabel}
+                    </h3>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                      v{statement.version}
+                    </span>
+                    {statement.revisionCount > 0 && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                        Revised
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {statement.statementNumber}
+                  </p>
+                  <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                    <span>
+                      {formatDate(statement.periodStartDate)} to{' '}
+                      {formatDate(statement.periodEndDate)}
+                    </span>
+                    <span>Issued {formatDate(statement.issuedAt)}</span>
+                    <span>Target payout {formatDate(statement.targetPayoutDate)}</span>
+                    <span className="font-semibold text-foreground">
+                      {formatCurrency(statement.totalPayoutCents)}
+                    </span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onDownload(statement)}
+                  disabled={downloadingStatementId === statement.id}
+                >
+                  {downloadingStatementId === statement.id ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-1.5 h-4 w-4" />
+                  )}
+                  Download
+                </Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
