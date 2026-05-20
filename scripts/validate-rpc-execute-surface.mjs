@@ -89,6 +89,16 @@ const serviceRoleOnlyFunctions = [
     name: 'operator_payout_effective_rule_value',
     migrationName: '202605200004_operator_payout_calculation_engine.sql',
   },
+  {
+    signature: 'public.operator_can_finalize_payout_run(uuid, uuid)',
+    name: 'operator_can_finalize_payout_run',
+    migrationName: '202605200005_operator_payout_review_workflow.sql',
+  },
+  {
+    signature: 'public.operator_capture_payout_run_review_snapshot(uuid, uuid, text, text)',
+    name: 'operator_capture_payout_run_review_snapshot',
+    migrationName: '202605200005_operator_payout_review_workflow.sql',
+  },
 ];
 
 const protectedAuthenticatedFunctions = [

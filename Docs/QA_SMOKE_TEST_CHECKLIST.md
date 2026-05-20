@@ -184,6 +184,17 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Operator Time warns before save for end-before-start, work date outside the current period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
 - [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, payout-included, paid, or voided entries.
 - [ ] Operator Time empty state explains that an admin or machine manager must add an operator payout profile and assigned machines before time can be submitted.
+
+### Admin Operator Payout Review
+- [ ] Admin or scoped payout manager can open `/admin/payouts`; users without payout admin access see the existing admin access-required state.
+- [ ] Payout periods list shows account, period dates, status, operator count, total payout, warnings, and revision count without horizontal overflow on desktop or mobile.
+- [ ] Generating or recalculating a payout run uses submitted/locked/included time, revenue snapshots, compensation rules, and adjustments; recalculation requires an audit reason.
+- [ ] Manager review shows operator totals, machine-level time/revenue/commission breakdown, adjustments, and warning details while respecting scoped machine visibility.
+- [ ] Adding an adjustment requires operator, non-zero amount, operator-visible description, and manager audit reason, then recalculates the run.
+- [ ] Finalization blocks when critical payout warnings are present unless the manager records an explicit override reason.
+- [ ] Finalization blocks if issued/revised pay statements already exist for the run, preventing duplicate statements.
+- [ ] Mark reviewed, finalize, reopen, and void actions all require audit reasons and preserve review/revision snapshots.
+- [ ] Reopening or voiding an unissued run leaves the period ready for corrected calculation without unlocking unrelated admin surfaces.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
 - [ ] Portal section navigation labels `/portal/account` as Settings and does not show a separate Admin link for admin users

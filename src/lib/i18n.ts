@@ -68,6 +68,9 @@ export const translations = {
       'Guided agreement setup, participants, assigned machines, split terms, and preview.',
     'admin.reporting': 'Reporting',
     'admin.reportingDescription': 'Report schedules, exports, and sync status.',
+    'admin.payouts': 'Payouts',
+    'admin.payoutsDescription':
+      'Operator payout review, adjustments, finalization, and revision history.',
     'admin.refunds': 'Refunds',
     'admin.refundsDescription':
       'Refund intake, correlation evidence, manager decisions, and settlement readiness.',
@@ -644,6 +647,8 @@ export const translations = {
     'admin.partnershipsDescription': '协议设置、参与方、分配机器、分账条款和预览。',
     'admin.reporting': '报表',
     'admin.reportingDescription': '报表计划、导出和同步状态。',
+    'admin.payouts': '结算',
+    'admin.payoutsDescription': '操作员结算审核、调整、最终确认和修订记录。',
 
     'portal.memberPortal': '会员门户',
     'portal.description': '在订单、设置、培训、入门和支持之间切换，不丢失上下文。',

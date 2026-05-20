@@ -25,12 +25,19 @@ export function AdminRoute() {
     return <Outlet />;
   }
 
-  if (!isSuperAdmin && canAccessSurface('refunds') && location.pathname === '/admin') {
+  if (
+    !isSuperAdmin &&
+    canAccessSurface('refunds') &&
+    !canAccessSurface('payouts') &&
+    location.pathname === '/admin'
+  ) {
     return <Navigate to="/portal/refunds" replace />;
   }
 
   if (!isSuperAdmin && isAdmin && location.pathname === '/admin') {
-    const redirectTarget = canAccessSurface('refunds')
+    const redirectTarget = canAccessSurface('payouts')
+      ? '/admin/payouts'
+      : canAccessSurface('refunds')
       ? '/portal/refunds'
       : '/admin/access?tab=reporting-access';
     return <Navigate to={redirectTarget} replace />;
@@ -41,6 +48,10 @@ export function AdminRoute() {
   }
 
   if (canAccessSurface('refunds') && location.pathname.startsWith('/admin/refunds')) {
+    return <Outlet />;
+  }
+
+  if (canAccessSurface('payouts') && location.pathname.startsWith('/admin/payouts')) {
     return <Outlet />;
   }
 

@@ -66,6 +66,7 @@ const AdminPartnerRecords = lazyRoute(() => import("./pages/admin/PartnerRecords
 const AdminMachines = lazyRoute(() => import("./pages/admin/Machines"));
 const AdminPartnerships = lazyRoute(() => import("./pages/admin/Partnerships"));
 const AdminReporting = lazyRoute(() => import("./pages/admin/Reporting"));
+const AdminPayouts = lazyRoute(() => import("./pages/admin/Payouts"));
 const AdminRefunds = lazyRoute(() => import("./pages/admin/Refunds"));
 const NotFound = lazyRoute(() => import("./pages/NotFound"));
 
@@ -201,6 +202,7 @@ export const AppShell = () => (
               />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />
+              <Route path="/admin/payouts" element={<AdminPayouts />} />
               <Route path="/admin/refunds" element={<RedirectWithSearch to="/portal/refunds" />} />
               <Route
                 path="/admin/audit"
