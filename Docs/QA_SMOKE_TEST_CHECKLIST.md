@@ -179,8 +179,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
-- [ ] Operator Time (`/portal/time`) loads for an authenticated operator with an active payout profile, shows current period dates, due date, lock date, assigned-machine dropdown, current period entries, and recent history.
-- [ ] Operator Time add-shift flow allows only assigned machines, shows raw duration and rounded paid hours before save, rounds a short shift up to the Bloomjoy default full hour, and saves through the portal without exposing payroll/tax language.
+- [ ] Operator Time (`/portal/time`) loads for an authenticated operator with an active payout profile, puts Add Time first, shows current period dates, due date, lock date, assigned-machine dropdown, this-period entries, and past shifts without duplicate current-period entries.
+- [ ] Operator Time add-time flow allows only assigned machines, shows actual time and paid hours before save, rounds a short shift up to the Bloomjoy default full hour, and saves through the portal without exposing payroll/tax language.
 - [ ] Operator Time warns before save for end-before-start, work date outside the current period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
 - [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, payout-included, paid, or voided entries.
 - [ ] Operator Time empty state explains that an admin or machine manager must add an operator payout profile and assigned machines before time can be submitted.
@@ -196,12 +196,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mark reviewed, finalize, reopen, and void actions all require audit reasons and preserve review/revision snapshots.
 - [ ] Reopening or voiding an unissued run leaves the period ready for corrected calculation without unlocking unrelated admin surfaces.
 
-### Operator Pay Statements
+### Operator Pay Statements / Pay Stubs
 - [ ] Managers can preview pay statements before issuance from `/admin/payouts`; preview rows are not visible to operators and do not create statement records.
 - [ ] Issuing pay statements requires a finalized payout run plus an audit reason; reissuing existing statements also requires a revision reason.
 - [ ] Issuance creates one versioned statement per payable operator, marks previous versions revised, publishes portal availability, marks included time paid, and records an audit entry without executing payroll provider payments.
-- [ ] Operators see only latest issued statements for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
-- [ ] Operators can download the generated statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total payout, disclaimer, and revision status.
+- [ ] Operators see only latest issued pay stubs for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
+- [ ] Operators can download the generated pay stub artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total payout, disclaimer, and revision status.
 - [ ] Direct artifact requests for drafts, missing statements, or another operator's statement fail with an access error.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out

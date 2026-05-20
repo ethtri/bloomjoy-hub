@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
-  CalendarClock,
   Clock3,
   Download,
   Edit3,
@@ -203,6 +202,14 @@ export default function PortalTimePage() {
     [selectedProfile, statementContext?.profiles]
   );
   const issuedStatements = selectedStatementProfile?.statements ?? [];
+  const pastEntries = useMemo(() => {
+    if (!selectedProfile) return [];
+
+    const { periodStartDate, periodEndDate } = selectedProfile.currentPeriod;
+    return selectedProfile.recentEntries.filter(
+      (entry) => !isDateInsideRange(entry.workDate, periodStartDate, periodEndDate)
+    );
+  }, [selectedProfile]);
 
   const effectiveMachines = useMemo(() => {
     if (!selectedProfile) return [];
@@ -339,10 +346,10 @@ export default function PortalTimePage() {
     try {
       const artifact = await fetchPayStatementArtifact(statement.id);
       downloadOperatorPayStatementHtml(artifact);
-      toast.success('Pay statement downloaded.');
+      toast.success('Pay stub downloaded.');
     } catch (downloadError) {
       toast.error(
-        downloadError instanceof Error ? downloadError.message : 'Unable to download statement.'
+        downloadError instanceof Error ? downloadError.message : 'Unable to download pay stub.'
       );
     } finally {
       setDownloadingStatementId(null);
@@ -386,7 +393,7 @@ export default function PortalTimePage() {
         <div className="container-page">
           <PortalPageIntro
             title="Time"
-            description="Submit assigned-machine shifts for the current payout period and review recent entries before the period locks."
+            description="Add time, check past shifts, and download pay stubs."
             badges={[
               {
                 label: selectedProfile
@@ -439,19 +446,16 @@ export default function PortalTimePage() {
           )}
 
           {selectedProfile && (
-            <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)]">
-              <div className="space-y-6">
-                <PeriodPanel profile={selectedProfile} />
-
-                <div className="card-elevated p-4 sm:p-5">
+            <div className="mt-6">
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                <div className="card-elevated order-1 p-4 sm:p-5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <h2 className="text-lg font-semibold text-foreground">
-                        {editingEntryId ? 'Edit Shift' : 'Add Shift'}
+                        {editingEntryId ? 'Edit Time' : 'Add Time'}
                       </h2>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Shifts must stay inside the current payout period and use an assigned
-                        machine.
+                        Enter the date, assigned machine, and times. Everything else is optional.
                       </p>
                     </div>
                     {profiles.length > 1 && (
@@ -480,6 +484,8 @@ export default function PortalTimePage() {
                       </div>
                     )}
                   </div>
+
+                  <PeriodDetails profile={selectedProfile} />
 
                   <div className="mt-5 grid gap-4">
                     <div>
@@ -553,13 +559,13 @@ export default function PortalTimePage() {
 
                     <div>
                       <label htmlFor="time-notes" className="mb-1 block text-sm font-medium">
-                        Notes
+                        Notes <span className="font-normal text-muted-foreground">(optional)</span>
                       </label>
                       <Textarea
                         id="time-notes"
                         value={form.notes}
-                        rows={3}
-                        placeholder="Optional context for this shift"
+                        rows={2}
+                        placeholder="Add context only if it helps"
                         onChange={(event) =>
                           setForm((current) => ({ ...current, notes: event.target.value }))
                         }
@@ -568,9 +574,12 @@ export default function PortalTimePage() {
                   </div>
 
                   <div className="mt-5 grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-2">
-                    <Metric label="Raw duration" value={rawDurationMinutes ? formatMinutes(rawDurationMinutes) : 'Set times'} />
                     <Metric
-                      label="Rounded paid time"
+                      label="Actual time"
+                      value={rawDurationMinutes ? formatMinutes(rawDurationMinutes) : 'Set times'}
+                    />
+                    <Metric
+                      label="You'll be paid for"
                       value={roundedPaidMinutes ? formatPaidHours(roundedPaidMinutes) : 'Set times'}
                     />
                   </div>
@@ -588,7 +597,7 @@ export default function PortalTimePage() {
                   <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
                     {editingEntryId && (
                       <Button type="button" variant="outline" onClick={cancelEditing}>
-                        Cancel Edit
+                        Cancel
                       </Button>
                     )}
                     <Button
@@ -603,9 +612,15 @@ export default function PortalTimePage() {
                       ) : (
                         <Plus className="mr-2 h-4 w-4" />
                       )}
-                      {editingEntryId ? 'Save Shift' : 'Add Shift'}
+                      {editingEntryId ? 'Save Time' : 'Add Time'}
                     </Button>
                   </div>
+
+                  {hasBlockingValidation && !saveMutation.isPending && (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Enter a date, assigned machine, start time, and end time to add time.
+                    </p>
+                  )}
 
                   {entryBeingEdited && (
                     <p className="mt-3 text-xs text-muted-foreground">
@@ -614,39 +629,42 @@ export default function PortalTimePage() {
                     </p>
                   )}
                 </div>
-              </div>
+                <div className="order-3">
+                  <TimeEntriesPanel
+                    title="This Period"
+                    description={`${formatDate(
+                      selectedProfile.currentPeriod.periodStartDate
+                    )} to ${formatDate(selectedProfile.currentPeriod.periodEndDate)}`}
+                    entries={selectedProfile.currentEntries}
+                    emptyMessage="No time entered for this period yet."
+                    onEdit={startEditing}
+                    onDelete={confirmDelete}
+                    isDeleting={deleteMutation.isPending}
+                  />
+                </div>
 
-              <div className="space-y-6">
-                <PayStatementsPanel
-                  statements={issuedStatements}
-                  isRefreshing={isFetchingStatements}
-                  error={statementError}
-                  downloadingStatementId={downloadingStatementId}
-                  onDownload={downloadStatement}
-                />
+                <div className="order-2">
+                  <PayStatementsPanel
+                    statements={issuedStatements}
+                    isRefreshing={isFetchingStatements}
+                    error={statementError}
+                    downloadingStatementId={downloadingStatementId}
+                    onDownload={downloadStatement}
+                  />
+                </div>
 
-                <TimeEntriesPanel
-                  title="Current Period"
-                  description={`${formatDate(
-                    selectedProfile.currentPeriod.periodStartDate
-                  )} to ${formatDate(selectedProfile.currentPeriod.periodEndDate)}`}
-                  entries={selectedProfile.currentEntries}
-                  emptyMessage="No shifts entered for this period yet."
-                  onEdit={startEditing}
-                  onDelete={confirmDelete}
-                  isDeleting={deleteMutation.isPending}
-                />
-
-                <TimeEntriesPanel
-                  title="Recent History"
-                  description="Latest submitted shifts across payout periods."
-                  entries={selectedProfile.recentEntries}
-                  emptyMessage="No recent shifts yet."
-                  onEdit={startEditing}
-                  onDelete={confirmDelete}
-                  isDeleting={deleteMutation.isPending}
-                  compact
-                />
+                <div className="order-4">
+                  <TimeEntriesPanel
+                    title="Past Shifts"
+                    description="Earlier payout periods only."
+                    entries={pastEntries}
+                    emptyMessage="No past shifts yet."
+                    onEdit={startEditing}
+                    onDelete={confirmDelete}
+                    isDeleting={deleteMutation.isPending}
+                    compact
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -677,9 +695,9 @@ function PayStatementsPanel({
             <FileText className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Pay Statements</h2>
+            <h2 className="text-lg font-semibold text-foreground">Pay Stubs</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Latest issued statements for finalized payout periods.
+              Download issued pay stubs for finalized payout periods.
             </p>
           </div>
         </div>
@@ -687,11 +705,11 @@ function PayStatementsPanel({
 
       {error ? (
         <div className="px-4 py-6 text-sm text-destructive">
-          Unable to load pay statements. Refresh and try again.
+          Unable to load pay stubs. Refresh and try again.
         </div>
       ) : statements.length === 0 ? (
         <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-          {isRefreshing ? 'Loading pay statements...' : 'No issued pay statements yet.'}
+          {isRefreshing ? 'Loading pay stubs...' : 'No pay stubs yet.'}
         </div>
       ) : (
         <div className="divide-y divide-border">
@@ -740,7 +758,7 @@ function PayStatementsPanel({
                   ) : (
                     <Download className="mr-1.5 h-4 w-4" />
                   )}
-                  Download
+                  Download pay stub
                 </Button>
               </div>
             </article>
@@ -751,31 +769,18 @@ function PayStatementsPanel({
   );
 }
 
-function PeriodPanel({ profile }: { profile: OperatorTimekeepingProfileContext }) {
+function PeriodDetails({ profile }: { profile: OperatorTimekeepingProfileContext }) {
   const period = profile.currentPeriod;
 
   return (
-    <div className="card-elevated p-4 sm:p-5">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
-          <CalendarClock className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Current Payout Period</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {profile.accountName} - {profile.policy.name}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <Metric label="Period" value={`${formatDate(period.periodStartDate)} to ${formatDate(period.periodEndDate)}`} />
-        <Metric label="Status" value={getStatusLabel(period.status)} />
-        <Metric label="Time due" value={formatDate(period.submissionDueDate)} />
-        <Metric label="Locks" value={formatDate(period.lockDate)} />
-        <Metric label="Target payout" value={formatDate(period.targetPayoutDate)} />
-        <Metric label="Rounding" value={profile.policy.roundingRule.replaceAll('_', ' ')} />
-      </div>
+    <div className="mt-4 grid gap-3 rounded-md bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Metric
+        label="Period"
+        value={`${formatDate(period.periodStartDate)} to ${formatDate(period.periodEndDate)}`}
+      />
+      <Metric label="Time due" value={formatDate(period.submissionDueDate)} />
+      <Metric label="Locks" value={formatDate(period.lockDate)} />
+      <Metric label="Rounding" value={profile.policy.roundingRule.replaceAll('_', ' ')} />
     </div>
   );
 }

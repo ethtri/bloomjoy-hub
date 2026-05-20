@@ -109,8 +109,9 @@ const portalTime = readText(files.portalTime);
 for (const snippet of [
   'PayStatementsPanel',
   'downloadStatement',
-  'Latest issued statements',
-  'No issued pay statements yet.',
+  'Pay Stubs',
+  'Download issued pay stubs',
+  'No pay stubs yet.',
   'fetchPayStatementArtifact',
   'downloadOperatorPayStatementHtml',
 ]) {
@@ -132,7 +133,7 @@ if (!packageJson.includes('operator-payouts:validate-statements')) {
 const smoke = readText(files.smoke);
 for (const snippet of [
   'Operator Pay Statements',
-  'Operators see only latest issued statements',
+  'Operators see only latest issued pay stubs',
   'Managers can preview pay statements before issuance',
 ]) {
   if (!smoke.includes(snippet)) {

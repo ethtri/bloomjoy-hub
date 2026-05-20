@@ -66,7 +66,7 @@ for (const snippet of [
   'submitOperatorTimeEntry',
   'updateOperatorTimeEntry',
   'voidOperatorTimeEntry',
-  'assigned-machine',
+  'assigned machine',
   'overlaps',
   '10+ hours',
   'End time must be after start time',

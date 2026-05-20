@@ -274,6 +274,41 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(jsonResponse(buildContext(state)));
     }
 
+    if (rpcName === 'get_my_operator_pay_statement_context') {
+      return route.fulfill(
+        jsonResponse({
+          profiles: [
+            {
+              id: profileId,
+              accountId,
+              accountName: 'Bloomjoy UAT',
+              displayName: 'Operator Time',
+              workerType: 'contractor_1099',
+              statements: [
+                {
+                  id: '66000000-0000-4000-8000-000000000020',
+                  statementNumber: 'BJ-2026-05-0001',
+                  statementLabel: 'May 2026 Pay Stub',
+                  status: 'issued',
+                  version: 1,
+                  issuedAt: '2026-06-04T12:00:00.000Z',
+                  storageBucket: 'operator-pay-statements',
+                  storagePath: 'operators/may-2026.html',
+                  totalPayoutCents: 12450,
+                  periodStartDate: '2026-05-01',
+                  periodEndDate: '2026-05-31',
+                  notificationStatus: 'portal_published',
+                  targetPayoutDate: '2026-06-05',
+                  revisionCount: 0,
+                  downloadFileName: 'may-2026-pay-stub.html',
+                },
+              ],
+            },
+          ],
+        })
+      );
+    }
+
     if (rpcName === 'submit_operator_time_entry') {
       const entry = makeEntry(body, state);
       state.entries.push(entry);
@@ -368,7 +403,7 @@ const run = async () => {
   await waitForServer(args.appUrl);
 
   const browser = await chromium.launch({ headless: !args.headed });
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const context = await browser.newContext({ viewport: { width: 1365, height: 900 } });
   await installMockSupabaseRoutes(context, state);
 
   const page = await context.newPage();
@@ -394,8 +429,8 @@ const run = async () => {
       page.getByRole('button', { name: /sign in/i }).click(),
     ]);
 
-    await page.getByRole('heading', { name: 'Time' }).waitFor({ timeout: 10000 });
-    await page.getByRole('heading', { name: 'Current Payout Period' }).waitFor({ timeout: 10000 });
+    await page.getByRole('heading', { name: 'Time', exact: true }).waitFor({ timeout: 10000 });
+    await page.getByRole('heading', { name: 'Add Time' }).waitFor({ timeout: 10000 });
 
     recorder.assert('Portal Time route loads after auth', new URL(page.url()).pathname === '/portal/time', page.url());
     recorder.assert(
@@ -407,16 +442,26 @@ const run = async () => {
       (await page.getByText('Time due', { exact: true }).isVisible()) &&
         (await page.getByText('Locks', { exact: true }).isVisible())
     );
+    recorder.assert(
+      'Pay stub download is visible',
+      (await page.getByRole('heading', { name: 'Pay Stubs' }).isVisible()) &&
+        (await page.getByRole('button', { name: /download pay stub/i }).isVisible())
+    );
+    await page.waitForTimeout(4500);
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-desktop.png'),
+      fullPage: true,
+    });
 
     await page.fill('#work-date', workDate);
     await page.fill('#start-time', '09:00');
     await page.fill('#end-time', '09:30');
     await page.fill('#time-notes', 'Restocked sugar and cleaned spinner head.');
 
-    recorder.assert('Raw duration preview updates', await page.getByText('30 min').isVisible());
-    recorder.assert('Rounded paid time previews full hour', await page.getByText('1 paid hr').isVisible());
+    recorder.assert('Actual time preview updates', await page.getByText('30 min').isVisible());
+    recorder.assert('Paid-time preview rounds to full hour', await page.getByText('1 paid hr').isVisible());
 
-    await page.getByRole('button', { name: /add shift/i }).click();
+    await page.getByRole('button', { name: /add time/i }).click();
     await page.getByText('Time entry saved.').last().waitFor({ timeout: 10000 });
     await page.getByText('Restocked sugar and cleaned spinner head.').waitFor({ timeout: 10000 });
 
@@ -447,7 +492,7 @@ const run = async () => {
     await page.fill('#end-time', '11:01');
     await page.getByText('2 paid hrs').waitFor({ timeout: 10000 });
     await page.fill('#time-notes', 'Updated shift after manager text.');
-    await page.getByRole('button', { name: /save shift/i }).click();
+    await page.getByRole('button', { name: /save time/i }).click();
     await waitForCondition(
       () => state.rpcCalls.some((call) => call.rpcName === 'update_operator_time_entry'),
       'Timed out waiting for update_operator_time_entry RPC'
@@ -471,12 +516,16 @@ const run = async () => {
     });
     await page.locator('article', { hasText: 'Updated shift' }).getByRole('button', { name: /delete/i }).click();
     await page.getByText('Time entry deleted.').last().waitFor({ timeout: 10000 });
-    await page.getByText('No shifts entered for this period yet.').waitFor({ timeout: 10000 });
+    await page.getByText('No time entered for this period yet.').waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Delete uses void RPC instead of direct hard delete',
       state.rpcCalls.some((call) => call.rpcName === 'void_operator_time_entry')
     );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(4500);
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     recorder.assert('Mobile Time page has no horizontal overflow', !overflow);
