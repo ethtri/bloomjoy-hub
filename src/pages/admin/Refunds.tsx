@@ -126,7 +126,7 @@ type NayaxLookupNotice = {
   message: string;
 };
 
-type QueueFilter = 'needs_action' | 'waiting_on_customer' | 'ready_to_pay' | 'completed' | 'all';
+type QueueFilter = 'needs_action' | 'waiting_on_customer' | 'ready_to_pay' | 'blocked' | 'completed' | 'all';
 
 type CustomerMessageResult = {
   type: string;
@@ -176,6 +176,17 @@ const formatDate = (value: string | null) => {
     hour: 'numeric',
     minute: '2-digit',
   });
+};
+
+const formatAge = (value: string | null) => {
+  if (!value) return 'n/a';
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return 'n/a';
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 };
 
 const formatCurrency = (cents: number | null) => {
@@ -301,6 +312,70 @@ const getCustomerCommunicationLabel = (refundCase: RefundCaseRecord) => {
   if (latest.status === 'sent') return `Last email sent: ${statusLabel(latest.messageType)}`;
   if (latest.status === 'pending') return `Email pending: ${statusLabel(latest.messageType)}`;
   return `Customer email ${latest.status}: ${statusLabel(latest.messageType)}`;
+};
+
+const getCustomerContactAgeLabel = (refundCase: RefundCaseRecord) => {
+  const latest = getLatestCustomerMessage(refundCase);
+  if (!latest) return 'No customer email yet';
+  return `Last contact ${formatAge(latest.sentAt ?? latest.createdAt)} ago`;
+};
+
+const isReadyToPayCase = (refundCase: RefundCaseRecord) =>
+  ['approved', 'card_refund_pending', 'cash_zelle_pending'].includes(refundCase.status);
+
+const isBlockedCase = (refundCase: RefundCaseRecord) => {
+  const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
+  return (
+    getLatestCustomerMessage(refundCase)?.status === 'failed' ||
+    refundCase.correlationStatus === 'nayax_not_configured' ||
+    refundCase.correlationStatus === 'needs_nayax' ||
+    lookupStatus === 'setup_needed' ||
+    lookupStatus === 'lookup_failed' ||
+    (refundCase.paymentMethod === 'card' && refundCase.correlationStatus === 'no_match')
+  );
+};
+
+const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
+  if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 0;
+  if (isReadyToPayCase(refundCase)) return 1;
+  if (isBlockedCase(refundCase)) return 2;
+  if (refundCase.status === 'submitted' || refundCase.status === 'needs_review' || refundCase.status === 'correlated') {
+    return 3;
+  }
+  if (refundCase.status === 'waiting_on_customer') return 4;
+  if (refundCase.status === 'completed') return 6;
+  if (refundCase.status === 'denied' || refundCase.status === 'closed') return 7;
+  return 5;
+};
+
+const getOperationalSignals = (refundCase: RefundCaseRecord) => {
+  const signals: Array<{ label: string; className: string }> = [];
+  if (getLatestCustomerMessage(refundCase)?.status === 'failed') {
+    signals.push({ label: 'Email failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
+  }
+  if (refundCase.paymentMethod === 'card' && refundCase.correlationStatus === 'no_match') {
+    signals.push({ label: 'No card match', className: 'border-amber-200 bg-amber-50 text-amber-800' });
+  }
+  if (
+    refundCase.correlationStatus === 'nayax_not_configured' ||
+    refundCase.correlationStatus === 'needs_nayax' ||
+    refundCase.nayaxLookupSummary?.lookupStatus === 'setup_needed'
+  ) {
+    signals.push({ label: 'Nayax setup needed', className: 'border-amber-200 bg-amber-50 text-amber-800' });
+  }
+  if (refundCase.nayaxLookupSummary?.lookupStatus === 'lookup_failed') {
+    signals.push({ label: 'Lookup failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
+  }
+  if (refundCase.cardWalletUsed) {
+    signals.push({ label: 'Wallet payment', className: 'border-sky-200 bg-sky-50 text-sky-700' });
+  }
+  if (refundCase.status === 'waiting_on_customer') {
+    signals.push({ label: 'Waiting on customer', className: 'border-amber-200 bg-amber-50 text-amber-800' });
+  }
+  if (isReadyToPayCase(refundCase)) {
+    signals.push({ label: 'Ready to pay', className: 'border-sky-200 bg-sky-50 text-sky-700' });
+  }
+  return signals.slice(0, 3);
 };
 
 const confidenceLabel = (confidence: number) => {
@@ -1030,12 +1105,8 @@ export default function AdminRefundsPage() {
     return overview.cases.filter((refundCase) => {
       if (statusFilter === 'needs_action' && !openStatuses.has(refundCase.status)) return false;
       if (statusFilter === 'waiting_on_customer' && refundCase.status !== 'waiting_on_customer') return false;
-      if (
-        statusFilter === 'ready_to_pay' &&
-        !['approved', 'card_refund_pending', 'cash_zelle_pending'].includes(refundCase.status)
-      ) {
-        return false;
-      }
+      if (statusFilter === 'ready_to_pay' && !isReadyToPayCase(refundCase)) return false;
+      if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
       if (statusFilter === 'completed' && refundCase.status !== 'completed') return false;
 
       if (!normalizedSearch) return true;
@@ -1050,6 +1121,10 @@ export default function AdminRefundsPage() {
         .join(' ')
         .toLowerCase()
         .includes(normalizedSearch);
+    }).sort((left, right) => {
+      const rankDelta = caseUrgencyRank(left) - caseUrgencyRank(right);
+      if (rankDelta !== 0) return rankDelta;
+      return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
     });
   }, [overview.cases, search, statusFilter]);
 
@@ -1058,9 +1133,8 @@ export default function AdminRefundsPage() {
     return {
       needsAction: open.length,
       waiting: overview.cases.filter((refundCase) => refundCase.status === 'waiting_on_customer').length,
-      readyToPay: overview.cases.filter((refundCase) =>
-        ['approved', 'card_refund_pending', 'cash_zelle_pending'].includes(refundCase.status)
-      ).length,
+      readyToPay: overview.cases.filter(isReadyToPayCase).length,
+      blocked: overview.cases.filter(isBlockedCase).length,
       completed: overview.cases.filter((refundCase) => refundCase.status === 'completed').length,
     };
   }, [overview.cases]);
@@ -1671,18 +1745,18 @@ export default function AdminRefundsPage() {
               <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.needsAction}</p>
             </div>
             <div className="rounded-lg border border-border bg-card p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Ready to pay</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.readyToPay}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
                 Waiting on customer
               </p>
               <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.waiting}</p>
             </div>
             <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Ready to pay</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.readyToPay}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Completed</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.completed}</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Blocked / failed</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.blocked}</p>
             </div>
           </div>
 
@@ -1718,6 +1792,7 @@ export default function AdminRefundsPage() {
               <option value="needs_action">Needs action</option>
               <option value="waiting_on_customer">Waiting on customer</option>
               <option value="ready_to_pay">Ready to pay</option>
+              <option value="blocked">Blocked / failed</option>
               <option value="completed">Completed</option>
               <option value="all">All cases</option>
             </select>
@@ -1771,14 +1846,31 @@ export default function AdminRefundsPage() {
                       </div>
                       <div className="mt-3 grid gap-2 text-xs text-muted-foreground min-[380px]:grid-cols-2">
                         <div>
-                          <span className="font-medium text-foreground">Match result:</span>{' '}
+                          <span className="font-medium text-foreground">Amount:</span>{' '}
+                          {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground">Age:</span>{' '}
+                          {formatAge(refundCase.createdAt)}
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground">Match:</span>{' '}
                           {matchResultLabel(refundCase, refundCase.id === selectedId ? editor : toEditorState(refundCase), refundCase.nayaxLookupCandidates ?? [])}
                         </div>
                         <div>
-                          <span className="font-medium text-foreground">Next step:</span>{' '}
-                          {taskLabel(refundCase)}
+                          <span className="font-medium text-foreground">Customer:</span>{' '}
+                          {getCustomerContactAgeLabel(refundCase)}
                         </div>
                       </div>
+                      {getOperationalSignals(refundCase).length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {getOperationalSignals(refundCase).map((signal) => (
+                            <Badge key={signal.label} className={cn('rounded-md text-[11px]', signal.className)}>
+                              {signal.label}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       <span className="mt-3 inline-flex text-xs font-semibold text-primary">Open review</span>
                     </button>
                   ))}
@@ -1804,7 +1896,7 @@ export default function AdminRefundsPage() {
                       Match result
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Created
+                      Age / contact
                     </th>
                   </tr>
                 </thead>
@@ -1854,6 +1946,18 @@ export default function AdminRefundsPage() {
                           <div className="mt-1 truncate text-xs text-muted-foreground">
                             {refundCase.locationName} - {refundCase.machineLabel}
                           </div>
+                          <div className="mt-1 text-xs font-medium text-foreground">
+                            {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
+                          </div>
+                          {getOperationalSignals(refundCase).length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {getOperationalSignals(refundCase).map((signal) => (
+                                <Badge key={signal.label} className={cn('rounded-md text-[11px]', signal.className)}>
+                                  {signal.label}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 align-top">
                           <Badge className={cn('whitespace-normal rounded-md text-left leading-tight', taskBadgeClass(refundCase))}>
@@ -1864,7 +1968,8 @@ export default function AdminRefundsPage() {
                           <div>{matchResultLabel(refundCase, refundCase.id === selectedId ? editor : toEditorState(refundCase), refundCase.nayaxLookupCandidates ?? [])}</div>
                         </td>
                         <td className="px-4 py-3 align-top text-sm text-muted-foreground">
-                          {formatDate(refundCase.createdAt)}
+                          <div>{formatAge(refundCase.createdAt)} old</div>
+                          <div className="mt-1 text-xs">{getCustomerContactAgeLabel(refundCase)}</div>
                         </td>
                     </tr>
                   ))}
@@ -1919,39 +2024,40 @@ export default function AdminRefundsPage() {
                           {getCustomerCommunicationLabel(selectedCase)}
                         </Badge>
                       </div>
-                      {primaryAction && !primaryActionIsCompletion && (
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                          <Button
-                            type="button"
-                            size="sm"
-                            data-testid="refund-primary-action-top"
-                            onClick={() => void handlePrimaryAction()}
-                            disabled={
-                              isSaving ||
-                              isUsingDemoData ||
-                              primaryAction.disabled ||
-                              primaryActionIssues.length > 0
-                            }
-                          >
-                            {isSaving ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="mr-2 h-4 w-4" />
-                            )}
-                            {primaryAction.label}
-                          </Button>
-                          {primaryActionIssues.length > 0 && (
-                            <span className="text-xs text-amber-700">
-                              Resolve the action checklist below first.
-                            </span>
-                          )}
+                      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-md border border-primary/15 bg-background/80 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Task</p>
+                          <p className="mt-1 font-medium text-foreground">{taskLabel(selectedCase)}</p>
+                        </div>
+                        <div className="rounded-md border border-primary/15 bg-background/80 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Transaction</p>
+                          <p className="mt-1 font-medium text-foreground">
+                            {matchResultLabel(selectedCase, editor, nayaxCandidates)}
+                          </p>
+                        </div>
+                        <div className="rounded-md border border-primary/15 bg-background/80 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Customer update</p>
+                          <p className="mt-1 font-medium text-foreground">{getCustomerCommunicationLabel(selectedCase)}</p>
+                        </div>
+                        <div className="rounded-md border border-primary/15 bg-background/80 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Age</p>
+                          <p className="mt-1 font-medium text-foreground">{formatAge(selectedCase.createdAt)} old</p>
+                        </div>
+                      </div>
+                      {getOperationalSignals(selectedCase).length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {getOperationalSignals(selectedCase).map((signal) => (
+                            <Badge key={signal.label} className={cn('rounded-md', signal.className)}>
+                              {signal.label}
+                            </Badge>
+                          ))}
                         </div>
                       )}
-                      {primaryActionIsCompletion && (
-                        <p className="mt-3 text-xs font-medium text-primary">
-                          No action is required in Step 2.
-                        </p>
-                      )}
+                      <p className="mt-3 text-xs font-medium text-primary">
+                        {primaryActionIsCompletion
+                          ? 'No action is required in Step 2. Continue to the guided completion step below.'
+                          : 'Use the guided decision step below for the action. This summary is read-only.'}
+                      </p>
                     </div>
 
                     <div className="space-y-3 rounded-lg border border-border bg-background p-4">
@@ -2218,12 +2324,78 @@ export default function AdminRefundsPage() {
                       ) : primaryAction ? (
                         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Primary action
+                            Current decision
                           </p>
                           <p className="mt-1 text-base font-semibold text-foreground">
                             {primaryAction.label}
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">{primaryAction.helper}</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {primaryAction.label !== 'Ask customer for details' && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={isUsingDemoData}
+                                onClick={() => {
+                                  setEditor((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          status: 'waiting_on_customer',
+                                          decision: null,
+                                          decisionReason: '',
+                                        }
+                                      : current
+                                  );
+                                  handleMessageTypeChange('more_info');
+                                }}
+                              >
+                                Ask customer instead
+                              </Button>
+                            )}
+                            {primaryAction.label !== 'Deny request' && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={isUsingDemoData}
+                                onClick={() => {
+                                  setEditor((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          status: 'denied',
+                                          decision: 'denied',
+                                        }
+                                      : current
+                                  );
+                                  handleMessageTypeChange('denied');
+                                }}
+                              >
+                                Deny instead
+                              </Button>
+                            )}
+                          </div>
+                          {(editor.decision === 'denied' || editor.status === 'denied') && (
+                            <div className="mt-3">
+                              <Label>Customer-facing denial reason</Label>
+                              <Textarea
+                                value={editor.decisionReason}
+                                disabled={isUsingDemoData}
+                                onChange={(event) =>
+                                  setEditor((current) =>
+                                    current ? { ...current, decisionReason: event.target.value } : current
+                                  )
+                                }
+                                rows={3}
+                                className="mt-2 bg-background"
+                              />
+                              <InfoHint>
+                                Required for denials. Keep this warm, specific, and customer-safe.
+                              </InfoHint>
+                            </div>
+                          )}
                           <Button
                             data-testid="refund-save-case"
                             className="mt-3"
@@ -2385,6 +2557,11 @@ export default function AdminRefundsPage() {
                             <p className="mt-1 text-muted-foreground">
                               Next email template: {primaryAction?.messageType ? statusLabel(primaryAction.messageType) : 'none'}
                             </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {primaryAction?.messageType
+                                ? 'The email sends only after the guided action succeeds.'
+                                : 'No automatic email is queued for the current case state.'}
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -2404,7 +2581,10 @@ export default function AdminRefundsPage() {
                           </div>
                         </details>
                       )}
-                      <details className="rounded-md border border-border bg-muted/20 p-3">
+                      <details
+                        open={getLatestCustomerMessage(selectedCase)?.status === 'failed'}
+                        className="rounded-md border border-border bg-muted/20 p-3"
+                      >
                         <summary className="cursor-pointer text-sm font-medium text-foreground">
                           Advanced email preview and retry
                         </summary>
@@ -2467,26 +2647,6 @@ export default function AdminRefundsPage() {
                       </Button>
                       </details>
                     </div>
-
-                    {(editor.decision === 'denied' || editor.status === 'denied') && (
-                      <div>
-                        <Label>Customer-facing denial reason</Label>
-                        <Textarea
-                          value={editor.decisionReason}
-                          disabled={isUsingDemoData}
-                          onChange={(event) =>
-                            setEditor((current) =>
-                              current ? { ...current, decisionReason: event.target.value } : current
-                            )
-                          }
-                          rows={3}
-                          className="mt-2"
-                        />
-                        <InfoHint>
-                          Required for denials. Keep this warm, specific, and customer-safe.
-                        </InfoHint>
-                      </div>
-                    )}
 
                     <details className="rounded-lg border border-border bg-muted/20 p-3">
                       <summary className="cursor-pointer text-sm font-medium text-foreground">
