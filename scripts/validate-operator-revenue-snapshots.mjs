@@ -63,6 +63,8 @@ for (const snippet of [
   'Manual revenue snapshot override reason is required',
   "adjustment.adjustment_type in ('refund', 'complaint_refund')",
   'eligible_commission_revenue_cents := greatest(net_revenue_cents, 0)',
+  'net_revenue_cents, eligible_commission_revenue_cents, transaction_count',
+  'override_net_revenue_cents, override_eligible_commission_revenue_cents, 0',
   'revoke insert, update, delete on public.payout_period_machine_revenue_snapshots',
 ]) {
   expect(migration, snippet, 'revenue snapshot migration');
