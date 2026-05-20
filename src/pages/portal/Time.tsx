@@ -64,7 +64,9 @@ const defaultForm = (): TimeEntryForm => ({
 const formatDate = (value: string | null | undefined) => {
   if (!value) return 'Not set';
 
-  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+  const dateValue = value.includes('T') ? new Date(value) : new Date(`${value}T00:00:00`);
+
+  return dateValue.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
