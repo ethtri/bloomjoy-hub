@@ -94,6 +94,9 @@ export const translations = {
     'portal.nav.dashboardDescription': 'Your next actions, progress, and account status.',
     'portal.nav.orders': 'Orders',
     'portal.nav.ordersDescription': 'Receipts, totals, and shipment tracking.',
+    'portal.nav.time': 'Time',
+    'portal.nav.timeDescription':
+      'Submit assigned-machine shifts and review current payout-period time.',
     'portal.nav.account': 'Account Settings',
     'portal.nav.accountDescription': 'Profile, billing, shipping, and language preferences.',
     'portal.nav.reporting': 'Reporting',

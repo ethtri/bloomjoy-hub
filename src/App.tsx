@@ -57,6 +57,7 @@ const PortalOnboarding = lazyRoute(() => import("./pages/portal/Onboarding"));
 const PortalOrders = lazyRoute(() => import("./pages/portal/Orders"));
 const PortalAccount = lazyRoute(() => import("./pages/portal/Account"));
 const PortalReports = lazyRoute(() => import("./pages/portal/Reports"));
+const PortalTime = lazyRoute(() => import("./pages/portal/Time"));
 const AdminDashboard = lazyRoute(() => import("./pages/admin/Dashboard"));
 const AdminOrders = lazyRoute(() => import("./pages/admin/Orders"));
 const AdminSupport = lazyRoute(() => import("./pages/admin/Support"));
@@ -179,6 +180,7 @@ export const AppShell = () => (
             </Route>
             <Route element={<MemberRoute />}>
               <Route path="/portal/orders" element={<PortalOrders />} />
+              <Route path="/portal/time" element={<PortalTime />} />
               <Route path="/portal/account" element={<PortalAccount />} />
               <Route path="/portal/reports" element={<PortalReports />} />
               <Route path="/portal/training" element={<PortalTraining />} />

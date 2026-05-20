@@ -443,6 +443,7 @@ export const privateRoutes: PrivateRouteSeo[] = [
     "/reset-password",
     "/portal",
     "/portal/orders",
+    "/portal/time",
     "/portal/account",
     "/portal/reports",
     "/portal/refunds",
