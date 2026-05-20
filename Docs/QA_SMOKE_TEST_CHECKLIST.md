@@ -48,7 +48,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Submit a request with multiple conservative cash candidates; case lands in manager review rather than writing a reporting adjustment.
 - [ ] Auth boundary: unauthenticated users cannot open `/portal/refunds`; Machine Managers can open `/portal/refunds` but do not see the Admin workspace/nav; `/admin/refunds` redirects to `/portal/refunds` or remains limited to super/scoped admins.
 - [ ] Refund queue filters/searches cases, opens case details, shows customer issue text, photos, compact correlation evidence, decision/next action before history, and customer history behind readable sections.
-- [ ] Portal > Refunds uses the guided manager workbench: case summary, explicit Nayax/cash transaction result, candidate confirmation before decision, one recommended next action, customer-email preview, refund completion/reference, and collapsed timeline/history.
+- [ ] Portal > Refunds uses the guided manager workbench: case summary, explicit Nayax/cash transaction result, candidate confirmation before decision, one recommended next action, customer-email preview, guarded card execution or Zelle completion, and collapsed timeline/history.
 - [ ] New refund submissions send a redacted manager notification to assigned Machine Managers plus Bloomjoy ops fallback with reference, machine, amount, incident time, payment method, case link, and status only.
 - [ ] Refund detail lets managers verify confirmation and more-info customer email state from `RF-UAT-WAIT` or an equivalent synthetic waiting-on-customer case.
 - [ ] Manager can send editable more-info/status/approval/denial/completion customer email from the portal; the message logs in `refund_case_messages`, uses `Reply-To: info@bloomjoysweets.com`, and includes the case reference.
@@ -64,7 +64,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `refund-case-automation-sweep` sends reminder/escalation messages from synthetic stale cases and returns only redacted aggregate output.
 - [ ] `npm run refunds:validate-nayax-execution` passes as a static guardrail check, and post-deploy smoke proves `nayax-card-refund` fails closed by default without calling live Nayax refund endpoints.
 - [ ] Cross-workflow duplicate guard blocks likely duplicate settlement adjustments between a hosted refund case and legacy Google/AppSheet refund row.
-- [ ] Approved manual card path records selected card lookup evidence and a manual completion reference before completion without showing raw provider IDs in the UI.
+- [ ] Approved card path confirms the refund amount, calls guarded in-app `nayax-card-refund`, leaves the case open and customer uncontacted when execution is blocked, and completes only after a successful execution response without showing raw provider IDs in the UI.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.
 - [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.
 - [ ] Run manager-wide shadow-mode UAT with all current authenticated Machine Managers while the Google Form/AppSheet process remains available as fallback; do not cut over until pilot evidence is clean.

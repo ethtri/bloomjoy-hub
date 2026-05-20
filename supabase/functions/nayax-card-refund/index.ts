@@ -107,7 +107,7 @@ const safeNayaxReference = (value: string | null | undefined) =>
   Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(value));
 
 const resolveRefundAmountCents = (refundCase: RefundCaseForExecution) =>
-  refundCase.refund_amount_cents ?? refundCase.payment_amount_cents ?? 0;
+  refundCase.refund_amount_cents ?? 0;
 
 const sha256Hex = async (value: string) => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -147,17 +147,17 @@ const buildIdempotencyKey = async (refundCase: RefundCaseForExecution) => {
 
 const getPreflightBlocks = ({
   refundCase,
-  actorIsSuperAdmin,
+  actorCanManageCase,
 }: {
   refundCase: RefundCaseForExecution;
-  actorIsSuperAdmin: boolean;
+  actorCanManageCase: boolean;
 }) => {
   const blocks: string[] = [];
   const machine = refundCase.reporting_machines;
   const amountCents = resolveRefundAmountCents(refundCase);
   const globalMax = envInt("NAYAX_REFUND_MAX_AMOUNT_CENTS", 1000);
 
-  if (!actorIsSuperAdmin) blocks.push("authorization_failed");
+  if (!actorCanManageCase) blocks.push("authorization_failed");
   if (refundCase.status !== "card_refund_pending") blocks.push("validation_rejected");
   if (refundCase.decision !== "approved") blocks.push("validation_rejected");
   if (refundCase.payment_method !== "card") blocks.push("validation_rejected");
@@ -307,17 +307,16 @@ serve(async (req) => {
 
     const refundCase = await getRefundCase(caseId);
     if (!refundCase) return jsonResponse({ error: "Refund case not found." }, 404);
-
-    const { data: actorIsSuperAdmin, error: adminError } = await supabase.rpc(
-      "is_super_admin",
-      { p_user_id: user.id },
+    const { data: actorCanManageCase, error: accessError } = await supabase.rpc(
+      "can_manage_refund_case",
+      { p_user_id: user.id, p_refund_case_id: refundCase.id },
     );
-    if (adminError) throw adminError;
+    if (accessError) throw accessError;
 
     const idempotencyKey = await buildIdempotencyKey(refundCase);
     const preflightBlocks = getPreflightBlocks({
       refundCase,
-      actorIsSuperAdmin: Boolean(actorIsSuperAdmin),
+      actorCanManageCase: Boolean(actorCanManageCase),
     });
     const dailyCapBlocks = await getDailyCapBlocks(resolveRefundAmountCents(refundCase));
 

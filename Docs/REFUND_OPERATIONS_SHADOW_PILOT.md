@@ -17,7 +17,7 @@ Use `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` for PR `#432` production setup and
 - Keep the Google Form/AppSheet process live until cutover criteria pass.
 - PR `#410` is merged. Merge is not cutover; production rollout, manager feedback, customer communication review, and shadow-pilot results remain cutover gates.
 - Do not paste secrets, customer PII, raw refund exports, card digits, raw Nayax payloads, or complaint free text into docs, issues, PRs, screenshots, or chat.
-- Nayax refund execution remains fail-closed until the separate full-automation gates pass; managers continue manual card refunds in Nayax and manual cash/Zelle handling during shadow mode.
+- Nayax refund execution remains fail-closed until the separate full-automation gates pass. The manager workbench should still use the guarded in-app `nayax-card-refund` action for card cases, then show a clear blocker if execution is disabled; Google/AppSheet and manual Nayax remain the operational fallback during shadow mode.
 
 ## Lane Checklist
 Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHub issues under epic `#402`.
@@ -46,7 +46,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] Confirm each manager sees only assigned-machine cases.
 - [ ] Confirm super-admins see all refund cases.
 - [ ] Validate approve, deny, waiting-on-customer, card-refund-pending, cash/Zelle-pending, and completed states.
-- [ ] Validate the guided manager workbench sections: case summary, suggested transaction match, next action, customer message, refund completion/reference, and collapsed timeline/history.
+- [ ] Validate the guided manager workbench sections: case summary, suggested transaction match, next action, customer message, guarded card execution or Zelle completion, and collapsed timeline/history.
 - [ ] Capture manager friction as GitHub issues, not private notes.
 
 ### Customer Communication Lane
@@ -76,7 +76,7 @@ Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHu
 - [ ] No match sends more-info workflow.
 - [ ] Multiple candidates require manager decision.
 - [ ] Denied request.
-- [ ] Approved manual card refund.
+- [ ] Approved card refund with guarded in-app Nayax execution attempt.
 - [ ] Approved Zelle refund.
 - [ ] Photo upload.
 - [ ] Manager access boundary.
