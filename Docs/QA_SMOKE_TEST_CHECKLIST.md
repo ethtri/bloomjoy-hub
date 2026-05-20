@@ -179,8 +179,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
-- [ ] Operator Time (`/portal/time`) loads for an authenticated operator with an active payout profile, puts Add Time first, shows current period dates, due date, lock date, assigned-machine dropdown, this-period entries, and past shifts without duplicate current-period entries.
-- [ ] Operator Time add-time flow allows only assigned machines, shows actual time and paid hours before save, rounds a short shift up to the Bloomjoy default full hour, and saves through the portal without exposing payroll/tax language.
+- [ ] Operator Time (`/portal/time`) loads for an authenticated operator with an active payout profile as a lightweight hub, shows current period dates, due date, lock date, this-period entries, past shifts without duplicate current-period entries, and a clear Add Time action without embedding the time-entry form.
+- [ ] Focused Add Time (`/portal/time/new`) allows only assigned machines, shows actual time and paid hours before save, rounds a short shift up to the Bloomjoy default full hour, and saves through the portal without exposing payroll/tax language.
 - [ ] Operator Time warns before save for end-before-start, work date outside the current period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
 - [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, payout-included, paid, or voided entries.
 - [ ] Operator Time empty state explains that an admin or machine manager must add an operator payout profile and assigned machines before time can be submitted.

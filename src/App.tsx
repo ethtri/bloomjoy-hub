@@ -182,6 +182,8 @@ export const AppShell = () => (
             <Route element={<MemberRoute />}>
               <Route path="/portal/orders" element={<PortalOrders />} />
               <Route path="/portal/time" element={<PortalTime />} />
+              <Route path="/portal/time/new" element={<PortalTime />} />
+              <Route path="/portal/time/:entryId/edit" element={<PortalTime />} />
               <Route path="/portal/account" element={<PortalAccount />} />
               <Route path="/portal/reports" element={<PortalReports />} />
               <Route path="/portal/training" element={<PortalTraining />} />

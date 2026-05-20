@@ -78,6 +78,8 @@ for (const snippet of [
 }
 
 expect(readText(files.app), 'path="/portal/time"', 'App route');
+expect(readText(files.app), 'path="/portal/time/new"', 'App Add Time route');
+expect(readText(files.app), 'path="/portal/time/:entryId/edit"', 'App Edit Time route');
 expect(readText(files.nav), "href: '/portal/time'", 'portal navigation');
 expect(readText(files.helper), 'fetchMyOperatorTimekeepingContext', 'operator payout helper');
 expect(readText(files.smoke), 'Operator Time (`/portal/time`)', 'smoke checklist');

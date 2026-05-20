@@ -429,13 +429,13 @@ const run = async () => {
       page.getByRole('button', { name: /sign in/i }).click(),
     ]);
 
-    await page.getByRole('heading', { name: 'Time', exact: true }).waitFor({ timeout: 10000 });
-    await page.getByRole('heading', { name: 'Add Time' }).waitFor({ timeout: 10000 });
+    await page.locator('h1').filter({ hasText: /^Time$/ }).waitFor({ timeout: 10000 });
+    await page.getByRole('link', { name: /^add time$/i }).waitFor({ timeout: 10000 });
 
     recorder.assert('Portal Time route loads after auth', new URL(page.url()).pathname === '/portal/time', page.url());
     recorder.assert(
-      'Assigned machine is visible',
-      await page.getByText(/Cotton Candy 01/).first().isVisible()
+      'Time hub keeps data entry out of the dashboard',
+      (await page.locator('#work-date').count()) === 0
     );
     recorder.assert(
       'Period due and lock dates are visible',
@@ -449,9 +449,26 @@ const run = async () => {
     );
     await page.waitForTimeout(4500);
     await page.screenshot({
-      path: path.join(args.artifactDir, 'portal-time-desktop.png'),
+      path: path.join(args.artifactDir, 'portal-time-hub-desktop.png'),
       fullPage: true,
     });
+
+    await Promise.all([
+      page.waitForURL('**/portal/time/new', { timeout: 10000 }),
+      page.getByRole('link', { name: /^add time$/i }).click(),
+    ]);
+    await page.locator('h1').filter({ hasText: /^Add Time$/ }).waitFor({ timeout: 10000 });
+    await page.getByText(/Cotton Candy 01/).first().waitFor({ timeout: 10000 });
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-add-desktop.png'),
+      fullPage: true,
+    });
+
+    recorder.assert('Focused Add Time route loads', new URL(page.url()).pathname === '/portal/time/new', page.url());
+    recorder.assert(
+      'Assigned machine is visible on focused Add Time route',
+      await page.getByText(/Cotton Candy 01/).first().isVisible()
+    );
 
     await page.fill('#work-date', workDate);
     await page.fill('#start-time', '09:00');
@@ -462,6 +479,7 @@ const run = async () => {
     recorder.assert('Paid-time preview rounds to full hour', await page.getByText('1 paid hr').isVisible());
 
     await page.getByRole('button', { name: /add time/i }).click();
+    await page.waitForURL('**/portal/time', { timeout: 10000 });
     await page.getByText('Time entry saved.').last().waitFor({ timeout: 10000 });
     await page.getByText('Restocked sugar and cleaned spinner head.').waitFor({ timeout: 10000 });
 
@@ -476,6 +494,10 @@ const run = async () => {
       JSON.stringify(state.rpcCalls.filter((call) => call.rpcName === 'submit_operator_time_entry'))
     );
 
+    await Promise.all([
+      page.waitForURL('**/portal/time/new', { timeout: 10000 }),
+      page.getByRole('link', { name: /^add time$/i }).click(),
+    ]);
     await page.fill('#work-date', workDate);
     await page.fill('#start-time', '09:15');
     await page.fill('#end-time', '10:00');
@@ -487,12 +509,18 @@ const run = async () => {
     await page.getByText(/10\+ hours/i).waitFor({ timeout: 10000 });
     recorder.pass('Long-shift warning appears before saving');
 
-    await page.locator('article', { hasText: 'Restocked sugar' }).getByRole('button', { name: /edit/i }).click();
+    await page.goto(`${args.appUrl}/portal/time`, { waitUntil: 'domcontentloaded' });
+    await Promise.all([
+      page.waitForURL('**/portal/time/time-entry-1/edit', { timeout: 10000 }),
+      page.locator('article', { hasText: 'Restocked sugar' }).getByRole('button', { name: /edit/i }).click(),
+    ]);
+    await page.locator('h1').filter({ hasText: /^Edit Time$/ }).waitFor({ timeout: 10000 });
     await page.fill('#start-time', '10:00');
     await page.fill('#end-time', '11:01');
     await page.getByText('2 paid hrs').waitFor({ timeout: 10000 });
     await page.fill('#time-notes', 'Updated shift after manager text.');
     await page.getByRole('button', { name: /save time/i }).click();
+    await page.waitForURL('**/portal/time', { timeout: 10000 });
     await waitForCondition(
       () => state.rpcCalls.some((call) => call.rpcName === 'update_operator_time_entry'),
       'Timed out waiting for update_operator_time_entry RPC'
