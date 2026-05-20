@@ -302,7 +302,6 @@ export type NayaxCardRefundExecutionStatus =
 
 export type ExecuteNayaxCardRefundInput = {
   caseId: string;
-  refundAmountCents?: number;
 };
 
 export type NayaxCardRefundExecutionResponse = {
@@ -808,11 +807,10 @@ export const isNayaxCardRefundExecutionError = (
 
 export const executeNayaxCardRefund = async ({
   caseId,
-  refundAmountCents,
 }: ExecuteNayaxCardRefundInput): Promise<NayaxCardRefundExecutionResponse> =>
   invokeEdgeFunction<NayaxCardRefundExecutionResponse>(
     'nayax-card-refund',
-    { caseId, refundAmountCents },
+    { caseId },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to execute Nayax card refunds.',

@@ -27,7 +27,13 @@ as $$
         and public.is_review_safe_nayax_transaction_reference(refund_case.matched_nayax_transaction_id)
         and refund_case.matched_nayax_site_id is not null
         and refund_case.matched_nayax_machine_auth_time is not null
-        and coalesce(refund_case.refund_amount_cents, refund_case.payment_amount_cents, 0) > 0
+        and refund_case.matched_nayax_currency_code = 'USD'
+        and refund_case.refund_amount_cents is not null
+        and refund_case.payment_amount_cents is not null
+        and refund_case.matched_nayax_amount_cents is not null
+        and refund_case.refund_amount_cents > 0
+        and refund_case.refund_amount_cents = refund_case.payment_amount_cents
+        and refund_case.refund_amount_cents = refund_case.matched_nayax_amount_cents
         and refund_case.reporting_adjustment_id is null
         and exists (
           select 1
@@ -39,8 +45,7 @@ as $$
             and btrim(machine.nayax_machine_id) <> ''
             and (
               machine.nayax_refund_max_amount_cents is null
-              or coalesce(refund_case.refund_amount_cents, refund_case.payment_amount_cents, 0)
-                <= machine.nayax_refund_max_amount_cents
+              or refund_case.refund_amount_cents <= machine.nayax_refund_max_amount_cents
             )
         )
     );
@@ -49,3 +54,5 @@ $$;
 comment on function public.can_prepare_nayax_refund_execution(uuid, uuid) is
   'Readiness predicate for guarded Nayax refund execution by authorized refund case managers. This does not call Nayax or approve refunds.';
 
+revoke execute on function public.can_prepare_nayax_refund_execution(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.can_prepare_nayax_refund_execution(uuid, uuid) to service_role;

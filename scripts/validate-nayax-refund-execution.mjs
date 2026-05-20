@@ -65,8 +65,17 @@ assert(
 assert(
   migration.includes('can_prepare_nayax_refund_execution') &&
     managerAuthorizationMigration.includes('public.can_manage_refund_case(p_user_id, refund_case.id)') &&
+    managerAuthorizationMigration.includes('refund_case.refund_amount_cents is not null') &&
+    managerAuthorizationMigration.includes('refund_case.refund_amount_cents = refund_case.payment_amount_cents') &&
+    managerAuthorizationMigration.includes('refund_case.refund_amount_cents = refund_case.matched_nayax_amount_cents') &&
+    managerAuthorizationMigration.includes("refund_case.matched_nayax_currency_code = 'USD'") &&
     !managerAuthorizationMigration.includes('public.is_super_admin(p_user_id)'),
-  'Execution readiness must allow authorized refund case managers while preserving service-role-only execution gates.'
+  'Execution readiness must allow authorized refund case managers while using the stored refund amount and preserving service-role-only execution gates.'
+);
+assert(
+  managerAuthorizationMigration.includes('revoke execute on function public.can_prepare_nayax_refund_execution(uuid, uuid) from public, anon, authenticated') &&
+    managerAuthorizationMigration.includes('grant execute on function public.can_prepare_nayax_refund_execution(uuid, uuid) to service_role'),
+  'Manager authorization repair migration must restate service-role-only execution privileges.'
 );
 assert(
   migration.includes('revoke execute on function public.can_prepare_nayax_refund_execution(uuid, uuid)') &&
@@ -99,6 +108,13 @@ assert(
   fn.includes('can_manage_refund_case') &&
     !fn.includes('actorIsSuperAdmin'),
   'Nayax execution function must authorize assigned Machine Managers through refund case access, not a super-admin-only UI path.'
+);
+assert(
+  fn.includes('refundCase.refund_amount_cents ?? 0') &&
+    !fn.includes('body?.refundAmountCents') &&
+    !fn.includes('requestedRefundAmountCents') &&
+    !fn.includes('refundCase.refund_amount_cents ='),
+  'Nayax execution must use the server-stored refund amount and must not let callers override the execution amount.'
 );
 assert(
   fn.includes('provider_execution_not_yet_enabled') &&

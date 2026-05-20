@@ -91,7 +91,7 @@ const customerMessageOptions: Array<{
   {
     value: 'approved',
     label: 'Approval note',
-    helper: 'Use after the manager approves the refund and before the manual payout step is complete.',
+    helper: 'Use after the manager approves the refund and before Bloomjoy completes the card or Zelle refund.',
   },
   {
     value: 'denied',
@@ -101,7 +101,7 @@ const customerMessageOptions: Array<{
   {
     value: 'completed',
     label: 'Completion note',
-    helper: 'Use after the card refund or Zelle payment has been manually completed.',
+    helper: 'Use after Bloomjoy completes the Nayax card refund or Zelle payment.',
   },
 ];
 
@@ -956,6 +956,14 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
       issues.push('Card refund amount must match the matched Nayax sale amount for the pilot execution path.');
     }
 
+    if (
+      selectedCase.paymentMethod === 'card' &&
+      selectedCase.status === 'card_refund_pending' &&
+      selectedCase.refundAmountCents !== refundAmountCents
+    ) {
+      issues.push('Card refund amount must be saved on the case before running the Nayax refund. Refresh the case or reconfirm the card sale first.');
+    }
+
     if (selectedCase.paymentMethod !== 'card' && !editor.manualRefundReference.trim()) {
       issues.push(
         'Enter the Zelle confirmation/reference before saving the completed refund.'
@@ -1226,7 +1234,6 @@ export default function AdminRefundsPage() {
     try {
       const result = await executeNayaxCardRefund({
         caseId: selectedCase.id,
-        refundAmountCents,
       });
 
       if (!result.executed) {
@@ -2131,7 +2138,7 @@ export default function AdminRefundsPage() {
                               <InfoHint>
                                 {isUsingDemoData
                                   ? 'Demo mode disables this field because demo cases are browser-only and cannot save refund amounts.'
-                                  : 'For the pilot, the card refund amount must match the Nayax sale. Partial card refunds stay manual review until that policy is approved.'}
+                                  : 'For the pilot, the card refund amount must match the saved case amount and the Nayax sale. Partial card refunds stay manual review until that policy is approved.'}
                               </InfoHint>
                             </div>
                           </div>

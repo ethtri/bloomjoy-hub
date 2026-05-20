@@ -107,7 +107,7 @@ const safeNayaxReference = (value: string | null | undefined) =>
   Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(value));
 
 const resolveRefundAmountCents = (refundCase: RefundCaseForExecution) =>
-  refundCase.refund_amount_cents ?? refundCase.payment_amount_cents ?? 0;
+  refundCase.refund_amount_cents ?? 0;
 
 const sha256Hex = async (value: string) => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -307,11 +307,6 @@ serve(async (req) => {
 
     const refundCase = await getRefundCase(caseId);
     if (!refundCase) return jsonResponse({ error: "Refund case not found." }, 404);
-    const requestedRefundAmountCents = Number(body?.refundAmountCents);
-    if (Number.isInteger(requestedRefundAmountCents) && requestedRefundAmountCents > 0) {
-      refundCase.refund_amount_cents = requestedRefundAmountCents;
-    }
-
     const { data: actorCanManageCase, error: accessError } = await supabase.rpc(
       "can_manage_refund_case",
       { p_user_id: user.id, p_refund_case_id: refundCase.id },
