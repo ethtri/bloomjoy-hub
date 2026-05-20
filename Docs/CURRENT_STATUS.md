@@ -6,6 +6,12 @@
 - First priority is to **stabilize the POC** and align it to the MVP routing + docs workflow.
 - Write updates in plain language so non-technical readers can follow.
 
+## Operator payouts foundation sprint (2026-05-20)
+- Active branch/worktree: `agent/operator-payouts` in `C:\Repos\wt-operator-payouts`, using `/goal` plus `bloomjoy-sprint-orchestrator`.
+- Goal tracking is centered on epic `#443`; the first implementation slice is `#444` for schema, scoped access, auditability, default policy behavior, and typed client helpers.
+- Product direction is right-sized Operator Payouts, not full payroll: V1 tracks assigned-machine time, payout policies, compensation rules, payout runs, adjustments, and issued Pay Statements while excluding withholding, payroll tax, direct deposit, W-2/1099 filing, and overtime compliance automation.
+- The foundation reuses existing `customer_accounts`, `reporting_machines`, Machine Manager/scoped admin access, and reporting sales facts rather than adding a parallel entity or payroll platform model.
+
 ## Refund portal simplification sprint (2026-05-17)
 - Active branch/worktree: `agent/refund-portal-simplify` in `C:\Repos\wt-refund-portal-simplify`, using `bloomjoy-sprint-orchestrator` with Codex as PO/PM.
 - This focused rescue addresses manager feedback that `/portal/refunds` was too busy, unclear, and still implied an outside-Nayax manual card flow. The card transaction panel now answers whether Nayax found the sale, selected matches hide candidate clutter, advanced lookup controls are collapsed, Step 3 confirms the refund amount, and Step 4 attempts the guarded in-app `nayax-card-refund` flow.
