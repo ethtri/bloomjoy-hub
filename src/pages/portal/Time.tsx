@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { cn } from '@/lib/utils';
 import {
   downloadOperatorPayStatementHtml,
   fetchMyOperatorPayStatementContext,
@@ -163,6 +164,12 @@ const getMachineLabel = (entry: OperatorTimeEntry) =>
 const getContextQueryKey = ['operator-timekeeping'] as const;
 const getPayStatementsQueryKey = ['operator-pay-statements'] as const;
 const emptyProfiles: OperatorTimekeepingProfileContext[] = [];
+const timeActionClassName =
+  'min-h-11 transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]';
+const timeSmallActionClassName =
+  'min-h-10 transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]';
+const timeInsetPanelClassName =
+  'rounded-lg bg-muted/30 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border))]';
 
 export default function PortalTimePage() {
   const queryClient = useQueryClient();
@@ -502,14 +509,19 @@ export default function PortalTimePage() {
             ]}
             actions={
               isTimeEntryScreen ? (
-                <Button asChild variant="outline">
+                <Button asChild variant="outline" className={timeActionClassName}>
                   <Link to="/portal/time">
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Time home
                   </Link>
                 </Button>
               ) : (
-                <Button variant="outline" onClick={refresh} disabled={isFetching}>
+                <Button
+                  variant="outline"
+                  onClick={refresh}
+                  disabled={isFetching}
+                  className={timeActionClassName}
+                >
                   {isFetching ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
@@ -540,7 +552,7 @@ export default function PortalTimePage() {
                 <h2 className="mt-4 text-xl font-semibold text-foreground">
                   No operator payout profile yet
                 </h2>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <p className="mt-2 text-pretty text-sm text-muted-foreground">
                   Ask a Bloomjoy admin or machine manager to add your operator payout profile and
                   assigned machines before submitting time.
                 </p>
@@ -560,10 +572,10 @@ export default function PortalTimePage() {
                     <div className="card-elevated p-4 sm:p-5">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                          <h2 className="text-lg font-semibold text-foreground">
+                          <h2 className="text-balance text-lg font-semibold text-foreground">
                             {editingEntryId ? 'Edit Time' : 'Add Time'}
                           </h2>
-                          <p className="mt-1 text-sm text-muted-foreground">
+                          <p className="mt-1 text-pretty text-sm text-muted-foreground">
                             Enter one shift at a time, then return to your time summary.
                           </p>
                         </div>
@@ -686,7 +698,7 @@ export default function PortalTimePage() {
                         </div>
                       </div>
 
-                      <div className="mt-5 grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-2">
+                      <div className={cn('mt-5 grid gap-3 sm:grid-cols-2', timeInsetPanelClassName)}>
                         <Metric
                           label="Actual time"
                           value={
@@ -714,13 +726,19 @@ export default function PortalTimePage() {
                       />
 
                       <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                        <Button type="button" variant="outline" onClick={cancelEditing}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={cancelEditing}
+                          className={timeActionClassName}
+                        >
                           Cancel
                         </Button>
                         <Button
                           type="button"
                           onClick={saveTime}
                           disabled={hasBlockingValidation || saveMutation.isPending}
+                          className={timeActionClassName}
                         >
                           {saveMutation.isPending ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -752,26 +770,42 @@ export default function PortalTimePage() {
                 <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.15fr)]">
                   <div className="space-y-6">
                     <div className="card-elevated p-4 sm:p-5">
-                      <h2 className="text-lg font-semibold text-foreground">What do you need?</h2>
+                      <h2 className="text-balance text-lg font-semibold text-foreground">
+                        What do you need?
+                      </h2>
                       <div className="mt-4 grid gap-3">
-                        <Button asChild size="lg" className="justify-start">
+                        <Button
+                          asChild
+                          size="lg"
+                          className={cn('justify-start', timeActionClassName)}
+                        >
                           <Link to="/portal/time/new">
                             <Plus className="mr-2 h-4 w-4" />
                             Add Time
                           </Link>
                         </Button>
-                        <Button asChild variant="outline" className="justify-start">
+                        <Button
+                          asChild
+                          variant="outline"
+                          className={cn('justify-start', timeActionClassName)}
+                        >
                           <a href="#this-period">Review submitted time</a>
                         </Button>
-                        <Button asChild variant="outline" className="justify-start">
+                        <Button
+                          asChild
+                          variant="outline"
+                          className={cn('justify-start', timeActionClassName)}
+                        >
                           <a href="#pay-stubs">Download pay stubs</a>
                         </Button>
                       </div>
                     </div>
 
                     <div className="card-elevated p-4 sm:p-5">
-                      <h2 className="text-lg font-semibold text-foreground">Current Period</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">
+                      <h2 className="text-balance text-lg font-semibold text-foreground">
+                        Current Period
+                      </h2>
+                      <p className="mt-1 text-pretty text-sm text-muted-foreground">
                         Time is due by {formatDate(selectedProfile.currentPeriod.submissionDueDate)}
                         .
                       </p>
@@ -848,8 +882,8 @@ function PayStatementsPanel({
             <FileText className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Pay Stubs</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h2 className="text-balance text-lg font-semibold text-foreground">Pay Stubs</h2>
+            <p className="mt-1 text-pretty text-sm text-muted-foreground">
               Download issued pay stubs for finalized payout periods.
             </p>
           </div>
@@ -871,10 +905,10 @@ function PayStatementsPanel({
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="break-words font-semibold text-foreground">
+                    <h3 className="break-words text-balance font-semibold text-foreground">
                       {formatOperatorPayStubLabel(statement.statementLabel)}
                     </h3>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                       v{statement.version}
                     </span>
                     {statement.revisionCount > 0 && (
@@ -883,17 +917,17 @@ function PayStatementsPanel({
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="mt-1 text-sm tabular-nums text-muted-foreground">
                     {statement.statementNumber}
                   </p>
-                  <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                  <div className="mt-3 grid gap-2 text-sm tabular-nums text-muted-foreground sm:grid-cols-2">
                     <span>
                       {formatDate(statement.periodStartDate)} to{' '}
                       {formatDate(statement.periodEndDate)}
                     </span>
                     <span>Issued {formatDate(statement.issuedAt)}</span>
                     <span>Target payout {formatDate(statement.targetPayoutDate)}</span>
-                    <span className="font-semibold text-foreground">
+                    <span className="font-semibold tabular-nums text-foreground">
                       {formatCurrency(statement.totalPayoutCents)}
                     </span>
                   </div>
@@ -905,6 +939,7 @@ function PayStatementsPanel({
                   size="sm"
                   onClick={() => onDownload(statement)}
                   disabled={downloadingStatementId === statement.id}
+                  className={timeSmallActionClassName}
                 >
                   {downloadingStatementId === statement.id ? (
                     <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -926,7 +961,7 @@ function PeriodDetails({ profile }: { profile: OperatorTimekeepingProfileContext
   const period = profile.currentPeriod;
 
   return (
-    <div className="mt-4 grid gap-3 rounded-md bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className={cn('mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4', timeInsetPanelClassName)}>
       <Metric
         label="Period"
         value={`${formatDate(period.periodStartDate)} to ${formatDate(period.periodEndDate)}`}
@@ -942,7 +977,9 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold text-foreground">{value}</p>
+      <p className="mt-1 break-words text-sm font-semibold tabular-nums text-foreground">
+        {value}
+      </p>
     </div>
   );
 }
@@ -983,10 +1020,10 @@ function ValidationPanel({
   }
 
   return (
-    <div className="mt-4 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+    <div className="mt-4 rounded-lg bg-amber-50 px-3 py-3 text-sm text-amber-950 shadow-[inset_0_0_0_1px_hsl(43_96%_56%/0.45)]">
       <div className="flex gap-2">
         <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
-        <div className="space-y-1">
+        <div className="space-y-1 text-pretty">
           {messages.map((message) => (
             <p key={message}>{message}</p>
           ))}
@@ -1022,8 +1059,8 @@ function TimeEntriesPanel({
   return (
     <div className="card-elevated overflow-hidden">
       <div className="border-b border-border px-4 py-4 sm:px-5">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        <h2 className="text-balance text-lg font-semibold text-foreground">{title}</h2>
+        <p className="mt-1 text-pretty text-sm text-muted-foreground">{description}</p>
       </div>
 
       {entries.length === 0 ? (
@@ -1038,15 +1075,17 @@ function TimeEntriesPanel({
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="break-words font-semibold text-foreground">
+                      <h3 className="break-words text-balance font-semibold text-foreground">
                         {entry.machineLabel}
                       </h3>
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                         {getStatusLabel(entry.status)}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{entry.locationName}</p>
-                    <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                    <p className="mt-1 text-pretty text-sm text-muted-foreground">
+                      {entry.locationName}
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm tabular-nums text-muted-foreground sm:grid-cols-2">
                       <span>{formatDate(entry.workDate)}</span>
                       <span>
                         {entry.startTime} to {entry.endTime}
@@ -1055,7 +1094,7 @@ function TimeEntriesPanel({
                       <span>Paid: {formatPaidHours(entry.roundedPaidMinutes)}</span>
                     </div>
                     {!compact && entry.notes && (
-                      <p className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                      <p className="mt-3 rounded-lg bg-muted/50 px-3 py-2 text-pretty text-sm text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border))]">
                         {entry.notes}
                       </p>
                     )}
@@ -1069,6 +1108,7 @@ function TimeEntriesPanel({
                         size="sm"
                         onClick={() => onEdit(entry)}
                         disabled={locked}
+                        className={timeSmallActionClassName}
                       >
                         <Edit3 className="mr-1.5 h-4 w-4" />
                         Edit
@@ -1079,6 +1119,7 @@ function TimeEntriesPanel({
                         size="sm"
                         onClick={() => onDelete(entry)}
                         disabled={locked || isDeleting}
+                        className={timeSmallActionClassName}
                       >
                         {isDeleting ? (
                           <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -1090,7 +1131,7 @@ function TimeEntriesPanel({
                     </div>
                   ) : (
                     readOnlyMessage && (
-                      <p className="text-sm text-muted-foreground lg:max-w-40 lg:text-right">
+                      <p className="text-pretty text-sm text-muted-foreground lg:max-w-56 lg:text-right">
                         {readOnlyMessage}
                       </p>
                     )
