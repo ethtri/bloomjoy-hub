@@ -69,19 +69,19 @@ export const commercialMachineFaqs = [
 export const miniMachineFaqs = [
   {
     q: "How many servings can the Mini Machine make per hour?",
-    a: "Owner-provided guidance is roughly one candy every 90 seconds, or about 40 candies per hour of machine-cycle capacity. For planning, use about 25-35 served candies per hour with a trained staff member, or about 12-25 per hour in quieter spa, salon, or hospitality service where guest interaction intentionally slows the flow. These are estimates, not guaranteed throughput.",
+    a: "Owner-provided guidance is roughly one candy every 90 seconds, or about 40 candies per hour of machine-cycle capacity. For planning, use about 25-35 served candies per hour with a trained staff member. For quieter or more curated service, model a slower operator-paced service window during quote review rather than relying on a fixed public throughput claim. These are estimates, not guaranteed throughput.",
   },
   {
     q: "What are the Mini Machine dimensions and power requirements?",
     a: "Mini specs are 430 x 555 x 1582 mm, 83.9 kg, AC 110V/220V rated voltage, 2400W maximum power, and 100W standby power. Final placement and power details should be confirmed during quote review.",
   },
   {
-    q: "Can the Mini Machine work in a spa, salon, or hospitality environment?",
-    a: "Mini can be evaluated as a staffed guest-experience amenity for smaller hospitality spaces, but it still needs approved power, stable placement, service access, a cleaning path, and review of operating sound, motion, and cotton-candy aroma. As an unmeasured planning estimate, treat operating sound as roughly conversation-level, about 55-65 dBA close range, until tested in the actual room.",
+    q: "Can the Mini Machine work in compact, quiet, or hospitality environments?",
+    a: "Mini can be evaluated as a staffed guest-experience amenity for smaller hospitality spaces, but it still needs approved power, stable placement, service access, a cleaning path, and review of operating sound, motion, and cotton-candy aroma. Quiet venues should review clips and test placement before purchase because Bloomjoy does not have measured in-room sound data yet.",
   },
   {
     q: "How much staff training and maintenance should Mini operators plan for?",
-    a: "Mini is a staffed machine because each stick is manually fed. Plan about 30-60 minutes for a basic staff ramp plus practice servings, then use Bloomjoy Plus for task-based training, setup guides, cleaning checklists, troubleshooting references, and the Operator Essentials certificate path. Plan a 5-10 minute daily wipe-down and debris check, plus routine maintenance about every 15 days and roughly 20-30 minutes, then confirm Mini-specific details during onboarding.",
+    a: "Mini is a staffed machine because each stick is manually fed. Plan a practice block before serving guests, then use Bloomjoy Plus for task-based training, setup guides, cleaning checklists, troubleshooting references, and the Operator Essentials certificate path. Plan a 5-10 minute daily wipe-down and debris check, plus routine maintenance about every 15 days and roughly 20-30 minutes, then confirm Mini-specific details during onboarding.",
   },
   {
     q: "What cost per serving and selling price should I model?",
@@ -89,7 +89,7 @@ export const miniMachineFaqs = [
   },
   {
     q: "What warranty and support apply to the Mini Machine?",
-    a: "Mini follows the same public warranty posture as the Commercial Machine: up to 1.5-year machine warranty, manufacturer 24/7 first-line remote technical support via WeChat, and a replacement-part workflow. For planning, treat manufacturer remote response as typically within 12-24 hours when the support channel is active. Bloomjoy adds onboarding, concierge guidance, and translation/escalation support during US business hours.",
+    a: "Mini follows the same public warranty posture as the Commercial Machine: up to 1.5-year machine warranty, manufacturer 24/7 first-line remote technical support via WeChat, and a replacement-part workflow. Manufacturer remote response timing depends on channel availability, time zone, and issue context. Bloomjoy adds onboarding, concierge guidance, and translation/escalation support during US business hours.",
   },
   {
     q: "What maintenance issues should operators expect?",
@@ -136,12 +136,12 @@ export const resourcesFaqs = [
     a: "Commercial is full-size with automatic stick dispensing and the deepest pattern set. Mini is portable with manual stick feeding, most complex pattern capability, and roughly 90-second cycle guidance. Micro is the entry-level machine for basic shapes only.",
   },
   {
-    q: "Can Mini fit a spa, salon, or hospitality setting?",
-    a: "Mini can be evaluated for staffed hospitality activations where a compact footprint matters. Confirm the 430 x 555 x 1582 mm cabinet, 2400W maximum power, cleaning path, operator staffing, guest flow, and sensitivity to operating sound and cotton-candy aroma during quote review. Until room testing is available, use roughly conversation-level sound as a planning assumption, not a measured guarantee.",
+    q: "Can Mini fit compact, quiet, or hospitality settings?",
+    a: "Mini can be evaluated for staffed hospitality activations where a compact footprint matters. Confirm the 430 x 555 x 1582 mm cabinet, 2400W maximum power, cleaning path, operator staffing, guest flow, and sensitivity to operating sound and cotton-candy aroma during quote review. Quiet venues should review clips and test placement before purchase because Bloomjoy does not have measured in-room sound data yet.",
   },
   {
     q: "How should I think about Mini throughput and cost per serving?",
-    a: "Use roughly one candy every 90 seconds as the machine-cycle planning input, then model about 25-35 served candies per hour for staffed service or about 12-25 per hour for slower hospitality-style service. As a worksheet input, use roughly $0.35-$0.50 consumables per serving before payment fees, labor, venue costs, and machine cost. Bloomjoy does not promise sales volume, ROI, or payback dates.",
+    a: "Use roughly one candy every 90 seconds as the machine-cycle planning input, then model about 25-35 served candies per hour for staffed service. For quieter or more curated service, model a slower operator-paced service window during quote review rather than relying on a fixed public throughput claim. As a worksheet input, use roughly $0.35-$0.50 consumables per serving before payment fees, labor, venue costs, and machine cost. Bloomjoy does not promise sales volume, ROI, or payback dates.",
   },
   {
     q: "Can Bloomjoy help my team learn daily operation?",
@@ -276,7 +276,7 @@ export const publicRoutes: RouteSeo[] = [
     path: "/machines/mini",
     title: "Mini Robotic Cotton Candy Machine | Bloomjoy",
     description:
-      "Explore Bloomjoy Mini Machine specs, proof clips, 90-second cycle guidance, spa and hospitality fit, support, and quote-led ordering.",
+      "Explore Bloomjoy Mini Machine specs, proof clips, 90-second cycle guidance, compact venue fit, support, and quote-led ordering.",
     robots: PUBLIC_ROBOTS,
     surface: "marketing",
     ogImagePath: "/seo/mini-machine.jpg",
