@@ -75,6 +75,20 @@ const proofClips = [
     src: '/media/mini/mini-operation-proof.mp4',
     poster: '/media/mini/mini-operation-poster.jpg',
   },
+  {
+    title: 'Manual stick handoff',
+    description:
+      'Close chamber footage showing the manual stick path and finished-serving handoff area inside the Mini cabinet.',
+    src: '/media/mini/mini-manual-stick-handoff.mp4',
+    poster: '/media/mini/mini-manual-stick-handoff-poster.jpg',
+  },
+  {
+    title: 'Compact operation close-up',
+    description:
+      'A short close-up of Mini running in a compact setup so teams can evaluate cabinet access, motion, and guest-facing feel.',
+    src: '/media/mini/mini-compact-operation-closeup.mp4',
+    poster: '/media/mini/mini-compact-operation-closeup-poster.jpg',
+  },
 ];
 
 const throughputNotes = [
@@ -95,14 +109,82 @@ const economicsInputs = [
   'Sugar, paper sticks, packaging, and payment fees',
   'Staffing, setup, cleanup, travel, or site-service time',
   'Opening supplies, accessories, delivery, and operating buffer',
+  'Payment hardware such as Square if charging on site; Mini does not include a card reader',
   'Any rent, event fee, venue share, or hospitality program cost',
+];
+
+const planningEstimates = [
+  {
+    label: 'Real served throughput',
+    value: '25-35 servings/hour staffed',
+    basis:
+      'Planning estimate below the ~40/hour machine-cycle ceiling after manual stick feeding, guest/payment flow, pattern choice, and resets.',
+  },
+  {
+    label: 'Spa / salon guest flow',
+    value: '12-25 servings/hour',
+    basis:
+      'Planning estimate for curated service where conversation, photos, or appointment timing intentionally slows the line.',
+  },
+  {
+    label: 'Basic staff ramp',
+    value: '30-60 minutes + practice servings',
+    basis:
+      'Planning estimate for a staff member to learn setup, stick handling, safe handoff, and close-down basics before using Plus training.',
+  },
+  {
+    label: 'Daily close / reset',
+    value: '5-10 minutes',
+    basis:
+      'Planning estimate for wipe-down and debris checks around the burner, bowl, output path, and stick-handling surfaces.',
+  },
+  {
+    label: 'Routine maintenance',
+    value: '~15 days; 20-30 minutes',
+    basis:
+      'Manufacturer-platform maintenance rhythm used for Sunze cotton candy machines; confirm Mini-specific steps during onboarding.',
+  },
+  {
+    label: 'Noise planning',
+    value: '~55-65 dBA close range',
+    basis:
+      'Unmeasured planning estimate for fan, motor, and mechanical motion; quiet venues should review clips and test placement.',
+  },
+];
+
+const servingEconomicsEstimates = [
+  {
+    label: 'Sugar',
+    value: '~$0.15-$0.30 / serving',
+    basis: 'Planning range from Bloomjoy sugar pricing and typical small-serving sugar portions.',
+  },
+  {
+    label: 'Paper stick',
+    value: '~$0.07 / serving',
+    basis: 'Bloomjoy branded sticks are currently priced by the box at 2,000 pieces.',
+  },
+  {
+    label: 'Consumables subtotal',
+    value: '~$0.35-$0.50 / serving',
+    basis: 'Sugar, stick, and a small buffer for waste or light packaging; excludes labor, venue cost, payment fees, and machine cost.',
+  },
+  {
+    label: 'Payment fees',
+    value: 'Often ~3% + fixed fee',
+    basis: 'Depends on the operator payment processor and hardware; Mini does not include a card reader.',
+  },
+  {
+    label: 'Price input to model',
+    value: '~$7-$10 / serving',
+    basis: 'Use as a scenario range, not market advice; the public planner also includes an $8 example input.',
+  },
 ];
 
 const operationalFit = [
   {
     title: 'Staff Training',
     detail:
-      'Bloomjoy Plus includes task-based training, setup guides, maintenance checklists, and the Operator Essentials certificate path for day-to-day operators.',
+      'Plan about 30-60 minutes for a basic staff ramp plus practice servings. Bloomjoy Plus adds task-based training, setup guides, maintenance checklists, and the Operator Essentials certificate path.',
     icon: Sparkles,
   },
   {
@@ -114,7 +196,7 @@ const operationalFit = [
   {
     title: 'Cleaning Rhythm',
     detail:
-      'Plan daily wipe-down and debris checks around the burner, output path, sensor areas, sugar, and stick-handling points before the machine is closed or moved.',
+      'Plan a 5-10 minute daily close/reset estimate for wipe-down and debris checks around the burner, bowl, output path, sugar areas, and stick-handling surfaces before the machine is closed or moved.',
     icon: Wrench,
   },
   {
@@ -128,8 +210,16 @@ const operationalFit = [
 const reliabilityNotes = [
   'Mini sits in the same core operating and support family as the Commercial Machine, packaged into a smaller cabinet and manual-stick service model.',
   'Machine warranty coverage follows the same public posture as Commercial: up to 1.5 years, with final terms confirmed during quote and handoff.',
-  'Manufacturer support provides 24/7 first-line technical support via WeChat for diagnostics, troubleshooting, warranty service, and replacement-part workflow.',
-  'Bloomjoy concierge support helps with onboarding, best-practice guidance, translation/escalation, and parts coordination during US business hours.',
+  'Manufacturer support provides 24/7 first-line remote technical support via WeChat for diagnostics, troubleshooting, warranty service, and replacement-part workflow.',
+  'For planning, treat manufacturer remote response as typically within 12-24 hours when the WeChat/support channel is active; Bloomjoy concierge support helps triage, translate, escalate, and coordinate parts during US business hours.',
+  'Common operator checks include dry sugar feed, sugar fill level and cap seal, paper-stick position, output path debris, sugar pickup or sensor areas, and burner/spinner residue.',
+  'Replacement-part availability and cost are confirmed case by case after remote diagnosis; Bloomjoy helps keep parts requests tied to the support workflow.',
+];
+
+const sourceBasisNotes = [
+  'Exact dimensions, weight, power, pattern count, and 90-second cycle guidance come from Bloomjoy Mini materials and owner-provided operating guidance.',
+  'Maintenance and support planning uses Sunze public cotton candy machine guidance where it applies to the shared operating family.',
+  'Throughput, noise, training, cleaning, and serving-cost figures are planning estimates until Bloomjoy has measured Mini field data for a specific setting.',
 ];
 
 export default function MiniPage() {
@@ -403,6 +493,37 @@ export default function MiniPage() {
               ))}
             </ul>
           </div>
+
+          <div className="mt-6 overflow-hidden rounded-xl border border-border bg-background">
+            <div className="border-b border-border bg-muted/30 px-4 py-3">
+              <h3 className="font-display text-lg font-semibold text-foreground">
+                Planning estimates to use until field data is available
+              </h3>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                These are conservative planning assumptions, not guaranteed performance claims.
+                Final fit should be confirmed during quote review and on-site testing.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse text-sm">
+                <tbody>
+                  {planningEstimates.map((estimate) => (
+                    <tr key={estimate.label} className="border-b border-border last:border-b-0">
+                      <th className="w-[30%] bg-muted/20 px-4 py-3 text-left align-top font-semibold text-foreground">
+                        {estimate.label}
+                      </th>
+                      <td className="w-[24%] px-4 py-3 align-top font-semibold text-foreground">
+                        {estimate.value}
+                      </td>
+                      <td className="px-4 py-3 align-top text-muted-foreground">
+                        {estimate.basis}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -413,11 +534,11 @@ export default function MiniPage() {
               Real-world preview
             </p>
             <h2 className="mt-3 font-display text-2xl font-bold text-foreground sm:text-3xl">
-              Public Mini proof clip
+              Public Mini proof clips
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Use this clip to evaluate the service rhythm and guest-facing motion before the
-              quote conversation. Additional clips can be added here as they are approved.
+              Use these short clips to evaluate service rhythm, manual stick handling, cabinet
+              access, and guest-facing motion before the quote conversation.
             </p>
           </div>
 
@@ -453,7 +574,7 @@ export default function MiniPage() {
       <section className="border-t border-border bg-background py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
-            <section className="rounded-xl border border-border bg-background p-6 shadow-sm lg:p-8">
+            <section className="min-w-0 rounded-xl border border-border bg-background p-6 shadow-sm lg:p-8">
               <h2 className="font-display text-2xl font-bold text-foreground">
                 Spa, Salon, and Hospitality Fit
               </h2>
@@ -474,7 +595,7 @@ export default function MiniPage() {
               </ul>
             </section>
 
-            <section className="rounded-xl border border-border bg-muted/25 p-6 lg:p-8">
+            <section className="min-w-0 rounded-xl border border-border bg-muted/25 p-6 lg:p-8">
               <h2 className="font-display text-2xl font-bold text-foreground">
                 Unit-Economics Inputs
               </h2>
@@ -499,6 +620,37 @@ export default function MiniPage() {
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
+
+              <div className="mt-6 overflow-hidden rounded-xl border border-border bg-background">
+                <div className="border-b border-border bg-muted/30 px-4 py-3">
+                  <h3 className="font-display text-lg font-semibold text-foreground">
+                    Cost and price assumptions to model
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    These are scenario inputs for a worksheet, not market advice or a promise of
+                    sales volume, ROI, or payback period.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse text-sm">
+                    <tbody>
+                      {servingEconomicsEstimates.map((estimate) => (
+                        <tr key={estimate.label} className="border-b border-border last:border-b-0">
+                          <th className="w-[28%] bg-muted/20 px-4 py-3 text-left align-top font-semibold text-foreground">
+                            {estimate.label}
+                          </th>
+                          <td className="w-[26%] px-4 py-3 align-top font-semibold text-foreground">
+                            {estimate.value}
+                          </td>
+                          <td className="px-4 py-3 align-top text-muted-foreground">
+                            {estimate.basis}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </section>
           </div>
         </div>
@@ -507,7 +659,7 @@ export default function MiniPage() {
       <section className="border-t border-border bg-muted/20 py-10 sm:py-12 lg:py-16">
         <div className="container-page">
           <div className="grid gap-6 lg:grid-cols-2">
-            <section>
+            <section className="min-w-0">
               <h2 className="font-display text-2xl font-bold text-foreground">
                 Operational Fit
               </h2>
@@ -536,7 +688,7 @@ export default function MiniPage() {
               </div>
             </section>
 
-            <section className="rounded-xl border border-border bg-background p-6 shadow-sm lg:p-8">
+            <section className="min-w-0 rounded-xl border border-border bg-background p-6 shadow-sm lg:p-8">
               <div className="flex items-start gap-4">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-sage-light text-sage">
                   <ShieldCheck className="h-6 w-6" />
@@ -561,6 +713,19 @@ export default function MiniPage() {
                   </li>
                 ))}
               </ul>
+              <div className="mt-6 rounded-lg border border-border bg-muted/25 p-4">
+                <h3 className="font-display text-base font-semibold text-foreground">
+                  Source and estimate basis
+                </h3>
+                <ul className="mt-3 space-y-2">
+                  {sourceBasisNotes.map((note) => (
+                    <li key={note} className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+                      <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                      <span>{note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </section>
           </div>
         </div>

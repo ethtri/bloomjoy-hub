@@ -82,7 +82,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mini and Micro machine pages do not advertise custom wrap as an available option
 - [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
 - [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=%2Fmachines%2Fmini`
-- [ ] Mini page shows readable specs, `~90 seconds per candy`, `~40 candies/hour` planning guidance, public proof video controls/poster, spa/hospitality fit notes, and no ROI/payback guarantees
+- [ ] Mini page shows readable specs, `~90 seconds per candy`, `~40 candies/hour` planning guidance, staffed-throughput estimates, public proof video clips with controls/posters, spa/hospitality fit notes, serving-cost assumptions, and no ROI/payback guarantees
 - [ ] Micro machine page shows the updated target/list price (`$2,200`)
 - [ ] Micro page primary CTA opens `/contact?type=quote&interest=micro&source=%2Fmachines%2Fmicro` and preselects `Micro Machine`
 - [ ] Micro page does not add machines to the shared cart; machine review stays quote-led
