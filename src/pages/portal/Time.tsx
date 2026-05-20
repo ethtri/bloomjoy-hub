@@ -32,6 +32,7 @@ import {
   fetchMyOperatorPayStatementContext,
   fetchMyOperatorTimekeepingContext,
   fetchPayStatementArtifact,
+  formatOperatorPayStubLabel,
   paidMinutesToHours,
   roundOperatorPaidMinutes,
   submitOperatorTimeEntry,
@@ -52,7 +53,14 @@ type TimeEntryForm = {
   notes: string;
 };
 
-const todayInputValue = () => new Date().toISOString().slice(0, 10);
+const todayInputValue = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
 
 const defaultForm = (): TimeEntryForm => ({
   workDate: todayInputValue(),
@@ -320,7 +328,8 @@ export default function PortalTimePage() {
     rawDurationMinutes <= 0 ||
     !selectedMachine ||
     !isWorkDateInCurrentPeriod ||
-    !isPeriodEditable;
+    !isPeriodEditable ||
+    Boolean(exactDuplicate);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -423,9 +432,49 @@ export default function PortalTimePage() {
       return;
     }
 
-    if (window.confirm('Delete this unlocked time entry?')) {
+    const shiftSummary = `${formatDate(entry.workDate)} / ${entry.startTime} to ${
+      entry.endTime
+    } / ${getMachineLabel(entry)}`;
+
+    if (
+      window.confirm(
+        `Delete this submitted time entry?\n\n${shiftSummary}\n\nIt will be removed from this payout period.`
+      )
+    ) {
       deleteMutation.mutate(entry.id);
     }
+  };
+
+  const saveTime = () => {
+    if (exactDuplicate) {
+      toast.error('This matches an existing shift. Review the existing entry instead.');
+      return;
+    }
+
+    const warnings = [
+      overlappingEntries.length > 0
+        ? `This shift overlaps ${overlappingEntries.length} existing entr${
+            overlappingEntries.length === 1 ? 'y' : 'ies'
+          }.`
+        : null,
+      longShiftWarning ? 'This shift is 10+ hours.' : null,
+    ].filter(Boolean) as string[];
+
+    if (warnings.length > 0) {
+      const shiftSummary = `${formatDate(form.workDate)} / ${form.startTime} to ${
+        form.endTime
+      } / ${selectedMachine ? `${selectedMachine.machineLabel} - ${selectedMachine.locationName}` : 'Selected machine'}`;
+
+      if (
+        !window.confirm(
+          `${warnings.join('\n')}\n\n${shiftSummary}\n\nSave this time entry anyway?`
+        )
+      ) {
+        return;
+      }
+    }
+
+    saveMutation.mutate();
   };
 
   return (
@@ -670,7 +719,7 @@ export default function PortalTimePage() {
                         </Button>
                         <Button
                           type="button"
-                          onClick={() => saveMutation.mutate()}
+                          onClick={saveTime}
                           disabled={hasBlockingValidation || saveMutation.isPending}
                         >
                           {saveMutation.isPending ? (
@@ -764,6 +813,8 @@ export default function PortalTimePage() {
                       onDelete={confirmDelete}
                       isDeleting={deleteMutation.isPending}
                       compact
+                      allowActions={false}
+                      readOnlyMessage="Past shifts are view-only here."
                     />
                   </div>
                 </div>
@@ -821,7 +872,7 @@ function PayStatementsPanel({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="break-words font-semibold text-foreground">
-                      {statement.statementLabel}
+                      {formatOperatorPayStubLabel(statement.statementLabel)}
                     </h3>
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                       v{statement.version}
@@ -954,6 +1005,8 @@ function TimeEntriesPanel({
   onDelete,
   isDeleting,
   compact = false,
+  allowActions = true,
+  readOnlyMessage,
 }: {
   title: string;
   description: string;
@@ -963,6 +1016,8 @@ function TimeEntriesPanel({
   onDelete: (entry: OperatorTimeEntry) => void;
   isDeleting: boolean;
   compact?: boolean;
+  allowActions?: boolean;
+  readOnlyMessage?: string;
 }) {
   return (
     <div className="card-elevated overflow-hidden">
@@ -1006,32 +1061,40 @@ function TimeEntriesPanel({
                     )}
                   </div>
 
-                  <div className="flex flex-wrap gap-2 lg:justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onEdit(entry)}
-                      disabled={locked}
-                    >
-                      <Edit3 className="mr-1.5 h-4 w-4" />
-                      Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDelete(entry)}
-                      disabled={locked || isDeleting}
-                    >
-                      {isDeleting ? (
-                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="mr-1.5 h-4 w-4" />
-                      )}
-                      Delete
-                    </Button>
-                  </div>
+                  {allowActions ? (
+                    <div className="flex flex-wrap gap-2 lg:justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onEdit(entry)}
+                        disabled={locked}
+                      >
+                        <Edit3 className="mr-1.5 h-4 w-4" />
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onDelete(entry)}
+                        disabled={locked || isDeleting}
+                      >
+                        {isDeleting ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="mr-1.5 h-4 w-4" />
+                        )}
+                        Delete
+                      </Button>
+                    </div>
+                  ) : (
+                    readOnlyMessage && (
+                      <p className="text-sm text-muted-foreground lg:max-w-40 lg:text-right">
+                        {readOnlyMessage}
+                      </p>
+                    )
+                  )}
                 </div>
               </article>
             );

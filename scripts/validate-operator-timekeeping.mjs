@@ -70,7 +70,9 @@ for (const snippet of [
   'overlaps',
   '10+ hours',
   'End time must be after start time',
-  'Delete this unlocked time entry',
+  'Delete this submitted time entry',
+  'duplicate of an existing shift',
+  'Past shifts are view-only here',
 ]) {
   if (!page.includes(snippet)) {
     fail(`Time page missing ${snippet}`);

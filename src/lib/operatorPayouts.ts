@@ -194,6 +194,25 @@ export type OperatorPayStatementArtifact = {
   };
 };
 
+export const formatOperatorPayStubLabel = (label: string | null | undefined) => {
+  const trimmedLabel = label?.trim();
+
+  if (!trimmedLabel) return 'Pay Stub';
+
+  return trimmedLabel.replace(/\bPay Statement(s?)\b/gi, (_match, plural: string) =>
+    `Pay Stub${plural ? 's' : ''}`
+  );
+};
+
+const getLocalDateInputValue = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
+
 export type PayStatementPreviewResult = {
   payoutRunId: string;
   status: PayoutRunStatus;
@@ -682,7 +701,7 @@ export const fetchMyOperatorPayStatementContext =
     const { data, error } = await supabaseClient.rpc('get_my_operator_pay_statement_context');
 
     if (error) {
-      throw new Error(error.message || 'Unable to load pay statements.');
+      throw new Error(error.message || 'Unable to load pay stubs.');
     }
 
     return {
@@ -699,7 +718,7 @@ export const fetchPayStatementArtifact = async (
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to load pay statement artifact.');
+    throw new Error(error?.message || 'Unable to load pay stub.');
   }
 
   return data as OperatorPayStatementArtifact;
@@ -717,7 +736,7 @@ export const fetchMyOperatorTimekeepingContext = async (
   }
 
   return {
-    workDate: new Date().toISOString().slice(0, 10),
+    workDate: workDate ?? getLocalDateInputValue(),
     profiles: [],
     ...((data as Partial<OperatorTimekeepingContext> | null) ?? {}),
   };
@@ -1175,6 +1194,7 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
     .filter(Boolean)
     .join(', ');
   const safeStatus = statement.status === 'revised' ? 'Revised' : 'Issued';
+  const statementLabel = formatOperatorPayStubLabel(statement.statementLabel);
   const machineRows = statement.machines
     .map(
       (machine) => `
@@ -1233,7 +1253,7 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
         <header>
           <div>
             <p class="status">${escapeHtml(safeStatus)}</p>
-            <h1>${escapeHtml(statement.statementLabel)}</h1>
+            <h1>${escapeHtml(statementLabel)}</h1>
             <p class="muted">${escapeHtml(statement.statementNumber)} / Version ${escapeHtml(statement.version)}</p>
           </div>
           <div class="muted">

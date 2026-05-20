@@ -59,7 +59,7 @@ const assertMigration = () => {
 
   for (const snippet of [
     "default_worker_type text not null default 'contractor_1099'",
-    "default_pay_statement_label text not null default 'Pay Statement'",
+    "default_pay_statement_label text not null default 'Pay Stub'",
     "rounding_rule text not null default 'round_up_60_minutes'",
     "review_model text not null default 'final_review_only'",
     'raw_duration_minutes integer not null default 0',

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { chromium } from 'playwright';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
@@ -90,6 +90,9 @@ const minutesForTime = (value) => {
 
 const rawMinutes = (startTime, endTime) => minutesForTime(endTime) - minutesForTime(startTime);
 
+const isCurrentPeriodEntry = (entry) =>
+  entry.workDate >= '2026-05-01' && entry.workDate <= '2026-05-31';
+
 const buildContext = (state) => ({
   workDate,
   profiles: [
@@ -127,7 +130,9 @@ const buildContext = (state) => ({
           effectiveEndDate: null,
         },
       ],
-      currentEntries: state.entries.filter((entry) => entry.status !== 'voided'),
+      currentEntries: state.entries.filter(
+        (entry) => entry.status !== 'voided' && isCurrentPeriodEntry(entry)
+      ),
       recentEntries: state.entries.filter((entry) => entry.status !== 'voided'),
     },
   ],
@@ -158,6 +163,110 @@ const makeEntry = (body, state, id = `time-entry-${state.nextEntryId++}`) => {
     updatedAt: now.toISOString(),
   };
 };
+
+const buildPayStatementArtifact = () => ({
+  statement: {
+    schemaVersion: 'operator-pay-statement-v1',
+    id: '66000000-0000-4000-8000-000000000020',
+    statementNumber: 'BJ-2026-05-0001',
+    statementLabel: 'May 2026 Pay Statement',
+    status: 'issued',
+    version: 1,
+    generatedAt: '2026-06-04T11:55:00.000Z',
+    issuedAt: '2026-06-04T12:00:00.000Z',
+    entity: {
+      accountId,
+      name: 'Bloomjoy UAT',
+      legalName: 'Bloomjoy UAT LLC',
+      contactEmail: 'ops@example.test',
+      logoStoragePath: null,
+      address: {
+        line1: '100 Market Street',
+        line2: null,
+        city: 'San Francisco',
+        state: 'CA',
+        postalCode: '94105',
+      },
+    },
+    operator: {
+      operatorProfileId: profileId,
+      displayName: 'Operator Time',
+      workerType: 'contractor_1099',
+    },
+    period: {
+      payoutPeriodId: periodId,
+      periodStartDate: '2026-05-01',
+      periodEndDate: '2026-05-31',
+      targetPayoutDate: '2026-06-05',
+    },
+    payoutRun: {
+      id: '66000000-0000-4000-8000-000000000021',
+      status: 'issued',
+      finalizedAt: '2026-06-04T11:45:00.000Z',
+      issuedAt: '2026-06-04T12:00:00.000Z',
+    },
+    time: {
+      rawMinutes: 90,
+      roundedPaidMinutes: 120,
+      rawHours: 1.5,
+      paidHours: 2,
+      shiftCount: 2,
+    },
+    revenueBasis: {
+      eligibleNetRevenueCents: 120000,
+      commissionBasisPoints: 500,
+      commissionRatePercent: 5,
+    },
+    totals: {
+      hourlyRateCents: 2500,
+      hourlyPayCents: 5000,
+      commissionPayCents: 6000,
+      adjustmentsTotalCents: 1450,
+      totalPayoutCents: 12450,
+    },
+    machines: [
+      {
+        machineId,
+        machineLabel: 'Cotton Candy 01',
+        locationId,
+        locationName: 'Mall Atrium',
+        rawMinutes: 90,
+        roundedPaidMinutes: 120,
+        paidHours: 2,
+        shiftCount: 2,
+        netRevenueCents: 120000,
+        eligibleNetRevenueCents: 120000,
+        commissionBasisPoints: 500,
+        commissionPayCents: 6000,
+        includedInCommissionBasis: true,
+      },
+    ],
+    adjustments: [
+      {
+        id: '66000000-0000-4000-8000-000000000022',
+        amountCents: 1450,
+        adjustmentType: 'manual_bonus',
+        description: 'Manual bonus',
+        createdAt: '2026-06-04T11:50:00.000Z',
+      },
+    ],
+    disclaimer:
+      'This pay stub summarizes Bloomjoy operator payout inputs. It is not tax or payroll advice.',
+    automation: {
+      rawProviderPayloadsIncluded: false,
+      taxComplianceEngine: false,
+      payrollProviderExecution: false,
+      artifactSource: 'database_payload',
+    },
+  },
+  artifact: {
+    format: 'html',
+    source: 'database_payload',
+    storageBucket: 'operator-pay-statements',
+    storagePath: 'operators/may-2026.html',
+    downloadFileName: 'may-2026-pay-stub.html',
+  },
+});
 
 const jsonResponse = (body) => ({
   status: 200,
@@ -288,7 +397,7 @@ const installMockSupabaseRoutes = async (context, state) => {
                 {
                   id: '66000000-0000-4000-8000-000000000020',
                   statementNumber: 'BJ-2026-05-0001',
-                  statementLabel: 'May 2026 Pay Stub',
+                  statementLabel: 'May 2026 Pay Statement',
                   status: 'issued',
                   version: 1,
                   issuedAt: '2026-06-04T12:00:00.000Z',
@@ -307,6 +416,10 @@ const installMockSupabaseRoutes = async (context, state) => {
           ],
         })
       );
+    }
+
+    if (rpcName === 'get_pay_statement_artifact') {
+      return route.fulfill(jsonResponse(buildPayStatementArtifact()));
     }
 
     if (rpcName === 'submit_operator_time_entry') {
@@ -394,7 +507,29 @@ const run = async () => {
   const args = parseArgs(process.argv.slice(2));
   const recorder = createRecorder();
   const state = {
-    entries: [],
+    entries: [
+      {
+        id: 'time-entry-past',
+        accountId,
+        operatorProfileId: profileId,
+        machineId,
+        machineLabel: 'Cotton Candy 01',
+        locationId,
+        locationName: 'Mall Atrium',
+        payoutPolicyId: policyId,
+        payoutPeriodId: '66000000-0000-4000-8000-000000000030',
+        workDate: '2026-04-20',
+        startTime: '12:00',
+        endTime: '14:15',
+        rawDurationMinutes: 135,
+        roundedPaidMinutes: 180,
+        notes: 'April payout close.',
+        status: 'paid',
+        lockedAt: isoHoursAgo(72),
+        createdAt: isoHoursAgo(96),
+        updatedAt: isoHoursAgo(72),
+      },
+    ],
     nextEntryId: 1,
     rpcCalls: [],
   };
@@ -403,7 +538,10 @@ const run = async () => {
   await waitForServer(args.appUrl);
 
   const browser = await chromium.launch({ headless: !args.headed });
-  const context = await browser.newContext({ viewport: { width: 1365, height: 900 } });
+  const context = await browser.newContext({
+    acceptDownloads: true,
+    viewport: { width: 1365, height: 900 },
+  });
   await installMockSupabaseRoutes(context, state);
 
   const page = await context.newPage();
@@ -446,6 +584,48 @@ const run = async () => {
       'Pay stub download is visible',
       (await page.getByRole('heading', { name: 'Pay Stubs' }).isVisible()) &&
         (await page.getByRole('button', { name: /download pay stub/i }).isVisible())
+    );
+    recorder.assert(
+      'Operator-facing pay stub copy avoids pay statement terminology',
+      (await page.getByText(/Pay Statement/i).count()) === 0 &&
+        (await page.getByText('May 2026 Pay Stub').isVisible())
+    );
+    const payStubDownloadPromise = page.waitForEvent('download', { timeout: 10000 });
+    await page.getByRole('button', { name: /download pay stub/i }).click();
+    const payStubDownload = await payStubDownloadPromise;
+    await waitForCondition(
+      () => state.rpcCalls.some((call) => call.rpcName === 'get_pay_statement_artifact'),
+      'Timed out waiting for get_pay_statement_artifact RPC'
+    );
+    await page.getByText('Pay stub downloaded.').last().waitFor({ timeout: 10000 });
+    const payStubDownloadPath = await payStubDownload.path();
+    const downloadedPayStubHtml = payStubDownloadPath
+      ? await readFile(payStubDownloadPath, 'utf8')
+      : '';
+    recorder.assert(
+      'Pay stub download loads artifact payload',
+      state.rpcCalls.some(
+        (call) =>
+          call.rpcName === 'get_pay_statement_artifact' &&
+          call.body?.p_pay_statement_id === '66000000-0000-4000-8000-000000000020'
+      )
+    );
+    recorder.assert(
+      'Downloaded pay stub HTML uses operator-facing terminology',
+      downloadedPayStubHtml.includes('May 2026 Pay Stub') &&
+        !downloadedPayStubHtml.includes('May 2026 Pay Statement') &&
+        payStubDownload.suggestedFilename() === 'may-2026-pay-stub.html'
+    );
+    recorder.assert(
+      'Past shifts are review-only',
+      (await page
+        .locator('article', { hasText: 'Apr 20, 2026' })
+        .getByText('Past shifts are view-only here.')
+        .isVisible()) &&
+        (await page
+          .locator('article', { hasText: 'Apr 20, 2026' })
+          .getByRole('button', { name: /edit/i })
+          .count()) === 0
     );
     await page.waitForTimeout(4500);
     await page.screenshot({
@@ -499,15 +679,51 @@ const run = async () => {
       page.getByRole('link', { name: /^add time$/i }).click(),
     ]);
     await page.fill('#work-date', workDate);
+    await page.fill('#start-time', '09:00');
+    await page.fill('#end-time', '09:30');
+    await page.getByText(/duplicate of an existing shift/i).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Exact duplicate blocks save',
+      await page.getByRole('button', { name: /add time/i }).isDisabled()
+    );
+
     await page.fill('#start-time', '09:15');
     await page.fill('#end-time', '10:00');
     await page.getByText(/overlaps 1 existing entry/i).waitFor({ timeout: 10000 });
     recorder.pass('Overlap warning appears before saving');
+    let sawOverlapConfirmation = false;
+    page.once('dialog', async (dialog) => {
+      sawOverlapConfirmation = dialog.message().includes('overlaps 1 existing entry');
+      await dialog.dismiss();
+    });
+    await page.getByRole('button', { name: /add time/i }).click();
+    await waitForCondition(
+      () => sawOverlapConfirmation,
+      'Timed out waiting for overlap confirmation dialog'
+    );
+    recorder.assert(
+      'Overlap save requires explicit confirmation',
+      sawOverlapConfirmation && new URL(page.url()).pathname === '/portal/time/new'
+    );
 
     await page.fill('#start-time', '08:00');
     await page.fill('#end-time', '20:00');
     await page.getByText(/10\+ hours/i).waitFor({ timeout: 10000 });
     recorder.pass('Long-shift warning appears before saving');
+    let sawLongShiftConfirmation = false;
+    page.once('dialog', async (dialog) => {
+      sawLongShiftConfirmation = dialog.message().includes('10+ hours');
+      await dialog.dismiss();
+    });
+    await page.getByRole('button', { name: /add time/i }).click();
+    await waitForCondition(
+      () => sawLongShiftConfirmation,
+      'Timed out waiting for long-shift confirmation dialog'
+    );
+    recorder.assert(
+      'Long shift save requires explicit confirmation',
+      sawLongShiftConfirmation && new URL(page.url()).pathname === '/portal/time/new'
+    );
 
     await page.goto(`${args.appUrl}/portal/time`, { waitUntil: 'domcontentloaded' });
     await Promise.all([
@@ -515,6 +731,13 @@ const run = async () => {
       page.locator('article', { hasText: 'Restocked sugar' }).getByRole('button', { name: /edit/i }).click(),
     ]);
     await page.locator('h1').filter({ hasText: /^Edit Time$/ }).waitFor({ timeout: 10000 });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-edit-mobile.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 1365, height: 900 });
     await page.fill('#start-time', '10:00');
     await page.fill('#end-time', '11:01');
     await page.getByText('2 paid hrs').waitFor({ timeout: 10000 });
@@ -560,6 +783,16 @@ const run = async () => {
 
     await page.screenshot({
       path: path.join(args.artifactDir, 'portal-time-mobile.png'),
+      fullPage: true,
+    });
+
+    await Promise.all([
+      page.waitForURL('**/portal/time/new', { timeout: 10000 }),
+      page.getByRole('link', { name: /^add time$/i }).click(),
+    ]);
+    await page.locator('h1').filter({ hasText: /^Add Time$/ }).waitFor({ timeout: 10000 });
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-add-mobile.png'),
       fullPage: true,
     });
 
