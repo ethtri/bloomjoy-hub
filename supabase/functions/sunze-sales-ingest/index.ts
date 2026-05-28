@@ -133,9 +133,12 @@ const normalizeVisibleSunzeMachines = (value: unknown): VisibleSunzeMachine[] =>
       200
     );
 
-    byCode.set(machineCode.toLowerCase(), {
+    const key = machineCode.toLowerCase();
+    const existing = byCode.get(key);
+
+    byCode.set(key, {
       machineCode,
-      machineName: machineName || null,
+      machineName: machineName || existing?.machineName || null,
     });
   }
 

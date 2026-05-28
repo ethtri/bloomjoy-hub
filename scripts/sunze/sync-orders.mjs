@@ -539,6 +539,9 @@ const machineListNameNoise = new Set([
   'online',
   'offline',
   'machine id',
+  'machine name',
+  'device id',
+  'device name',
 ]);
 
 const sanitizeMachineName = (value) => {
@@ -548,6 +551,8 @@ const sanitizeMachineName = (value) => {
   if (machineListNameNoise.has(normalized)) return null;
   if (/^(heating temp|internal temp|humidity)\s*[:：]/i.test(text)) return null;
   if (/^machine\s*id\s*[:：]?/i.test(text)) return null;
+  if (/^machine\s*name\s*[:：]?/i.test(text)) return null;
+  if (/^device\s*(id|name)\s*[:：]?/i.test(text)) return null;
   return text;
 };
 
