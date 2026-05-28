@@ -532,25 +532,68 @@ const sanitizeMachineCode = (value) => {
   return text;
 };
 
-const extractMachineCodesFromText = (text) => {
+const machineListNameNoise = new Set([
+  'more',
+  'normal',
+  'abnormal',
+  'online',
+  'offline',
+  'machine id',
+]);
+
+const sanitizeMachineName = (value) => {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!text || text.length > 200) return null;
+  const normalized = text.toLowerCase().replace(/[:：]\s*$/, '');
+  if (machineListNameNoise.has(normalized)) return null;
+  if (/^(heating temp|internal temp|humidity)\s*[:：]/i.test(text)) return null;
+  if (/^machine\s*id\s*[:：]?/i.test(text)) return null;
+  return text;
+};
+
+const findMachineNameBeforeLine = (lines, index) => {
+  for (
+    let previousIndex = index - 1;
+    previousIndex >= 0 && previousIndex >= index - 5;
+    previousIndex -= 1
+  ) {
+    const name = sanitizeMachineName(lines[previousIndex]);
+    if (name) return name;
+  }
+  return null;
+};
+
+const extractMachinesFromText = (text) => {
   const lines = String(text ?? '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const codes = new Set();
+  const machinesByCode = new Map();
 
   for (let index = 0; index < lines.length; index += 1) {
     const inlineMatch = lines[index].match(/Machine\s*ID\s*(?::|\uFF1A)?\s*([A-Za-z0-9][A-Za-z0-9._-]{1,79})/i);
     const inlineCode = sanitizeMachineCode(inlineMatch?.[1]);
-    if (inlineCode) codes.add(inlineCode);
+    if (inlineCode) {
+      machinesByCode.set(inlineCode, {
+        machineCode: inlineCode,
+        machineName: findMachineNameBeforeLine(lines, index),
+      });
+    }
 
     if (/^Machine\s*ID\s*(?::|\uFF1A)?$/i.test(lines[index])) {
       const nextCode = sanitizeMachineCode(lines[index + 1]);
-      if (nextCode) codes.add(nextCode);
+      if (nextCode) {
+        machinesByCode.set(nextCode, {
+          machineCode: nextCode,
+          machineName: findMachineNameBeforeLine(lines, index),
+        });
+      }
     }
   }
 
-  return [...codes].sort();
+  return [...machinesByCode.values()].sort((left, right) =>
+    left.machineCode.localeCompare(right.machineCode)
+  );
 };
 
 const summaryMachineCodes = [
@@ -627,13 +670,13 @@ const readMachineListDiagnostic = async (page) =>
       .slice(0, 5);
   });
 
-const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
+const readVisibleSunzeMachines = async (page, baseUrl) => {
   await page.goto(`${baseUrl}#/device`, { waitUntil: 'domcontentloaded' });
   assertAllowedSunzeRoute(page);
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(2500);
 
-  const visibleMachineCodes = new Set();
+  const visibleMachinesByCode = new Map();
   let pagesScanned = 0;
   let nextClicks = 0;
   let scrollAttempts = 0;
@@ -641,12 +684,16 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
   for (let pageIndex = 0; pageIndex < 20; pageIndex += 1) {
     pagesScanned += 1;
     const bodyText = await page.locator('body').innerText();
-    for (const machineCode of extractMachineCodesFromText(bodyText)) {
-      visibleMachineCodes.add(machineCode);
+    for (const machine of extractMachinesFromText(bodyText)) {
+      const existing = visibleMachinesByCode.get(machine.machineCode);
+      visibleMachinesByCode.set(machine.machineCode, {
+        machineCode: machine.machineCode,
+        machineName: machine.machineName ?? existing?.machineName ?? null,
+      });
     }
 
     for (let scrollIndex = 0; scrollIndex < 10; scrollIndex += 1) {
-      const beforeScrollCount = visibleMachineCodes.size;
+      const beforeScrollCount = visibleMachinesByCode.size;
       const scrolled = await scrollTopLevelMachineList(page);
       if (!scrolled) break;
 
@@ -655,11 +702,15 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
       await page.waitForTimeout(1000);
 
       const scrolledBodyText = await page.locator('body').innerText();
-      for (const machineCode of extractMachineCodesFromText(scrolledBodyText)) {
-        visibleMachineCodes.add(machineCode);
+      for (const machine of extractMachinesFromText(scrolledBodyText)) {
+        const existing = visibleMachinesByCode.get(machine.machineCode);
+        visibleMachinesByCode.set(machine.machineCode, {
+          machineCode: machine.machineCode,
+          machineName: machine.machineName ?? existing?.machineName ?? null,
+        });
       }
 
-      if (visibleMachineCodes.size === beforeScrollCount) break;
+      if (visibleMachinesByCode.size === beforeScrollCount) break;
     }
 
     const clickedNextPage = await clickNextMachineListPage(page);
@@ -670,7 +721,10 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
     await page.waitForTimeout(1500);
   }
 
-  const machineCodes = [...visibleMachineCodes].sort();
+  const visibleMachines = [...visibleMachinesByCode.values()].sort((left, right) =>
+    left.machineCode.localeCompare(right.machineCode)
+  );
+  const machineCodes = visibleMachines.map((machine) => machine.machineCode);
   const paginationDiagnostic = (await readMachineListDiagnostic(page))
     .map(sanitizeDiagnosticText)
     .join(' | ');
@@ -704,7 +758,7 @@ const readVisibleSunzeMachineCodes = async (page, baseUrl) => {
     );
   }
 
-  return machineCodes;
+  return visibleMachines;
 };
 
 const routeBaseMatches = (url, expectedBaseUrl) => {
@@ -1602,12 +1656,14 @@ const exportOrdersWorkbook = async () => {
     const filePath = join(downloadRoot, filename);
     await download.saveAs(filePath);
     downloadedFilePath = filePath;
-    const visibleSunzeMachineCodes = await readVisibleSunzeMachineCodes(page, baseUrl);
+    const visibleSunzeMachines = await readVisibleSunzeMachines(page, baseUrl);
+    const visibleSunzeMachineCodes = visibleSunzeMachines.map((machine) => machine.machineCode);
     succeeded = true;
 
     return {
       filePath,
       uiSummaries: [preExportUiSummary],
+      visibleSunzeMachines,
       visibleSunzeMachineCodes,
       exportTaskCreatedAtMs: task.createdAtMs,
       cleanupPath: downloadDirArg ? filePath : downloadRoot,
@@ -1765,6 +1821,7 @@ const loadOrdersSource = async () => {
     const source = {
       filePath: resolve(parseFilePath),
       uiSummaries: [],
+      visibleSunzeMachines: [],
       visibleSunzeMachineCodes: [],
       cleanupPath: null,
       cleanupMode: null,
@@ -1899,6 +1956,7 @@ try {
       requestedWindowEnd: requestedWindow?.uiWindowEnd ?? null,
       dateWindowFilterApplied,
       outOfWindowRowCount,
+      visibleSunzeMachines: source.visibleSunzeMachines,
       visibleSunzeMachineCodes: source.visibleSunzeMachineCodes,
       visibleSunzeMachineCount,
       expectedVisibleMachineCount: parseFilePath ? null : expectedVisibleMachineCount,

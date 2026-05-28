@@ -36,6 +36,11 @@ type SunzeIngestRow = {
   sourceStatus?: unknown;
 };
 
+type VisibleSunzeMachine = {
+  machineCode: string;
+  machineName: string | null;
+};
+
 type ReportingMachine = {
   id: string;
   location_id: string;
@@ -103,6 +108,41 @@ const sanitizeCodeArray = (value: unknown) =>
         ),
       ].sort()
     : [];
+
+const sanitizeMachineCode = (value: unknown) => {
+  const code = sanitizeText(value, 100);
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{1,99}$/.test(code) ? code : null;
+};
+
+const normalizeVisibleSunzeMachines = (value: unknown): VisibleSunzeMachine[] => {
+  if (!Array.isArray(value)) return [];
+
+  const byCode = new Map<string, VisibleSunzeMachine>();
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+
+    const record = entry as Record<string, unknown>;
+    const machineCode = sanitizeMachineCode(
+      record.machineCode ?? record.sunzeMachineId ?? record.code ?? record.id
+    );
+    if (!machineCode) continue;
+
+    const machineName = sanitizeText(
+      record.machineName ?? record.sunzeMachineName ?? record.name,
+      200
+    );
+
+    byCode.set(machineCode.toLowerCase(), {
+      machineCode,
+      machineName: machineName || null,
+    });
+  }
+
+  return [...byCode.values()].sort((left, right) =>
+    left.machineCode.localeCompare(right.machineCode)
+  );
+};
 
 const safeInteger = (value: unknown): number | null => {
   if (value === null || value === undefined || value === "") return null;
@@ -277,7 +317,11 @@ const summarizeMachineCoverage = ({
   machineBySunzeId: Map<string, ReportingMachine>;
   rowMachineCodes: string[];
 }) => {
-  const visibleCodes = sanitizeCodeArray(meta.visibleSunzeMachineCodes);
+  const visibleMachineRows = normalizeVisibleSunzeMachines(meta.visibleSunzeMachines);
+  const visibleCodes = uniqueCodes([
+    ...sanitizeCodeArray(meta.visibleSunzeMachineCodes),
+    ...visibleMachineRows.map((machine) => machine.machineCode),
+  ]);
   const expectedCount = safeInteger(meta.expectedVisibleMachineCount);
   const coverageRequired = meta.machineCoverageRequired === true;
   const coverageVerified = visibleCodes.length > 0;
@@ -323,6 +367,18 @@ const buildMachineNameMap = (rows: SunzeIngestRow[]) => {
     const machineName = sanitizeText(row.machineName, 200);
     if (machineName) {
       namesByCode.set(machineCode.toLowerCase(), machineName);
+    }
+  }
+
+  return namesByCode;
+};
+
+const buildVisibleMachineNameMap = (meta: Record<string, unknown>) => {
+  const namesByCode = new Map<string, string>();
+
+  for (const machine of normalizeVisibleSunzeMachines(meta.visibleSunzeMachines)) {
+    if (machine.machineName) {
+      namesByCode.set(machine.machineCode.toLowerCase(), machine.machineName);
     }
   }
 
@@ -774,6 +830,9 @@ serve(async (req) => {
       parsed_machine_count: safeInteger(bodyMeta.parsedMachineCount),
       parsed_order_amount_cents: safeInteger(bodyMeta.parsedOrderAmountCents),
       visible_sunze_machine_count: safeInteger(bodyMeta.visibleSunzeMachineCount),
+      visible_sunze_machine_name_count: normalizeVisibleSunzeMachines(
+        bodyMeta.visibleSunzeMachines
+      ).filter((machine) => machine.machineName).length,
       expected_visible_machine_count: safeInteger(bodyMeta.expectedVisibleMachineCount),
       machine_coverage_required: bodyMeta.machineCoverageRequired === true,
       machine_coverage_verified: bodyMeta.machineCoverageVerified === true,
@@ -799,9 +858,13 @@ serve(async (req) => {
       machineBySunzeId,
       rowMachineCodes,
     });
+    const machineNamesByCode = new Map([
+      ...buildMachineNameMap(rows),
+      ...buildVisibleMachineNameMap(bodyMeta),
+    ]);
     const discoveryState = await upsertSunzeMachineDiscoveries({
       machineCodes: machineCoverage.discoveredMachineCodes,
-      machineNamesByCode: buildMachineNameMap(rows),
+      machineNamesByCode,
       machineBySunzeId,
       importRunId,
       write: !dryRun,
