@@ -34,6 +34,7 @@ Repeatable PM/PO orchestration for Bloomjoy Hub agent sprints.
 - Run QA challenge after implementation verification is available. QA may request a fix lane or approve with residual risks.
 - For high-risk work, require an independent AI review or a clearly separated challenge pass before merge.
 - If a shared foundation PR merges, sync dependent branches from `main` and rerun verification before marking them ready.
+- Before any agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>` and record the result in the PR.
 - Merge in dependency order: foundations first, then feature slices, then QA/docs closeout.
 
 ## 5. Blockers
@@ -57,6 +58,7 @@ PR body must include:
 - Verification commands and exact results: `npm ci`, `npm run agent:preflight -- --issue <number>`, `npm run build`, `npm test --if-present`, `npm run lint --if-present`, and `git diff --check`; include `npm run agent:validate-workflow` for workflow/template/config/skill changes and route-specific checks when relevant.
 - How to test: localhost steps, key URLs, and any non-secret test credentials or persona notes.
 - Risk/overlap notes: open PRs, shared files, blockers, rollback if high risk.
+- Merge autonomy: Green, Yellow, or Red lane; owner approval status; merge-gate result before agent merge.
 - UI/design evidence for visible UI changes.
 
 ## 8. Sprint Closeout

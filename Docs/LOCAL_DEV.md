@@ -298,6 +298,8 @@ Privacy guardrails:
 - Do not copy another person's `.env`; create your own from `.env.example`.
 - Never commit or paste secret keys, raw customer data, payment IDs, vendor exports, or free-text complaint content in PRs, issues, docs, or chat.
 - Keep PRs small and focused; one change set per PR.
+- Use green/yellow/red merge autonomy: agents may merge green/yellow PRs after evidence is complete, but red-lane PRs require owner direction.
+- Run `npm run agent:merge-gate -- --pr <number>` before any agent-initiated merge.
 - Enable repo git hooks once per clone: `git config core.hooksPath .githooks`
 - Fetch before checking recent merges or status: `git fetch origin`
 - Write notes and docs so non-technical readers can follow.
@@ -314,10 +316,16 @@ Privacy guardrails:
 5) Run `npm run agent:context -- --issue <number>` when the task has a GitHub issue.
 6) Run `git status -sb` and make sure the output is reviewable.
 7) Run `npm run agent:validate-workflow` when changing workflow docs, GitHub templates, Codex config, skills, or agent scripts.
-8) Run `npm run auth:preflight` when working on auth/OAuth launch tasks.
-9) Run `npm run commerce:preflight` when working on Stripe/order/notification changes.
-10) Run `npm run db:validate-migrations` when working on Supabase migrations.
-11) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree.
+8) Run `npm run agent:merge-gate -- --pr <number>` before agent-merging a PR.
+9) Run `npm run auth:preflight` when working on auth/OAuth launch tasks.
+10) Run `npm run commerce:preflight` when working on Stripe/order/notification changes.
+11) Run `npm run db:validate-migrations` when working on Supabase migrations.
+12) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree.
+
+## Merge autonomy lanes
+- Green: low-risk docs, workflow tooling, lint/build cleanup, safe dependency updates, tests, or narrow non-sensitive cleanup. Agents may merge when checks are green and the PR evidence is complete.
+- Yellow: UI changes, shared code/workflow changes, performance/build changes, or P0/P1 work without risk labels. Agents may merge after the PR includes the extra browser/design/overlap/performance evidence that matches the change.
+- Red: `needs-owner-decision`, `uat-required`, `blocked`, `blocked-external`, `risky-db-change`, or `risky-auth-payment`. Agents do not merge red-lane PRs without explicit owner direction.
 
 ## Post-merge hygiene (2 minutes)
 Use this after a PR is merged or intentionally closed. Do not remove a worktree that still has uncommitted work.

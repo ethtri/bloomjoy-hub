@@ -26,6 +26,7 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Use branch names in the form `agent/<short-task-slug>`.
 - Run `npm run agent:preflight` before edits and again before PR closeout.
 - Run `npm run agent:context -- --issue <number>` at kickoff when an issue number is available.
+- Run `npm run agent:merge-gate -- --pr <number>` before agent-merging a PR.
 - Run `npm run agent:validate-workflow` when changing agent docs, templates, Codex config, skills, or workflow scripts.
 - Keep PRs small and focused: one feature, fix, workflow upgrade, or vertical slice per PR.
 - Keep changes minimal and reversible.
@@ -73,6 +74,41 @@ A task is done when:
 3. A PR is opened into `main`.
 4. The PR includes linked issue, summary, high-level files changed, verification results, risk/overlap, and localhost "How to test" steps.
 5. The GitHub issue/project-board state is updated or the PR explains what remains.
+
+## Merge Autonomy
+
+Agents should not make Ethan the default merge bottleneck. Use the PR labels, issue labels, PR evidence, and `npm run agent:merge-gate -- --pr <number>` to classify the merge lane.
+
+### Green Lane - Agent May Merge
+
+Agent merge is allowed when all of these are true:
+
+- PR targets `main`, is not draft, has no merge conflicts, and all required checks are green.
+- PR links a GitHub issue and includes verification, risk/overlap, rollback, and board closeout notes.
+- No red-lane labels are present on the PR or linked issue.
+- The change is low-risk: docs, workflow tooling, lint/build cleanup, safe dependency updates, small tests, or narrow non-sensitive code cleanup.
+
+### Yellow Lane - Agent May Merge With Extra Evidence
+
+Agent merge is allowed after extra evidence is recorded in the PR:
+
+- Visible UI changes: include browser evidence at relevant desktop/mobile widths and `impeccable` or design-review notes when design quality matters.
+- Shared code or workflow changes: call out open-PR overlap and rollback.
+- Performance/build changes: include before/after evidence.
+- P0/P1 priority without red-lane labels: confirm the work is not launch-critical, owner-blocked, or externally dependent.
+
+### Red Lane - Owner Approval Required
+
+Agents must not merge without explicit owner direction when the PR or linked issue has any of these labels:
+
+- `needs-owner-decision`
+- `uat-required`
+- `blocked`
+- `blocked-external`
+- `risky-db-change`
+- `risky-auth-payment`
+
+Also treat production deploys, secrets, auth/permission changes, payments, refunds, RLS, migrations, destructive data changes, vendor/account setup, legal/terms changes, and brand commitments as red lane unless the issue explicitly scopes them as safe and non-production.
 
 ## Version Control Protocol
 
