@@ -94,6 +94,11 @@ if (exists("package.json")) {
   assert(pkg.scripts?.["agent:validate-workflow"], "package.json must include agent:validate-workflow.");
 }
 
+if (exists(".github/workflows/ci.yml")) {
+  const ci = read(".github/workflows/ci.yml");
+  assert(/npm run agent:validate-workflow/.test(ci), "CI must run npm run agent:validate-workflow.");
+}
+
 for (const file of [".github/ISSUE_TEMPLATE/feature_task.yml", ".github/ISSUE_TEMPLATE/bug.yml"]) {
   if (!exists(file)) continue;
   const source = read(file);
