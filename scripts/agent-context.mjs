@@ -77,8 +77,15 @@ function isMatch(haystack, pattern) {
   return pattern.test(haystack);
 }
 
+function taskHaystack(issue) {
+  const body = String(issue?.body ?? "")
+    .replace(/## Sensitive data warning[\s\S]*$/i, "")
+    .replace(/## Expected verification[\s\S]*?(?=\n## |$)/i, "");
+  return `${issue?.title ?? ""}\n${body}\n${labelNames(issue)}`.toLowerCase();
+}
+
 function buildDocList(issue) {
-  const haystack = `${issue?.title ?? ""}\n${issue?.body ?? ""}\n${labelNames(issue)}`.toLowerCase();
+  const haystack = taskHaystack(issue);
   const docs = new Set([
     "AGENTS.md",
     "Docs/LOCAL_DEV.md",
@@ -106,7 +113,7 @@ function buildDocList(issue) {
 
 function buildVerification(issue) {
   const issueArg = issue?.number ? ` -- --issue ${issue.number}` : "";
-  const haystack = `${issue?.title ?? ""}\n${issue?.body ?? ""}\n${labelNames(issue)}`.toLowerCase();
+  const haystack = taskHaystack(issue);
   const commands = [
     "npm ci",
     `npm run agent:preflight${issueArg}`,
