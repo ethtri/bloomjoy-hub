@@ -74,7 +74,9 @@ body:
       description: Include build, tests, lint, smoke checks, browser checks, or script checks expected for this work.
       placeholder: |
         - npm ci
-        - npm run agent:preflight
+        - npm run agent:context -- --issue <number>
+        - npm run agent:preflight -- --issue <number>
+        - npm run agent:validate-workflow when workflow/templates/config/skills changed
         - npm run build
         - npm test --if-present
         - npm run lint --if-present

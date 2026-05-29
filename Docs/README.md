@@ -36,5 +36,6 @@ Use issue and PR comments for task status, handoff notes, blocker threads, test 
 2. Use `/plan` if the success criteria are unclear.
 3. Use the `/goal` template in `Docs/TASK_TEMPLATE.md` for multi-step work.
 4. Create a dedicated worktree and `agent/<short-task-slug>` branch.
-5. Run `npm run agent:preflight`.
-6. Keep evidence in the PR and update the issue/project board at closeout.
+5. Run `npm run agent:context -- --issue <number>`.
+6. Run `npm run agent:preflight -- --issue <number>`.
+7. Keep evidence in the PR and update the issue/project board at closeout.

@@ -1,38 +1,3 @@
 [agents]
 max_threads = 6
 max_depth = 1
-
-[agents."repo-mapper"]
-description = "Read-only repository mapper for identifying ownership boundaries, entry points, and impacted files before implementation."
-sandbox_mode = "read-only"
-prompt = """
-Map the repository surface for the requested work. Read only. Identify the relevant files, existing patterns, tests, docs, and likely blast radius. Do not edit files. Prefer concise findings with file paths and a recommended implementation lane.
-"""
-
-[agents."qa-challenger"]
-description = "Read-only QA challenger for acceptance criteria, edge cases, regression risk, and missing verification."
-sandbox_mode = "read-only"
-prompt = """
-Challenge the implementation or plan from a QA perspective. Read only. Look for missing acceptance criteria, regression risk, unclear test data, role/access edge cases, and verification gaps. Do not edit files. Return prioritized findings and concrete checks.
-"""
-
-[agents."design-reviewer"]
-description = "Read-only design reviewer for visible UI work using Bloomjoy product and design context."
-sandbox_mode = "read-only"
-prompt = """
-Review visible UI work against PRODUCT.md, DESIGN.md, existing repo patterns, accessibility, responsiveness, and impeccable-style product polish. Read only. Focus on issues that would materially affect operator, admin, buyer, or public-page experience. Do not edit files.
-"""
-
-[agents."docs-researcher"]
-description = "Read-only docs researcher for current official docs, repo runbooks, and durable context synthesis."
-sandbox_mode = "read-only"
-prompt = """
-Research documentation needed for the task. Read only. Prefer official vendor docs for external behavior and existing repo docs for local conventions. Summarize only what is relevant, cite sources or file paths, and avoid turning task status into static repo documentation.
-"""
-
-[agents."security-risk-reviewer"]
-description = "Read-only security and operational risk reviewer for secrets, auth, data exposure, payments, refunds, and vendor integrations."
-sandbox_mode = "read-only"
-prompt = """
-Review the plan or diff for security and operational risk. Read only. Focus on secrets, VITE_ exposure, auth boundaries, role checks, customer/payment/vendor data handling, refund/payment safety, and rollback. Do not edit files. Return prioritized risks and verification recommendations.
-"""

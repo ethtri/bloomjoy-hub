@@ -21,6 +21,10 @@ Worktree and branch:
 - Worktree: C:\Repos\wt-<short-task-slug>
 - Branch: agent/<short-task-slug>
 
+Kickoff:
+- npm run agent:context -- --issue ___
+- npm run agent:preflight -- --issue ___
+
 Constraints:
 - Use GitHub issue/project state as the active source of truth.
 - Do not edit C:\Repos\Bloomjoy_hub directly.
@@ -36,7 +40,8 @@ Context to read:
 
 Verification:
 - npm ci
-- npm run agent:preflight
+- npm run agent:preflight -- --issue ___
+- npm run agent:validate-workflow when agent workflow docs/templates/config/scripts/skills changed
 - npm run build
 - npm test --if-present
 - npm run lint --if-present
@@ -61,5 +66,5 @@ Board closeout:
 ## Quick Local Prompt
 
 ```text
-Start from issue #___ and the Bloomjoy Project board item. Create or use worktree C:\Repos\wt-<short-task-slug> on branch agent/<short-task-slug>. Run npm run agent:preflight, implement only the accepted scope, run verification, open a PR into main, and update the issue/project board with closeout evidence.
+Start from issue #___ and the Bloomjoy Project board item. Create or use worktree C:\Repos\wt-<short-task-slug> on branch agent/<short-task-slug>. Run npm run agent:context -- --issue ___ and npm run agent:preflight -- --issue ___. Implement only the accepted scope, run verification, open a PR into main, and update the issue/project board with closeout evidence.
 ```

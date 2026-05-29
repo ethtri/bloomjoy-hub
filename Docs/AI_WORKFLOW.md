@@ -5,6 +5,7 @@ This repo is operated primarily through AI coding agents. The owner is not expec
 ## Operating model
 - Keep PRs small, scoped, and reversible.
 - Start meaningful work from a GitHub issue and Bloomjoy Project board item.
+- Use `npm run agent:context -- --issue <number>` to gather compact issue, board, PR, docs, and verification context.
 - Convert vague ideas, parked work, or exploratory branches into issues instead of leaving long-lived draft PRs.
 - Use the GitHub issue and PR templates as the source of truth for active scope, risk, verification, UAT steps, screenshots, rollback, and closeout evidence.
 - Ask the owner only for product judgment, external-account actions, final high-risk UAT, or ambiguous go/no-go decisions.
@@ -19,6 +20,7 @@ This repo is operated primarily through AI coding agents. The owner is not expec
 - Classify every PR as low, medium, or high risk.
 - Apply useful labels such as `docs-only`, `ui-change`, `risky-db-change`, `risky-auth-payment`, `ready-for-uat`, `uat-required`, `ai-reviewed`, `needs-owner-decision`, `blocked-external`, `parked`, or `superseded`.
 - Run the repo verification expected by the PR template and report exact results.
+- Run `npm run agent:validate-workflow` when changing workflow docs, GitHub templates, Codex config, repo skills, or agent scripts.
 - For UI changes, provide preview/localhost links and desktop/mobile screenshots.
 - For UX-sensitive visible UI changes, use `PRODUCT.md`, `DESIGN.md`, and `impeccable` guidance for shape, audit, or polish.
 - For user-facing changes, provide exact UAT steps and expected results.

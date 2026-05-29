@@ -5,6 +5,7 @@ Repeatable PM/PO orchestration for Bloomjoy Hub agent sprints.
 ## 1. Sprint Intake
 - Start from GitHub Issues labeled `P0`-`P3` and the project board: https://github.com/users/ethtri/projects/2.
 - Read the issue body, issue comments, linked PRs, and project-board state before planning.
+- Run `npm run agent:context -- --issue <number>` to generate compact kickoff context and a verification profile.
 - Read durable docs only as needed: `Docs/DECISIONS.md`, `Docs/LOCAL_DEV.md`, `Docs/QA_SMOKE_TEST_CHECKLIST.md`, `Docs/ARCHITECTURE.md`, and `PRODUCT.md`/`DESIGN.md` for visible UI.
 - Use `Docs/CURRENT_STATUS.md` only as a compact launch snapshot and `Docs/BACKLOG.md` only as a historical pointer.
 - If docs conflict on active work state, GitHub wins. If docs conflict on durable product/platform decisions, `Docs/DECISIONS.md` wins.
@@ -16,7 +17,7 @@ Repeatable PM/PO orchestration for Bloomjoy Hub agent sprints.
 - Use one worktree per lane: `C:\Repos\wt-<short-task-slug>`.
 - Use one branch per lane: `agent/<short-task-slug>`.
 - Create worktrees from current `origin/main` unless the lane explicitly depends on another PR branch.
-- Before edits, run the preflight in `Docs/LOCAL_DEV.md`: confirm worktree path, confirm `agent/` branch, `git fetch origin`, `npm run agent:preflight`, and review `git status -sb`.
+- Before edits, run the preflight in `Docs/LOCAL_DEV.md`: confirm worktree path, confirm `agent/` branch, `git fetch origin`, `npm run agent:context -- --issue <number>`, `npm run agent:preflight -- --issue <number>`, and review `git status -sb`.
 - Do not switch branches inside another agent's worktree. Do not touch implementation PR worktrees unless explicitly assigned.
 
 ## 3. Lane Patterns
@@ -53,7 +54,7 @@ Every repo change gets a PR into `main`, usually draft until verification is com
 PR body must include:
 - Summary: 1-3 bullets.
 - Files changed: high-level paths and purpose.
-- Verification commands and exact results: `npm ci`, `npm run agent:preflight`, `npm run build`, `npm test --if-present`, `npm run lint --if-present`, and `git diff --check`; include route-specific checks when relevant.
+- Verification commands and exact results: `npm ci`, `npm run agent:preflight -- --issue <number>`, `npm run build`, `npm test --if-present`, `npm run lint --if-present`, and `git diff --check`; include `npm run agent:validate-workflow` for workflow/template/config/skill changes and route-specific checks when relevant.
 - How to test: localhost steps, key URLs, and any non-secret test credentials or persona notes.
 - Risk/overlap notes: open PRs, shared files, blockers, rollback if high risk.
 - UI/design evidence for visible UI changes.

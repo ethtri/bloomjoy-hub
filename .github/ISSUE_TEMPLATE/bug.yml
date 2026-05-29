@@ -75,7 +75,9 @@ body:
       description: What checks should prove the bug is fixed?
       placeholder: |
         - npm ci
-        - npm run agent:preflight
+        - npm run agent:context -- --issue <number>
+        - npm run agent:preflight -- --issue <number>
+        - npm run agent:validate-workflow when workflow/templates/config/skills changed
         - npm run build
         - npm test --if-present
         - npm run lint --if-present

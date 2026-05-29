@@ -10,6 +10,7 @@
 ## Verification
 - [ ] `npm ci` -
 - [ ] `npm run agent:preflight` -
+- [ ] `npm run agent:validate-workflow` if workflow/templates/config/skills changed -
 - [ ] `npm run build` -
 - [ ] `npm test --if-present` -
 - [ ] `npm run lint --if-present` -

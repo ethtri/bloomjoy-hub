@@ -25,6 +25,8 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Work only in a dedicated worktree such as `C:\Repos\wt-<short-task-slug>`.
 - Use branch names in the form `agent/<short-task-slug>`.
 - Run `npm run agent:preflight` before edits and again before PR closeout.
+- Run `npm run agent:context -- --issue <number>` at kickoff when an issue number is available.
+- Run `npm run agent:validate-workflow` when changing agent docs, templates, Codex config, skills, or workflow scripts.
 - Keep PRs small and focused: one feature, fix, workflow upgrade, or vertical slice per PR.
 - Keep changes minimal and reversible.
 - Update issue comments and PR comments with status, blockers, verification, and closeout evidence.
@@ -54,7 +56,9 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 
 ## Subagents, Plugins, and Skills
 
-- `.codex/config.toml` defines conservative project subagent limits and read-only helper agents.
+- `.codex/config.toml` defines conservative project subagent limits.
+- `.codex/agents/*.toml` defines read-only helper agents for repo mapping, QA challenge, design review, docs research, and security/risk review.
+- `.agents/skills/bloomjoy-agent-workflow/SKILL.md` holds the repo-local workflow skill so detailed workflow guidance loads only when relevant.
 - Use subagents only when they reduce real risk or parallelize meaningful lanes: repo mapping, QA challenge, design review, docs research, or security/risk review.
 - Keep small single-lane fixes local to the primary agent to reduce overhead and context confusion.
 - Subagents are advisory. The primary agent remains responsible for final code, verification, and PR quality.
