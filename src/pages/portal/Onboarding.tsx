@@ -4,7 +4,7 @@ import { Check, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { trackEvent } from '@/lib/analytics';
 import {
   OnboardingStepWithState,

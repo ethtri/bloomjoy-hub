@@ -4,7 +4,7 @@ import { Loader2, LockKeyhole } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { toast } from 'sonner';
 

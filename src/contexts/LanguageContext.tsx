@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import {
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
