@@ -45,6 +45,7 @@ const requiredFiles = [
   ".github/ISSUE_TEMPLATE/bug.yml",
   "scripts/agent-preflight.mjs",
   "scripts/agent-context.mjs",
+  "scripts/agent-github-hygiene.mjs",
   "scripts/agent-merge-gate.mjs",
   "scripts/validate-agent-workflow.mjs",
 ];
@@ -92,6 +93,7 @@ if (exists("package.json")) {
   const pkg = JSON.parse(read("package.json"));
   assert(pkg.scripts?.["agent:preflight"], "package.json must include agent:preflight.");
   assert(pkg.scripts?.["agent:context"], "package.json must include agent:context.");
+  assert(pkg.scripts?.["agent:github-hygiene"], "package.json must include agent:github-hygiene.");
   assert(pkg.scripts?.["agent:merge-gate"], "package.json must include agent:merge-gate.");
   assert(pkg.scripts?.["agent:validate-workflow"], "package.json must include agent:validate-workflow.");
 }
@@ -115,6 +117,19 @@ if (exists(".github/PULL_REQUEST_TEMPLATE.md")) {
   const prTemplate = read(".github/PULL_REQUEST_TEMPLATE.md");
   assert(/Merge Autonomy/.test(prTemplate), "PR template must include Merge Autonomy.");
   assert(/agent:merge-gate/.test(prTemplate), "PR template must mention npm run agent:merge-gate.");
+}
+
+const hygieneDocs = [
+  "AGENTS.md",
+  "Docs/LOCAL_DEV.md",
+  "Docs/AI_WORKFLOW.md",
+  ".agents/skills/bloomjoy-agent-workflow/SKILL.md",
+];
+
+for (const file of hygieneDocs) {
+  if (!exists(file)) continue;
+  const source = read(file);
+  assert(/agent:github-hygiene/.test(source), `${file} must mention npm run agent:github-hygiene.`);
 }
 
 const workflowDocs = [

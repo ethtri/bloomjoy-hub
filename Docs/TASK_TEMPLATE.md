@@ -63,6 +63,7 @@ PR requirements:
 Board closeout:
 - Move/update the project-board item
 - Add closeout evidence to the issue or PR
+- Run `npm run agent:github-hygiene` when the task is board, stale PR, or issue hygiene work
 - Note remaining follow-ups as GitHub issues, not static backlog entries
 ```
 

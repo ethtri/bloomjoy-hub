@@ -26,6 +26,7 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Use branch names in the form `agent/<short-task-slug>`.
 - Run `npm run agent:preflight` before edits and again before PR closeout.
 - Run `npm run agent:context -- --issue <number>` at kickoff when an issue number is available.
+- Run `npm run agent:github-hygiene` for weekly or as-requested issue board hygiene sweeps.
 - Run `npm run agent:merge-gate -- --pr <number>` before agent-merging a PR.
 - Run `npm run agent:validate-workflow` when changing agent docs, templates, Codex config, skills, or workflow scripts.
 - Keep PRs small and focused: one feature, fix, workflow upgrade, or vertical slice per PR.
