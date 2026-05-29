@@ -291,26 +291,30 @@ Privacy guardrails:
 
 
 ## Agent best practices (plain language)
+- Start from a GitHub issue and Bloomjoy Project board item. Those are the source of truth for active status, priority, blockers, and acceptance.
+- Use `/goal` for multi-step, multi-PR, high-risk, or ambiguous work. Use `/plan` first if acceptance is unclear.
 - Each agent uses its own worktree and its own `.env` file.
 - Do not copy another person's `.env`; create your own from `.env.example`.
-- Never commit or paste secret keys in PRs, issues, or chat.
+- Never commit or paste secret keys, raw customer data, payment IDs, vendor exports, or free-text complaint content in PRs, issues, docs, or chat.
 - Keep PRs small and focused; one change set per PR.
 - Enable repo git hooks once per clone: `git config core.hooksPath .githooks`
 - Fetch before checking recent merges or status: `git fetch origin`
 - Write notes and docs so non-technical readers can follow.
+- Keep task chronology in issue/PR comments. Keep repo docs durable and compact.
 - Avoid editing the main repo folder directly; work inside your worktree.
 
 
 
 ## Preflight check (1 minute)
-1) Confirm you are in a worktree folder like `C:\Repos\wt-<task>`
-2) Confirm your branch starts with `agent/`
-3) Run `git fetch origin` to update your view of recent merges
-4) Run `git status -sb` and make sure it looks clean
-5) Run `npm run auth:preflight` when working on auth/OAuth launch tasks
-6) Run `npm run commerce:preflight` when working on Stripe/order/notification changes
-7) Run `npm run db:validate-migrations` when working on Supabase migrations
-8) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree
+1) Confirm you are in a worktree folder like `C:\Repos\wt-<task>`.
+2) Confirm your branch starts with `agent/`.
+3) Run `git fetch origin` to update your view of recent merges.
+4) Run `npm run agent:preflight`.
+5) Run `git status -sb` and make sure the output is reviewable.
+6) Run `npm run auth:preflight` when working on auth/OAuth launch tasks.
+7) Run `npm run commerce:preflight` when working on Stripe/order/notification changes.
+8) Run `npm run db:validate-migrations` when working on Supabase migrations.
+9) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree.
 
 ## Post-merge hygiene (2 minutes)
 Use this after a PR is merged or intentionally closed. Do not remove a worktree that still has uncommitted work.
@@ -333,9 +337,10 @@ Use this after a PR is merged or intentionally closed. Do not remove a worktree 
 
 ## Priority workflow (P0-P3)
 - Source of truth: GitHub Issues labeled `P0`, `P1`, `P2`, `P3`.
-- Use a GitHub Project board for "Backlog -> Ready -> In Progress -> Review -> Done".
+- Use the Bloomjoy Project board for status, sequencing, blockers, and closeout evidence.
   Board: https://github.com/users/ethtri/projects/2
-- Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot.
+- Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot and `Docs/BACKLOG.md` is only a historical pointer.
+- Capture task status, handoffs, and test evidence in issue/PR comments instead of static markdown.
 - If you keep personal notes, store them locally and do not commit them.
 
 

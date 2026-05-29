@@ -1,103 +1,100 @@
-# AGENTS — Bloomjoy Sweets Website (Vibe Coding Guardrails)
+# AGENTS - Bloomjoy Hub Agent Guardrails
 
-## Scope and precedence (keep context small)
-Prefer docs in this order (highest wins):
-1. `Docs/CURRENT_STATUS.md`
-2. `Docs/POC_NOTES.md`
-3. `Docs/MVP_SCOPE.md`
-4. `Docs/DECISIONS.md`
-5. `Docs/BACKLOG.md`
-6. `Docs/QA_SMOKE_TEST_CHECKLIST.md`
-7. `Docs/LOCAL_DEV.md`
-8. `Docs/ARCHITECTURE.md`
+## Source of Truth and Precedence
 
-Notes:
-- Canonical docs folder is `Docs/` (case-sensitive on some systems).
-- If docs disagree, `Docs/DECISIONS.md` wins.
-- This file is guardrails only; use the relevant doc for details.
+Use the smallest context that can safely answer the task.
 
-## Starting point (important)
-- This project started as a **Loveable-generated POC** (Vite + React + TypeScript + Tailwind + shadcn/ui).
-- Prefer **incremental improvements** over rewrites.
-- If you believe a rewrite is necessary, propose it in a plan and record the decision in `Docs/DECISIONS.md` before doing it.
+1. GitHub Issues and the Bloomjoy Project board are authoritative for active work: priority, status, blockers, acceptance criteria, and closeout evidence.
+2. `Docs/DECISIONS.md` is authoritative for durable product, platform, and architectural decisions.
+3. Durable runbooks and setup docs: `Docs/LOCAL_DEV.md`, `Docs/PRODUCTION_RUNBOOK.md`, `Docs/QA_SMOKE_TEST_CHECKLIST.md`, and `Docs/ARCHITECTURE.md`.
+4. Durable product/design context: `PRODUCT.md`, `DESIGN.md`, `Docs/MVP_SCOPE.md`, and `Docs/POC_NOTES.md`.
+5. Snapshot/history docs: `Docs/CURRENT_STATUS.md` and `Docs/BACKLOG.md`.
+
+If docs and the GitHub board disagree on active task state, the board wins. If durable docs disagree on product or platform decisions, `Docs/DECISIONS.md` wins.
+
+## Starting Point
+
+- This project started as a Loveable-generated POC using Vite, React, TypeScript, Tailwind, and shadcn/ui.
+- Prefer incremental, reviewable improvements over rewrites.
+- If a rewrite or new platform is necessary, propose it in the issue/plan and record the decision in `Docs/DECISIONS.md` before implementation.
 
 ## Do
-- Focus on P0 items first.
-- Prefer small, reviewable PRs (one feature or one slice per PR).
+
+- Start active work from a GitHub issue and the project-board state, not from static markdown backlog files.
+- Use `/goal` for multi-step, multi-PR, high-risk, or ambiguous work. Use `/plan` first when acceptance criteria are still fuzzy.
+- Work only in a dedicated worktree such as `C:\Repos\wt-<short-task-slug>`.
+- Use branch names in the form `agent/<short-task-slug>`.
+- Run `npm run agent:preflight` before edits and again before PR closeout.
+- Keep PRs small and focused: one feature, fix, workflow upgrade, or vertical slice per PR.
 - Keep changes minimal and reversible.
-- Update `Docs/CURRENT_STATUS.md` when you complete a P0 item (and when you discover new blockers).
-- Add/adjust smoke tests in `Docs/QA_SMOKE_TEST_CHECKLIST.md` when a new user-facing flow is added.
+- Update issue comments and PR comments with status, blockers, verification, and closeout evidence.
+- Update `Docs/CURRENT_STATUS.md` only for compact launch/current-blocker snapshots, not as a running task log.
+- Update `Docs/QA_SMOKE_TEST_CHECKLIST.md` when a user-facing flow adds or changes reusable smoke coverage.
 - Use environment variables for all secrets. Never commit secrets.
-- If this touches the same files as another open PR, say so.
+- If another open PR touches the same files or shared foundations, call out the overlap in the PR.
 
 ## Do Not
-- Do not do large refactors “for cleanliness” unless explicitly requested.
-- Do not reformat or rewrite docs unless asked.
-- Do not reference or copy from bloomjoysweets.com unless explicitly asked (the business model changed).
-- Do not introduce a new platform (CMS, headless commerce, etc.) without a decision entry in `Docs/DECISIONS.md`.
-- Never put secret keys into client-exposed Vite env vars (anything starting with `VITE_` is exposed to the browser).
 
-## Definition of Done (task)
+- Do not edit `C:\Repos\Bloomjoy_hub` directly.
+- Do not use `Docs/BACKLOG.md` or long status docs as the active backlog.
+- Do not do large refactors for cleanliness unless explicitly requested.
+- Do not reformat or rewrite docs unless the issue asks for it.
+- Do not reference or copy from bloomjoysweets.com unless explicitly asked; the business model changed.
+- Do not introduce a new platform such as a CMS or headless commerce system without a decision entry in `Docs/DECISIONS.md`.
+- Never put secret keys into client-exposed Vite env vars. Anything starting with `VITE_` is exposed to the browser.
+
+## Frontend and Design Workflow
+
+- For net-new app/site/tool work, redesigns, production UI surfaces, or visually important pages, use `build-web-apps:frontend-app-builder`.
+- For visible UI work, also use `impeccable` to shape, audit, or polish the experience when the change is UX-sensitive or design quality matters.
+- Use `PRODUCT.md` and `DESIGN.md` as the default `impeccable` context.
+- Default register is `product` for operator, admin, portal, reporting, refunds, and internal tools. Public marketing pages may override to a warmer brand register.
+- Prefer existing repo patterns, Tailwind tokens, shadcn/ui components, Radix primitives, and lucide icons.
+- Verify rendered UI in a browser for visible changes. Responsive and accessibility regressions count as incomplete work.
+
+## Subagents, Plugins, and Skills
+
+- `.codex/config.toml` defines conservative project subagent limits and read-only helper agents.
+- Use subagents only when they reduce real risk or parallelize meaningful lanes: repo mapping, QA challenge, design review, docs research, or security/risk review.
+- Keep small single-lane fixes local to the primary agent to reduce overhead and context confusion.
+- Subagents are advisory. The primary agent remains responsible for final code, verification, and PR quality.
+- Prefer repo skills and plugin guidance when the task clearly matches them.
+
+## Definition of Done
+
 A task is done when:
-1) code change is complete,
-2) verification run is complete,
-3) PR is opened,
-4) PR contains a “How to test” section (localhost steps + key URLs)
 
-## Version control protocol (must follow)
+1. Code, docs, or config changes are complete.
+2. Verification has been run and results are recorded.
+3. A PR is opened into `main`.
+4. The PR includes linked issue, summary, high-level files changed, verification results, risk/overlap, and localhost "How to test" steps.
+5. The GitHub issue/project-board state is updated or the PR explains what remains.
+
+## Version Control Protocol
 
 ### Never
+
 - Never commit or push directly to `main`.
+- Never run two agents in the same worktree.
 
-### Unified workflow (all agents)
+### Unified Workflow
+
 - Always create a new branch for the task.
-- Branch naming: `agent/<short-task-slug>`.
-- Open a PR into `main` for every change, even for local work.
-- Run verification on the PR branch; local testing happens by checking out that branch.
-
-### PR requirements (always)
-PR description includes:
-- Summary (1–3 bullets)
-- Files changed (high level)
-- Verification commands + results:
-  - `npm ci`
-  - `npm run build`
-  - `npm test --if-present`
-  - `npm run lint --if-present`
-- How to test (localhost steps + key URLs + test credentials if using a dev email flow)
-
-### Multi-agent branch safety
+- Always open a PR into `main`, even for local workflow or docs changes.
+- Run verification on the PR branch.
 - If another PR that touches shared foundations merges, update your branch from `main` before final verification.
 - Re-run verification after syncing.
-- Call out conflicts or risky overlaps in the PR description or status update.
 
-### Multi-agent worktree safety (recommended)
-- Each agent must work in its own Git worktree directory (not the same repo folder).
-- One worktree = one checked-out branch. Do not run two agents in the same worktree.
-- Worktree naming convention:
-  - Directory: `../wt-<short-task-slug>`
-  - Branch: `agent/<short-task-slug>`
-- If you must run without worktrees, run only one agent at a time to avoid branch switching.
+### Worktree Safety
 
-### Sub-agents, plugins, and skills
-- Default to one agent for small or single-surface work. Use sub-agents only when the user asks for parallel agents or explicitly approves it in the plan.
-- Good sub-agent fits: read-only codebase exploration, PR review lanes, test/log triage, or independent implementation slices with clearly disjoint files.
-- Avoid sub-agents for tiny edits, urgent single-path fixes, shared-doc edits, secrets work, or flows that need one dev server/auth session.
-- For write-heavy sub-agent work, assign separate file ownership and separate worktrees/branches; the parent agent owns integration, conflict checks, final verification, and the PR.
-- Use a plugin when Codex needs an external tool or source of truth; use a skill when Codex needs to follow a repeatable process or specialized workflow.
-- Helpful repo plugins/skills: GitHub for issues/PRs/CI, Browser Use or Vercel browser verification for localhost UI checks, Build Web Apps/shadcn/React skills for UI work, Supabase Postgres guidance for migrations/RLS/reporting SQL, Stripe guidance for checkout/billing/webhooks, and Vercel guidance for redirects/domains/deploy config.
-- Use Gmail, Google Drive, or Sheets only when the task explicitly depends on connected business source material. Never move secrets or private operational data into repo files.
+- Worktree directory: `..\wt-<short-task-slug>`.
+- Branch: `agent/<short-task-slug>`.
+- One worktree equals one checked-out branch.
+- If you must run without worktrees, run only one agent at a time.
 
-### Issue hygiene
-- When you find a meaningful bug, blocker, gap, risk, or follow-up opportunity that is not fixed in the current PR, create or update a GitHub Issue.
-- Search open issues first and update the existing issue when possible instead of duplicating it.
-- Label tracked issues with `P0`, `P1`, `P2`, or `P3`, and add them to the Bloomjoy Hub Priorities Project board.
-- Do not create issues for tiny notes that are fully resolved in the current PR.
-- Mention new or updated issues in the PR description or final status update.
+## Operational Safeguards
 
-## Operational safeguards (must follow)
-- Work only in a worktree (never edit `C:\Repos\Bloomjoy_hub` directly).
 - Run the preflight check in `Docs/LOCAL_DEV.md` before making edits.
-- After a PR is merged or intentionally closed, follow the post-merge hygiene checklist in `Docs/LOCAL_DEV.md` before deleting worktrees or local branches.
-- Track priorities in GitHub Issues labeled `P0`-`P3` and use the Project board.
-- Keep personal notes local; do not commit them.
+- Track priorities in GitHub Issues labeled `P0` through `P3` and use the Bloomjoy Project board.
+- Keep personal notes local. Do not commit them.
+- Keep repo docs durable and compact; use issue and PR comments for task-level chronology.
