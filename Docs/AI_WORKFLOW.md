@@ -42,6 +42,7 @@ Before any agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>
 
 ## Weekly hygiene
 Agents should periodically:
+- run `npm run agent:github-hygiene` and use the report as the starting point;
 - list stale PRs and recommend close, merge, park, or rebuild;
 - close/supersede stale PRs after owner approval when needed;
 - prune branches and worktrees only after confirming no uncommitted work remains;

@@ -293,6 +293,7 @@ Privacy guardrails:
 ## Agent best practices (plain language)
 - Start from a GitHub issue and Bloomjoy Project board item. Those are the source of truth for active status, priority, blockers, and acceptance.
 - Generate compact kickoff context with `npm run agent:context -- --issue <number>`.
+- Run `npm run agent:github-hygiene` for weekly or as-requested GitHub issue/board hygiene reports.
 - Use `/goal` for multi-step, multi-PR, high-risk, or ambiguous work. Use `/plan` first if acceptance is unclear.
 - Each agent uses its own worktree and its own `.env` file.
 - Do not copy another person's `.env`; create your own from `.env.example`.
@@ -353,6 +354,7 @@ Use this after a PR is merged or intentionally closed. Do not remove a worktree 
 - Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot and `Docs/BACKLOG.md` is only a historical pointer.
 - Capture task status, handoffs, and test evidence in issue/PR comments instead of static markdown.
 - Use `npm run agent:context -- --issue <number>` to summarize issue, project, linked PR, docs, and verification context before asking agents to implement.
+- Use `npm run agent:github-hygiene` to surface missing board items, stale active work, stale P0/P1 status comments, red-lane PRs, and open PRs needing cleanup.
 - If you keep personal notes, store them locally and do not commit them.
 
 

@@ -38,6 +38,7 @@ description: Use for Bloomjoy Hub GitHub issue or PR work, agent workflow upgrad
 ## Verification and Closeout
 
 - Use the verification profile from `npm run agent:context -- --issue <number>`.
+- For board hygiene, run `npm run agent:github-hygiene` and summarize the report in the issue or PR comment.
 - For workflow/template changes, also run `npm run agent:validate-workflow`.
 - Every repo change gets a PR into `main` with linked issue, summary, files changed, verification results, risk/overlap, and how-to-test steps.
 - Before an agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>` and record the result in the PR.

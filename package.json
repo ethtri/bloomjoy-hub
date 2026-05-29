@@ -13,6 +13,7 @@
     "auth:preflight": "node scripts/auth-preflight.mjs",
     "agent:preflight": "node scripts/agent-preflight.mjs",
     "agent:context": "node scripts/agent-context.mjs",
+    "agent:github-hygiene": "node scripts/agent-github-hygiene.mjs",
     "agent:merge-gate": "node scripts/agent-merge-gate.mjs",
     "agent:validate-workflow": "node scripts/validate-agent-workflow.mjs",
     "auth:validate-admin-boundaries": "node scripts/validate-admin-permission-boundaries.mjs",
