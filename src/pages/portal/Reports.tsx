@@ -58,7 +58,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import {
   emptyReportingAccessContext,

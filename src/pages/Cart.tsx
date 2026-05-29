@@ -13,7 +13,7 @@ import {
   getSugarPricePerKg,
   isSugarSku,
 } from '@/lib/sugar';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { toast } from 'sonner';
 
 export default function CartPage() {

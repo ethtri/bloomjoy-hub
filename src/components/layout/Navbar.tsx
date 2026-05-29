@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Menu, X, ShoppingCart, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/lib/cart';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import { cn } from '@/lib/utils';
 import logo from '@/assets/logo.png';

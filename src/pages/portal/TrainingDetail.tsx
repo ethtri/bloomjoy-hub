@@ -25,7 +25,7 @@ import {
   useTrainingLibrary,
   useTrainingProgress,
 } from '@/lib/trainingRepository';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import type { TrainingExperienceItem, TrainingResource } from '@/lib/trainingTypes';
 import { toast } from 'sonner';
 

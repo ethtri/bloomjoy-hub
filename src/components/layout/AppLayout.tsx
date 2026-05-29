@@ -40,7 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import type { TranslationKey } from '@/lib/i18n';

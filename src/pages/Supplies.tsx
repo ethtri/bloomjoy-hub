@@ -10,7 +10,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import sugarProduct from '@/assets/real/sugar-product.jpg';
 import sticksProduct from '@/assets/real/sticks-product.jpg';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { trackEvent } from '@/lib/analytics';
 import { useCart } from '@/lib/cart';
 import {
