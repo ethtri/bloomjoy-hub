@@ -1,0 +1,94 @@
+name: Bug
+description: Reproducible defect, regression, or operational issue
+title: "P?: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        GitHub Issues and the Bloomjoy Project board are the source of truth for active work. Apply the matching P0-P3 label after creating the issue and add the issue to the Bloomjoy Project board.
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include route, role, data setup, and exact actions.
+      placeholder: |
+        1. TBD
+        2. TBD
+        3. TBD
+    validations:
+      required: true
+  - type: input
+    id: affected_surface
+    attributes:
+      label: Affected surface
+      placeholder: "Public quote form, operator portal, admin refunds, reporting export..."
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority label to apply
+      options:
+        - P0
+        - P1
+        - P2
+        - P3
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk level
+      options:
+        - Low
+        - Medium
+        - High
+        - Launch critical
+    validations:
+      required: true
+  - type: checkboxes
+    id: sensitive_data
+    attributes:
+      label: Sensitive data warning
+      options:
+        - label: This issue does not include secrets, raw customer data, payment IDs, vendor exports, or free-text complaint content.
+          required: true
+  - type: textarea
+    id: expected_verification
+    attributes:
+      label: Expected verification
+      description: What checks should prove the bug is fixed?
+      placeholder: |
+        - npm ci
+        - npm run agent:context -- --issue <number>
+        - npm run agent:preflight -- --issue <number>
+        - npm run agent:validate-workflow when workflow/templates/config/skills changed
+        - npm run build
+        - npm test --if-present
+        - npm run lint --if-present
+        - git diff --check
+        - Route-specific smoke test:
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and references
+      description: Link logs, screenshots, related issues, PRs, docs, or decisions. Redact sensitive data.
+    validations:
+      required: false
