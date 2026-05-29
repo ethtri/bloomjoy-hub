@@ -40,4 +40,6 @@ description: Use for Bloomjoy Hub GitHub issue or PR work, agent workflow upgrad
 - Use the verification profile from `npm run agent:context -- --issue <number>`.
 - For workflow/template changes, also run `npm run agent:validate-workflow`.
 - Every repo change gets a PR into `main` with linked issue, summary, files changed, verification results, risk/overlap, and how-to-test steps.
+- Before an agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>` and record the result in the PR.
+- Agents may merge Green and Yellow lane PRs after required evidence is complete. Red lane PRs require explicit owner direction.
 - Put task chronology and closeout evidence in the issue or PR, not static markdown docs.

@@ -45,6 +45,7 @@ const requiredFiles = [
   ".github/ISSUE_TEMPLATE/bug.yml",
   "scripts/agent-preflight.mjs",
   "scripts/agent-context.mjs",
+  "scripts/agent-merge-gate.mjs",
   "scripts/validate-agent-workflow.mjs",
 ];
 
@@ -91,6 +92,7 @@ if (exists("package.json")) {
   const pkg = JSON.parse(read("package.json"));
   assert(pkg.scripts?.["agent:preflight"], "package.json must include agent:preflight.");
   assert(pkg.scripts?.["agent:context"], "package.json must include agent:context.");
+  assert(pkg.scripts?.["agent:merge-gate"], "package.json must include agent:merge-gate.");
   assert(pkg.scripts?.["agent:validate-workflow"], "package.json must include agent:validate-workflow.");
 }
 
@@ -104,8 +106,15 @@ for (const file of [".github/ISSUE_TEMPLATE/feature_task.yml", ".github/ISSUE_TE
   const source = read(file);
   assert(/^name:/m.test(source), `${file} must define name.`);
   assert(/^body:/m.test(source), `${file} must define body.`);
+  assert(/Owner approval triggers/.test(source), `${file} must include owner approval triggers.`);
   assert(/Sensitive data warning/.test(source), `${file} must include sensitive data warning.`);
   assert(/Expected verification/.test(source), `${file} must include expected verification.`);
+}
+
+if (exists(".github/PULL_REQUEST_TEMPLATE.md")) {
+  const prTemplate = read(".github/PULL_REQUEST_TEMPLATE.md");
+  assert(/Merge Autonomy/.test(prTemplate), "PR template must include Merge Autonomy.");
+  assert(/agent:merge-gate/.test(prTemplate), "PR template must mention npm run agent:merge-gate.");
 }
 
 const workflowDocs = [

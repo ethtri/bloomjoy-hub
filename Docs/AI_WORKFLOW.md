@@ -30,13 +30,15 @@ This repo is operated primarily through AI coding agents. The owner is not expec
 Use an independent AI reviewer or delegated subagent for high-risk review when the current agent environment allows it. If not available, perform a separate review pass and record what was checked.
 
 ## Owner involvement
-- Low risk: no owner involvement unless wording or product direction is unclear.
-- Medium risk: owner UAT is optional; agents still provide a preview checklist.
-- High risk: owner UAT or go/no-go confirmation is required before merge or production rollout.
+- Green lane: no owner involvement unless wording or product direction is unclear.
+- Yellow lane: owner UAT is optional; agents provide the extra preview, browser, overlap, or performance evidence that matches the change.
+- Red lane: owner UAT, explicit owner direction, or go/no-go confirmation is required before merge or production rollout.
 
 The owner should not need to inspect code diffs to make routine decisions. PRs should present enough evidence for a product-level go/no-go.
 
 See `Docs/UAT_PERSONA_PLAYBOOK.md` for the persona-based checklist agents should use before asking the owner for UAT.
+
+Before any agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>`. The gate blocks red-lane labels and unready PRs; it is evidence for merge readiness, not a replacement for required owner direction.
 
 ## Weekly hygiene
 Agents should periodically:

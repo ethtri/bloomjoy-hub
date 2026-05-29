@@ -62,6 +62,18 @@ body:
     validations:
       required: true
   - type: checkboxes
+    id: owner_approval_triggers
+    attributes:
+      label: Owner approval triggers
+      description: Apply matching labels after creating the issue. Any selected trigger makes the PR red lane until owner direction is recorded.
+      options:
+        - label: Needs owner decision (`needs-owner-decision`)
+        - label: Owner UAT or go/no-go required (`uat-required`)
+        - label: Blocked by external account, vendor, credentials, or owner-controlled setup (`blocked-external`)
+        - label: Touches database schema, migrations, RLS, or production data paths (`risky-db-change`)
+        - label: Touches auth, permissions, Stripe, payments, or server-side secrets (`risky-auth-payment`)
+        - label: None of the above
+  - type: checkboxes
     id: sensitive_data
     attributes:
       label: Sensitive data warning

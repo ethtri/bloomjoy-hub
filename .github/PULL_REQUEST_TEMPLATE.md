@@ -10,6 +10,7 @@
 ## Verification
 - [ ] `npm ci` -
 - [ ] `npm run agent:preflight` -
+- [ ] `npm run agent:merge-gate -- --pr <number>` before agent merge -
 - [ ] `npm run agent:validate-workflow` if workflow/templates/config/skills changed -
 - [ ] `npm run build` -
 - [ ] `npm test --if-present` -
@@ -25,6 +26,11 @@
 - Priority/risk:
 - Shared files or open PR overlap:
 - Rollback:
+
+## Merge Autonomy
+- Lane: Green / Yellow / Red
+- Owner approval: Not required / Required because ___
+- Gate evidence: checks green, issue linked, risk labels reviewed, merge gate result recorded
 
 ## UI / Design Evidence
 - Screenshots or browser notes:

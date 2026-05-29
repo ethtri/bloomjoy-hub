@@ -41,6 +41,7 @@ Context to read:
 Verification:
 - npm ci
 - npm run agent:preflight -- --issue ___
+- npm run agent:merge-gate -- --pr ___ before agent merge
 - npm run agent:validate-workflow when agent workflow docs/templates/config/scripts/skills changed
 - npm run build
 - npm test --if-present
@@ -55,6 +56,8 @@ PR requirements:
 - Include verification commands and results
 - Include localhost how-to-test steps
 - Call out risk, overlap, and rollback notes
+- Classify merge autonomy as Green, Yellow, or Red
+- Record owner approval status and merge-gate result before agent merge
 - Include UI/design evidence when applicable
 
 Board closeout:
