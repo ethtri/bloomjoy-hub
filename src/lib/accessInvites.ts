@@ -7,8 +7,11 @@ export {
   type AccessInvitePreflight,
 } from '@/lib/accessInviteLoginUrls';
 
-export type AccessInviteType = 'corporate_partner' | 'technician';
-export type AccessInviteSourceType = 'corporate_partner_membership' | 'technician_grant';
+export type AccessInviteType = 'corporate_partner' | 'technician' | 'machine_manager';
+export type AccessInviteSourceType =
+  | 'corporate_partner_membership'
+  | 'technician_grant'
+  | 'reporting_machine';
 
 export type AccessInviteDelivery = {
   id: string;

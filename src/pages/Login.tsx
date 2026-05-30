@@ -10,6 +10,7 @@ import {
   Loader2,
   Mail,
   Package,
+  Wrench,
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ import { toast } from 'sonner';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 type AuthMethod = 'password' | 'magic_link';
-type LoginInviteIntent = 'corporate_partner' | 'technician';
+type LoginInviteIntent = 'corporate_partner' | 'technician' | 'machine_manager';
 const GOOGLE_GSI_SCRIPT_ID = 'google-gsi-script';
 const GOOGLE_GSI_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
 
@@ -125,27 +126,38 @@ const safeDecode = (value?: string | null) => {
 const loginInviteEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const getLoginInviteIntent = (value: string | null): LoginInviteIntent | null => {
-  if (value === 'corporate_partner' || value === 'technician') {
+  if (value === 'corporate_partner' || value === 'technician' || value === 'machine_manager') {
     return value;
   }
 
   return null;
 };
 
-const getInviteIntentCopy = (intent: LoginInviteIntent) =>
-  intent === 'corporate_partner'
-    ? {
+const getInviteIntentCopy = (intent: LoginInviteIntent) => {
+  switch (intent) {
+    case 'corporate_partner':
+      return {
         title: 'Corporate Partner invite',
         description:
           'Create an account or sign in with this email to access partner reporting, training, support, and eligible machine reporting.',
         icon: BarChart3,
-      }
-    : {
+      };
+    case 'technician':
+      return {
         title: 'Technician invite',
         description:
           'Create an account or sign in with this email to access training and any assigned machine reporting.',
         icon: GraduationCap,
       };
+    case 'machine_manager':
+      return {
+        title: 'Machine Manager invite',
+        description:
+          'Create an account or sign in with this email so Bloomjoy can assign you to the right machine for refund review and follow-up.',
+        icon: Wrench,
+      };
+  }
+};
 
 const getSendLinkErrorMessage = (error: { status?: number; code?: string; message?: string }) => {
   if (error.status === 429 || error.code === 'over_email_send_rate_limit') {

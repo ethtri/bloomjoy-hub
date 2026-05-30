@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Send,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -44,6 +45,12 @@ import {
   type PartnershipSetupMachine,
   type ReportingMachineTaxRate,
 } from '@/lib/partnershipReporting';
+import {
+  fetchAccessInviteDeliveries,
+  sendAccessInvite,
+  validateAccessInvitePreflight,
+  type AccessInviteDelivery,
+} from '@/lib/accessInvites';
 import {
   fetchAdminAccountSummaries,
   type AdminAccountSummary,
@@ -218,6 +225,16 @@ const uniqueEmails = (values: string[]) =>
 
 const emailListsEqual = (left: string[], right: string[]) =>
   left.length === right.length && left.every((email, index) => email === right[index]);
+
+const formatMachineManagerInviteSummary = (delivery: AccessInviteDelivery | null | undefined) => {
+  if (!delivery) return 'No Machine Manager signup invite has been sent for this machine yet.';
+
+  const sentAt = formatDate(delivery.sentAt);
+
+  return delivery.deliveryStatus === 'sent'
+    ? `Last invite sent ${sentAt} to ${delivery.targetEmail}.`
+    : `Last invite failed ${sentAt}${delivery.errorMessage ? `: ${delivery.errorMessage}` : '.'}`;
+};
 
 const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
   ...emptySetup,
@@ -1231,6 +1248,7 @@ function MachineDialog({
   const [selectedMachineManagerEmails, setSelectedMachineManagerEmails] = useState<string[]>([]);
   const [managerSearch, setManagerSearch] = useState('');
   const [isAddingMachineManager, setIsAddingMachineManager] = useState(false);
+  const [isSendingMachineManagerInvite, setIsSendingMachineManagerInvite] = useState(false);
   const [isSavingMachineManagers, setIsSavingMachineManagers] = useState(false);
   const [machineManagerSaveState, setMachineManagerSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
   const [refundIntakeEnabled, setRefundIntakeEnabled] = useState(false);
@@ -1240,6 +1258,7 @@ function MachineDialog({
   const [isSavingRefundReadiness, setIsSavingRefundReadiness] = useState(false);
   const [refundReadinessSaveState, setRefundReadinessSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
   const loadedMachineManagerKeyRef = useRef('');
+  const queryClient = useQueryClient();
   const savedMachineManagerEmails = useMemo(
     () => uniqueEmails(refundManagerSetup?.managerEmails ?? []),
     [refundManagerSetup]
@@ -1274,6 +1293,20 @@ function MachineDialog({
   );
   const isSearchingMachineManagers = !isLocalDemoMode && isSearchingRemoteMachineManagers;
   const managerSearchError = isLocalDemoMode ? null : remoteManagerSearchError;
+  const {
+    data: machineManagerInviteDeliveries = [],
+    isFetching: isFetchingMachineManagerInviteDeliveries,
+  } = useQuery({
+    queryKey: ['access-invite-deliveries', 'machine_manager', form.machineId],
+    queryFn: () =>
+      fetchAccessInviteDeliveries({
+        inviteType: 'machine_manager',
+        sourceType: 'reporting_machine',
+        sourceIds: form.machineId ? [form.machineId] : [],
+      }),
+    enabled: open && Boolean(form.machineId) && !isLocalDemoMode,
+    staleTime: 1000 * 20,
+  });
   const visibleManagerSuggestions = useMemo(
     () =>
       managerSuggestions
@@ -1282,6 +1315,7 @@ function MachineDialog({
         .slice(0, 5),
     [managerSuggestions, selectedMachineManagerSet]
   );
+  const latestMachineManagerInvite = machineManagerInviteDeliveries[0] ?? null;
 
   const buildRefundReadinessDraft = (): RefundReadinessDraft | null => {
     const displayLabel = refundPublicDisplayLabel.trim();
@@ -1589,6 +1623,78 @@ function MachineDialog({
     }
   };
 
+  const sendMachineManagerSignupInvite = async (email: string) => {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!form.machineId) {
+      toast.error('Save or select a machine before sending a Machine Manager invite.');
+      return;
+    }
+
+    if (!normalizedEmail) return;
+
+    if (!emailPattern.test(normalizedEmail)) {
+      toast.error('Enter a valid manager email address.');
+      return;
+    }
+
+    if (selectedMachineManagerSet.has(normalizedEmail)) {
+      toast.info('This email is already assigned as a Machine Manager for this machine.');
+      return;
+    }
+
+    if (isLocalDemoMode) {
+      toast.info('Demo mode does not send invite emails. Use a PR branch with Supabase configured for functional invite QA.');
+      return;
+    }
+
+    const invitePreflight = validateAccessInvitePreflight('machine_manager', normalizedEmail);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+
+    setIsSendingMachineManagerInvite(true);
+    try {
+      await sendAccessInvite({
+        inviteType: 'machine_manager',
+        sourceId: form.machineId,
+        targetEmail: invitePreflight.targetEmail,
+        loginUrl: invitePreflight.loginUrl,
+      });
+      queryClient.setQueryData<AccessInviteDelivery[]>(
+        ['access-invite-deliveries', 'machine_manager', form.machineId],
+        (current = []) => [
+          {
+            id: `local-machine-manager-invite-${Date.now()}`,
+            inviteType: 'machine_manager',
+            sourceType: 'reporting_machine',
+            sourceId: form.machineId,
+            targetEmail: invitePreflight.targetEmail,
+            sentBy: null,
+            sentAt: new Date().toISOString(),
+            deliveryStatus: 'sent',
+            errorMessage: null,
+          },
+          ...current.filter(
+            (delivery) =>
+              delivery.targetEmail !== invitePreflight.targetEmail ||
+              delivery.sourceId !== form.machineId ||
+              delivery.inviteType !== 'machine_manager'
+          ),
+        ]
+      );
+      toast.success('Machine Manager invite sent. Assign this person after they sign in.');
+      setManagerSearch('');
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to send Machine Manager invite.');
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+    } finally {
+      setIsSendingMachineManagerInvite(false);
+    }
+  };
+
   const removeMachineManagerEmail = (email: string) => {
     const nextEmails = selectedMachineManagerEmails.filter((entry) => entry !== email);
     void persistMachineManagerEmails(nextEmails, 'Machine manager removed.');
@@ -1691,8 +1797,15 @@ function MachineDialog({
                   <AlertTriangle className="h-3.5 w-3.5" />
                   Last change was not saved
                 </span>
+              ) : latestMachineManagerInvite ? (
+                <span>{formatMachineManagerInviteSummary(latestMachineManagerInvite)}</span>
+              ) : isFetchingMachineManagerInviteDeliveries ? (
+                <span>Checking Machine Manager invite history...</span>
               ) : (
-                <span>Machine Manager assignments autosave as soon as you add or remove someone.</span>
+                <span>
+                  Machine Manager assignments autosave after Add. Send invite only emails a login
+                  link; it does not assign machine access.
+                </span>
               )}
             </div>
 
@@ -1748,7 +1861,12 @@ function MachineDialog({
                         }}
                         className="pl-9"
                         placeholder="Search or enter an email"
-                        disabled={isAddingMachineManager || isSavingMachineManagers || machineManagerCount >= 3}
+                        disabled={
+                          isAddingMachineManager ||
+                          isSendingMachineManagerInvite ||
+                          isSavingMachineManagers ||
+                          machineManagerCount >= 3
+                        }
                       />
                     </div>
                     <Button
@@ -1757,6 +1875,7 @@ function MachineDialog({
                       onClick={() => void addMachineManagerEmail(managerSearch)}
                       disabled={
                         isAddingMachineManager ||
+                        isSendingMachineManagerInvite ||
                         isSavingMachineManagers ||
                         machineManagerCount >= 3 ||
                         !managerSearch.trim()
@@ -1769,10 +1888,30 @@ function MachineDialog({
                       )}
                       Add
                     </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void sendMachineManagerSignupInvite(managerSearch)}
+                      disabled={
+                        isAddingMachineManager ||
+                        isSendingMachineManagerInvite ||
+                        isSavingMachineManagers ||
+                        !emailPattern.test(normalizedManagerSearch) ||
+                        selectedMachineManagerSet.has(normalizedManagerSearch)
+                      }
+                    >
+                      {isSendingMachineManagerInvite ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 h-4 w-4" />
+                      )}
+                      Send invite
+                    </Button>
                   </div>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  One Machine Manager is enough. Add up to 3 Machine Managers per machine.
+                  One Machine Manager is enough. Add up to 3 authenticated Machine Managers per
+                  machine. Invite new operators first, then add them after they sign in.
                 </p>
                 {managerSearchError && (
                   <p className="mt-2 text-sm text-destructive">Unable to search matching users.</p>
@@ -1789,8 +1928,8 @@ function MachineDialog({
                     </div>
                     {visibleManagerSuggestions.length === 0 && !isSearchingMachineManagers ? (
                       <p className="px-3 py-3 text-sm text-muted-foreground">
-                        No matching account user found. Enter the full email and choose Add if the
-                        person already has a Bloomjoy login.
+                        No matching account user found. Send an invite for a new login; after the
+                        person signs in, search again and choose Add to assign this machine.
                       </p>
                     ) : (
                       <div className="divide-y divide-border">
