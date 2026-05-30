@@ -205,7 +205,33 @@ export default function ProductsPage() {
                 customer payment setup, delivery, and operator handoff are confirmed during quote
                 review.
               </p>
-              <div className="mt-6 overflow-hidden rounded-lg border border-border bg-background">
+              <div className="mt-6 grid gap-3 md:hidden">
+                {comparisonRows.map((row) => (
+                  <article
+                    key={row.model}
+                    className="rounded-lg border border-border bg-background p-4"
+                  >
+                    <h3 className="font-display text-lg font-semibold text-foreground">
+                      {row.model}
+                    </h3>
+                    <dl className="mt-3 grid gap-3 text-sm">
+                      <div>
+                        <dt className="font-semibold text-foreground">Best fit</dt>
+                        <dd className="mt-1 text-muted-foreground">{row.fit}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-foreground">Capability</dt>
+                        <dd className="mt-1 text-muted-foreground">{row.capability}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-foreground">Buying path</dt>
+                        <dd className="mt-1 text-muted-foreground">{row.buyingPath}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+              <div className="mt-6 hidden overflow-hidden rounded-lg border border-border bg-background md:block">
                 <div className="overflow-x-auto">
                   <table className="min-w-full border-collapse text-sm">
                     <thead className="bg-muted/40 text-left">

@@ -28,6 +28,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
 - [ ] Public machine and commercial-machine copy does not imply Bloomjoy offers buyer financing, down payments, installment plans, or franchise packages; payment language clearly refers to customer payment acceptance/integrations or quote review
+- [ ] `/machines` has no horizontal page overflow at `360x800`, `390x844`, or `414x896`; the buyer comparison uses readable mobile cards, and the public header switches to the mobile menu at `768x1024`
 
 ## Refund Operations MVP
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` is merged, and Google Form/AppSheet remains live until the cutover gate passes.
@@ -466,6 +467,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/reporting`
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows report export archive, partner report exports, recent sales/refund import runs, and stale/failed sync status clearly
+- [ ] Admin Reporting > Exports shows multi-format partner report artifacts independently, labels PDF as the primary partner-facing report, labels CSV as the finance/reconciliation export, shows generated timestamps, and each artifact has its own Open action
 - [ ] Admin Reporting > Sync shows a refund adjustment review summary/list where ambiguous, unmatched, duplicate, invalid, and missing-status rows require review and do not silently affect settlement
 - [ ] Admin Reporting > Sync shows the latest live refund sync run after the scheduled workflow runs, and open/denied rows remain review-only
 - [ ] Admin reporting does not mark sales import freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh

@@ -113,11 +113,24 @@ export type AdminReportViewSnapshot = {
   filters: Record<string, unknown>;
   summary: Record<string, unknown>;
   export_storage_path: string | null;
+  exports: AdminReportExportArtifact[];
   export_status: 'pending' | 'ready' | 'failed';
   error_message: string | null;
   created_at: string;
   created_by: string | null;
   snapshot_type?: 'sales_report' | 'partner_report';
+};
+
+export type AdminReportExportFormat = 'pdf' | 'csv' | 'xlsx' | 'unknown';
+
+export type AdminReportExportArtifact = {
+  format: AdminReportExportFormat;
+  storagePath: string;
+  generatedAt: string | null;
+  fileName: string | null;
+  label: string;
+  description: string;
+  isPrimary: boolean;
 };
 
 export type AdminReportingEntitlement = {
@@ -326,6 +339,153 @@ type ExportSalesReportResponse = {
   storagePath: string;
   signedUrl: string;
   rowCount?: number;
+};
+
+const reportExportBucket = 'sales-report-exports';
+
+const exportFormatOrder: Record<AdminReportExportFormat, number> = {
+  pdf: 0,
+  csv: 1,
+  xlsx: 2,
+  unknown: 3,
+};
+
+const exportFormatLabels: Record<AdminReportExportFormat, { label: string; description: string }> = {
+  pdf: {
+    label: 'PDF',
+    description: 'Primary partner-facing report',
+  },
+  csv: {
+    label: 'CSV',
+    description: 'Finance/reconciliation data export',
+  },
+  xlsx: {
+    label: 'XLSX',
+    description: 'Spreadsheet workbook export',
+  },
+  unknown: {
+    label: 'File',
+    description: 'Report export artifact',
+  },
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const asTrimmedString = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+};
+
+const getFileNameFromStoragePath = (storagePath: string) => {
+  const [pathWithoutQuery] = storagePath.split('?');
+  const segments = pathWithoutQuery.split('/').filter(Boolean);
+  return segments.at(-1) ?? storagePath;
+};
+
+const normalizeReportExportFormat = (
+  format: unknown,
+  storagePath?: string | null,
+  fileName?: string | null
+): AdminReportExportFormat => {
+  const candidate = `${asTrimmedString(format) ?? ''} ${fileName ?? ''} ${storagePath ?? ''}`.toLowerCase();
+
+  if (candidate.includes('pdf')) return 'pdf';
+  if (candidate.includes('csv')) return 'csv';
+  if (candidate.includes('xlsx')) return 'xlsx';
+  return 'unknown';
+};
+
+const buildAdminReportExportArtifact = ({
+  format,
+  storagePath,
+  generatedAt,
+  fileName,
+}: {
+  format: unknown;
+  storagePath: string;
+  generatedAt?: unknown;
+  fileName?: unknown;
+}): AdminReportExportArtifact => {
+  const normalizedFileName = asTrimmedString(fileName) ?? getFileNameFromStoragePath(storagePath);
+  const normalizedFormat = normalizeReportExportFormat(format, storagePath, normalizedFileName);
+  const meta = exportFormatLabels[normalizedFormat];
+
+  return {
+    format: normalizedFormat,
+    storagePath,
+    generatedAt: asTrimmedString(generatedAt),
+    fileName: normalizedFileName,
+    label: meta.label,
+    description: meta.description,
+    isPrimary: normalizedFormat === 'pdf',
+  };
+};
+
+export const mapAdminReportExportArtifacts = ({
+  summary,
+  fallbackStoragePath,
+  fallbackGeneratedAt,
+}: {
+  summary: Record<string, unknown> | null | undefined;
+  fallbackStoragePath?: string | null;
+  fallbackGeneratedAt?: string | null;
+}): AdminReportExportArtifact[] => {
+  const exportsRecord = isRecord(summary?.exports) ? summary.exports : null;
+  const seenPaths = new Set<string>();
+  const artifacts: AdminReportExportArtifact[] = [];
+
+  if (exportsRecord) {
+    Object.entries(exportsRecord).forEach(([format, value]) => {
+      if (!isRecord(value)) return;
+
+      const storagePath = asTrimmedString(value.storagePath);
+      if (!storagePath || seenPaths.has(storagePath)) return;
+
+      seenPaths.add(storagePath);
+      artifacts.push(
+        buildAdminReportExportArtifact({
+          format,
+          storagePath,
+          generatedAt: value.generatedAt,
+          fileName: value.fileName,
+        })
+      );
+    });
+  }
+
+  const fallbackPath = asTrimmedString(fallbackStoragePath);
+  if (artifacts.length === 0 && fallbackPath) {
+    artifacts.push(
+      buildAdminReportExportArtifact({
+        format: null,
+        storagePath: fallbackPath,
+        generatedAt: fallbackGeneratedAt,
+      })
+    );
+  }
+
+  return artifacts.sort((left, right) => {
+    const formatCompare = exportFormatOrder[left.format] - exportFormatOrder[right.format];
+    if (formatCompare !== 0) return formatCompare;
+    return (right.generatedAt ?? '').localeCompare(left.generatedAt ?? '');
+  });
+};
+
+export const createReportExportSignedUrl = async (storagePath: string): Promise<string> => {
+  const path = storagePath.trim();
+  if (!path) throw new Error('Report export path is missing.');
+
+  const { data, error } = await supabaseClient.storage
+    .from(reportExportBucket)
+    .createSignedUrl(path, 60 * 60 * 24 * 7);
+
+  if (error || !data?.signedUrl) {
+    throw new Error(error?.message || 'Unable to create report export download link.');
+  }
+
+  return data.signedUrl;
 };
 
 type UpsertReportingMachineInput = {
@@ -612,6 +772,11 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
 
   const salesSnapshots = ((snapshotsResult.data ?? []) as AdminReportViewSnapshot[]).map((snapshot) => ({
     ...snapshot,
+    exports: mapAdminReportExportArtifacts({
+      summary: snapshot.summary,
+      fallbackStoragePath: snapshot.export_storage_path,
+      fallbackGeneratedAt: snapshot.created_at,
+    }),
     snapshot_type: 'sales_report' as const,
   }));
   const partnerSnapshots = ((partnerSnapshotsResult.data ?? []) as Array<{
@@ -640,6 +805,13 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
         : `week ending ${periodEndDate}`;
     const title = `${partnership?.name ?? 'Partner report'} ${periodLabel}`;
 
+    const summary = snapshot.summary_json ?? {};
+    const exports = mapAdminReportExportArtifacts({
+      summary,
+      fallbackStoragePath: snapshot.export_storage_path,
+      fallbackGeneratedAt: snapshot.generated_at,
+    });
+
     return {
       id: snapshot.id,
       title,
@@ -650,9 +822,10 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
         periodStartDate,
         periodEndDate,
       },
-      summary: snapshot.summary_json ?? {},
+      summary,
       export_storage_path: snapshot.export_storage_path,
-      export_status: snapshot.export_storage_path ? 'ready' : 'pending',
+      exports,
+      export_status: exports.length > 0 ? 'ready' : 'pending',
       error_message: null,
       created_at: snapshot.generated_at,
       created_by: snapshot.generated_by,

@@ -831,7 +831,7 @@ export default function BusinessPlaybookPaybackPlannerPage() {
                     const label = paybackStartupCostLabels[key];
                     const helper =
                       key === "importFreight"
-                        ? "Use actual quote terms when known. Ask whether shipping from China, tariffs, duties, customs, brokerage, and delivery are included."
+                        ? "Use actual quote terms when known. Ask whether international freight, tariffs, duties, customs, brokerage, and delivery are included."
                         : label.helper;
 
                     return (
