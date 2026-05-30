@@ -99,6 +99,12 @@ const serviceRoleOnlyFunctions = [
     name: 'operator_capture_payout_run_review_snapshot',
     migrationName: '202605200005_operator_payout_review_workflow.sql',
   },
+  {
+    signature:
+      'public.operator_pay_statement_payload_for_item(uuid, text, integer, text, uuid, text)',
+    name: 'operator_pay_statement_payload_for_item',
+    migrationName: '202605200006_operator_pay_statements.sql',
+  },
 ];
 
 const protectedAuthenticatedFunctions = [

@@ -4,9 +4,11 @@ import {
   Ban,
   CheckCircle2,
   Clock3,
+  FileText,
   Loader2,
   RefreshCw,
   RotateCcw,
+  Send,
   ShieldCheck,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -30,9 +32,12 @@ import {
   calculatePayoutRunAdmin,
   fetchPayoutReviewContext,
   finalizePayoutRunAdmin,
+  issuePayStatementsAdmin,
   markPayoutRunReviewedAdmin,
+  previewPayStatementsAdmin,
   reopenPayoutRunAdmin,
   voidPayoutRunAdmin,
+  type PayStatementPreviewResult,
   type PayoutCalculationWarning,
   type PayoutReviewPeriod,
   type PayoutRun,
@@ -258,6 +263,11 @@ export default function AdminPayoutsPage() {
   });
   const [isAddingAdjustment, setIsAddingAdjustment] = useState(false);
   const [isRunningAction, setIsRunningAction] = useState(false);
+  const [statementPreview, setStatementPreview] = useState<PayStatementPreviewResult | null>(null);
+  const [isPreviewingStatements, setIsPreviewingStatements] = useState(false);
+  const [isIssuingStatements, setIsIssuingStatements] = useState(false);
+  const [issueReason, setIssueReason] = useState('');
+  const [issueRevisionReason, setIssueRevisionReason] = useState('');
 
   const {
     data: reviewContext,
@@ -282,6 +292,11 @@ export default function AdminPayoutsPage() {
     Boolean(selectedPeriod?.canFinalize) &&
     Boolean(selectedRun) &&
     ['draft', 'review', 'reopened'].includes(selectedRun?.status ?? '');
+  const canIssueStatements =
+    Boolean(selectedPeriod?.canFinalize) &&
+    Boolean(selectedRun) &&
+    ['finalized', 'issued'].includes(selectedRun?.status ?? '');
+  const hasIssuedStatements = Boolean(selectedPeriod?.issuedStatementCount);
 
   useEffect(() => {
     if (!selectedPeriodId && periods[0]) {
@@ -296,6 +311,12 @@ export default function AdminPayoutsPage() {
       operatorProfileId: firstOperator,
     }));
   }, [selectedRun?.id, selectedRun?.items]);
+
+  useEffect(() => {
+    setStatementPreview(null);
+    setIssueReason('');
+    setIssueRevisionReason('');
+  }, [selectedRun?.id]);
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['admin-payout-review-context'] });
@@ -439,6 +460,55 @@ export default function AdminPayoutsPage() {
       );
     } finally {
       setIsAddingAdjustment(false);
+    }
+  };
+
+  const previewStatements = async () => {
+    if (!selectedRun) return;
+
+    setIsPreviewingStatements(true);
+    try {
+      const preview = await previewPayStatementsAdmin(selectedRun.id);
+      setStatementPreview(preview);
+      toast.success(`Previewed ${preview.statementCount} pay statement${preview.statementCount === 1 ? '' : 's'}.`);
+    } catch (previewError) {
+      toast.error(
+        previewError instanceof Error ? previewError.message : 'Unable to preview pay statements.'
+      );
+    } finally {
+      setIsPreviewingStatements(false);
+    }
+  };
+
+  const issueStatements = async () => {
+    if (!selectedRun) return;
+
+    if (!issueReason.trim()) {
+      toast.error('Enter an audit reason before issuing pay statements.');
+      return;
+    }
+
+    if (hasIssuedStatements && !issueRevisionReason.trim()) {
+      toast.error('Enter a revision reason before reissuing statements.');
+      return;
+    }
+
+    setIsIssuingStatements(true);
+    try {
+      const result = await issuePayStatementsAdmin({
+        payoutRunId: selectedRun.id,
+        reason: issueReason.trim(),
+        revisionReason: hasIssuedStatements ? issueRevisionReason.trim() : null,
+      });
+      toast.success(`Issued ${result.issuedStatementCount} pay statement${result.issuedStatementCount === 1 ? '' : 's'}.`);
+      setStatementPreview(null);
+      setIssueReason('');
+      setIssueRevisionReason('');
+      await refresh();
+    } catch (issueError) {
+      toast.error(issueError instanceof Error ? issueError.message : 'Unable to issue pay statements.');
+    } finally {
+      setIsIssuingStatements(false);
     }
   };
 
@@ -645,6 +715,119 @@ export default function AdminPayoutsPage() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {selectedRun && (
+                  <div className="rounded-lg border border-border bg-background p-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <h2 className="font-semibold text-foreground">Pay Statements</h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Preview operator statements, then publish the finalized payout run to the
+                          operator portal with versioned revision history.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => void previewStatements()}
+                          disabled={!selectedPeriod?.canFinalize || isPreviewingStatements}
+                        >
+                          {isPreviewingStatements ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileText className="mr-2 h-4 w-4" />
+                          )}
+                          Preview
+                        </Button>
+                        <Button
+                          onClick={() => void issueStatements()}
+                          disabled={!canIssueStatements || isIssuingStatements}
+                        >
+                          {isIssuingStatements ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="mr-2 h-4 w-4" />
+                          )}
+                          Issue
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <div>
+                        <Label htmlFor="statement-issue-reason">Audit reason</Label>
+                        <Textarea
+                          id="statement-issue-reason"
+                          value={issueReason}
+                          onChange={(event) => setIssueReason(event.target.value)}
+                          placeholder="Approved after final payout review."
+                          className="mt-2"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="statement-revision-reason">Revision reason</Label>
+                        <Textarea
+                          id="statement-revision-reason"
+                          value={issueRevisionReason}
+                          onChange={(event) => setIssueRevisionReason(event.target.value)}
+                          placeholder={
+                            hasIssuedStatements
+                              ? 'Required because statements already exist.'
+                              : 'Only needed when reissuing a statement.'
+                          }
+                          className="mt-2"
+                          disabled={!hasIssuedStatements}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <Metric
+                        label="Statement records"
+                        value={`${selectedPeriod?.issuedStatementCount ?? 0}`}
+                      />
+                      <Metric label="Portal status" value={hasIssuedStatements ? 'Published' : 'Not issued'} />
+                      <Metric label="Eligible now" value={canIssueStatements ? 'Yes' : 'Finalize first'} />
+                    </div>
+
+                    {statementPreview && (
+                      <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="font-semibold text-foreground">
+                              Draft Preview ({statementPreview.statementCount})
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              Preview rows are not operator-visible until issued.
+                            </p>
+                          </div>
+                          <Badge variant="outline">{formatStatus(statementPreview.status)}</Badge>
+                        </div>
+                        <div className="mt-3 divide-y divide-border">
+                          {statementPreview.statements.slice(0, 5).map((statement) => (
+                            <div
+                              key={`${statement.statementNumber}-${statement.operator.operatorProfileId}`}
+                              className="flex flex-col gap-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div>
+                                <p className="font-medium text-foreground">
+                                  {statement.operator.displayName}
+                                </p>
+                                <p className="text-muted-foreground">
+                                  {formatDate(statement.period.periodStartDate)} -{' '}
+                                  {formatDate(statement.period.periodEndDate)}
+                                </p>
+                              </div>
+                              <p className="font-semibold text-foreground">
+                                {formatCurrency(statement.totals.totalPayoutCents)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

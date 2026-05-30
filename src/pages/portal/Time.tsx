@@ -2,15 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
-  CalendarClock,
+  ArrowLeft,
   Clock3,
+  Download,
   Edit3,
+  FileText,
   Loader2,
   Plus,
   RefreshCw,
   Save,
   Trash2,
 } from 'lucide-react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,14 +27,20 @@ import {
 } from '@/components/ui/select';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { cn } from '@/lib/utils';
 import {
+  downloadOperatorPayStatementHtml,
+  fetchMyOperatorPayStatementContext,
   fetchMyOperatorTimekeepingContext,
+  fetchPayStatementArtifact,
+  formatOperatorPayStatementLabel,
   paidMinutesToHours,
   roundOperatorPaidMinutes,
   submitOperatorTimeEntry,
   updateOperatorTimeEntry,
   voidOperatorTimeEntry,
   type OperatorAssignedMachine,
+  type OperatorPayStatementSummary,
   type OperatorTimeEntry,
   type OperatorTimekeepingContext,
   type OperatorTimekeepingProfileContext,
@@ -45,7 +54,14 @@ type TimeEntryForm = {
   notes: string;
 };
 
-const todayInputValue = () => new Date().toISOString().slice(0, 10);
+const todayInputValue = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
 
 const defaultForm = (): TimeEntryForm => ({
   workDate: todayInputValue(),
@@ -58,7 +74,9 @@ const defaultForm = (): TimeEntryForm => ({
 const formatDate = (value: string | null | undefined) => {
   if (!value) return 'Not set';
 
-  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+  const dateValue = value.includes('T') ? new Date(value) : new Date(`${value}T00:00:00`);
+
+  return dateValue.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -78,6 +96,12 @@ const formatPaidHours = (minutes: number) =>
   `${paidMinutesToHours(minutes).toLocaleString(undefined, {
     maximumFractionDigits: 2,
   })} paid hr${minutes === 60 ? '' : 's'}`;
+
+const formatCurrency = (cents: number | null | undefined) =>
+  new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+  }).format((cents ?? 0) / 100);
 
 const timeToMinutes = (value: string) => {
   const [hour, minute] = value.split(':').map(Number);
@@ -138,12 +162,24 @@ const getMachineLabel = (entry: OperatorTimeEntry) =>
   `${entry.machineLabel} - ${entry.locationName}`;
 
 const getContextQueryKey = ['operator-timekeeping'] as const;
+const getPayStatementsQueryKey = ['operator-pay-statements'] as const;
 const emptyProfiles: OperatorTimekeepingProfileContext[] = [];
+const timeActionClassName =
+  'min-h-11 transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]';
+const timeSmallActionClassName =
+  'min-h-10 transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]';
+const timeInsetPanelClassName =
+  'rounded-lg bg-muted/30 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border))]';
 
 export default function PortalTimePage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { entryId } = useParams<{ entryId?: string }>();
+  const isTimeEntryScreen = location.pathname === '/portal/time/new' || Boolean(entryId);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [downloadingStatementId, setDownloadingStatementId] = useState<string | null>(null);
   const [form, setForm] = useState<TimeEntryForm>(() => defaultForm());
 
   const {
@@ -155,6 +191,16 @@ export default function PortalTimePage() {
     queryKey: getContextQueryKey,
     queryFn: () => fetchMyOperatorTimekeepingContext(),
     staleTime: 1000 * 20,
+  });
+
+  const {
+    data: statementContext,
+    isFetching: isFetchingStatements,
+    error: statementError,
+  } = useQuery({
+    queryKey: getPayStatementsQueryKey,
+    queryFn: fetchMyOperatorPayStatementContext,
+    staleTime: 1000 * 30,
   });
 
   const profiles = context?.profiles ?? emptyProfiles;
@@ -169,6 +215,63 @@ export default function PortalTimePage() {
     () => profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0],
     [profiles, selectedProfileId]
   );
+  const routeEntry = useMemo(() => {
+    if (!entryId) return null;
+
+    return (
+      profiles
+        .flatMap((profile) => profile.currentEntries)
+        .find((entry) => entry.id === entryId) ?? null
+    );
+  }, [entryId, profiles]);
+  const selectedStatementProfile = useMemo(
+    () =>
+      selectedProfile
+        ? statementContext?.profiles.find((profile) => profile.id === selectedProfile.id)
+        : statementContext?.profiles[0],
+    [selectedProfile, statementContext?.profiles]
+  );
+  const issuedStatements = selectedStatementProfile?.statements ?? [];
+  const pastEntries = useMemo(() => {
+    if (!selectedProfile) return [];
+
+    const { periodStartDate, periodEndDate } = selectedProfile.currentPeriod;
+    return selectedProfile.recentEntries.filter(
+      (entry) => !isDateInsideRange(entry.workDate, periodStartDate, periodEndDate)
+    );
+  }, [selectedProfile]);
+
+  useEffect(() => {
+    if (routeEntry && routeEntry.operatorProfileId !== selectedProfileId) {
+      setSelectedProfileId(routeEntry.operatorProfileId);
+    }
+  }, [routeEntry, selectedProfileId]);
+
+  useEffect(() => {
+    if (!isTimeEntryScreen) return;
+
+    if (!entryId) {
+      setEditingEntryId(null);
+      return;
+    }
+
+    if (!routeEntry) return;
+
+    setEditingEntryId(routeEntry.id);
+    setForm({
+      workDate: routeEntry.workDate,
+      machineId: routeEntry.machineId,
+      startTime: routeEntry.startTime,
+      endTime: routeEntry.endTime,
+      notes: routeEntry.notes ?? '',
+    });
+  }, [entryId, isTimeEntryScreen, routeEntry]);
+
+  useEffect(() => {
+    if (!isTimeEntryScreen && editingEntryId) {
+      setEditingEntryId(null);
+    }
+  }, [editingEntryId, isTimeEntryScreen]);
 
   const effectiveMachines = useMemo(() => {
     if (!selectedProfile) return [];
@@ -232,7 +335,8 @@ export default function PortalTimePage() {
     rawDurationMinutes <= 0 ||
     !selectedMachine ||
     !isWorkDateInCurrentPeriod ||
-    !isPeriodEditable;
+    !isPeriodEditable ||
+    Boolean(exactDuplicate);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -271,6 +375,7 @@ export default function PortalTimePage() {
         machineId: nextContext.profiles[0]?.assignedMachines[0]?.machineId ?? '',
       });
       toast.success('Time entry saved.');
+      navigate('/portal/time');
     },
     onError: (mutationError: Error) => {
       toast.error(mutationError.message || 'Unable to save time entry.');
@@ -294,19 +399,29 @@ export default function PortalTimePage() {
   });
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: getContextQueryKey });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: getContextQueryKey }),
+      queryClient.invalidateQueries({ queryKey: getPayStatementsQueryKey }),
+    ]);
+  };
+
+  const downloadStatement = async (statement: OperatorPayStatementSummary) => {
+    setDownloadingStatementId(statement.id);
+    try {
+      const artifact = await fetchPayStatementArtifact(statement.id);
+      downloadOperatorPayStatementHtml(artifact);
+      toast.success('Pay statement downloaded.');
+    } catch (downloadError) {
+      toast.error(
+        downloadError instanceof Error ? downloadError.message : 'Unable to download pay statement.'
+      );
+    } finally {
+      setDownloadingStatementId(null);
+    }
   };
 
   const startEditing = (entry: OperatorTimeEntry) => {
-    setSelectedProfileId(entry.operatorProfileId);
-    setEditingEntryId(entry.id);
-    setForm({
-      workDate: entry.workDate,
-      machineId: entry.machineId,
-      startTime: entry.startTime,
-      endTime: entry.endTime,
-      notes: entry.notes ?? '',
-    });
+    navigate(`/portal/time/${entry.id}/edit`);
   };
 
   const cancelEditing = () => {
@@ -315,6 +430,7 @@ export default function PortalTimePage() {
       ...defaultForm(),
       machineId: effectiveMachines[0]?.machineId ?? '',
     });
+    navigate('/portal/time');
   };
 
   const confirmDelete = (entry: OperatorTimeEntry) => {
@@ -323,9 +439,49 @@ export default function PortalTimePage() {
       return;
     }
 
-    if (window.confirm('Delete this unlocked time entry?')) {
+    const shiftSummary = `${formatDate(entry.workDate)} / ${entry.startTime} to ${
+      entry.endTime
+    } / ${getMachineLabel(entry)}`;
+
+    if (
+      window.confirm(
+        `Delete this submitted time entry?\n\n${shiftSummary}\n\nIt will be removed from this payout period.`
+      )
+    ) {
       deleteMutation.mutate(entry.id);
     }
+  };
+
+  const saveTime = () => {
+    if (exactDuplicate) {
+      toast.error('This matches an existing shift. Review the existing entry instead.');
+      return;
+    }
+
+    const warnings = [
+      overlappingEntries.length > 0
+        ? `This shift overlaps ${overlappingEntries.length} existing entr${
+            overlappingEntries.length === 1 ? 'y' : 'ies'
+          }.`
+        : null,
+      longShiftWarning ? 'This shift is 10+ hours.' : null,
+    ].filter(Boolean) as string[];
+
+    if (warnings.length > 0) {
+      const shiftSummary = `${formatDate(form.workDate)} / ${form.startTime} to ${
+        form.endTime
+      } / ${selectedMachine ? `${selectedMachine.machineLabel} - ${selectedMachine.locationName}` : 'Selected machine'}`;
+
+      if (
+        !window.confirm(
+          `${warnings.join('\n')}\n\n${shiftSummary}\n\nSave this time entry anyway?`
+        )
+      ) {
+        return;
+      }
+    }
+
+    saveMutation.mutate();
   };
 
   return (
@@ -333,8 +489,12 @@ export default function PortalTimePage() {
       <section className="portal-section">
         <div className="container-page">
           <PortalPageIntro
-            title="Time"
-            description="Submit assigned-machine shifts for the current payout period and review recent entries before the period locks."
+            title={isTimeEntryScreen ? (editingEntryId ? 'Edit Time' : 'Add Time') : 'Time'}
+            description={
+              isTimeEntryScreen
+                ? 'Submit one shift at a time.'
+                : 'Add time, review submitted shifts, and download pay statements.'
+            }
             badges={[
               {
                 label: selectedProfile
@@ -348,14 +508,28 @@ export default function PortalTimePage() {
               },
             ]}
             actions={
-              <Button variant="outline" onClick={refresh} disabled={isFetching}>
-                {isFetching ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Refresh
-              </Button>
+              isTimeEntryScreen ? (
+                <Button asChild variant="outline" className={timeActionClassName}>
+                  <Link to="/portal/time">
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Time home
+                  </Link>
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={refresh}
+                  disabled={isFetching}
+                  className={timeActionClassName}
+                >
+                  {isFetching ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  Refresh
+                </Button>
+              )
             }
           />
 
@@ -378,7 +552,7 @@ export default function PortalTimePage() {
                 <h2 className="mt-4 text-xl font-semibold text-foreground">
                   No operator payout profile yet
                 </h2>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <p className="mt-2 text-pretty text-sm text-muted-foreground">
                   Ask a Bloomjoy admin or machine manager to add your operator payout profile and
                   assigned machines before submitting time.
                 </p>
@@ -387,208 +561,299 @@ export default function PortalTimePage() {
           )}
 
           {selectedProfile && (
-            <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)]">
-              <div className="space-y-6">
-                <PeriodPanel profile={selectedProfile} />
-
-                <div className="card-elevated p-4 sm:p-5">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h2 className="text-lg font-semibold text-foreground">
-                        {editingEntryId ? 'Edit Shift' : 'Add Shift'}
-                      </h2>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Shifts must stay inside the current payout period and use an assigned
-                        machine.
-                      </p>
+            <>
+              {isTimeEntryScreen ? (
+                <div className="mx-auto mt-6 max-w-3xl">
+                  {entryId && !routeEntry ? (
+                    <div className="card-elevated p-5 text-sm text-muted-foreground">
+                      This time entry is not available for editing.
                     </div>
-                    {profiles.length > 1 && (
-                      <div className="w-full sm:w-56">
-                        <label className="mb-1 block text-sm font-medium text-foreground">
-                          Operator profile
-                        </label>
-                        <Select
-                          value={selectedProfile.id}
-                          onValueChange={(value) => {
-                            setSelectedProfileId(value);
-                            setEditingEntryId(null);
-                          }}
+                  ) : (
+                    <div className="card-elevated p-4 sm:p-5">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <h2 className="text-balance text-lg font-semibold text-foreground">
+                            {editingEntryId ? 'Edit Time' : 'Add Time'}
+                          </h2>
+                          <p className="mt-1 text-pretty text-sm text-muted-foreground">
+                            Enter one shift at a time, then return to your time summary.
+                          </p>
+                        </div>
+                        {profiles.length > 1 && (
+                          <div className="w-full sm:w-56">
+                            <label className="mb-1 block text-sm font-medium text-foreground">
+                              Operator profile
+                            </label>
+                            <Select
+                              value={selectedProfile.id}
+                              onValueChange={(value) => {
+                                setSelectedProfileId(value);
+                                setEditingEntryId(null);
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {profiles.map((profile) => (
+                                  <SelectItem key={profile.id} value={profile.id}>
+                                    {profile.accountName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </div>
+
+                      <PeriodDetails profile={selectedProfile} />
+
+                      <div className="mt-5 grid gap-4">
+                        <div>
+                          <label htmlFor="work-date" className="mb-1 block text-sm font-medium">
+                            Work date
+                          </label>
+                          <Input
+                            id="work-date"
+                            type="date"
+                            value={form.workDate}
+                            min={selectedProfile.currentPeriod.periodStartDate}
+                            max={selectedProfile.currentPeriod.periodEndDate}
+                            onChange={(event) =>
+                              setForm((current) => ({ ...current, workDate: event.target.value }))
+                            }
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="machine-id" className="mb-1 block text-sm font-medium">
+                            Machine
+                          </label>
+                          <Select
+                            value={form.machineId}
+                            onValueChange={(value) =>
+                              setForm((current) => ({ ...current, machineId: value }))
+                            }
+                            disabled={effectiveMachines.length === 0}
+                          >
+                            <SelectTrigger id="machine-id">
+                              <SelectValue placeholder="Select an assigned machine" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {effectiveMachines.map((machine) => (
+                                <SelectItem key={machine.machineId} value={machine.machineId}>
+                                  {machine.machineLabel} - {machine.locationName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div>
+                            <label htmlFor="start-time" className="mb-1 block text-sm font-medium">
+                              Start time
+                            </label>
+                            <Input
+                              id="start-time"
+                              type="time"
+                              value={form.startTime}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  startTime: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="end-time" className="mb-1 block text-sm font-medium">
+                              End time
+                            </label>
+                            <Input
+                              id="end-time"
+                              type="time"
+                              value={form.endTime}
+                              onChange={(event) =>
+                                setForm((current) => ({ ...current, endTime: event.target.value }))
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label htmlFor="time-notes" className="mb-1 block text-sm font-medium">
+                            Notes{' '}
+                            <span className="font-normal text-muted-foreground">(optional)</span>
+                          </label>
+                          <Textarea
+                            id="time-notes"
+                            value={form.notes}
+                            rows={2}
+                            placeholder="Add context only if it helps"
+                            onChange={(event) =>
+                              setForm((current) => ({ ...current, notes: event.target.value }))
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className={cn('mt-5 grid gap-3 sm:grid-cols-2', timeInsetPanelClassName)}>
+                        <Metric
+                          label="Actual time"
+                          value={
+                            rawDurationMinutes ? formatMinutes(rawDurationMinutes) : 'Set times'
+                          }
+                        />
+                        <Metric
+                          label="You'll be paid for"
+                          value={
+                            roundedPaidMinutes ? formatPaidHours(roundedPaidMinutes) : 'Set times'
+                          }
+                        />
+                      </div>
+
+                      <ValidationPanel
+                        hasInvalidTimes={Boolean(
+                          form.startTime && form.endTime && rawDurationMinutes <= 0
+                        )}
+                        isWorkDateInCurrentPeriod={isWorkDateInCurrentPeriod}
+                        hasSelectedMachine={Boolean(selectedMachine)}
+                        isPeriodEditable={isPeriodEditable}
+                        overlappingEntries={overlappingEntries}
+                        exactDuplicate={exactDuplicate}
+                        longShiftWarning={longShiftWarning}
+                      />
+
+                      <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={cancelEditing}
+                          className={timeActionClassName}
                         >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {profiles.map((profile) => (
-                              <SelectItem key={profile.id} value={profile.id}>
-                                {profile.accountName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={saveTime}
+                          disabled={hasBlockingValidation || saveMutation.isPending}
+                          className={timeActionClassName}
+                        >
+                          {saveMutation.isPending ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : editingEntryId ? (
+                            <Save className="mr-2 h-4 w-4" />
+                          ) : (
+                            <Plus className="mr-2 h-4 w-4" />
+                          )}
+                          {editingEntryId ? 'Save Time' : 'Add Time'}
+                        </Button>
                       </div>
-                    )}
-                  </div>
 
-                  <div className="mt-5 grid gap-4">
-                    <div>
-                      <label htmlFor="work-date" className="mb-1 block text-sm font-medium">
-                        Work date
-                      </label>
-                      <Input
-                        id="work-date"
-                        type="date"
-                        value={form.workDate}
-                        min={selectedProfile.currentPeriod.periodStartDate}
-                        max={selectedProfile.currentPeriod.periodEndDate}
-                        onChange={(event) =>
-                          setForm((current) => ({ ...current, workDate: event.target.value }))
-                        }
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="machine-id" className="mb-1 block text-sm font-medium">
-                        Machine
-                      </label>
-                      <Select
-                        value={form.machineId}
-                        onValueChange={(value) =>
-                          setForm((current) => ({ ...current, machineId: value }))
-                        }
-                        disabled={effectiveMachines.length === 0}
-                      >
-                        <SelectTrigger id="machine-id">
-                          <SelectValue placeholder="Select an assigned machine" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {effectiveMachines.map((machine) => (
-                            <SelectItem key={machine.machineId} value={machine.machineId}>
-                              {machine.machineLabel} - {machine.locationName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label htmlFor="start-time" className="mb-1 block text-sm font-medium">
-                          Start time
-                        </label>
-                        <Input
-                          id="start-time"
-                          type="time"
-                          value={form.startTime}
-                          onChange={(event) =>
-                            setForm((current) => ({ ...current, startTime: event.target.value }))
-                          }
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="end-time" className="mb-1 block text-sm font-medium">
-                          End time
-                        </label>
-                        <Input
-                          id="end-time"
-                          type="time"
-                          value={form.endTime}
-                          onChange={(event) =>
-                            setForm((current) => ({ ...current, endTime: event.target.value }))
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="time-notes" className="mb-1 block text-sm font-medium">
-                        Notes
-                      </label>
-                      <Textarea
-                        id="time-notes"
-                        value={form.notes}
-                        rows={3}
-                        placeholder="Optional context for this shift"
-                        onChange={(event) =>
-                          setForm((current) => ({ ...current, notes: event.target.value }))
-                        }
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-5 grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-2">
-                    <Metric label="Raw duration" value={rawDurationMinutes ? formatMinutes(rawDurationMinutes) : 'Set times'} />
-                    <Metric
-                      label="Rounded paid time"
-                      value={roundedPaidMinutes ? formatPaidHours(roundedPaidMinutes) : 'Set times'}
-                    />
-                  </div>
-
-                  <ValidationPanel
-                    hasInvalidTimes={Boolean(form.startTime && form.endTime && rawDurationMinutes <= 0)}
-                    isWorkDateInCurrentPeriod={isWorkDateInCurrentPeriod}
-                    hasSelectedMachine={Boolean(selectedMachine)}
-                    isPeriodEditable={isPeriodEditable}
-                    overlappingEntries={overlappingEntries}
-                    exactDuplicate={exactDuplicate}
-                    longShiftWarning={longShiftWarning}
-                  />
-
-                  <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                    {editingEntryId && (
-                      <Button type="button" variant="outline" onClick={cancelEditing}>
-                        Cancel Edit
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      onClick={() => saveMutation.mutate()}
-                      disabled={hasBlockingValidation || saveMutation.isPending}
-                    >
-                      {saveMutation.isPending ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : editingEntryId ? (
-                        <Save className="mr-2 h-4 w-4" />
-                      ) : (
-                        <Plus className="mr-2 h-4 w-4" />
+                      {hasBlockingValidation && !saveMutation.isPending && (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Enter a date, assigned machine, start time, and end time to add time.
+                        </p>
                       )}
-                      {editingEntryId ? 'Save Shift' : 'Add Shift'}
-                    </Button>
-                  </div>
 
-                  {entryBeingEdited && (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      Editing {formatDate(entryBeingEdited.workDate)} shift at{' '}
-                      {getMachineLabel(entryBeingEdited)}.
-                    </p>
+                      {entryBeingEdited && (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Editing {formatDate(entryBeingEdited.workDate)} shift at{' '}
+                          {getMachineLabel(entryBeingEdited)}.
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
-              </div>
+              ) : (
+                <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.15fr)]">
+                  <div className="space-y-6">
+                    <div className="card-elevated p-4 sm:p-5">
+                      <h2 className="text-balance text-lg font-semibold text-foreground">
+                        What do you need?
+                      </h2>
+                      <div className="mt-4 grid gap-3">
+                        <Button
+                          asChild
+                          size="lg"
+                          className={cn('justify-start', timeActionClassName)}
+                        >
+                          <Link to="/portal/time/new">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Add Time
+                          </Link>
+                        </Button>
+                        <Button
+                          asChild
+                          variant="outline"
+                          className={cn('justify-start', timeActionClassName)}
+                        >
+                          <a href="#this-period">Review submitted time</a>
+                        </Button>
+                        <Button
+                          asChild
+                          variant="outline"
+                          className={cn('justify-start', timeActionClassName)}
+                        >
+                          <a href="#pay-statements">Download pay statements</a>
+                        </Button>
+                      </div>
+                    </div>
 
-              <div className="space-y-6">
-                <TimeEntriesPanel
-                  title="Current Period"
-                  description={`${formatDate(
-                    selectedProfile.currentPeriod.periodStartDate
-                  )} to ${formatDate(selectedProfile.currentPeriod.periodEndDate)}`}
-                  entries={selectedProfile.currentEntries}
-                  emptyMessage="No shifts entered for this period yet."
-                  onEdit={startEditing}
-                  onDelete={confirmDelete}
-                  isDeleting={deleteMutation.isPending}
-                />
+                    <div className="card-elevated p-4 sm:p-5">
+                      <h2 className="text-balance text-lg font-semibold text-foreground">
+                        Current Period
+                      </h2>
+                      <p className="mt-1 text-pretty text-sm text-muted-foreground">
+                        Time is due by {formatDate(selectedProfile.currentPeriod.submissionDueDate)}
+                        .
+                      </p>
+                      <PeriodDetails profile={selectedProfile} />
+                    </div>
+                  </div>
 
-                <TimeEntriesPanel
-                  title="Recent History"
-                  description="Latest submitted shifts across payout periods."
-                  entries={selectedProfile.recentEntries}
-                  emptyMessage="No recent shifts yet."
-                  onEdit={startEditing}
-                  onDelete={confirmDelete}
-                  isDeleting={deleteMutation.isPending}
-                  compact
-                />
-              </div>
-            </div>
+                  <div className="space-y-6">
+                    <div id="pay-statements">
+                      <PayStatementsPanel
+                        statements={issuedStatements}
+                        isRefreshing={isFetchingStatements}
+                        error={statementError}
+                        downloadingStatementId={downloadingStatementId}
+                        onDownload={downloadStatement}
+                      />
+                    </div>
+
+                    <div id="this-period">
+                      <TimeEntriesPanel
+                        title="This Period"
+                        description={`${formatDate(
+                          selectedProfile.currentPeriod.periodStartDate
+                        )} to ${formatDate(selectedProfile.currentPeriod.periodEndDate)}`}
+                        entries={selectedProfile.currentEntries}
+                        emptyMessage="No time entered for this period yet."
+                        onEdit={startEditing}
+                        onDelete={confirmDelete}
+                        isDeleting={deleteMutation.isPending}
+                      />
+                    </div>
+
+                    <TimeEntriesPanel
+                      title="Past Shifts"
+                      description="Earlier payout periods only."
+                      entries={pastEntries}
+                      emptyMessage="No past shifts yet."
+                      onEdit={startEditing}
+                      onDelete={confirmDelete}
+                      isDeleting={deleteMutation.isPending}
+                      compact
+                      allowActions={false}
+                      readOnlyMessage="Past shifts are view-only here."
+                    />
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -596,31 +861,114 @@ export default function PortalTimePage() {
   );
 }
 
-function PeriodPanel({ profile }: { profile: OperatorTimekeepingProfileContext }) {
+function PayStatementsPanel({
+  statements,
+  isRefreshing,
+  error,
+  downloadingStatementId,
+  onDownload,
+}: {
+  statements: OperatorPayStatementSummary[];
+  isRefreshing: boolean;
+  error: unknown;
+  downloadingStatementId: string | null;
+  onDownload: (statement: OperatorPayStatementSummary) => void;
+}) {
+  return (
+    <div className="card-elevated overflow-hidden">
+      <div className="border-b border-border px-4 py-4 sm:px-5">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
+            <FileText className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-balance text-lg font-semibold text-foreground">Pay Statements</h2>
+            <p className="mt-1 text-pretty text-sm text-muted-foreground">
+              Download issued pay statements for finalized payout periods.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="px-4 py-6 text-sm text-destructive">
+          Unable to load pay statements. Refresh and try again.
+        </div>
+      ) : statements.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+          {isRefreshing ? 'Loading pay statements...' : 'No pay statements yet.'}
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {statements.map((statement) => (
+            <article key={statement.id} className="px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="break-words text-balance font-semibold text-foreground">
+                      {formatOperatorPayStatementLabel(statement.statementLabel)}
+                    </h3>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                      v{statement.version}
+                    </span>
+                    {statement.revisionCount > 0 && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                        Revised
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm tabular-nums text-muted-foreground">
+                    {statement.statementNumber}
+                  </p>
+                  <div className="mt-3 grid gap-2 text-sm tabular-nums text-muted-foreground sm:grid-cols-2">
+                    <span>
+                      {formatDate(statement.periodStartDate)} to{' '}
+                      {formatDate(statement.periodEndDate)}
+                    </span>
+                    <span>Issued {formatDate(statement.issuedAt)}</span>
+                    <span>Target payout {formatDate(statement.targetPayoutDate)}</span>
+                    <span className="font-semibold tabular-nums text-foreground">
+                      {formatCurrency(statement.totalPayoutCents)}
+                    </span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onDownload(statement)}
+                  disabled={downloadingStatementId === statement.id}
+                  className={timeSmallActionClassName}
+                >
+                  {downloadingStatementId === statement.id ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-1.5 h-4 w-4" />
+                  )}
+                  Download pay statement
+                </Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PeriodDetails({ profile }: { profile: OperatorTimekeepingProfileContext }) {
   const period = profile.currentPeriod;
 
   return (
-    <div className="card-elevated p-4 sm:p-5">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
-          <CalendarClock className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Current Payout Period</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {profile.accountName} - {profile.policy.name}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <Metric label="Period" value={`${formatDate(period.periodStartDate)} to ${formatDate(period.periodEndDate)}`} />
-        <Metric label="Status" value={getStatusLabel(period.status)} />
-        <Metric label="Time due" value={formatDate(period.submissionDueDate)} />
-        <Metric label="Locks" value={formatDate(period.lockDate)} />
-        <Metric label="Target payout" value={formatDate(period.targetPayoutDate)} />
-        <Metric label="Rounding" value={profile.policy.roundingRule.replaceAll('_', ' ')} />
-      </div>
+    <div className={cn('mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4', timeInsetPanelClassName)}>
+      <Metric
+        label="Period"
+        value={`${formatDate(period.periodStartDate)} to ${formatDate(period.periodEndDate)}`}
+      />
+      <Metric label="Time due" value={formatDate(period.submissionDueDate)} />
+      <Metric label="Locks" value={formatDate(period.lockDate)} />
+      <Metric label="Rounding" value={profile.policy.roundingRule.replaceAll('_', ' ')} />
     </div>
   );
 }
@@ -629,7 +977,9 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold text-foreground">{value}</p>
+      <p className="mt-1 break-words text-sm font-semibold tabular-nums text-foreground">
+        {value}
+      </p>
     </div>
   );
 }
@@ -670,10 +1020,10 @@ function ValidationPanel({
   }
 
   return (
-    <div className="mt-4 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+    <div className="mt-4 rounded-lg bg-amber-50 px-3 py-3 text-sm text-amber-950 shadow-[inset_0_0_0_1px_hsl(43_96%_56%/0.45)]">
       <div className="flex gap-2">
         <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
-        <div className="space-y-1">
+        <div className="space-y-1 text-pretty">
           {messages.map((message) => (
             <p key={message}>{message}</p>
           ))}
@@ -692,6 +1042,8 @@ function TimeEntriesPanel({
   onDelete,
   isDeleting,
   compact = false,
+  allowActions = true,
+  readOnlyMessage,
 }: {
   title: string;
   description: string;
@@ -701,12 +1053,14 @@ function TimeEntriesPanel({
   onDelete: (entry: OperatorTimeEntry) => void;
   isDeleting: boolean;
   compact?: boolean;
+  allowActions?: boolean;
+  readOnlyMessage?: string;
 }) {
   return (
     <div className="card-elevated overflow-hidden">
       <div className="border-b border-border px-4 py-4 sm:px-5">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        <h2 className="text-balance text-lg font-semibold text-foreground">{title}</h2>
+        <p className="mt-1 text-pretty text-sm text-muted-foreground">{description}</p>
       </div>
 
       {entries.length === 0 ? (
@@ -721,15 +1075,17 @@ function TimeEntriesPanel({
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="break-words font-semibold text-foreground">
+                      <h3 className="break-words text-balance font-semibold text-foreground">
                         {entry.machineLabel}
                       </h3>
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                         {getStatusLabel(entry.status)}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{entry.locationName}</p>
-                    <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                    <p className="mt-1 text-pretty text-sm text-muted-foreground">
+                      {entry.locationName}
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm tabular-nums text-muted-foreground sm:grid-cols-2">
                       <span>{formatDate(entry.workDate)}</span>
                       <span>
                         {entry.startTime} to {entry.endTime}
@@ -738,38 +1094,48 @@ function TimeEntriesPanel({
                       <span>Paid: {formatPaidHours(entry.roundedPaidMinutes)}</span>
                     </div>
                     {!compact && entry.notes && (
-                      <p className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                      <p className="mt-3 rounded-lg bg-muted/50 px-3 py-2 text-pretty text-sm text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border))]">
                         {entry.notes}
                       </p>
                     )}
                   </div>
 
-                  <div className="flex flex-wrap gap-2 lg:justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onEdit(entry)}
-                      disabled={locked}
-                    >
-                      <Edit3 className="mr-1.5 h-4 w-4" />
-                      Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDelete(entry)}
-                      disabled={locked || isDeleting}
-                    >
-                      {isDeleting ? (
-                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="mr-1.5 h-4 w-4" />
-                      )}
-                      Delete
-                    </Button>
-                  </div>
+                  {allowActions ? (
+                    <div className="flex flex-wrap gap-2 lg:justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onEdit(entry)}
+                        disabled={locked}
+                        className={timeSmallActionClassName}
+                      >
+                        <Edit3 className="mr-1.5 h-4 w-4" />
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onDelete(entry)}
+                        disabled={locked || isDeleting}
+                        className={timeSmallActionClassName}
+                      >
+                        {isDeleting ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="mr-1.5 h-4 w-4" />
+                        )}
+                        Delete
+                      </Button>
+                    </div>
+                  ) : (
+                    readOnlyMessage && (
+                      <p className="text-pretty text-sm text-muted-foreground lg:max-w-56 lg:text-right">
+                        {readOnlyMessage}
+                      </p>
+                    )
+                  )}
                 </div>
               </article>
             );

@@ -66,11 +66,13 @@ for (const snippet of [
   'submitOperatorTimeEntry',
   'updateOperatorTimeEntry',
   'voidOperatorTimeEntry',
-  'assigned-machine',
+  'assigned machine',
   'overlaps',
   '10+ hours',
   'End time must be after start time',
-  'Delete this unlocked time entry',
+  'Delete this submitted time entry',
+  'duplicate of an existing shift',
+  'Past shifts are view-only here',
 ]) {
   if (!page.includes(snippet)) {
     fail(`Time page missing ${snippet}`);
@@ -78,6 +80,8 @@ for (const snippet of [
 }
 
 expect(readText(files.app), 'path="/portal/time"', 'App route');
+expect(readText(files.app), 'path="/portal/time/new"', 'App Add Time route');
+expect(readText(files.app), 'path="/portal/time/:entryId/edit"', 'App Edit Time route');
 expect(readText(files.nav), "href: '/portal/time'", 'portal navigation');
 expect(readText(files.helper), 'fetchMyOperatorTimekeepingContext', 'operator payout helper');
 expect(readText(files.smoke), 'Operator Time (`/portal/time`)', 'smoke checklist');
