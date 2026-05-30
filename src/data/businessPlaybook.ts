@@ -942,7 +942,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
             ],
             [
               "Freight, duties, and import fees",
-              "Shipping from China if applicable, tariffs, customs duties, brokerage, landed-cost terms",
+              "International freight if applicable, tariffs, customs duties, brokerage, landed-cost terms",
               "Ask whether these are included in the quote or paid separately",
             ],
             [
@@ -1174,7 +1174,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         body: [
           "The first number in the model is the amount you are trying to recover. Machine price matters, but it is rarely the whole launch budget.",
           "If a list price does not include import fees, tariffs, shipping, duties, customs brokerage, delivery, setup, payment hardware, accessories, sugar, sticks, local readiness, or a small operating buffer, those belong in the worksheet before you calculate payback.",
-          "This is especially important for machines or parts coming from China. Do not assume the quote and the landed cost are the same thing until shipping, tariff, duty, brokerage, and delivery terms are clear.",
+          "This is especially important for imported machines or replacement parts. Do not assume the quote and the landed cost are the same thing until shipping, tariff, duty, brokerage, and delivery terms are clear.",
         ],
         table: {
           caption: "Startup-cost rows to confirm before using any payback model.",
