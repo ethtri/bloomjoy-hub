@@ -52,7 +52,7 @@ export default function OnboardingPage() {
                 { label: `${progressPercent}% ready`, tone: 'muted' },
               ]}
               actions={
-                <Button asChild variant="outline">
+                <Button asChild variant="outline" className="min-h-11">
                   <Link to="/portal/training">
                     Go to Training
                     <ArrowRight className="ml-2 h-4 w-4" />
@@ -105,11 +105,13 @@ export default function OnboardingPage() {
                     step.completed && 'bg-muted/50'
                   )}
                 >
-                  <div className="flex items-start gap-4">
+                  <div className="flex items-start gap-3 sm:gap-4">
                     <button
+                      type="button"
+                      aria-label={`${step.completed ? 'Mark incomplete' : 'Mark complete'}: ${step.title}`}
                       onClick={() => toggleStep(step.id)}
                       className={cn(
-                        'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                        'flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
                         step.completed
                           ? 'border-sage bg-sage text-sage-light'
                           : 'border-border hover:border-primary'
@@ -129,7 +131,7 @@ export default function OnboardingPage() {
                       <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
                       {step.action && !step.completed && (
                         <Link to={step.action.href} className="mt-3 inline-block w-full sm:w-auto">
-                          <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                          <Button variant="outline" size="sm" className="min-h-11 w-full sm:w-auto">
                             {step.action.label}
                             <ArrowRight className="ml-2 h-4 w-4" />
                           </Button>

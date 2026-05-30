@@ -199,6 +199,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
+- [ ] `/portal/orders`, `/portal/account`, `/portal/support`, `/portal/onboarding`, and `/portal/training` keep page actions, form controls, filters, order-card actions, Technician controls, and checklist toggles at touch-friendly sizes on mobile viewports (360x800, 390x844, 414x896)
 - [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
 - [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
 - [ ] Plus Account Owner sees Technician Access in Settings (`/portal/account`) with seat usage, owned machines, and current Technician grants

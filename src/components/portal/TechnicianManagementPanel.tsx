@@ -430,7 +430,7 @@ export function TechnicianManagementPanel() {
                         value={getAccountSelectionKey(selectedAccount)}
                         onValueChange={setSelectedAccountId}
                       >
-                        <SelectTrigger id="technician-account" className="mt-2">
+                        <SelectTrigger id="technician-account" className="mt-2 min-h-11">
                           <SelectValue placeholder="Select account" />
                         </SelectTrigger>
                         <SelectContent>
@@ -487,7 +487,7 @@ export function TechnicianManagementPanel() {
                         value={technicianEmail}
                         onChange={(event) => setTechnicianEmail(event.target.value)}
                         placeholder="technician@example.com"
-                        className="mt-2"
+                        className="mt-2 h-11"
                         disabled={grantMutation.isPending}
                       />
                       <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -500,7 +500,7 @@ export function TechnicianManagementPanel() {
                         id="technician-reason"
                         value={grantReason}
                         onChange={(event) => setGrantReason(event.target.value)}
-                        className="mt-2"
+                        className="mt-2 h-11"
                         disabled={grantMutation.isPending}
                       />
                     </div>
@@ -543,7 +543,7 @@ export function TechnicianManagementPanel() {
                         : 'No machines selected; this Technician will receive training only.'}
                     </p>
                     <Button
-                      className="w-full sm:w-auto"
+                      className="min-h-11 w-full sm:w-auto"
                       onClick={handleAddTechnician}
                       disabled={
                         grantMutation.isPending ||
@@ -655,6 +655,7 @@ export function TechnicianManagementPanel() {
             <Button
               type="button"
               variant="outline"
+              className="min-h-11"
               onClick={() => setRevokeTarget(null)}
               disabled={revokeMutation.isPending}
             >
@@ -663,6 +664,7 @@ export function TechnicianManagementPanel() {
             <Button
               type="button"
               variant="destructive"
+              className="min-h-11"
               onClick={handleRevoke}
               disabled={revokeMutation.isPending || !revokeReason.trim()}
             >
@@ -744,7 +746,7 @@ function TechnicianGrantRow({
             size="sm"
             onClick={onStartEdit}
             disabled={isSaving}
-            className="w-full sm:w-auto"
+            className="min-h-11 w-full sm:w-auto"
           >
             <Pencil className="mr-1.5 h-4 w-4" />
             Edit Access
@@ -755,7 +757,7 @@ function TechnicianGrantRow({
             size="sm"
             onClick={onRevoke}
             disabled={isSaving}
-            className="w-full sm:w-auto"
+            className="min-h-11 w-full sm:w-auto"
           >
             <UserMinus className="mr-1.5 h-4 w-4" />
             Revoke
@@ -778,7 +780,7 @@ function TechnicianGrantRow({
               id={`edit-reason-${grant.grantId}`}
               value={editReason}
               onChange={(event) => onChangeEditReason(event.target.value)}
-              className="mt-2"
+              className="mt-2 h-11"
               disabled={isSaving}
             />
           </div>
@@ -789,11 +791,18 @@ function TechnicianGrantRow({
                 : 'One assigned machine selected.'}
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button type="button" variant="outline" onClick={onCancelEdit} disabled={isSaving}>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={onCancelEdit}
+                disabled={isSaving}
+              >
                 Cancel
               </Button>
               <Button
                 type="button"
+                className="min-h-11"
                 onClick={onSaveEdit}
                 disabled={isSaving}
               >
@@ -841,7 +850,7 @@ function LegacyTrainingGrantRow({
           size="sm"
           onClick={onRevoke}
           disabled={isRevoking}
-          className="w-full sm:w-auto lg:shrink-0"
+          className="min-h-11 w-full sm:w-auto lg:shrink-0"
         >
           <UserMinus className="mr-1.5 h-4 w-4" />
           Revoke
@@ -911,7 +920,7 @@ function MachineAssignmentPicker({
         <label
           htmlFor={`${name}-training-only`}
           className={cn(
-            'flex cursor-pointer items-start gap-3 border-b border-border/60 p-3',
+            'flex min-h-12 cursor-pointer items-start gap-3 border-b border-border/60 p-3',
             disabled && 'cursor-not-allowed opacity-70'
           )}
         >
@@ -942,7 +951,7 @@ function MachineAssignmentPicker({
                   key={machine.machineId}
                   htmlFor={radioId}
                   className={cn(
-                    'flex cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
+                    'flex min-h-12 cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
                     disabled && 'cursor-not-allowed opacity-70'
                   )}
                 >

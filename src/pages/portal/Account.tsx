@@ -247,13 +247,14 @@ export default function AccountPage() {
               isCorporatePartnerOnly ? undefined : hasPaidBilling ? (
                 <Button
                   variant="outline"
+                  className="min-h-11"
                   onClick={handleManageBilling}
                   disabled={isOpeningPortal || isMembershipLoading}
                 >
                   {isOpeningPortal ? 'Opening billing...' : 'Manage Billing'}
                 </Button>
               ) : !isMember ? (
-                <Button asChild variant="outline">
+                <Button asChild variant="outline" className="min-h-11">
                   <Link to="/plus">View Plus Membership</Link>
                 </Button>
               ) : undefined
@@ -284,7 +285,7 @@ export default function AccountPage() {
                 <div className="mt-6 grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium text-foreground">{t('account.email')}</label>
-                    <Input value={user?.email || ''} disabled className="mt-1" />
+                    <Input value={user?.email || ''} disabled className="mt-1 h-11" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-foreground">{t('account.name')}</label>
@@ -292,7 +293,7 @@ export default function AccountPage() {
                       value={profileForm.fullName}
                       onChange={(event) => updateProfileField('fullName', event.target.value)}
                       placeholder={t('account.namePlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
@@ -302,7 +303,7 @@ export default function AccountPage() {
                       value={profileForm.companyName}
                       onChange={(event) => updateProfileField('companyName', event.target.value)}
                       placeholder={t('account.companyPlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
@@ -312,13 +313,13 @@ export default function AccountPage() {
                       value={profileForm.phone}
                       onChange={(event) => updateProfileField('phone', event.target.value)}
                       placeholder={t('account.phonePlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
                 </div>
                 <Button
-                  className="mt-6 w-full sm:w-auto"
+                  className="mt-6 min-h-11 w-full sm:w-auto"
                   onClick={saveProfileSection}
                   disabled={saveProfileMutation.isPending || isProfileLoading}
                 >
@@ -343,7 +344,7 @@ export default function AccountPage() {
                       value={profileForm.shippingStreet1}
                       onChange={(event) => updateProfileField('shippingStreet1', event.target.value)}
                       placeholder={t('account.streetPlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
@@ -355,7 +356,7 @@ export default function AccountPage() {
                       value={profileForm.shippingStreet2}
                       onChange={(event) => updateProfileField('shippingStreet2', event.target.value)}
                       placeholder={t('account.apartmentPlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
@@ -365,7 +366,7 @@ export default function AccountPage() {
                       value={profileForm.shippingCity}
                       onChange={(event) => updateProfileField('shippingCity', event.target.value)}
                       placeholder={t('account.cityPlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
@@ -375,7 +376,7 @@ export default function AccountPage() {
                       value={profileForm.shippingState}
                       onChange={(event) => updateProfileField('shippingState', event.target.value)}
                       placeholder={t('account.statePlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
@@ -387,7 +388,7 @@ export default function AccountPage() {
                         updateProfileField('shippingPostalCode', event.target.value)
                       }
                       placeholder={t('account.zipPlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
@@ -397,13 +398,13 @@ export default function AccountPage() {
                       value={profileForm.shippingCountry}
                       onChange={(event) => updateProfileField('shippingCountry', event.target.value)}
                       placeholder={t('account.countryPlaceholder')}
-                      className="mt-1"
+                      className="mt-1 h-11"
                       disabled={isProfileLoading}
                     />
                   </div>
                 </div>
                 <Button
-                  className="mt-6 w-full sm:w-auto"
+                  className="mt-6 min-h-11 w-full sm:w-auto"
                   onClick={saveShippingSection}
                   disabled={saveProfileMutation.isPending || isProfileLoading}
                 >
@@ -436,7 +437,7 @@ export default function AccountPage() {
                 {hasPaidBilling ? (
                   <Button
                     variant="outline"
-                    className="mt-4 w-full"
+                    className="mt-4 min-h-11 w-full"
                     onClick={handleManageBilling}
                     disabled={isOpeningPortal || !user?.email || isMembershipLoading}
                   >
@@ -444,7 +445,7 @@ export default function AccountPage() {
                     {isOpeningPortal ? 'Opening...' : 'Open Billing Portal'}
                   </Button>
                 ) : !isMember ? (
-                  <Button asChild variant="outline" className="mt-4 w-full">
+                  <Button asChild variant="outline" className="mt-4 min-h-11 w-full">
                     <Link to="/plus">View Plus Membership</Link>
                   </Button>
                 ) : null}

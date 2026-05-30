@@ -79,10 +79,15 @@ export default function OrdersPage() {
             ]}
             actions={
               <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap">
-                <Button asChild variant="outline">
+                <Button asChild variant="outline" className="min-h-11">
                   <a href={reorderSuppliesUrl}>Reorder Supplies</a>
                 </Button>
-                <Button variant="outline" onClick={refreshOrders} disabled={isFetching}>
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={refreshOrders}
+                  disabled={isFetching}
+                >
                   {isFetching ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
@@ -115,14 +120,16 @@ export default function OrdersPage() {
               {!isLoading &&
                 orders.map((order) => (
                   <div key={order.id} className="card-elevated p-4 sm:p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-foreground">{getOrderReference(order)}</p>
+                    <div className="flex flex-col gap-2 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
+                      <div className="min-w-0">
+                        <p className="break-words font-semibold text-foreground">
+                          {getOrderReference(order)}
+                        </p>
                         <p className="mt-1 text-sm text-muted-foreground">
                           {formatDate(order.created_at)}
                         </p>
                       </div>
-                      <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                      <span className="self-start rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
                         {order.fulfillment_status}
                       </span>
                     </div>
@@ -133,11 +140,12 @@ export default function OrdersPage() {
                       </p>
                       <p>Payment: {order.status}</p>
                     </div>
-                    <div className="mt-4 flex gap-2 [&>*]:flex-1">
+                    <div className="mt-4 flex flex-col gap-2 min-[390px]:flex-row [&>*]:flex-1">
                       <Button
                         asChild={Boolean(order.receipt_url)}
                         variant="outline"
                         size="sm"
+                        className="min-h-11"
                         disabled={!order.receipt_url}
                       >
                         {order.receipt_url ? (
@@ -152,6 +160,7 @@ export default function OrdersPage() {
                         asChild={Boolean(order.fulfillment_tracking_url)}
                         variant="ghost"
                         size="sm"
+                        className="min-h-11"
                         disabled={!order.fulfillment_tracking_url}
                       >
                         {order.fulfillment_tracking_url ? (

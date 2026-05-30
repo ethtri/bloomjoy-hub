@@ -80,7 +80,7 @@ export function PortalPageIntro({
           )}
         </div>
         {actions && (
-          <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end [&>*]:w-full sm:[&>*]:w-auto">
+          <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end [&>*]:min-h-11 [&>*]:w-full sm:[&>*]:w-auto">
             {actions}
           </div>
         )}
