@@ -13,7 +13,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Durable References
 
-- Product and decisions: `PRODUCT.md`, `Docs/DECISIONS.md`
+- Product and decisions: `Docs/DECISIONS.md`; use `PRODUCT.md` or `DESIGN.md` only when they exist in the repo
 - Local setup and verification: `Docs/LOCAL_DEV.md`, `Docs/QA_SMOKE_TEST_CHECKLIST.md`
 - Production operations: `Docs/PRODUCTION_RUNBOOK.md`
 - Architecture and scope: `Docs/ARCHITECTURE.md`, `Docs/MVP_SCOPE.md`
