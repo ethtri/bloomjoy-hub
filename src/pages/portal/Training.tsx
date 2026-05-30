@@ -730,7 +730,7 @@ export default function TrainingPage() {
                   <button
                     type="button"
                     onClick={() => focusLibraryExplorer()}
-                    className="inline-flex items-center justify-center gap-2 text-sm font-medium text-primary hover:text-primary/80"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 text-sm font-medium text-primary hover:text-primary/80"
                   >
                     {t('training.searchInstead')}
                     <ArrowRight className="h-4 w-4" />
@@ -756,7 +756,7 @@ export default function TrainingPage() {
                 </div>
                 <Button
                   variant="ghost"
-                  className="w-full justify-start px-0 text-primary hover:bg-transparent sm:w-fit"
+                  className="min-h-11 w-full justify-start px-0 text-primary hover:bg-transparent sm:w-fit"
                   onClick={() => focusLibraryExplorer()}
                 >
                   {t('training.exploreFullLibrary')}
@@ -805,7 +805,7 @@ export default function TrainingPage() {
                     key={trackDefinition.id}
                     type="button"
                     onClick={() => handleSelectTrack(trackDefinition.id)}
-                    className={`rounded-2xl border p-4 text-left transition-all ${
+                    className={`min-h-24 rounded-2xl border p-4 text-left transition-all ${
                       isActive
                         ? 'border-primary/30 bg-primary/5 shadow-sm'
                         : 'border-border bg-background hover:border-primary/20 hover:bg-muted/20'
@@ -913,14 +913,14 @@ export default function TrainingPage() {
                     placeholder={t('training.searchPlaceholder')}
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    className="pl-10"
+                    className="h-11 pl-10"
                   />
                 </div>
 
                 <div className="flex w-full flex-wrap items-center gap-3 lg:w-auto">
                   <Collapsible open={advancedFiltersOpen} onOpenChange={setAdvancedFiltersOpen}>
                     <CollapsibleTrigger asChild>
-                      <Button variant="outline" className="w-full sm:w-auto">
+                      <Button variant="outline" className="min-h-11 w-full sm:w-auto">
                         {t('training.moreFilters')}
                         {activeFilterCount > 0 && (
                           <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
@@ -944,7 +944,7 @@ export default function TrainingPage() {
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button
                                 onClick={() => setSelectedModule('All modules')}
-                                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                className={`min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                                   selectedModule === 'All modules'
                                     ? 'bg-primary text-primary-foreground'
                                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
@@ -956,7 +956,7 @@ export default function TrainingPage() {
                                 <button
                                   key={moduleLabel}
                                   onClick={() => setSelectedModule(moduleLabel)}
-                                  className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                  className={`min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                                     selectedModule === moduleLabel
                                       ? 'bg-primary text-primary-foreground'
                                       : 'bg-muted text-muted-foreground hover:bg-muted/80'
@@ -976,7 +976,7 @@ export default function TrainingPage() {
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button
                               onClick={() => setSelectedFormat('All formats')}
-                              className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                              className={`min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                                 selectedFormat === 'All formats'
                                   ? 'bg-primary text-primary-foreground'
                                   : 'bg-muted text-muted-foreground hover:bg-muted/80'
@@ -988,7 +988,7 @@ export default function TrainingPage() {
                               <button
                                 key={formatLabel}
                                 onClick={() => setSelectedFormat(formatLabel)}
-                                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                className={`min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                                   selectedFormat === formatLabel
                                     ? 'bg-primary text-primary-foreground'
                                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
@@ -1009,7 +1009,7 @@ export default function TrainingPage() {
                               <button
                                 key={tag}
                                 onClick={() => toggleTopicTag(tag)}
-                                className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                                className={`min-h-11 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
                                   selectedTopicTags.includes(tag)
                                     ? 'bg-primary text-primary-foreground'
                                     : 'bg-muted text-muted-foreground hover:bg-muted/80'
@@ -1023,7 +1023,11 @@ export default function TrainingPage() {
                       </div>
 
                       {activeFilterCount > 0 && (
-                        <Button variant="ghost" className="mt-4 px-0 text-primary" onClick={resetFilters}>
+                        <Button
+                          variant="ghost"
+                          className="mt-4 min-h-11 px-0 text-primary"
+                          onClick={resetFilters}
+                        >
                           {t('training.resetFilters')}
                         </Button>
                       )}
@@ -1175,7 +1179,7 @@ export default function TrainingPage() {
                 </p>
                 <Button
                   variant="outline"
-                  className="mt-5"
+                  className="mt-5 min-h-11"
                   onClick={() => {
                     setSearch('');
                     setSelectedTrack('all');
@@ -1220,7 +1224,11 @@ export default function TrainingPage() {
                         }),
                       })}
                     </p>
-                    <Button variant="outline" className="mt-4 w-full sm:w-auto" onClick={handleDownloadCertificate}>
+                    <Button
+                      variant="outline"
+                      className="mt-4 min-h-11 w-full sm:w-auto"
+                      onClick={handleDownloadCertificate}
+                    >
                       {t('training.downloadCertificate')}
                     </Button>
                   </div>
@@ -1249,7 +1257,7 @@ export default function TrainingPage() {
                     </label>
                     <Button
                       variant="outline"
-                      className="mt-4 w-full sm:w-auto"
+                      className="mt-4 min-h-11 w-full sm:w-auto"
                       onClick={handleUnlockCertificate}
                       disabled={
                         completedRequiredCount !== requiredTrackItems.length ||
@@ -1279,7 +1287,7 @@ export default function TrainingPage() {
                     {t('training.goSupportTip')}
                   </p>
                 </div>
-                <Button asChild variant="outline" className="mt-6 w-full sm:w-auto">
+                <Button asChild variant="outline" className="mt-6 min-h-11 w-full sm:w-auto">
                   <Link to="/portal/support">{t('training.goToSupport')}</Link>
                 </Button>
               </div>

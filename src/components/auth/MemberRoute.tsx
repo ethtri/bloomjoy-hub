@@ -70,11 +70,11 @@ export function MemberRoute() {
                 </div>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                   {lockedDestination.access !== 'baseline' && !isReportingRoute && (
-                    <Button asChild>
+                    <Button asChild className="min-h-11">
                       <Link to="/plus">View Plus Membership</Link>
                     </Button>
                   )}
-                  <Button asChild variant="outline">
+                  <Button asChild variant="outline" className="min-h-11">
                     <Link to="/portal">Back to Dashboard</Link>
                   </Button>
                 </div>

@@ -237,7 +237,7 @@ export default function SupportPage() {
               </p>
               <Button
                 variant="outline"
-                className="mt-4 w-full"
+                className="mt-4 min-h-11 w-full"
                 onClick={() => setActiveForm('wechat')}
               >
                 {t('support.viewSetupGuide')}
@@ -256,7 +256,7 @@ export default function SupportPage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 {t('support.wechatHelpDescription')}
               </p>
-              <Button className="mt-4 w-full" onClick={openWeChatOnboardingForm}>
+              <Button className="mt-4 min-h-11 w-full" onClick={openWeChatOnboardingForm}>
                 {t('support.requestOnboarding')}
               </Button>
             </div>
@@ -272,7 +272,7 @@ export default function SupportPage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 {t('support.conciergeDescription')}
               </p>
-              <Button className="mt-4 w-full" onClick={() => setActiveForm('concierge')}>
+              <Button className="mt-4 min-h-11 w-full" onClick={() => setActiveForm('concierge')}>
                 {t('support.submitRequest')}
               </Button>
             </div>
@@ -288,7 +288,11 @@ export default function SupportPage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 {t('support.partsDescription')}
               </p>
-              <Button variant="outline" className="mt-4 w-full" onClick={() => setActiveForm('parts')}>
+              <Button
+                variant="outline"
+                className="mt-4 min-h-11 w-full"
+                onClick={() => setActiveForm('parts')}
+              >
                 {t('support.requestParts')}
               </Button>
             </div>
@@ -374,13 +378,13 @@ export default function SupportPage() {
               <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <Button
                   variant="outline"
-                  className="w-full sm:w-auto"
+                  className="min-h-11 w-full sm:w-auto"
                   onClick={() => setActiveForm(null)}
                 >
                   {t('support.close')}
                 </Button>
                 <Button
-                  className="w-full sm:w-auto"
+                  className="min-h-11 w-full sm:w-auto"
                   onClick={openWeChatOnboardingForm}
                 >
                   {t('support.needOnboardingHelp')}
@@ -414,7 +418,7 @@ export default function SupportPage() {
                     }
                     placeholder={t('support.wechatSubjectPlaceholder')}
                     required
-                    className="mt-1"
+                    className="mt-1 h-11"
                   />
                 </div>
 
@@ -431,7 +435,7 @@ export default function SupportPage() {
                       }
                       placeholder="+1"
                       required
-                      className="mt-1"
+                      className="mt-1 h-11"
                     />
                   </div>
                   <div>
@@ -446,7 +450,7 @@ export default function SupportPage() {
                       }
                       placeholder={t('support.phoneNumberPlaceholder')}
                       required
-                      className="mt-1"
+                      className="mt-1 h-11"
                     />
                   </div>
                 </div>
@@ -462,7 +466,7 @@ export default function SupportPage() {
                           deviceType: e.target.value as WeChatDeviceType,
                         })
                       }
-                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       {(Object.keys(deviceLabelKeyMap) as WeChatDeviceType[]).map((value) => (
                         <option key={value} value={value}>
@@ -481,7 +485,7 @@ export default function SupportPage() {
                           blockedStep: e.target.value as WeChatBlockedStep,
                         })
                       }
-                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       {(Object.keys(blockedStepLabelKeyMap) as WeChatBlockedStep[]).map((value) => (
                         <option key={value} value={value}>
@@ -502,7 +506,7 @@ export default function SupportPage() {
                           referralNeeded: e.target.value as 'yes' | 'no' | 'unsure',
                         })
                       }
-                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="yes">{t('support.yes')}</option>
                       <option value="no">{t('support.no')}</option>
@@ -524,7 +528,7 @@ export default function SupportPage() {
                       })
                     }
                     placeholder={t('support.wechatIdPlaceholder')}
-                    className="mt-1"
+                    className="mt-1 h-11"
                   />
                 </div>
 
@@ -545,13 +549,13 @@ export default function SupportPage() {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row">
-                  <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
+                  <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={loading}>
                     {loading ? t('support.submitting') : t('support.submitOnboarding')}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    className="w-full sm:w-auto"
+                    className="min-h-11 w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
                   >
                     {t('support.cancel')}
@@ -584,7 +588,7 @@ export default function SupportPage() {
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                     placeholder={t('support.subjectPlaceholder')}
                     required
-                    className="mt-1"
+                    className="mt-1 h-11"
                   />
                 </div>
                 <div>
@@ -599,13 +603,13 @@ export default function SupportPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
-                  <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
+                  <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={loading}>
                     {loading ? t('support.submitting') : t('support.submitRequest')}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    className="w-full sm:w-auto"
+                    className="min-h-11 w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
                   >
                     {t('support.cancel')}
@@ -638,7 +642,7 @@ export default function SupportPage() {
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                     placeholder={t('support.partNamePlaceholder')}
                     required
-                    className="mt-1"
+                    className="mt-1 h-11"
                   />
                 </div>
                 <div>
@@ -652,13 +656,13 @@ export default function SupportPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
-                  <Button type="submit" className="w-full sm:w-auto" disabled={loading}>
+                  <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={loading}>
                     {loading ? t('support.submitting') : t('support.submitRequest')}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    className="w-full sm:w-auto"
+                    className="min-h-11 w-full sm:w-auto"
                     onClick={() => setActiveForm(null)}
                   >
                     {t('support.cancel')}
