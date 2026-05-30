@@ -108,6 +108,62 @@ export type OperatorTimeEntry = {
   updatedAt: string;
 };
 
+export type PayoutRevenueSnapshotWarning = {
+  code: string;
+  severity: 'info' | 'warning' | 'blocker';
+  message: string;
+  [key: string]: unknown;
+};
+
+export type PayoutRevenueSnapshotStatus =
+  | 'source_generated'
+  | 'manual_override'
+  | 'voided';
+
+export type PayoutRevenueSnapshot = {
+  id: string;
+  accountId: string;
+  payoutPeriodId: string;
+  machineId: string;
+  machineLabel: string;
+  locationId: string;
+  locationName: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  grossSalesCents: number;
+  refundAdjustmentCents: number;
+  netRevenueCents: number;
+  eligibleCommissionRevenueCents: number;
+  transactionCount: number;
+  sourceSalesRowCount: number;
+  sourceAdjustmentRowCount: number;
+  sourceLatestSaleDate: string | null;
+  sourceLatestAdjustmentDate: string | null;
+  sourceMetadata: Record<string, unknown>;
+  warnings: PayoutRevenueSnapshotWarning[];
+  status: PayoutRevenueSnapshotStatus;
+  manualOverrideReason: string | null;
+  generatedAt: string;
+  regeneratedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PayoutRevenueSnapshotContext = {
+  payoutPeriodId: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  snapshots: PayoutRevenueSnapshot[];
+  totals: {
+    grossSalesCents: number;
+    refundAdjustmentCents: number;
+    netRevenueCents: number;
+    eligibleCommissionRevenueCents: number;
+    transactionCount: number;
+    warningCount: number;
+  };
+};
+
 export type OperatorPayoutProfileContext = {
   id: string;
   accountId: string;
@@ -184,6 +240,39 @@ export type SaveOperatorTimeEntryInput = {
 
 export type UpdateOperatorTimeEntryInput = SaveOperatorTimeEntryInput & {
   timeEntryId: string;
+};
+
+export type GeneratePayoutRevenueSnapshotInput = {
+  payoutPeriodId: string;
+  machineId: string;
+  regenerate?: boolean;
+  reason?: string | null;
+};
+
+export type GeneratePayoutRevenueSnapshotsForPeriodInput = {
+  payoutPeriodId: string;
+  regenerate?: boolean;
+  reason?: string | null;
+};
+
+export type OverridePayoutRevenueSnapshotInput = {
+  payoutPeriodId: string;
+  machineId: string;
+  grossSalesCents: number;
+  refundAdjustmentCents: number;
+  reason: string;
+};
+
+export type GeneratePayoutRevenueSnapshotResult = {
+  snapshot: PayoutRevenueSnapshot;
+  idempotent?: boolean;
+  manualOverride?: boolean;
+};
+
+export type GeneratePayoutRevenueSnapshotsForPeriodResult = {
+  payoutPeriodId: string;
+  snapshotCount: number;
+  snapshots: PayoutRevenueSnapshot[];
 };
 
 export const roundOperatorPaidMinutes = (
@@ -307,6 +396,97 @@ export const voidOperatorTimeEntry = async ({
   }
 
   return payload.context;
+};
+
+export const fetchPayoutRevenueSnapshotContext = async (
+  payoutPeriodId: string
+): Promise<PayoutRevenueSnapshotContext> => {
+  const { data, error } = await supabaseClient.rpc('get_payout_revenue_snapshot_context', {
+    p_payout_period_id: payoutPeriodId,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load payout revenue snapshots.');
+  }
+
+  return {
+    payoutPeriodId,
+    periodStartDate: '',
+    periodEndDate: '',
+    snapshots: [],
+    totals: {
+      grossSalesCents: 0,
+      refundAdjustmentCents: 0,
+      netRevenueCents: 0,
+      eligibleCommissionRevenueCents: 0,
+      transactionCount: 0,
+      warningCount: 0,
+    },
+    ...((data as Partial<PayoutRevenueSnapshotContext> | null) ?? {}),
+  };
+};
+
+export const generatePayoutRevenueSnapshotAdmin = async ({
+  payoutPeriodId,
+  machineId,
+  regenerate = false,
+  reason = null,
+}: GeneratePayoutRevenueSnapshotInput): Promise<GeneratePayoutRevenueSnapshotResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_generate_payout_revenue_snapshot', {
+    p_payout_period_id: payoutPeriodId,
+    p_reporting_machine_id: machineId,
+    p_regenerate: regenerate,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to generate payout revenue snapshot.');
+  }
+
+  return data as GeneratePayoutRevenueSnapshotResult;
+};
+
+export const generatePayoutRevenueSnapshotsForPeriodAdmin = async ({
+  payoutPeriodId,
+  regenerate = false,
+  reason = null,
+}: GeneratePayoutRevenueSnapshotsForPeriodInput): Promise<GeneratePayoutRevenueSnapshotsForPeriodResult> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_generate_payout_revenue_snapshots_for_period',
+    {
+      p_payout_period_id: payoutPeriodId,
+      p_regenerate: regenerate,
+      p_reason: reason,
+    }
+  );
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to generate payout revenue snapshots.');
+  }
+
+  return data as GeneratePayoutRevenueSnapshotsForPeriodResult;
+};
+
+export const overridePayoutRevenueSnapshotAdmin = async ({
+  payoutPeriodId,
+  machineId,
+  grossSalesCents,
+  refundAdjustmentCents,
+  reason,
+}: OverridePayoutRevenueSnapshotInput): Promise<GeneratePayoutRevenueSnapshotResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_override_payout_revenue_snapshot', {
+    p_payout_period_id: payoutPeriodId,
+    p_reporting_machine_id: machineId,
+    p_gross_sales_cents: grossSalesCents,
+    p_refund_adjustment_cents: refundAdjustmentCents,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to override payout revenue snapshot.');
+  }
+
+  return data as GeneratePayoutRevenueSnapshotResult;
 };
 
 export const upsertOperatorPayoutProfileAdmin = async ({

@@ -74,6 +74,16 @@ const serviceRoleOnlyFunctions = [
     name: 'service_update_refund_case_as_actor',
     migrationName: '202605120002_refund_full_automation_foundation.sql',
   },
+  {
+    signature: 'public.operator_can_access_payout_revenue_snapshot_row(uuid, uuid, uuid, date, date)',
+    name: 'operator_can_access_payout_revenue_snapshot_row',
+    migrationName: '202605200003_operator_revenue_snapshots.sql',
+  },
+  {
+    signature: 'public.operator_revenue_snapshot_source_values(uuid, uuid)',
+    name: 'operator_revenue_snapshot_source_values',
+    migrationName: '202605200003_operator_revenue_snapshots.sql',
+  },
 ];
 
 const protectedAuthenticatedFunctions = [
