@@ -465,6 +465,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/reporting`
 - [ ] Admin can create a weekly partner PDF schedule with recipients and sees it in active schedules
 - [ ] Admin reporting shows report export archive, partner report exports, recent sales/refund import runs, and stale/failed sync status clearly
+- [ ] Admin Reporting > Exports shows multi-format partner report artifacts independently, labels PDF as the primary partner-facing report, labels CSV as the finance/reconciliation export, shows generated timestamps, and each artifact has its own Open action
 - [ ] Admin Reporting > Sync shows a refund adjustment review summary/list where ambiguous, unmatched, duplicate, invalid, and missing-status rows require review and do not silently affect settlement
 - [ ] Admin Reporting > Sync shows the latest live refund sync run after the scheduled workflow runs, and open/denied rows remain review-only
 - [ ] Admin reporting does not mark sales import freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
