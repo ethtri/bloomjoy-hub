@@ -24,7 +24,7 @@ alter table public.customer_accounts
   add column if not exists payout_state text,
   add column if not exists payout_postal_code text,
   add column if not exists payout_logo_storage_path text,
-  add column if not exists default_pay_statement_label text not null default 'Pay Stub',
+  add column if not exists default_pay_statement_label text not null default 'Pay Statement',
   add column if not exists pay_statement_footer_text text,
   add column if not exists default_worker_type text not null default 'contractor_1099',
   add column if not exists default_payout_policy_id uuid;
@@ -501,7 +501,7 @@ create table if not exists public.pay_statements (
   account_id uuid not null references public.customer_accounts (id) on delete cascade,
   operator_profile_id uuid not null references public.operator_payout_profiles (id) on delete restrict,
   statement_number text not null,
-  statement_label text not null default 'Pay Stub',
+  statement_label text not null default 'Pay Statement',
   status text not null default 'draft'
     check (status in ('draft', 'issued', 'revised', 'voided')),
   version integer not null default 1 check (version > 0),

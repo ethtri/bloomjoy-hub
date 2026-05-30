@@ -33,7 +33,7 @@ import {
   fetchMyOperatorPayStatementContext,
   fetchMyOperatorTimekeepingContext,
   fetchPayStatementArtifact,
-  formatOperatorPayStubLabel,
+  formatOperatorPayStatementLabel,
   paidMinutesToHours,
   roundOperatorPaidMinutes,
   submitOperatorTimeEntry,
@@ -410,10 +410,10 @@ export default function PortalTimePage() {
     try {
       const artifact = await fetchPayStatementArtifact(statement.id);
       downloadOperatorPayStatementHtml(artifact);
-      toast.success('Pay stub downloaded.');
+      toast.success('Pay statement downloaded.');
     } catch (downloadError) {
       toast.error(
-        downloadError instanceof Error ? downloadError.message : 'Unable to download pay stub.'
+        downloadError instanceof Error ? downloadError.message : 'Unable to download pay statement.'
       );
     } finally {
       setDownloadingStatementId(null);
@@ -493,7 +493,7 @@ export default function PortalTimePage() {
             description={
               isTimeEntryScreen
                 ? 'Submit one shift at a time.'
-                : 'Add time, review submitted shifts, and download pay stubs.'
+                : 'Add time, review submitted shifts, and download pay statements.'
             }
             badges={[
               {
@@ -796,7 +796,7 @@ export default function PortalTimePage() {
                           variant="outline"
                           className={cn('justify-start', timeActionClassName)}
                         >
-                          <a href="#pay-stubs">Download pay stubs</a>
+                          <a href="#pay-statements">Download pay statements</a>
                         </Button>
                       </div>
                     </div>
@@ -814,7 +814,7 @@ export default function PortalTimePage() {
                   </div>
 
                   <div className="space-y-6">
-                    <div id="pay-stubs">
+                    <div id="pay-statements">
                       <PayStatementsPanel
                         statements={issuedStatements}
                         isRefreshing={isFetchingStatements}
@@ -882,9 +882,9 @@ function PayStatementsPanel({
             <FileText className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-balance text-lg font-semibold text-foreground">Pay Stubs</h2>
+            <h2 className="text-balance text-lg font-semibold text-foreground">Pay Statements</h2>
             <p className="mt-1 text-pretty text-sm text-muted-foreground">
-              Download issued pay stubs for finalized payout periods.
+              Download issued pay statements for finalized payout periods.
             </p>
           </div>
         </div>
@@ -892,11 +892,11 @@ function PayStatementsPanel({
 
       {error ? (
         <div className="px-4 py-6 text-sm text-destructive">
-          Unable to load pay stubs. Refresh and try again.
+          Unable to load pay statements. Refresh and try again.
         </div>
       ) : statements.length === 0 ? (
         <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-          {isRefreshing ? 'Loading pay stubs...' : 'No pay stubs yet.'}
+          {isRefreshing ? 'Loading pay statements...' : 'No pay statements yet.'}
         </div>
       ) : (
         <div className="divide-y divide-border">
@@ -906,7 +906,7 @@ function PayStatementsPanel({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="break-words text-balance font-semibold text-foreground">
-                      {formatOperatorPayStubLabel(statement.statementLabel)}
+                      {formatOperatorPayStatementLabel(statement.statementLabel)}
                     </h3>
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                       v{statement.version}
@@ -946,7 +946,7 @@ function PayStatementsPanel({
                   ) : (
                     <Download className="mr-1.5 h-4 w-4" />
                   )}
-                  Download pay stub
+                  Download pay statement
                 </Button>
               </div>
             </article>

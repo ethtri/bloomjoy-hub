@@ -196,12 +196,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Mark reviewed, finalize, reopen, and void actions all require audit reasons and preserve review/revision snapshots.
 - [ ] Reopening or voiding an unissued run leaves the period ready for corrected calculation without unlocking unrelated admin surfaces.
 
-### Operator Pay Statements / Pay Stubs
+### Operator Pay Statements
 - [ ] Managers can preview pay statements before issuance from `/admin/payouts`; preview rows are not visible to operators and do not create statement records.
 - [ ] Issuing pay statements requires a finalized payout run plus an audit reason; reissuing existing statements also requires a revision reason.
 - [ ] Issuance creates one versioned statement per payable operator, marks previous versions revised, publishes portal availability, marks included time paid, and records an audit entry without executing payroll provider payments.
-- [ ] Operators see only latest issued pay stubs for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
-- [ ] Operators can download the generated pay stub artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total payout, disclaimer, and revision status.
+- [ ] Operators see only latest issued pay statements for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
+- [ ] Operators can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total payout, disclaimer, and revision status.
 - [ ] Direct artifact requests for drafts, missing statements, or another operator's statement fail with an access error.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out

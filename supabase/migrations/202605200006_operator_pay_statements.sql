@@ -133,7 +133,7 @@ begin
     'schemaVersion', 'operator-pay-statement-v1',
     'id', null,
     'statementNumber', normalized_statement_number,
-    'statementLabel', coalesce(nullif(account_row.default_pay_statement_label, ''), 'Pay Stub'),
+    'statementLabel', coalesce(nullif(account_row.default_pay_statement_label, ''), 'Pay Statement'),
     'status', normalized_status,
     'version', statement_version,
     'generatedAt', generated_at,
@@ -475,7 +475,7 @@ begin
         (select nullif(account.default_pay_statement_label, '')
          from public.customer_accounts account
          where account.id = run_row.account_id),
-        'Pay Stub'
+        'Pay Statement'
       ),
       'issued',
       statement_version,

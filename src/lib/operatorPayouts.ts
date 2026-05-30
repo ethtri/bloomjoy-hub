@@ -194,14 +194,12 @@ export type OperatorPayStatementArtifact = {
   };
 };
 
-export const formatOperatorPayStubLabel = (label: string | null | undefined) => {
+export const formatOperatorPayStatementLabel = (label: string | null | undefined) => {
   const trimmedLabel = label?.trim();
 
-  if (!trimmedLabel) return 'Pay Stub';
+  if (!trimmedLabel) return 'Pay Statement';
 
-  return trimmedLabel.replace(/\bPay Statement(s?)\b/gi, (_match, plural: string) =>
-    `Pay Stub${plural ? 's' : ''}`
-  );
+  return trimmedLabel;
 };
 
 const getLocalDateInputValue = () => {
@@ -701,7 +699,7 @@ export const fetchMyOperatorPayStatementContext =
     const { data, error } = await supabaseClient.rpc('get_my_operator_pay_statement_context');
 
     if (error) {
-      throw new Error(error.message || 'Unable to load pay stubs.');
+      throw new Error(error.message || 'Unable to load pay statements.');
     }
 
     return {
@@ -718,7 +716,7 @@ export const fetchPayStatementArtifact = async (
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to load pay stub.');
+    throw new Error(error?.message || 'Unable to load pay statement.');
   }
 
   return data as OperatorPayStatementArtifact;
@@ -1194,7 +1192,7 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
     .filter(Boolean)
     .join(', ');
   const safeStatus = statement.status === 'revised' ? 'Revised' : 'Issued';
-  const statementLabel = formatOperatorPayStubLabel(statement.statementLabel);
+  const statementLabel = formatOperatorPayStatementLabel(statement.statementLabel);
   const machineRows = statement.machines
     .map(
       (machine) => `
@@ -1225,26 +1223,26 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
     <meta charset="utf-8" />
     <title>${escapeHtml(statement.statementNumber)}</title>
     <style>
-      :root { color-scheme: light; font-family: Inter, Arial, sans-serif; color: #1f2933; }
-      body { margin: 0; background: #f7faf9; }
+      :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: oklch(27% 0.018 172); }
+      body { margin: 0; background: oklch(98% 0.008 172); }
       main { max-width: 920px; margin: 0 auto; padding: 40px 24px; }
-      .sheet { background: #ffffff; border: 1px solid #d7dedb; border-radius: 8px; padding: 32px; }
-      header { display: flex; justify-content: space-between; gap: 24px; border-bottom: 1px solid #e6ebe9; padding-bottom: 24px; }
+      .sheet { background: oklch(99% 0.004 172); border: 1px solid oklch(88% 0.015 172); border-radius: 8px; padding: 32px; }
+      header { display: flex; justify-content: space-between; gap: 24px; border-bottom: 1px solid oklch(92% 0.012 172); padding-bottom: 24px; }
       h1, h2, p { margin: 0; }
       h1 { font-size: 28px; line-height: 1.2; }
       h2 { font-size: 16px; margin-top: 28px; margin-bottom: 12px; }
-      .muted { color: #60706a; font-size: 13px; line-height: 1.5; }
-      .status { display: inline-block; border: 1px solid #7aa391; border-radius: 999px; padding: 5px 10px; color: #2d5f4b; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+      .muted { color: oklch(48% 0.025 172); font-size: 13px; line-height: 1.5; }
+      .status { display: inline-block; border: 1px solid oklch(67% 0.065 164); border-radius: 999px; padding: 5px 10px; color: oklch(39% 0.07 164); font-size: 12px; font-weight: 700; text-transform: uppercase; }
       .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
-      .metric { border: 1px solid #e1e7e4; border-radius: 8px; padding: 14px; }
-      .label { color: #60706a; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+      .metric { border: 1px solid oklch(91% 0.014 172); border-radius: 8px; padding: 14px; }
+      .label { color: oklch(48% 0.025 172); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
       .value { margin-top: 8px; font-size: 18px; font-weight: 700; }
       table { width: 100%; border-collapse: collapse; font-size: 13px; }
-      th { text-align: left; color: #60706a; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid #e1e7e4; padding: 10px 8px; }
-      td { border-bottom: 1px solid #edf1ef; padding: 12px 8px; vertical-align: top; }
-      td span { color: #60706a; font-size: 12px; }
-      footer { margin-top: 28px; color: #60706a; font-size: 12px; line-height: 1.5; }
-      @media print { body { background: #fff; } main { padding: 0; } .sheet { border: 0; } }
+      th { text-align: left; color: oklch(48% 0.025 172); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid oklch(91% 0.014 172); padding: 10px 8px; }
+      td { border-bottom: 1px solid oklch(95% 0.01 172); padding: 12px 8px; vertical-align: top; }
+      td span { color: oklch(48% 0.025 172); font-size: 12px; }
+      footer { margin-top: 28px; color: oklch(48% 0.025 172); font-size: 12px; line-height: 1.5; }
+      @media print { body { background: oklch(99% 0.004 172); } main { padding: 0; } .sheet { border: 0; } }
     </style>
   </head>
   <body>

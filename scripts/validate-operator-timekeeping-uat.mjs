@@ -251,7 +251,7 @@ const buildPayStatementArtifact = () => ({
       },
     ],
     disclaimer:
-      'This pay stub summarizes Bloomjoy operator payout inputs. It is not tax or payroll advice.',
+      'This pay statement summarizes Bloomjoy operator payout inputs. It is not tax or payroll advice.',
     automation: {
       rawProviderPayloadsIncluded: false,
       taxComplianceEngine: false,
@@ -264,7 +264,7 @@ const buildPayStatementArtifact = () => ({
     source: 'database_payload',
     storageBucket: 'operator-pay-statements',
     storagePath: 'operators/may-2026.html',
-    downloadFileName: 'may-2026-pay-stub.html',
+    downloadFileName: 'may-2026-pay-statement.html',
   },
 });
 
@@ -409,7 +409,7 @@ const installMockSupabaseRoutes = async (context, state) => {
                   notificationStatus: 'portal_published',
                   targetPayoutDate: '2026-06-05',
                   revisionCount: 0,
-                  downloadFileName: 'may-2026-pay-stub.html',
+                  downloadFileName: 'may-2026-pay-statement.html',
                 },
               ],
             },
@@ -581,29 +581,28 @@ const run = async () => {
         (await page.getByText('Locks', { exact: true }).isVisible())
     );
     recorder.assert(
-      'Pay stub download is visible',
-      (await page.getByRole('heading', { name: 'Pay Stubs' }).isVisible()) &&
-        (await page.getByRole('button', { name: /download pay stub/i }).isVisible())
+      'Pay statement download is visible',
+      (await page.getByRole('heading', { name: 'Pay Statements' }).isVisible()) &&
+        (await page.getByRole('button', { name: /download pay statement/i }).isVisible())
     );
     recorder.assert(
-      'Operator-facing pay stub copy avoids pay statement terminology',
-      (await page.getByText(/Pay Statement/i).count()) === 0 &&
-        (await page.getByText('May 2026 Pay Stub').isVisible())
+      'Operator-facing pay statement copy uses approved terminology',
+      await page.getByText('May 2026 Pay Statement').isVisible()
     );
-    const payStubDownloadPromise = page.waitForEvent('download', { timeout: 10000 });
-    await page.getByRole('button', { name: /download pay stub/i }).click();
-    const payStubDownload = await payStubDownloadPromise;
+    const payStatementDownloadPromise = page.waitForEvent('download', { timeout: 10000 });
+    await page.getByRole('button', { name: /download pay statement/i }).click();
+    const payStatementDownload = await payStatementDownloadPromise;
     await waitForCondition(
       () => state.rpcCalls.some((call) => call.rpcName === 'get_pay_statement_artifact'),
       'Timed out waiting for get_pay_statement_artifact RPC'
     );
-    await page.getByText('Pay stub downloaded.').last().waitFor({ timeout: 10000 });
-    const payStubDownloadPath = await payStubDownload.path();
-    const downloadedPayStubHtml = payStubDownloadPath
-      ? await readFile(payStubDownloadPath, 'utf8')
+    await page.getByText('Pay statement downloaded.').last().waitFor({ timeout: 10000 });
+    const payStatementDownloadPath = await payStatementDownload.path();
+    const downloadedPayStatementHtml = payStatementDownloadPath
+      ? await readFile(payStatementDownloadPath, 'utf8')
       : '';
     recorder.assert(
-      'Pay stub download loads artifact payload',
+      'Pay statement download loads artifact payload',
       state.rpcCalls.some(
         (call) =>
           call.rpcName === 'get_pay_statement_artifact' &&
@@ -611,10 +610,12 @@ const run = async () => {
       )
     );
     recorder.assert(
-      'Downloaded pay stub HTML uses operator-facing terminology',
-      downloadedPayStubHtml.includes('May 2026 Pay Stub') &&
-        !downloadedPayStubHtml.includes('May 2026 Pay Statement') &&
-        payStubDownload.suggestedFilename() === 'may-2026-pay-stub.html'
+      'Downloaded pay statement HTML uses approved terminology',
+      downloadedPayStatementHtml.includes('May 2026 Pay Statement') &&
+        downloadedPayStatementHtml.includes(
+          'This pay statement summarizes Bloomjoy operator payout inputs'
+        ) &&
+        payStatementDownload.suggestedFilename() === 'may-2026-pay-statement.html'
     );
     recorder.assert(
       'Past shifts are review-only',
