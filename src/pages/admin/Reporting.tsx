@@ -7,10 +7,13 @@ import {
   CalendarDays,
   CheckCircle2,
   Database,
+  ExternalLink,
+  FileText,
   Info,
   Loader2,
   RefreshCw,
   ShieldCheck,
+  Table,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -30,9 +33,11 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   createReportScheduleAdmin,
+  createReportExportSignedUrl,
   fetchAdminReportingOverview,
   mapSourceMachineToPartnershipAdmin,
   setSunzeMachineDiscoveryStatusAdmin,
+  type AdminReportExportArtifact,
   type AdminReportSchedule,
   type AdminReportViewSnapshot,
   type AdminRefundAdjustmentReviewRow,
@@ -91,6 +96,9 @@ const formatCents = (value: unknown) => {
     maximumFractionDigits: 2,
   }).format(cents / 100);
 };
+
+const getExportArtifactIcon = (artifact: AdminReportExportArtifact) =>
+  artifact.format === 'csv' || artifact.format === 'xlsx' ? Table : FileText;
 
 const normalizeComparableText = (value: string | null | undefined) =>
   String(value ?? '')
@@ -1295,6 +1303,25 @@ function ImportRunRow({ run }: { run: AdminReportingImportRun }) {
 }
 
 function ExportsTab({ snapshots }: { snapshots: AdminReportViewSnapshot[] }) {
+  const [openingArtifactKey, setOpeningArtifactKey] = useState<string | null>(null);
+
+  const openArtifact = async (
+    snapshot: AdminReportViewSnapshot,
+    artifact: AdminReportExportArtifact
+  ) => {
+    const artifactKey = `${snapshot.id}:${artifact.storagePath}`;
+    setOpeningArtifactKey(artifactKey);
+
+    try {
+      const signedUrl = await createReportExportSignedUrl(artifact.storagePath);
+      window.open(signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to open report export.');
+    } finally {
+      setOpeningArtifactKey(null);
+    }
+  };
+
   return (
     <div className="rounded-lg border border-border bg-card">
       <ListHeader title="Recent Export Snapshots" count={snapshots.length} />
@@ -1312,8 +1339,67 @@ function ExportsTab({ snapshots }: { snapshots: AdminReportViewSnapshot[] }) {
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
                 Created {formatDate(snapshot.created_at)} /{' '}
-                {snapshot.export_storage_path ?? 'no file yet'}
+                {snapshot.exports.length === 0
+                  ? 'no files yet'
+                  : snapshot.exports.length === 1
+                    ? '1 artifact'
+                    : `${snapshot.exports.length} artifacts`}
               </div>
+              {snapshot.exports.length > 0 ? (
+                <div className="mt-3 grid gap-2">
+                  {snapshot.exports.map((artifact) => {
+                    const ArtifactIcon = getExportArtifactIcon(artifact);
+                    const artifactKey = `${snapshot.id}:${artifact.storagePath}`;
+                    const isOpening = openingArtifactKey === artifactKey;
+
+                    return (
+                      <div
+                        key={artifactKey}
+                        className={`grid gap-3 rounded-md border p-3 sm:grid-cols-[1fr_auto] sm:items-center ${
+                          artifact.isPrimary
+                            ? 'border-primary/30 bg-primary/5'
+                            : 'border-border bg-background'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                              <ArtifactIcon className="h-4 w-4" />
+                              {artifact.label}
+                            </span>
+                            {artifact.isPrimary && <Badge>Primary</Badge>}
+                          </div>
+                          <div className="mt-1 text-sm text-muted-foreground">
+                            {artifact.description}
+                          </div>
+                          <div className="mt-1 break-all text-xs text-muted-foreground">
+                            Generated {formatDate(artifact.generatedAt ?? snapshot.created_at)} /{' '}
+                            {artifact.fileName ?? artifact.storagePath}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void openArtifact(snapshot, artifact)}
+                          disabled={Boolean(openingArtifactKey)}
+                        >
+                          {isOpening ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                          )}
+                          Open
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-md border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  No artifact files recorded yet.
+                </div>
+              )}
               {snapshot.error_message && (
                 <div className="mt-2 text-xs text-destructive">{snapshot.error_message}</div>
               )}
