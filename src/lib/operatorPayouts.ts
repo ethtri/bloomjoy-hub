@@ -164,6 +164,116 @@ export type PayoutRevenueSnapshotContext = {
   };
 };
 
+export type OperatorCompensationRuleStatus = 'active' | 'inactive';
+
+export type OperatorCompensationRule = {
+  id: string;
+  accountId: string;
+  operatorProfileId: string | null;
+  operatorDisplayName: string | null;
+  machineId: string | null;
+  machineLabel: string | null;
+  locationId: string | null;
+  hourlyRateCents: number | null;
+  commissionBasisPoints: number | null;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+  status: OperatorCompensationRuleStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PayoutCalculationWarning = {
+  code: string;
+  severity: 'info' | 'warning' | 'blocker';
+  message: string;
+  [key: string]: unknown;
+};
+
+export type PayoutRunStatus =
+  | 'draft'
+  | 'review'
+  | 'finalized'
+  | 'issued'
+  | 'closed'
+  | 'reopened'
+  | 'voided';
+
+export type PayoutRunAdjustment = {
+  id: string;
+  amountCents: number;
+  adjustmentType: string;
+  description: string;
+  visibleToOperator: boolean;
+  createdAt: string;
+};
+
+export type PayoutRunItemMachine = {
+  id: string;
+  machineId: string;
+  machineLabel: string;
+  locationId: string;
+  locationName: string;
+  netRevenueCents: number;
+  eligibleNetRevenueCents: number;
+  commissionBasisPoints: number | null;
+  commissionPayCents: number;
+  shiftCount: number;
+  rawMinutes: number;
+  roundedPaidMinutes: number;
+  includedInCommissionBasis: boolean;
+  inclusionReason: string | null;
+};
+
+export type PayoutRunItem = {
+  id: string;
+  operatorProfileId: string;
+  operatorDisplayName: string;
+  workerType: OperatorWorkerType;
+  rawMinutes: number;
+  roundedPaidMinutes: number;
+  shiftCount: number;
+  hourlyRateCents: number | null;
+  hourlyPayCents: number;
+  eligibleNetRevenueCents: number;
+  commissionBasisPoints: number | null;
+  commissionPayCents: number;
+  adjustmentsTotalCents: number;
+  totalPayoutCents: number;
+  status: 'draft' | 'reviewed' | 'finalized' | 'issued' | 'revised' | 'voided';
+  warnings: PayoutCalculationWarning[];
+  calculationNotes: Record<string, unknown>;
+  machines: PayoutRunItemMachine[];
+  adjustments: PayoutRunAdjustment[];
+};
+
+export type PayoutRun = {
+  id: string;
+  accountId: string;
+  payoutPeriodId: string;
+  status: PayoutRunStatus;
+  totalRawMinutes: number;
+  totalRoundedPaidMinutes: number;
+  totalHourlyPayCents: number;
+  totalCommissionPayCents: number;
+  totalAdjustmentsCents: number;
+  totalPayoutCents: number;
+  warnings: PayoutCalculationWarning[];
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: PayoutRunItem[];
+};
+
+export type PayoutCalculationContext = {
+  payoutPeriodId: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  periodStatus: OperatorPayoutPeriodContext['status'];
+  payoutRun: PayoutRun | null;
+};
+
 export type OperatorPayoutProfileContext = {
   id: string;
   accountId: string;
@@ -273,6 +383,47 @@ export type GeneratePayoutRevenueSnapshotsForPeriodResult = {
   payoutPeriodId: string;
   snapshotCount: number;
   snapshots: PayoutRevenueSnapshot[];
+};
+
+export type UpsertOperatorCompensationRuleInput = {
+  ruleId?: string | null;
+  accountId: string;
+  operatorProfileId?: string | null;
+  machineId?: string | null;
+  hourlyRateCents?: number | null;
+  commissionBasisPoints?: number | null;
+  effectiveStartDate: string;
+  effectiveEndDate?: string | null;
+  status?: OperatorCompensationRuleStatus;
+  notes?: string | null;
+  reason: string;
+};
+
+export type CalculatePayoutRunInput = {
+  payoutPeriodId: string;
+  regenerate?: boolean;
+  reason?: string | null;
+};
+
+export type CalculatePayoutRunResult = {
+  payoutRun: PayoutRun;
+  idempotent?: boolean;
+  hasBlockers?: boolean;
+};
+
+export type AddPayoutAdjustmentInput = {
+  payoutRunId: string;
+  operatorProfileId: string;
+  amountCents: number;
+  adjustmentType?: string;
+  description: string;
+  visibleToOperator?: boolean;
+  reason: string;
+};
+
+export type AddPayoutAdjustmentResult = {
+  adjustment: Record<string, unknown>;
+  payoutRun: PayoutRun;
 };
 
 export const roundOperatorPaidMinutes = (
@@ -487,6 +638,105 @@ export const overridePayoutRevenueSnapshotAdmin = async ({
   }
 
   return data as GeneratePayoutRevenueSnapshotResult;
+};
+
+export const fetchPayoutCalculationContext = async (
+  payoutPeriodId: string
+): Promise<PayoutCalculationContext> => {
+  const { data, error } = await supabaseClient.rpc('get_payout_calculation_context', {
+    p_payout_period_id: payoutPeriodId,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load payout calculation.');
+  }
+
+  return {
+    payoutPeriodId,
+    periodStartDate: '',
+    periodEndDate: '',
+    periodStatus: 'open',
+    payoutRun: null,
+    ...((data as Partial<PayoutCalculationContext> | null) ?? {}),
+  };
+};
+
+export const upsertOperatorCompensationRuleAdmin = async ({
+  ruleId = null,
+  accountId,
+  operatorProfileId = null,
+  machineId = null,
+  hourlyRateCents = null,
+  commissionBasisPoints = null,
+  effectiveStartDate,
+  effectiveEndDate = null,
+  status = 'active',
+  notes = null,
+  reason,
+}: UpsertOperatorCompensationRuleInput): Promise<OperatorCompensationRule> => {
+  const { data, error } = await supabaseClient.rpc('admin_upsert_operator_compensation_rule', {
+    p_rule_id: ruleId,
+    p_account_id: accountId,
+    p_operator_profile_id: operatorProfileId,
+    p_reporting_machine_id: machineId,
+    p_hourly_rate_cents: hourlyRateCents,
+    p_commission_basis_points: commissionBasisPoints,
+    p_effective_start_date: effectiveStartDate,
+    p_effective_end_date: effectiveEndDate,
+    p_status: status,
+    p_notes: notes,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save compensation rule.');
+  }
+
+  return data as OperatorCompensationRule;
+};
+
+export const calculatePayoutRunAdmin = async ({
+  payoutPeriodId,
+  regenerate = false,
+  reason = null,
+}: CalculatePayoutRunInput): Promise<CalculatePayoutRunResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_calculate_payout_run', {
+    p_payout_period_id: payoutPeriodId,
+    p_regenerate: regenerate,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to calculate payout run.');
+  }
+
+  return data as CalculatePayoutRunResult;
+};
+
+export const addPayoutAdjustmentAdmin = async ({
+  payoutRunId,
+  operatorProfileId,
+  amountCents,
+  adjustmentType = 'manual_adjustment',
+  description,
+  visibleToOperator = true,
+  reason,
+}: AddPayoutAdjustmentInput): Promise<AddPayoutAdjustmentResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_add_payout_adjustment', {
+    p_payout_run_id: payoutRunId,
+    p_operator_profile_id: operatorProfileId,
+    p_amount_cents: amountCents,
+    p_adjustment_type: adjustmentType,
+    p_description: description,
+    p_visible_to_operator: visibleToOperator,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to add payout adjustment.');
+  }
+
+  return data as AddPayoutAdjustmentResult;
 };
 
 export const upsertOperatorPayoutProfileAdmin = async ({

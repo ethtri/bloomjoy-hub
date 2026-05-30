@@ -39,6 +39,7 @@
     "operator-payouts:validate-timekeeping": "node scripts/validate-operator-timekeeping.mjs",
     "operator-payouts:validate-timekeeping-uat": "node scripts/validate-operator-timekeeping-uat.mjs",
     "operator-payouts:validate-revenue-snapshots": "node scripts/validate-operator-revenue-snapshots.mjs",
+    "operator-payouts:validate-calculation": "node scripts/validate-operator-payout-calculation.mjs",
     "reporting:validate-partner-effective-windows": "node scripts/validate-partner-effective-windows.mjs",
     "reporting:validate-partner-scheduled-export": "node scripts/validate-partner-report-scheduled-export.mjs",
     "training:dedupe-catalog": "node scripts/dedupe-training-catalog.mjs",
