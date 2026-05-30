@@ -1,25 +1,29 @@
 # Current Status
 
-Last compacted: 2026-05-29
+Last compacted: 2026-05-30
 
 GitHub Issues and the Bloomjoy Project board are the operational source of truth for active work, priority, blockers, acceptance criteria, and closeout evidence.
 
-## Snapshot
+## Live Work
 
-- Bloomjoy Hub is past MVP and is being operated through focused PRs into `main`.
-- Static docs are now durable references and compact snapshots, not the active task ledger.
-- Workflow upgrade issue: https://github.com/ethtri/bloomjoy-hub/issues/459
-- Board audit at workflow-upgrade kickoff: 179 items, 46 Todo, 7 In Progress, 126 Done. Treat these counts as time-sensitive and verify against the live board before planning.
-- Open PRs at kickoff included stacked Operator Payouts PRs `#451` through `#457` and Mini draft `#442`.
+- Run `npm run agent:github-hygiene` before planning sprint work, branch syncs, or broad closeout.
+- Use issue labels, project status, PR checks, and latest issue/PR comments instead of static docs for task state.
+- Keep active blockers, UAT evidence, and closeout notes on the issue or PR where the work is happening.
+- Do not add running task chronology, stale PR lists, old branch names, or historical completed-work ledgers here.
 
-## Current Work Themes
+## Durable References
+
+- Product and decisions: `PRODUCT.md`, `Docs/DECISIONS.md`
+- Local setup and verification: `Docs/LOCAL_DEV.md`, `Docs/QA_SMOKE_TEST_CHECKLIST.md`
+- Production operations: `Docs/PRODUCTION_RUNBOOK.md`
+- Architecture and scope: `Docs/ARCHITECTURE.md`, `Docs/MVP_SCOPE.md`
+
+## Current Themes
 
 - Refund operations and customer-refund pilot readiness remain high-sensitivity operational surfaces.
 - Operator payouts, partner reporting, and scheduled exports are active shared foundations.
 - Frontend work should use existing app patterns plus `PRODUCT.md`, `DESIGN.md`, and `impeccable` when the visible experience matters.
 
-## Blocker Policy
+## Safety
 
-- Put live blockers on the GitHub issue or PR where the work is happening.
-- Use this file only for compact launch-level blockers or cross-cutting context that should survive beyond a single issue.
 - Never paste secrets, raw customer data, payment IDs, vendor exports, or free-text complaint content into docs, issues, PRs, or chat.
