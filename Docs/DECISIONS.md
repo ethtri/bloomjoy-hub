@@ -1,5 +1,21 @@
 # Decisions
 
+## 2026-05-20 - Right-sized operator payouts and payroll automation (`#443`, `#444`)
+Bloomjoy will build Operator Payouts as a vending-specific timekeeping, payout calculation, and pay-statement workflow inside the existing reporting/machine/account model.
+
+**Canonical rule**
+- Use **Operator Payouts**, **Payout Run**, **Compensation Rule**, and **Pay Statement** as the default product language.
+- `customer_accounts` remain the entity boundary for V1; do not introduce a parallel business-entity platform while the current reporting/account model already provides tenant separation.
+- Reuse `reporting_machines`, `reporting_locations`, machine-scoped admin access, Machine Manager assignments, `machine_sales_facts`, and `sales_adjustment_facts` for payout scope and revenue basis.
+- Bloomjoy defaults are monthly calendar periods, time due 2 days after period end, lock on day 3, target payout day 5, final manager review only, and shift-level `round_up_60_minutes`.
+- Default worker type is `contractor_1099`, but worker type is a descriptive label only. The module does not calculate withholding, payroll taxes, overtime compliance, direct deposit, W-2s, or 1099 filing in V1.
+- Provider-backed payroll, direct deposit, filing, and compliance automation require a later explicit provider decision and integration spike.
+
+**Why this choice**
+- This replaces the current AppSheet/Google Sheet/manual PDF workflow without rebuilding a full HR/payroll provider.
+- The strongest near-term value is accurate assigned-machine timekeeping, audited compensation rules, manager review, and operator-visible issued statements.
+- Keeping the first foundation on existing Bloomjoy account/machine/reporting primitives avoids overengineering while preserving a path for future vending-business customers.
+
 ## 2026-05-13 - Refund workflow card last-four visibility policy (`#436`)
 Authorized refund workflow users may see the customer-provided card last four inside `/portal/refunds` when they are allowed to manage that refund case.
 
