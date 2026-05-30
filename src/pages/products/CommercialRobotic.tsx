@@ -26,9 +26,9 @@ const commercialImages = [
 
 const operationalHighlights = [
   {
-    title: 'Payment Flexibility',
+    title: 'Customer Payment Acceptance',
     detail:
-      'Supports card-reader integrations plus local bank credit/debit cards and common mobile wallets, based on deployment needs.',
+      'Supports compatible card-reader integrations and common customer payment methods for machine operation; this is separate from machine-purchase quote terms.',
   },
   {
     title: 'Remote Operations Dashboard',
@@ -82,7 +82,7 @@ const buyerUseCases = [
 const quoteChecklist = [
   'Target venue type and expected daily or event volume',
   'Delivery location and timing requirements',
-  'Preferred payment-reader or local payment needs',
+  'Preferred guest payment reader or local acceptance needs',
   'Standard Bloomjoy wrap or Commercial-only custom wrap interest',
   'Opening sugar and paper-stick supply needs',
 ];
@@ -428,7 +428,7 @@ export default function CommercialRoboticPage() {
               ))}
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
-              Certification and payment integration availability can vary by region and final machine configuration; confirm current details during quote review.
+              Certification and customer payment integration availability can vary by region and final machine configuration; confirm current details during quote review.
             </p>
           </div>
 

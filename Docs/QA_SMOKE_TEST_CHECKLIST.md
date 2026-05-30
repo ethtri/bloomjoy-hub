@@ -27,6 +27,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
+- [ ] Public machine and commercial-machine copy does not imply Bloomjoy offers buyer financing, down payments, installment plans, or franchise packages; payment language clearly refers to customer payment acceptance/integrations or quote review
 
 ## Refund Operations MVP
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` is merged, and Google Form/AppSheet remains live until the cutover gate passes.

@@ -1034,7 +1034,7 @@ export default function BusinessPlaybookPaybackPlannerPage() {
                     <NumberField
                       id="commercial-fixed-costs"
                       label="Other fixed monthly costs"
-                      helper="Insurance, software, storage, financing, or subscriptions."
+                      helper="Insurance, software, storage, outside debt service, or subscriptions."
                       prefix="$"
                       step={25}
                       value={inputs.commercial.fixedMonthlyCosts}
@@ -1202,7 +1202,7 @@ export default function BusinessPlaybookPaybackPlannerPage() {
                     <NumberField
                       id="event-fixed-costs"
                       label="Other fixed monthly costs"
-                      helper="Storage, insurance, subscriptions, financing, or recurring admin costs."
+                      helper="Storage, insurance, subscriptions, outside debt service, or recurring admin costs."
                       prefix="$"
                       step={25}
                       value={inputs.event.fixedMonthlyCosts}

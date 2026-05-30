@@ -202,7 +202,8 @@ export default function ProductsPage() {
               </h2>
               <p className="mt-3 max-w-3xl text-muted-foreground">
                 Use this comparison to narrow the first conversation. Final configuration,
-                payment setup, delivery, and operator handoff are confirmed during quote review.
+                customer payment setup, delivery, and operator handoff are confirmed during quote
+                review.
               </p>
               <div className="mt-6 overflow-hidden rounded-lg border border-border bg-background">
                 <div className="overflow-x-auto">
