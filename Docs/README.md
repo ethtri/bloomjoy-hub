@@ -18,6 +18,7 @@ If a static doc disagrees with the board about active status or priority, use th
 - `Docs/LOCAL_DEV.md` - local setup, preflight checks, env guidance, and operational helper commands.
 - `Docs/PRODUCTION_RUNBOOK.md` - production deploy, rollback, and operations guidance.
 - `Docs/QA_SMOKE_TEST_CHECKLIST.md` - reusable smoke coverage for user-facing flows.
+- `Docs/GITHUB_ACTIONS_SECURITY.md` - workflow permission, checkout credential, and action pinning policy.
 - `Docs/ARCHITECTURE.md` - system shape and ownership boundaries.
 - `Docs/MVP_SCOPE.md` and `Docs/POC_NOTES.md` - historical product and POC context.
 - `Docs/CURRENT_STATUS.md` - compact snapshot only; not a running changelog.
