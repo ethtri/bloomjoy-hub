@@ -22,7 +22,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 - Refund operations and customer-refund pilot readiness remain high-sensitivity operational surfaces.
 - Operator payouts, partner reporting, and scheduled exports are active shared foundations.
-- Operator payouts foundation sprint: PR `#451` adds the first schema/access/audit slice for epic `#443` and issue `#444`; later payout PRs build on it.
+- Operator payouts foundation sprint: the foundation is on `main`; active follow-on PRs add timekeeping, revenue snapshots, calculation, review, and pay statement slices.
 - Frontend work should use existing app patterns plus `PRODUCT.md`, `DESIGN.md`, and `impeccable` when the visible experience matters.
 
 ## Safety

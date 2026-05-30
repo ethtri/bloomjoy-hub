@@ -58,6 +58,56 @@ export type OperatorIssuedStatement = {
   periodEndDate: string;
 };
 
+export type OperatorPayoutPolicyContext = {
+  id: string;
+  name: string;
+  frequency: PayoutFrequency;
+  roundingRule: PayoutRoundingRule;
+  reviewModel: PayoutReviewModel;
+};
+
+export type OperatorPayoutPeriodContext = {
+  id: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  submissionDueDate: string;
+  lockDate: string;
+  targetPayoutDate: string;
+  status:
+    | 'open'
+    | 'grace_period'
+    | 'locked'
+    | 'review'
+    | 'draft_payout'
+    | 'finalized'
+    | 'issued'
+    | 'closed'
+    | 'reopened'
+    | 'voided';
+};
+
+export type OperatorTimeEntry = {
+  id: string;
+  accountId: string;
+  operatorProfileId: string;
+  machineId: string;
+  machineLabel: string;
+  locationId: string;
+  locationName: string;
+  payoutPolicyId: string;
+  payoutPeriodId: string;
+  workDate: string;
+  startTime: string;
+  endTime: string;
+  rawDurationMinutes: number;
+  roundedPaidMinutes: number;
+  notes: string | null;
+  status: TimeEntryStatus;
+  lockedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type OperatorPayoutProfileContext = {
   id: string;
   accountId: string;
@@ -72,6 +122,21 @@ export type OperatorPayoutProfileContext = {
 
 export type OperatorPayoutContext = {
   profiles: OperatorPayoutProfileContext[];
+};
+
+export type OperatorTimekeepingProfileContext = Omit<
+  OperatorPayoutProfileContext,
+  'payoutPolicyId' | 'issuedStatements'
+> & {
+  policy: OperatorPayoutPolicyContext;
+  currentPeriod: OperatorPayoutPeriodContext;
+  currentEntries: OperatorTimeEntry[];
+  recentEntries: OperatorTimeEntry[];
+};
+
+export type OperatorTimekeepingContext = {
+  workDate: string;
+  profiles: OperatorTimekeepingProfileContext[];
 };
 
 export type OperatorPayoutProfileRecord = {
@@ -107,6 +172,20 @@ export type SetOperatorMachineAssignmentsResult = {
   assignments: unknown[];
 };
 
+export type SaveOperatorTimeEntryInput = {
+  operatorProfileId: string;
+  machineId: string;
+  workDate: string;
+  startTime: string;
+  endTime: string;
+  notes?: string | null;
+  status?: Extract<TimeEntryStatus, 'draft' | 'submitted'>;
+};
+
+export type UpdateOperatorTimeEntryInput = SaveOperatorTimeEntryInput & {
+  timeEntryId: string;
+};
+
 export const roundOperatorPaidMinutes = (
   rawDurationMinutes: number,
   roundingRule: PayoutRoundingRule = 'round_up_60_minutes'
@@ -136,6 +215,98 @@ export const fetchMyOperatorPayoutContext = async (): Promise<OperatorPayoutCont
     profiles: [],
     ...((data as Partial<OperatorPayoutContext> | null) ?? {}),
   };
+};
+
+export const fetchMyOperatorTimekeepingContext = async (
+  workDate?: string
+): Promise<OperatorTimekeepingContext> => {
+  const { data, error } = await supabaseClient.rpc('get_my_operator_timekeeping_context', {
+    p_work_date: workDate ?? null,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load operator timekeeping.');
+  }
+
+  return {
+    workDate: new Date().toISOString().slice(0, 10),
+    profiles: [],
+    ...((data as Partial<OperatorTimekeepingContext> | null) ?? {}),
+  };
+};
+
+export const submitOperatorTimeEntry = async (
+  input: SaveOperatorTimeEntryInput
+): Promise<OperatorTimekeepingContext> => {
+  const { data, error } = await supabaseClient.rpc('submit_operator_time_entry', {
+    p_operator_profile_id: input.operatorProfileId,
+    p_reporting_machine_id: input.machineId,
+    p_work_date: input.workDate,
+    p_start_time: input.startTime,
+    p_end_time: input.endTime,
+    p_notes: input.notes ?? null,
+    p_status: input.status ?? 'submitted',
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to submit time entry.');
+  }
+
+  const payload = data as { context?: OperatorTimekeepingContext };
+  if (!payload.context) {
+    throw new Error('Time entry saved, but the updated context was not returned.');
+  }
+
+  return payload.context;
+};
+
+export const updateOperatorTimeEntry = async (
+  input: UpdateOperatorTimeEntryInput
+): Promise<OperatorTimekeepingContext> => {
+  const { data, error } = await supabaseClient.rpc('update_operator_time_entry', {
+    p_time_entry_id: input.timeEntryId,
+    p_reporting_machine_id: input.machineId,
+    p_work_date: input.workDate,
+    p_start_time: input.startTime,
+    p_end_time: input.endTime,
+    p_notes: input.notes ?? null,
+    p_status: input.status ?? 'submitted',
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to update time entry.');
+  }
+
+  const payload = data as { context?: OperatorTimekeepingContext };
+  if (!payload.context) {
+    throw new Error('Time entry updated, but the updated context was not returned.');
+  }
+
+  return payload.context;
+};
+
+export const voidOperatorTimeEntry = async ({
+  timeEntryId,
+  reason = 'Operator deleted unlocked shift',
+}: {
+  timeEntryId: string;
+  reason?: string;
+}): Promise<OperatorTimekeepingContext> => {
+  const { data, error } = await supabaseClient.rpc('void_operator_time_entry', {
+    p_time_entry_id: timeEntryId,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to delete time entry.');
+  }
+
+  const payload = data as { context?: OperatorTimekeepingContext };
+  if (!payload.context) {
+    throw new Error('Time entry deleted, but the updated context was not returned.');
+  }
+
+  return payload.context;
 };
 
 export const upsertOperatorPayoutProfileAdmin = async ({
