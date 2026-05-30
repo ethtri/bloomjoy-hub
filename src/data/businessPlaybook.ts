@@ -288,7 +288,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           },
           {
             title: "Week 2: price the full launch",
-            body: "Estimate machine, shipping, opening supplies, insurance, payment setup, permits, signage, and a maintenance reserve.",
+            body: "Estimate machine, shipping, opening supplies, insurance, customer payment setup, permits, signage, and a maintenance reserve.",
           },
           {
             title: "Week 3: secure the first site or booking lane",
@@ -768,7 +768,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         },
         callout: {
           title: "Filled example: 90-minute birthday pop-up",
-          body: "Example only: 25 invited kids, plan for 35-45 servings after siblings and parents, one staffed Mini setup, 90 minutes of service, 30-45 minutes for arrival/setup, local travel radius, one power outlet, simple color menu, deposit before the date, and a weather or indoor-backup policy. Use Micro only if basic shapes and lower volume are acceptable.",
+          body: "Example only: 25 invited kids, plan for 35-45 servings after siblings and parents, one staffed Mini setup, 90 minutes of service, 30-45 minutes for arrival/setup, local travel radius, one power outlet, simple color menu, booking confirmation before the date, and a weather or indoor-backup policy. Use Micro only if basic shapes and lower volume are acceptable.",
         },
       },
       {
@@ -876,7 +876,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
     title: "Startup Budget Checklist for a Cotton Candy Machine Business",
     shortTitle: "Startup Budget Checklist",
     description:
-      "A practical budget framework for machine cost, supplies, freight, insurance, permits, payment setup, marketing, and operating reserve.",
+      "A practical budget framework for machine cost, supplies, freight, insurance, permits, customer payment setup, marketing, and operating reserve.",
     category: "budget",
     audience: "Budget-conscious buyers",
     machineFit: "Commercial, Mini, and Micro",
@@ -902,7 +902,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         {
           label: "Launch",
           value: "Supplies",
-          description: "Sugar, sticks, cleaning basics, signage, and payment setup.",
+          description: "Sugar, sticks, cleaning basics, signage, and customer payment setup.",
         },
         {
           label: "Buffer",
@@ -991,7 +991,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
             [
               "Core equipment",
               "Machine quote + selected configuration + payment hardware if applicable",
-              "Quoted before deposit",
+              "Quote confirmed before ordering",
             ],
             [
               "Freight and delivery",
@@ -1024,7 +1024,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
       {
         heading: "Match the budget to the path",
         body: [
-          "A fixed-location vending budget usually spends more time on venue agreement, placement, service access, payment setup, and reliable restock. An event budget usually spends more time on transport, staffing, table setup, signage, and booking materials.",
+          "A fixed-location vending budget usually spends more time on venue agreement, placement, service access, customer payment setup, and reliable restock. An event budget usually spends more time on transport, staffing, table setup, signage, and booking materials.",
           "Do not copy a budget from a different business model unless you want their problems too.",
         ],
         bullets: [
@@ -1045,7 +1045,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           rows: [
             [
               "What are my fixed monthly obligations?",
-              "Rent, subscriptions, insurance, storage, financing, or other fixed costs",
+              "Rent, subscriptions, insurance, storage, outside debt service, or other fixed costs",
               "The baseline the business must cover before it feels comfortable",
             ],
             [
@@ -1182,7 +1182,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
           rows: [
             [
               "Machine/list or quote price",
-              "Model, configuration, accessories, payment setup, wrap or add-ons",
+              "Model, configuration, accessories, customer payment setup, wrap or add-ons",
               "This is the base, not always the final landed cost",
             ],
             [
@@ -1217,7 +1217,7 @@ export const businessPlaybookArticles: BusinessPlaybookArticle[] = [
         heading: "Then separate contribution from fixed costs",
         body: [
           "The simplest useful payback model starts with contribution per serving: planned price per serving minus the costs that rise with each serving. For cotton candy, that can include sugar, sticks, packaging, payment fees, and any venue share tied directly to sales.",
-          "Then compare that contribution against monthly fixed costs such as rent, storage, insurance, software, service travel, staffing, financing, or recurring venue obligations. The SBA's break-even formula uses fixed costs divided by price minus variable cost to estimate the unit count needed to break even.",
+          "Then compare that contribution against monthly fixed costs such as rent, storage, insurance, software, service travel, staffing, outside debt service, or recurring venue obligations. The SBA's break-even formula uses fixed costs divided by price minus variable cost to estimate the unit count needed to break even.",
           "That formula is not a promise. It is a way to see whether your assumptions are even in the neighborhood before you call the plan healthy.",
         ],
         table: {

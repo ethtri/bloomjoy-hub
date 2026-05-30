@@ -27,6 +27,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Legacy paths (`/products`, `/products/mini`, `/products/micro`, `/products/commercial-robotic-machine`) return permanent redirects to `/machines*`
 - [ ] No console errors on home page load
 - [ ] Mobile header/nav works (basic)
+- [ ] Public machine and commercial-machine copy does not imply Bloomjoy offers buyer financing, down payments, installment plans, or franchise packages; payment language clearly refers to customer payment acceptance/integrations or quote review
 - [ ] `/machines` has no horizontal page overflow at `360x800`, `390x844`, or `414x896`; the buyer comparison uses readable mobile cards, and the public header switches to the mobile menu at `768x1024`
 
 ## Refund Operations MVP
