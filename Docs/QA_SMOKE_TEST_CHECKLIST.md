@@ -140,13 +140,13 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Login flow works (magic link or configured method)
 - [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
-- [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights and the top app header stays compact without an extra context row pushing content below the fold
+- [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights, the top app header stays compact without an extra context row pushing content below the fold, and visible auth/header/menu controls have touch-friendly hit areas
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Language selector on `/login` switches between English and Simplified Chinese and the selected language persists after refresh on desktop
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Password sign-in works for an existing email/password user
-- [ ] Forgot-password flow sends reset email and `/reset-password` successfully updates password
+- [ ] Forgot-password flow sends reset email and `/reset-password` successfully updates password; on mobile, reset links and actions have touch-friendly hit areas with no horizontal overflow
 - [ ] Google sign-in works when Supabase Google provider is enabled
 - [ ] Google sign-in returns to the app host `/portal` route (for production: `https://app.bloomjoyusa.com/portal`, not `http://localhost:3000`)
 - [ ] On Vercel preview UAT, Google or magic-link sign-in returns to the same preview host at `/portal` instead of `https://app.bloomjoyusa.com/portal`; if it falls back to production, confirm Supabase Additional Redirect URLs include `https://*-snapcase.vercel.app/**`

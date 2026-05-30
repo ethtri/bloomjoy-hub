@@ -462,7 +462,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
         <div className="container-page py-2.5 sm:py-4">
           <div className="flex items-center justify-between gap-4">
-            <Link to={homeUrl} className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+            <Link to={homeUrl} className="flex min-h-11 min-w-0 items-center gap-2.5 sm:gap-3">
               <img
                 src={logo}
                 alt="Bloomjoy Sweets"
@@ -493,7 +493,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
               <a
                 href={marketingHomeUrl}
-                className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                className="inline-flex min-h-11 items-center gap-1 rounded-full px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
               >
                 {t('app.mainSite')}
                 <ExternalLink className="h-4 w-4" />
