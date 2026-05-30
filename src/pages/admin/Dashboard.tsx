@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { BarChart3, Handshake, ShieldCheck, ShoppingBag, LifeBuoy, Users, Building2, MonitorCog } from 'lucide-react';
+import { BarChart3, Handshake, ShieldCheck, ShoppingBag, LifeBuoy, Users, Building2, MonitorCog, ReceiptText } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 
@@ -45,6 +45,12 @@ const adminModules = [
     description: 'Monitor schedules, report exports, and sales sync status.',
     icon: BarChart3,
     href: '/admin/reporting',
+  },
+  {
+    title: 'Payouts',
+    description: 'Review operator payout runs, adjustments, warnings, and finalization history.',
+    icon: ReceiptText,
+    href: '/admin/payouts',
   },
 ];
 

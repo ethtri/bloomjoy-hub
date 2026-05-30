@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu,
   MonitorCog,
+  ReceiptText,
   Settings,
   Shield,
   ShoppingBag,
@@ -65,7 +66,7 @@ type AdminDestination = {
   descriptionKey: TranslationKey;
   icon: LucideIcon;
   requiresSuperAdmin?: boolean;
-  surface?: 'access';
+  surface?: 'access' | 'payouts';
 };
 
 const adminDestinations: AdminDestination[] = [
@@ -156,6 +157,17 @@ const adminDestinations: AdminDestination[] = [
     descriptionKey: 'admin.reportingDescription',
     icon: BarChart3,
     requiresSuperAdmin: true,
+  },
+  {
+    href: '/admin/payouts',
+    label: 'Payouts',
+    labelKey: 'admin.payouts',
+    shortLabel: 'Payouts',
+    shortLabelKey: 'admin.payouts',
+    description: 'Operator payout review, adjustments, finalization, and revision history.',
+    descriptionKey: 'admin.payoutsDescription',
+    icon: ReceiptText,
+    surface: 'payouts',
   },
 ];
 

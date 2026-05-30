@@ -274,6 +274,68 @@ export type PayoutCalculationContext = {
   payoutRun: PayoutRun | null;
 };
 
+export type PayoutReviewAccount = {
+  id: string;
+  name: string;
+};
+
+export type PayoutReviewSnapshot = {
+  id: string;
+  payoutRunId: string;
+  revisionNumber: number;
+  action: 'marked_reviewed' | 'finalized' | 'reopened' | 'voided';
+  previousStatus: PayoutRunStatus;
+  revisionReason: string;
+  createdAt: string;
+};
+
+export type PayoutReviewPeriod = OperatorPayoutPeriodContext & {
+  accountId: string;
+  accountName: string;
+  payoutRun: PayoutRun | null;
+  canReview: boolean;
+  canFinalize: boolean;
+  hasBlockers: boolean;
+  issuedStatementCount: number;
+  revisionCount: number;
+};
+
+export type PayoutReviewContext = {
+  accounts: PayoutReviewAccount[];
+  periods: PayoutReviewPeriod[];
+};
+
+export type PayoutReviewWorkflowResult = {
+  payoutRun: PayoutRun;
+  reviewSnapshot?: PayoutReviewSnapshot;
+  finalized?: boolean;
+  reopened?: boolean;
+  voided?: boolean;
+  overrideBlockers?: boolean;
+};
+
+export type MarkPayoutRunReviewedInput = {
+  payoutRunId: string;
+  reason: string;
+};
+
+export type FinalizePayoutRunInput = {
+  payoutRunId: string;
+  reason: string;
+  overrideBlockers?: boolean;
+  overrideReason?: string | null;
+};
+
+export type ReopenPayoutRunInput = {
+  payoutRunId: string;
+  reason: string;
+};
+
+export type VoidPayoutRunInput = {
+  payoutRunId: string;
+  reason: string;
+};
+
 export type OperatorPayoutProfileContext = {
   id: string;
   accountId: string;
@@ -737,6 +799,88 @@ export const addPayoutAdjustmentAdmin = async ({
   }
 
   return data as AddPayoutAdjustmentResult;
+};
+
+export const fetchPayoutReviewContext = async (): Promise<PayoutReviewContext> => {
+  const { data, error } = await supabaseClient.rpc('get_payout_review_context');
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load payout review context.');
+  }
+
+  return {
+    accounts: [],
+    periods: [],
+    ...((data as Partial<PayoutReviewContext> | null) ?? {}),
+  };
+};
+
+export const markPayoutRunReviewedAdmin = async ({
+  payoutRunId,
+  reason,
+}: MarkPayoutRunReviewedInput): Promise<PayoutReviewWorkflowResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_mark_payout_run_reviewed', {
+    p_payout_run_id: payoutRunId,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to mark payout run reviewed.');
+  }
+
+  return data as PayoutReviewWorkflowResult;
+};
+
+export const finalizePayoutRunAdmin = async ({
+  payoutRunId,
+  reason,
+  overrideBlockers = false,
+  overrideReason = null,
+}: FinalizePayoutRunInput): Promise<PayoutReviewWorkflowResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_finalize_payout_run', {
+    p_payout_run_id: payoutRunId,
+    p_reason: reason,
+    p_override_blockers: overrideBlockers,
+    p_override_reason: overrideReason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to finalize payout run.');
+  }
+
+  return data as PayoutReviewWorkflowResult;
+};
+
+export const reopenPayoutRunAdmin = async ({
+  payoutRunId,
+  reason,
+}: ReopenPayoutRunInput): Promise<PayoutReviewWorkflowResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_reopen_payout_run', {
+    p_payout_run_id: payoutRunId,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to reopen payout run.');
+  }
+
+  return data as PayoutReviewWorkflowResult;
+};
+
+export const voidPayoutRunAdmin = async ({
+  payoutRunId,
+  reason,
+}: VoidPayoutRunInput): Promise<PayoutReviewWorkflowResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_void_payout_run', {
+    p_payout_run_id: payoutRunId,
+    p_reason: reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to void payout run.');
+  }
+
+  return data as PayoutReviewWorkflowResult;
 };
 
 export const upsertOperatorPayoutProfileAdmin = async ({
