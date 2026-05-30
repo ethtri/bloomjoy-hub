@@ -122,7 +122,7 @@ export default function ResetPasswordPage() {
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder="At least 8 characters"
                       required
-                      className="mt-1"
+                      className="mt-1 h-11"
                     />
                   </div>
 
@@ -140,7 +140,7 @@ export default function ResetPasswordPage() {
                       onChange={(event) => setConfirmPassword(event.target.value)}
                       placeholder="Re-enter your new password"
                       required
-                      className="mt-1"
+                      className="mt-1 h-11"
                     />
                   </div>
 
@@ -159,12 +159,14 @@ export default function ResetPasswordPage() {
                 <div className="space-y-3 text-sm text-muted-foreground">
                   <p>No active password reset session was found.</p>
                   <p>
-                    Return to{' '}
-                    <Link to="/login" className="font-medium text-primary hover:underline">
-                      login
-                    </Link>{' '}
-                    and request a new password reset email.
+                    Return to the login screen and request a new password reset email.
                   </p>
+                  <Link
+                    to="/login"
+                    className="-mx-3 inline-flex min-h-11 items-center rounded-full px-3 font-medium text-primary underline-offset-4 hover:bg-primary/5 hover:underline"
+                  >
+                    Return to login
+                  </Link>
                 </div>
               )}
             </div>

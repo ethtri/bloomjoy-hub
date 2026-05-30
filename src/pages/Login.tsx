@@ -618,7 +618,10 @@ export default function LoginPage() {
               <div className="mt-6 rounded-[22px] border border-border bg-background/90 p-4 shadow-[var(--shadow-sm)]">
                 <p className="text-sm text-muted-foreground">
                   {t('login.productDetailsPrompt')}{' '}
-                  <a href={mainSiteUrl} className="font-medium text-primary hover:underline">
+                  <a
+                    href={mainSiteUrl}
+                    className="-mx-3 inline-flex min-h-11 items-center rounded-full px-3 font-medium text-primary underline-offset-4 hover:bg-primary/5 hover:underline"
+                  >
                     {t('login.visitPublicSite')}
                   </a>
                 </p>
@@ -727,7 +730,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     aria-pressed={authMethod === 'password'}
-                    className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       authMethod === 'password'
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:bg-muted'
@@ -739,7 +742,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     aria-pressed={authMethod === 'magic_link'}
-                    className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       authMethod === 'magic_link'
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:bg-muted'
@@ -777,7 +780,7 @@ export default function LoginPage() {
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
-                        className="mt-1"
+                        className="mt-1 h-11"
                       />
                     </div>
                     <Button
@@ -821,7 +824,7 @@ export default function LoginPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
-                      className="mt-1"
+                      className="mt-1 h-11"
                     />
                   </div>
                   <div>
@@ -835,12 +838,12 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      className="mt-1"
+                      className="mt-1 h-11"
                     />
                   </div>
                   <button
                     type="button"
-                    className="w-full text-left text-sm font-medium text-primary hover:underline"
+                    className="flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-medium text-primary underline-offset-4 hover:bg-primary/5 hover:underline"
                     onClick={handlePasswordResetRequest}
                     disabled={loading || oauthLoading}
                   >
@@ -872,7 +875,7 @@ export default function LoginPage() {
                   </Button>
                   <button
                     type="button"
-                    className="w-full text-sm font-medium text-primary hover:underline"
+                    className="flex min-h-11 w-full items-center justify-center rounded-lg px-3 text-sm font-medium text-primary underline-offset-4 hover:bg-primary/5 hover:underline"
                     onClick={() => setCreateAccountMode((current) => !current)}
                     disabled={loading || oauthLoading}
                   >
@@ -888,7 +891,10 @@ export default function LoginPage() {
 
               <p className="text-center text-sm text-muted-foreground">
                 {t('login.plusPrompt')}{' '}
-                <a href={plusUrl} className="font-medium text-primary hover:underline">
+                <a
+                  href={plusUrl}
+                  className="-mx-3 inline-flex min-h-11 items-center rounded-full px-3 font-medium text-primary underline-offset-4 hover:bg-primary/5 hover:underline"
+                >
                   {t('login.learnPlus')}
                 </a>
               </p>

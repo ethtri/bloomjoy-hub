@@ -55,12 +55,12 @@ export function LanguagePreferenceControl({
               aria-pressed={isActive}
               title={t('language.current', { language: supportedLanguage.label })}
               className={cn(
-                'min-h-8 rounded-full px-2.5 text-xs font-semibold transition-colors sm:px-3',
-                compact && 'min-h-7 min-w-9 px-2 text-[11px]',
+                'min-h-10 rounded-full px-2.5 text-xs font-semibold transition-colors sm:px-3',
+                compact && 'min-h-11 min-w-11 px-2 text-[11px]',
                 isActive
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                fullWidth && !showText && 'flex-1'
+                fullWidth && !showText && 'min-h-11 flex-1'
               )}
               onClick={() => setLanguage(supportedLanguage.code)}
             >
