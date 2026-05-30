@@ -257,7 +257,7 @@ export const plannerBudgetLabels: Record<
   importFreight: {
     label: "Freight, tariffs, duties, and import fees",
     helper:
-      "Use the actual landed-cost quote if these are not already included. Ask about shipping from China, customs duties, tariffs, brokerage, and delivery terms.",
+      "Use the actual landed-cost quote if these are not already included. Ask about international freight, customs duties, tariffs, brokerage, and delivery terms.",
   },
   accessoriesPayment: {
     label: "Accessories and payment hardware",
