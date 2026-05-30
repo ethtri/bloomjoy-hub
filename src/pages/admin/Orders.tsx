@@ -389,7 +389,7 @@ export default function AdminOrdersPage() {
 
   return (
     <AppLayout>
-      <section className="section-padding">
+      <section className="section-padding admin-touch-targets">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -401,7 +401,12 @@ export default function AdminOrdersPage() {
                 Search orders and manage internal fulfillment workflow.
               </p>
             </div>
-            <Button variant="outline" onClick={refreshOrders} disabled={isFetching}>
+            <Button
+              variant="outline"
+              className="min-h-11"
+              onClick={refreshOrders}
+              disabled={isFetching}
+            >
               {isFetching ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -416,19 +421,26 @@ export default function AdminOrdersPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by email, customer, order type, or order ID"
+              className="h-11"
             />
             <Input
               type="date"
               value={dateFrom}
               onChange={(event) => setDateFrom(event.target.value)}
+              className="h-11"
             />
-            <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+              className="h-11"
+            />
             <select
               value={statusFilter}
               onChange={(event) =>
                 setStatusFilter(event.target.value as 'all' | OrderFulfillmentStatus)
               }
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-11 rounded-md border border-input bg-background px-3 text-sm"
             >
               <option value="all">All fulfillment statuses</option>
               {fulfillmentOptions.map((status) => (
@@ -447,7 +459,54 @@ export default function AdminOrdersPage() {
 
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
             <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <table className="w-full">
+              <div className="lg:hidden">
+                {isLoading && (
+                  <div className="p-4 text-sm text-muted-foreground">Loading orders...</div>
+                )}
+                {!isLoading && filteredOrders.length === 0 && (
+                  <div className="p-4 text-sm text-muted-foreground">No orders found.</div>
+                )}
+                {!isLoading &&
+                  filteredOrders.map((order) => (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => selectOrder(order)}
+                      className={`block min-h-11 w-full border-b border-border/70 p-4 text-left transition-colors last:border-b-0 hover:bg-muted/40 ${
+                        selectedId === order.id ? 'bg-muted/50' : ''
+                      }`}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="break-all text-sm font-semibold text-foreground">
+                            {getOrderReference(order)}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {order.customer_name ?? 'Unknown customer'}
+                          </div>
+                          <div className="break-all text-xs text-muted-foreground">
+                            {order.customer_email ?? 'No email on file'}
+                          </div>
+                        </div>
+                        <div className="text-sm font-medium text-foreground sm:text-right">
+                          {formatCurrency(order.amount_total, order.currency)}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full border border-border px-2.5 py-1">
+                          {formatOrderType(order.order_type)}
+                        </span>
+                        <span className="rounded-full border border-border px-2.5 py-1">
+                          {formatFulfillmentStatus(order.fulfillment_status)}
+                        </span>
+                        <span className="rounded-full border border-border px-2.5 py-1">
+                          {formatDate(order.created_at)}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+              <table className="hidden w-full lg:table">
                 <thead className="border-b border-border bg-muted/40">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -491,7 +550,9 @@ export default function AdminOrdersPage() {
                         }`}
                         onClick={() => selectOrder(order)}
                       >
-                        <td className="px-4 py-3 text-sm text-foreground">{getOrderReference(order)}</td>
+                        <td className="break-all px-4 py-3 text-sm text-foreground">
+                          {getOrderReference(order)}
+                        </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">
                           <div className="font-medium text-foreground">
                             {order.customer_name ?? 'Unknown'}
@@ -525,7 +586,9 @@ export default function AdminOrdersPage() {
               ) : (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="font-semibold text-foreground">{getOrderReference(selectedOrder)}</h2>
+                    <h2 className="break-all font-semibold text-foreground">
+                      {getOrderReference(selectedOrder)}
+                    </h2>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {selectedOrder.customer_name ?? 'Unknown customer'}
                     </p>
@@ -768,7 +831,7 @@ export default function AdminOrdersPage() {
                             : prev
                         )
                       }
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       {fulfillmentOptions.map((status) => (
                         <option key={status} value={status}>
@@ -790,6 +853,7 @@ export default function AdminOrdersPage() {
                         )
                       }
                       placeholder="https://tracking.example.com/..."
+                      className="h-11"
                     />
                   </div>
 
@@ -805,6 +869,7 @@ export default function AdminOrdersPage() {
                         )
                       }
                       placeholder="Optional admin user UUID"
+                      className="h-11"
                     />
                   </div>
 
@@ -824,7 +889,7 @@ export default function AdminOrdersPage() {
                     />
                   </div>
 
-                  <Button onClick={saveOrder} disabled={isSaving}>
+                  <Button className="min-h-11" onClick={saveOrder} disabled={isSaving}>
                     {isSaving ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

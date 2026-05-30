@@ -751,20 +751,24 @@ function AdminPersonAccessConsoleInner({
                   if (event.key === 'Enter') handleSearchSubmit();
                 }}
                 placeholder="name@example.com or user ID"
-                className="pl-9"
+                className="h-11 pl-9"
               />
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
-              <Button onClick={handleSearchSubmit} disabled={isSearching}>
+              <Button className="min-h-11" onClick={handleSearchSubmit} disabled={isSearching}>
                 {isSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
                 Search
               </Button>
-              <Button onClick={() => setIsAccessLauncherOpen(true)}>
+              <Button className="min-h-11" onClick={() => setIsAccessLauncherOpen(true)}>
                 <UserPlus className="mr-2 h-4 w-4" />
                 Add or invite access
               </Button>
               {!selectedPerson && (
-                <Button variant="outline" onClick={() => setShowActivity((current) => !current)}>
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => setShowActivity((current) => !current)}
+                >
                   <FileClock className="mr-2 h-4 w-4" />
                   Activity
                 </Button>
@@ -804,7 +808,7 @@ function AdminPersonAccessConsoleInner({
               </p>
               {submittedSearchIsEmail && (
                 <Button
-                  className="mt-3"
+                  className="mt-3 min-h-11"
                   variant="outline"
                   onClick={() => handlePreviewEmail(normalizedSubmittedSearch)}
                 >
@@ -875,11 +879,15 @@ function AdminPersonAccessConsoleInner({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={refreshWorkspace}>
+              <Button variant="outline" className="min-h-11" onClick={refreshWorkspace}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh
               </Button>
-              <Button variant="outline" onClick={() => setShowActivity((current) => !current)}>
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={() => setShowActivity((current) => !current)}
+              >
                 <FileClock className="mr-2 h-4 w-4" />
                 {showActivity ? 'Hide activity' : 'Activity'}
               </Button>
@@ -1618,7 +1626,7 @@ function AccessLauncher({
                     id="access-launcher-partner"
                     value={selectedPartner?.partnerId ?? ''}
                     onChange={(event) => setSelectedPartnerId(event.target.value)}
-                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     disabled={isFetchingCorporateOptions || corporateOptions.partners.length === 0}
                   >
                     {corporateOptions.partners.length === 0 ? (
@@ -1927,7 +1935,7 @@ function AccessLauncher({
                     id="access-launcher-technician-account"
                     value={selectedTechnicianAccount?.accountId ?? ''}
                     onChange={(event) => setSelectedAccountId(event.target.value)}
-                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     disabled={isFetchingTechnicianContext || technicianContext.accounts.length === 0}
                   >
                     {technicianContext.accounts.length === 0 ? (
@@ -1959,7 +1967,7 @@ function AccessLauncher({
                     id="access-launcher-technician-machine"
                     value={selectedScopeValue}
                     onChange={(event) => setSelectedScopeValue(event.target.value)}
-                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     disabled={!selectedTechnicianAccount}
                   >
                     <option value={trainingOnlyScopeValue}>Training only - no machine</option>
@@ -2882,7 +2890,7 @@ function CorporatePartnerAccessCard({
               id="person-corporate-partner"
               value={selectedPartner?.partnerId ?? ''}
               onChange={(event) => setSelectedPartnerId(event.target.value)}
-              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
               disabled={isFetching || options.partners.length === 0}
             >
               {options.partners.map((partner) => (
@@ -3289,7 +3297,7 @@ function TechnicianAccessCard({
                   id="admin-technician-account"
                   value={selectedAccountId}
                   onChange={(event) => setSelectedAccountId(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                   disabled={isFetching || accounts.length === 0}
                 >
                   {accounts.map((account) => (
@@ -3305,7 +3313,7 @@ function TechnicianAccessCard({
                   id="admin-technician-machine"
                   value={selectedScopeValue}
                   onChange={(event) => setSelectedScopeValue(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                   disabled={isFetching || !selectedAccountId}
                 >
                   <option value={trainingOnlyScopeValue}>Training only - no machine</option>
@@ -3395,7 +3403,7 @@ function TechnicianAccessCard({
                                   [grant.grantId]: event.target.value,
                                 }))
                               }
-                              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                              className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                             >
                               <option value={trainingOnlyScopeValue}>Training only - no machine</option>
                               {accountMachines.map((machine) => (
@@ -3683,7 +3691,7 @@ function ManualReportingAccessCard({
                 id="manual-reporting-level"
                 value={accessLevel}
                 onChange={(event) => setAccessLevel(event.target.value as ReportingAccessLevel)}
-                className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 {accessLevels.map((level) => (
                   <option key={level} value={level}>
@@ -4458,12 +4466,13 @@ function GlobalActivityPanel() {
             if (event.key === 'Enter') handleAuditSearchSubmit();
           }}
           placeholder="Search audit log"
+          className="h-11"
         />
         <select
           aria-label="Filter audit log by action"
           value={auditActionFilter}
           onChange={(event) => setAuditActionFilter(event.target.value)}
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          className="h-11 rounded-md border border-input bg-background px-3 text-sm"
         >
           <option value="all">All actions</option>
           {actionOptions.map((action) => (
@@ -4476,7 +4485,7 @@ function GlobalActivityPanel() {
           aria-label="Filter audit log by entity"
           value={auditEntityFilter}
           onChange={(event) => setAuditEntityFilter(event.target.value)}
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          className="h-11 rounded-md border border-input bg-background px-3 text-sm"
         >
           <option value="all">All entities</option>
           {entityOptions.map((entity) => (
@@ -4485,7 +4494,12 @@ function GlobalActivityPanel() {
             </option>
           ))}
         </select>
-        <Button type="button" variant="outline" onClick={handleAuditSearchSubmit}>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11"
+          onClick={handleAuditSearchSubmit}
+        >
           <Search className="mr-2 h-4 w-4" />
           Search
         </Button>

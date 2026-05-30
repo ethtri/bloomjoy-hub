@@ -138,7 +138,7 @@ export default function AdminPartnerRecordsPage() {
 
   return (
     <AppLayout>
-      <section className="section-padding">
+      <section className="section-padding admin-touch-targets">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -154,11 +154,11 @@ export default function AdminPartnerRecordsPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={refresh} disabled={isFetching}>
+              <Button variant="outline" className="min-h-11" onClick={refresh} disabled={isFetching}>
                 {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh
               </Button>
-              <Button onClick={openCreate}>
+              <Button className="min-h-11" onClick={openCreate}>
                 <Plus className="mr-2 h-4 w-4" />
                 New Partner Record
               </Button>
@@ -179,7 +179,7 @@ export default function AdminPartnerRecordsPage() {
                   <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="partner-record-search"
-                    className="pl-9"
+                    className="h-11 pl-9"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder="Name, legal name, contact, email, type"
@@ -192,7 +192,7 @@ export default function AdminPartnerRecordsPage() {
                   id="partner-record-status"
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="all">All statuses</option>
                   {statuses.map((status) => (
@@ -216,7 +216,7 @@ export default function AdminPartnerRecordsPage() {
             ) : filteredPartners.length === 0 ? (
               <div className="p-6 text-sm text-muted-foreground">No partner records match this filter.</div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto pb-2">
                 <table className="min-w-[760px] w-full divide-y divide-border text-sm">
                   <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
@@ -256,14 +256,19 @@ export default function AdminPartnerRecordsPage() {
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
                             {partner.status === 'active' && (
-                              <Button asChild variant="outline" size="sm">
+                              <Button asChild variant="outline" size="sm" className="min-h-11">
                                 <Link to={getPartnerAccessInvitePath(partner)}>
                                   <UserPlus className="mr-2 h-4 w-4" />
                                   Invite
                                 </Link>
                               </Button>
                             )}
-                            <Button variant="outline" size="sm" onClick={() => openEdit(partner)}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="min-h-11"
+                              onClick={() => openEdit(partner)}
+                            >
                               <Pencil className="mr-2 h-4 w-4" />
                               Edit
                             </Button>
@@ -271,7 +276,7 @@ export default function AdminPartnerRecordsPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
+                                className="min-h-11 border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
                                 onClick={() => setArchivingPartner(partner)}
                               >
                                 <Archive className="mr-2 h-4 w-4" />
@@ -408,6 +413,7 @@ function PartnerRecordDialog({
               id="partner-record-name"
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
+              className="h-11"
             />
           </div>
           <div>
@@ -417,6 +423,7 @@ function PartnerRecordDialog({
               value={form.legalName}
               onChange={(event) => setForm({ ...form, legalName: event.target.value })}
               placeholder="Official contract counterparty"
+              className="h-11"
             />
           </div>
           <div>
@@ -435,6 +442,7 @@ function PartnerRecordDialog({
                 id="partner-record-contact-name"
                 value={form.primaryContactName}
                 onChange={(event) => setForm({ ...form, primaryContactName: event.target.value })}
+                className="h-11"
               />
             </div>
             <div>
@@ -444,6 +452,7 @@ function PartnerRecordDialog({
                 type="email"
                 value={form.primaryContactEmail}
                 onChange={(event) => setForm({ ...form, primaryContactEmail: event.target.value })}
+                className="h-11"
               />
             </div>
           </div>
@@ -471,10 +480,10 @@ function PartnerRecordDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" className="min-h-11" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={savePartner} disabled={isSaving}>
+          <Button className="min-h-11" onClick={savePartner} disabled={isSaving}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Record
           </Button>
@@ -560,11 +569,16 @@ function ArchivePartnerRecordDialog({
           />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isArchiving}>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={() => onOpenChange(false)}
+            disabled={isArchiving}
+          >
             Cancel
           </Button>
           <Button
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className="min-h-11 bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={archivePartner}
             disabled={isArchiving}
           >
@@ -597,7 +611,7 @@ function FieldSelect({
       id={id}
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+      className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
     >
       {options.map((option) => (
         <option key={option} value={option}>

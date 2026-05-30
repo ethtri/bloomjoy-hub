@@ -584,7 +584,7 @@ export default function AdminPartnershipsPage() {
 
   return (
     <AppLayout>
-      <section className="section-padding">
+      <section className="section-padding admin-touch-targets">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -599,7 +599,7 @@ export default function AdminPartnershipsPage() {
                 readiness live in their own admin pages.
               </p>
             </div>
-            <Button variant="outline" onClick={refresh} disabled={isFetching}>
+            <Button variant="outline" className="min-h-11" onClick={refresh} disabled={isFetching}>
               {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Refresh
             </Button>
@@ -616,7 +616,7 @@ export default function AdminPartnershipsPage() {
               Loading partnership setup...
             </div>
           ) : (
-            <div className="mt-6 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
               <aside className="hidden space-y-4 xl:block">
                 <PartnershipPicker
                   setup={setup}
@@ -632,10 +632,10 @@ export default function AdminPartnershipsPage() {
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
                   <div className="font-medium text-foreground">Related setup</div>
                   <div className="mt-3 grid gap-2">
-                    <Button asChild variant="outline" size="sm" className="justify-start">
+                    <Button asChild variant="outline" size="sm" className="min-h-11 justify-start">
                       <Link to="/admin/partner-records">Open Partner Records</Link>
                     </Button>
-                    <Button asChild variant="outline" size="sm" className="justify-start">
+                    <Button asChild variant="outline" size="sm" className="min-h-11 justify-start">
                       <Link to="/admin/machines">Open Machines</Link>
                     </Button>
                   </div>
@@ -753,7 +753,7 @@ function PartnershipPicker({
           <h2 className="font-semibold text-foreground">Partnerships</h2>
           <p className="mt-1 text-xs text-muted-foreground">Choose the agreement to configure.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => onSelect('')}>
+        <Button variant="outline" size="sm" className="min-h-11" onClick={() => onSelect('')}>
           New
         </Button>
       </div>
@@ -816,7 +816,7 @@ function MobileSetupControls({
   };
 
   return (
-    <div className="space-y-3 xl:hidden">
+    <div className="min-w-0 space-y-3 xl:hidden">
       <div className="rounded-lg border border-border bg-card p-4">
         <Label htmlFor="mobile-partnership-picker">Partnership</Label>
         <select
@@ -945,11 +945,11 @@ function MobileStepFooter({
 
   return (
     <div className="sticky bottom-0 z-20 mt-6 border-t border-border bg-background/95 px-1 py-3 backdrop-blur xl:hidden">
-      <div className="flex gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <Button
           type="button"
           variant="outline"
-          className="h-11 flex-1"
+          className="h-11 min-w-0"
           disabled={!canMoveBack}
           onClick={() => onStepChange(previousStep)}
         >
@@ -958,7 +958,7 @@ function MobileStepFooter({
         </Button>
         <Button
           type="button"
-          className="h-11 flex-1"
+          className="h-11 min-w-0"
           disabled={!canMoveNext}
           onClick={() => onStepChange(nextStep)}
         >
@@ -993,7 +993,7 @@ function StepHeader({
           <p className="mt-1 text-sm text-muted-foreground">{step.description}</p>
         </div>
         {selectedPartnership && (
-          <Button variant="outline" size="sm" onClick={onNew}>
+          <Button variant="outline" size="sm" className="min-h-11" onClick={onNew}>
             <Plus className="mr-2 h-4 w-4" />
             New Partnership
           </Button>
@@ -1095,6 +1095,7 @@ function PartnershipDetailsSection({
             value={form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
             placeholder="Bubble Planet Seattle"
+            className="h-11"
           />
         </div>
         <div>
@@ -1112,7 +1113,7 @@ function PartnershipDetailsSection({
             id="partnership-week-end"
             value={form.reportingWeekEndDay}
             onChange={(event) => setForm({ ...form, reportingWeekEndDay: event.target.value })}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
           >
             {dayNames.map((dayName, index) => (
               <option key={dayName} value={index}>
@@ -1127,6 +1128,7 @@ function PartnershipDetailsSection({
             id="partnership-timezone"
             value={form.timezone}
             onChange={(event) => setForm({ ...form, timezone: event.target.value })}
+            className="h-11"
           />
         </div>
         <div>
@@ -1148,6 +1150,7 @@ function PartnershipDetailsSection({
             value={form.monthlyReportDueDays}
             onChange={(event) => setForm({ ...form, monthlyReportDueDays: event.target.value })}
             placeholder="10"
+            className="h-11"
           />
         </div>
         <div>
@@ -1160,6 +1163,7 @@ function PartnershipDetailsSection({
             value={form.invoicePaymentDueDays}
             onChange={(event) => setForm({ ...form, invoicePaymentDueDays: event.target.value })}
             placeholder="15"
+            className="h-11"
           />
         </div>
         <div>
@@ -1169,6 +1173,7 @@ function PartnershipDetailsSection({
             value={form.paymentMethod}
             onChange={(event) => setForm({ ...form, paymentMethod: event.target.value })}
             placeholder="Bank transfer"
+            className="h-11"
           />
         </div>
         <div>
@@ -1196,6 +1201,7 @@ function PartnershipDetailsSection({
             value={form.contractReference}
             onChange={(event) => setForm({ ...form, contractReference: event.target.value })}
             placeholder="Agreement name, date, or SOW reference"
+            className="h-11"
           />
         </div>
         <DateWindowFields
@@ -1221,7 +1227,7 @@ function PartnershipDetailsSection({
                 <Button
                   type="button"
                   variant="outline"
-                  className="border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
+                  className="min-h-11 border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
                   onClick={() => setIsArchiveDialogOpen(true)}
                 >
                   <Archive className="mr-2 h-4 w-4" />
@@ -1242,7 +1248,7 @@ function PartnershipDetailsSection({
           />
         </div>
       </div>
-      <Button className="mt-5" onClick={savePartnership} disabled={isSaving}>
+      <Button className="mt-5 min-h-11" onClick={savePartnership} disabled={isSaving}>
         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
         {form.partnershipId ? 'Save Details' : 'Create Partnership'}
       </Button>
@@ -1342,11 +1348,16 @@ function ArchivePartnershipDialog({
           />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isArchiving}>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={() => onOpenChange(false)}
+            disabled={isArchiving}
+          >
             Cancel
           </Button>
           <Button
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className="min-h-11 bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={archivePartnership}
             disabled={isArchiving}
           >
@@ -1465,7 +1476,7 @@ function ParticipantsSection({
               Rules.
             </p>
           </div>
-          <Button asChild variant="outline" size="sm">
+          <Button asChild variant="outline" size="sm" className="min-h-11">
             <Link to="/admin/partner-records">Manage Partner Records</Link>
           </Button>
         </div>
@@ -1493,13 +1504,14 @@ function ParticipantsSection({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={saveParticipant} disabled={isSaving}>
+          <Button className="min-h-11" onClick={saveParticipant} disabled={isSaving}>
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Participant
           </Button>
           {form.partyId && (
             <Button
               variant="outline"
+              className="min-h-11"
               onClick={() => setForm(defaultParticipantForm)}
             >
               New Participant
@@ -1532,14 +1544,19 @@ function ParticipantsSection({
               </div>
               <div className="flex items-center gap-2">
                 {partner?.status === 'active' && (
-                  <Button asChild variant="outline" size="sm">
+                  <Button asChild variant="outline" size="sm" className="min-h-11">
                     <Link to={getCorporatePartnerInvitePath(partner)}>
                       <UserPlus className="mr-2 h-4 w-4" />
                       Invite
                     </Link>
                   </Button>
                 )}
-                <Button variant="outline" size="sm" onClick={() => editParticipant(party)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11"
+                  onClick={() => editParticipant(party)}
+                >
                   Edit
                 </Button>
                 <AlertDialog>
@@ -1547,7 +1564,7 @@ function ParticipantsSection({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
+                      className="min-h-11 border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
                       disabled={removingPartyId === party.id}
                     >
                       {removingPartyId === party.id ? (
@@ -1816,7 +1833,7 @@ function MachineAssignmentsSection({
               and assignment role use the normal V1 defaults in the background.
             </p>
           </div>
-          <Button asChild variant="outline" size="sm">
+          <Button asChild variant="outline" size="sm" className="min-h-11">
             <Link to="/admin/machines">Open Machines</Link>
           </Button>
         </div>
@@ -1830,15 +1847,25 @@ function MachineAssignmentsSection({
                 id="machine-assignment-search"
                 value={machineSearch}
                 onChange={(event) => setMachineSearch(event.target.value)}
-                className="pl-9"
+                className="h-11 pl-9"
                 placeholder="Machine, account, external machine ID"
               />
             </div>
           </div>
-          <Button type="button" variant="outline" onClick={() => toggleVisibleMachines(true)}>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={() => toggleVisibleMachines(true)}
+          >
             Select visible
           </Button>
-          <Button type="button" variant="outline" onClick={() => toggleVisibleMachines(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={() => toggleVisibleMachines(false)}
+          >
             Clear visible
           </Button>
         </div>
@@ -1910,7 +1937,11 @@ function MachineAssignmentsSection({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button onClick={handleSaveMachineAlignment} disabled={isSaving || !hasChanges}>
+          <Button
+            className="min-h-11"
+            onClick={handleSaveMachineAlignment}
+            disabled={isSaving || !hasChanges}
+          >
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Machine Alignment
           </Button>
@@ -2109,7 +2140,7 @@ function FinancialTermsSection({
               id="payout-model-preset"
               value={payoutPreset}
               onChange={(event) => updatePayoutPreset(event.target.value as PayoutModelPreset)}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
               {payoutModelPresets.map((preset) => (
                 <option key={preset.value} value={preset.value}>
@@ -2133,6 +2164,7 @@ function FinancialTermsSection({
               step="0.01"
               value={form.feeAmountDollars}
               onChange={(event) => updateStickLevelCostDeduction(event.target.value)}
+              className="h-11"
             />
           </div>
           <div>
@@ -2145,6 +2177,7 @@ function FinancialTermsSection({
               id="fee-label"
               value={form.feeLabel}
               onChange={(event) => setForm({ ...form, feeLabel: event.target.value })}
+              className="h-11"
             />
           </div>
         </div>
@@ -2178,6 +2211,7 @@ function FinancialTermsSection({
                 value={form.notes}
                 onChange={(event) => setForm({ ...form, notes: event.target.value })}
                 placeholder="Optional"
+                className="h-11"
               />
             </div>
             <div>
@@ -2187,6 +2221,7 @@ function FinancialTermsSection({
                 value={form.costLabel}
                 onChange={(event) => setForm({ ...form, costLabel: event.target.value })}
                 placeholder="Costs"
+                className="h-11"
               />
             </div>
             <div className="lg:col-span-2">
@@ -2207,7 +2242,11 @@ function FinancialTermsSection({
         </details>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button onClick={saveRule} disabled={isSaving || Boolean(saveDisabledReason)}>
+          <Button
+            className="min-h-11"
+            onClick={saveRule}
+            disabled={isSaving || Boolean(saveDisabledReason)}
+          >
             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Save Payout Rules
           </Button>
@@ -2244,7 +2283,12 @@ function FinancialTermsSection({
                   ? 'Active'
                   : formatLabel(currentFinancialRule.status)}
               </Badge>
-              <Button variant="outline" size="sm" onClick={() => editRule(currentFinancialRule)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11"
+                onClick={() => editRule(currentFinancialRule)}
+              >
                 Edit
               </Button>
             </div>
@@ -2716,6 +2760,7 @@ function WeeklyPreviewSection({
                 setPreview(null);
                 setPreviewError(null);
               }}
+              className="h-11"
             />
             <div className="mt-1 text-xs text-muted-foreground">
               Week ends {dayNames[selectedPartnership.reporting_week_end_day]}
@@ -2724,7 +2769,7 @@ function WeeklyPreviewSection({
               <Button
                 type="button"
                 variant="link"
-                className="mt-1 h-auto p-0 text-xs"
+                className="mt-1 min-h-11 justify-start whitespace-normal px-0 py-2 text-left text-xs"
                 onClick={useSuggestedWeek}
               >
                 Latest assigned-machine sales are {latestAssignedSaleDate}. Preview week ending{' '}
@@ -2732,7 +2777,7 @@ function WeeklyPreviewSection({
               </Button>
             )}
           </div>
-          <Button onClick={loadPreview} disabled={isLoading}>
+          <Button className="min-h-11" onClick={loadPreview} disabled={isLoading}>
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Preview
           </Button>
@@ -2756,7 +2801,7 @@ function WeeklyPreviewSection({
                   <div key={issue.title} className="rounded-md border border-amber-200 bg-white/70 p-3">
                     <div className="font-medium">{issue.title}</div>
                     <div className="mt-1">{issue.message}</div>
-                    <Button asChild variant="outline" size="sm" className="mt-2 bg-white">
+                    <Button asChild variant="outline" size="sm" className="mt-2 min-h-11 bg-white">
                       <Link to={issue.actionHref}>{issue.actionLabel}</Link>
                     </Button>
                   </div>
@@ -2787,6 +2832,7 @@ function WeeklyPreviewSection({
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
+                  className="min-h-11"
                   onClick={() => exportReport('pdf')}
                   disabled={Boolean(exportingFormat)}
                 >
@@ -2800,6 +2846,7 @@ function WeeklyPreviewSection({
                 <Button
                   type="button"
                   variant="outline"
+                  className="min-h-11"
                   onClick={() => exportReport('csv')}
                   disabled={Boolean(exportingFormat)}
                 >
@@ -2885,11 +2932,17 @@ function WeeklyPreviewSection({
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {latestAssignedSaleDate && suggestedWeekEndingDate !== weekEndingDate && (
-                    <Button type="button" variant="outline" size="sm" onClick={useSuggestedWeek}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-11"
+                      onClick={useSuggestedWeek}
+                    >
                       Preview week ending {suggestedWeekEndingDate}
                     </Button>
                   )}
-                  <Button asChild variant="outline" size="sm">
+                  <Button asChild variant="outline" size="sm" className="min-h-11">
                     <Link to="/admin/reporting">Check import status</Link>
                   </Button>
                 </div>
@@ -2999,6 +3052,7 @@ function PartnerRecordDialog({
               id="modal-partner-name"
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
+              className="h-11"
             />
           </div>
           <div>
@@ -3008,6 +3062,7 @@ function PartnerRecordDialog({
               value={form.legalName}
               onChange={(event) => setForm({ ...form, legalName: event.target.value })}
               placeholder="Official contract counterparty"
+              className="h-11"
             />
           </div>
           <div>
@@ -3026,6 +3081,7 @@ function PartnerRecordDialog({
                 id="modal-contact-name"
                 value={form.primaryContactName}
                 onChange={(event) => setForm({ ...form, primaryContactName: event.target.value })}
+                className="h-11"
               />
             </div>
             <div>
@@ -3035,6 +3091,7 @@ function PartnerRecordDialog({
                 type="email"
                 value={form.primaryContactEmail}
                 onChange={(event) => setForm({ ...form, primaryContactEmail: event.target.value })}
+                className="h-11"
               />
             </div>
           </div>
@@ -3048,10 +3105,10 @@ function PartnerRecordDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" className="min-h-11" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={savePartner} disabled={isSaving}>
+          <Button className="min-h-11" onClick={savePartner} disabled={isSaving}>
             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create and Use
           </Button>
@@ -3079,7 +3136,7 @@ function FieldSelect({
       id={id}
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+      className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
     >
       {options.map((option) => (
         <option key={option} value={option}>
@@ -3116,7 +3173,7 @@ function PartnerSelectWithAdd({
           }
           onChange(event.target.value);
         }}
-        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
       >
         <option value="">Select partner record</option>
         <option value="__add_new__">+ Add new partner record</option>
@@ -3154,6 +3211,7 @@ function DateWindowFields({
           type="date"
           value={startValue}
           onChange={(event) => onStartChange(event.target.value)}
+          className="h-11"
         />
       </div>
       <div>
@@ -3163,6 +3221,7 @@ function DateWindowFields({
           type="date"
           value={endValue}
           onChange={(event) => onEndChange(event.target.value)}
+          className="h-11"
         />
       </div>
     </>
@@ -3221,7 +3280,7 @@ function PreviewWarningList({
             <div key={`${warning.warningType}-${index}`} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <span>{warning.message}</span>
               {link && (
-                <Button asChild variant="outline" size="sm">
+                <Button asChild variant="outline" size="sm" className="min-h-11">
                   <Link to={link}>Fix</Link>
                 </Button>
               )}

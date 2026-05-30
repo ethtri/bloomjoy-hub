@@ -194,7 +194,7 @@ export default function AdminSupportPage() {
 
   return (
     <AppLayout>
-      <section className="section-padding">
+      <section className="section-padding admin-touch-targets">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -208,7 +208,12 @@ export default function AdminSupportPage() {
                 Triage concierge, parts-assistance, and WeChat onboarding requests.
               </p>
             </div>
-            <Button variant="outline" onClick={handleRefresh} disabled={isFetching}>
+            <Button
+              variant="outline"
+              className="min-h-11"
+              onClick={handleRefresh}
+              disabled={isFetching}
+            >
               {isFetching ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -242,13 +247,14 @@ export default function AdminSupportPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by email, subject, message, or ID"
+              className="h-11"
             />
             <select
               value={statusFilter}
               onChange={(event) =>
                 setStatusFilter(event.target.value as 'all' | SupportRequestStatus)
               }
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-11 rounded-md border border-input bg-background px-3 text-sm"
             >
               <option value="all">All statuses</option>
               {statusOptions.map((status) => (
@@ -262,7 +268,7 @@ export default function AdminSupportPage() {
               onChange={(event) =>
                 setRequestTypeFilter(event.target.value as 'all' | SupportRequestType)
               }
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-11 rounded-md border border-input bg-background px-3 text-sm"
             >
               <option value="all">All request types</option>
               {requestTypeOptions.map((requestType) => (
@@ -281,7 +287,53 @@ export default function AdminSupportPage() {
 
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <table className="w-full">
+              <div className="lg:hidden">
+                {isLoading && (
+                  <div className="p-4 text-sm text-muted-foreground">Loading support queue...</div>
+                )}
+                {!isLoading && filteredRequests.length === 0 && (
+                  <div className="p-4 text-sm text-muted-foreground">
+                    No support requests found.
+                  </div>
+                )}
+                {!isLoading &&
+                  filteredRequests.map((request) => (
+                    <button
+                      key={request.id}
+                      type="button"
+                      onClick={() => handleSelectRequest(request)}
+                      className={`block min-h-11 w-full border-b border-border/70 p-4 text-left transition-colors last:border-b-0 hover:bg-muted/40 ${
+                        request.id === selectedId ? 'bg-muted/50' : ''
+                      }`}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="break-words text-sm font-semibold text-foreground">
+                            {request.subject}
+                          </div>
+                          <div className="mt-1 break-all text-xs text-muted-foreground">
+                            {request.customer_email}
+                          </div>
+                        </div>
+                        <div className="w-fit rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">
+                          {formatDate(request.created_at)}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span className="rounded-full border border-border px-2.5 py-1">
+                          {request.status}
+                        </span>
+                        <span className="rounded-full border border-border px-2.5 py-1">
+                          {request.priority}
+                        </span>
+                        <span className="rounded-full border border-border px-2.5 py-1">
+                          {formatRequestType(request.request_type)}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+              <table className="hidden w-full lg:table">
                 <thead className="border-b border-border bg-muted/40">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -410,7 +462,7 @@ export default function AdminSupportPage() {
                               : prev
                           )
                         }
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                       >
                         {statusOptions.map((status) => (
                           <option key={status} value={status}>
@@ -436,7 +488,7 @@ export default function AdminSupportPage() {
                               : prev
                           )
                         }
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                       >
                         {priorityOptions.map((priority) => (
                           <option key={priority} value={priority}>
@@ -459,6 +511,7 @@ export default function AdminSupportPage() {
                         )
                       }
                       placeholder="Optional admin user UUID"
+                      className="h-11"
                     />
                   </div>
 
@@ -478,7 +531,7 @@ export default function AdminSupportPage() {
                     />
                   </div>
 
-                  <Button onClick={handleSave} disabled={isSaving}>
+                  <Button className="min-h-11" onClick={handleSave} disabled={isSaving}>
                     {isSaving ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

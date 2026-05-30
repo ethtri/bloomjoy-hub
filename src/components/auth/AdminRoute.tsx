@@ -62,7 +62,7 @@ export function AdminRoute() {
                 : ''}
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
-              <Button asChild variant="outline">
+              <Button asChild variant="outline" className="min-h-11">
                 <Link to="/portal">Back to Portal</Link>
               </Button>
             </div>
@@ -106,7 +106,7 @@ export function RefundOperationsRoute() {
               This workflow is available to assigned machine managers and scoped operations admins.
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
-              <Button asChild variant="outline">
+              <Button asChild variant="outline" className="min-h-11">
                 <Link to="/portal">Back to Portal</Link>
               </Button>
             </div>
