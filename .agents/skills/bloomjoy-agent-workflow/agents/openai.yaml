@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bloomjoy Agent Workflow"
+  short_description: "Run Bloomjoy issue-to-PR workflow"
+  default_prompt: "Use the Bloomjoy agent workflow for this GitHub issue or PR task."

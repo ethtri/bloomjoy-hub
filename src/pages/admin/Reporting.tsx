@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowRight,
   CalendarDays,
   CheckCircle2,
   Database,
+  Info,
   Loader2,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -88,6 +92,74 @@ const formatCents = (value: unknown) => {
   }).format(cents / 100);
 };
 
+const normalizeComparableText = (value: string | null | undefined) =>
+  String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+const partnershipMachineNameHints: Record<string, string[]> = {
+  'merlin revenue share': ['merlin', 'madame tussauds', 'legoland', 'sea life'],
+  'bubble planet revenue share': ['bubble planet'],
+  'bloomjoy mini california': ['bloomjoy mini', 'mini california'],
+};
+
+const getImportedMachineDisplayName = (machine: AdminSunzeMachineQueueItem | null) =>
+  machine?.sunzeMachineName?.trim() || machine?.sunzeMachineId || 'Imported machine';
+
+const getRecommendedPartnership = (
+  machine: AdminSunzeMachineQueueItem | null,
+  partnerships: AdminReportingPartnershipOption[]
+) => {
+  if (!machine) return null;
+
+  const machineText = normalizeComparableText(
+    `${machine.sunzeMachineName ?? ''} ${machine.sunzeMachineId}`
+  );
+  if (!machineText) return null;
+
+  const scored = partnerships
+    .filter((partnership) => partnership.status === 'active')
+    .map((partnership) => {
+      const partnershipText = normalizeComparableText(partnership.name);
+      const hints = [
+        ...partnershipText.split(' ').filter((token) => token.length >= 4),
+        ...(partnershipMachineNameHints[partnershipText] ?? []),
+      ];
+      const matchedHint = hints.find((hint) => machineText.includes(normalizeComparableText(hint)));
+      return {
+        partnership,
+        matchedHint,
+        score: matchedHint ? 1 : 0,
+      };
+    })
+    .filter((item) => item.score > 0)
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.partnership.name.localeCompare(right.partnership.name)
+    );
+
+  const best = scored[0];
+  if (!best) return null;
+
+  return {
+    partnership: best.partnership,
+    reason: best.matchedHint
+      ? `Suggested from source machine name match: ${best.matchedHint}`
+      : 'Suggested from source machine details',
+  };
+};
+
+const inferImportedMachineLocationName = (machine: AdminSunzeMachineQueueItem | null) => {
+  const machineText = normalizeComparableText(machine?.sunzeMachineName);
+  if (!machineText) return '';
+  if (machineText.includes('las vegas') || machineText.includes('vegas')) return 'Las Vegas';
+  if (machineText.includes('minneapolis')) return 'Minneapolis';
+  if (machineText.includes('chicago')) return 'Chicago';
+  if (machineText.includes('dallas')) return 'Dallas';
+  return '';
+};
+
 const getImportedMachineSetupSummary = (result: MapSourceMachineToPartnershipResult) =>
   `${result.machineLabel} is ready for ${result.partnershipName}. ${result.promotedRowCount} queued row${
     result.promotedRowCount === 1 ? '' : 's'
@@ -123,6 +195,8 @@ export default function AdminReportingPage() {
   const [updatingSunzeMachineId, setUpdatingSunzeMachineId] = useState<string | null>(null);
   const [setupMachine, setSetupMachine] = useState<AdminSunzeMachineQueueItem | null>(null);
   const [isSettingUpMachine, setIsSettingUpMachine] = useState(false);
+  const [lastSetupResult, setLastSetupResult] =
+    useState<MapSourceMachineToPartnershipResult | null>(null);
 
   const {
     data: overview,
@@ -234,6 +308,7 @@ export default function AdminReportingPage() {
         promoted_revenue_cents: result.promotedRevenueCents,
       });
       toast.success(getImportedMachineSetupSummary(result));
+      setLastSetupResult(result);
       setSetupMachine(null);
       await Promise.all([
         refresh(),
@@ -397,6 +472,13 @@ export default function AdminReportingPage() {
             />
           </div>
 
+          {lastSetupResult && (
+            <ImportedMachineSetupReceipt
+              result={lastSetupResult}
+              onDismiss={() => setLastSetupResult(null)}
+            />
+          )}
+
           <Tabs defaultValue="schedules" className="mt-6">
             <TabsList className="h-auto flex-wrap justify-start">
               <TabsTrigger value="schedules">Schedules</TabsTrigger>
@@ -484,6 +566,74 @@ function LoadingCard() {
   return (
     <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
       Loading reporting operations...
+    </div>
+  );
+}
+
+function ImportedMachineSetupReceipt({
+  result,
+  onDismiss,
+}: {
+  result: MapSourceMachineToPartnershipResult;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mt-6 rounded-lg border border-primary/25 bg-primary/5 p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            <h2 className="font-semibold text-foreground">Imported machine setup complete</h2>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {result.machineLabel} is assigned to {result.partnershipName}.{' '}
+            {result.promotedRowCount} queued row{result.promotedRowCount === 1 ? '' : 's'} /{' '}
+            {formatCents(result.promotedRevenueCents)} moved into reporting.
+          </p>
+          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                External ID
+              </dt>
+              <dd className="mt-1 break-all text-foreground">{result.externalMachineId}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Account
+              </dt>
+              <dd className="mt-1 text-foreground">{result.accountName}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Location
+              </dt>
+              <dd className="mt-1 text-foreground">{result.locationName}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Access
+              </dt>
+              <dd className="mt-1 text-foreground">Review scoped admins separately</dd>
+            </div>
+          </dl>
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-border bg-background/70 p-3 text-sm text-muted-foreground">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            Partnership assignment controls reporting and settlement grouping. It does not
+            automatically grant admin, tax, or scoped management rights.
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
+          <Button asChild>
+            <Link to="/admin/access">
+              Review Access
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+          <Button variant="outline" onClick={onDismiss}>
+            Dismiss
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -693,12 +843,28 @@ function SyncTab({
           sunzeMachineQueue.map((machine) => (
             <Row key={machine.sunzeMachineId}>
               <div>
-                <div className="font-medium text-foreground">
-                  {machine.sunzeMachineName ?? machine.sunzeMachineId}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="font-medium text-foreground">
+                    {getImportedMachineDisplayName(machine)}
+                  </div>
+                  {!machine.sunzeMachineName && (
+                    <Badge variant="outline" className="text-amber-700">
+                      Name missing
+                    </Badge>
+                  )}
+                  {machine.pendingRowCount === 0 && (
+                    <Badge variant="outline">No queued sales</Badge>
+                  )}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   External machine ID {machine.sunzeMachineId} / status {machine.status}
                 </div>
+                {!machine.sunzeMachineName && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Confirm the provider machine name before setup when multiple new IDs appeared
+                    together.
+                  </div>
+                )}
                 {machine.ignoreReason && (
                   <div className="mt-1 text-xs text-muted-foreground">
                     Ignored: {machine.ignoreReason}
@@ -779,18 +945,22 @@ function ImportedMachineSetupDialog({
   onSave: (form: ImportedMachineSetupForm) => void;
 }) {
   const [form, setForm] = useState<ImportedMachineSetupForm>(emptyImportedMachineSetupForm);
+  const recommendedPartnership = useMemo(
+    () => getRecommendedPartnership(machine, partnerships),
+    [machine, partnerships]
+  );
   const selectedPartnership = partnerships.find(
     (partnership) => partnership.id === form.partnershipId
   );
 
   useEffect(() => {
     if (!machine) return;
-    const defaultPartnership =
-      partnerships.find((partnership) => partnership.status === 'active') ?? partnerships[0];
+    const recommended = getRecommendedPartnership(machine, partnerships);
     setForm({
       ...emptyImportedMachineSetupForm,
-      partnershipId: defaultPartnership?.id ?? '',
+      partnershipId: recommended?.partnership.id ?? '',
       machineLabel: machine.sunzeMachineName ?? '',
+      locationName: inferImportedMachineLocationName(machine),
     });
   }, [machine, partnerships]);
 
@@ -815,6 +985,33 @@ function ImportedMachineSetupDialog({
             <div className="mt-1 text-xs text-muted-foreground">
               {machine?.pendingRowCount ?? 0} queued rows /{' '}
               {formatCents(machine?.pendingRevenueCents ?? 0)}
+            </div>
+          </div>
+          {recommendedPartnership && (
+            <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-sm">
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
+                <div>
+                  <div className="font-medium text-foreground">
+                    Suggested report: {recommendedPartnership.partnership.name}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {recommendedPartnership.reason}. Confirm this before finishing setup.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
+            <div className="flex items-start gap-2">
+              <Info className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div>
+                <div className="font-medium text-foreground">Access review is separate</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  This assignment controls reporting and settlement grouping only. Review scoped
+                  admin access after setup for users who need tax or machine management rights.
+                </div>
+              </div>
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -849,7 +1046,7 @@ function ImportedMachineSetupDialog({
                 id="imported-machine-label"
                 value={form.machineLabel}
                 onChange={(event) => setForm({ ...form, machineLabel: event.target.value })}
-                placeholder="Merlin Minneapolis"
+                placeholder={machine?.sunzeMachineName ?? 'Machine label'}
               />
             </div>
             <div>
@@ -858,7 +1055,7 @@ function ImportedMachineSetupDialog({
                 id="imported-machine-location"
                 value={form.locationName}
                 onChange={(event) => setForm({ ...form, locationName: event.target.value })}
-                placeholder="Minneapolis"
+                placeholder="Las Vegas"
               />
             </div>
             <div>
@@ -914,7 +1111,7 @@ function ImportedMachineSetupDialog({
           </Button>
           <Button
             onClick={() => onSave(form)}
-            disabled={isSaving || !machine || partnerships.length === 0}
+            disabled={isSaving || !machine || partnerships.length === 0 || !form.partnershipId}
           >
             {isSaving ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

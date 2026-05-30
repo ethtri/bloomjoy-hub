@@ -2,7 +2,7 @@ import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 
 export function AdminRoute() {
   const { adminAccess, loading, isAdmin, isScopedAdmin, isSuperAdmin } = useAuth();

@@ -1,0 +1,106 @@
+name: Feature or task
+description: Scoped product, workflow, docs, or tooling work
+title: "P?: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        GitHub Issues and the Bloomjoy Project board are the source of truth for active work. Apply the matching P0-P3 label after creating the issue and add the issue to the Bloomjoy Project board.
+  - type: input
+    id: goal
+    attributes:
+      label: Goal
+      description: What outcome should exist when this work is done?
+      placeholder: "Operators can..."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is in scope, and what is explicitly out of scope?
+      placeholder: |
+        In scope:
+        - TBD
+
+        Out of scope:
+        - TBD
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List the concrete checks that make this complete.
+      placeholder: |
+        - [ ] TBD
+        - [ ] TBD
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority label to apply
+      options:
+        - P0
+        - P1
+        - P2
+        - P3
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk level
+      options:
+        - Low
+        - Medium
+        - High
+        - Launch critical
+    validations:
+      required: true
+  - type: checkboxes
+    id: owner_approval_triggers
+    attributes:
+      label: Owner approval triggers
+      description: Apply matching labels after creating the issue. Any selected trigger makes the PR red lane until owner direction is recorded.
+      options:
+        - label: Needs owner decision (`needs-owner-decision`)
+        - label: Owner UAT or go/no-go required (`uat-required`)
+        - label: Blocked by external account, vendor, credentials, or owner-controlled setup (`blocked-external`)
+        - label: Touches database schema, migrations, RLS, or production data paths (`risky-db-change`)
+        - label: Touches auth, permissions, Stripe, payments, or server-side secrets (`risky-auth-payment`)
+        - label: None of the above
+  - type: checkboxes
+    id: sensitive_data
+    attributes:
+      label: Sensitive data warning
+      options:
+        - label: This issue does not include secrets, raw customer data, payment IDs, vendor exports, or free-text complaint content.
+          required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Expected verification
+      description: Include build, tests, lint, smoke checks, browser checks, or script checks expected for this work.
+      placeholder: |
+        - npm ci
+        - npm run agent:context -- --issue <number>
+        - npm run agent:preflight -- --issue <number>
+        - npm run agent:validate-workflow when workflow/templates/config/skills changed
+        - npm run build
+        - npm test --if-present
+        - npm run lint --if-present
+        - git diff --check
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and references
+      description: Link related issues, PRs, docs, designs, or decisions.
+      placeholder: |
+        - TBD
+    validations:
+      required: false

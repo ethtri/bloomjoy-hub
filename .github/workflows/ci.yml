@@ -18,6 +18,8 @@ jobs:
         run: npm ci
       - name: Supabase Migration Version Check
         run: node scripts/check-supabase-migration-versions.mjs
+      - name: Agent Workflow Drift Check
+        run: npm run agent:validate-workflow
       - name: Build
         run: npm run build
       - name: SEO Regression Checks

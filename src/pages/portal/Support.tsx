@@ -7,7 +7,7 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { trackEvent } from '@/lib/analytics';
 import { createSupportRequest } from '@/lib/supportRequests';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { TranslationKey } from '@/lib/i18n';
 import { toast } from 'sonner';

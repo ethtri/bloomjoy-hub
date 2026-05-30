@@ -8,7 +8,7 @@ import { trackEvent } from '@/lib/analytics';
 import { trackBusinessPlaybookCtaClick } from '@/lib/businessPlaybookAnalytics';
 import { startPlusCheckout } from '@/lib/stripeCheckout';
 import { toast } from 'sonner';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 
 const benefits = [
   {

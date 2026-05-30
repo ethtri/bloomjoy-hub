@@ -25,7 +25,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { PortalLayout } from '@/components/portal/PortalLayout';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { downloadTrainingCertificateSvg } from '@/lib/trainingCertificate';
 import { trackEvent } from '@/lib/analytics';

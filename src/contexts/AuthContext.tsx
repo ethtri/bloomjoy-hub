@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
+import { AuthContext, type AdminAccessContext, type User } from '@/contexts/auth-context';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
@@ -20,72 +21,8 @@ import {
 } from '@/lib/reporting';
 import { resolveMyTechnicianEntitlements } from '@/lib/technicianEntitlements';
 
-interface User {
-  id: string;
-  email: string;
-  membershipStatus?: MembershipStatus;
-  membershipPlan?: string;
-  portalAccessTier: PortalAccessTier;
-  isTrainingOperator: boolean;
-  canManageOperatorTraining: boolean;
-  isCorporatePartner: boolean;
-  hasSupplyDiscount: boolean;
-  canRequestSupport: boolean;
-  canManageTechnicians: boolean;
-  capabilities: string[];
-  effectivePresets: string[];
-  plusAccess: PlusAccessSummary;
-  reportingAccess: ReportingAccessContext;
-  isAdmin: boolean;
-  isSuperAdmin: boolean;
-  isScopedAdmin: boolean;
-  adminAccess: AdminAccessContext;
-}
-
-interface AuthContextType {
-  user: User | null;
-  loading: boolean;
-  signInWithMagicLink: (email: string) => Promise<{ error: AuthError | null }>;
-  signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
-  signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
-  signInWithGoogle: () => Promise<{ error: AuthError | null }>;
-  signInWithGoogleIdToken: (idToken: string) => Promise<{ error: AuthError | null }>;
-  requestPasswordReset: (email: string) => Promise<{ error: AuthError | null }>;
-  updatePassword: (password: string) => Promise<{ error: AuthError | null }>;
-  signIn: (email: string) => Promise<{ error: AuthError | null }>;
-  signOut: () => Promise<void>;
-  isAuthenticated: boolean;
-  isMember: boolean;
-  portalAccessTier: PortalAccessTier;
-  canAccessTraining: boolean;
-  isTrainingOperator: boolean;
-  canManageOperatorTraining: boolean;
-  isCorporatePartner: boolean;
-  hasSupplyDiscount: boolean;
-  canRequestSupport: boolean;
-  canManageTechnicians: boolean;
-  capabilities: string[];
-  effectivePresets: string[];
-  hasReportingAccess: boolean;
-  reportingMachineCount: number;
-  reportingLocationCount: number;
-  canManageReporting: boolean;
-  isAdmin: boolean;
-  isSuperAdmin: boolean;
-  isScopedAdmin: boolean;
-  adminAccess: AdminAccessContext;
-}
-
 type AdminRoleRecord = {
   role: string;
-};
-
-type AdminAccessContext = {
-  isSuperAdmin: boolean;
-  isScopedAdmin: boolean;
-  canAccessAdmin: boolean;
-  allowedSurfaces: string[];
-  scopedMachineIds: string[];
 };
 
 type AdminAccessContextRpc = {
@@ -109,8 +46,6 @@ type PortalAccessContextRecord = {
   capabilities?: string[] | null;
   effective_presets?: string[] | null;
 };
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const getDevAdminEmailAllowlist = (): Set<string> => {
   if (!import.meta.env.DEV) {
@@ -512,12 +447,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 }

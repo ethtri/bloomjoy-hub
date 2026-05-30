@@ -18,7 +18,7 @@ import {
   portalDestinations,
   type PortalAccessLevel,
 } from '@/components/portal/portalNavigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { trackEvent } from '@/lib/analytics';
 import type { TranslationKey } from '@/lib/i18n';

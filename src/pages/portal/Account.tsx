@@ -13,7 +13,7 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { TechnicianManagementPanel } from '@/components/portal/TechnicianManagementPanel';
 import { LanguagePreferenceControl } from '@/components/i18n/LanguagePreferenceControl';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { openCustomerPortal } from '@/lib/stripeCheckout';
 import { hasPlusAccess } from '@/lib/membership';

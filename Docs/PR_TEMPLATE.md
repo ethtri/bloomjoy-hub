@@ -1,22 +1,5 @@
-GitHub PRs should use `.github/pull_request_template.md` as the canonical template.
-This older copy remains only for quick local reference.
+# PR Template Pointer
 
-## Summary
-- 
+GitHub PRs should use `.github/PULL_REQUEST_TEMPLATE.md` as the canonical template.
 
-## Files changed
-- 
-
-## Verification
-- `npm ci`:
-- `npm run build`:
-- `npm test --if-present`:
-- `npm run lint --if-present`:
-
-## How to test (localhost)
-1) 
-2) 
-3) 
-
-## Notes / Risks
-- 
+This file remains only for older local references. Do not maintain a separate PR body here.
