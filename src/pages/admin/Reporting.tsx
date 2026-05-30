@@ -404,7 +404,7 @@ export default function AdminReportingPage() {
 
   return (
     <AppLayout>
-      <section className="section-padding">
+      <section className="section-padding admin-touch-targets">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -419,7 +419,7 @@ export default function AdminReportingPage() {
                 lives in Admin Access; machine and partnership setup lives in Admin Partnerships.
               </p>
             </div>
-            <Button variant="outline" onClick={refresh} disabled={isFetching}>
+            <Button variant="outline" className="min-h-11" onClick={refresh} disabled={isFetching}>
               {isFetching ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -480,10 +480,16 @@ export default function AdminReportingPage() {
           )}
 
           <Tabs defaultValue="schedules" className="mt-6">
-            <TabsList className="h-auto flex-wrap justify-start">
-              <TabsTrigger value="schedules">Schedules</TabsTrigger>
-              <TabsTrigger value="sync">Sync</TabsTrigger>
-              <TabsTrigger value="exports">Exports</TabsTrigger>
+            <TabsList className="h-auto flex-wrap justify-start gap-1">
+              <TabsTrigger className="min-h-11" value="schedules">
+                Schedules
+              </TabsTrigger>
+              <TabsTrigger className="min-h-11" value="sync">
+                Sync
+              </TabsTrigger>
+              <TabsTrigger className="min-h-11" value="exports">
+                Exports
+              </TabsTrigger>
             </TabsList>
             <TabsContent value="schedules" className="mt-6">
               {isLoading ? (
@@ -623,13 +629,13 @@ function ImportedMachineSetupReceipt({
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
-          <Button asChild>
+          <Button asChild className="min-h-11">
             <Link to="/admin/access">
               Review Access
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
-          <Button variant="outline" onClick={onDismiss}>
+          <Button variant="outline" className="min-h-11" onClick={onDismiss}>
             Dismiss
           </Button>
         </div>
@@ -682,6 +688,7 @@ function SchedulesTab({
               id="schedule-title"
               value={scheduleForm.title}
               onChange={(event) => setScheduleForm({ ...scheduleForm, title: event.target.value })}
+              className="h-11"
             />
           </div>
           <div>
@@ -692,7 +699,7 @@ function SchedulesTab({
               onChange={(event) =>
                 setScheduleForm({ ...scheduleForm, machineId: event.target.value })
               }
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
               <option value="">All accessible machines in filter</option>
               {machines.map((machine) => (
@@ -711,6 +718,7 @@ function SchedulesTab({
                 setScheduleForm({ ...scheduleForm, recipients: event.target.value })
               }
               placeholder="partner@example.com, finance@example.com"
+              className="h-11"
             />
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -722,7 +730,7 @@ function SchedulesTab({
                 onChange={(event) =>
                   setScheduleForm({ ...scheduleForm, dayOfWeek: event.target.value })
                 }
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="1">Monday</option>
                 <option value="2">Tuesday</option>
@@ -742,6 +750,7 @@ function SchedulesTab({
                 onChange={(event) =>
                   setScheduleForm({ ...scheduleForm, sendHourLocal: event.target.value })
                 }
+                className="h-11"
               />
             </div>
             <div>
@@ -752,10 +761,11 @@ function SchedulesTab({
                 onChange={(event) =>
                   setScheduleForm({ ...scheduleForm, timezone: event.target.value })
                 }
+                className="h-11"
               />
             </div>
           </div>
-          <Button onClick={createSchedule} disabled={isCreatingSchedule}>
+          <Button className="min-h-11" onClick={createSchedule} disabled={isCreatingSchedule}>
             {isCreatingSchedule ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -885,6 +895,7 @@ function SyncTab({
                   <Button
                     type="button"
                     size="sm"
+                    className="min-h-11"
                     disabled={partnerships.length === 0}
                     onClick={() => onSetupMachine(machine)}
                   >
@@ -894,6 +905,7 @@ function SyncTab({
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="min-h-11"
                     disabled={updatingSunzeMachineId === machine.sunzeMachineId}
                     onClick={() =>
                       setSunzeQueueStatus(
@@ -1021,7 +1033,7 @@ function ImportedMachineSetupDialog({
                 id="imported-machine-partnership"
                 value={form.partnershipId}
                 onChange={(event) => setForm({ ...form, partnershipId: event.target.value })}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="">Choose report</option>
                 {partnerships.map((partnership) => (
@@ -1038,6 +1050,7 @@ function ImportedMachineSetupDialog({
                 value={machine?.sunzeMachineId ?? ''}
                 readOnly
                 aria-readonly="true"
+                className="h-11"
               />
             </div>
             <div>
@@ -1047,6 +1060,7 @@ function ImportedMachineSetupDialog({
                 value={form.machineLabel}
                 onChange={(event) => setForm({ ...form, machineLabel: event.target.value })}
                 placeholder={machine?.sunzeMachineName ?? 'Machine label'}
+                className="h-11"
               />
             </div>
             <div>
@@ -1056,6 +1070,7 @@ function ImportedMachineSetupDialog({
                 value={form.locationName}
                 onChange={(event) => setForm({ ...form, locationName: event.target.value })}
                 placeholder="Las Vegas"
+                className="h-11"
               />
             </div>
             <div>
@@ -1066,7 +1081,7 @@ function ImportedMachineSetupDialog({
                 onChange={(event) =>
                   setForm({ ...form, machineType: event.target.value as ReportingMachineType })
                 }
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 {machineTypes.map((machineType) => (
                   <option key={machineType} value={machineType}>
@@ -1085,6 +1100,7 @@ function ImportedMachineSetupDialog({
                 step="0.01"
                 value={form.taxRatePercent}
                 onChange={(event) => setForm({ ...form, taxRatePercent: event.target.value })}
+                className="h-11"
               />
             </div>
           </div>
@@ -1106,10 +1122,16 @@ function ImportedMachineSetupDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={() => onOpenChange(false)}
+            disabled={isSaving}
+          >
             Cancel
           </Button>
           <Button
+            className="min-h-11"
             onClick={() => onSave(form)}
             disabled={isSaving || !machine || partnerships.length === 0 || !form.partnershipId}
           >

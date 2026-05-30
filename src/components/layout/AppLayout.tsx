@@ -375,7 +375,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div className="container-page">
           <nav
             aria-label={t('app.adminTools')}
-            className="flex items-center gap-2 overflow-x-auto py-2.5"
+            className="flex items-center gap-2 overflow-x-auto overscroll-x-contain py-3"
           >
             <span className="shrink-0 pr-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               {t('app.adminTools')}
@@ -391,7 +391,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   aria-current={isActive ? 'page' : undefined}
                   title={t(item.descriptionKey)}
                   className={cn(
-                    'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors',
+                    'inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors',
                     isActive
                       ? 'border-primary/20 bg-primary/10 text-primary'
                       : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'

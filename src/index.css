@@ -171,6 +171,12 @@
     box-shadow: var(--shadow-lg);
   }
 
+  .admin-touch-targets button:not([role="checkbox"]),
+  .admin-touch-targets input:not([type="checkbox"]):not([type="radio"]),
+  .admin-touch-targets select {
+    min-height: 2.75rem;
+  }
+
   .btn-shadow {
     box-shadow: var(--shadow-warm);
   }
