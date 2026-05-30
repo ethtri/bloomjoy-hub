@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_ARTIFACT_DIR = 'output/playwright';
@@ -74,6 +75,7 @@ const mockSession = {
 const machineId = 'machine-1';
 const firstManagerEmail = 'manager-one@example.test';
 const secondManagerEmail = 'manager-two@example.test';
+const invitedManagerEmail = 'new-manager@example.test';
 
 const accountSummary = (userId, customerEmail) => ({
   user_id: userId,
@@ -133,11 +135,29 @@ const buildMockRefundManagerSetup = (state) => ({
   ],
 });
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'apikey, authorization, content-type, x-client-info, x-supabase-auth-token',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+};
+
 const jsonResponse = (body) => ({
   status: 200,
   contentType: 'application/json',
+  headers: corsHeaders,
   body: JSON.stringify(body),
 });
+
+const waitForCondition = async (predicate, label, timeoutMs = 10000) => {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await delay(100);
+  }
+
+  throw new Error(`${label} timed out after ${timeoutMs}ms`);
+};
 
 const installMockSupabaseRoutes = async (context, state) => {
   await context.route('**/auth/v1/**', async (route) => {
@@ -166,6 +186,36 @@ const installMockSupabaseRoutes = async (context, state) => {
     return route.fulfill(
       jsonResponse({ user_id: mockUser.id, language_preference: 'en' })
     );
+  });
+
+  await context.route('**/rest/v1/access_invite_deliveries**', async (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill(jsonResponse(state.inviteDeliveries));
+    }
+
+    return route.fulfill(jsonResponse({}));
+  });
+
+  await context.route('**/functions/v1/access-invite', async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      return route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+    }
+
+    const body = route.request().postDataJSON();
+    state.accessInviteBodies.push(body);
+    state.inviteDeliveries.unshift({
+      id: `invite-${state.accessInviteBodies.length}`,
+      invite_type: body?.inviteType ?? 'machine_manager',
+      source_type: body?.inviteType === 'machine_manager' ? 'reporting_machine' : 'unknown',
+      source_id: body?.sourceId ?? machineId,
+      target_email: body?.targetEmail ?? invitedManagerEmail,
+      sent_by: mockUser.id,
+      sent_at: now.toISOString(),
+      delivery_status: 'sent',
+      error_message: null,
+    });
+
+    return route.fulfill(jsonResponse({ ok: true }));
   });
 
   await context.route('**/rest/v1/rpc/**', async (route) => {
@@ -376,6 +426,8 @@ const run = async () => {
     machineSavePayload: null,
     refundIntakePayload: null,
     nayaxPayload: null,
+    accessInviteBodies: [],
+    inviteDeliveries: [],
     refundSetup: {
       refundIntakeEnabled: false,
       refundPublicDisplayLabel: null,
@@ -453,6 +505,31 @@ const run = async () => {
       await machineDialog.getByText(/Live card refund execution stays disabled/i).isVisible()
     );
 
+    await page.fill('#machine-manager-search', invitedManagerEmail);
+    await machineDialog.getByRole('button', { name: 'Send invite' }).click();
+    await waitForCondition(
+      () => state.accessInviteBodies.length > 0,
+      'Machine Manager invite request capture'
+    );
+    await machineDialog.getByText(/Last invite sent/i).waitFor({ timeout: 10000 });
+
+    recorder.assert(
+      'Machine Manager signup invite uses reporting machine source',
+      state.accessInviteBodies[0]?.inviteType === 'machine_manager' &&
+        state.accessInviteBodies[0]?.sourceId === machineId &&
+        state.accessInviteBodies[0]?.targetEmail === invitedManagerEmail,
+      JSON.stringify(state.accessInviteBodies[0])
+    );
+    recorder.assert(
+      'Machine Manager invite does not assign machine access',
+      state.savePayload === null && !state.managerEmails.includes(invitedManagerEmail),
+      JSON.stringify({ savePayload: state.savePayload, managerEmails: state.managerEmails })
+    );
+    recorder.assert(
+      'Machine Manager invite delivery evidence appears in setup sheet',
+      await machineDialog.getByText(new RegExp(invitedManagerEmail, 'i')).isVisible()
+    );
+
     await page.fill('#machine-manager-search', 'manager-two');
     await page.getByRole('button', { name: new RegExp(secondManagerEmail, 'i') }).click();
     await page.getByText('Saved').waitFor({ timeout: 10000 });
@@ -521,7 +598,8 @@ const run = async () => {
         (await machineRow.getByText(/Card lookup ready/i).isVisible())
     );
 
-    await machineRow.getByRole('button', { name: 'Edit' }).click();
+    await machineDialog.waitFor({ state: 'hidden', timeout: 10000 });
+    await machineRow.getByRole('button', { name: 'Edit' }).evaluate((button) => button.click());
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
     const reopenedMachineDialog = page.getByLabel('Edit Machine');
     recorder.assert(

@@ -136,6 +136,17 @@ assert.equal(
   "https://app.bloomjoyusa.com/login?intent=corporate_partner&email=partner%40example.com",
 );
 
+const machineManagerInviteResult = validateAccessInvitePreflight(
+  "machine_manager",
+  "Manager@Example.com",
+  makeLocation("https://app.bloomjoyusa.com"),
+);
+assert.equal(machineManagerInviteResult.ok, true, "Machine Manager invite URLs should be allowed");
+assert.equal(
+  machineManagerInviteResult.loginUrl,
+  "https://app.bloomjoyusa.com/login?intent=machine_manager&email=manager%40example.com",
+);
+
 const rejectedClientInviteOrigins = [
   "https://www.bloomjoyusa.com",
   "http://app.bloomjoyusa.com",

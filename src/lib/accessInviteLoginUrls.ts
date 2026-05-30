@@ -4,7 +4,7 @@ import {
   validateAccessInvitePreflight as validateAccessInvitePreflightRuntime,
 } from './accessInviteLoginUrls.mjs';
 
-export type AccessInviteLoginIntent = 'corporate_partner' | 'technician';
+export type AccessInviteLoginIntent = 'corporate_partner' | 'technician' | 'machine_manager';
 
 export type AccessInviteLocationLike = {
   origin: string;

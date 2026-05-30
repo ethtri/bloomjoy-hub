@@ -26,8 +26,8 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
     })
   : null;
 
-type InviteType = "corporate_partner" | "technician";
-type SourceType = "corporate_partner_membership" | "technician_grant";
+type InviteType = "corporate_partner" | "technician" | "machine_manager";
+type SourceType = "corporate_partner_membership" | "technician_grant" | "reporting_machine";
 
 type InviteSource = {
   inviteType: InviteType;
@@ -60,6 +60,7 @@ type EvidenceWriteFailure = {
 const sourceTypeByInviteType: Record<InviteType, SourceType> = {
   corporate_partner: "corporate_partner_membership",
   technician: "technician_grant",
+  machine_manager: "reporting_machine",
 };
 const maxEvidenceMessageLength = 500;
 const sentEvidenceFailureMessage =
@@ -292,6 +293,50 @@ async function getTechnicianSource(sourceId: string, targetEmail: string): Promi
   };
 }
 
+async function getMachineManagerSource(sourceId: string, targetEmail: string): Promise<InviteSource> {
+  if (!supabase) throw new Error("Access invite email is not configured.");
+
+  const { data: machine, error: machineError } = await supabase
+    .from("reporting_machines")
+    .select("id, machine_label, machine_type, status, location_id")
+    .eq("id", sourceId)
+    .maybeSingle();
+
+  if (machineError || !machine) {
+    throw new Error("Reporting machine was not found.");
+  }
+
+  const machineRecord = machine as Record<string, unknown>;
+  if (getStringValue(machineRecord, "status") !== "active") {
+    throw new Error("Reporting machine is not active.");
+  }
+
+  const locationId = getStringValue(machineRecord, "location_id");
+  const { data: location } = locationId
+    ? await supabase
+        .from("reporting_locations")
+        .select("name")
+        .eq("id", locationId)
+        .maybeSingle()
+    : { data: null };
+
+  const machineLabel = getStringValue(machineRecord, "machine_label") || "a Bloomjoy machine";
+  const locationName = getStringValue((location as Record<string, unknown> | null) ?? {}, "name");
+  const locationCopy = locationName ? ` at ${locationName}` : "";
+
+  return {
+    inviteType: "machine_manager",
+    sourceType: "reporting_machine",
+    sourceId,
+    targetEmail,
+    targetUserId: null,
+    title: "Your Bloomjoy Machine Manager invite",
+    body: `You have been invited to create or sign in to Bloomjoy Hub so Bloomjoy can assign you as a Machine Manager for ${machineLabel}${locationCopy}.`,
+    accessSummary:
+      "This invite does not assign machine access by itself. After you sign in with this email, a Bloomjoy administrator can add the Machine Manager assignment from Admin > Machines.",
+  };
+}
+
 async function recordInviteEvidence(
   attempt: InviteAttempt,
   actorUserId: string,
@@ -451,7 +496,7 @@ serve(async (req) => {
       allowConfiguredPreviewOrigins: true,
     });
 
-    if (!["corporate_partner", "technician"].includes(inviteType)) {
+    if (!["corporate_partner", "technician", "machine_manager"].includes(inviteType)) {
       return new Response(JSON.stringify({ error: "Unsupported invite type." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -499,7 +544,9 @@ serve(async (req) => {
     try {
       source = inviteType === "corporate_partner"
         ? await getCorporatePartnerSource(sourceId, targetEmail)
-        : await getTechnicianSource(sourceId, targetEmail);
+        : inviteType === "technician"
+          ? await getTechnicianSource(sourceId, targetEmail)
+          : await getMachineManagerSource(sourceId, targetEmail);
     } catch (sourceError) {
       await recordFailureEvidence(
         inviteAttempt,
