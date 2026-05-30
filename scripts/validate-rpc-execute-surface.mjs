@@ -84,6 +84,11 @@ const serviceRoleOnlyFunctions = [
     name: 'operator_revenue_snapshot_source_values',
     migrationName: '202605200003_operator_revenue_snapshots.sql',
   },
+  {
+    signature: 'public.operator_payout_effective_rule_value(uuid, uuid, uuid, date, text)',
+    name: 'operator_payout_effective_rule_value',
+    migrationName: '202605200004_operator_payout_calculation_engine.sql',
+  },
 ];
 
 const protectedAuthenticatedFunctions = [
