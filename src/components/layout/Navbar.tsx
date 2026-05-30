@@ -55,7 +55,7 @@ export function Navbar() {
         </Link>
 
         {/* Desktop Navigation */}
-        <div className="hidden items-center gap-1 md:flex">
+        <div className="hidden items-center gap-1 lg:flex">
           {navLinks.map((link) => (
             <Link
               key={link.href}
@@ -73,7 +73,7 @@ export function Navbar() {
         </div>
 
         {/* Desktop Actions */}
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-3 lg:flex">
           <Link
             to="/cart"
             className="relative p-2 text-muted-foreground hover:text-foreground"
@@ -112,7 +112,7 @@ export function Navbar() {
         </div>
 
         {/* Mobile Menu Button */}
-        <div className="flex items-center gap-3 md:hidden">
+        <div className="flex items-center gap-3 lg:hidden">
           <Link
             to="/cart"
             className="relative p-2 text-muted-foreground hover:text-foreground"
@@ -140,7 +140,7 @@ export function Navbar() {
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div id="mobile-navigation-menu" className="border-t border-border bg-background md:hidden">
+        <div id="mobile-navigation-menu" className="border-t border-border bg-background lg:hidden">
           <div className="container-page py-4">
             <div className="flex flex-col gap-2">
               {navLinks.map((link) => (
