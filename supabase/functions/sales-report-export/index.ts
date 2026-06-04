@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
+  buildSalesReportReference,
   buildSalesReportPdf,
   summarizeSalesReportPdfRows,
   type SalesReportPdfRow,
@@ -59,6 +60,50 @@ const normalizePaymentMethods = (value: unknown): string[] =>
         .map((entry) => String(entry).trim().toLowerCase())
         .filter((entry) => validPaymentMethods.has(entry))
     : [];
+
+const toAscii = (value: unknown): string =>
+  String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7e]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const uniqueLabels = (values: unknown[]): string[] =>
+  [...new Set(values.map(toAscii).filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right)
+  );
+
+const formatPaymentScopeLabel = (paymentMethods: string[]): string => {
+  if (!paymentMethods.length) return "All payment methods";
+
+  const labels = paymentMethods.map((method) => {
+    if (method === "credit") return "Card";
+    if (method === "cash") return "Cash";
+    if (method === "other") return "Other";
+    return "Unknown";
+  });
+
+  return labels.join(", ");
+};
+
+const formatScopeLabel = ({
+  explicitCount,
+  labels,
+  singularFallback,
+  pluralFallback,
+}: {
+  explicitCount: number;
+  labels: string[];
+  singularFallback: string;
+  pluralFallback: string;
+}): string => {
+  if (labels.length === 1) return labels[0];
+  if (explicitCount > 0) {
+    return `${explicitCount} selected ${explicitCount === 1 ? singularFallback : pluralFallback}`;
+  }
+  if (labels.length > 1) return `${labels.length} ${pluralFallback}`;
+  return `All accessible ${pluralFallback}`;
+};
 
 const normalizeFilters = (value: unknown): ReportFilters => {
   const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -162,16 +207,39 @@ serve(async (req) => {
         },
         export_status: "pending",
       })
-      .select("id")
+      .select("id, created_at")
       .single();
 
     if (snapshotError || !snapshot) {
       throw new Error(snapshotError?.message || "Unable to create report snapshot.");
     }
 
-    const pdfBytes = buildSalesReportPdf({
-      title: filters.title,
-      subtitle: `${filters.dateFrom} through ${filters.dateTo} by ${filters.grain}`,
+    const machineLabels = uniqueLabels(rows.map((row) => row.machine_label));
+    const locationLabels = uniqueLabels(rows.map((row) => row.location_name));
+    const reportReference = buildSalesReportReference(snapshot.id, filters.dateTo);
+    const generatedAt = String(snapshot.created_at ?? new Date().toISOString());
+    const pdfBytes = await buildSalesReportPdf({
+      title: filters.title || "Bloomjoy Operator Sales Report",
+      subtitle: "Partner-ready performance report for assigned machines.",
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+      grain: filters.grain,
+      generatedAt,
+      snapshotId: snapshot.id,
+      reportReference,
+      machineScopeLabel: formatScopeLabel({
+        explicitCount: filters.machineIds.length,
+        labels: machineLabels,
+        singularFallback: "machine",
+        pluralFallback: "machines",
+      }),
+      locationScopeLabel: formatScopeLabel({
+        explicitCount: filters.locationIds.length,
+        labels: locationLabels,
+        singularFallback: "location",
+        pluralFallback: "locations",
+      }),
+      paymentScopeLabel: formatPaymentScopeLabel(filters.paymentMethods),
       rows,
       summary,
     });
