@@ -774,9 +774,9 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
     try {
       const exportResult = await exportSalesReportPdf({
         ...filters,
-        title: `Bloomjoy operator sales report ${dateFrom} to ${dateTo}`,
+        title: 'Bloomjoy Operator Sales Report',
       });
-      toast.success('Sales report PDF is ready.');
+      toast.success('Polished operator report PDF is ready.');
       window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
     } catch (exportError) {
       toast.error(exportError instanceof Error ? exportError.message : 'Unable to export report.');

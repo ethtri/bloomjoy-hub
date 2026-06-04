@@ -310,7 +310,7 @@ export const translations = {
     'reports.operatorPerformanceDescription':
       'Sales and transaction trends for the machines assigned to this account.',
     'reports.refresh': 'Refresh',
-    'reports.exportPdf': 'Export PDF',
+    'reports.exportPdf': 'Export polished PDF',
     'reports.period': 'Period',
     'reports.thisWeek': 'This week',
     'reports.lastWeek': 'Last week',
