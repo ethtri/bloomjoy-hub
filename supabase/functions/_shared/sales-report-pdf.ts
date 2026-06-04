@@ -1,11 +1,16 @@
 import {
   PDFDocument,
+  type PDFImage,
   StandardFonts,
   rgb,
   type PDFFont,
   type PDFPage,
   type RGB,
 } from "https://esm.sh/pdf-lib@1.17.1";
+import {
+  BLOOMJOY_LOGO_ASSET_BASE64,
+  decodeBase64,
+} from "./partner-report-export.ts";
 
 export type SalesReportPdfRow = {
   period_start?: string;
@@ -50,6 +55,10 @@ type SalesReportPdfContext = {
 type PdfFonts = {
   regular: PDFFont;
   bold: PDFFont;
+};
+
+type PdfAssets = {
+  logo?: PDFImage;
 };
 
 type DrawTextOptions = {
@@ -271,6 +280,15 @@ const wrapText = (font: PDFFont, text: string, size: number, maxWidth: number): 
   const lines: string[] = [];
   let line = "";
   words.forEach((word) => {
+    if (font.widthOfTextAtSize(word, size) > maxWidth) {
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+      lines.push(truncateText(font, word, size, maxWidth));
+      return;
+    }
+
     const candidate = line ? `${line} ${word}` : word;
     if (font.widthOfTextAtSize(candidate, size) <= maxWidth || !line) {
       line = candidate;
@@ -282,6 +300,43 @@ const wrapText = (font: PDFFont, text: string, size: number, maxWidth: number): 
 
   if (line) lines.push(line);
   return lines;
+};
+
+const truncateText = (
+  font: PDFFont,
+  text: string,
+  size: number,
+  maxWidth: number,
+): string => {
+  const normalized = toAscii(text);
+  if (font.widthOfTextAtSize(normalized, size) <= maxWidth) return normalized;
+
+  const ellipsis = "...";
+  const ellipsisWidth = font.widthOfTextAtSize(ellipsis, size);
+  if (ellipsisWidth >= maxWidth) return "";
+
+  let clipped = "";
+  for (const character of normalized) {
+    const candidate = `${clipped}${character}`;
+    if (font.widthOfTextAtSize(candidate, size) + ellipsisWidth > maxWidth) break;
+    clipped = candidate;
+  }
+
+  return `${clipped.trimEnd()}${ellipsis}`;
+};
+
+const fitTextSize = (
+  font: PDFFont,
+  text: string,
+  maxWidth: number,
+  preferredSize: number,
+  minimumSize: number,
+): number => {
+  let size = preferredSize;
+  while (size > minimumSize && font.widthOfTextAtSize(toAscii(text), size) > maxWidth) {
+    size -= 0.5;
+  }
+  return size;
 };
 
 const drawText = (
@@ -333,9 +388,71 @@ const drawCard = (
   });
 };
 
+const drawBloomjoyOfficialMark = (
+  page: PDFPage,
+  x: number,
+  y: number,
+  size: number,
+) => {
+  const scale = size / 64;
+  const point = (svgX: number, svgY: number) => ({
+    x: x + svgX * scale,
+    y: y + (64 - svgY) * scale,
+  });
+  const circle = (svgX: number, svgY: number, radius: number, color: RGB) => {
+    const center = point(svgX, svgY);
+    page.drawCircle({ x: center.x, y: center.y, size: radius * scale, color });
+  };
+  const line = (
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    width: number,
+    color: RGB,
+  ) => {
+    page.drawLine({
+      start: point(startX, startY),
+      end: point(endX, endY),
+      thickness: width * scale,
+      color,
+    });
+  };
+
+  const logoPink = rgb(0.965, 0.447, 0.635);
+  const logoLight = rgb(0.976, 0.788, 0.871);
+  const logoCheek = rgb(0.941, 0.545, 0.682);
+  const logoInk = rgb(0.125, 0.145, 0.31);
+
+  [
+    [32, 11],
+    [47, 17],
+    [53, 32],
+    [47, 47],
+    [32, 53],
+    [17, 47],
+    [11, 32],
+    [17, 17],
+  ].forEach(([cx, cy]) => circle(cx, cy, 11, logoPink));
+  circle(32, 32, 13, logoLight);
+  circle(25.5, 28, 2.8, logoCheek);
+  circle(39, 38.5, 3, logoCheek);
+
+  circle(28.5, 24.8, 4.1, COLORS.white);
+  circle(29.3, 24.7, 2.8, rgb(0.13, 0.13, 0.13));
+  circle(30.1, 22.8, 0.8, COLORS.white);
+
+  line(22.8, 34.5, 29, 39.2, 2.1, logoInk);
+  line(29, 39.2, 35, 40.1, 2.1, logoInk);
+  line(35, 40.1, 41.4, 37.8, 2.1, logoInk);
+  line(24.2, 24.8, 29.5, 23.3, 2, logoInk);
+  line(36.6, 28.8, 40.1, 32.4, 2.1, logoInk);
+};
+
 const drawBrandHeader = (
   page: PDFPage,
   fonts: PdfFonts,
+  assets: PdfAssets,
   title: string,
   subtitle: string,
   reportReference: string,
@@ -347,24 +464,33 @@ const drawBrandHeader = (
     height: 122,
     color: COLORS.slatePanel,
   });
-  page.drawCircle({ x: MARGIN + 16, y: PAGE_HEIGHT - 40, size: 14, color: COLORS.coral });
-  page.drawCircle({ x: MARGIN + 23, y: PAGE_HEIGHT - 35, size: 5, color: COLORS.blushLight });
+  if (assets.logo) {
+    page.drawImage(assets.logo, {
+      x: MARGIN,
+      y: PAGE_HEIGHT - 63,
+      width: 38,
+      height: 38,
+    });
+  } else {
+    drawBloomjoyOfficialMark(page, MARGIN, PAGE_HEIGHT - 60, 36);
+  }
   page.drawText("Bloomjoy", {
-    x: MARGIN + 40,
+    x: MARGIN + 48,
     y: PAGE_HEIGHT - 45,
     size: 16,
     font: fonts.bold,
     color: COLORS.white,
   });
   page.drawText("Operator reporting", {
-    x: MARGIN + 40,
+    x: MARGIN + 48,
     y: PAGE_HEIGHT - 61,
     size: 8.5,
     font: fonts.regular,
     color: COLORS.blush,
   });
-  page.drawText(reportReference, {
-    x: PAGE_WIDTH - MARGIN - fonts.bold.widthOfTextAtSize(reportReference, 8.5),
+  const headerReference = truncateText(fonts.bold, reportReference, 8.5, 260);
+  page.drawText(headerReference, {
+    x: PAGE_WIDTH - MARGIN - fonts.bold.widthOfTextAtSize(headerReference, 8.5),
     y: PAGE_HEIGHT - 45,
     size: 8.5,
     font: fonts.bold,
@@ -407,8 +533,14 @@ const drawFooter = (
     font: fonts.regular,
     color: COLORS.softText,
   });
-  page.drawText(`${reportReference}  |  Page ${pageNumber}`, {
-    x: PAGE_WIDTH - MARGIN - 180,
+  const footerText = truncateText(
+    fonts.regular,
+    `${reportReference}  |  Page ${pageNumber}`,
+    7.5,
+    280,
+  );
+  page.drawText(footerText, {
+    x: PAGE_WIDTH - MARGIN - fonts.regular.widthOfTextAtSize(footerText, 7.5),
     y: 20,
     size: 7.5,
     font: fonts.regular,
@@ -445,13 +577,13 @@ const drawMetricCard = (
     font: fonts.bold,
     color: COLORS.muted,
   });
-  drawText(page, fonts, value, {
+  const valueSize = fitTextSize(fonts.bold, value, width - 26, value.length > 12 ? 14 : 17, 11);
+  page.drawText(truncateText(fonts.bold, value, valueSize, width - 26), {
     x: x + 13,
     y: y + 30,
-    size: value.length > 12 ? 14 : 17,
+    size: valueSize,
     font: fonts.bold,
     color: emphasis ? COLORS.coralDark : COLORS.ink,
-    maxWidth: width - 26,
   });
   drawText(page, fonts, detail, {
     x: x + 13,
@@ -478,13 +610,13 @@ const drawKeyValue = (
     font: fonts.bold,
     color: COLORS.softText,
   });
-  drawText(page, fonts, value || "Not limited", {
+  const valueText = truncateText(fonts.bold, value || "Not limited", 9, width);
+  page.drawText(valueText, {
     x,
     y: y - 14,
     size: 9,
     font: fonts.bold,
     color: COLORS.ink,
-    maxWidth: width,
   });
 };
 
@@ -499,10 +631,7 @@ const drawTableText = (
 ) => {
   const size = options.size ?? 8;
   const font = options.bold ? fonts.bold : fonts.regular;
-  const normalized = toAscii(text);
-  const clipped = font.widthOfTextAtSize(normalized, size) <= width
-    ? normalized
-    : `${normalized.slice(0, Math.max(1, Math.floor(width / (size * 0.48)) - 1))}...`;
+  const clipped = truncateText(font, text, size, width);
   const textWidth = font.widthOfTextAtSize(clipped, size);
   page.drawText(clipped, {
     x: options.align === "right" ? x + width - textWidth : x,
@@ -516,6 +645,7 @@ const drawTableText = (
 const drawDashboardPage = (
   pdfDoc: PDFDocument,
   fonts: PdfFonts,
+  assets: PdfAssets,
   rows: SalesReportPdfRow[],
   summary: SalesReportPdfSummary,
   context: Required<SalesReportPdfContext>,
@@ -523,7 +653,7 @@ const drawDashboardPage = (
 ) => {
   const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   page.drawRectangle({ x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT, color: COLORS.page });
-  drawBrandHeader(page, fonts, context.title, context.subtitle, context.reportReference);
+  drawBrandHeader(page, fonts, assets, context.title, context.subtitle, context.reportReference);
 
   const periodLabel = `${formatDateLong(context.dateFrom)} - ${formatDateLong(context.dateTo)}`;
   const generatedLabel = formatGeneratedAt(context.generatedAt);
@@ -568,8 +698,8 @@ const drawDashboardPage = (
     detail: `${formatInteger(rows.length)} report rows`,
   });
 
-  y -= 176;
-  const storyHeight = 150;
+  y -= 190;
+  const storyHeight = 178;
   drawCard(page, { x: MARGIN, y, width: CONTENT_WIDTH, height: storyHeight });
   page.drawText("Executive summary", {
     x: MARGIN + 18,
@@ -592,15 +722,17 @@ const drawDashboardPage = (
     },
   );
 
-  const scopeY = y + 54;
-  const scopeWidth = (CONTENT_WIDTH - 36) / 3;
-  drawKeyValue(page, fonts, "Reporting period", periodLabel, MARGIN + 18, scopeY, scopeWidth);
+  const scopeY = y + 68;
+  const scopeGap = 20;
+  const scopeWidth = (CONTENT_WIDTH - 36 - scopeGap * 2) / 3;
+  const scopeColumnX = (index: number) => MARGIN + 18 + (scopeWidth + scopeGap) * index;
+  drawKeyValue(page, fonts, "Reporting period", periodLabel, scopeColumnX(0), scopeY, scopeWidth);
   drawKeyValue(
     page,
     fonts,
     "Machine scope",
     context.machineScopeLabel,
-    MARGIN + 18 + scopeWidth,
+    scopeColumnX(1),
     scopeY,
     scopeWidth,
   );
@@ -609,18 +741,19 @@ const drawDashboardPage = (
     fonts,
     "Generated",
     generatedLabel,
-    MARGIN + 18 + scopeWidth * 2,
+    scopeColumnX(2),
     scopeY,
     scopeWidth,
   );
-  drawKeyValue(page, fonts, "View", formatGrain(context.grain), MARGIN + 18, scopeY - 42, scopeWidth);
+  const scopeSecondRowY = scopeY - 42;
+  drawKeyValue(page, fonts, "View", formatGrain(context.grain), scopeColumnX(0), scopeSecondRowY, scopeWidth);
   drawKeyValue(
     page,
     fonts,
     "Payment scope",
     context.paymentScopeLabel,
-    MARGIN + 18 + scopeWidth,
-    scopeY - 42,
+    scopeColumnX(1),
+    scopeSecondRowY,
     scopeWidth,
   );
   drawKeyValue(
@@ -628,8 +761,8 @@ const drawDashboardPage = (
     fonts,
     "Report reference",
     context.reportReference,
-    MARGIN + 18 + scopeWidth * 2,
-    scopeY - 42,
+    scopeColumnX(2),
+    scopeSecondRowY,
     scopeWidth,
   );
 
@@ -652,11 +785,11 @@ const drawDashboardPage = (
 
   const tableTop = y + 108;
   const columns = [
-    { label: "Machine", x: MARGIN + 18, width: 188, align: "left" as const },
-    { label: "Gross", x: MARGIN + 238, width: 68, align: "right" as const },
-    { label: "Refunds", x: MARGIN + 318, width: 68, align: "right" as const },
-    { label: "Net", x: MARGIN + 398, width: 68, align: "right" as const },
-    { label: "Txns", x: MARGIN + 478, width: 48, align: "right" as const },
+    { label: "Machine", x: MARGIN + 18, width: 220, align: "left" as const },
+    { label: "Gross", x: MARGIN + 260, width: 64, align: "right" as const },
+    { label: "Refunds", x: MARGIN + 332, width: 64, align: "right" as const },
+    { label: "Net", x: MARGIN + 404, width: 64, align: "right" as const },
+    { label: "Txns", x: MARGIN + 474, width: 28, align: "right" as const },
   ];
   page.drawRectangle({
     x: MARGIN + 12,
@@ -778,19 +911,29 @@ const drawDashboardPage = (
 const drawAppendixHeader = (
   page: PDFPage,
   fonts: PdfFonts,
+  assets: PdfAssets,
   title: string,
   reportReference: string,
 ) => {
   page.drawRectangle({ x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT, color: COLORS.page });
+  if (assets.logo) {
+    page.drawImage(assets.logo, {
+      x: MARGIN,
+      y: PAGE_HEIGHT - 61,
+      width: 28,
+      height: 28,
+    });
+  }
   page.drawText(title, {
-    x: MARGIN,
+    x: assets.logo ? MARGIN + 38 : MARGIN,
     y: PAGE_HEIGHT - 54,
     size: 18,
     font: fonts.bold,
     color: COLORS.ink,
   });
-  page.drawText(reportReference, {
-    x: PAGE_WIDTH - MARGIN - fonts.bold.widthOfTextAtSize(reportReference, 8.5),
+  const appendixReference = truncateText(fonts.bold, reportReference, 8.5, 240);
+  page.drawText(appendixReference, {
+    x: PAGE_WIDTH - MARGIN - fonts.bold.widthOfTextAtSize(appendixReference, 8.5),
     y: PAGE_HEIGHT - 50,
     size: 8.5,
     font: fonts.bold,
@@ -807,6 +950,7 @@ const drawAppendixHeader = (
 const drawReportRowsPage = (
   pdfDoc: PDFDocument,
   fonts: PdfFonts,
+  assets: PdfAssets,
   rows: SalesReportPdfRow[],
   context: Required<SalesReportPdfContext>,
   pageNumber: number,
@@ -817,14 +961,24 @@ const drawReportRowsPage = (
   for (let offset = 0; offset < rows.length || offset === 0; offset += rowsPerPage) {
     const pageRows = rows.slice(offset, offset + rowsPerPage);
     const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-    drawAppendixHeader(page, fonts, "Report row appendix", context.reportReference);
-    page.drawText("Period", { x: MARGIN, y: PAGE_HEIGHT - 98, size: 7.5, font: fonts.bold, color: COLORS.coralDark });
-    page.drawText("Machine", { x: MARGIN + 70, y: PAGE_HEIGHT - 98, size: 7.5, font: fonts.bold, color: COLORS.coralDark });
-    page.drawText("Payment", { x: MARGIN + 228, y: PAGE_HEIGHT - 98, size: 7.5, font: fonts.bold, color: COLORS.coralDark });
-    page.drawText("Net", { x: MARGIN + 310, y: PAGE_HEIGHT - 98, size: 7.5, font: fonts.bold, color: COLORS.coralDark });
-    page.drawText("Refunds", { x: MARGIN + 384, y: PAGE_HEIGHT - 98, size: 7.5, font: fonts.bold, color: COLORS.coralDark });
-    page.drawText("Gross", { x: MARGIN + 458, y: PAGE_HEIGHT - 98, size: 7.5, font: fonts.bold, color: COLORS.coralDark });
-    page.drawText("Txns", { x: MARGIN + 520, y: PAGE_HEIGHT - 98, size: 7.5, font: fonts.bold, color: COLORS.coralDark });
+    drawAppendixHeader(page, fonts, assets, "Report row appendix", context.reportReference);
+    const columns = [
+      { label: "Period", x: MARGIN, width: 58, align: "left" as const },
+      { label: "Machine", x: MARGIN + 70, width: 172, align: "left" as const },
+      { label: "Payment", x: MARGIN + 250, width: 52, align: "left" as const },
+      { label: "Net", x: MARGIN + 304, width: 66, align: "right" as const },
+      { label: "Refunds", x: MARGIN + 374, width: 66, align: "right" as const },
+      { label: "Gross", x: MARGIN + 444, width: 66, align: "right" as const },
+      { label: "Txns", x: MARGIN + 514, width: 28, align: "right" as const },
+    ];
+    columns.forEach((column) =>
+      drawTableText(page, fonts, column.label, column.x, PAGE_HEIGHT - 98, column.width, {
+        align: column.align,
+        bold: true,
+        color: COLORS.coralDark,
+        size: 7.5,
+      })
+    );
     page.drawLine({
       start: { x: MARGIN, y: PAGE_HEIGHT - 108 },
       end: { x: PAGE_WIDTH - MARGIN, y: PAGE_HEIGHT - 108 },
@@ -853,8 +1007,8 @@ const drawReportRowsPage = (
           color: rgb(1, 0.985, 0.992),
         });
       }
-      drawTableText(page, fonts, formatDateShort(readPeriodStart(row)), MARGIN, y, 62, { size: 7.8 });
-      drawTableText(page, fonts, readMachineLabel(row), MARGIN + 70, y, 148, {
+      drawTableText(page, fonts, formatDateShort(readPeriodStart(row)), columns[0].x, y, columns[0].width, { size: 7.8 });
+      drawTableText(page, fonts, readMachineLabel(row), columns[1].x, y, columns[1].width, {
         size: 7.8,
         bold: true,
       });
@@ -862,12 +1016,12 @@ const drawReportRowsPage = (
         page,
         fonts,
         formatPaymentMethod(readPaymentMethod(row)),
-        MARGIN + 228,
+        columns[2].x,
         y,
-        56,
+        columns[2].width,
         { size: 7.8, color: COLORS.muted },
       );
-      drawTableText(page, fonts, formatCurrency(readNetSalesCents(row)), MARGIN + 298, y, 66, {
+      drawTableText(page, fonts, formatCurrency(readNetSalesCents(row)), columns[3].x, y, columns[3].width, {
         size: 7.8,
         align: "right",
         bold: true,
@@ -876,16 +1030,16 @@ const drawReportRowsPage = (
         page,
         fonts,
         formatDeductionCurrency(readRefundAmountCents(row)),
-        MARGIN + 372,
+        columns[4].x,
         y,
-        66,
+        columns[4].width,
         { size: 7.8, align: "right", color: COLORS.muted },
       );
-      drawTableText(page, fonts, formatCurrency(readGrossSalesCents(row)), MARGIN + 446, y, 66, {
+      drawTableText(page, fonts, formatCurrency(readGrossSalesCents(row)), columns[5].x, y, columns[5].width, {
         size: 7.8,
         align: "right",
       });
-      drawTableText(page, fonts, formatInteger(readTransactionCount(row)), MARGIN + 512, y, 44, {
+      drawTableText(page, fonts, formatInteger(readTransactionCount(row)), columns[6].x, y, columns[6].width, {
         size: 7.8,
         align: "right",
       });
@@ -960,6 +1114,9 @@ export const buildSalesReportPdf = async ({
     regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
     bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
   };
+  const assets: PdfAssets = {
+    logo: await pdfDoc.embedPng(decodeBase64(BLOOMJOY_LOGO_ASSET_BASE64)),
+  };
   const finalSummary = summary ?? summarizeSalesReportPdfRows(rows);
   const context = normalizeContext(
     {
@@ -979,8 +1136,8 @@ export const buildSalesReportPdf = async ({
   );
   const machineRollups = buildMachineRollups(rows);
 
-  drawDashboardPage(pdfDoc, fonts, rows, finalSummary, context, machineRollups);
-  drawReportRowsPage(pdfDoc, fonts, rows, context, 2);
+  drawDashboardPage(pdfDoc, fonts, assets, rows, finalSummary, context, machineRollups);
+  drawReportRowsPage(pdfDoc, fonts, assets, rows, context, 2);
 
   return pdfDoc.save();
 };
