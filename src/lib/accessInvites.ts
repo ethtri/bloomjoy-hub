@@ -61,7 +61,7 @@ export const sendAccessInvite = async ({
     },
     {
       requireUserAuth: true,
-      authErrorMessage: 'Log in as a Super Admin to send an access invite.',
+      authErrorMessage: 'Log in to send an access invite.',
     }
   );
 };

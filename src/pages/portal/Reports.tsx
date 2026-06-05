@@ -586,6 +586,9 @@ export default function ReportsPage() {
   );
   const hasAppliedCorporatePartnerDefault = useRef(isCorporatePartner);
   const partnerDashboardLabel = isCorporatePartner ? 'Partner Dashboard' : t('reports.partnerDashboard');
+  const introDescription = canUsePartnerDashboard
+    ? t('reports.description')
+    : t('reports.operatorDescription');
 
   const { data: accessContext = emptyReportingAccessContext, isFetching: accessFetching } =
     useQuery({
@@ -615,7 +618,7 @@ export default function ReportsPage() {
         <div className="container-page">
           <PortalPageIntro
             title={t('reports.title')}
-            description={t('reports.description')}
+            description={introDescription}
             badges={[
               {
                 label: t('reports.machinesAvailable', {

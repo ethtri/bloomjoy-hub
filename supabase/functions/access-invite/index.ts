@@ -134,6 +134,74 @@ const escapeHtml = (value: string): string =>
 const getStringValue = (record: Record<string, unknown>, key: string) =>
   typeof record[key] === "string" ? record[key] as string : "";
 
+const isActiveAssignmentWindow = (record: Record<string, unknown>) => {
+  if (getStringValue(record, "status") !== "active") return false;
+  if (record["revoked_at"]) return false;
+
+  const startsAt = getStringValue(record, "starts_at");
+  const expiresAt = getStringValue(record, "expires_at");
+  const now = Date.now();
+
+  if (startsAt && new Date(startsAt).getTime() > now) return false;
+  if (expiresAt && new Date(expiresAt).getTime() <= now) return false;
+
+  return true;
+};
+
+async function getTechnicianMachineLabels(sourceId: string): Promise<string[]> {
+  if (!supabase) return [];
+
+  const { data: assignments } = await supabase
+    .from("technician_machine_assignments")
+    .select("machine_id, status, starts_at, expires_at, revoked_at")
+    .eq("technician_grant_id", sourceId)
+    .is("revoked_at", null);
+
+  const machineIds = ((assignments as Record<string, unknown>[] | null) ?? [])
+    .filter(isActiveAssignmentWindow)
+    .map((assignment) => getStringValue(assignment, "machine_id"))
+    .filter(Boolean);
+
+  if (machineIds.length === 0) return [];
+
+  const { data: machines } = await supabase
+    .from("reporting_machines")
+    .select("id, machine_label, machine_type, location_id")
+    .in("id", [...new Set(machineIds)]);
+
+  const machineRows = (machines as Record<string, unknown>[] | null) ?? [];
+  const locationIds = [
+    ...new Set(machineRows.map((machine) => getStringValue(machine, "location_id")).filter(Boolean)),
+  ];
+  let locationNameById = new Map<string, string>();
+
+  if (locationIds.length > 0) {
+    const { data: locations } = await supabase
+      .from("reporting_locations")
+      .select("id, name")
+      .in("id", locationIds);
+
+    locationNameById = new Map(
+      ((locations as Record<string, unknown>[] | null) ?? [])
+        .map((location) => [getStringValue(location, "id"), getStringValue(location, "name")] as const)
+        .filter(([id]) => Boolean(id))
+    );
+  }
+
+  const machineLabelById = new Map(
+    machineRows.map((machine) => {
+      const id = getStringValue(machine, "id");
+      const label = getStringValue(machine, "machine_label") || "Bloomjoy machine";
+      const locationName = locationNameById.get(getStringValue(machine, "location_id"));
+      return [id, locationName ? `${label} at ${locationName}` : label] as const;
+    })
+  );
+
+  return machineIds
+    .map((machineId) => machineLabelById.get(machineId) ?? "Bloomjoy machine")
+    .filter(Boolean);
+}
+
 const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: string) => {
   const subject = "Bloomjoy portal invitation";
   const inviter = actorEmail || "A Bloomjoy administrator";
@@ -279,6 +347,12 @@ async function getTechnicianSource(sourceId: string, targetEmail: string): Promi
     .eq("id", accountId)
     .maybeSingle();
   const accountName = getStringValue((account as Record<string, unknown> | null) ?? {}, "name") || "a Bloomjoy account";
+  const machineLabels = await getTechnicianMachineLabels(sourceId);
+  const machineSummary = machineLabels.length === 0
+    ? "This access includes the Bloomjoy training library only. It does not include machine reporting or partner-wide reporting."
+    : machineLabels.length === 1
+      ? `This access includes the Bloomjoy training library and reporting for one assigned machine: ${machineLabels[0]}. It does not include partner-wide reporting or other machines.`
+      : `This access includes the Bloomjoy training library and reporting for ${machineLabels.length} assigned machines: ${machineLabels.join(", ")}. It does not include partner-wide reporting or other machines.`;
 
   return {
     inviteType: "technician",
@@ -286,10 +360,9 @@ async function getTechnicianSource(sourceId: string, targetEmail: string): Promi
     sourceId,
     targetEmail,
     targetUserId: getStringValue(grantRecord, "technician_user_id") || null,
-    title: "Your Bloomjoy portal invitation",
-    body: `You have been invited to access Bloomjoy Hub for ${accountName}.`,
-    accessSummary:
-      "After you sign in, Bloomjoy Hub will show the tools and information available to your account.",
+    title: "Your Bloomjoy Technician invitation",
+    body: `You have been invited as a Bloomjoy Technician for ${accountName}.`,
+    accessSummary: machineSummary,
   };
 }
 
@@ -441,6 +514,26 @@ async function recordFailureEvidence(
   return message;
 }
 
+async function canSendTechnicianAccessInvite(actorUserId: string, sourceId: string) {
+  if (!supabase) return false;
+
+  const { data, error } = await supabase.rpc("can_send_technician_access_invite", {
+    p_user_id: actorUserId,
+    p_technician_grant_id: sourceId,
+  });
+
+  if (error) {
+    console.error("access-invite authorization check failed", {
+      source_type: "technician_grant",
+      source_id: sourceId,
+      error_message: sanitizeErrorEvidence(error, "Unable to validate invite permission."),
+    });
+    return false;
+  }
+
+  return data === true;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -474,14 +567,6 @@ serve(async (req) => {
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized." }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { data: isAdmin } = await supabase.rpc("is_super_admin", { uid: user.id });
-    if (!isAdmin) {
-      return new Response(JSON.stringify({ error: "Super Admin access required." }), {
-        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -523,6 +608,24 @@ serve(async (req) => {
       sourceId,
       targetEmail,
     };
+
+    const { data: isAdmin } = await supabase.rpc("is_super_admin", { uid: user.id });
+    if (!isAdmin) {
+      if (inviteType !== "technician") {
+        return new Response(JSON.stringify({ error: "Super Admin access required." }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const canSendTechnicianInvite = await canSendTechnicianAccessInvite(user.id, sourceId);
+      if (!canSendTechnicianInvite) {
+        return new Response(JSON.stringify({ error: "Technician invite access denied." }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     if (!loginUrlResult.ok) {
       await recordFailureEvidence(

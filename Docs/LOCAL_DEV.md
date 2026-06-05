@@ -283,6 +283,12 @@ Admin > Machines Machine Manager UAT:
 - After adding or removing a manager, confirm the status changes to `Saved`, close the sheet, and confirm the manager email is visible in the machine row.
 - The bottom `Save machine changes` button saves machine identity plus customer-refund setup fields. Machine Manager assignment autosaves separately when a person is added or removed.
 
+Partner Technician Access UAT:
+- Start the app with `npm run dev:uat`.
+- Run `npm run partner-technicians:validate-uat -- --app-url http://127.0.0.1:8081`.
+- The script mocks Supabase Auth, RPC, REST, and `access-invite`, writes screenshots to `output/playwright`, and does not send email or write data.
+- Use `Docs/PARTNER_TECHNICIAN_ACCESS_UAT.md` for live staging invite email checks before partner handoff.
+
 Privacy guardrails:
 - The helper writes only synthetic `example.test` customer records and synthetic machine/sales/refund data.
 - Remote preview seeding is blocked unless the target is explicitly confirmed as `preview-uat`, the Supabase project ref is supplied twice, and the app URL is not a Bloomjoy production host. Do not use remote seeding against the production Supabase project.
