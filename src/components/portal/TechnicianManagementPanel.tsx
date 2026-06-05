@@ -127,6 +127,28 @@ const haveSameMachineIds = (left: string[], right: string[]) => {
   return left.every((id) => rightIds.has(id));
 };
 
+const uniqueSortedValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
+
+const buildLocalTechnicianInviteDelivery = ({
+  sourceId,
+  targetEmail,
+  sentBy,
+}: {
+  sourceId: string;
+  targetEmail: string;
+  sentBy: string | null;
+}): AccessInviteDelivery => ({
+  id: `local-technician-invite-${Date.now()}`,
+  inviteType: 'technician',
+  sourceType: 'technician_grant',
+  sourceId,
+  targetEmail,
+  sentBy,
+  sentAt: new Date().toISOString(),
+  deliveryStatus: 'sent',
+  errorMessage: null,
+});
+
 const getAccountSelectionKey = (account: {
   accountId: string;
   authorityPath?: string;
@@ -300,14 +322,6 @@ export function TechnicianManagementPanel() {
 
   const grantMutation = useMutation({
     mutationFn: grantTechnicianAccess,
-    onSuccess: async (result) => {
-      setTechnicianEmail('');
-      setSelectedMachineIds([]);
-      setGrantReason(DEFAULT_TECHNICIAN_REASON);
-      setRecentlySavedGrantId(result.grantId);
-      await invalidateTechnicianQueries();
-      toast.success('Technician access saved. Send the invite from the Technician row.');
-    },
   });
 
   const updateMutation = useMutation({
@@ -361,13 +375,59 @@ export function TechnicianManagementPanel() {
     }
 
     try {
-      await grantMutation.mutateAsync({
+      const grant = await grantMutation.mutateAsync({
         technicianEmail: normalizedEmail,
         machineIds: selectedMachineIds.slice(0, 1),
         accountId: selectedAccount?.accountId,
         partnerId: selectedAccount?.partnerId,
         reason: grantReason.trim() || DEFAULT_TECHNICIAN_REASON,
       });
+      setTechnicianEmail('');
+      setSelectedMachineIds([]);
+      setGrantReason(DEFAULT_TECHNICIAN_REASON);
+      setRecentlySavedGrantId(grant.grantId);
+      await invalidateTechnicianQueries();
+
+      const invitePreflight = validateAccessInvitePreflight('technician', grant.technicianEmail || normalizedEmail);
+      if (!invitePreflight.ok) {
+        toast.error(`Technician access saved, but invite email was not sent: ${invitePreflight.message}`);
+        return;
+      }
+
+      setSendingInviteGrantId(grant.grantId);
+      try {
+        await sendAccessInvite({
+          inviteType: 'technician',
+          sourceId: grant.grantId,
+          targetEmail: invitePreflight.targetEmail,
+          loginUrl: invitePreflight.loginUrl,
+        });
+        queryClient.setQueryData<AccessInviteDelivery[]>(
+          ['access-invite-deliveries', 'technician', uniqueSortedValues([...technicianInviteSourceIds, grant.grantId])],
+          (current = []) => [
+            buildLocalTechnicianInviteDelivery({
+              sourceId: grant.grantId,
+              targetEmail: invitePreflight.targetEmail,
+              sentBy: user?.id ?? null,
+            }),
+            ...current.filter(
+              (delivery) =>
+                delivery.sourceId !== grant.grantId ||
+                delivery.inviteType !== 'technician' ||
+                delivery.targetEmail !== invitePreflight.targetEmail
+            ),
+          ]
+        );
+        setRecentlySavedGrantId(null);
+        toast.success('Technician access saved and invite email sent.');
+      } catch (inviteError) {
+        const message =
+          inviteError instanceof Error ? inviteError.message : 'Unable to send Technician invite.';
+        toast.error(`Technician access saved, but invite email failed: ${message}`);
+      } finally {
+        setSendingInviteGrantId(null);
+        await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to save Technician access.';
       toast.error(message);
@@ -712,7 +772,7 @@ export function TechnicianManagementPanel() {
                       ) : (
                         <UserPlus className="mr-2 h-4 w-4" />
                       )}
-                      Save Technician
+                      Save and send invite
                     </Button>
                   </div>
                 </div>
@@ -723,9 +783,8 @@ export function TechnicianManagementPanel() {
                   <div>
                     <h3 className="font-semibold text-foreground">Current Technicians</h3>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Send invites, review delivery status, edit machine assignments, or revoke
-                      access when a Technician no longer needs training and assigned-machine
-                      reporting.
+                      New Technicians receive an invite during save. Use resend, delivery status,
+                      machine assignment edits, or revoke when access needs follow-up.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -749,8 +808,8 @@ export function TechnicianManagementPanel() {
                 visibleLegacyTrainingGrants.length === 0 &&
                 !legacyTrainingLoading ? (
                   <p className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-                    No Technician access has been added for this account yet. Add a Technician
-                    above, then send the invite from the new row.
+                    No Technician access has been added for this account yet. Add a Technician above
+                    to save access and send the invite in one step.
                   </p>
                 ) : (
                   currentAccountGrants.map((grant) => (

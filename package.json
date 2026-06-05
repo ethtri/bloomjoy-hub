@@ -33,6 +33,7 @@
     "refunds:validate-portal-uat": "node scripts/refunds/validate-refund-portal-uat.mjs",
     "refunds:validate-customer-comms": "node scripts/refunds/validate-refund-customer-comms.mjs",
     "refunds:validate-nayax-execution": "node scripts/validate-nayax-refund-execution.mjs",
+    "admin-access:validate-invite-uat": "node scripts/validate-admin-access-invite-uat.mjs",
     "partner-technicians:validate-uat": "node scripts/validate-partner-technician-access-uat.mjs",
     "refunds:pilot-readiness": "node scripts/refunds/pilot-readiness.mjs",
     "refunds:pilot-cohort-config": "node scripts/refunds/pilot-cohort-config.mjs",

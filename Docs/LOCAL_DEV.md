@@ -285,8 +285,9 @@ Admin > Machines Machine Manager UAT:
 
 Partner Technician Access UAT:
 - Start the app with `npm run dev:uat`.
+- Run `npm run admin-access:validate-invite-uat -- --app-url http://127.0.0.1:8081`.
 - Run `npm run partner-technicians:validate-uat -- --app-url http://127.0.0.1:8081`.
-- The script mocks Supabase Auth, RPC, REST, and `access-invite`, writes screenshots to `output/playwright`, and does not send email or write data.
+- The scripts mock Supabase Auth, RPC, REST, and `access-invite`, verify Admin Access Corporate Partner grants and new Technician saves call the invite function immediately, write screenshots to `output/playwright`, and do not send email or write data.
 - Use `Docs/PARTNER_TECHNICIAN_ACCESS_UAT.md` for live staging invite email checks before partner handoff.
 
 Privacy guardrails:
