@@ -609,16 +609,16 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
 
     await page.fill('#technician-email', techOneEmail);
     await selectAddMachine(page, machineOneId);
-    await page.getByRole('button', { name: 'Save Technician' }).click();
-    await page.getByText(techOneEmail).waitFor({ timeout: 10000 });
-    await technicianRow(page, techOneEmail).getByRole('button', { name: 'Send invite' }).click();
-    await waitForCondition(() => state.accessInviteBodies.length === 1, 'first Technician invite');
+    await page.getByRole('button', { name: 'Save and send invite' }).click();
+    await technicianRow(page, techOneEmail).waitFor({ timeout: 10000 });
+    await waitForCondition(() => state.accessInviteBodies.length === 1, 'first Technician auto-invite');
     await page.getByText(/Last invite sent/i).waitFor({ timeout: 10000 });
 
     await page.fill('#technician-email', techTwoEmail);
     await selectAddMachine(page, machineOneId);
-    await page.getByRole('button', { name: 'Save Technician' }).click();
-    await page.getByText(techTwoEmail).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Save and send invite' }).click();
+    await technicianRow(page, techTwoEmail).waitFor({ timeout: 10000 });
+    await waitForCondition(() => state.accessInviteBodies.length === 2, 'second Technician auto-invite');
 
     recorder.assert(
       'Two Technicians can be assigned to the same machine',
@@ -633,12 +633,22 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
 
     await page.fill('#technician-email', trainingOnlyEmail);
     await page.getByText('Training-only').first().click();
-    await page.getByRole('button', { name: 'Save Technician' }).click();
-    await page.getByText(trainingOnlyEmail).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Save and send invite' }).click();
+    await technicianRow(page, trainingOnlyEmail).waitFor({ timeout: 10000 });
+    await waitForCondition(() => state.accessInviteBodies.length === 3, 'training-only Technician auto-invite');
 
     recorder.assert(
       'Training-only Technician can be created',
       state.technicianGrants.some((grant) => grant.technicianEmail === trainingOnlyEmail && grant.machines.length === 0)
+    );
+    recorder.assert(
+      'Every new Technician creation attempts an invite immediately',
+      state.accessInviteBodies.length === 3,
+      JSON.stringify(state.accessInviteBodies.map((body) => ({
+        inviteType: body.inviteType,
+        sourceId: body.sourceId,
+        targetEmail: body.targetEmail,
+      })))
     );
 
     const directOutOfScopeResponse = await page.evaluate(

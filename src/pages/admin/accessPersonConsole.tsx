@@ -349,6 +349,28 @@ const formatInviteDeliverySummary = (delivery: AccessInviteDelivery | undefined)
     ? `Last invite sent ${sentAt} to ${delivery.targetEmail}.`
     : `Last invite failed ${sentAt}${delivery.errorMessage ? `: ${delivery.errorMessage}` : '.'}`;
 };
+
+const buildLocalInviteDelivery = ({
+  inviteType,
+  sourceType,
+  sourceId,
+  targetEmail,
+}: {
+  inviteType: AccessInviteType;
+  sourceType: AccessInviteDelivery['sourceType'];
+  sourceId: string;
+  targetEmail: string;
+}): AccessInviteDelivery => ({
+  id: `local-${inviteType}-invite-${Date.now()}`,
+  inviteType,
+  sourceType,
+  sourceId,
+  targetEmail,
+  sentBy: null,
+  sentAt: new Date().toISOString(),
+  deliveryStatus: 'sent',
+  errorMessage: null,
+});
 const isPortalAccessOutcomeWarning = (outcome: CorporatePartnerPortalAccessOutcome) =>
   outcome === 'held_back' || outcome === 'partially_applied';
 
@@ -2602,6 +2624,9 @@ function CorporatePartnerAccessCard({
       partnership.machines.map((machine) => machine.machineId)
     )
   );
+  const selectedPartnerHasPortalScope =
+    portalEnabledPartnerships.length > 0 && derivedMachineIds.size > 0;
+  const activePartnerPartnershipCount = selectedPartner?.portalPartnerships.length ?? 0;
 
   const refreshOptions = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-corporate-partner-access-options'] });
@@ -2620,21 +2645,62 @@ function CorporatePartnerAccessCard({
       toast.error('Grant reason is required.');
       return;
     }
+    if (!selectedPartnerHasPortalScope) {
+      toast.error('Enable partner portal access for an active machine-backed partnership before sending this invite.');
+      return;
+    }
+    const invitePreflight = validateAccessInvitePreflight('corporate_partner', identity.email);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
 
     setIsGranting(true);
     try {
-      await grantCorporatePartnerMembership({
-        email: identity.email,
+      const membership = await grantCorporatePartnerMembership({
+        email: invitePreflight.targetEmail,
         partnerId: selectedPartner.partnerId,
         reason: grantReason.trim(),
       });
-      toast.success('Corporate Partner access saved.');
+
+      if (!membership.id) {
+        throw new Error('Corporate Partner membership was saved without a source ID.');
+      }
+
+      try {
+        await sendAccessInvite({
+          inviteType: 'corporate_partner',
+          sourceId: membership.id,
+          targetEmail: invitePreflight.targetEmail,
+          loginUrl: invitePreflight.loginUrl,
+        });
+        queryClient.setQueryData<AccessInviteDelivery[]>(
+          ['access-invite-deliveries', 'corporate_partner', uniqueValues([...activeMembershipIds, membership.id])],
+          (current = []) => [
+            buildLocalInviteDelivery({
+              inviteType: 'corporate_partner',
+              sourceType: 'corporate_partner_membership',
+              sourceId: membership.id,
+              targetEmail: invitePreflight.targetEmail,
+            }),
+            ...current,
+          ]
+        );
+        toast.success('Corporate Partner access saved and invite email sent.');
+      } catch (inviteError) {
+        toast.error(
+          inviteError instanceof Error
+            ? `Corporate Partner access saved, but invite email failed: ${inviteError.message}. Use Resend invite on the active membership row.`
+            : 'Corporate Partner access saved, but invite email failed. Use Resend invite on the active membership row.'
+        );
+      }
       setGrantReason('');
       await refreshOptions();
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
       await onChanged();
     } catch (grantError) {
       toast.error(
-        grantError instanceof Error ? grantError.message : 'Unable to grant Corporate Partner access.'
+        grantError instanceof Error ? grantError.message : 'Unable to grant and invite Corporate Partner access.'
       );
     } finally {
       setIsGranting(false);
@@ -2882,7 +2948,38 @@ function CorporatePartnerAccessCard({
         )}
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[0.42fr_0.58fr]">
+      <div className="mt-4 space-y-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <SummaryMetric
+            label="Partner"
+            value={isFetching ? 'Refreshing...' : selectedPartner?.partnerName ?? 'No partner selected'}
+          />
+          <SummaryMetric
+            label="Portal-ready partnerships"
+            value={pluralize(portalEnabledPartnerships.length, 'partnership')}
+          />
+          <SummaryMetric
+            label="Reporting machines"
+            value={pluralize(derivedMachineIds.size, 'machine')}
+          />
+        </div>
+
+        {!selectedPartnerHasPortalScope && selectedPartner && (
+          <div className="rounded-md border border-amber/40 bg-amber/10 p-3 text-sm text-foreground">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+              <div>
+                <p className="font-medium">Partner portal setup is required before invite.</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {activePartnerPartnershipCount > 0
+                    ? 'This partner has active partnership setup, but no portal-enabled machine scope yet. Open Partner portal setup below, enable the machine-backed partnership, then grant and send the invite.'
+                    : 'This partner needs an active partnership with at least one reporting machine before Corporate Partner portal access can be invited.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-3">
           <div>
             <Label htmlFor="person-corporate-partner">Partner record</Label>
@@ -2910,32 +3007,54 @@ function CorporatePartnerAccessCard({
               disabled={!identity.email}
             />
           </div>
-          <Button onClick={grantCorporatePartner} disabled={isGranting || !selectedPartner || !identity.email}>
-            {isGranting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-            Grant access only
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            This creates or updates the Corporate Partner membership. It does not email the person;
-            use Send invite on an active membership above.
-          </p>
-        </div>
-        <div className="space-y-3">
           <PreviewBox>
-            This will give {identity.label} Corporate Partner benefits for {selectedPartner?.partnerName ?? 'the selected partner'}.
-            Today that means {pluralize(portalEnabledPartnerships.length, 'portal-enabled partnership')} and{' '}
-            {pluralize(derivedMachineIds.size, 'derived reporting machine')}. Email is separate so
-            admins can resend or copy the login link without changing access.
+            This will give {identity.label} Corporate Partner benefits for{' '}
+            {selectedPartner?.partnerName ?? 'the selected partner'} and send the invite email.
+            Reporting is available only for active portal-enabled partnerships, currently{' '}
+            {pluralize(portalEnabledPartnerships.length, 'partnership')} and{' '}
+            {pluralize(derivedMachineIds.size, 'machine')}.
           </PreviewBox>
-          {selectedPartner && (
-            <PartnerPortalAccessControls
-              partner={selectedPartner}
-              portalReason={portalReason}
-              setPortalReason={setPortalReason}
-              isSaving={isSavingPortalAccess}
-              savePortalAccessChanges={savePortalAccessChanges}
-            />
-          )}
+          <Button
+            onClick={grantCorporatePartner}
+            disabled={
+              isGranting ||
+              !selectedPartner ||
+              !identity.email ||
+              !grantReason.trim() ||
+              !selectedPartnerHasPortalScope
+            }
+          >
+            {isGranting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+            Grant and send invite
+          </Button>
         </div>
+
+        {selectedPartner && (
+          <details
+            className="rounded-md bg-muted/20 px-3 py-2"
+            open={!selectedPartnerHasPortalScope && activePartnerPartnershipCount > 0}
+          >
+            <summary className="cursor-pointer text-sm font-medium text-foreground">
+              Partner portal setup
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                Partner-wide, affects every Corporate Partner member
+              </span>
+            </summary>
+            <div className="mt-3">
+              <p className="mb-3 text-xs leading-5 text-muted-foreground">
+                Use this only when the partner record itself needs portal-enabled partnership scope.
+                It is separate from the person invite above.
+              </p>
+              <PartnerPortalAccessControls
+                partner={selectedPartner}
+                portalReason={portalReason}
+                setPortalReason={setPortalReason}
+                isSaving={isSavingPortalAccess}
+                savePortalAccessChanges={savePortalAccessChanges}
+              />
+            </div>
+          </details>
+        )}
       </div>
     </SourceCard>
   );
@@ -2987,20 +3106,20 @@ function PartnerPortalAccessControls({
       <div className="flex items-start gap-2">
         <ShieldAlert className="mt-0.5 h-4 w-4 text-amber" />
         <div>
-          <p className="text-sm font-medium text-foreground">Partner-level portal access</p>
+          <p className="text-sm font-medium text-foreground">Partner portal setup</p>
           <p className="mt-1 text-xs text-muted-foreground">
             This affects every Corporate Partner member for this partner record, not only the
-            selected person. Review the staged changes before saving.
+            selected person. Use it only when the partner's shared portal scope needs to change.
           </p>
         </div>
       </div>
       <div className="mt-3">
-        <Label htmlFor="partner-portal-reason">Reason for partner-level changes</Label>
+        <Label htmlFor="partner-portal-reason">Portal setup reason</Label>
         <Input
           id="partner-portal-reason"
           value={portalReason}
           onChange={(event) => setPortalReason(event.target.value)}
-          placeholder="Required before saving partner-level changes"
+          placeholder="Required before saving partner portal setup"
         />
       </div>
       <div className="mt-3 divide-y divide-border rounded-md border border-border">
@@ -3053,7 +3172,7 @@ function PartnerPortalAccessControls({
         disabled={isSaving || portalChanges.length === 0 || !portalReason.trim()}
       >
         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-        Save partner-level changes
+        Save partner portal setup
       </Button>
     </div>
   );
@@ -3079,6 +3198,7 @@ function TechnicianAccessCard({
   const [renewReasons, setRenewReasons] = useState<Record<string, string>>({});
   const [revokeReasons, setRevokeReasons] = useState<Record<string, string>>({});
   const [isSavingGrant, setIsSavingGrant] = useState(false);
+  const [sendingInviteGrantId, setSendingInviteGrantId] = useState<string | null>(null);
   const [savingScopeGrantId, setSavingScopeGrantId] = useState<string | null>(null);
   const [renewingGrantId, setRenewingGrantId] = useState<string | null>(null);
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
@@ -3097,6 +3217,25 @@ function TechnicianAccessCard({
   const accounts = technicianContext.accounts;
   const grants = technicianContext.grants;
   const activeGrants = grants.filter((grant) => grant.isActive && !grant.revokedAt);
+  const activeGrantIds = uniqueValues(activeGrants.map((grant) => grant.grantId));
+  const {
+    data: technicianInviteDeliveries = [],
+    isFetching: isFetchingTechnicianInviteDeliveries,
+  } = useQuery({
+    queryKey: ['access-invite-deliveries', 'technician', activeGrantIds],
+    queryFn: () =>
+      fetchAccessInviteDeliveries({
+        inviteType: 'technician',
+        sourceType: 'technician_grant',
+        sourceIds: activeGrantIds,
+      }),
+    enabled: activeGrantIds.length > 0,
+    staleTime: 1000 * 15,
+  });
+  const latestTechnicianInviteBySourceId = useMemo(
+    () => getLatestInviteDeliveryBySourceId(technicianInviteDeliveries),
+    [technicianInviteDeliveries]
+  );
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.accountId === selectedAccountId) ?? null,
     [accounts, selectedAccountId]
@@ -3150,27 +3289,126 @@ function TechnicianAccessCard({
       toast.error('Reason is required.');
       return;
     }
+    const invitePreflight = validateAccessInvitePreflight('technician', identity.email);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
 
     setIsSavingGrant(true);
     try {
-      await adminGrantTechnicianAccess({
-        email: identity.email,
+      const grant = await adminGrantTechnicianAccess({
+        email: invitePreflight.targetEmail,
         accountId: selectedAccountId,
         machineId: selectedMachineId,
         reason: grantReason.trim(),
       });
+
+      if (!grant.grantId) {
+        throw new Error('Technician access was saved without a grant ID.');
+      }
+
+      try {
+        await sendAccessInvite({
+          inviteType: 'technician',
+          sourceId: grant.grantId,
+          targetEmail: invitePreflight.targetEmail,
+          loginUrl: invitePreflight.loginUrl,
+        });
+        queryClient.setQueryData<AccessInviteDelivery[]>(
+          ['access-invite-deliveries', 'technician', uniqueValues([...activeGrantIds, grant.grantId])],
+          (current = []) => [
+            buildLocalInviteDelivery({
+              inviteType: 'technician',
+              sourceType: 'technician_grant',
+              sourceId: grant.grantId,
+              targetEmail: invitePreflight.targetEmail,
+            }),
+            ...current,
+          ]
+        );
+        toast.success('Technician access saved and invite email sent.');
+      } catch (inviteError) {
+        toast.error(
+          inviteError instanceof Error
+            ? `Technician access saved, but invite email failed: ${inviteError.message}. Use Invite recovery on the active grant row.`
+            : 'Technician access saved, but invite email failed. Use Invite recovery on the active grant row.'
+        );
+      }
+
       trackEvent('admin_technician_access_saved', {
         target_user_id: identity.userId,
         machine_count: selectedMachineId ? 1 : 0,
       });
-      toast.success('Technician access saved.');
       setGrantReason('');
       await refreshTechnicianContext();
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
       await onChanged();
     } catch (grantError) {
-      toast.error(grantError instanceof Error ? grantError.message : 'Unable to save Technician access.');
+      toast.error(grantError instanceof Error ? grantError.message : 'Unable to save and invite Technician access.');
     } finally {
       setIsSavingGrant(false);
+    }
+  };
+
+  const sendTechnicianInvite = async (grant: AdminTechnicianGrant) => {
+    const invitePreflight = validateAccessInvitePreflight('technician', grant.technicianEmail);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+
+    setSendingInviteGrantId(grant.grantId);
+    try {
+      await sendAccessInvite({
+        inviteType: 'technician',
+        sourceId: grant.grantId,
+        targetEmail: invitePreflight.targetEmail,
+        loginUrl: invitePreflight.loginUrl,
+      });
+      queryClient.setQueryData<AccessInviteDelivery[]>(
+        ['access-invite-deliveries', 'technician', activeGrantIds],
+        (current = []) => [
+          buildLocalInviteDelivery({
+            inviteType: 'technician',
+            sourceType: 'technician_grant',
+            sourceId: grant.grantId,
+            targetEmail: invitePreflight.targetEmail,
+          }),
+          ...current.filter(
+            (delivery) =>
+              delivery.sourceId !== grant.grantId ||
+              delivery.inviteType !== 'technician' ||
+              delivery.targetEmail !== invitePreflight.targetEmail
+          ),
+        ]
+      );
+      toast.success('Technician invite email sent.');
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+    } catch (inviteError) {
+      toast.error(inviteError instanceof Error ? inviteError.message : 'Unable to send Technician invite.');
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+    } finally {
+      setSendingInviteGrantId(null);
+    }
+  };
+
+  const copyTechnicianInviteLink = async (grant: AdminTechnicianGrant) => {
+    const invitePreflight = validateAccessInvitePreflight('technician', grant.technicianEmail);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+    if (!navigator.clipboard?.writeText) {
+      toast.error('Clipboard copy is not available in this browser.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(invitePreflight.loginUrl);
+      toast.success('Login link copied.');
+    } catch {
+      toast.error('Unable to copy login link.');
     }
   };
 
@@ -3335,7 +3573,7 @@ function TechnicianAccessCard({
               </div>
             </div>
             <PreviewBox>
-              Saving gives {identity.label} Technician training access
+              Saving gives {identity.label} Technician training access and sends an invite email
               {selectedMachine
                 ? ` plus viewer reporting for ${selectedMachine.machineLabel}.`
                 : ' with no assigned reporting machine.'}{' '}
@@ -3349,7 +3587,7 @@ function TechnicianAccessCard({
               disabled={isSavingGrant || isFetching || !selectedAccountId || !identity.email}
             >
               {isSavingGrant ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Save Technician access
+              Save and send Technician invite
             </Button>
           </div>
 
@@ -3364,6 +3602,7 @@ function TechnicianAccessCard({
                 const activeMachineCount = grant.machines.filter((machine) => machine.isActive).length;
                 const draftScope = scopeDrafts[grant.grantId] ?? getGrantMachineScopeValue(grant);
                 const draftMachine = getMachineScopeId(draftScope);
+                const inviteDelivery = latestTechnicianInviteBySourceId.get(grant.grantId);
 
                 return (
                   <div key={grant.grantId} className="rounded-md border border-border p-3">
@@ -3386,6 +3625,61 @@ function TechnicianAccessCard({
 
                     {!grant.revokedAt && (
                       <div className="mt-3 space-y-3">
+                        <div className="rounded-md border border-border bg-muted/20 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-foreground">Invite recovery</p>
+                              <p className="mt-1 break-words text-xs text-muted-foreground">
+                                {isFetchingTechnicianInviteDeliveries
+                                  ? 'Checking invite delivery history...'
+                                  : formatInviteDeliverySummary(inviteDelivery)}
+                              </p>
+                              <p className="mt-1 break-all text-xs text-muted-foreground">
+                                Login email: {grant.technicianEmail || 'No email on grant'}
+                              </p>
+                            </div>
+                            <Badge
+                              className="w-fit"
+                              variant={
+                                inviteDelivery?.deliveryStatus === 'sent'
+                                  ? 'default'
+                                  : inviteDelivery?.deliveryStatus === 'failed'
+                                    ? 'destructive'
+                                    : 'outline'
+                              }
+                            >
+                              {inviteDelivery?.deliveryStatus === 'sent'
+                                ? 'Invite sent'
+                                : inviteDelivery?.deliveryStatus === 'failed'
+                                  ? 'Invite failed'
+                                  : 'No invite sent'}
+                            </Badge>
+                          </div>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={!grant.technicianEmail || sendingInviteGrantId === grant.grantId}
+                              onClick={() => void sendTechnicianInvite(grant)}
+                            >
+                              {sendingInviteGrantId === grant.grantId ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Send className="mr-2 h-4 w-4" />
+                              )}
+                              {inviteDelivery ? 'Resend invite' : 'Send invite'}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={!grant.technicianEmail}
+                              onClick={() => void copyTechnicianInviteLink(grant)}
+                            >
+                              <Copy className="mr-2 h-4 w-4" />
+                              Copy login link
+                            </Button>
+                          </div>
+                        </div>
                         <PreviewBox>
                           Scope changes renew the Technician grant and replace only this
                           Technician source's reporting machine. Manual reporting grants and other

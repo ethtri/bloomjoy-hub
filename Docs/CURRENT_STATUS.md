@@ -21,6 +21,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 ## Current Themes
 
 - Refund operations and customer-refund pilot readiness remain high-sensitivity operational surfaces.
+- Access grants that create user-facing Corporate Partner or Technician access must prove both the saved grant and the invite-email attempt; rollout signoff also needs provider/inbox/activation evidence in the linked issue or PR.
 - Operator payouts, partner reporting, and scheduled exports are active shared foundations.
 - Operator payouts foundation sprint: the foundation is on `main`; active follow-on PRs add timekeeping, revenue snapshots, calculation, review, and pay statement slices.
 - Manager review/finalization slice `#448` adds the admin review gate before operator pay statements are issued.

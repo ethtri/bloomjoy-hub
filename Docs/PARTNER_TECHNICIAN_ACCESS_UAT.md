@@ -23,7 +23,7 @@ The script uses mocked Supabase Auth, REST, RPC, and Edge Function responses. It
 - Corporate Partner manager reaches `/portal/account`.
 - Partner scope is visible as a partner portfolio, not global reporting access.
 - Partner creates a Technician assigned to an in-scope machine.
-- Partner sends a Technician invite through `access-invite` with `inviteType=technician`.
+- New Technician saves automatically call `access-invite` with `inviteType=technician`.
 - Invite delivery status appears in the Technician row.
 - Partner creates a second Technician assigned to the same machine.
 - Partner creates a training-only Technician.
@@ -48,9 +48,9 @@ Checklist:
 
 - [ ] Partner manager opens `/portal/account` and sees Technician Access.
 - [ ] Partner account selector only lists current partner portfolio accounts.
-- [ ] Partner can add two Technicians to the same machine.
-- [ ] Partner can add a training-only Technician.
-- [ ] Partner can send and resend the Technician invite.
+- [ ] Partner can add two Technicians to the same machine, and each save sends an invite attempt.
+- [ ] Partner can add a training-only Technician, and save sends an invite attempt.
+- [ ] Partner can resend the Technician invite from the row after the first send.
 - [ ] Invite email explains training access and assigned-machine reporting when applicable.
 - [ ] Invite email does not imply broad partner reporting.
 - [ ] Copy login link points to `/login?intent=technician&email=...`.
@@ -70,5 +70,7 @@ Functional invite email tests require:
 - `RESEND_API_KEY`
 - `INTERNAL_NOTIFICATION_FROM_EMAIL`
 - optional preview allowlist secret if sending preview login links
+
+For real rollout signoff, record the states separately: grant saved, `access-invite` attempted, provider accepted/delivered or failed, recipient inbox received, and recipient activated access with the invited email. Keep recipient emails masked in issue/PR comments.
 
 Never commit credentials or test-user passwords. Record test emails, source grant IDs, and cleanup status in the PR or local UAT notes only.
