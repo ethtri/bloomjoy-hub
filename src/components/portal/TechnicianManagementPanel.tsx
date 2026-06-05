@@ -3,8 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle2,
+  Copy,
   Loader2,
   Pencil,
+  Search,
+  Send,
   UserMinus,
   UserPlus,
   Users,
@@ -50,6 +53,12 @@ import {
   revokeOperatorTrainingAccess,
   type OperatorTrainingGrant,
 } from '@/lib/operatorTrainingAccess';
+import {
+  fetchAccessInviteDeliveries,
+  sendAccessInvite,
+  validateAccessInvitePreflight,
+  type AccessInviteDelivery,
+} from '@/lib/accessInvites';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_TECHNICIAN_REASON = 'Technician access';
@@ -87,6 +96,28 @@ const getStatusBadgeVariant = (status: TechnicianGrantStatus) => {
   return 'destructive';
 };
 
+const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+const getLatestInviteDeliveryBySourceId = (deliveries: AccessInviteDelivery[]) => {
+  const latestBySourceId = new Map<string, AccessInviteDelivery>();
+
+  deliveries.forEach((delivery) => {
+    if (!latestBySourceId.has(delivery.sourceId)) {
+      latestBySourceId.set(delivery.sourceId, delivery);
+    }
+  });
+
+  return latestBySourceId;
+};
+
+const formatInviteDeliverySummary = (delivery: AccessInviteDelivery | undefined) => {
+  if (!delivery) return 'No invite email has been sent for this Technician yet.';
+
+  return delivery.deliveryStatus === 'sent'
+    ? `Last invite sent ${formatDateTime(delivery.sentAt)} to ${delivery.targetEmail}.`
+    : `Last invite failed ${formatDateTime(delivery.sentAt)}${delivery.errorMessage ? `: ${delivery.errorMessage}` : '.'}`;
+};
+
 const selectSingleMachineId = (machineId: string | null) => (machineId ? [machineId] : []);
 
 const haveSameMachineIds = (left: string[], right: string[]) => {
@@ -114,6 +145,8 @@ export function TechnicianManagementPanel() {
   const [editReason, setEditReason] = useState(DEFAULT_UPDATE_REASON);
   const [revokeTarget, setRevokeTarget] = useState<TechnicianGrant | null>(null);
   const [revokeReason, setRevokeReason] = useState(DEFAULT_REVOKE_REASON);
+  const [sendingInviteGrantId, setSendingInviteGrantId] = useState<string | null>(null);
+  const [recentlySavedGrantId, setRecentlySavedGrantId] = useState<string | null>(null);
 
   const {
     data: managementContext,
@@ -175,6 +208,29 @@ export function TechnicianManagementPanel() {
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [technicianGrants, selectedAccount]
   );
+  const technicianInviteSourceIds = useMemo(
+    () => currentAccountGrants.map((grant) => grant.grantId).sort(),
+    [currentAccountGrants]
+  );
+  const {
+    data: technicianInviteDeliveries = [],
+    isFetching: inviteDeliveriesFetching,
+    error: inviteDeliveriesError,
+  } = useQuery({
+    queryKey: ['access-invite-deliveries', 'technician', technicianInviteSourceIds],
+    queryFn: () =>
+      fetchAccessInviteDeliveries({
+        inviteType: 'technician',
+        sourceType: 'technician_grant',
+        sourceIds: technicianInviteSourceIds,
+      }),
+    enabled: shouldLoadTechnicianGrants && technicianInviteSourceIds.length > 0,
+    staleTime: 1000 * 15,
+  });
+  const latestInviteBySourceId = useMemo(
+    () => getLatestInviteDeliveryBySourceId(technicianInviteDeliveries),
+    [technicianInviteDeliveries]
+  );
   const linkedTrainingGrantIds = useMemo(
     () =>
       new Set(
@@ -209,6 +265,8 @@ export function TechnicianManagementPanel() {
   const grantsErrorMessage = grantsError instanceof Error ? grantsError.message : null;
   const legacyTrainingErrorMessage =
     legacyTrainingError instanceof Error ? legacyTrainingError.message : null;
+  const inviteDeliveriesErrorMessage =
+    inviteDeliveriesError instanceof Error ? inviteDeliveriesError.message : null;
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -242,12 +300,13 @@ export function TechnicianManagementPanel() {
 
   const grantMutation = useMutation({
     mutationFn: grantTechnicianAccess,
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       setTechnicianEmail('');
       setSelectedMachineIds([]);
       setGrantReason(DEFAULT_TECHNICIAN_REASON);
+      setRecentlySavedGrantId(result.grantId);
       await invalidateTechnicianQueries();
-      toast.success('Technician access saved.');
+      toast.success('Technician access saved. Send the invite from the Technician row.');
     },
   });
 
@@ -372,6 +431,75 @@ export function TechnicianManagementPanel() {
     }
   };
 
+  const handleSendTechnicianInvite = async (grant: TechnicianGrant) => {
+    const invitePreflight = validateAccessInvitePreflight('technician', grant.technicianEmail);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+
+    setSendingInviteGrantId(grant.grantId);
+    try {
+      await sendAccessInvite({
+        inviteType: 'technician',
+        sourceId: grant.grantId,
+        targetEmail: invitePreflight.targetEmail,
+        loginUrl: invitePreflight.loginUrl,
+      });
+      queryClient.setQueryData<AccessInviteDelivery[]>(
+        ['access-invite-deliveries', 'technician', technicianInviteSourceIds],
+        (current = []) => [
+          {
+            id: `local-technician-invite-${Date.now()}`,
+            inviteType: 'technician',
+            sourceType: 'technician_grant',
+            sourceId: grant.grantId,
+            targetEmail: invitePreflight.targetEmail,
+            sentBy: user?.id ?? null,
+            sentAt: new Date().toISOString(),
+            deliveryStatus: 'sent',
+            errorMessage: null,
+          },
+          ...current.filter(
+            (delivery) =>
+              delivery.sourceId !== grant.grantId ||
+              delivery.inviteType !== 'technician' ||
+              delivery.targetEmail !== invitePreflight.targetEmail
+          ),
+        ]
+      );
+      setRecentlySavedGrantId(null);
+      toast.success('Technician invite sent.');
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to send Technician invite.';
+      toast.error(message);
+      await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
+    } finally {
+      setSendingInviteGrantId(null);
+    }
+  };
+
+  const handleCopyTechnicianInviteLink = async (grant: TechnicianGrant) => {
+    const invitePreflight = validateAccessInvitePreflight('technician', grant.technicianEmail);
+    if (!invitePreflight.ok) {
+      toast.error(invitePreflight.message);
+      return;
+    }
+
+    if (!navigator.clipboard?.writeText) {
+      toast.error('Clipboard copy is not available in this browser.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(invitePreflight.loginUrl);
+      toast.success('Technician login link copied.');
+    } catch {
+      toast.error('Unable to copy Technician login link.');
+    }
+  };
+
   return (
     <div className="mt-8 card-elevated min-w-0 p-5 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -384,8 +512,9 @@ export function TechnicianManagementPanel() {
               Technician Access
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-              Add staff who need training and, when needed, assigned machine reporting. A
-              Technician can be training-only or assigned to one machine.
+              Add staff who need the training library and, when needed, reporting for one
+              assigned machine. Machines can have multiple Technicians; each Technician only sees
+              the machine reporting assigned here.
             </p>
           </div>
         </div>
@@ -416,6 +545,17 @@ export function TechnicianManagementPanel() {
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Some training-only staff could not be loaded</AlertTitle>
               <AlertDescription>{legacyTrainingErrorMessage}</AlertDescription>
+            </Alert>
+          )}
+
+          {inviteDeliveriesErrorMessage && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Invite history could not be loaded</AlertTitle>
+              <AlertDescription>
+                Existing Technician access is still available. Send/copy actions will retry invite
+                delivery history after the next change. {inviteDeliveriesErrorMessage}
+              </AlertDescription>
             </Alert>
           )}
 
@@ -455,6 +595,22 @@ export function TechnicianManagementPanel() {
                           : selectedAccount.accountName}
                       </p>
                     )}
+                  </div>
+
+                  <div className="rounded-md border border-border bg-background p-3">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Scope
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-foreground">
+                      {selectedAccount.authorityPath === 'corporate_partner'
+                        ? 'Partner portfolio'
+                        : 'Account owner'}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {selectedAccount.partnerName
+                        ? `${selectedAccount.partnerName} can manage Technicians only for the machines shown here.`
+                        : 'This account can manage Technicians only for the machines shown here.'}
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -539,7 +695,7 @@ export function TechnicianManagementPanel() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-xs leading-5 text-muted-foreground">
                       {selectedMachineIds.length > 0
-                        ? 'One assigned machine selected.'
+                        ? 'This Technician will see reporting for the selected machine only.'
                         : 'No machines selected; this Technician will receive training only.'}
                     </p>
                     <Button
@@ -567,13 +723,20 @@ export function TechnicianManagementPanel() {
                   <div>
                     <h3 className="font-semibold text-foreground">Current Technicians</h3>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Edit machine assignments, renew with changes, or revoke access when a
-                      Technician no longer needs training and assigned-machine reporting.
+                      Send invites, review delivery status, edit machine assignments, or revoke
+                      access when a Technician no longer needs training and assigned-machine
+                      reporting.
                     </p>
                   </div>
-                  <Badge variant="outline">
-                    {currentAccountGrants.length + visibleLegacyTrainingGrants.length} staff
-                  </Badge>
+                  <div className="flex flex-wrap gap-2">
+                    {inviteDeliveriesFetching && <Badge variant="secondary">Checking invites</Badge>}
+                    <Badge variant="outline">
+                      {pluralize(
+                        currentAccountGrants.length + visibleLegacyTrainingGrants.length,
+                        'staff member'
+                      )}
+                    </Badge>
+                  </div>
                 </div>
 
                 {legacyTrainingLoading && (
@@ -586,7 +749,8 @@ export function TechnicianManagementPanel() {
                 visibleLegacyTrainingGrants.length === 0 &&
                 !legacyTrainingLoading ? (
                   <p className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-                    No Technician access has been added for this account yet.
+                    No Technician access has been added for this account yet. Add a Technician
+                    above, then send the invite from the new row.
                   </p>
                 ) : (
                   currentAccountGrants.map((grant) => (
@@ -598,6 +762,9 @@ export function TechnicianManagementPanel() {
                       editingMachineIds={editingMachineIds}
                       editReason={editReason}
                       isSaving={updateMutation.isPending}
+                      inviteDelivery={latestInviteBySourceId.get(grant.grantId)}
+                      isSendingInvite={sendingInviteGrantId === grant.grantId}
+                      recentlySaved={recentlySavedGrantId === grant.grantId}
                       onStartEdit={() => startEditingGrant(grant)}
                       onCancelEdit={() => {
                         setEditingGrantId(null);
@@ -609,6 +776,8 @@ export function TechnicianManagementPanel() {
                       }
                       onChangeEditReason={setEditReason}
                       onSaveEdit={() => handleSaveEdit(grant)}
+                      onSendInvite={() => handleSendTechnicianInvite(grant)}
+                      onCopyInviteLink={() => handleCopyTechnicianInviteLink(grant)}
                       onRevoke={() => {
                         setRevokeTarget(grant);
                         setRevokeReason(DEFAULT_REVOKE_REASON);
@@ -689,11 +858,16 @@ function TechnicianGrantRow({
   editingMachineIds,
   editReason,
   isSaving,
+  inviteDelivery,
+  isSendingInvite,
+  recentlySaved,
   onStartEdit,
   onCancelEdit,
   onSelectEditMachine,
   onChangeEditReason,
   onSaveEdit,
+  onSendInvite,
+  onCopyInviteLink,
   onRevoke,
 }: {
   grant: TechnicianGrant;
@@ -702,19 +876,44 @@ function TechnicianGrantRow({
   editingMachineIds: string[];
   editReason: string;
   isSaving: boolean;
+  inviteDelivery?: AccessInviteDelivery;
+  isSendingInvite: boolean;
+  recentlySaved: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onSelectEditMachine: (machineId: string | null) => void;
   onChangeEditReason: (value: string) => void;
   onSaveEdit: () => void;
+  onSendInvite: () => void;
+  onCopyInviteLink: () => void;
   onRevoke: () => void;
 }) {
   const activeMachines = grant.machines.filter((machine) => machine.isActive);
   const originalMachineIds = activeMachines.map((machine) => machine.machineId);
   const hasChanges = !haveSameMachineIds(editingMachineIds, originalMachineIds);
+  const inviteStatusVariant =
+    inviteDelivery?.deliveryStatus === 'sent'
+      ? 'default'
+      : inviteDelivery?.deliveryStatus === 'failed'
+        ? 'destructive'
+        : 'outline';
+  const inviteStatusLabel =
+    inviteDelivery?.deliveryStatus === 'sent'
+      ? 'Invite sent'
+      : inviteDelivery?.deliveryStatus === 'failed'
+        ? 'Invite failed'
+        : recentlySaved
+          ? 'Ready to invite'
+          : 'No invite sent';
+  const canSendInvite = grant.canManage && grant.isActive && !grant.revokedAt;
 
   return (
-    <div className="rounded-md border border-border bg-muted/20 px-3 py-3">
+    <div
+      className={cn(
+        'rounded-md border border-border bg-muted/20 px-3 py-3',
+        recentlySaved && 'border-primary/40 bg-primary/5'
+      )}
+    >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -724,10 +923,19 @@ function TechnicianGrantRow({
             <Badge variant={getStatusBadgeVariant(grant.status)}>
               {formatStatusLabel(grant.status)}
             </Badge>
+            <Badge variant={activeMachines.length > 0 ? 'outline' : 'secondary'}>
+              {activeMachines.length > 0 ? 'Assigned machine' : 'Training-only'}
+            </Badge>
+            <Badge variant={inviteStatusVariant}>{inviteStatusLabel}</Badge>
           </div>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {activeMachines.length} assigned machine{activeMachines.length === 1 ? '' : 's'} -
-            Updated {formatDateTime(grant.updatedAt)}
+            {activeMachines.length > 0
+              ? `${pluralize(activeMachines.length, 'assigned machine')} for reporting`
+              : 'Training library only'}{' '}
+            - Updated {formatDateTime(grant.updatedAt)}
+          </p>
+          <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+            {formatInviteDeliverySummary(inviteDelivery)}
           </p>
           {activeMachines.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -739,25 +947,51 @@ function TechnicianGrantRow({
             </div>
           )}
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row lg:shrink-0">
+        <div className="grid gap-2 sm:grid-cols-2 lg:w-auto lg:shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onSendInvite}
+            disabled={!canSendInvite || isSaving || isSendingInvite}
+            className="min-h-11 w-full"
+          >
+            {isSendingInvite ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="mr-1.5 h-4 w-4" />
+            )}
+            {inviteDelivery ? 'Resend invite' : 'Send invite'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onCopyInviteLink}
+            disabled={!canSendInvite || isSaving || isSendingInvite}
+            className="min-h-11 w-full"
+          >
+            <Copy className="mr-1.5 h-4 w-4" />
+            Copy link
+          </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={onStartEdit}
-            disabled={isSaving}
-            className="min-h-11 w-full sm:w-auto"
+            disabled={isSaving || isSendingInvite}
+            className="min-h-11 w-full"
           >
             <Pencil className="mr-1.5 h-4 w-4" />
-            Edit Access
+            Edit
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={onRevoke}
-            disabled={isSaving}
-            className="min-h-11 w-full sm:w-auto"
+            disabled={isSaving || isSendingInvite}
+            className="min-h-11 w-full"
           >
             <UserMinus className="mr-1.5 h-4 w-4" />
             Revoke
@@ -788,7 +1022,7 @@ function TechnicianGrantRow({
             <p className="text-xs leading-5 text-muted-foreground">
               {editingMachineIds.length === 0
                 ? 'No machines selected; saving will keep this Technician training-only.'
-                : 'One assigned machine selected.'}
+                : 'This Technician will see reporting for the selected machine only.'}
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
@@ -874,10 +1108,30 @@ function MachineAssignmentPicker({
   disabled?: boolean;
 }) {
   const selectedMachineId = selectedIds[0] ?? 'training-only';
-  const groupedMachines = useMemo(() => {
-    const groups = new Map<string, { key: string; locationName: string; machines: TechnicianManagementMachine[] }>();
+  const [machineSearch, setMachineSearch] = useState('');
+  const normalizedMachineSearch = machineSearch.trim().toLowerCase();
+  const filteredMachines = useMemo(() => {
+    if (!normalizedMachineSearch) return machines;
 
-    machines.forEach((machine) => {
+    return machines.filter((machine) =>
+      [
+        machine.machineLabel,
+        machine.machineType,
+        machine.locationName,
+        machine.status,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedMachineSearch)
+    );
+  }, [machines, normalizedMachineSearch]);
+  const groupedMachines = useMemo(() => {
+    const groups = new Map<
+      string,
+      { key: string; locationName: string; machines: TechnicianManagementMachine[] }
+    >();
+
+    filteredMachines.forEach((machine) => {
       const key = machine.locationId || machine.locationName;
       const existingGroup =
         groups.get(key) ??
@@ -894,7 +1148,7 @@ function MachineAssignmentPicker({
     return Array.from(groups.values()).sort((left, right) =>
       left.locationName.localeCompare(right.locationName)
     );
-  }, [machines]);
+  }, [filteredMachines]);
 
   if (machines.length === 0) {
     return (
@@ -908,8 +1162,28 @@ function MachineAssignmentPicker({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Label>Machine reporting</Label>
-        <span className="text-xs text-muted-foreground">Choose training-only or one machine.</span>
+        <span className="text-xs text-muted-foreground">
+          Choose training-only or one machine. The same machine can support multiple Technicians.
+        </span>
       </div>
+      {machines.length > 6 && (
+        <div>
+          <Label htmlFor={`${name}-search`} className="sr-only">
+            Search machines
+          </Label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              id={`${name}-search`}
+              value={machineSearch}
+              onChange={(event) => setMachineSearch(event.target.value)}
+              placeholder="Search machines"
+              className="h-11 pl-9"
+              disabled={disabled}
+            />
+          </div>
+        </div>
+      )}
       <RadioGroup
         name={name}
         value={selectedMachineId}
@@ -938,41 +1212,47 @@ function MachineAssignmentPicker({
             </span>
           </span>
         </label>
-        {groupedMachines.map((group) => (
-          <div key={group.key} className="border-b border-border last:border-b-0">
-            <div className="bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {group.locationName}
-            </div>
-            {group.machines.map((machine) => {
-              const radioId = `${name}-${machine.machineId}`;
+        {groupedMachines.length === 0 ? (
+          <p className="px-3 py-3 text-sm text-muted-foreground">
+            No machines match this search.
+          </p>
+        ) : (
+          groupedMachines.map((group) => (
+            <div key={group.key} className="border-b border-border last:border-b-0">
+              <div className="bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {group.locationName}
+              </div>
+              {group.machines.map((machine) => {
+                const radioId = `${name}-${machine.machineId}`;
 
-              return (
-                <label
-                  key={machine.machineId}
-                  htmlFor={radioId}
-                  className={cn(
-                    'flex min-h-12 cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
-                    disabled && 'cursor-not-allowed opacity-70'
-                  )}
-                >
-                  <RadioGroupItem
-                    id={radioId}
-                    value={machine.machineId}
-                    disabled={disabled}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-words text-sm font-medium text-foreground">
-                      {machine.machineLabel}
+                return (
+                  <label
+                    key={machine.machineId}
+                    htmlFor={radioId}
+                    className={cn(
+                      'flex min-h-12 cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
+                      disabled && 'cursor-not-allowed opacity-70'
+                    )}
+                  >
+                    <RadioGroupItem
+                      id={radioId}
+                      value={machine.machineId}
+                      disabled={disabled}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm font-medium text-foreground">
+                        {machine.machineLabel}
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {machine.machineType} - {machine.status}
+                      </span>
                     </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {machine.machineType} - {machine.status}
-                    </span>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        ))}
+                  </label>
+                );
+              })}
+            </div>
+          ))
+        )}
       </RadioGroup>
     </div>
   );
