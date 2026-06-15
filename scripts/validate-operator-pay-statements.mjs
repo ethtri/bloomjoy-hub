@@ -98,7 +98,8 @@ for (const snippet of [
   'issueStatements',
   'Revision reason',
   'Preview rows are not operator-visible until issued.',
-  'Eligible now',
+  'Operator visibility',
+  'Operators cannot see pay stubs yet',
 ]) {
   if (!adminPage.includes(snippet)) {
     fail(`Admin payouts page missing ${snippet}`);
