@@ -221,7 +221,6 @@ const emptyScopedAdminGrants: ScopedAdminGrantRecord[] = [];
 const emptyAdminRoles: AdminRoleRecord[] = [];
 const emptyMachineInventory: CustomerMachineInventoryRecord[] = [];
 const emptyAuditLog: AdminAuditLogRecord[] = [];
-const trainingOnlyScopeValue = '__training_only__';
 const emptyPartnerForm = {
   name: '',
   legalName: '',
@@ -239,7 +238,7 @@ const accessLauncherPresets: AccessLauncherPresetMeta[] = [
   {
     key: 'technician',
     label: 'Technician',
-    description: 'Invite by email for training-only access or one assigned reporting machine.',
+    description: 'Invite by email for training-only access or selected reporting machines.',
     inviteable: true,
   },
   {
@@ -321,6 +320,15 @@ const normalizeLauncherPreset = (value: string | undefined): AccessLauncherPrese
     ? (value as AccessLauncherPreset)
     : undefined;
 const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
+const sortedSetValues = (items: Set<string>) => [...items].sort((a, b) => a.localeCompare(b));
+const haveSameStringSetValues = (left: Set<string>, right: Set<string>) =>
+  left.size === right.size && [...left].every((value) => right.has(value));
+const toggleStringSetValue = (items: Set<string>, value: string, checked: boolean) => {
+  const next = new Set(items);
+  if (checked) next.add(value);
+  else next.delete(value);
+  return next;
+};
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
 const getCorporatePartnerMachineIds = (partnerships: CorporatePartnerPartnership[]) =>
@@ -485,12 +493,28 @@ const getTechnicianSources = (context: EffectiveAccessContext | null): Technicia
     }))
     .filter((record) => record.id);
 
-const getGrantMachineScopeValue = (grant: AdminTechnicianGrant) =>
-  grant.machines.find((machine) => machine.isActive)?.machineId ??
-  grant.machines.find((machine) => !machine.revokedAt && machine.status === 'active')?.machineId ??
-  trainingOnlyScopeValue;
+const getGrantMachineScopeIds = (grant: AdminTechnicianGrant) =>
+  uniqueValues(
+    grant.machines
+      .filter((machine) => machine.isActive || (!machine.revokedAt && machine.status === 'active'))
+      .map((machine) => machine.machineId)
+      .filter(Boolean)
+  );
 
-const getMachineScopeId = (value: string) => (value === trainingOnlyScopeValue ? null : value);
+const getSelectedTechnicianMachineLabels = (
+  machines: AdminTechnicianMachine[],
+  machineIds: string[]
+) => {
+  const machineById = new Map(machines.map((machine) => [machine.machineId, machine.machineLabel]));
+  return machineIds.map((machineId) => machineById.get(machineId) ?? machineId);
+};
+
+const formatMachineSelection = (labels: string[]) => {
+  if (labels.length === 0) return 'no assigned reporting machines';
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, 2).join(', ')}, and ${labels.length - 2} more`;
+};
 
 const getAccountMachines = (
   accounts: AdminTechnicianAccount[],
@@ -1001,7 +1025,7 @@ function AccessLauncher({
   const [selectedExistingUserId, setSelectedExistingUserId] = useState('');
   const [selectedPartnerId, setSelectedPartnerId] = useState(initialPartnerId ?? '');
   const [selectedAccountId, setSelectedAccountId] = useState(initialAccountId ?? '');
-  const [selectedScopeValue, setSelectedScopeValue] = useState(trainingOnlyScopeValue);
+  const [selectedTechnicianMachineIds, setSelectedTechnicianMachineIds] = useState<Set<string>>(new Set());
   const [grantReason, setGrantReason] = useState('');
   const [partnerForm, setPartnerForm] = useState(emptyPartnerForm);
   const [stagedPortalAccess, setStagedPortalAccess] = useState<Record<string, boolean>>({});
@@ -1020,7 +1044,7 @@ function AccessLauncher({
     setTargetInput(initialEmail ?? '');
     setSelectedPartnerId(initialPartnerId ?? '');
     setSelectedAccountId(initialAccountId ?? '');
-    setSelectedScopeValue(trainingOnlyScopeValue);
+    setSelectedTechnicianMachineIds(new Set());
     setGrantReason('');
     setPartnerForm(emptyPartnerForm);
     setStagedPortalAccess({});
@@ -1208,16 +1232,21 @@ function AccessLauncher({
     [selectedTechnicianAccount]
   );
   useEffect(() => {
-    if (preset !== 'technician' || selectedScopeValue === trainingOnlyScopeValue) return;
-    if (!selectedTechnicianMachines.some((machine) => machine.machineId === selectedScopeValue)) {
-      setSelectedScopeValue(trainingOnlyScopeValue);
+    if (preset !== 'technician') return;
+    const availableMachineIds = new Set(selectedTechnicianMachines.map((machine) => machine.machineId));
+    const nextSelectedMachineIds = new Set(
+      [...selectedTechnicianMachineIds].filter((machineId) => availableMachineIds.has(machineId))
+    );
+    if (!haveSameStringSetValues(selectedTechnicianMachineIds, nextSelectedMachineIds)) {
+      setSelectedTechnicianMachineIds(nextSelectedMachineIds);
     }
-  }, [preset, selectedScopeValue, selectedTechnicianMachines]);
+  }, [preset, selectedTechnicianMachineIds, selectedTechnicianMachines]);
 
-  const selectedMachineId = getMachineScopeId(selectedScopeValue);
-  const selectedTechnicianMachine =
-    selectedMachineId &&
-    selectedTechnicianMachines.find((machine) => machine.machineId === selectedMachineId);
+  const selectedTechnicianMachineIdList = sortedSetValues(selectedTechnicianMachineIds);
+  const selectedTechnicianMachineLabels = getSelectedTechnicianMachineLabels(
+    selectedTechnicianMachines,
+    selectedTechnicianMachineIdList
+  );
   const hasTechnicianAccountEligibilityGap =
     preset === 'technician' &&
     Boolean(normalizedEmail) &&
@@ -1471,7 +1500,7 @@ function AccessLauncher({
         const grant = await adminGrantTechnicianAccess({
           email: invitePreflight.targetEmail,
           accountId: selectedTechnicianAccount.accountId,
-          machineId: selectedMachineId,
+          machineIds: selectedTechnicianMachineIdList,
           reason: grantReasonText,
         });
 
@@ -1984,21 +2013,32 @@ function AccessLauncher({
                   )}
                 </div>
                 <div>
-                  <Label htmlFor="access-launcher-technician-machine">Machine scope</Label>
-                  <select
-                    id="access-launcher-technician-machine"
-                    value={selectedScopeValue}
-                    onChange={(event) => setSelectedScopeValue(event.target.value)}
-                    className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <Label>Reporting machines</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSelectedTechnicianMachineIds(new Set())}
+                      disabled={!selectedTechnicianAccount || selectedTechnicianMachineIds.size === 0}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                  <TechnicianMachineChecklist
+                    idPrefix="access-launcher-technician-machine"
+                    machines={selectedTechnicianMachines}
+                    selectedMachineIds={selectedTechnicianMachineIds}
+                    toggleMachine={(machineId, checked) =>
+                      setSelectedTechnicianMachineIds((current) =>
+                        toggleStringSetValue(current, machineId, checked)
+                      )
+                    }
                     disabled={!selectedTechnicianAccount}
-                  >
-                    <option value={trainingOnlyScopeValue}>Training only - no machine</option>
-                    {selectedTechnicianMachines.map((machine) => (
-                      <option key={machine.machineId} value={machine.machineId}>
-                        {machine.machineLabel}
-                      </option>
-                    ))}
-                  </select>
+                  />
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Leave all machines unchecked for training-only access.
+                  </p>
                   {technicianContextError && (
                     <p className="mt-1 text-xs text-destructive">
                       {getErrorMessage(technicianContextError, 'Unable to load eligible Technician accounts.')}
@@ -2019,7 +2059,11 @@ function AccessLauncher({
                   />
                   <SummaryMetric
                     label="Machine scope"
-                    value={selectedTechnicianMachine ? selectedTechnicianMachine.machineLabel : 'Training only'}
+                    value={
+                      selectedTechnicianMachineIdList.length > 0
+                        ? pluralize(selectedTechnicianMachineIdList.length, 'machine')
+                        : 'Training only'
+                    }
                   />
                   <SummaryMetric
                     label="Existing grants"
@@ -2036,10 +2080,10 @@ function AccessLauncher({
                 ) : (
                   <PreviewBox>
                     This will grant Technician training access to {normalizedEmail || 'the entered email'}
-                    {selectedTechnicianMachine
-                      ? ` plus reporting for ${selectedTechnicianMachine.machineLabel}.`
+                    {selectedTechnicianMachineIdList.length > 0
+                      ? ` plus reporting for ${formatMachineSelection(selectedTechnicianMachineLabels)}.`
                       : ' with no reporting machine.'}{' '}
-                    Technician access is limited to training-only or exactly one machine in this flow.
+                    Technician reporting remains read-only and limited to the selected machines.
                   </PreviewBox>
                 )}
               </div>
@@ -3191,9 +3235,9 @@ function TechnicianAccessCard({
   const sourceGrants = getTechnicianSources(effectiveAccess);
   const activeSourceGrants = sourceGrants.filter((grant) => grant.isActive);
   const [selectedAccountId, setSelectedAccountId] = useState('');
-  const [selectedScopeValue, setSelectedScopeValue] = useState(trainingOnlyScopeValue);
+  const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(new Set());
   const [grantReason, setGrantReason] = useState('');
-  const [scopeDrafts, setScopeDrafts] = useState<Record<string, string>>({});
+  const [scopeDrafts, setScopeDrafts] = useState<Record<string, string[]>>({});
   const [scopeReasons, setScopeReasons] = useState<Record<string, string>>({});
   const [renewReasons, setRenewReasons] = useState<Record<string, string>>({});
   const [revokeReasons, setRevokeReasons] = useState<Record<string, string>>({});
@@ -3244,18 +3288,20 @@ function TechnicianAccessCard({
     () => selectedAccount?.machines ?? [],
     [selectedAccount]
   );
-  const selectedMachineId = getMachineScopeId(selectedScopeValue);
-  const selectedMachine =
-    selectedMachineId && selectedAccountMachines.find((machine) => machine.machineId === selectedMachineId);
+  const selectedMachineIdList = sortedSetValues(selectedMachineIds);
+  const selectedMachineLabels = getSelectedTechnicianMachineLabels(
+    selectedAccountMachines,
+    selectedMachineIdList
+  );
 
   useEffect(() => {
     const firstActiveGrant = grants.find((grant) => !grant.revokedAt) ?? null;
     const nextAccountId = firstActiveGrant?.accountId ?? accounts[0]?.accountId ?? '';
     setSelectedAccountId(nextAccountId);
-    setSelectedScopeValue(firstActiveGrant ? getGrantMachineScopeValue(firstActiveGrant) : trainingOnlyScopeValue);
+    setSelectedMachineIds(new Set(firstActiveGrant ? getGrantMachineScopeIds(firstActiveGrant) : []));
     setGrantReason('');
     setScopeDrafts(
-      Object.fromEntries(grants.map((grant) => [grant.grantId, getGrantMachineScopeValue(grant)]))
+      Object.fromEntries(grants.map((grant) => [grant.grantId, getGrantMachineScopeIds(grant)]))
     );
     setScopeReasons({});
     setRenewReasons({});
@@ -3264,13 +3310,14 @@ function TechnicianAccessCard({
 
   useEffect(() => {
     if (!selectedAccountId) return;
-    if (
-      selectedScopeValue !== trainingOnlyScopeValue &&
-      !selectedAccountMachines.some((machine) => machine.machineId === selectedScopeValue)
-    ) {
-      setSelectedScopeValue(trainingOnlyScopeValue);
+    const availableMachineIds = new Set(selectedAccountMachines.map((machine) => machine.machineId));
+    const nextSelectedMachineIds = new Set(
+      [...selectedMachineIds].filter((machineId) => availableMachineIds.has(machineId))
+    );
+    if (!haveSameStringSetValues(selectedMachineIds, nextSelectedMachineIds)) {
+      setSelectedMachineIds(nextSelectedMachineIds);
     }
-  }, [selectedAccountId, selectedAccountMachines, selectedScopeValue]);
+  }, [selectedAccountId, selectedAccountMachines, selectedMachineIds]);
 
   const refreshTechnicianContext = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] });
@@ -3300,7 +3347,7 @@ function TechnicianAccessCard({
       const grant = await adminGrantTechnicianAccess({
         email: invitePreflight.targetEmail,
         accountId: selectedAccountId,
-        machineId: selectedMachineId,
+        machineIds: selectedMachineIdList,
         reason: grantReason.trim(),
       });
 
@@ -3338,7 +3385,7 @@ function TechnicianAccessCard({
 
       trackEvent('admin_technician_access_saved', {
         target_user_id: identity.userId,
-        machine_count: selectedMachineId ? 1 : 0,
+        machine_count: selectedMachineIdList.length,
       });
       setGrantReason('');
       await refreshTechnicianContext();
@@ -3423,7 +3470,7 @@ function TechnicianAccessCard({
     try {
       await adminUpdateTechnicianMachines({
         grantId: grant.grantId,
-        machineId: getMachineScopeId(scopeDrafts[grant.grantId] ?? getGrantMachineScopeValue(grant)),
+        machineIds: scopeDrafts[grant.grantId] ?? getGrantMachineScopeIds(grant),
         reason,
       });
       trackEvent('admin_technician_scope_updated', {
@@ -3496,7 +3543,7 @@ function TechnicianAccessCard({
       icon={Wrench}
       title="Technician"
       status={activeGrants.length > 0 || activeSourceGrants.length > 0 ? 'Active' : 'Inactive'}
-      description="Super Admin controls for Technician training access and one-machine reporting scope."
+      description="Super Admin controls for Technician training access and selected-machine reporting scope."
     >
       {!identity.email && (
         <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
@@ -3546,21 +3593,30 @@ function TechnicianAccessCard({
                 </select>
               </div>
               <div>
-                <Label htmlFor="admin-technician-machine">Machine scope</Label>
-                <select
-                  id="admin-technician-machine"
-                  value={selectedScopeValue}
-                  onChange={(event) => setSelectedScopeValue(event.target.value)}
-                  className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <Label>Reporting machines</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setSelectedMachineIds(new Set())}
+                    disabled={isFetching || !selectedAccountId || selectedMachineIds.size === 0}
+                  >
+                    Clear
+                  </Button>
+                </div>
+                <TechnicianMachineChecklist
+                  idPrefix="admin-technician-machine"
+                  machines={selectedAccountMachines}
+                  selectedMachineIds={selectedMachineIds}
+                  toggleMachine={(machineId, checked) =>
+                    setSelectedMachineIds((current) => toggleStringSetValue(current, machineId, checked))
+                  }
                   disabled={isFetching || !selectedAccountId}
-                >
-                  <option value={trainingOnlyScopeValue}>Training only - no machine</option>
-                  {selectedAccountMachines.map((machine) => (
-                    <option key={machine.machineId} value={machine.machineId}>
-                      {machine.machineLabel}
-                    </option>
-                  ))}
-                </select>
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Leave all machines unchecked for training-only access.
+                </p>
               </div>
               <div>
                 <Label htmlFor="admin-technician-reason">Grant or update reason</Label>
@@ -3574,8 +3630,8 @@ function TechnicianAccessCard({
             </div>
             <PreviewBox>
               Saving gives {identity.label} Technician training access and sends an invite email
-              {selectedMachine
-                ? ` plus viewer reporting for ${selectedMachine.machineLabel}.`
+              {selectedMachineIdList.length > 0
+                ? ` plus viewer reporting for ${formatMachineSelection(selectedMachineLabels)}.`
                 : ' with no assigned reporting machine.'}{' '}
               This does not grant Plus Customer, Corporate Partner, billing, supply discount, or
               admin privileges. Switching to training-only revokes only Technician-sourced reporting
@@ -3600,8 +3656,7 @@ function TechnicianAccessCard({
               {grants.map((grant) => {
                 const accountMachines = getAccountMachines(accounts, grant.accountId);
                 const activeMachineCount = grant.machines.filter((machine) => machine.isActive).length;
-                const draftScope = scopeDrafts[grant.grantId] ?? getGrantMachineScopeValue(grant);
-                const draftMachine = getMachineScopeId(draftScope);
+                const draftMachineIds = scopeDrafts[grant.grantId] ?? getGrantMachineScopeIds(grant);
                 const inviteDelivery = latestTechnicianInviteBySourceId.get(grant.grantId);
 
                 return (
@@ -3682,30 +3737,44 @@ function TechnicianAccessCard({
                         </div>
                         <PreviewBox>
                           Scope changes renew the Technician grant and replace only this
-                          Technician source's reporting machine. Manual reporting grants and other
+                          Technician source's assigned reporting machines. Manual reporting grants and other
                           access sources are not removed.
                         </PreviewBox>
-                        <div className="grid gap-3 lg:grid-cols-[0.28fr_0.42fr_0.3fr]">
+                        <div className="grid gap-3 lg:grid-cols-[0.42fr_0.36fr_0.22fr]">
                           <div>
-                            <Label htmlFor={`technician-scope-${grant.grantId}`}>Scope after save</Label>
-                            <select
-                              id={`technician-scope-${grant.grantId}`}
-                              value={draftScope}
-                              onChange={(event) =>
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <Label>Scope after save</Label>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  setScopeDrafts((current) => ({ ...current, [grant.grantId]: [] }))
+                                }
+                                disabled={draftMachineIds.length === 0}
+                              >
+                                Clear
+                              </Button>
+                            </div>
+                            <TechnicianMachineChecklist
+                              idPrefix={`technician-scope-${grant.grantId}`}
+                              machines={accountMachines}
+                              selectedMachineIds={new Set(draftMachineIds)}
+                              toggleMachine={(machineId, checked) =>
                                 setScopeDrafts((current) => ({
                                   ...current,
-                                  [grant.grantId]: event.target.value,
+                                  [grant.grantId]: sortedSetValues(
+                                    toggleStringSetValue(
+                                      new Set(
+                                        current[grant.grantId] ?? getGrantMachineScopeIds(grant)
+                                      ),
+                                      machineId,
+                                      checked
+                                    )
+                                  ),
                                 }))
                               }
-                              className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            >
-                              <option value={trainingOnlyScopeValue}>Training only - no machine</option>
-                              {accountMachines.map((machine) => (
-                                <option key={machine.machineId} value={machine.machineId}>
-                                  {machine.machineLabel}
-                                </option>
-                              ))}
-                            </select>
+                            />
                           </div>
                           <div>
                             <Label htmlFor={`technician-scope-reason-${grant.grantId}`}>Scope reason</Label>
@@ -3736,7 +3805,11 @@ function TechnicianAccessCard({
                           </div>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Preview: {draftMachine ? 'one assigned reporting machine' : 'training-only access'} after save.
+                          Preview:{' '}
+                          {draftMachineIds.length > 0
+                            ? pluralize(draftMachineIds.length, 'assigned reporting machine')
+                            : 'training-only access'}{' '}
+                          after save.
                         </p>
 
                         <div className="grid gap-3 lg:grid-cols-[0.7fr_0.3fr]">
@@ -4288,6 +4361,62 @@ function ScopedAdminAccessCard({
         </Button>
       </div>
     </SourceCard>
+  );
+}
+
+function TechnicianMachineChecklist({
+  idPrefix,
+  machines,
+  selectedMachineIds,
+  toggleMachine,
+  disabled = false,
+}: {
+  idPrefix: string;
+  machines: AdminTechnicianMachine[];
+  selectedMachineIds: Set<string>;
+  toggleMachine: (machineId: string, checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  if (machines.length === 0) {
+    return (
+      <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+        No active machines are available for this account.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+      {machines.map((machine) => {
+        const checkboxId = `${idPrefix}-${machine.machineId}`;
+
+        return (
+          <label
+            key={machine.machineId}
+            htmlFor={checkboxId}
+            className={cn(
+              'flex cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
+              disabled && 'cursor-not-allowed opacity-70'
+            )}
+          >
+            <Checkbox
+              id={checkboxId}
+              checked={selectedMachineIds.has(machine.machineId)}
+              onCheckedChange={(checked) => toggleMachine(machine.machineId, checked === true)}
+              disabled={disabled}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block break-words text-sm font-medium text-foreground">
+                {machine.machineLabel}
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {machine.locationName ?? 'Unassigned location'} / {machine.machineType}
+              </span>
+            </span>
+          </label>
+        );
+      })}
+    </div>
   );
 }
 

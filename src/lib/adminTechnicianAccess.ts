@@ -110,7 +110,7 @@ const getAdminTechnicianErrorMessage = (message: string | undefined, fallback: s
   }
 
   if (rawMessage.includes('zero or one Technician machine')) {
-    return 'Admin Technician access must be training-only or scoped to one machine.';
+    return 'Admin Technician access supports training-only or selected reporting machines after the latest database rollout.';
   }
 
   if (rawMessage.includes('No active Technician sponsor found')) {
@@ -241,13 +241,13 @@ export const fetchAdminTechnicianAccessContext = async (
 export const adminGrantTechnicianAccess = async (input: {
   email: string;
   accountId: string;
-  machineId: string | null;
+  machineIds: string[];
   reason: string;
 }): Promise<AdminTechnicianMutationResult> => {
   const { data, error } = await supabaseClient.rpc('admin_grant_technician_access', {
     p_target_email: input.email.trim(),
     p_account_id: input.accountId,
-    p_machine_id: input.machineId,
+    p_machine_ids: input.machineIds.filter(Boolean),
     p_reason: input.reason.trim(),
   });
 
@@ -262,12 +262,12 @@ export const adminGrantTechnicianAccess = async (input: {
 
 export const adminUpdateTechnicianMachines = async (input: {
   grantId: string;
-  machineId: string | null;
+  machineIds: string[];
   reason: string;
 }): Promise<AdminTechnicianMutationResult> => {
   const { data, error } = await supabaseClient.rpc('admin_update_technician_machines', {
     p_grant_id: input.grantId,
-    p_machine_id: input.machineId,
+    p_machine_ids: input.machineIds.filter(Boolean),
     p_reason: input.reason.trim(),
   });
 

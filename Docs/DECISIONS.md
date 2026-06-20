@@ -1,5 +1,18 @@
 # Decisions
 
+## 2026-06-20 - Technician assigned-machine grants can include multiple machines
+Technician remains a training-first, read-only reporting persona, but a single Technician grant may now carry zero or more assigned reporting machines.
+
+**Canonical behavior**
+- Zero assigned machines means training-only Technician access.
+- One or more assigned machines means training plus read-only `/portal/reports` access for exactly those machines.
+- Plus Customer owners, Corporate Partners, and Super Admins may assign multiple in-scope machines to one Technician when their management boundary includes those machines.
+- Technician revoke and scope edits must continue to affect only Technician-sourced reporting entitlements; unrelated manual reporting, Corporate Partner, Scoped Admin, or Super Admin access remains separate.
+
+**Why this choice**
+- Merlin-style partner staff often need the same narrow reporting view across several properties without receiving Corporate Partner or admin authority.
+- Expanding the existing Technician machine assignment set avoids adding another role while preserving source-aware audit and revoke behavior.
+
 ## 2026-05-20 - Right-sized operator payouts and payroll automation (`#443`, `#444`)
 Bloomjoy will build Operator Payouts as a vending-specific timekeeping, payout calculation, and pay-statement workflow inside the existing reporting/machine/account model.
 

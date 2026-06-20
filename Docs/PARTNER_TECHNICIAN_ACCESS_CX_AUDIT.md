@@ -20,7 +20,7 @@ Scope: `/portal/account` Technician Access, Technician invite delivery/acceptanc
 - Same-machine, multiple-Technician behavior is explicit in the picker copy and covered by agent UAT.
 - Invite state is visible on each Technician row: no invite sent, ready to invite, invite sent, or invite failed.
 - Partner admins have clear recovery actions: send/resend invite and copy login link.
-- Large portfolios get a local machine search without changing the one-machine-per-Technician product choice.
+- Large portfolios get a local machine search and can assign one Technician to multiple in-scope machines without broadening the Technician persona.
 
 ## Priority Findings
 

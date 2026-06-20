@@ -69,6 +69,7 @@ const partnerId = '22222222-2222-4222-8222-222222222222';
 const partyId = '33333333-3333-4333-8333-333333333333';
 const partnershipId = '44444444-4444-4444-8444-444444444444';
 const machineId = '55555555-5555-4555-8555-555555555555';
+const machineTwoId = '55555555-5555-4555-8555-555555555556';
 const accountId = '66666666-6666-4666-8666-666666666666';
 
 const corsHeaders = {
@@ -165,8 +166,14 @@ const buildCorporateOptions = (state) => ({
 const buildEffectiveAccess = (state) => ({
   userId: null,
   email: targetEmail,
-  presets: state.memberships.length > 0 ? ['Corporate Partner'] : [],
-  capabilities: state.memberships.length > 0 ? ['training.view', 'reports.partner.view'] : [],
+  presets: [
+    ...(state.memberships.length > 0 ? ['Corporate Partner'] : []),
+    ...(state.technicianGrants.length > 0 ? ['Technician'] : []),
+  ],
+  capabilities: [
+    ...(state.memberships.length > 0 ? ['training.view', 'reports.partner.view'] : []),
+    ...(state.technicianGrants.length > 0 ? ['reports.machine.view'] : []),
+  ],
   sources: {
     plusAccess: {
       hasPlusAccess: false,
@@ -192,14 +199,31 @@ const buildEffectiveAccess = (state) => ({
       revokedAt: membership.revokedAt,
       isActive: membership.isActive,
     })),
-    technicianGrants: [],
+    technicianGrants: state.technicianGrants.map((grant) => ({
+      id: grant.grantId,
+      accountId: grant.accountId,
+      accountName: 'Bubble Planet Pier 39',
+      sponsorType: 'plus_customer_account',
+      partnerId: null,
+      partnerName: null,
+      status: grant.status,
+      startsAt: grant.startsAt,
+      expiresAt: grant.expiresAt,
+      grantReason: grant.grantReason,
+      revokedAt: null,
+      isActive: true,
+      machineIds: grant.machineIds,
+    })),
   },
   scopes: {
     partnerIds: state.memberships.length > 0 ? [partnerId] : [],
     partnershipIds: state.memberships.length > 0 ? [partnershipId] : [],
-    machineIds: state.memberships.length > 0 ? [machineId] : [],
+    machineIds: [
+      ...(state.memberships.length > 0 ? [machineId] : []),
+      ...state.technicianGrants.flatMap((grant) => grant.machineIds),
+    ],
     corporatePartnerMachineIds: state.memberships.length > 0 ? [machineId] : [],
-    technicianMachineIds: [],
+    technicianMachineIds: state.technicianGrants.flatMap((grant) => grant.machineIds),
     scopedAdminMachineIds: [],
   },
   warnings: [],
@@ -254,7 +278,8 @@ const installMockRoutes = async (context, state) => {
     state.inviteDeliveries.unshift({
       id: `invite-${state.accessInviteBodies.length}`,
       invite_type: body?.inviteType ?? 'corporate_partner',
-      source_type: 'corporate_partner_membership',
+      source_type:
+        body?.inviteType === 'technician' ? 'technician_grant' : 'corporate_partner_membership',
       source_id: body?.sourceId,
       target_email: body?.targetEmail,
       sent_by: adminUser.id,
@@ -358,11 +383,115 @@ const installMockRoutes = async (context, state) => {
         jsonResponse({
           targetEmail,
           targetUserId: null,
-          activeAccountCount: 0,
-          eligibleAccountCount: 0,
+          activeAccountCount: 1,
+          eligibleAccountCount: 1,
           ineligibleAccountCount: 0,
-          accounts: [],
-          grants: [],
+          accounts: [
+            {
+              accountId,
+              accountName: 'Bubble Planet Pier 39',
+              accountStatus: 'active',
+              sponsorUserId: adminUser.id,
+              sponsorType: 'plus_customer_account',
+              machineCount: 2,
+              machines: [
+                {
+                  machineId,
+                  machineLabel: 'Bubble Planet Kiosk 01',
+                  machineType: 'commercial',
+                  accountId,
+                  accountName: 'Bubble Planet Pier 39',
+                  locationId: '77777777-7777-4777-8777-777777777777',
+                  locationName: 'Pier 39',
+                  status: 'active',
+                },
+                {
+                  machineId: machineTwoId,
+                  machineLabel: 'Bubble Planet Kiosk 02',
+                  machineType: 'commercial',
+                  accountId,
+                  accountName: 'Bubble Planet Pier 39',
+                  locationId: '77777777-7777-4777-8777-777777777778',
+                  locationName: 'Market Street',
+                  status: 'active',
+                },
+              ],
+            },
+          ],
+          grants: state.technicianGrants.map((grant) => ({
+            grantId: grant.grantId,
+            accountId,
+            accountName: 'Bubble Planet Pier 39',
+            sponsorUserId: adminUser.id,
+            sponsorType: 'plus_customer_account',
+            partnerId: null,
+            partnerName: null,
+            technicianEmail: targetEmail,
+            technicianUserId: null,
+            operatorTrainingGrantId: `${grant.grantId}-training`,
+            status: grant.status,
+            startsAt: grant.startsAt,
+            expiresAt: grant.expiresAt,
+            grantReason: grant.grantReason,
+            revokedAt: null,
+            revokeReason: null,
+            createdAt: grant.startsAt,
+            updatedAt: new Date().toISOString(),
+            isActive: true,
+            activeReportingEntitlementCount: grant.machineIds.length,
+            machines: grant.machineIds.map((assignedMachineId) => ({
+              assignmentId: `${grant.grantId}-${assignedMachineId}`,
+              machineId: assignedMachineId,
+              machineLabel:
+                assignedMachineId === machineId ? 'Bubble Planet Kiosk 01' : 'Bubble Planet Kiosk 02',
+              machineType: 'commercial',
+              accountId,
+              accountName: 'Bubble Planet Pier 39',
+              locationId:
+                assignedMachineId === machineId
+                  ? '77777777-7777-4777-8777-777777777777'
+                  : '77777777-7777-4777-8777-777777777778',
+              locationName: assignedMachineId === machineId ? 'Pier 39' : 'Market Street',
+              status: 'active',
+              startsAt: grant.startsAt,
+              expiresAt: grant.expiresAt,
+              revokedAt: null,
+              revokeReason: null,
+              isActive: true,
+            })),
+          })),
+        })
+      );
+    }
+
+    if (rpcName === 'admin_grant_technician_access') {
+      const machineIds = Array.isArray(body?.p_machine_ids) ? body.p_machine_ids : [];
+      const grant = {
+        grantId: '99999999-9999-4999-8999-999999999999',
+        accountId,
+        partnerId: null,
+        sponsorType: 'plus_customer_account',
+        technicianEmail: String(body?.p_target_email ?? targetEmail).toLowerCase(),
+        technicianUserId: null,
+        status: 'pending',
+        startsAt: new Date().toISOString(),
+        expiresAt: isoHoursFromNow(24 * 365),
+        grantReason: String(body?.p_reason ?? 'Agent UAT Technician grant'),
+        machineIds,
+        operatorTrainingGrantId: '99999999-9999-4999-8999-999999999998',
+      };
+      state.technicianGrants = [grant];
+      return route.fulfill(
+        jsonResponse({
+          grantId: grant.grantId,
+          accountId: grant.accountId,
+          partnerId: grant.partnerId,
+          sponsorType: grant.sponsorType,
+          technicianEmail: grant.technicianEmail,
+          technicianUserId: grant.technicianUserId,
+          status: grant.status,
+          expiresAt: grant.expiresAt,
+          operatorTrainingGrantId: grant.operatorTrainingGrantId,
         })
       );
     }
@@ -413,6 +542,8 @@ const waitForServer = async (appUrl) => {
 
 const login = async (page) => {
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
+  if (new URL(page.url()).pathname !== '/login') return;
+
   await page.waitForSelector('#email-password', { timeout: 10000 });
   await page.fill('#email-password', adminUser.email);
   await page.fill('#password', 'mock-password');
@@ -429,6 +560,7 @@ const run = async () => {
     accessInviteBodies: [],
     inviteDeliveries: [],
     memberships: [],
+    technicianGrants: [],
     rpcCalls: [],
   };
 
@@ -514,6 +646,32 @@ const run = async () => {
         state.inviteDeliveries[0]?.delivery_status === 'sent' &&
         state.inviteDeliveries[0]?.target_email === targetEmail,
       JSON.stringify(state.inviteDeliveries[0])
+    );
+
+    await page.locator(`label[for="admin-technician-machine-${machineId}"]`).click();
+    await page.locator(`label[for="admin-technician-machine-${machineTwoId}"]`).click();
+    await page.fill('#admin-technician-reason', 'Agent UAT Technician multi-machine grant');
+    await page.getByRole('button', { name: 'Save and send Technician invite' }).click();
+    await waitForCondition(() => state.accessInviteBodies.length === 2, 'Technician invite');
+
+    const technicianGrantCall = state.rpcCalls.find(
+      (call) => call.rpcName === 'admin_grant_technician_access'
+    );
+    recorder.assert(
+      'Admin Technician save sends selected machine array',
+      Array.isArray(technicianGrantCall?.body?.p_machine_ids) &&
+        technicianGrantCall.body.p_machine_ids.length === 2 &&
+        technicianGrantCall.body.p_machine_ids.includes(machineId) &&
+        technicianGrantCall.body.p_machine_ids.includes(machineTwoId),
+      JSON.stringify(technicianGrantCall?.body)
+    );
+    recorder.assert(
+      'Admin Technician save calls access-invite during save',
+      state.accessInviteBodies[1]?.inviteType === 'technician' &&
+        state.accessInviteBodies[1]?.sourceId === state.technicianGrants[0]?.grantId &&
+        state.accessInviteBodies[1]?.targetEmail === targetEmail &&
+        String(state.accessInviteBodies[1]?.loginUrl ?? '').includes('intent=technician'),
+      JSON.stringify(state.accessInviteBodies[1])
     );
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
