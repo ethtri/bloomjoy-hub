@@ -213,7 +213,7 @@ V1 UX should show:
 
 - Technician list with email, invite/status, assigned machine count, and last updated timestamp.
 - Seat usage: `used / 10`.
-- Add Technician form with email and machine selector.
+- Add Technician form with email and assigned-machine selector.
 - Edit assigned machines.
 - Revoke access with required confirmation/reason.
 - Clear message when the owner has no controlled machines.
@@ -233,9 +233,9 @@ Add smoke checklist items when implementation begins, not in this docs-only PR.
 
 Future checks:
 
-- Plus Account Owner can add a Technician with one assigned machine.
+- Plus Account Owner can add a Technician with selected assigned machines.
 - Technician can open `/portal/training*`.
-- Technician can open `/portal/reports` and sees only the assigned machine.
+- Technician can open `/portal/reports` and sees only assigned machines.
 - Technician cannot see unassigned machines in reporting filters or results.
 - Technician cannot access billing, Plus discounts, account-owner tools, partner settlement, or `/admin`.
 - Owner cannot assign a machine outside their controlled account.

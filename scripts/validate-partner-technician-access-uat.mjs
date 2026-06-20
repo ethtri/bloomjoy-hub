@@ -205,15 +205,15 @@ const buildGrant = ({ grantId, email, machineIds = [], status = 'active', revoke
   };
 };
 
-const buildReportingDimension = () => ({
+const buildReportingDimension = (machineId = machineOneId) => ({
   account_id: accountId,
   account_name: 'Bubble Planet Pier 39',
-  location_id: locationOneId,
-  location_name: 'Pier 39',
-  machine_id: machineOneId,
-  machine_label: 'Bubble Planet Kiosk 01',
+  location_id: machineId === machineOneId ? locationOneId : locationTwoId,
+  location_name: machineId === machineOneId ? 'Pier 39' : 'Market Street',
+  machine_id: machineId,
+  machine_label: machineId === machineOneId ? 'Bubble Planet Kiosk 01' : 'Bubble Planet Kiosk 02',
   machine_type: 'commercial',
-  sunze_machine_id: 'BP-KIOSK-01',
+  sunze_machine_id: machineId === machineOneId ? 'BP-KIOSK-01' : 'BP-KIOSK-02',
   latest_sale_date: '2026-06-01',
   status: 'active',
 });
@@ -361,8 +361,8 @@ const installMockSupabaseRoutes = async (context, state, persona) => {
       return route.fulfill(
         jsonResponse({
           has_reporting_access: persona === 'technician',
-          accessible_machine_count: persona === 'technician' ? 1 : 2,
-          accessible_location_count: persona === 'technician' ? 1 : 2,
+          accessible_machine_count: persona === 'technician' ? 2 : 2,
+          accessible_location_count: persona === 'technician' ? 2 : 2,
           can_manage_reporting: false,
           latest_sale_date: '2026-06-01',
           latest_import_completed_at: isoHoursAgo(2),
@@ -376,7 +376,7 @@ const installMockSupabaseRoutes = async (context, state, persona) => {
           technicianEmail: persona === 'technician' ? technicianUser.email : null,
           resolvedGrantCount: persona === 'technician' ? 1 : 0,
           resolvedOperatorTrainingGrantCount: persona === 'technician' ? 1 : 0,
-          upsertedReportingEntitlementCount: persona === 'technician' ? 1 : 0,
+          upsertedReportingEntitlementCount: persona === 'technician' ? 2 : 0,
           skippedGrantCount: 0,
         })
       );
@@ -481,30 +481,38 @@ const installMockSupabaseRoutes = async (context, state, persona) => {
     }
 
     if (rpcName === 'get_reporting_dimensions') {
-      return route.fulfill(jsonResponse(persona === 'technician' ? [buildReportingDimension()] : []));
+      return route.fulfill(
+        jsonResponse(
+          persona === 'technician'
+            ? [buildReportingDimension(machineOneId), buildReportingDimension(machineTwoId)]
+            : []
+        )
+      );
     }
 
     if (rpcName === 'get_sales_report') {
       const machineIds = Array.isArray(body?.p_machine_ids) ? body.p_machine_ids : [];
-      if (persona === 'technician' && machineIds.some((machineId) => machineId !== machineOneId)) {
+      const allowedMachineIds = [machineOneId, machineTwoId];
+      if (persona === 'technician' && machineIds.some((machineId) => !allowedMachineIds.includes(machineId))) {
         return route.fulfill(jsonResponse([], 403));
       }
+      const requestedMachineIds = machineIds.length > 0 ? machineIds : allowedMachineIds;
 
       return route.fulfill(
-        jsonResponse([
-          {
+        jsonResponse(
+          requestedMachineIds.map((machineId) => ({
             period_start: '2026-06-01',
-            machine_id: machineOneId,
-            machine_label: 'Bubble Planet Kiosk 01',
-            location_id: locationOneId,
-            location_name: 'Pier 39',
+            machine_id: machineId,
+            machine_label: machineId === machineOneId ? 'Bubble Planet Kiosk 01' : 'Bubble Planet Kiosk 02',
+            location_id: machineId === machineOneId ? locationOneId : locationTwoId,
+            location_name: machineId === machineOneId ? 'Pier 39' : 'Market Street',
             payment_method: 'credit',
             net_sales_cents: 12500,
             refund_amount_cents: 0,
             gross_sales_cents: 12500,
             transaction_count: 25,
-          },
-        ])
+          }))
+        )
       );
     }
 
@@ -564,6 +572,8 @@ const unexpectedConsoleErrors = (errors) =>
 
 const login = async (page, user) => {
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
+  if (pathname(page) !== '/login') return;
+
   await page.waitForSelector('#email-password', { timeout: 10000 });
   await page.fill('#email-password', user.email);
   await page.fill('#password', 'mock-password');
@@ -595,7 +605,15 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
     await page.goto(`${args.appUrl}/portal/account`, { waitUntil: 'domcontentloaded' });
     await login(page, partnerUser);
     await page.waitForURL('**/portal/account', { timeout: 20000 });
-    await page.getByRole('heading', { name: 'Technician Access' }).waitFor({ timeout: 10000 });
+    try {
+      await page.getByRole('heading', { name: 'Technician Access' }).waitFor({ timeout: 10000 });
+    } catch (error) {
+      console.log('Technician Access heading was not visible.');
+      console.log('Current URL:', page.url());
+      console.log(await page.locator('body').innerText().catch(() => 'Unable to read body text.'));
+      console.log('Console/page errors:', unexpectedConsoleErrors(consoleErrors).join(' | '));
+      throw error;
+    }
 
     recorder.assert('Partner lands on portal account page', pathname(page) === '/portal/account', page.url());
     recorder.assert(
@@ -604,11 +622,12 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
     );
     recorder.assert(
       'Multiple-Technicians-per-machine copy is visible',
-      await page.getByText(/same machine can support multiple Technicians/i).isVisible()
+      await page.getByText(/Machines can have multiple Technicians/i).isVisible()
     );
 
     await page.fill('#technician-email', techOneEmail);
     await selectAddMachine(page, machineOneId);
+    await selectAddMachine(page, machineTwoId);
     await page.getByRole('button', { name: 'Save and send invite' }).click();
     await technicianRow(page, techOneEmail).waitFor({ timeout: 10000 });
     await waitForCondition(() => state.accessInviteBodies.length === 1, 'first Technician auto-invite');
@@ -630,9 +649,15 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
         machineIds: grant.machines.map((machine) => machine.machineId),
       })))
     );
+    recorder.assert(
+      'One Technician can be assigned to multiple machines',
+      state.technicianGrants.some(
+        (grant) => grant.technicianEmail === techOneEmail && grant.machines.length === 2
+      ),
+      JSON.stringify(state.technicianGrants.find((grant) => grant.technicianEmail === techOneEmail)?.machines)
+    );
 
     await page.fill('#technician-email', trainingOnlyEmail);
-    await page.getByText('Training-only').first().click();
     await page.getByRole('button', { name: 'Save and send invite' }).click();
     await technicianRow(page, trainingOnlyEmail).waitFor({ timeout: 10000 });
     await waitForCondition(() => state.accessInviteBodies.length === 3, 'training-only Technician auto-invite');
@@ -725,7 +750,13 @@ const runTechnicianUat = async ({ args, browser, recorder }) => {
   const state = {
     accessInviteBodies: [],
     inviteDeliveries: [],
-    technicianGrants: [buildGrant({ grantId: '44444444-4444-4444-8444-444444444444', email: techOneEmail, machineIds: [machineOneId] })],
+    technicianGrants: [
+      buildGrant({
+        grantId: '44444444-4444-4444-8444-444444444444',
+        email: techOneEmail,
+        machineIds: [machineOneId, machineTwoId],
+      }),
+    ],
     rpcCalls: [],
   };
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -756,11 +787,13 @@ const runTechnicianUat = async ({ args, browser, recorder }) => {
 
     await page.goto(`${args.appUrl}/portal/reports`, { waitUntil: 'networkidle' });
     await page.getByText('Bubble Planet Kiosk 01').first().waitFor({ timeout: 10000 });
+    await page.getByText('Bubble Planet Kiosk 02').first().waitFor({ timeout: 10000 });
 
     recorder.assert('Technician can reach operator reports', pathname(page) === '/portal/reports', page.url());
     recorder.assert(
-      'Technician reporting dimensions contain only assigned machine',
-      !(await page.getByText('Bubble Planet Kiosk 02').isVisible().catch(() => false))
+      'Technician reporting dimensions contain assigned machines',
+      (await page.getByText('Bubble Planet Kiosk 01').first().isVisible()) &&
+        (await page.getByText('Bubble Planet Kiosk 02').first().isVisible())
     );
     recorder.assert(
       'Technician does not receive partner dashboard controls',

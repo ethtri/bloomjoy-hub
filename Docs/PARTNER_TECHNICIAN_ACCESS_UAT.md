@@ -22,7 +22,7 @@ The script uses mocked Supabase Auth, REST, RPC, and Edge Function responses. It
 
 - Corporate Partner manager reaches `/portal/account`.
 - Partner scope is visible as a partner portfolio, not global reporting access.
-- Partner creates a Technician assigned to an in-scope machine.
+- Partner creates a Technician assigned to in-scope machines.
 - New Technician saves automatically call `access-invite` with `inviteType=technician`.
 - Invite delivery status appears in the Technician row.
 - Partner creates a second Technician assigned to the same machine.
@@ -30,7 +30,7 @@ The script uses mocked Supabase Auth, REST, RPC, and Edge Function responses. It
 - Out-of-scope machine assignment is denied in the UAT route guard.
 - Partner revokes a Technician and the row leaves the active list.
 - Technician signs in, entitlement resolution runs, and `/portal/training` is available.
-- Technician opens `/portal/reports` and sees only the assigned machine.
+- Technician opens `/portal/reports` and sees only assigned machines.
 - Technician does not see partner dashboard controls.
 
 ## Human UAT Packet
@@ -40,7 +40,7 @@ Use staging or a Vercel preview with non-sensitive test records.
 Personas:
 
 - Corporate Partner manager: active corporate partner membership and at least one active portal-enabled partnership party.
-- Assigned-machine Technician: invited email with one assigned machine.
+- Assigned-machine Technician: invited email with one or more assigned machines.
 - Training-only Technician: invited email with no assigned machine.
 - Revoked Technician: previously invited email after revoke.
 
@@ -48,14 +48,14 @@ Checklist:
 
 - [ ] Partner manager opens `/portal/account` and sees Technician Access.
 - [ ] Partner account selector only lists current partner portfolio accounts.
-- [ ] Partner can add two Technicians to the same machine, and each save sends an invite attempt.
+- [ ] Partner can add two Technicians to the same machine, assign one Technician to multiple machines, and each save sends an invite attempt.
 - [ ] Partner can add a training-only Technician, and save sends an invite attempt.
 - [ ] Partner can resend the Technician invite from the row after the first send.
 - [ ] Invite email explains training access and assigned-machine reporting when applicable.
 - [ ] Invite email does not imply broad partner reporting.
 - [ ] Copy login link points to `/login?intent=technician&email=...`.
 - [ ] Assigned-machine Technician signs in with the same email and reaches `/portal/training`.
-- [ ] Assigned-machine Technician reaches `/portal/reports` for only the assigned machine.
+- [ ] Assigned-machine Technician reaches `/portal/reports` for only assigned machines.
 - [ ] Training-only Technician reaches `/portal/training` and does not receive machine reporting.
 - [ ] Technician users do not see partner dashboard controls.
 - [ ] Revoking a Technician removes Technician-sourced training/reporting after refresh or sign-out/sign-in.

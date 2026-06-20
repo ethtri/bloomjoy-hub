@@ -230,7 +230,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
 - [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
 - [ ] Plus Account Owner sees Technician Access in Settings (`/portal/account`) with seat usage, owned machines, and current Technician grants
-- [ ] Plus Account Owner can add a Technician with either training-only access or exactly one owned machine, then edit that Technician's machine assignment
+- [ ] Plus Account Owner can add a Technician with either training-only access or selected owned machines, then edit that Technician's machine assignments
 - [ ] Pending Technician invite resolves on first login so the Technician gets training plus assigned-machine reporting without admin repair
 - [ ] Authenticated `/portal` and `/admin` route loads do not show `404` or `PGRST202` for `resolve_my_technician_entitlements` in the browser network log or console
 - [ ] Plus Account Owner can save a Technician with no machines as training-only access
@@ -365,11 +365,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Access invite UAT: run `npm run admin-access:validate-invite-uat -- --app-url http://127.0.0.1:8081` against `npm run dev:uat` and attach desktop/mobile screenshots from `output/playwright` to the PR.
 - [ ] Access Launcher opens from `/admin/access` and deep links from `/admin/access?action=add-access`, with preset links for `corporate_partner`, `technician`, `scoped_admin`, `super_admin`, and `plus_customer`.
 - [ ] Access Launcher Corporate Partner preset can grant email-based access for a never-authenticated email, send the invite email, and write both `access_invite_deliveries` and `admin_audit_log` evidence.
-- [ ] Access Launcher Technician preset can grant training-only access or exactly one machine, send the invite email, and preserve the one-machine Technician reporting boundary.
+- [ ] Access Launcher Technician preset can grant training-only access or selected machines, send the invite email, and preserve the assigned-machine Technician reporting boundary.
 - [ ] Admin Access Corporate Partner source card uses one primary `Grant and send invite` action; the selected-person flow does not leave a saved active membership without an invite attempt unless the UI reports invite failure and shows resend/copy recovery.
 - [ ] Admin Access Corporate Partner source card keeps partner-wide portal setup separate from the person invite transaction; partner portal setup has its own reason, preview, and save action.
 - [ ] Admin Access Technician source card uses `Save and send Technician invite`; if invite delivery fails after the grant is saved, the UI reports the split state instead of only saying access saved.
-- [ ] Partner Technician Access: corporate partner on `/portal/account` can create two Technicians for the same in-scope machine; each new Technician save automatically sends the invite, and row-level resend/copy remains available for recovery.
+- [ ] Partner Technician Access: corporate partner on `/portal/account` can create two Technicians for the same in-scope machine, and can assign one Technician to multiple in-scope machines; each new Technician save automatically sends the invite, and row-level resend/copy remains available for recovery.
 - [ ] Partner Technician Access: training-only Technician invite copy says training library only, assigned-machine Technician invite copy says training plus assigned-machine reporting, and neither invite promises partner-wide reporting.
 - [ ] Partner Technician Access: run `npm run partner-technicians:validate-uat -- --app-url http://127.0.0.1:8081` against `npm run dev:uat` and attach desktop/mobile screenshots from `output/playwright` to the PR.
 - [ ] Access invite email copy stays source-specific without overstating access: Corporate Partner copy stays generic to available tools, Technician copy may mention training and assigned-machine reporting, and no invite promises broad partner-wide reporting unless the source grants it.
@@ -418,7 +418,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Manual reporting access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
 - [ ] Manual reporting access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
-- [ ] Technician source card in Admin Access lets Super Admin grant or update a Technician as training-only or exactly one reporting machine, with plain-English impact preview and required reason
+- [ ] Technician source card in Admin Access lets Super Admin grant or update a Technician as training-only or selected reporting machines, with plain-English impact preview and required reason
 - [ ] Technician source card can edit scope, renew current access, and revoke active Technician grants with required reasons
 - [ ] Admin Technician scope changes revoke only Technician-sourced reporting entitlements; unrelated manual reporting grants remain intact
 - [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with selected machine scopes, save preview, and required reason

@@ -92,13 +92,15 @@ const staticChecks = [
     ],
   },
   {
-    name: 'Super Admin Technician wrappers require Super Admin and zero-or-one machine scope',
-    file: 'supabase/migrations/202604290006_admin_technician_access.sql',
+    name: 'Super Admin Technician wrappers require Super Admin and selected-machine scope',
+    file: 'supabase/migrations/202606200001_technician_multi_machine_admin_wrappers.sql',
     patterns: [
       'create or replace function public.admin_grant_technician_access',
+      'p_machine_ids uuid[]',
       'if not public.is_super_admin(current_user_id) then',
       'admin_update_technician_machines',
-      'Admin renewal requires zero or one Technician machine',
+      'Selected machines must belong to one active account',
+      'machine_ids',
     ],
   },
   {

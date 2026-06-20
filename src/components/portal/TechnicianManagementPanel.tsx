@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
   SelectContent,
@@ -118,8 +118,6 @@ const formatInviteDeliverySummary = (delivery: AccessInviteDelivery | undefined)
     : `Last invite failed ${formatDateTime(delivery.sentAt)}${delivery.errorMessage ? `: ${delivery.errorMessage}` : '.'}`;
 };
 
-const selectSingleMachineId = (machineId: string | null) => (machineId ? [machineId] : []);
-
 const haveSameMachineIds = (left: string[], right: string[]) => {
   if (left.length !== right.length) return false;
 
@@ -128,6 +126,13 @@ const haveSameMachineIds = (left: string[], right: string[]) => {
 };
 
 const uniqueSortedValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
+
+const toggleMachineId = (machineIds: string[], machineId: string, checked: boolean) => {
+  const next = new Set(machineIds);
+  if (checked) next.add(machineId);
+  else next.delete(machineId);
+  return uniqueSortedValues([...next]);
+};
 
 const buildLocalTechnicianInviteDelivery = ({
   sourceId,
@@ -377,7 +382,7 @@ export function TechnicianManagementPanel() {
     try {
       const grant = await grantMutation.mutateAsync({
         technicianEmail: normalizedEmail,
-        machineIds: selectedMachineIds.slice(0, 1),
+        machineIds: selectedMachineIds,
         accountId: selectedAccount?.accountId,
         partnerId: selectedAccount?.partnerId,
         reason: grantReason.trim() || DEFAULT_TECHNICIAN_REASON,
@@ -441,7 +446,6 @@ export function TechnicianManagementPanel() {
         .filter((machine) => machine.isActive)
         .map((machine) => machine.machineId)
         .filter((machineId) => selectedAccountMachineIds.has(machineId))
-        .slice(0, 1)
     );
     setEditReason(DEFAULT_UPDATE_REASON);
   };
@@ -450,7 +454,7 @@ export function TechnicianManagementPanel() {
     try {
       await updateMutation.mutateAsync({
         grantId: grant.grantId,
-        machineIds: editingMachineIds.slice(0, 1),
+        machineIds: editingMachineIds,
         reason: editReason.trim() || DEFAULT_UPDATE_REASON,
       });
     } catch (error) {
@@ -572,9 +576,9 @@ export function TechnicianManagementPanel() {
               Technician Access
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-              Add staff who need the training library and, when needed, reporting for one
-              assigned machine. Machines can have multiple Technicians; each Technician only sees
-              the machine reporting assigned here.
+              Add staff who need the training library and, when needed, reporting for assigned
+              machines. Machines can have multiple Technicians; each Technician only sees the
+              machine reporting assigned here.
             </p>
           </div>
         </div>
@@ -747,7 +751,7 @@ export function TechnicianManagementPanel() {
                       name="add-technician-machine"
                       machines={selectedAccount.machines}
                       selectedIds={selectedMachineIds}
-                      onSelect={(machineId) => setSelectedMachineIds(selectSingleMachineId(machineId))}
+                      onChange={setSelectedMachineIds}
                       disabled={addBlockedByCap || grantMutation.isPending}
                     />
                   )}
@@ -755,7 +759,7 @@ export function TechnicianManagementPanel() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-xs leading-5 text-muted-foreground">
                       {selectedMachineIds.length > 0
-                        ? 'This Technician will see reporting for the selected machine only.'
+                        ? `This Technician will see reporting for ${pluralize(selectedMachineIds.length, 'selected machine')} only.`
                         : 'No machines selected; this Technician will receive training only.'}
                     </p>
                     <Button
@@ -830,9 +834,7 @@ export function TechnicianManagementPanel() {
                         setEditingMachineIds([]);
                         setEditReason(DEFAULT_UPDATE_REASON);
                       }}
-                      onSelectEditMachine={(machineId) =>
-                        setEditingMachineIds(selectSingleMachineId(machineId))
-                      }
+                      onChangeEditMachines={setEditingMachineIds}
                       onChangeEditReason={setEditReason}
                       onSaveEdit={() => handleSaveEdit(grant)}
                       onSendInvite={() => handleSendTechnicianInvite(grant)}
@@ -922,7 +924,7 @@ function TechnicianGrantRow({
   recentlySaved,
   onStartEdit,
   onCancelEdit,
-  onSelectEditMachine,
+  onChangeEditMachines,
   onChangeEditReason,
   onSaveEdit,
   onSendInvite,
@@ -940,7 +942,7 @@ function TechnicianGrantRow({
   recentlySaved: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
-  onSelectEditMachine: (machineId: string | null) => void;
+  onChangeEditMachines: (machineIds: string[]) => void;
   onChangeEditReason: (value: string) => void;
   onSaveEdit: () => void;
   onSendInvite: () => void;
@@ -983,7 +985,7 @@ function TechnicianGrantRow({
               {formatStatusLabel(grant.status)}
             </Badge>
             <Badge variant={activeMachines.length > 0 ? 'outline' : 'secondary'}>
-              {activeMachines.length > 0 ? 'Assigned machine' : 'Training-only'}
+              {activeMachines.length > 0 ? pluralize(activeMachines.length, 'assigned machine') : 'Training-only'}
             </Badge>
             <Badge variant={inviteStatusVariant}>{inviteStatusLabel}</Badge>
           </div>
@@ -1064,7 +1066,7 @@ function TechnicianGrantRow({
             name={`edit-technician-${grant.grantId}-machine`}
             machines={machines}
             selectedIds={editingMachineIds}
-            onSelect={onSelectEditMachine}
+            onChange={onChangeEditMachines}
             disabled={isSaving}
           />
           <div>
@@ -1081,7 +1083,7 @@ function TechnicianGrantRow({
             <p className="text-xs leading-5 text-muted-foreground">
               {editingMachineIds.length === 0
                 ? 'No machines selected; saving will keep this Technician training-only.'
-                : 'This Technician will see reporting for the selected machine only.'}
+                : `This Technician will see reporting for ${pluralize(editingMachineIds.length, 'selected machine')} only.`}
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
@@ -1157,16 +1159,16 @@ function MachineAssignmentPicker({
   name,
   machines,
   selectedIds,
-  onSelect,
+  onChange,
   disabled = false,
 }: {
   name: string;
   machines: TechnicianManagementMachine[];
   selectedIds: string[];
-  onSelect: (machineId: string | null) => void;
+  onChange: (machineIds: string[]) => void;
   disabled?: boolean;
 }) {
-  const selectedMachineId = selectedIds[0] ?? 'training-only';
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const [machineSearch, setMachineSearch] = useState('');
   const normalizedMachineSearch = machineSearch.trim().toLowerCase();
   const filteredMachines = useMemo(() => {
@@ -1221,9 +1223,22 @@ function MachineAssignmentPicker({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Label>Machine reporting</Label>
-        <span className="text-xs text-muted-foreground">
-          Choose training-only or one machine. The same machine can support multiple Technicians.
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {selectedIds.length > 0
+              ? pluralize(selectedIds.length, 'selected machine')
+              : 'Training-only when none are selected'}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onChange([])}
+            disabled={disabled || selectedIds.length === 0}
+          >
+            Clear
+          </Button>
+        </div>
       </div>
       {machines.length > 6 && (
         <div>
@@ -1243,34 +1258,7 @@ function MachineAssignmentPicker({
           </div>
         </div>
       )}
-      <RadioGroup
-        name={name}
-        value={selectedMachineId}
-        onValueChange={(value) => onSelect(value === 'training-only' ? null : value)}
-        className="max-h-72 overflow-y-auto rounded-md border border-border"
-        disabled={disabled}
-      >
-        <label
-          htmlFor={`${name}-training-only`}
-          className={cn(
-            'flex min-h-12 cursor-pointer items-start gap-3 border-b border-border/60 p-3',
-            disabled && 'cursor-not-allowed opacity-70'
-          )}
-        >
-          <RadioGroupItem
-            id={`${name}-training-only`}
-            value="training-only"
-            disabled={disabled}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block break-words text-sm font-medium text-foreground">
-              Training-only
-            </span>
-            <span className="mt-1 block text-xs text-muted-foreground">
-              No assigned machine reporting.
-            </span>
-          </span>
-        </label>
+      <div className="max-h-72 overflow-y-auto rounded-md border border-border">
         {groupedMachines.length === 0 ? (
           <p className="px-3 py-3 text-sm text-muted-foreground">
             No machines match this search.
@@ -1282,20 +1270,23 @@ function MachineAssignmentPicker({
                 {group.locationName}
               </div>
               {group.machines.map((machine) => {
-                const radioId = `${name}-${machine.machineId}`;
+                const checkboxId = `${name}-${machine.machineId}`;
 
                 return (
                   <label
                     key={machine.machineId}
-                    htmlFor={radioId}
+                    htmlFor={checkboxId}
                     className={cn(
                       'flex min-h-12 cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
                       disabled && 'cursor-not-allowed opacity-70'
                     )}
                   >
-                    <RadioGroupItem
-                      id={radioId}
-                      value={machine.machineId}
+                    <Checkbox
+                      id={checkboxId}
+                      checked={selectedIdSet.has(machine.machineId)}
+                      onCheckedChange={(checked) =>
+                        onChange(toggleMachineId(selectedIds, machine.machineId, checked === true))
+                      }
                       disabled={disabled}
                     />
                     <span className="min-w-0 flex-1">
@@ -1312,7 +1303,7 @@ function MachineAssignmentPicker({
             </div>
           ))
         )}
-      </RadioGroup>
+      </div>
     </div>
   );
 }
