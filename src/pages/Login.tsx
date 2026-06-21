@@ -23,6 +23,7 @@ import type { TranslationKey } from '@/lib/i18n';
 import { toast } from 'sonner';
 
 const RESEND_COOLDOWN_SECONDS = 60;
+const EMAIL_REQUEST_COOLDOWN_STORAGE_PREFIX = 'bloomjoy-login-email-request-cooldown:';
 type AuthMethod = 'password' | 'magic_link';
 type LoginInviteIntent = 'corporate_partner' | 'technician' | 'machine_manager';
 const GOOGLE_GSI_SCRIPT_ID = 'google-gsi-script';
@@ -139,23 +140,68 @@ const getInviteIntentCopy = (intent: LoginInviteIntent) => {
       return {
         title: 'Corporate Partner invite',
         description:
-          'Create an account or sign in with this email to access partner reporting, training, support, and eligible machine reporting.',
+          'Sign in with this email to access partner reporting, training, support, and eligible machine reporting. Use Email Link if you have not set a password yet.',
         icon: BarChart3,
       };
     case 'technician':
       return {
         title: 'Technician invite',
         description:
-          'Create an account or sign in with this email to access training and any assigned machine reporting.',
+          'Sign in with this email to access training and assigned machine reporting. Use Email Link if you have not set a password yet.',
         icon: GraduationCap,
       };
     case 'machine_manager':
       return {
         title: 'Machine Manager invite',
         description:
-          'Create an account or sign in with this email so Bloomjoy can assign you to the right machine for refund review and follow-up.',
+          'Sign in with this email so Bloomjoy can assign you to the right machine for refund review and follow-up. Use Email Link if you have not set a password yet.',
         icon: Wrench,
       };
+  }
+};
+
+const getEmailRequestCooldownStorageKey = (email: string) =>
+  `${EMAIL_REQUEST_COOLDOWN_STORAGE_PREFIX}${email}`;
+
+const readEmailRequestCooldownSeconds = (email: string) => {
+  if (typeof window === 'undefined' || !email) {
+    return 0;
+  }
+
+  try {
+    const key = getEmailRequestCooldownStorageKey(email);
+    const cooldownUntil = Number(window.localStorage.getItem(key));
+
+    if (!Number.isFinite(cooldownUntil)) {
+      window.localStorage.removeItem(key);
+      return 0;
+    }
+
+    const remainingSeconds = Math.ceil((cooldownUntil - Date.now()) / 1000);
+
+    if (remainingSeconds <= 0) {
+      window.localStorage.removeItem(key);
+      return 0;
+    }
+
+    return remainingSeconds;
+  } catch {
+    return 0;
+  }
+};
+
+const storeEmailRequestCooldown = (email: string, seconds = RESEND_COOLDOWN_SECONDS) => {
+  if (typeof window === 'undefined' || !email) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      getEmailRequestCooldownStorageKey(email),
+      String(Date.now() + seconds * 1000)
+    );
+  } catch {
+    // Local storage is a best-effort guard; Supabase remains the source of truth.
   }
 };
 
@@ -318,11 +364,16 @@ export default function LoginPage() {
     }
 
     if (queryIntent) {
-      setAuthMethod('password');
-      setCreateAccountMode(true);
+      setAuthMethod('magic_link');
+      setCreateAccountMode(false);
+      setPassword('');
       setSent(false);
     }
   }, [location.search]);
+
+  useEffect(() => {
+    setCooldownSeconds(readEmailRequestCooldownSeconds(email.trim().toLowerCase()));
+  }, [email]);
 
   useEffect(() => {
     if (!useGisRenderedButton || !googleClientId) {
@@ -458,6 +509,7 @@ export default function LoginPage() {
   const handleMagicLinkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cooldownSeconds > 0) {
+      toast.error(getSendLinkErrorMessage({ status: 429 }));
       return;
     }
 
@@ -475,6 +527,7 @@ export default function LoginPage() {
       toast.error(errorMessage);
 
       if (error.status === 429 || error.code === 'over_email_send_rate_limit') {
+        storeEmailRequestCooldown(normalizedEmail);
         setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
       }
 
@@ -484,10 +537,9 @@ export default function LoginPage() {
 
     setEmail(normalizedEmail);
     setSent(true);
+    storeEmailRequestCooldown(normalizedEmail);
     setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
-    toast.success(
-      'Email sent. First-time sign-ins may require confirming signup first, then requesting a fresh link.'
-    );
+    toast.success('Email sent. Use the newest Bloomjoy sign-in email to continue.');
     setLoading(false);
   };
 
@@ -547,15 +599,26 @@ export default function LoginPage() {
       return;
     }
 
+    if (cooldownSeconds > 0) {
+      toast.error(getPasswordResetErrorMessage({ status: 429 }));
+      return;
+    }
+
     setLoading(true);
     const { error } = await requestPasswordReset(normalizedEmail);
 
     if (error) {
       toast.error(getPasswordResetErrorMessage(error));
+      if (error.status === 429 || error.code === 'over_email_send_rate_limit') {
+        storeEmailRequestCooldown(normalizedEmail);
+        setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
+      }
       setLoading(false);
       return;
     }
 
+    storeEmailRequestCooldown(normalizedEmail);
+    setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
     toast.success('Password reset email sent. Use the newest email link to set a new password.');
     setLoading(false);
   };
@@ -857,10 +920,17 @@ export default function LoginPage() {
                     type="button"
                     className="flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-medium text-primary underline-offset-4 hover:bg-primary/5 hover:underline"
                     onClick={handlePasswordResetRequest}
-                    disabled={loading || oauthLoading}
+                    disabled={loading || oauthLoading || cooldownSeconds > 0}
                   >
-                    {t('login.forgotPassword')}
+                    {cooldownSeconds > 0
+                      ? t('login.tryAgain', { seconds: cooldownSeconds })
+                      : t('login.forgotPassword')}
                   </button>
+                  {cooldownSeconds > 0 && (
+                    <p className="text-center text-xs text-muted-foreground">
+                      {t('login.emailLimited')}
+                    </p>
+                  )}
                   <Button
                     type="submit"
                     variant="hero"

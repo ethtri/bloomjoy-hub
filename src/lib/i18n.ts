@@ -151,7 +151,7 @@ export const translations = {
     'login.checkEmail': 'Check your email',
     'login.sentEmail': 'We sent a sign-in email to {email}. Click the newest link to continue.',
     'login.firstTimeNote':
-      'First-time users may see a signup confirmation email first. After confirming, request a new sign-in link.',
+      'If you requested more than one link, use the newest Bloomjoy email and ignore older links.',
     'login.emailAddress': 'Email address',
     'login.sending': 'Sending...',
     'login.tryAgain': 'Try again in {seconds}s',
@@ -717,7 +717,7 @@ export const translations = {
     'login.emailLink': '邮件链接',
     'login.checkEmail': '请查看邮箱',
     'login.sentEmail': '我们已向 {email} 发送登录邮件。请点击最新链接继续。',
-    'login.firstTimeNote': '首次用户可能会先收到注册确认邮件。确认后请重新获取登录链接。',
+    'login.firstTimeNote': '如果请求了多个链接，请使用最新的 Bloomjoy 邮件并忽略较早的链接。',
     'login.emailAddress': '邮箱地址',
     'login.sending': '发送中...',
     'login.tryAgain': '{seconds} 秒后重试',
