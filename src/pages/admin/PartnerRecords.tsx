@@ -149,8 +149,8 @@ export default function AdminPartnerRecordsPage() {
                 Partner Records
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage reusable organizations and contacts. Add them to a partnership as
-                participants when an agreement needs more than one external entity.
+                Manage the reusable partner directory: organizations, legal names, and contacts.
+                Agreements, machine assignments, and payout/reporting setup live in Partnerships.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
