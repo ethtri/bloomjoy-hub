@@ -9,6 +9,7 @@ import {
   ReceiptText,
   Settings,
   ShoppingBag,
+  Users,
 } from 'lucide-react';
 import type { PortalAccessTier } from '@/lib/membership';
 import type { TranslationKey } from '@/lib/i18n';
@@ -20,7 +21,8 @@ export type PortalAccessLevel =
   | 'plus'
   | 'support'
   | 'reporting'
-  | 'refunds';
+  | 'refunds'
+  | 'team';
 
 export interface PortalDestination {
   href: string;
@@ -79,6 +81,16 @@ export const portalDestinations: PortalDestination[] = [
     mobileOrder: 4,
   },
   {
+    href: '/portal/team',
+    label: 'Team',
+    labelKey: 'portal.nav.team',
+    description: 'Add Technicians and manage assigned-machine reporting access.',
+    descriptionKey: 'portal.nav.teamDescription',
+    icon: Users,
+    access: 'team',
+    mobileOrder: 5,
+  },
+  {
     href: '/portal/reports',
     label: 'Reporting',
     labelKey: 'portal.nav.reporting',
@@ -86,7 +98,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.reportingDescription',
     icon: BarChart3,
     access: 'reporting',
-    mobileOrder: 5,
+    mobileOrder: 6,
     upsellCopy: 'Sales reporting is available only for machines Bloomjoy has granted to this account.',
     upsellCopyKey: 'portal.nav.reportingUpsell',
   },
@@ -98,7 +110,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.refundsDescription',
     icon: ReceiptText,
     access: 'refunds',
-    mobileOrder: 6,
+    mobileOrder: 7,
   },
   {
     href: '/portal/training',
@@ -108,7 +120,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.trainingDescription',
     icon: BookOpen,
     access: 'training',
-    mobileOrder: 7,
+    mobileOrder: 8,
     upsellCopy: 'Unlock the operator hub, quick aids, and certificate path.',
     upsellCopyKey: 'portal.nav.trainingUpsell',
   },
@@ -120,7 +132,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.onboardingDescription',
     icon: ListChecks,
     access: 'plus',
-    mobileOrder: 8,
+    mobileOrder: 9,
     upsellCopy: 'Unlock guided setup steps and first-spin milestones.',
     upsellCopyKey: 'portal.nav.onboardingUpsell',
   },
@@ -132,7 +144,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.supportDescription',
     icon: HeadphonesIcon,
     access: 'support',
-    mobileOrder: 9,
+    mobileOrder: 10,
     upsellCopy: 'Unlock guided support requests and concierge escalation.',
     upsellCopyKey: 'portal.nav.supportUpsell',
   },
@@ -150,7 +162,8 @@ export const canAccessPortalLevel = (
   accessLevel: PortalAccessLevel,
   hasReportingAccess = false,
   capabilities: string[] = [],
-  hasRefundOperationsAccess = false
+  hasRefundOperationsAccess = false,
+  canManageTechnicians = false
 ): boolean => {
   const hasCapability = (capability: string) => capabilities.includes(capability);
 
@@ -178,6 +191,8 @@ export const canAccessPortalLevel = (
       return hasReportingAccess || hasCapability('reports.partner.view');
     case 'refunds':
       return hasRefundOperationsAccess || hasCapability('refunds.manage');
+    case 'team':
+      return canManageTechnicians || hasCapability('technicians.manage');
     default:
       return false;
   }
@@ -197,6 +212,8 @@ export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
       return 'Reporting';
     case 'refunds':
       return 'Refunds';
+    case 'team':
+      return 'Team';
     case 'all':
     default:
       return 'Open';
@@ -217,6 +234,8 @@ export const getAccessLevelLabelKey = (accessLevel: PortalAccessLevel): Translat
       return 'portal.access.reporting';
     case 'refunds':
       return 'portal.access.refunds';
+    case 'team':
+      return 'portal.access.team';
     case 'all':
     default:
       return 'portal.access.open';

@@ -80,7 +80,7 @@ Not V1 grant authority:
 - Reporting `report_manager`, unless a later decision explicitly expands this role.
 - Account admin or delegated team manager, unless a later decision adds delegated customer team management.
 
-The customer-facing flow should live in `/portal/account` or a future `/portal/team`, not in `/admin`. Internal override and audit review can stay in `/admin/access`.
+The customer-facing flow lives in `/portal/team`, not in `/admin`. Account Settings may link to Team for eligible users, but should not duplicate the Technician management workflow. Internal override and audit review can stay in `/admin/access`.
 
 ## Plus Account Owner Limits
 
@@ -207,7 +207,7 @@ RPC requirements:
 Add super-admin override RPCs only if the internal UI needs them in the same slice. Otherwise keep internal override as a later PR.
 
 ### 3. Customer UX
-Add the customer flow under `/portal/account` or a future `/portal/team`.
+Add the customer flow under `/portal/team`.
 
 V1 UX should show:
 

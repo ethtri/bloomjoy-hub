@@ -111,6 +111,7 @@ export default function PortalDashboard() {
     user,
     isMember,
     canAccessTraining,
+    canManageTechnicians,
     capabilities,
     hasReportingAccess,
     adminAccess,
@@ -128,7 +129,8 @@ export default function PortalDashboard() {
       access,
       hasReportingAccess,
       capabilities,
-      hasRefundOperationsAccess
+      hasRefundOperationsAccess,
+      canManageTechnicians
     );
   const onboardingProgress = getOnboardingProgress(user?.email);
   const { data: library = [] } = useTrainingLibrary(canAccessTraining);
@@ -450,6 +452,10 @@ export default function PortalDashboard() {
                 )
                 .filter((action) =>
                   action.access !== 'refunds' ||
+                  canAccessPortalAction(action.access)
+                )
+                .filter((action) =>
+                  action.access !== 'team' ||
                   canAccessPortalAction(action.access)
                 )
                 .filter((action) =>

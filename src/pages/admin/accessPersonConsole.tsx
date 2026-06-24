@@ -34,6 +34,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { TechnicianMachineAssignmentPicker } from '@/components/technicians/TechnicianMachineAssignmentPicker';
 import { useAuth } from '@/contexts/auth-context';
 import {
   fetchAccessInviteDeliveries,
@@ -323,12 +324,6 @@ const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.l
 const sortedSetValues = (items: Set<string>) => [...items].sort((a, b) => a.localeCompare(b));
 const haveSameStringSetValues = (left: Set<string>, right: Set<string>) =>
   left.size === right.size && [...left].every((value) => right.has(value));
-const toggleStringSetValue = (items: Set<string>, value: string, checked: boolean) => {
-  const next = new Set(items);
-  if (checked) next.add(value);
-  else next.delete(value);
-  return next;
-};
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
 const getCorporatePartnerMachineIds = (partnerships: CorporatePartnerPartnership[]) =>
@@ -647,6 +642,9 @@ function AdminPersonAccessConsoleInner({
   const [selectedPerson, setSelectedPerson] = useState<SelectedAccessPerson | null>(null);
   const [showActivity, setShowActivity] = useState(initialShowActivity);
   const [isAccessLauncherOpen, setIsAccessLauncherOpen] = useState(Boolean(initialLauncher?.open));
+  const [launcherPresetOverride, setLauncherPresetOverride] = useState<string | undefined>(
+    initialLauncher?.preset
+  );
   const normalizedSubmittedSearch = submittedSearch.trim();
   const submittedSearchIsEmail = hasEmailShape(normalizedSubmittedSearch);
 
@@ -756,6 +754,11 @@ function AdminPersonAccessConsoleInner({
     setSelectedPerson({ email: value, userId: null, label: value });
   };
 
+  const openAccessLauncher = (preset?: AccessLauncherPreset) => {
+    setLauncherPresetOverride(preset);
+    setIsAccessLauncherOpen(true);
+  };
+
   const searchFailed = Boolean(searchError);
   const canShowSearchResults = normalizedSubmittedSearch.length > 0 && !isSearching && !searchFailed;
   const searchErrorMessage = getErrorMessage(searchError, 'Unable to search people.');
@@ -769,7 +772,7 @@ function AdminPersonAccessConsoleInner({
       <AccessLauncher
         open={isAccessLauncherOpen}
         onOpenChange={setIsAccessLauncherOpen}
-        initialPreset={initialLauncher?.preset}
+        initialPreset={launcherPresetOverride}
         initialEmail={initialLauncher?.email}
         initialPartnerId={initialLauncher?.partnerId}
         initialAccountId={initialLauncher?.accountId}
@@ -805,7 +808,15 @@ function AdminPersonAccessConsoleInner({
                 {isSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
                 Search
               </Button>
-              <Button className="min-h-11" onClick={() => setIsAccessLauncherOpen(true)}>
+              <Button className="min-h-11" onClick={() => openAccessLauncher('technician')}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add Technician
+              </Button>
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={() => openAccessLauncher()}
+              >
                 <UserPlus className="mr-2 h-4 w-4" />
                 Add or invite access
               </Button>
@@ -2013,32 +2024,15 @@ function AccessLauncher({
                   )}
                 </div>
                 <div>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <Label>Reporting machines</Label>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedTechnicianMachineIds(new Set())}
-                      disabled={!selectedTechnicianAccount || selectedTechnicianMachineIds.size === 0}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                  <TechnicianMachineChecklist
+                  <TechnicianMachineAssignmentPicker
                     idPrefix="access-launcher-technician-machine"
                     machines={selectedTechnicianMachines}
-                    selectedMachineIds={selectedTechnicianMachineIds}
-                    toggleMachine={(machineId, checked) =>
-                      setSelectedTechnicianMachineIds((current) =>
-                        toggleStringSetValue(current, machineId, checked)
-                      )
+                    selectedMachineIds={selectedTechnicianMachineIdList}
+                    onSelectedMachineIdsChange={(machineIds) =>
+                      setSelectedTechnicianMachineIds(new Set(machineIds))
                     }
                     disabled={!selectedTechnicianAccount}
                   />
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Leave all machines unchecked for training-only access.
-                  </p>
                   {technicianContextError && (
                     <p className="mt-1 text-xs text-destructive">
                       {getErrorMessage(technicianContextError, 'Unable to load eligible Technician accounts.')}
@@ -3593,30 +3587,15 @@ function TechnicianAccessCard({
                 </select>
               </div>
               <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <Label>Reporting machines</Label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setSelectedMachineIds(new Set())}
-                    disabled={isFetching || !selectedAccountId || selectedMachineIds.size === 0}
-                  >
-                    Clear
-                  </Button>
-                </div>
-                <TechnicianMachineChecklist
+                <TechnicianMachineAssignmentPicker
                   idPrefix="admin-technician-machine"
                   machines={selectedAccountMachines}
-                  selectedMachineIds={selectedMachineIds}
-                  toggleMachine={(machineId, checked) =>
-                    setSelectedMachineIds((current) => toggleStringSetValue(current, machineId, checked))
+                  selectedMachineIds={selectedMachineIdList}
+                  onSelectedMachineIdsChange={(machineIds) =>
+                    setSelectedMachineIds(new Set(machineIds))
                   }
                   disabled={isFetching || !selectedAccountId}
                 />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Leave all machines unchecked for training-only access.
-                </p>
               </div>
               <div>
                 <Label htmlFor="admin-technician-reason">Grant or update reason</Label>
@@ -3742,36 +3721,15 @@ function TechnicianAccessCard({
                         </PreviewBox>
                         <div className="grid gap-3 lg:grid-cols-[0.42fr_0.36fr_0.22fr]">
                           <div>
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <Label>Scope after save</Label>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  setScopeDrafts((current) => ({ ...current, [grant.grantId]: [] }))
-                                }
-                                disabled={draftMachineIds.length === 0}
-                              >
-                                Clear
-                              </Button>
-                            </div>
-                            <TechnicianMachineChecklist
+                            <TechnicianMachineAssignmentPicker
                               idPrefix={`technician-scope-${grant.grantId}`}
                               machines={accountMachines}
-                              selectedMachineIds={new Set(draftMachineIds)}
-                              toggleMachine={(machineId, checked) =>
+                              selectedMachineIds={draftMachineIds}
+                              label="Scope after save"
+                              onSelectedMachineIdsChange={(machineIds) =>
                                 setScopeDrafts((current) => ({
                                   ...current,
-                                  [grant.grantId]: sortedSetValues(
-                                    toggleStringSetValue(
-                                      new Set(
-                                        current[grant.grantId] ?? getGrantMachineScopeIds(grant)
-                                      ),
-                                      machineId,
-                                      checked
-                                    )
-                                  ),
+                                  [grant.grantId]: machineIds,
                                 }))
                               }
                             />
@@ -4361,62 +4319,6 @@ function ScopedAdminAccessCard({
         </Button>
       </div>
     </SourceCard>
-  );
-}
-
-function TechnicianMachineChecklist({
-  idPrefix,
-  machines,
-  selectedMachineIds,
-  toggleMachine,
-  disabled = false,
-}: {
-  idPrefix: string;
-  machines: AdminTechnicianMachine[];
-  selectedMachineIds: Set<string>;
-  toggleMachine: (machineId: string, checked: boolean) => void;
-  disabled?: boolean;
-}) {
-  if (machines.length === 0) {
-    return (
-      <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-        No active machines are available for this account.
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-h-72 overflow-y-auto rounded-md border border-border">
-      {machines.map((machine) => {
-        const checkboxId = `${idPrefix}-${machine.machineId}`;
-
-        return (
-          <label
-            key={machine.machineId}
-            htmlFor={checkboxId}
-            className={cn(
-              'flex cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
-              disabled && 'cursor-not-allowed opacity-70'
-            )}
-          >
-            <Checkbox
-              id={checkboxId}
-              checked={selectedMachineIds.has(machine.machineId)}
-              onCheckedChange={(checked) => toggleMachine(machine.machineId, checked === true)}
-              disabled={disabled}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block break-words text-sm font-medium text-foreground">
-                {machine.machineLabel}
-              </span>
-              <span className="mt-1 block text-xs text-muted-foreground">
-                {machine.locationName ?? 'Unassigned location'} / {machine.machineType}
-              </span>
-            </span>
-          </label>
-        );
-      })}
-    </div>
   );
 }
 

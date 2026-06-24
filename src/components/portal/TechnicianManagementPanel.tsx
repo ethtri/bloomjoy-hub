@@ -6,7 +6,6 @@ import {
   Copy,
   Loader2,
   Pencil,
-  Search,
   Send,
   UserMinus,
   UserPlus,
@@ -16,7 +15,6 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -37,6 +35,8 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { TechnicianMachineAssignmentPicker } from '@/components/technicians/TechnicianMachineAssignmentPicker';
+import { formatTechnicianScopePreview } from '@/components/technicians/technicianMachineAssignmentCopy';
 import { useAuth } from '@/contexts/auth-context';
 import {
   fetchMyTechnicianGrants,
@@ -126,13 +126,6 @@ const haveSameMachineIds = (left: string[], right: string[]) => {
 };
 
 const uniqueSortedValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.localeCompare(b));
-
-const toggleMachineId = (machineIds: string[], machineId: string, checked: boolean) => {
-  const next = new Set(machineIds);
-  if (checked) next.add(machineId);
-  else next.delete(machineId);
-  return uniqueSortedValues([...next]);
-};
 
 const buildLocalTechnicianInviteDelivery = ({
   sourceId,
@@ -747,11 +740,11 @@ export function TechnicianManagementPanel() {
                       </AlertDescription>
                     </Alert>
                   ) : (
-                    <MachineAssignmentPicker
-                      name="add-technician-machine"
+                    <TechnicianMachineAssignmentPicker
+                      idPrefix="add-technician-machine"
                       machines={selectedAccount.machines}
-                      selectedIds={selectedMachineIds}
-                      onChange={setSelectedMachineIds}
+                      selectedMachineIds={selectedMachineIds}
+                      onSelectedMachineIdsChange={setSelectedMachineIds}
                       disabled={addBlockedByCap || grantMutation.isPending}
                     />
                   )}
@@ -1062,11 +1055,11 @@ function TechnicianGrantRow({
 
       {isEditing && (
         <div className="mt-4 flex flex-col gap-4 rounded-md border border-border bg-background p-4">
-          <MachineAssignmentPicker
-            name={`edit-technician-${grant.grantId}-machine`}
+          <TechnicianMachineAssignmentPicker
+            idPrefix={`edit-technician-${grant.grantId}-machine`}
             machines={machines}
-            selectedIds={editingMachineIds}
-            onChange={onChangeEditMachines}
+            selectedMachineIds={editingMachineIds}
+            onSelectedMachineIdsChange={onChangeEditMachines}
             disabled={isSaving}
           />
           <div>
@@ -1081,9 +1074,7 @@ function TechnicianGrantRow({
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs leading-5 text-muted-foreground">
-              {editingMachineIds.length === 0
-                ? 'No machines selected; saving will keep this Technician training-only.'
-                : `This Technician will see reporting for ${pluralize(editingMachineIds.length, 'selected machine')} only.`}
+              {formatTechnicianScopePreview(editingMachineIds.length)} after save.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
@@ -1150,159 +1141,6 @@ function LegacyTrainingGrantRow({
           <UserMinus className="mr-1.5 h-4 w-4" />
           Revoke
         </Button>
-      </div>
-    </div>
-  );
-}
-
-function MachineAssignmentPicker({
-  name,
-  machines,
-  selectedIds,
-  onChange,
-  disabled = false,
-}: {
-  name: string;
-  machines: TechnicianManagementMachine[];
-  selectedIds: string[];
-  onChange: (machineIds: string[]) => void;
-  disabled?: boolean;
-}) {
-  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const [machineSearch, setMachineSearch] = useState('');
-  const normalizedMachineSearch = machineSearch.trim().toLowerCase();
-  const filteredMachines = useMemo(() => {
-    if (!normalizedMachineSearch) return machines;
-
-    return machines.filter((machine) =>
-      [
-        machine.machineLabel,
-        machine.machineType,
-        machine.locationName,
-        machine.status,
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(normalizedMachineSearch)
-    );
-  }, [machines, normalizedMachineSearch]);
-  const groupedMachines = useMemo(() => {
-    const groups = new Map<
-      string,
-      { key: string; locationName: string; machines: TechnicianManagementMachine[] }
-    >();
-
-    filteredMachines.forEach((machine) => {
-      const key = machine.locationId || machine.locationName;
-      const existingGroup =
-        groups.get(key) ??
-        {
-          key,
-          locationName: machine.locationName,
-          machines: [],
-        };
-
-      existingGroup.machines.push(machine);
-      groups.set(key, existingGroup);
-    });
-
-    return Array.from(groups.values()).sort((left, right) =>
-      left.locationName.localeCompare(right.locationName)
-    );
-  }, [filteredMachines]);
-
-  if (machines.length === 0) {
-    return (
-      <p className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-        No machines are available for this account.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Label>Machine reporting</Label>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {selectedIds.length > 0
-              ? pluralize(selectedIds.length, 'selected machine')
-              : 'Training-only when none are selected'}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onChange([])}
-            disabled={disabled || selectedIds.length === 0}
-          >
-            Clear
-          </Button>
-        </div>
-      </div>
-      {machines.length > 6 && (
-        <div>
-          <Label htmlFor={`${name}-search`} className="sr-only">
-            Search machines
-          </Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              id={`${name}-search`}
-              value={machineSearch}
-              onChange={(event) => setMachineSearch(event.target.value)}
-              placeholder="Search machines"
-              className="h-11 pl-9"
-              disabled={disabled}
-            />
-          </div>
-        </div>
-      )}
-      <div className="max-h-72 overflow-y-auto rounded-md border border-border">
-        {groupedMachines.length === 0 ? (
-          <p className="px-3 py-3 text-sm text-muted-foreground">
-            No machines match this search.
-          </p>
-        ) : (
-          groupedMachines.map((group) => (
-            <div key={group.key} className="border-b border-border last:border-b-0">
-              <div className="bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {group.locationName}
-              </div>
-              {group.machines.map((machine) => {
-                const checkboxId = `${name}-${machine.machineId}`;
-
-                return (
-                  <label
-                    key={machine.machineId}
-                    htmlFor={checkboxId}
-                    className={cn(
-                      'flex min-h-12 cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
-                      disabled && 'cursor-not-allowed opacity-70'
-                    )}
-                  >
-                    <Checkbox
-                      id={checkboxId}
-                      checked={selectedIdSet.has(machine.machineId)}
-                      onCheckedChange={(checked) =>
-                        onChange(toggleMachineId(selectedIds, machine.machineId, checked === true))
-                      }
-                      disabled={disabled}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block break-words text-sm font-medium text-foreground">
-                        {machine.machineLabel}
-                      </span>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {machine.machineType} - {machine.status}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          ))
-        )}
       </div>
     </div>
   );

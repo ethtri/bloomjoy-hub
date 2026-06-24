@@ -485,6 +485,7 @@ export const privateRoutes: PrivateRouteSeo[] = [
     "/portal/time",
     "/portal/time/new",
     "/portal/account",
+    "/portal/team",
     "/portal/reports",
     "/portal/refunds",
     "/portal/training",

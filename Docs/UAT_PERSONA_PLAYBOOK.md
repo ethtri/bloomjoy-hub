@@ -71,6 +71,7 @@ Key routes:
 - `/portal`
 - `/portal/orders`
 - `/portal/account`
+- `/portal/team`
 - `/portal/onboarding`
 - `/portal/support`
 - `/portal/training`
@@ -81,7 +82,7 @@ Owner UAT focus:
 - Plus benefits and limits are clear.
 - Account, billing, order, support, onboarding, and training flows are usable.
 - Reporting shows only machines the owner should control.
-- Technician management, when present, only allows assigned machines the owner already controls.
+- Technician management on `/portal/team`, when present, only allows assigned machines the owner already controls.
 - The default Technician cap is clear when reached.
 
 ### Technician
@@ -131,6 +132,7 @@ Use this persona for Merlin/Bubble Planet-style partner users with explicit Corp
 Expected route direction:
 
 - `/portal/reports` for permissioned partner/reporting views.
+- `/portal/team` for partner-authorized Technician management.
 - Approved report artifacts or dashboards only after the product flow supports them.
 
 Owner UAT focus:

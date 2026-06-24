@@ -20,7 +20,7 @@ The script uses mocked Supabase Auth, REST, RPC, and Edge Function responses. It
 
 ## Agent UAT Coverage
 
-- Corporate Partner manager reaches `/portal/account`.
+- Corporate Partner manager reaches `/portal/team`.
 - Partner scope is visible as a partner portfolio, not global reporting access.
 - Partner creates a Technician assigned to in-scope machines.
 - New Technician saves automatically call `access-invite` with `inviteType=technician`.
@@ -46,7 +46,7 @@ Personas:
 
 Checklist:
 
-- [ ] Partner manager opens `/portal/account` and sees Technician Access.
+- [ ] Partner manager opens `/portal/team` and sees Technician Access.
 - [ ] Partner account selector only lists current partner portfolio accounts.
 - [ ] Partner can add two Technicians to the same machine, assign one Technician to multiple machines, and each save sends an invite attempt.
 - [ ] Partner can add a training-only Technician, and save sends an invite attempt.
@@ -58,6 +58,7 @@ Checklist:
 - [ ] Assigned-machine Technician reaches `/portal/reports` for only assigned machines.
 - [ ] Training-only Technician reaches `/portal/training` and does not receive machine reporting.
 - [ ] Technician users do not see partner dashboard controls.
+- [ ] Technician users cannot open `/portal/team` or manage Technician grants.
 - [ ] Revoking a Technician removes Technician-sourced training/reporting after refresh or sign-out/sign-in.
 
 ## Live Environment Notes

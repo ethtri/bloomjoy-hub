@@ -214,9 +214,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] User without reporting access does not see Reporting in portal navigation or dashboard quick actions
 - [ ] On mobile app routes, page-intro actions stack cleanly full width instead of squeezing side-by-side on `/portal`, `/portal/orders`, `/portal/account`, `/portal/onboarding`, `/portal/support`, and `/portal/training`
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
-- [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`) with clear access messaging
+- [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`, `/portal/team`) with clear access messaging
 - [ ] Non-Plus login still sees Plus/training gated destinations in portal navigation and dashboard action cards with clear locked/access-tier treatment; Reporting stays hidden unless reporting access is granted
-- [ ] Active Plus member sees Technician Access as the customer team-management surface in Settings (`/portal/account`) with no separate Operator Training Access panel
+- [ ] Active Plus member sees Team in portal navigation and Technician Access on `/portal/team`; Settings (`/portal/account`) links to Team without duplicating the Technician workflow
 - [ ] Adding training-only Technician access sends the Technician an invite email with a login link
 - [ ] Technician Access shows active, pending, and legacy training-only people in one list with a clear setup message when the database rollout is missing
 - [ ] Training-only access is represented as a Technician with no assigned machines
@@ -226,10 +226,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/portal/orders` loads real `orders` data for the logged-in user (no mock rows)
 - [ ] `/portal/account` shows live membership status and period from `subscriptions` (no hardcoded next billing date)
 - [ ] `/portal/account` has no horizontal page overflow on mobile viewports (360x800, 390x844, 414x896)
-- [ ] `/portal/orders`, `/portal/account`, `/portal/support`, `/portal/onboarding`, and `/portal/training` keep page actions, form controls, filters, order-card actions, Technician controls, and checklist toggles at touch-friendly sizes on mobile viewports (360x800, 390x844, 414x896)
+- [ ] `/portal/orders`, `/portal/account`, `/portal/team`, `/portal/support`, `/portal/onboarding`, and `/portal/training` keep page actions, form controls, filters, order-card actions, Technician controls, and checklist toggles at touch-friendly sizes on mobile viewports (360x800, 390x844, 414x896)
 - [ ] `/portal/account` profile save persists and reloads from `customer_profiles`
 - [ ] `/portal/account` shipping save persists and reloads from `customer_profiles`
-- [ ] Plus Account Owner sees Technician Access in Settings (`/portal/account`) with seat usage, owned machines, and current Technician grants
+- [ ] Plus Account Owner sees Technician Access in Team (`/portal/team`) with seat usage, owned machines, and current Technician grants
 - [ ] Plus Account Owner can add a Technician with either training-only access or selected owned machines, then edit that Technician's machine assignments
 - [ ] Pending Technician invite resolves on first login so the Technician gets training plus assigned-machine reporting without admin repair
 - [ ] Authenticated `/portal` and `/admin` route loads do not show `404` or `PGRST202` for `resolve_my_technician_entitlements` in the browser network log or console
@@ -363,13 +363,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Access-management PR verification is recorded: `npm ci`, `npm run build`, `npm test --if-present`, `npm run lint --if-present`; DB-touching work also records `npm run db:validate-migrations`, `supabase db push --dry-run` when linked, and direct RPC checks for no `404`/`PGRST202`.
 - [ ] Access-management PR includes desktop and mobile screenshots for affected flows, including desktop selected-person workspace and mobile `390x844` source-card layout with no horizontal scrolling or clipped controls.
 - [ ] Admin Access invite UAT: run `npm run admin-access:validate-invite-uat -- --app-url http://127.0.0.1:8081` against `npm run dev:uat` and attach desktop/mobile screenshots from `output/playwright` to the PR.
+- [ ] Admin Access exposes a direct Add Technician action on `/admin/access` in addition to the generic Add or invite access launcher.
 - [ ] Access Launcher opens from `/admin/access` and deep links from `/admin/access?action=add-access`, with preset links for `corporate_partner`, `technician`, `scoped_admin`, `super_admin`, and `plus_customer`.
 - [ ] Access Launcher Corporate Partner preset can grant email-based access for a never-authenticated email, send the invite email, and write both `access_invite_deliveries` and `admin_audit_log` evidence.
 - [ ] Access Launcher Technician preset can grant training-only access or selected machines, send the invite email, and preserve the assigned-machine Technician reporting boundary.
 - [ ] Admin Access Corporate Partner source card uses one primary `Grant and send invite` action; the selected-person flow does not leave a saved active membership without an invite attempt unless the UI reports invite failure and shows resend/copy recovery.
 - [ ] Admin Access Corporate Partner source card keeps partner-wide portal setup separate from the person invite transaction; partner portal setup has its own reason, preview, and save action.
 - [ ] Admin Access Technician source card uses `Save and send Technician invite`; if invite delivery fails after the grant is saved, the UI reports the split state instead of only saying access saved.
-- [ ] Partner Technician Access: corporate partner on `/portal/account` can create two Technicians for the same in-scope machine, and can assign one Technician to multiple in-scope machines; each new Technician save automatically sends the invite, and row-level resend/copy remains available for recovery.
+- [ ] Partner Technician Access: corporate partner on `/portal/team` can create two Technicians for the same in-scope machine, and can assign one Technician to multiple in-scope machines; each new Technician save automatically sends the invite, and row-level resend/copy remains available for recovery.
 - [ ] Partner Technician Access: training-only Technician invite copy says training library only, assigned-machine Technician invite copy says training plus assigned-machine reporting, and neither invite promises partner-wide reporting.
 - [ ] Partner Technician Access: run `npm run partner-technicians:validate-uat -- --app-url http://127.0.0.1:8081` against `npm run dev:uat` and attach desktop/mobile screenshots from `output/playwright` to the PR.
 - [ ] Access invite email copy stays source-specific without overstating access: Corporate Partner copy stays generic to available tools, Technician copy may mention training and assigned-machine reporting, and no invite promises broad partner-wide reporting unless the source grants it.

@@ -96,7 +96,7 @@ Not included:
 - Building a raw permission matrix.
 - Building granular per-user overrides.
 - Changing Corporate Partner, Technician, Plus Customer, or Scoped Admin authorization semantics.
-- Moving customer-managed Technician workflows out of `/portal/account`.
+- Moving customer-managed Technician workflows into `/admin` or duplicating the `/portal/team` workflow in another customer surface.
 
 ## Phase 2 Scope
 Issue `#331` should follow the redesign with:

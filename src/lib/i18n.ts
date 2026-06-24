@@ -91,6 +91,7 @@ export const translations = {
     'portal.access.support': 'Support',
     'portal.access.reporting': 'Reporting',
     'portal.access.refunds': 'Refunds',
+    'portal.access.team': 'Team',
     'portal.access.open': 'Open',
 
     'portal.nav.dashboard': 'Dashboard',
@@ -102,6 +103,9 @@ export const translations = {
       'Submit assigned-machine shifts and review current payout-period time.',
     'portal.nav.account': 'Account Settings',
     'portal.nav.accountDescription': 'Profile, billing, shipping, and language preferences.',
+    'portal.nav.team': 'Team',
+    'portal.nav.teamDescription':
+      'Add Technicians and manage assigned-machine reporting access.',
     'portal.nav.reporting': 'Reporting',
     'portal.nav.reportingDescription': 'Machine sales, location rollups, and available reporting views.',
     'portal.nav.reportingUpsell':
@@ -580,6 +584,9 @@ export const translations = {
     'account.title': 'Account Settings',
     'account.description':
       'Manage the profile information, shipping address, and language preference that keep portal work running smoothly.',
+    'team.title': 'Team',
+    'team.description':
+      'Add Technicians, send invites, and manage which machines each person can report on.',
     'account.profile': 'Profile',
     'account.email': 'Email',
     'account.name': 'Name',
@@ -667,6 +674,7 @@ export const translations = {
     'portal.access.support': '支持',
     'portal.access.reporting': '报表',
     'portal.access.refunds': '退款',
+    'portal.access.team': '团队',
     'portal.access.open': '开放',
 
     'portal.nav.dashboard': '仪表盘',
@@ -675,6 +683,8 @@ export const translations = {
     'portal.nav.ordersDescription': '收据、总额和物流跟踪。',
     'portal.nav.account': '账户设置 / Account Settings',
     'portal.nav.accountDescription': '资料、账单、收货信息和语言偏好。',
+    'portal.nav.team': '团队 / Team',
+    'portal.nav.teamDescription': '添加 Technician，并管理已分配机器的报表权限。',
     'portal.nav.reporting': '报表',
     'portal.nav.reportingDescription': '机器销售、地点汇总和可用报表视图。',
     'portal.nav.reportingUpsell': '销售报表仅对 Bloomjoy 授权给此账号的机器开放。',
@@ -1073,6 +1083,8 @@ export const translations = {
 
     'account.title': '账户设置 / Account Settings',
     'account.description': '管理资料、收货地址和语言偏好，让门户工作更顺畅。',
+    'team.title': '团队 / Team',
+    'team.description': '添加 Technician、发送邀请，并管理每个人可以查看报表的机器。',
     'account.profile': '资料',
     'account.email': '邮箱',
     'account.name': '姓名',
