@@ -1037,6 +1037,7 @@ function AccessLauncher({
   const [selectedPartnerId, setSelectedPartnerId] = useState(initialPartnerId ?? '');
   const [selectedAccountId, setSelectedAccountId] = useState(initialAccountId ?? '');
   const [selectedTechnicianMachineIds, setSelectedTechnicianMachineIds] = useState<Set<string>>(new Set());
+  const [trainingOnlyConfirmed, setTrainingOnlyConfirmed] = useState(false);
   const [grantReason, setGrantReason] = useState('');
   const [partnerForm, setPartnerForm] = useState(emptyPartnerForm);
   const [stagedPortalAccess, setStagedPortalAccess] = useState<Record<string, boolean>>({});
@@ -1056,6 +1057,7 @@ function AccessLauncher({
     setSelectedPartnerId(initialPartnerId ?? '');
     setSelectedAccountId(initialAccountId ?? '');
     setSelectedTechnicianMachineIds(new Set());
+    setTrainingOnlyConfirmed(false);
     setGrantReason('');
     setPartnerForm(emptyPartnerForm);
     setStagedPortalAccess({});
@@ -1254,6 +1256,8 @@ function AccessLauncher({
   }, [preset, selectedTechnicianMachineIds, selectedTechnicianMachines]);
 
   const selectedTechnicianMachineIdList = sortedSetValues(selectedTechnicianMachineIds);
+  const isTechnicianTrainingOnlyInvite =
+    preset === 'technician' && selectedTechnicianMachineIdList.length === 0;
   const selectedTechnicianMachineLabels = getSelectedTechnicianMachineLabels(
     selectedTechnicianMachines,
     selectedTechnicianMachineIdList
@@ -1265,9 +1269,19 @@ function AccessLauncher({
     !technicianContextError &&
     technicianContext.accounts.length === 0;
   const isExistingUserPreset = !presetMeta.inviteable;
-  const canSaveInvite = presetMeta.inviteable && Boolean(normalizedEmail) && Boolean(grantReason.trim());
+  const canSaveInvite =
+    presetMeta.inviteable &&
+    Boolean(normalizedEmail) &&
+    Boolean(grantReason.trim()) &&
+    (!isTechnicianTrainingOnlyInvite || trainingOnlyConfirmed);
   const existingPresetActionLabel =
     preset === 'plus_customer' ? 'Open Plus Customer workspace' : 'Open person workspace';
+
+  useEffect(() => {
+    if (preset !== 'technician' || selectedTechnicianMachineIdList.length > 0) {
+      setTrainingOnlyConfirmed(false);
+    }
+  }, [preset, selectedTechnicianMachineIdList.length]);
 
   const refreshLauncherQueries = async () => {
     await Promise.all([
@@ -1507,6 +1521,10 @@ function AccessLauncher({
           toast.error('Select a sponsor account.');
           return;
         }
+        if (selectedTechnicianMachineIdList.length === 0 && !trainingOnlyConfirmed) {
+          toast.error('Confirm training-only access before sending this Technician invite.');
+          return;
+        }
 
         const grant = await adminGrantTechnicianAccess({
           email: invitePreflight.targetEmail,
@@ -1573,10 +1591,11 @@ function AccessLauncher({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Add or invite access</DialogTitle>
+          <DialogTitle>{preset === 'technician' ? 'Add Technician' : 'Add or invite access'}</DialogTitle>
           <DialogDescription>
-            Start with a person or email, choose the intended outcome, then save the access source
-            with the right scope and audit reason.
+            {preset === 'technician'
+              ? 'Invite a Technician with training access and optional assigned-machine reporting.'
+              : 'Start with a person or email, choose the intended outcome, then save the access source with the right scope and audit reason.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -2033,6 +2052,31 @@ function AccessLauncher({
                     }
                     disabled={!selectedTechnicianAccount}
                   />
+                  {isTechnicianTrainingOnlyInvite && (
+                    <label
+                      htmlFor="access-launcher-training-only-confirm"
+                      className={cn(
+                        'mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
+                        (!selectedTechnicianAccount || isSaving) && 'cursor-not-allowed opacity-70'
+                      )}
+                    >
+                      <Checkbox
+                        id="access-launcher-training-only-confirm"
+                        checked={trainingOnlyConfirmed}
+                        onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
+                        disabled={!selectedTechnicianAccount || isSaving}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium text-foreground">
+                          Send as training-only access
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          I understand this invite grants no machine reporting until machines are
+                          assigned later.
+                        </span>
+                      </span>
+                    </label>
+                  )}
                   {technicianContextError && (
                     <p className="mt-1 text-xs text-destructive">
                       {getErrorMessage(technicianContextError, 'Unable to load eligible Technician accounts.')}
@@ -2146,7 +2190,7 @@ function AccessLauncher({
               }
             >
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-              Grant and send invite
+              {preset === 'technician' ? 'Save and send Technician invite' : 'Grant and send invite'}
             </Button>
           ) : (
             <Button type="button" onClick={openSelectedWorkspace} disabled={!selectedExistingAccount}>
@@ -3230,6 +3274,7 @@ function TechnicianAccessCard({
   const activeSourceGrants = sourceGrants.filter((grant) => grant.isActive);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(new Set());
+  const [trainingOnlyConfirmed, setTrainingOnlyConfirmed] = useState(false);
   const [grantReason, setGrantReason] = useState('');
   const [scopeDrafts, setScopeDrafts] = useState<Record<string, string[]>>({});
   const [scopeReasons, setScopeReasons] = useState<Record<string, string>>({});
@@ -3293,6 +3338,7 @@ function TechnicianAccessCard({
     const nextAccountId = firstActiveGrant?.accountId ?? accounts[0]?.accountId ?? '';
     setSelectedAccountId(nextAccountId);
     setSelectedMachineIds(new Set(firstActiveGrant ? getGrantMachineScopeIds(firstActiveGrant) : []));
+    setTrainingOnlyConfirmed(false);
     setGrantReason('');
     setScopeDrafts(
       Object.fromEntries(grants.map((grant) => [grant.grantId, getGrantMachineScopeIds(grant)]))
@@ -3313,6 +3359,12 @@ function TechnicianAccessCard({
     }
   }, [selectedAccountId, selectedAccountMachines, selectedMachineIds]);
 
+  useEffect(() => {
+    if (selectedMachineIdList.length > 0) {
+      setTrainingOnlyConfirmed(false);
+    }
+  }, [selectedMachineIdList.length]);
+
   const refreshTechnicianContext = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] });
   };
@@ -3328,6 +3380,10 @@ function TechnicianAccessCard({
     }
     if (!grantReason.trim()) {
       toast.error('Reason is required.');
+      return;
+    }
+    if (selectedMachineIdList.length === 0 && !trainingOnlyConfirmed) {
+      toast.error('Confirm training-only access before sending this Technician invite.');
       return;
     }
     const invitePreflight = validateAccessInvitePreflight('technician', identity.email);
@@ -3382,6 +3438,7 @@ function TechnicianAccessCard({
         machine_count: selectedMachineIdList.length,
       });
       setGrantReason('');
+      setTrainingOnlyConfirmed(false);
       await refreshTechnicianContext();
       await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
       await onChanged();
@@ -3596,6 +3653,32 @@ function TechnicianAccessCard({
                   }
                   disabled={isFetching || !selectedAccountId}
                 />
+                {selectedMachineIdList.length === 0 && (
+                  <label
+                    htmlFor="admin-technician-training-only-confirm"
+                    className={cn(
+                      'mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
+                      (isFetching || isSavingGrant || !selectedAccountId) &&
+                        'cursor-not-allowed opacity-70'
+                    )}
+                  >
+                    <Checkbox
+                      id="admin-technician-training-only-confirm"
+                      checked={trainingOnlyConfirmed}
+                      onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
+                      disabled={isFetching || isSavingGrant || !selectedAccountId}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-medium text-foreground">
+                        Send as training-only access
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                        I understand this Technician will not receive machine reporting from this
+                        source until machines are assigned later.
+                      </span>
+                    </span>
+                  </label>
+                )}
               </div>
               <div>
                 <Label htmlFor="admin-technician-reason">Grant or update reason</Label>
@@ -3619,7 +3702,13 @@ function TechnicianAccessCard({
             <Button
               className="mt-3"
               onClick={handleSaveGrant}
-              disabled={isSavingGrant || isFetching || !selectedAccountId || !identity.email}
+              disabled={
+                isSavingGrant ||
+                isFetching ||
+                !selectedAccountId ||
+                !identity.email ||
+                (selectedMachineIdList.length === 0 && !trainingOnlyConfirmed)
+              }
             >
               {isSavingGrant ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
               Save and send Technician invite

@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -160,6 +161,7 @@ export function TechnicianManagementPanel() {
   const [technicianEmail, setTechnicianEmail] = useState('');
   const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([]);
   const [grantReason, setGrantReason] = useState(DEFAULT_TECHNICIAN_REASON);
+  const [trainingOnlyConfirmed, setTrainingOnlyConfirmed] = useState(false);
   const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
   const [editingMachineIds, setEditingMachineIds] = useState<string[]>([]);
   const [editReason, setEditReason] = useState(DEFAULT_UPDATE_REASON);
@@ -311,6 +313,16 @@ export function TechnicianManagementPanel() {
     );
   }, [selectedAccountMachineIds]);
 
+  useEffect(() => {
+    setTrainingOnlyConfirmed(false);
+  }, [selectedAccount?.accountId, selectedAccount?.partnerId]);
+
+  useEffect(() => {
+    if (selectedMachineIds.length > 0) {
+      setTrainingOnlyConfirmed(false);
+    }
+  }, [selectedMachineIds.length]);
+
   const invalidateTechnicianQueries = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['technician-management-context', user?.id] }),
@@ -372,6 +384,11 @@ export function TechnicianManagementPanel() {
       return;
     }
 
+    if (selectedMachineIds.length === 0 && !trainingOnlyConfirmed) {
+      toast.error('Confirm training-only access before sending this Technician invite.');
+      return;
+    }
+
     try {
       const grant = await grantMutation.mutateAsync({
         technicianEmail: normalizedEmail,
@@ -382,6 +399,7 @@ export function TechnicianManagementPanel() {
       });
       setTechnicianEmail('');
       setSelectedMachineIds([]);
+      setTrainingOnlyConfirmed(false);
       setGrantReason(DEFAULT_TECHNICIAN_REASON);
       setRecentlySavedGrantId(grant.grantId);
       await invalidateTechnicianQueries();
@@ -749,6 +767,32 @@ export function TechnicianManagementPanel() {
                     />
                   )}
 
+                  {selectedMachineIds.length === 0 && (
+                    <label
+                      htmlFor="technician-training-only-confirm"
+                      className={cn(
+                        'flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
+                        (addBlockedByCap || grantMutation.isPending) && 'cursor-not-allowed opacity-70'
+                      )}
+                    >
+                      <Checkbox
+                        id="technician-training-only-confirm"
+                        checked={trainingOnlyConfirmed}
+                        onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
+                        disabled={addBlockedByCap || grantMutation.isPending}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium text-foreground">
+                          Send as training-only access
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          I understand this Technician will not see machine reporting until machines
+                          are assigned later.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-xs leading-5 text-muted-foreground">
                       {selectedMachineIds.length > 0
@@ -761,7 +805,8 @@ export function TechnicianManagementPanel() {
                       disabled={
                         grantMutation.isPending ||
                         addBlockedByCap ||
-                        !technicianEmail.trim()
+                        !technicianEmail.trim() ||
+                        (selectedMachineIds.length === 0 && !trainingOnlyConfirmed)
                       }
                     >
                       {grantMutation.isPending ? (

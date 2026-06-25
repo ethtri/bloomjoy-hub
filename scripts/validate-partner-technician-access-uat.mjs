@@ -658,6 +658,7 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
     );
 
     await page.fill('#technician-email', trainingOnlyEmail);
+    await page.locator('label[for="technician-training-only-confirm"]').click();
     await page.getByRole('button', { name: 'Save and send invite' }).click();
     await technicianRow(page, trainingOnlyEmail).waitFor({ timeout: 10000 });
     await waitForCondition(() => state.accessInviteBodies.length === 3, 'training-only Technician auto-invite');
