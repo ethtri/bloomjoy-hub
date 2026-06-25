@@ -13,7 +13,7 @@ The near-term goal is to let super-admins make fast, auditable access decisions 
 - Corporate Partner portal access is explicit and does not come from payout/legal participant metadata alone.
 - `/admin` stays internal-only until Scoped Admin is explicitly implemented.
 - `/admin/access` is the near-term person-first management surface for presets, effective-access previews, internal grants, Corporate Partner access, Plus Customer access, reporting access, and audit review.
-- Customer account and Technician management stays under `/portal/account` for now; a future `/portal/team` can replace it when customer team management grows.
+- Customer account settings stay under `/portal/account`; customer and partner Technician management lives under `/portal/team` for users with `technicians.manage` / `can_manage_technicians`.
 - Corporate Partner reporting surfaces live under `/portal/reports`, not under `/admin`.
 - Partnership setup must not grant portal access by itself.
 - `report_manager` is reporting-only. It must not be used as a Scoped Admin workaround.
@@ -41,7 +41,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 - `super_admin` exists through `admin_roles` and remains the current internal owner/admin mechanism.
 - Bloomjoy Plus Customer access exists through paid subscriptions, admin-managed Plus Customer access, and super-admin-derived access.
 - Training-only access is now represented as a Technician with no machines assigned. Existing `operator_training_grants` remain the underlying training source.
-- Technician access is partially implemented through `technician_grants`, `technician_machine_assignments`, source-aware reporting entitlements, RPCs, and `/portal/account` UI. Production verification/restoration remains tracked in `#214`.
+- Technician access is partially implemented through `technician_grants`, `technician_machine_assignments`, source-aware reporting entitlements, RPCs, and `/portal/team` UI. Production verification/restoration remains tracked in `#214`.
 - Machine-level reporting entitlements exist with `viewer` and `report_manager` access levels.
 - `customer_account_memberships` includes planning vocabulary such as `account_admin`, `billing_manager`, `report_viewer`, `report_manager`, and `partner_viewer`, but those are not all productized flows.
 - Corporate Partner access is implemented through `corporate_partner_memberships`, portal-enabled `reporting_partnership_parties`, server capability helpers, and `/admin/access?tab=presets`.
@@ -75,7 +75,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 - `/admin/access` remains the near-term person-first place for internal entitlement administration.
 - The target `/admin/access` workflow is: find a person, review effective access, manage access source cards, preview impact, then save with a reason.
 - Avoid adding more peer tabs for individual access sources. Consolidate Plus Customer, Corporate Partner, Technician, Scoped Admin, Super Admin, and manual reporting access into one selected-person workspace.
-- `/portal/account` remains the current customer place for Technician management.
+- `/portal/team` is the current customer and Corporate Partner place for Technician management. `/portal/account` may link to it for eligible users but should not duplicate the workflow.
 - `/portal/reports` remains the operator/reporting surface for assigned machines.
 - Corporate Partner reporting appears in `/portal/reports` as a permissioned partner-dashboard view.
 - Users without partner-dashboard visibility should not see disabled partner tabs or upsell-style placeholders.
@@ -95,6 +95,13 @@ Use this model for new entitlement design, issue writing, and implementation rev
 | `#214` | Technician entitlement resolution in production | Production verification/restoration for Technician invite resolution. |
 | `#123` | Plus operator access and invite flow | Closed definition issue that informed customer/owner team-management direction. |
 | `#183` | Machine-scoped Technician reporting entitlements | Closed definition/spec issue; `Docs/TECHNICIAN_ENTITLEMENTS_SPEC.md` remains the detailed implementation reference. |
+| `#528` | Unified Technician management UX | P0 umbrella for moving Technician management to role-appropriate, shared UI entry points. |
+| `#529` | Shared Technician management UI patterns | P0 implementation issue for shared machine assignment controls across portal and admin. |
+| `#530` | Customer-facing Team page | P0 route/IA issue for `/portal/team` and portal navigation. |
+| `#531` | Admin Add Technician discoverability | P0 admin UX issue for direct Technician entry in `/admin/access`. |
+| `#532` | Scoped Admin Technician authority decision | Owner-decision issue; current decision is no Scoped Admin Technician authority. |
+| `#533` | Unified Technician UX QA | P1 QA/UAT issue for portal/admin role boundaries. |
+| `#534` | Technician IA docs and smoke coverage | P1 docs/checklist issue for keeping UAT and smoke docs aligned. |
 
 ## Acceptance Criteria
 - The roadmap maps MVP personas to capability dimensions and linked issues.

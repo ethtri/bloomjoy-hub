@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-06-24 - Technician management uses role-appropriate entry points, not duplicated customer admin
+Technician management should be discoverable in one customer-facing place and one internal override place, backed by the same capability and shared UI patterns.
+
+**Canonical behavior**
+- Plus Customer owners and Corporate Partners manage Technicians from `/portal/team` when `can_manage_technicians` is true.
+- Account Settings (`/portal/account`) should link to Team for eligible users, but should stay focused on profile, billing, shipping, and language preferences.
+- Super Admins may grant or repair Technician access from `/admin/access` using the Technician preset/source card.
+- Plus Customer and Corporate Partner users should not receive an `/admin` page just to manage Technicians.
+- Scoped Admins do not receive Technician grant authority unless a later explicit owner decision expands the role.
+
+**Why this choice**
+- Users expect team/staff management to live under a Team area, not buried inside settings or exposed through an internal admin console.
+- Duplicating the same customer workflow across Settings, Admin, and partner-specific surfaces increases support cost, copy drift, and authorization risk.
+- Keeping the shared machine-assignment UI underneath role-appropriate routes gives Plus owners, Corporate Partners, and Super Admins the same scope semantics without making their information architecture identical.
+
 ## 2026-06-20 - Technician assigned-machine grants can include multiple machines
 Technician remains a training-first, read-only reporting persona, but a single Technician grant may now carry zero or more assigned reporting machines.
 

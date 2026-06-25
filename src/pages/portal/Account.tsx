@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   User,
+  Users,
   MapPin,
   CreditCard,
   ExternalLink,
@@ -11,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
-import { TechnicianManagementPanel } from '@/components/portal/TechnicianManagementPanel';
 import { LanguagePreferenceControl } from '@/components/i18n/LanguagePreferenceControl';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -44,7 +44,7 @@ const formatMembershipStatus = (status: string) =>
     .join(' ');
 
 export default function AccountPage() {
-  const { user, isCorporatePartner } = useAuth();
+  const { user, canManageTechnicians, isCorporatePartner } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
@@ -268,7 +268,29 @@ export default function AccountPage() {
             </div>
           )}
 
-          <TechnicianManagementPanel />
+          {canManageTechnicians && (
+            <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <Users className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="font-display text-lg font-semibold text-foreground">
+                      Team access
+                    </h2>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                      Add Technicians, send invites, and manage assigned-machine reporting from
+                      the Team page.
+                    </p>
+                  </div>
+                </div>
+                <Button asChild className="min-h-11 w-full md:w-auto">
+                  <Link to="/portal/team">Manage Technicians</Link>
+                </Button>
+              </div>
+            </div>
+          )}
 
           <div className="mt-6 grid gap-6 lg:grid-cols-3 lg:gap-8">
             {/* Profile */}

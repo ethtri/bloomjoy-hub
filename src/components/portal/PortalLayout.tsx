@@ -27,8 +27,15 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ children }: PortalLayoutProps) {
-  const { adminAccess, capabilities, hasReportingAccess, isCorporatePartner, isSuperAdmin, portalAccessTier } =
-    useAuth();
+  const {
+    adminAccess,
+    canManageTechnicians,
+    capabilities,
+    hasReportingAccess,
+    isCorporatePartner,
+    isSuperAdmin,
+    portalAccessTier,
+  } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const currentDestination = getPortalDestinationByPath(location.pathname);
@@ -44,11 +51,13 @@ export function PortalLayout({ children }: PortalLayoutProps) {
       access,
       hasReportingAccess,
       capabilities,
-      hasRefundOperationsAccess
+      hasRefundOperationsAccess,
+      canManageTechnicians
     );
   const visibleDestinations = sortedDestinations
     .filter((destination) => destination.access !== 'reporting' || canAccessDestination(destination.access))
     .filter((destination) => destination.access !== 'refunds' || canAccessDestination(destination.access))
+    .filter((destination) => destination.access !== 'team' || canAccessDestination(destination.access))
     .filter((destination) =>
       portalAccessTier === 'training'
         ? canAccessDestination(destination.access)

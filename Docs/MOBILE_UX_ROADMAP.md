@@ -10,7 +10,7 @@ Automated browser audit covered 30 routes across:
 - Tablet/narrow desktop checks: `768x1024`, `1024x768`
 - Public/storefront: `/`, `/machines`, machine detail pages, `/supplies`, `/plus`, `/resources`, `/contact`, `/cart`
 - Auth: `/login`, `/reset-password`
-- Portal: `/portal`, `/portal/orders`, `/portal/account`, `/portal/training`, `/portal/support`, `/portal/onboarding`, plus a spot check of `/portal/reports`
+- Portal: `/portal`, `/portal/orders`, `/portal/account`, `/portal/team`, `/portal/training`, `/portal/support`, `/portal/onboarding`, plus a spot check of `/portal/reports`
 - Admin: `/admin`, `/admin/orders`, `/admin/support`, `/admin/access`, `/admin/partner-records`, `/admin/machines`, `/admin/partnerships`, `/admin/reporting`
 
 Admin audit is currently surfaced through `/admin/access?tab=audit`; `/admin/audit` redirects there. No dedicated `/admin/leads` route exists in this checkout, so lead-related mobile work remains tied to the public contact/procurement flows and server-side submission pipeline rather than a separate admin leads surface.
@@ -44,7 +44,7 @@ Workflow: Plus account owners, baseline users, training-only operators, technici
 
 Findings:
 
-- `/portal`, `/portal/orders`, `/portal/account`, `/portal/training`, `/portal/support`, and `/portal/onboarding` did not show broad page-level overflow in the mocked automated pass.
+- `/portal`, `/portal/orders`, `/portal/account`, `/portal/team`, `/portal/training`, `/portal/support`, and `/portal/onboarding` did not show broad page-level overflow in the mocked automated pass.
 - Follow-up work should focus on real workflow ergonomics: stacked page actions, order/account card readability, support/onboarding forms, training navigation, checkbox/action hit areas, and locked-state clarity.
 - `/portal/reports` was spot-checked only. Do not reopen detailed reporting mobile work here because #274 already handled that route.
 - Portal home should not be reopened broadly unless a regression appears; #273 already handled the reporting-era portal-home UX/CX pass.

@@ -1,6 +1,6 @@
 # Partner Technician Access CX Audit
 
-Scope: `/portal/account` Technician Access, Technician invite delivery/acceptance, `/portal/training`, and `/portal/reports` for assigned-machine Technicians.
+Scope: `/portal/team` Technician Access, Technician invite delivery/acceptance, `/portal/training`, and `/portal/reports` for assigned-machine Technicians.
 
 ## Audit Health Score
 
@@ -71,4 +71,4 @@ Support/Admin:
 - Staging send/resend email delivery with real Resend secrets.
 - Same-email signup/sign-in after clicking the email.
 - Revocation after a real session refresh or sign-out/sign-in.
-- Keyboard-only pass on `/portal/account` for account selection, machine picker, row actions, and revoke dialog.
+- Keyboard-only pass on `/portal/team` for account selection, machine picker, row actions, and revoke dialog.

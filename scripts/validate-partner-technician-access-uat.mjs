@@ -602,9 +602,9 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
   });
 
   try {
-    await page.goto(`${args.appUrl}/portal/account`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
     await login(page, partnerUser);
-    await page.waitForURL('**/portal/account', { timeout: 20000 });
+    await page.waitForURL('**/portal/team', { timeout: 20000 });
     try {
       await page.getByRole('heading', { name: 'Technician Access' }).waitFor({ timeout: 10000 });
     } catch (error) {
@@ -615,7 +615,7 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
       throw error;
     }
 
-    recorder.assert('Partner lands on portal account page', pathname(page) === '/portal/account', page.url());
+    recorder.assert('Partner lands on portal Team page', pathname(page) === '/portal/team', page.url());
     recorder.assert(
       'Partner scope is explicit',
       await page.getByText(/Bubble Planet can manage Technicians only for the machines shown here/i).isVisible()
@@ -658,6 +658,7 @@ const runPartnerUat = async ({ args, browser, recorder }) => {
     );
 
     await page.fill('#technician-email', trainingOnlyEmail);
+    await page.locator('label[for="technician-training-only-confirm"]').click();
     await page.getByRole('button', { name: 'Save and send invite' }).click();
     await technicianRow(page, trainingOnlyEmail).waitFor({ timeout: 10000 });
     await waitForCondition(() => state.accessInviteBodies.length === 3, 'training-only Technician auto-invite');
@@ -802,6 +803,15 @@ const runTechnicianUat = async ({ args, browser, recorder }) => {
 
     await page.screenshot({
       path: path.join(args.artifactDir, 'technician-reporting-scope.png'),
+      fullPage: true,
+    });
+
+    await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('heading', { name: /Team requires Team access/i }).waitFor({ timeout: 10000 });
+    recorder.assert('Technician cannot open Team management', pathname(page) === '/portal/team', page.url());
+
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'technician-team-denied.png'),
       fullPage: true,
     });
 

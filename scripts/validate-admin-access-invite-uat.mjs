@@ -620,6 +620,22 @@ const run = async () => {
     await page.waitForURL('**/admin/access', { timeout: 20000 });
     await page.getByRole('heading', { name: 'Access' }).waitFor({ timeout: 10000 });
 
+    recorder.assert(
+      'Admin Access exposes a direct Add Technician action',
+      await page.getByRole('button', { name: 'Add Technician' }).isVisible()
+    );
+    await page.getByRole('button', { name: 'Add Technician' }).click();
+    await page.getByRole('heading', { name: 'Add Technician' }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Direct Add Technician opens the focused Technician launcher',
+      await page.getByText(/Invite a Technician with training access/i).isVisible()
+    );
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('heading', { name: 'Add Technician' }).waitFor({
+      state: 'hidden',
+      timeout: 10000,
+    });
+
     await page.getByLabel('Search by email or user ID').fill(targetEmail);
     await page.getByRole('button', { name: 'Search' }).click();
     await page.getByRole('button', { name: 'Open email workspace' }).click();

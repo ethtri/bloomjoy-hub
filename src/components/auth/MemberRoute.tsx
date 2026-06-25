@@ -11,11 +11,13 @@ import {
 import { Button } from '@/components/ui/button';
 
 export function MemberRoute() {
-  const { capabilities, hasReportingAccess, loading, portalAccessTier } = useAuth();
+  const { canManageTechnicians, capabilities, hasReportingAccess, loading, portalAccessTier } =
+    useAuth();
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
   const accessLabel = getAccessLevelLabel(lockedDestination.access);
   const isReportingRoute = lockedDestination.access === 'reporting';
+  const isTeamRoute = lockedDestination.access === 'team';
 
   if (loading) {
     return (
@@ -30,7 +32,9 @@ export function MemberRoute() {
       portalAccessTier,
       lockedDestination.access,
       hasReportingAccess,
-      capabilities
+      capabilities,
+      false,
+      canManageTechnicians
     )
   ) {
     return <Outlet />;
@@ -64,12 +68,14 @@ export function MemberRoute() {
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       {isReportingRoute
                         ? 'Sales reporting access is granted by account, location, or specific machine. Ask Bloomjoy to add reporting permissions for the machines you should be able to view.'
+                        : isTeamRoute
+                          ? 'Team management is reserved for Plus account owners and eligible Corporate Partner managers. Technicians can use training and assigned reporting without access to customer team controls.'
                         : 'Technicians without assigned machines can use the training hub. Customer account tools, onboarding, support, and billing stay reserved for account owners and eligible partners.'}
                     </p>
                   </div>
                 </div>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  {lockedDestination.access !== 'baseline' && !isReportingRoute && (
+                  {lockedDestination.access !== 'baseline' && !isReportingRoute && !isTeamRoute && (
                     <Button asChild className="min-h-11">
                       <Link to="/plus">View Plus Membership</Link>
                     </Button>

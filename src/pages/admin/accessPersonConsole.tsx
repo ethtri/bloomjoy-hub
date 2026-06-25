@@ -34,6 +34,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { TechnicianMachineAssignmentPicker } from '@/components/technicians/TechnicianMachineAssignmentPicker';
 import { useAuth } from '@/contexts/auth-context';
 import {
   fetchAccessInviteDeliveries,
@@ -323,12 +324,6 @@ const uniqueValues = (items: string[]) => [...new Set(items)].sort((a, b) => a.l
 const sortedSetValues = (items: Set<string>) => [...items].sort((a, b) => a.localeCompare(b));
 const haveSameStringSetValues = (left: Set<string>, right: Set<string>) =>
   left.size === right.size && [...left].every((value) => right.has(value));
-const toggleStringSetValue = (items: Set<string>, value: string, checked: boolean) => {
-  const next = new Set(items);
-  if (checked) next.add(value);
-  else next.delete(value);
-  return next;
-};
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
 const getCorporatePartnerMachineIds = (partnerships: CorporatePartnerPartnership[]) =>
@@ -647,6 +642,9 @@ function AdminPersonAccessConsoleInner({
   const [selectedPerson, setSelectedPerson] = useState<SelectedAccessPerson | null>(null);
   const [showActivity, setShowActivity] = useState(initialShowActivity);
   const [isAccessLauncherOpen, setIsAccessLauncherOpen] = useState(Boolean(initialLauncher?.open));
+  const [launcherPresetOverride, setLauncherPresetOverride] = useState<string | undefined>(
+    initialLauncher?.preset
+  );
   const normalizedSubmittedSearch = submittedSearch.trim();
   const submittedSearchIsEmail = hasEmailShape(normalizedSubmittedSearch);
 
@@ -756,6 +754,11 @@ function AdminPersonAccessConsoleInner({
     setSelectedPerson({ email: value, userId: null, label: value });
   };
 
+  const openAccessLauncher = (preset?: AccessLauncherPreset) => {
+    setLauncherPresetOverride(preset);
+    setIsAccessLauncherOpen(true);
+  };
+
   const searchFailed = Boolean(searchError);
   const canShowSearchResults = normalizedSubmittedSearch.length > 0 && !isSearching && !searchFailed;
   const searchErrorMessage = getErrorMessage(searchError, 'Unable to search people.');
@@ -769,7 +772,7 @@ function AdminPersonAccessConsoleInner({
       <AccessLauncher
         open={isAccessLauncherOpen}
         onOpenChange={setIsAccessLauncherOpen}
-        initialPreset={initialLauncher?.preset}
+        initialPreset={launcherPresetOverride}
         initialEmail={initialLauncher?.email}
         initialPartnerId={initialLauncher?.partnerId}
         initialAccountId={initialLauncher?.accountId}
@@ -805,7 +808,15 @@ function AdminPersonAccessConsoleInner({
                 {isSearching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
                 Search
               </Button>
-              <Button className="min-h-11" onClick={() => setIsAccessLauncherOpen(true)}>
+              <Button className="min-h-11" onClick={() => openAccessLauncher('technician')}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add Technician
+              </Button>
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={() => openAccessLauncher()}
+              >
                 <UserPlus className="mr-2 h-4 w-4" />
                 Add or invite access
               </Button>
@@ -1026,6 +1037,7 @@ function AccessLauncher({
   const [selectedPartnerId, setSelectedPartnerId] = useState(initialPartnerId ?? '');
   const [selectedAccountId, setSelectedAccountId] = useState(initialAccountId ?? '');
   const [selectedTechnicianMachineIds, setSelectedTechnicianMachineIds] = useState<Set<string>>(new Set());
+  const [trainingOnlyConfirmed, setTrainingOnlyConfirmed] = useState(false);
   const [grantReason, setGrantReason] = useState('');
   const [partnerForm, setPartnerForm] = useState(emptyPartnerForm);
   const [stagedPortalAccess, setStagedPortalAccess] = useState<Record<string, boolean>>({});
@@ -1045,6 +1057,7 @@ function AccessLauncher({
     setSelectedPartnerId(initialPartnerId ?? '');
     setSelectedAccountId(initialAccountId ?? '');
     setSelectedTechnicianMachineIds(new Set());
+    setTrainingOnlyConfirmed(false);
     setGrantReason('');
     setPartnerForm(emptyPartnerForm);
     setStagedPortalAccess({});
@@ -1243,6 +1256,8 @@ function AccessLauncher({
   }, [preset, selectedTechnicianMachineIds, selectedTechnicianMachines]);
 
   const selectedTechnicianMachineIdList = sortedSetValues(selectedTechnicianMachineIds);
+  const isTechnicianTrainingOnlyInvite =
+    preset === 'technician' && selectedTechnicianMachineIdList.length === 0;
   const selectedTechnicianMachineLabels = getSelectedTechnicianMachineLabels(
     selectedTechnicianMachines,
     selectedTechnicianMachineIdList
@@ -1254,9 +1269,19 @@ function AccessLauncher({
     !technicianContextError &&
     technicianContext.accounts.length === 0;
   const isExistingUserPreset = !presetMeta.inviteable;
-  const canSaveInvite = presetMeta.inviteable && Boolean(normalizedEmail) && Boolean(grantReason.trim());
+  const canSaveInvite =
+    presetMeta.inviteable &&
+    Boolean(normalizedEmail) &&
+    Boolean(grantReason.trim()) &&
+    (!isTechnicianTrainingOnlyInvite || trainingOnlyConfirmed);
   const existingPresetActionLabel =
     preset === 'plus_customer' ? 'Open Plus Customer workspace' : 'Open person workspace';
+
+  useEffect(() => {
+    if (preset !== 'technician' || selectedTechnicianMachineIdList.length > 0) {
+      setTrainingOnlyConfirmed(false);
+    }
+  }, [preset, selectedTechnicianMachineIdList.length]);
 
   const refreshLauncherQueries = async () => {
     await Promise.all([
@@ -1496,6 +1521,10 @@ function AccessLauncher({
           toast.error('Select a sponsor account.');
           return;
         }
+        if (selectedTechnicianMachineIdList.length === 0 && !trainingOnlyConfirmed) {
+          toast.error('Confirm training-only access before sending this Technician invite.');
+          return;
+        }
 
         const grant = await adminGrantTechnicianAccess({
           email: invitePreflight.targetEmail,
@@ -1562,10 +1591,11 @@ function AccessLauncher({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Add or invite access</DialogTitle>
+          <DialogTitle>{preset === 'technician' ? 'Add Technician' : 'Add or invite access'}</DialogTitle>
           <DialogDescription>
-            Start with a person or email, choose the intended outcome, then save the access source
-            with the right scope and audit reason.
+            {preset === 'technician'
+              ? 'Invite a Technician with training access and optional assigned-machine reporting.'
+              : 'Start with a person or email, choose the intended outcome, then save the access source with the right scope and audit reason.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -2013,32 +2043,40 @@ function AccessLauncher({
                   )}
                 </div>
                 <div>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <Label>Reporting machines</Label>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedTechnicianMachineIds(new Set())}
-                      disabled={!selectedTechnicianAccount || selectedTechnicianMachineIds.size === 0}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                  <TechnicianMachineChecklist
+                  <TechnicianMachineAssignmentPicker
                     idPrefix="access-launcher-technician-machine"
                     machines={selectedTechnicianMachines}
-                    selectedMachineIds={selectedTechnicianMachineIds}
-                    toggleMachine={(machineId, checked) =>
-                      setSelectedTechnicianMachineIds((current) =>
-                        toggleStringSetValue(current, machineId, checked)
-                      )
+                    selectedMachineIds={selectedTechnicianMachineIdList}
+                    onSelectedMachineIdsChange={(machineIds) =>
+                      setSelectedTechnicianMachineIds(new Set(machineIds))
                     }
                     disabled={!selectedTechnicianAccount}
                   />
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Leave all machines unchecked for training-only access.
-                  </p>
+                  {isTechnicianTrainingOnlyInvite && (
+                    <label
+                      htmlFor="access-launcher-training-only-confirm"
+                      className={cn(
+                        'mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
+                        (!selectedTechnicianAccount || isSaving) && 'cursor-not-allowed opacity-70'
+                      )}
+                    >
+                      <Checkbox
+                        id="access-launcher-training-only-confirm"
+                        checked={trainingOnlyConfirmed}
+                        onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
+                        disabled={!selectedTechnicianAccount || isSaving}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium text-foreground">
+                          Send as training-only access
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          I understand this invite grants no machine reporting until machines are
+                          assigned later.
+                        </span>
+                      </span>
+                    </label>
+                  )}
                   {technicianContextError && (
                     <p className="mt-1 text-xs text-destructive">
                       {getErrorMessage(technicianContextError, 'Unable to load eligible Technician accounts.')}
@@ -2152,7 +2190,7 @@ function AccessLauncher({
               }
             >
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-              Grant and send invite
+              {preset === 'technician' ? 'Save and send Technician invite' : 'Grant and send invite'}
             </Button>
           ) : (
             <Button type="button" onClick={openSelectedWorkspace} disabled={!selectedExistingAccount}>
@@ -3236,6 +3274,7 @@ function TechnicianAccessCard({
   const activeSourceGrants = sourceGrants.filter((grant) => grant.isActive);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(new Set());
+  const [trainingOnlyConfirmed, setTrainingOnlyConfirmed] = useState(false);
   const [grantReason, setGrantReason] = useState('');
   const [scopeDrafts, setScopeDrafts] = useState<Record<string, string[]>>({});
   const [scopeReasons, setScopeReasons] = useState<Record<string, string>>({});
@@ -3299,6 +3338,7 @@ function TechnicianAccessCard({
     const nextAccountId = firstActiveGrant?.accountId ?? accounts[0]?.accountId ?? '';
     setSelectedAccountId(nextAccountId);
     setSelectedMachineIds(new Set(firstActiveGrant ? getGrantMachineScopeIds(firstActiveGrant) : []));
+    setTrainingOnlyConfirmed(false);
     setGrantReason('');
     setScopeDrafts(
       Object.fromEntries(grants.map((grant) => [grant.grantId, getGrantMachineScopeIds(grant)]))
@@ -3319,6 +3359,12 @@ function TechnicianAccessCard({
     }
   }, [selectedAccountId, selectedAccountMachines, selectedMachineIds]);
 
+  useEffect(() => {
+    if (selectedMachineIdList.length > 0) {
+      setTrainingOnlyConfirmed(false);
+    }
+  }, [selectedMachineIdList.length]);
+
   const refreshTechnicianContext = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] });
   };
@@ -3334,6 +3380,10 @@ function TechnicianAccessCard({
     }
     if (!grantReason.trim()) {
       toast.error('Reason is required.');
+      return;
+    }
+    if (selectedMachineIdList.length === 0 && !trainingOnlyConfirmed) {
+      toast.error('Confirm training-only access before sending this Technician invite.');
       return;
     }
     const invitePreflight = validateAccessInvitePreflight('technician', identity.email);
@@ -3388,6 +3438,7 @@ function TechnicianAccessCard({
         machine_count: selectedMachineIdList.length,
       });
       setGrantReason('');
+      setTrainingOnlyConfirmed(false);
       await refreshTechnicianContext();
       await queryClient.invalidateQueries({ queryKey: ['access-invite-deliveries'] });
       await onChanged();
@@ -3593,30 +3644,41 @@ function TechnicianAccessCard({
                 </select>
               </div>
               <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <Label>Reporting machines</Label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setSelectedMachineIds(new Set())}
-                    disabled={isFetching || !selectedAccountId || selectedMachineIds.size === 0}
-                  >
-                    Clear
-                  </Button>
-                </div>
-                <TechnicianMachineChecklist
+                <TechnicianMachineAssignmentPicker
                   idPrefix="admin-technician-machine"
                   machines={selectedAccountMachines}
-                  selectedMachineIds={selectedMachineIds}
-                  toggleMachine={(machineId, checked) =>
-                    setSelectedMachineIds((current) => toggleStringSetValue(current, machineId, checked))
+                  selectedMachineIds={selectedMachineIdList}
+                  onSelectedMachineIdsChange={(machineIds) =>
+                    setSelectedMachineIds(new Set(machineIds))
                   }
                   disabled={isFetching || !selectedAccountId}
                 />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Leave all machines unchecked for training-only access.
-                </p>
+                {selectedMachineIdList.length === 0 && (
+                  <label
+                    htmlFor="admin-technician-training-only-confirm"
+                    className={cn(
+                      'mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
+                      (isFetching || isSavingGrant || !selectedAccountId) &&
+                        'cursor-not-allowed opacity-70'
+                    )}
+                  >
+                    <Checkbox
+                      id="admin-technician-training-only-confirm"
+                      checked={trainingOnlyConfirmed}
+                      onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
+                      disabled={isFetching || isSavingGrant || !selectedAccountId}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-medium text-foreground">
+                        Send as training-only access
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                        I understand this Technician will not receive machine reporting from this
+                        source until machines are assigned later.
+                      </span>
+                    </span>
+                  </label>
+                )}
               </div>
               <div>
                 <Label htmlFor="admin-technician-reason">Grant or update reason</Label>
@@ -3640,7 +3702,13 @@ function TechnicianAccessCard({
             <Button
               className="mt-3"
               onClick={handleSaveGrant}
-              disabled={isSavingGrant || isFetching || !selectedAccountId || !identity.email}
+              disabled={
+                isSavingGrant ||
+                isFetching ||
+                !selectedAccountId ||
+                !identity.email ||
+                (selectedMachineIdList.length === 0 && !trainingOnlyConfirmed)
+              }
             >
               {isSavingGrant ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
               Save and send Technician invite
@@ -3742,36 +3810,15 @@ function TechnicianAccessCard({
                         </PreviewBox>
                         <div className="grid gap-3 lg:grid-cols-[0.42fr_0.36fr_0.22fr]">
                           <div>
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <Label>Scope after save</Label>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  setScopeDrafts((current) => ({ ...current, [grant.grantId]: [] }))
-                                }
-                                disabled={draftMachineIds.length === 0}
-                              >
-                                Clear
-                              </Button>
-                            </div>
-                            <TechnicianMachineChecklist
+                            <TechnicianMachineAssignmentPicker
                               idPrefix={`technician-scope-${grant.grantId}`}
                               machines={accountMachines}
-                              selectedMachineIds={new Set(draftMachineIds)}
-                              toggleMachine={(machineId, checked) =>
+                              selectedMachineIds={draftMachineIds}
+                              label="Scope after save"
+                              onSelectedMachineIdsChange={(machineIds) =>
                                 setScopeDrafts((current) => ({
                                   ...current,
-                                  [grant.grantId]: sortedSetValues(
-                                    toggleStringSetValue(
-                                      new Set(
-                                        current[grant.grantId] ?? getGrantMachineScopeIds(grant)
-                                      ),
-                                      machineId,
-                                      checked
-                                    )
-                                  ),
+                                  [grant.grantId]: machineIds,
                                 }))
                               }
                             />
@@ -4361,62 +4408,6 @@ function ScopedAdminAccessCard({
         </Button>
       </div>
     </SourceCard>
-  );
-}
-
-function TechnicianMachineChecklist({
-  idPrefix,
-  machines,
-  selectedMachineIds,
-  toggleMachine,
-  disabled = false,
-}: {
-  idPrefix: string;
-  machines: AdminTechnicianMachine[];
-  selectedMachineIds: Set<string>;
-  toggleMachine: (machineId: string, checked: boolean) => void;
-  disabled?: boolean;
-}) {
-  if (machines.length === 0) {
-    return (
-      <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-        No active machines are available for this account.
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-h-72 overflow-y-auto rounded-md border border-border">
-      {machines.map((machine) => {
-        const checkboxId = `${idPrefix}-${machine.machineId}`;
-
-        return (
-          <label
-            key={machine.machineId}
-            htmlFor={checkboxId}
-            className={cn(
-              'flex cursor-pointer items-start gap-3 border-b border-border/60 p-3 last:border-b-0',
-              disabled && 'cursor-not-allowed opacity-70'
-            )}
-          >
-            <Checkbox
-              id={checkboxId}
-              checked={selectedMachineIds.has(machine.machineId)}
-              onCheckedChange={(checked) => toggleMachine(machine.machineId, checked === true)}
-              disabled={disabled}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block break-words text-sm font-medium text-foreground">
-                {machine.machineLabel}
-              </span>
-              <span className="mt-1 block text-xs text-muted-foreground">
-                {machine.locationName ?? 'Unassigned location'} / {machine.machineType}
-              </span>
-            </span>
-          </label>
-        );
-      })}
-    </div>
   );
 }
 
