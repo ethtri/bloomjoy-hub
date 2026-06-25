@@ -11,9 +11,9 @@ The near-term goal is to let super-admins make fast, auditable access decisions 
 
 ## Product Guardrails
 - Corporate Partner portal access is explicit and does not come from payout/legal participant metadata alone.
-- `/admin` stays internal-only until Scoped Admin is explicitly implemented.
+- `/admin` stays internal-only: Super Admins receive the global admin surface, while Scoped Admins receive only the approved scoped Admin Access workflows.
 - `/admin/access` is the near-term person-first management surface for presets, effective-access previews, internal grants, Corporate Partner access, Plus Customer access, reporting access, and audit review.
-- Customer account settings stay under `/portal/account`; customer and partner Technician management lives under `/portal/team` for users with `technicians.manage` / `can_manage_technicians`.
+- Customer account settings stay under `/portal/account`; customer and partner Technician management lives under `/portal/team` for users with `technicians.manage` / `can_manage_technicians`; Scoped Admin machine-scoped Technician grants live under `/admin/access`.
 - Corporate Partner reporting surfaces live under `/portal/reports`, not under `/admin`.
 - Partnership setup must not grant portal access by itself.
 - `report_manager` is reporting-only. It must not be used as a Scoped Admin workaround.
@@ -48,7 +48,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 
 ## Gaps
 - `/admin/access` is functionally capable but still needs a UX/CX redesign. Issue `#227` is the immediate next access-management UX priority and should replace the current tab-heavy experience with a person-first workspace.
-- Scoped Admin has a minimal P0 implementation path in `#259`: explicit machine-scoped internal admin grants managed from `/admin/access`. Broader account-scope delegation and a custom entitlement-builder UI remain future work.
+- Scoped Admin has a minimal P0 implementation path in `#259`: explicit machine-scoped internal admin grants managed from `/admin/access`. Issue `#536` expands that scope to include machine-scoped Technician grants. Broader account-scope delegation and a custom entitlement-builder UI remain future work.
 - Reporting User remains a future/internal capability and should not be exposed as a primary admin preset yet.
 - The scalable entitlement model remains an umbrella concern in `#150`.
 - A full custom entitlement-builder UI is deferred until presets and effective-access previews are stable.
@@ -57,7 +57,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 | MVP Persona | Subject / Source | Current Scope | Can Do Now | Must Not Do | Status / Issue |
 | --- | --- | --- | --- | --- | --- |
 | Super Admin | `admin_roles.role = 'super_admin'` | Global | View, configure, grant, revoke, approve, export, and audit all current admin/reporting surfaces | Bypass production safeguards or audit requirements | Implemented; keep as the only global role |
-| Scoped Admin | Manual scoped-admin grant | Machine scope in the P0 implementation; account scope remains future | Manage manual reporting access inside assigned machine scope from `/admin/access` | No global admin, unrelated accounts, partnership setup, user/global role management, ungranted reports, or Technician-derived grant revocation | P0 minimal implementation; `#259` |
+| Scoped Admin | Manual scoped-admin grant | Machine scope in the P0 implementation; account scope remains future | Manage manual reporting access and grant/update/renew/revoke Technician access inside assigned machine scope from `/admin/access`; Technician grants require at least one in-scope machine | No global admin, unrelated accounts, partnership setup, user/global role management, ungranted reports, training-only zero-machine Technician grants, or out-of-scope Technician repair | P0 minimal implementation; `#259`, `#536`, `#537`, `#538` |
 | Plus Customer | Active Plus access plus owner account membership | Owned customer account and controlled machines | Manage Technician grants for controlled machines; access Plus portal benefits, member supply pricing, support, and assigned reporting | No internal admin setup, unrelated customer accounts, partner settlement, global reporting, or role management | Implemented; customer/team direction from `#123` |
 | Corporate Partner | `corporate_partner_memberships` plus portal-enabled partnership participation | Partner record, active portal-enabled partnerships, derived machines | Access training, support, member supply pricing, partner reporting, machine reporting, and Technician management for derived machines | No `/admin`, tax/rule editing, machine metadata editing, imports, schedules, internal warning ledgers, billing, or global reporting | Implemented by `#332`; trace issues `#128`, `#328`, `#329`, `#330` |
 | Technician | Technician grant plus optional Technician-sourced reporting entitlement | Explicit assigned machines; no-machine grant means training only | Access training and read-only reports for assigned machines; expires after one year unless renewed | No Plus/Corporate Partner supply discounts, billing, account-owner tools, partner settlement, admin operations, machine setup, or global reporting | Implemented; production caveat `#214`; spec reference `#183` |
@@ -68,6 +68,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 - Use explicit machine reporting grants for temporary reporting access. Prefer `viewer`; use `report_manager` only when the user needs reporting-management behavior, not internal admin behavior.
 - Use Corporate Partner membership for Merlin/Bubble Planet-style partner users who need partner reporting, member supply pricing, support, training, and Technician management for machines in active portal-enabled partnerships.
 - Use Technician grants for staff who need training plus optional assigned-machine reporting. A Technician with no machines is the training-only case.
+- Use Scoped Admin only for machine-scoped internal operations. Scoped Admins may grant Technician status only with at least one assigned machine inside their active scope.
 - Do not grant Super Admin to solve a narrow operational need unless the person truly needs global owner/admin power.
 - If a short-term grant is needed before the proper persona is implemented, record the issue link, reason, scope, source, and expected cleanup path.
 
@@ -76,6 +77,7 @@ Use this model for new entitlement design, issue writing, and implementation rev
 - The target `/admin/access` workflow is: find a person, review effective access, manage access source cards, preview impact, then save with a reason.
 - Avoid adding more peer tabs for individual access sources. Consolidate Plus Customer, Corporate Partner, Technician, Scoped Admin, Super Admin, and manual reporting access into one selected-person workspace.
 - `/portal/team` is the current customer and Corporate Partner place for Technician management. `/portal/account` may link to it for eligible users but should not duplicate the workflow.
+- Scoped Admins use `/admin/access` for machine-scoped Technician grants; Account Settings may link them to Admin Access but must not bounce them into `/portal/team`.
 - `/portal/reports` remains the operator/reporting surface for assigned machines.
 - Corporate Partner reporting appears in `/portal/reports` as a permissioned partner-dashboard view.
 - Users without partner-dashboard visibility should not see disabled partner tabs or upsell-style placeholders.
@@ -99,9 +101,16 @@ Use this model for new entitlement design, issue writing, and implementation rev
 | `#529` | Shared Technician management UI patterns | P0 implementation issue for shared machine assignment controls across portal and admin. |
 | `#530` | Customer-facing Team page | P0 route/IA issue for `/portal/team` and portal navigation. |
 | `#531` | Admin Add Technician discoverability | P0 admin UX issue for direct Technician entry in `/admin/access`. |
-| `#532` | Scoped Admin Technician authority decision | Owner-decision issue; current decision is no Scoped Admin Technician authority. |
+| `#532` | Scoped Admin Technician authority decision | Owner decision superseded on 2026-06-25: Scoped Admins can grant machine-scoped Technician access only inside active assigned machines. |
 | `#533` | Unified Technician UX QA | P1 QA/UAT issue for portal/admin role boundaries. |
 | `#534` | Technician IA docs and smoke coverage | P1 docs/checklist issue for keeping UAT and smoke docs aligned. |
+| `#536` | Scoped Admin Technician provisioning incident | P0 umbrella for restoring scoped-admin Technician provisioning and admin fallback sponsorship. |
+| `#537` | Scoped Admin Technician backend/RLS authority | P0 implementation issue for scoped-admin RPC/RLS permission boundaries. |
+| `#538` | Admin Access Technician UX repair | P0 implementation issue for `/admin/access` scoped-admin Technician flows. |
+| `#539` | Portal Team / Account Settings routing repair | P0 implementation issue for broken Team/Account Settings loops and scoped-admin-safe routes. |
+| `#540` | Technician provisioning regression UAT | P0 regression/UAT issue for Super Admin, Scoped Admin, Plus Customer, and Corporate Partner boundaries. |
+| `#541` | Scoped Admin Technician docs and runbooks | P0 docs/runbook issue for the changed authority model. |
+| `#542` | Production Technician provisioning live UAT | P0 live UAT issue for post-deploy verification with real sponsor, invite, and account evidence. |
 
 ## Acceptance Criteria
 - The roadmap maps MVP personas to capability dimensions and linked issues.

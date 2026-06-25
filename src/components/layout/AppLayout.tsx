@@ -264,7 +264,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const currentLocation = typeof window === 'undefined' ? undefined : window.location;
   const marketingHomeUrl = getCanonicalUrlForSurface('marketing', '/', '', '', currentLocation);
   const accountUrl = '/portal/account';
-  const showAccountLink = portalAccessTier !== 'training';
+  const showAccountLink = portalAccessTier !== 'training' || adminAccess.isScopedAdmin;
   const accountLinkLabel = isCorporatePartner ? 'Account Settings' : t('app.account');
   const homeUrl = isAuthenticated ? '/portal' : '/login';
   const isAdminPath = location.pathname.startsWith('/admin');

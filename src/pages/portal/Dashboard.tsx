@@ -130,7 +130,8 @@ export default function PortalDashboard() {
       hasReportingAccess,
       capabilities,
       hasRefundOperationsAccess,
-      canManageTechnicians
+      canManageTechnicians,
+      adminAccess.isScopedAdmin
     );
   const onboardingProgress = getOnboardingProgress(user?.email);
   const { data: library = [] } = useTrainingLibrary(canAccessTraining);

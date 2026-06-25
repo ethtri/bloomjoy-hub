@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-06-25 - Scoped Admins can grant machine-scoped Technician status
+Scoped Admins may grant, update, renew, and revoke Technician access only when every assigned machine is inside their active Scoped Admin machine scope.
+
+**Canonical behavior**
+- Scoped Admins use `/admin/access` for Technician grants; they do not use customer-facing `/portal/team` unless they also have Plus Customer or Corporate Partner Technician-management authority.
+- Scoped Admin Technician grants require at least one in-scope machine. Training-only zero-machine Technician grants remain available to Super Admins and eligible customer/partner sponsors, not Scoped Admins.
+- Scoped Admins cannot grant Plus Customer, Corporate Partner, Scoped Admin, Super Admin, billing, supply, support, global reporting, or unrelated account access through this authority.
+- Existing Technician grants that include any out-of-scope machine must be read-only for that Scoped Admin and repaired by a Super Admin.
+- Super Admins may use Bloomjoy admin sponsorship for Technician grants when an account has no active Plus Customer owner sponsor.
+
+**Why this choice**
+- Field operations need scoped admins such as Adam to provision venue technicians without waiting for a global admin.
+- Requiring at least one assigned machine keeps the authority tied to an explicit operational boundary and avoids turning Scoped Admin into a general training-access issuer.
+- Keeping the customer-facing Team workflow limited to Plus Customer and Corporate Partner sponsors prevents Scoped Admins from seeing billing/account-owner surfaces they should not control.
+
 ## 2026-06-24 - Technician management uses role-appropriate entry points, not duplicated customer admin
 Technician management should be discoverable in one customer-facing place and one internal override place, backed by the same capability and shared UI patterns.
 
@@ -8,7 +23,7 @@ Technician management should be discoverable in one customer-facing place and on
 - Account Settings (`/portal/account`) should link to Team for eligible users, but should stay focused on profile, billing, shipping, and language preferences.
 - Super Admins may grant or repair Technician access from `/admin/access` using the Technician preset/source card.
 - Plus Customer and Corporate Partner users should not receive an `/admin` page just to manage Technicians.
-- Scoped Admins do not receive Technician grant authority unless a later explicit owner decision expands the role.
+- Scoped Admin authority for machine-scoped Technician grants is superseded by the 2026-06-25 decision above.
 
 **Why this choice**
 - Users expect team/staff management to live under a Team area, not buried inside settings or exposed through an internal admin console.

@@ -170,6 +170,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Scoped Admin can toggle Corporate Partner portal access only for partnership parties fully covered by their current machine scope; out-of-scope or partially covered partner/party RPC attempts fail with a scoped-access error.
 - [ ] Scoped Admin can open `/admin/access`, see Machine tax rates for machines inside the scoped admin grant, save `0%` or configured reporting tax rates with a required reason, and direct `admin_set_reporting_machine_tax_rate` calls for out-of-scope machines fail.
 - [ ] Scoped Admin can save manual reporting access only for assigned machines; direct `admin_set_user_machine_reporting_access` with any out-of-scope machine fails and does not revoke out-of-scope or derived Technician/Corporate Partner grants.
+- [ ] Scoped Admin can add a Technician from `/admin/access` only when at least one selected machine is inside the active scoped-admin grant; the save sends the Technician invite and records scoped-admin sponsorship.
+- [ ] Scoped Admin direct RPC attempts for zero-machine Technician grants, out-of-scope Technician grants, out-of-scope updates, or out-of-scope revokes fail with scoped-machine access errors.
+- [ ] Scoped Admins can open `/portal/account` for safe profile/settings access, but Account Settings links them to Admin Access for Technician work and does not loop them through `/portal/team`.
+- [ ] `/portal/team` shows a clear unavailable/locked state for Scoped Admins who do not also have Plus Customer or Corporate Partner Technician-management authority.
 - [ ] Corporate Partner sees only active portal-enabled partnership reporting and derived Technician management scope; direct admin RPCs fail, and Technician grant/update/revoke RPCs fail for out-of-scope or stale partner machine scope.
 - [ ] Corporate Partner live RPC evidence shows `update_technician_machines` denies adding `ADMIN_BOUNDARY_OUT_OF_SCOPE_MACHINE_ID` to `ADMIN_BOUNDARY_CORPORATE_PARTNER_MANAGEABLE_TECHNICIAN_GRANT_ID`, `revoke_technician_access` denies `ADMIN_BOUNDARY_CORPORATE_PARTNER_STALE_TECHNICIAN_GRANT_ID`, and `get_my_technician_grants` returns HTTP 200 with the manageable grant present and the stale/out-of-scope grant absent; `401`, `404`, `PGRST202`, malformed UUID/body errors, missing fixture rows, or broad non-OK responses do not count as passing authorization evidence.
 - [ ] Technician can open training and assigned-machine reporting only; Technician does not see account-owner tools, Technician management controls, Plus discounts, partner dashboard controls, or `/admin`.
@@ -420,8 +424,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Manual reporting access can revoke one user's machine access without removing other viewers from the same machine
 - [ ] Super-admin users show all-machine reporting access as read-only in Admin Access
 - [ ] Technician source card in Admin Access lets Super Admin grant or update a Technician as training-only or selected reporting machines, with plain-English impact preview and required reason
+- [ ] Technician source card in Admin Access lets Super Admin use Bloomjoy admin sponsorship when the account has no active Plus Customer owner sponsor
 - [ ] Technician source card can edit scope, renew current access, and revoke active Technician grants with required reasons
 - [ ] Admin Technician scope changes revoke only Technician-sourced reporting entitlements; unrelated manual reporting grants remain intact
+- [ ] Scoped Admin Technician source card shows only scoped machine choices, hides broad admin/customer/partner presets, requires at least one machine, and keeps out-of-scope or mixed-scope grants read-only with a Super Admin repair message
 - [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with selected machine scopes, save preview, and required reason
 - [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
 - [ ] Scoped Admin users can open `/portal/training*` but do not become Plus members or get Plus billing/commerce benefits

@@ -22,7 +22,8 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 - Refund operations and customer-refund pilot readiness remain high-sensitivity operational surfaces.
 - Access grants that create user-facing Corporate Partner or Technician access must prove both the saved grant and the invite-email attempt; rollout signoff also needs provider/inbox/activation evidence in the linked issue or PR.
-- Technician management IA uses `/portal/team` for Plus Customer and Corporate Partner self-service, while `/admin/access` remains the Super Admin override surface. Plus/partner users should not receive `/admin` just to manage Technicians.
+- Technician management IA uses `/portal/team` for Plus Customer and Corporate Partner self-service, while `/admin/access` remains the Super Admin override surface and the Scoped Admin machine-scoped Technician grant surface. Plus/partner users should not receive `/admin` just to manage Technicians.
+- Scoped Admin Technician provisioning is tracked by P0 issues `#536`-`#542`; local executable implementation/UAT belongs in `#537`-`#541`, while `#542` requires post-deploy live invite/account verification.
 - Operator payouts, partner reporting, and scheduled exports are active shared foundations.
 - Operator payouts foundation sprint: the foundation is on `main`; active follow-on PRs add timekeeping, revenue snapshots, calculation, review, and pay statement slices.
 - Manager review/finalization slice `#448` adds the admin review gate before operator pay statements are issued.

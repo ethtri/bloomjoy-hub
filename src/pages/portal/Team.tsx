@@ -3,13 +3,15 @@ import { Link } from 'react-router-dom';
 import { TechnicianManagementPanel } from '@/components/portal/TechnicianManagementPanel';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { canUsePortalTeamManagement } from '@/components/portal/portalNavigation';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function TeamPage() {
-  const { canManageTechnicians } = useAuth();
+  const { canManageTechnicians, capabilities } = useAuth();
   const { t } = useLanguage();
+  const canUseTeam = canUsePortalTeamManagement({ canManageTechnicians, capabilities });
 
   return (
     <PortalLayout>
@@ -26,7 +28,7 @@ export default function TeamPage() {
             }
           />
 
-          {canManageTechnicians ? (
+          {canUseTeam ? (
             <TechnicianManagementPanel />
           ) : (
             <div className="mt-8 rounded-[24px] border border-border bg-background p-6 text-sm leading-6 text-muted-foreground shadow-[var(--shadow-sm)]">

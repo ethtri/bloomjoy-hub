@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Building2,
@@ -214,6 +214,9 @@ const emptyTechnicianAccessContext: AdminTechnicianAccessContext = {
   activeAccountCount: 0,
   eligibleAccountCount: 0,
   ineligibleAccountCount: 0,
+  authorityPath: 'super_admin',
+  requiresMachineScope: false,
+  allowTrainingOnly: true,
   accounts: [],
   grants: [],
 };
@@ -511,6 +514,35 @@ const formatMachineSelection = (labels: string[]) => {
   return `${labels.slice(0, 2).join(', ')}, and ${labels.length - 2} more`;
 };
 
+const formatTechnicianSponsorMode = (
+  sponsorType?: string,
+  authorityPath?: string
+) => {
+  if (authorityPath === 'scoped_admin' || sponsorType === 'scoped_admin') {
+    return 'Scoped Admin machine scope';
+  }
+  if (sponsorType === 'super_admin_fallback') {
+    return 'Bloomjoy admin sponsorship';
+  }
+  if (sponsorType === 'corporate_partner') {
+    return 'Corporate Partner sponsor';
+  }
+  return 'Plus owner sponsor';
+};
+
+const getTechnicianGrantManagementNotice = (grant: AdminTechnicianGrant) => {
+  if (grant.canManage) return null;
+
+  if (grant.outOfScopeMachineCount > 0) {
+    return `This Technician grant includes ${pluralize(
+      grant.outOfScopeMachineCount,
+      'machine'
+    )} outside the current Scoped Admin boundary. Ask a Super Admin to repair or change it.`;
+  }
+
+  return 'This Technician grant is outside the current Scoped Admin boundary. Ask a Super Admin to repair or change it.';
+};
+
 const getAccountMachines = (
   accounts: AdminTechnicianAccount[],
   accountId: string
@@ -606,9 +638,9 @@ function buildIdentity(
 }
 
 export function AdminPersonAccessConsole(props: AdminPersonAccessConsoleProps) {
-  const { isSuperAdmin } = useAuth();
+  const { isScopedAdmin, isSuperAdmin } = useAuth();
 
-  if (!isSuperAdmin) {
+  if (!isSuperAdmin && !isScopedAdmin) {
     return <AdminPersonAccessConsoleBoundary />;
   }
 
@@ -623,8 +655,8 @@ function AdminPersonAccessConsoleBoundary() {
         <div>
           <h2 className="font-semibold text-foreground">Super Admin access is required for global access management.</h2>
           <p className="mt-1">
-            Scoped admins can manage manual reporting grants only through the assigned-machine
-            reporting workspace.
+            This workspace is available only to Super Admins and Scoped Admins with assigned
+            machine scope.
           </p>
         </div>
       </div>
@@ -636,6 +668,7 @@ function AdminPersonAccessConsoleInner({
   initialShowActivity = false,
   initialLauncher,
 }: AdminPersonAccessConsoleProps) {
+  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [searchDraft, setSearchDraft] = useState('');
   const [submittedSearch, setSubmittedSearch] = useState('');
@@ -812,14 +845,16 @@ function AdminPersonAccessConsoleInner({
                 <UserPlus className="mr-2 h-4 w-4" />
                 Add Technician
               </Button>
-              <Button
-                variant="outline"
-                className="min-h-11"
-                onClick={() => openAccessLauncher()}
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                Add or invite access
-              </Button>
+              {isSuperAdmin && (
+                <Button
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => openAccessLauncher()}
+                >
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add or invite access
+                </Button>
+              )}
               {!selectedPerson && (
                 <Button
                   variant="outline"
@@ -972,33 +1007,43 @@ function AdminPersonAccessConsoleInner({
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.44fr)]">
             <div className="space-y-5">
-              <PlusCustomerAccessCard
-                identity={identity}
-                account={selectedAccount}
-                effectiveAccess={effectiveAccess}
-                onChanged={refreshWorkspace}
-              />
-              <CorporatePartnerAccessCard
-                identity={identity}
-                effectiveAccess={effectiveAccess}
-                onChanged={refreshWorkspace}
-              />
+              {isSuperAdmin && (
+                <>
+                  <PlusCustomerAccessCard
+                    identity={identity}
+                    account={selectedAccount}
+                    effectiveAccess={effectiveAccess}
+                    onChanged={refreshWorkspace}
+                  />
+                  <CorporatePartnerAccessCard
+                    identity={identity}
+                    effectiveAccess={effectiveAccess}
+                    onChanged={refreshWorkspace}
+                  />
+                </>
+              )}
               <TechnicianAccessCard
                 identity={identity}
                 effectiveAccess={effectiveAccess}
                 onChanged={refreshWorkspace}
               />
               <ManualReportingAccessCard identity={identity} onChanged={refreshWorkspace} />
-              <ScopedAdminAccessCard identity={identity} onChanged={refreshWorkspace} />
-              <SuperAdminAccessCard identity={identity} onChanged={refreshWorkspace} />
+              {isSuperAdmin && (
+                <>
+                  <ScopedAdminAccessCard identity={identity} onChanged={refreshWorkspace} />
+                  <SuperAdminAccessCard identity={identity} onChanged={refreshWorkspace} />
+                </>
+              )}
             </div>
 
             <aside className="space-y-5">
-              <CustomerContextCard
-                identity={identity}
-                account={selectedAccount}
-                onChanged={refreshWorkspace}
-              />
+              {isSuperAdmin && (
+                <CustomerContextCard
+                  identity={identity}
+                  account={selectedAccount}
+                  onChanged={refreshWorkspace}
+                />
+              )}
               <ScopeBreakdownCard identity={identity} effectiveAccess={effectiveAccess} />
             </aside>
           </div>
@@ -1029,8 +1074,27 @@ function AccessLauncher({
   onOpenWorkspace: (person: SelectedAccessPerson) => void;
   onChanged: () => Promise<void>;
 }) {
+  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
-  const initialNormalizedPreset = normalizeLauncherPreset(initialPreset) ?? 'corporate_partner';
+  const visibleLauncherPresets = useMemo(
+    () =>
+      isSuperAdmin
+        ? accessLauncherPresets
+        : accessLauncherPresets.filter((item) => item.key === 'technician'),
+    [isSuperAdmin]
+  );
+  const getAllowedLauncherPreset = useCallback((value?: string): AccessLauncherPreset => {
+    const normalizedPreset = normalizeLauncherPreset(value);
+    if (
+      normalizedPreset &&
+      visibleLauncherPresets.some((item) => item.key === normalizedPreset)
+    ) {
+      return normalizedPreset;
+    }
+
+    return visibleLauncherPresets[0]?.key ?? 'technician';
+  }, [visibleLauncherPresets]);
+  const initialNormalizedPreset = getAllowedLauncherPreset(initialPreset);
   const [preset, setPreset] = useState<AccessLauncherPreset>(initialNormalizedPreset);
   const [targetInput, setTargetInput] = useState(initialEmail ?? '');
   const [selectedExistingUserId, setSelectedExistingUserId] = useState('');
@@ -1048,11 +1112,14 @@ function AccessLauncher({
 
   const searchValue = targetInput.trim();
   const normalizedEmail = hasEmailShape(searchValue) ? normalizeSearch(searchValue) : '';
-  const presetMeta = accessLauncherPresets.find((item) => item.key === preset) ?? accessLauncherPresets[0];
+  const presetMeta =
+    visibleLauncherPresets.find((item) => item.key === preset) ??
+    visibleLauncherPresets[0] ??
+    accessLauncherPresets[1];
 
   useEffect(() => {
     if (!open) return;
-    setPreset(normalizeLauncherPreset(initialPreset) ?? 'corporate_partner');
+    setPreset(getAllowedLauncherPreset(initialPreset));
     setTargetInput(initialEmail ?? '');
     setSelectedPartnerId(initialPartnerId ?? '');
     setSelectedAccountId(initialAccountId ?? '');
@@ -1063,7 +1130,7 @@ function AccessLauncher({
     setStagedPortalAccess({});
     setCorporatePartnerSaveConfirmation(null);
     setSelectedExistingUserId('');
-  }, [initialAccountId, initialEmail, initialPartnerId, initialPreset, open]);
+  }, [getAllowedLauncherPreset, initialAccountId, initialEmail, initialPartnerId, initialPreset, open]);
 
   const {
     data: existingPeople = emptyAccountSummaries,
@@ -1258,6 +1325,10 @@ function AccessLauncher({
   const selectedTechnicianMachineIdList = sortedSetValues(selectedTechnicianMachineIds);
   const isTechnicianTrainingOnlyInvite =
     preset === 'technician' && selectedTechnicianMachineIdList.length === 0;
+  const technicianRequiresMachineScope =
+    preset === 'technician' && technicianContext.requiresMachineScope;
+  const technicianAllowsTrainingOnly =
+    preset !== 'technician' || technicianContext.allowTrainingOnly;
   const selectedTechnicianMachineLabels = getSelectedTechnicianMachineLabels(
     selectedTechnicianMachines,
     selectedTechnicianMachineIdList
@@ -1273,7 +1344,9 @@ function AccessLauncher({
     presetMeta.inviteable &&
     Boolean(normalizedEmail) &&
     Boolean(grantReason.trim()) &&
-    (!isTechnicianTrainingOnlyInvite || trainingOnlyConfirmed);
+    (!isTechnicianTrainingOnlyInvite ||
+      (technicianAllowsTrainingOnly && trainingOnlyConfirmed)) &&
+    (!technicianRequiresMachineScope || selectedTechnicianMachineIdList.length > 0);
   const existingPresetActionLabel =
     preset === 'plus_customer' ? 'Open Plus Customer workspace' : 'Open person workspace';
 
@@ -1521,6 +1594,10 @@ function AccessLauncher({
           toast.error('Select a sponsor account.');
           return;
         }
+        if (technicianContext.requiresMachineScope && selectedTechnicianMachineIdList.length === 0) {
+          toast.error('Scoped Admin Technician grants require at least one assigned machine.');
+          return;
+        }
         if (selectedTechnicianMachineIdList.length === 0 && !trainingOnlyConfirmed) {
           toast.error('Confirm training-only access before sending this Technician invite.');
           return;
@@ -1671,7 +1748,7 @@ function AccessLauncher({
 
           <section>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" role="radiogroup" aria-label="Access preset">
-              {accessLauncherPresets.map((item) => {
+              {visibleLauncherPresets.map((item) => {
                 const isSelected = item.key === preset;
                 return (
                   <button
@@ -2034,9 +2111,9 @@ function AccessLauncher({
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
                         <p className="text-muted-foreground">
-                          No active Plus Customer owner is available to sponsor Technician access.
-                          Add or repair Plus Customer ownership first, then return to invite the
-                          Technician.
+                          No active account or assigned machine is available for this Admin
+                          Technician grant. Ask a Super Admin to confirm the account, machine, and
+                          Scoped Admin boundary.
                         </p>
                       </div>
                     </div>
@@ -2053,29 +2130,42 @@ function AccessLauncher({
                     disabled={!selectedTechnicianAccount}
                   />
                   {isTechnicianTrainingOnlyInvite && (
-                    <label
-                      htmlFor="access-launcher-training-only-confirm"
-                      className={cn(
-                        'mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
-                        (!selectedTechnicianAccount || isSaving) && 'cursor-not-allowed opacity-70'
-                      )}
-                    >
-                      <Checkbox
-                        id="access-launcher-training-only-confirm"
-                        checked={trainingOnlyConfirmed}
-                        onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
-                        disabled={!selectedTechnicianAccount || isSaving}
-                      />
-                      <span className="min-w-0">
-                        <span className="block font-medium text-foreground">
-                          Send as training-only access
+                    technicianRequiresMachineScope ? (
+                      <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                          <p className="text-muted-foreground">
+                            Scoped Admin Technician grants require at least one assigned in-scope
+                            machine. Training-only Technician access must be granted by a Super
+                            Admin, Plus Customer owner, or Corporate Partner manager.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <label
+                        htmlFor="access-launcher-training-only-confirm"
+                        className={cn(
+                          'mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
+                          (!selectedTechnicianAccount || isSaving) && 'cursor-not-allowed opacity-70'
+                        )}
+                      >
+                        <Checkbox
+                          id="access-launcher-training-only-confirm"
+                          checked={trainingOnlyConfirmed}
+                          onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
+                          disabled={!selectedTechnicianAccount || isSaving}
+                        />
+                        <span className="min-w-0">
+                          <span className="block font-medium text-foreground">
+                            Send as training-only access
+                          </span>
+                          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                            I understand this invite grants no machine reporting until machines are
+                            assigned later.
+                          </span>
                         </span>
-                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                          I understand this invite grants no machine reporting until machines are
-                          assigned later.
-                        </span>
-                      </span>
-                    </label>
+                      </label>
+                    )
                   )}
                   {technicianContextError && (
                     <p className="mt-1 text-xs text-destructive">
@@ -2088,11 +2178,14 @@ function AccessLauncher({
               <div className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <SummaryMetric
-                    label="Sponsor"
+                    label="Sponsor mode"
                     value={
                       hasTechnicianAccountEligibilityGap
-                        ? 'No eligible sponsor'
-                        : selectedTechnicianAccount?.accountName ?? 'Select account'
+                        ? 'No grantable scope'
+                        : formatTechnicianSponsorMode(
+                            selectedTechnicianAccount?.sponsorType,
+                            selectedTechnicianAccount?.authorityPath ?? technicianContext.authorityPath
+                          )
                     }
                   />
                   <SummaryMetric
@@ -2100,7 +2193,9 @@ function AccessLauncher({
                     value={
                       selectedTechnicianMachineIdList.length > 0
                         ? pluralize(selectedTechnicianMachineIdList.length, 'machine')
-                        : 'Training only'
+                        : technicianRequiresMachineScope
+                          ? 'Machine required'
+                          : 'Training only'
                     }
                   />
                   <SummaryMetric
@@ -2110,17 +2205,24 @@ function AccessLauncher({
                 </div>
                 {hasTechnicianAccountEligibilityGap ? (
                   <PreviewBox>
-                    Technician invites require a grantable customer account with an active Plus
-                    Customer owner. {pluralize(technicianContext.ineligibleAccountCount, 'active account')}
-                    {' '}currently needs Plus Customer ownership before it can sponsor Technician
-                    access.
+                    No active account is currently grantable in this Admin Technician context.
+                    Super Admins can use Bloomjoy admin sponsorship; Scoped Admins need at least
+                    one active assigned machine inside their current scope.
                   </PreviewBox>
                 ) : (
                   <PreviewBox>
                     This will grant Technician training access to {normalizedEmail || 'the entered email'}
                     {selectedTechnicianMachineIdList.length > 0
                       ? ` plus reporting for ${formatMachineSelection(selectedTechnicianMachineLabels)}.`
-                      : ' with no reporting machine.'}{' '}
+                      : technicianRequiresMachineScope
+                        ? ' after an in-scope reporting machine is selected.'
+                        : ' with no reporting machine.'}{' '}
+                    {selectedTechnicianAccount
+                      ? `${formatTechnicianSponsorMode(
+                          selectedTechnicianAccount.sponsorType,
+                          selectedTechnicianAccount.authorityPath
+                        )} will be used. `
+                      : ''}
                     Technician reporting remains read-only and limited to the selected machines.
                   </PreviewBox>
                 )}
@@ -3299,6 +3401,8 @@ function TechnicianAccessCard({
 
   const accounts = technicianContext.accounts;
   const grants = technicianContext.grants;
+  const technicianRequiresMachineScope = technicianContext.requiresMachineScope;
+  const technicianAllowsTrainingOnly = technicianContext.allowTrainingOnly;
   const activeGrants = grants.filter((grant) => grant.isActive && !grant.revokedAt);
   const activeGrantIds = uniqueValues(activeGrants.map((grant) => grant.grantId));
   const {
@@ -3382,6 +3486,10 @@ function TechnicianAccessCard({
       toast.error('Reason is required.');
       return;
     }
+    if (technicianRequiresMachineScope && selectedMachineIdList.length === 0) {
+      toast.error('Scoped Admin Technician grants require at least one assigned machine.');
+      return;
+    }
     if (selectedMachineIdList.length === 0 && !trainingOnlyConfirmed) {
       toast.error('Confirm training-only access before sending this Technician invite.');
       return;
@@ -3450,6 +3558,11 @@ function TechnicianAccessCard({
   };
 
   const sendTechnicianInvite = async (grant: AdminTechnicianGrant) => {
+    if (!grant.canManage) {
+      toast.error('Ask a Super Admin to repair or invite for this Technician grant.');
+      return;
+    }
+
     const invitePreflight = validateAccessInvitePreflight('technician', grant.technicianEmail);
     if (!invitePreflight.ok) {
       toast.error(invitePreflight.message);
@@ -3492,6 +3605,11 @@ function TechnicianAccessCard({
   };
 
   const copyTechnicianInviteLink = async (grant: AdminTechnicianGrant) => {
+    if (!grant.canManage) {
+      toast.error('Ask a Super Admin to repair or invite for this Technician grant.');
+      return;
+    }
+
     const invitePreflight = validateAccessInvitePreflight('technician', grant.technicianEmail);
     if (!invitePreflight.ok) {
       toast.error(invitePreflight.message);
@@ -3511,6 +3629,11 @@ function TechnicianAccessCard({
   };
 
   const handleSaveScope = async (grant: AdminTechnicianGrant) => {
+    if (!grant.canManage) {
+      toast.error('Ask a Super Admin to repair this Technician grant.');
+      return;
+    }
+
     const reason = scopeReasons[grant.grantId]?.trim() ?? '';
     if (!reason) {
       toast.error('Scope change reason is required.');
@@ -3540,6 +3663,11 @@ function TechnicianAccessCard({
   };
 
   const handleRenewGrant = async (grant: AdminTechnicianGrant) => {
+    if (!grant.canManage) {
+      toast.error('Ask a Super Admin to repair or renew this Technician grant.');
+      return;
+    }
+
     const reason = renewReasons[grant.grantId]?.trim() ?? '';
     if (!reason) {
       toast.error('Renewal reason is required.');
@@ -3565,6 +3693,11 @@ function TechnicianAccessCard({
   };
 
   const handleRevokeGrant = async (grant: AdminTechnicianGrant) => {
+    if (!grant.canManage) {
+      toast.error('Ask a Super Admin to repair or revoke this Technician grant.');
+      return;
+    }
+
     const reason = revokeReasons[grant.grantId]?.trim() ?? '';
     if (!reason) {
       toast.error('Revoke reason is required.');
@@ -3594,7 +3727,11 @@ function TechnicianAccessCard({
       icon={Wrench}
       title="Technician"
       status={activeGrants.length > 0 || activeSourceGrants.length > 0 ? 'Active' : 'Inactive'}
-      description="Super Admin controls for Technician training access and selected-machine reporting scope."
+      description={
+        technicianRequiresMachineScope
+          ? 'Scoped Admin controls for Technician training access with assigned in-scope reporting machines.'
+          : 'Super Admin controls for Technician training access and selected-machine reporting scope.'
+      }
     >
       {!identity.email && (
         <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
@@ -3654,30 +3791,42 @@ function TechnicianAccessCard({
                   disabled={isFetching || !selectedAccountId}
                 />
                 {selectedMachineIdList.length === 0 && (
-                  <label
-                    htmlFor="admin-technician-training-only-confirm"
-                    className={cn(
-                      'mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
-                      (isFetching || isSavingGrant || !selectedAccountId) &&
-                        'cursor-not-allowed opacity-70'
-                    )}
-                  >
-                    <Checkbox
-                      id="admin-technician-training-only-confirm"
-                      checked={trainingOnlyConfirmed}
-                      onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
-                      disabled={isFetching || isSavingGrant || !selectedAccountId}
-                    />
-                    <span className="min-w-0">
-                      <span className="block font-medium text-foreground">
-                        Send as training-only access
+                  technicianRequiresMachineScope || !technicianAllowsTrainingOnly ? (
+                    <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                        <p className="text-muted-foreground">
+                          Scoped Admin Technician grants require at least one assigned in-scope
+                          machine. Ask a Super Admin to create or repair training-only access.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor="admin-technician-training-only-confirm"
+                      className={cn(
+                        'mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm',
+                        (isFetching || isSavingGrant || !selectedAccountId) &&
+                          'cursor-not-allowed opacity-70'
+                      )}
+                    >
+                      <Checkbox
+                        id="admin-technician-training-only-confirm"
+                        checked={trainingOnlyConfirmed}
+                        onCheckedChange={(checked) => setTrainingOnlyConfirmed(checked === true)}
+                        disabled={isFetching || isSavingGrant || !selectedAccountId}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium text-foreground">
+                          Send as training-only access
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          I understand this Technician will not receive machine reporting from this
+                          source until machines are assigned later.
+                        </span>
                       </span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                        I understand this Technician will not receive machine reporting from this
-                        source until machines are assigned later.
-                      </span>
-                    </span>
-                  </label>
+                    </label>
+                  )
                 )}
               </div>
               <div>
@@ -3694,7 +3843,9 @@ function TechnicianAccessCard({
               Saving gives {identity.label} Technician training access and sends an invite email
               {selectedMachineIdList.length > 0
                 ? ` plus viewer reporting for ${formatMachineSelection(selectedMachineLabels)}.`
-                : ' with no assigned reporting machine.'}{' '}
+                : technicianRequiresMachineScope
+                  ? ' after an in-scope reporting machine is selected.'
+                  : ' with no assigned reporting machine.'}{' '}
               This does not grant Plus Customer, Corporate Partner, billing, supply discount, or
               admin privileges. Switching to training-only revokes only Technician-sourced reporting
               entitlements; unrelated manual reporting grants remain unchanged.
@@ -3707,6 +3858,7 @@ function TechnicianAccessCard({
                 isFetching ||
                 !selectedAccountId ||
                 !identity.email ||
+                (technicianRequiresMachineScope && selectedMachineIdList.length === 0) ||
                 (selectedMachineIdList.length === 0 && !trainingOnlyConfirmed)
               }
             >
@@ -3726,6 +3878,7 @@ function TechnicianAccessCard({
                 const activeMachineCount = grant.machines.filter((machine) => machine.isActive).length;
                 const draftMachineIds = scopeDrafts[grant.grantId] ?? getGrantMachineScopeIds(grant);
                 const inviteDelivery = latestTechnicianInviteBySourceId.get(grant.grantId);
+                const managementNotice = getTechnicianGrantManagementNotice(grant);
 
                 return (
                   <div key={grant.grantId} className="rounded-md border border-border p-3">
@@ -3733,7 +3886,7 @@ function TechnicianAccessCard({
                       <div>
                         <p className="font-medium text-foreground">{grant.accountName}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Sponsor: {grant.partnerName ?? grant.sponsorType} / expires {formatDate(grant.expiresAt)}
+                          Sponsor: {grant.partnerName ?? formatTechnicianSponsorMode(grant.sponsorType, grant.authorityPath)} / expires {formatDate(grant.expiresAt)}
                         </p>
                       </div>
                       <Badge className="w-fit" variant={grant.isActive ? 'default' : 'outline'}>
@@ -3745,6 +3898,15 @@ function TechnicianAccessCard({
                       <SummaryMetric label="Reporting rows" value={String(grant.activeReportingEntitlementCount)} />
                       <SummaryMetric label="Grant reason" value={grant.grantReason || 'Technician access'} />
                     </div>
+
+                    {managementNotice && (
+                      <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                          <p className="text-muted-foreground">{managementNotice}</p>
+                        </div>
+                      </div>
+                    )}
 
                     {!grant.revokedAt && (
                       <div className="mt-3 space-y-3">
@@ -3782,7 +3944,11 @@ function TechnicianAccessCard({
                             <Button
                               type="button"
                               variant="outline"
-                              disabled={!grant.technicianEmail || sendingInviteGrantId === grant.grantId}
+                              disabled={
+                                !grant.canManage ||
+                                !grant.technicianEmail ||
+                                sendingInviteGrantId === grant.grantId
+                              }
                               onClick={() => void sendTechnicianInvite(grant)}
                             >
                               {sendingInviteGrantId === grant.grantId ? (
@@ -3795,7 +3961,7 @@ function TechnicianAccessCard({
                             <Button
                               type="button"
                               variant="outline"
-                              disabled={!grant.technicianEmail}
+                              disabled={!grant.canManage || !grant.technicianEmail}
                               onClick={() => void copyTechnicianInviteLink(grant)}
                             >
                               <Copy className="mr-2 h-4 w-4" />
@@ -3815,6 +3981,7 @@ function TechnicianAccessCard({
                               machines={accountMachines}
                               selectedMachineIds={draftMachineIds}
                               label="Scope after save"
+                              disabled={!grant.canManage}
                               onSelectedMachineIdsChange={(machineIds) =>
                                 setScopeDrafts((current) => ({
                                   ...current,
@@ -3828,6 +3995,7 @@ function TechnicianAccessCard({
                             <Input
                               id={`technician-scope-reason-${grant.grantId}`}
                               value={scopeReasons[grant.grantId] ?? ''}
+                              disabled={!grant.canManage}
                               onChange={(event) =>
                                 setScopeReasons((current) => ({
                                   ...current,
@@ -3842,7 +4010,11 @@ function TechnicianAccessCard({
                               className="w-full"
                               variant="outline"
                               onClick={() => void handleSaveScope(grant)}
-                              disabled={savingScopeGrantId === grant.grantId || !scopeReasons[grant.grantId]?.trim()}
+                              disabled={
+                                !grant.canManage ||
+                                savingScopeGrantId === grant.grantId ||
+                                !scopeReasons[grant.grantId]?.trim()
+                              }
                             >
                               {savingScopeGrantId === grant.grantId ? (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -3865,6 +4037,7 @@ function TechnicianAccessCard({
                             <Input
                               id={`technician-renew-reason-${grant.grantId}`}
                               value={renewReasons[grant.grantId] ?? ''}
+                              disabled={!grant.canManage}
                               onChange={(event) =>
                                 setRenewReasons((current) => ({
                                   ...current,
@@ -3879,7 +4052,11 @@ function TechnicianAccessCard({
                               className="w-full"
                               variant="outline"
                               onClick={() => void handleRenewGrant(grant)}
-                              disabled={renewingGrantId === grant.grantId || !renewReasons[grant.grantId]?.trim()}
+                              disabled={
+                                !grant.canManage ||
+                                renewingGrantId === grant.grantId ||
+                                !renewReasons[grant.grantId]?.trim()
+                              }
                             >
                               {renewingGrantId === grant.grantId ? (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -3897,6 +4074,7 @@ function TechnicianAccessCard({
                             <Input
                               id={`technician-revoke-reason-${grant.grantId}`}
                               value={revokeReasons[grant.grantId] ?? ''}
+                              disabled={!grant.canManage}
                               onChange={(event) =>
                                 setRevokeReasons((current) => ({
                                   ...current,
@@ -3911,7 +4089,11 @@ function TechnicianAccessCard({
                               className="w-full"
                               variant="outline"
                               onClick={() => void handleRevokeGrant(grant)}
-                              disabled={revokingGrantId === grant.grantId || !revokeReasons[grant.grantId]?.trim()}
+                              disabled={
+                                !grant.canManage ||
+                                revokingGrantId === grant.grantId ||
+                                !revokeReasons[grant.grantId]?.trim()
+                              }
                             >
                               {revokingGrantId === grant.grantId ? (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

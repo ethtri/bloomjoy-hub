@@ -17,6 +17,7 @@ export type AdminTechnicianAccount = {
   accountStatus: string;
   sponsorUserId: string | null;
   sponsorType: string;
+  authorityPath: string;
   machineCount: number;
   machines: AdminTechnicianMachine[];
 };
@@ -36,6 +37,10 @@ export type AdminTechnicianGrant = {
   accountName: string;
   sponsorUserId: string;
   sponsorType: string;
+  authorityPath: string;
+  canManage: boolean;
+  requiresSuperAdminRepair: boolean;
+  outOfScopeMachineCount: number;
   partnerId: string | null;
   partnerName: string | null;
   technicianEmail: string;
@@ -60,6 +65,9 @@ export type AdminTechnicianAccessContext = {
   activeAccountCount: number;
   eligibleAccountCount: number;
   ineligibleAccountCount: number;
+  authorityPath: string;
+  requiresMachineScope: boolean;
+  allowTrainingOnly: boolean;
   accounts: AdminTechnicianAccount[];
   grants: AdminTechnicianGrant[];
 };
@@ -109,12 +117,27 @@ const getAdminTechnicianErrorMessage = (message: string | undefined, fallback: s
     return 'Super Admin access is required to manage Technicians from Admin Access.';
   }
 
+  if (rawMessage.includes('Admin Technician access required')) {
+    return 'Admin Access can manage Technicians only for Super Admins and Scoped Admins with assigned machines.';
+  }
+
+  if (rawMessage.includes('Scoped Admin Technician grants require at least one assigned machine')) {
+    return 'Scoped Admin Technician grants require at least one assigned in-scope machine.';
+  }
+
+  if (
+    rawMessage.includes('Scoped Admin can manage only') ||
+    rawMessage.includes('wholly inside assigned machine scope')
+  ) {
+    return 'This Technician grant includes machines outside the current Scoped Admin boundary. Ask a Super Admin to repair or change it.';
+  }
+
   if (rawMessage.includes('zero or one Technician machine')) {
     return 'Admin Technician access supports training-only or selected reporting machines after the latest database rollout.';
   }
 
   if (rawMessage.includes('No active Technician sponsor found')) {
-    return 'This account needs an active Plus owner before Technician access can be granted.';
+    return 'No eligible Technician sponsor is available for this account.';
   }
 
   if (rawMessage.includes('Technician grant cap exceeded')) {
@@ -148,6 +171,7 @@ const mapAccount = (item: unknown): AdminTechnicianAccount => {
     accountStatus: asString(record.accountStatus, 'active'),
     sponsorUserId: asNullableString(record.sponsorUserId),
     sponsorType: asString(record.sponsorType, 'plus_customer_account'),
+    authorityPath: asString(record.authorityPath, 'super_admin'),
     machineCount: asNumber(record.machineCount),
     machines: asArray(record.machines, mapMachine).filter((machine) => machine.machineId),
   };
@@ -177,6 +201,10 @@ const mapGrant = (item: unknown): AdminTechnicianGrant => {
     accountName: asString(record.accountName, 'Customer account'),
     sponsorUserId: asString(record.sponsorUserId),
     sponsorType: asString(record.sponsorType, 'plus_customer_account'),
+    authorityPath: asString(record.authorityPath, 'super_admin'),
+    canManage: asBoolean(record.canManage ?? true),
+    requiresSuperAdminRepair: asBoolean(record.requiresSuperAdminRepair),
+    outOfScopeMachineCount: asNumber(record.outOfScopeMachineCount),
     partnerId: asNullableString(record.partnerId),
     partnerName: asNullableString(record.partnerName),
     technicianEmail: asString(record.technicianEmail),
@@ -233,6 +261,9 @@ export const fetchAdminTechnicianAccessContext = async (
     activeAccountCount: asNumber(record.activeAccountCount),
     eligibleAccountCount: asNumber(record.eligibleAccountCount),
     ineligibleAccountCount: asNumber(record.ineligibleAccountCount),
+    authorityPath: asString(record.authorityPath, 'super_admin'),
+    requiresMachineScope: asBoolean(record.requiresMachineScope),
+    allowTrainingOnly: record.allowTrainingOnly === undefined ? true : asBoolean(record.allowTrainingOnly),
     accounts: asArray(record.accounts, mapAccount).filter((account) => account.accountId),
     grants: asArray(record.grants, mapGrant).filter((grant) => grant.grantId),
   };

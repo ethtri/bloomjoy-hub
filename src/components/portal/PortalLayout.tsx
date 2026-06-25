@@ -52,7 +52,8 @@ export function PortalLayout({ children }: PortalLayoutProps) {
       hasReportingAccess,
       capabilities,
       hasRefundOperationsAccess,
-      canManageTechnicians
+      canManageTechnicians,
+      adminAccess.isScopedAdmin
     );
   const visibleDestinations = sortedDestinations
     .filter((destination) => destination.access !== 'reporting' || canAccessDestination(destination.access))

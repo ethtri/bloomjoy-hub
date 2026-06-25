@@ -11,8 +11,14 @@ import {
 import { Button } from '@/components/ui/button';
 
 export function MemberRoute() {
-  const { canManageTechnicians, capabilities, hasReportingAccess, loading, portalAccessTier } =
-    useAuth();
+  const {
+    adminAccess,
+    canManageTechnicians,
+    capabilities,
+    hasReportingAccess,
+    loading,
+    portalAccessTier,
+  } = useAuth();
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
   const accessLabel = getAccessLevelLabel(lockedDestination.access);
@@ -34,7 +40,8 @@ export function MemberRoute() {
       hasReportingAccess,
       capabilities,
       false,
-      canManageTechnicians
+      canManageTechnicians,
+      adminAccess.isScopedAdmin
     )
   ) {
     return <Outlet />;
