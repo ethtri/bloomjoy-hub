@@ -47,7 +47,7 @@ Use seeded or temporary QA users for each persona. Record the email, source gran
 | Plus Customer | Open `/portal/team`; see Technician Access with seat usage, owned machines, and active grants; add/update/revoke a Technician only for owned machines; access Plus training/support/supply benefits and assigned reporting. | Cannot open `/admin`; cannot manage unrelated customer accounts or machines; cannot access partner settlement/setup or global reporting. | Screenshots of Technician Access on desktop/mobile, owned-machine selector, cap/error state if applicable, Account Settings link to Team, and blocked `/admin` route. |
 | Corporate Partner | Open partner-facing `/portal/reports` for active portal-enabled partnership machines; use partner-authorized Technician management for derived machines; access training/support/member supply tier where capability checks allow it. | Cannot open `/admin`; cannot see inactive or non-portal-enabled partnerships; cannot edit tax, payout rules, imports, schedules, billing, or unrelated machines. | Screenshots of partner dashboard scope, Technician management scope, and blocked admin/setup routes. |
 | Technician | Open `/portal` and `/portal/training`; if assigned machines exist, open `/portal/reports` and see only assigned machines; if no machines are assigned, remain training-only. | Cannot open `/admin`; cannot see Plus discounts, billing, account-owner tools, Technician management, partner dashboard, or unassigned machines. | Screenshots of training access, assigned-machine reporting filters/results, training-only no-reporting state, and blocked admin/account-owner paths. |
-| Scoped Admin | Open `/admin/access?tab=reporting-access`; see only Access in admin navigation; manage manual reporting grants only inside assigned machine scope; open `/portal/reports` for scoped machines; open training; see partner dashboard only when a partnership is fully covered by scoped machines. | Cannot open global-only admin routes, global roles, partnerships, reporting operations, unrelated machines, Plus billing/commerce benefits, or revoke Technician-derived reporting grants. | Screenshots of scoped reporting-access view, machine-scope limits, blocked global admin URLs, and audit entry for scoped-admin action. |
+| Scoped Admin | Open `/admin/access`; see only scoped Admin Access workflows; manage manual reporting grants and Technician grants only inside assigned machine scope; Technician grants require at least one selected in-scope machine; open `/portal/reports` for scoped machines; open training; see partner dashboard only when a partnership is fully covered by scoped machines. | Cannot open global-only admin routes, global roles, partnerships, reporting operations, unrelated machines, Plus billing/commerce benefits, zero-machine training-only Technician grants, out-of-scope Technician repair, or customer/partner Team management unless separately eligible. | Screenshots of scoped reporting-access view, scoped Technician grant flow, machine-scope limits, blocked global admin URLs, and audit entry for scoped-admin action. |
 | Reporting User | Open `/portal/reports` for explicitly assigned reporting machines; `report_manager` remains reporting-only where supported. | Cannot open `/admin` or `/admin/access`; cannot manage Technician grants; cannot access partner setup/settlement, Plus benefits, billing, or unrelated reports. | Screenshots of assigned reporting view and blocked admin/Technician management controls. |
 | Non-admin / Baseline | Open baseline authenticated portal pages such as `/portal`, `/portal/orders`, and `/portal/account` if allowed by baseline account state. | Cannot open `/admin`, `/portal/training` unless separately granted, `/portal/reports` unless reporting access exists, Plus benefits, partner dashboard, or Technician management. | Screenshots of baseline portal state and clear blocked/locked states for admin, training, reporting, and Technician controls. |
 
@@ -59,7 +59,7 @@ Use seeded or temporary QA users for each persona. Record the email, source gran
 - Selecting a person shows Who/What/Where/Why/When, effective presets, capabilities, warnings, source cards, and machine/partner scope in one workspace.
 - The workspace distinguishes paid Plus subscription, admin-granted Plus Customer access, Corporate Partner membership, Technician-derived access, Scoped Admin scope, Super Admin, and manual reporting access.
 - The manual reporting card edits machine-scoped reporting access with one save and does not remove other users or Technician-derived grants.
-- The Technician card exposes Super Admin mutation controls in Admin Access while customer/partner self-service mutation work remains in Portal > Team > Technician Access.
+- The Technician card exposes Super Admin mutation controls and scoped-admin machine-scoped mutation controls in Admin Access while customer/partner self-service mutation work remains in Portal > Team > Technician Access.
 
 ### Grant And Revoke Safety
 - Granting or extending Plus Customer access requires a future expiry date and reason, and does not override an active paid Stripe subscription.
@@ -68,12 +68,14 @@ Use seeded or temporary QA users for each persona. Record the email, source gran
 - Revoking Corporate Partner access removes partner capabilities and derived reporting without removing unrelated manual reporting access.
 - Granting/updating Scoped Admin requires selected machine scopes, preview, and reason.
 - Scoped Admin reporting-access saves affect only manual reporting grants inside assigned scope.
+- Scoped Admin Technician grants require selected in-scope machines, preview, and reason; direct zero-machine or out-of-scope RPC attempts fail.
 - Super Admin grant/revoke is available as a rare global-risk action only with preview and reason.
 
 ### Negative And Boundary Checks
 - `report_manager` is never accepted as a Scoped Admin workaround.
 - Partnership setup, payout recipient status, or legal participation does not grant portal access by itself.
 - Technician revoke removes only Technician-derived reporting access.
+- Existing Technician grants with out-of-scope machines are read-only for Scoped Admins and require Super Admin repair.
 - Corporate Partner access is explicit and does not come from Plus Customer membership.
 - Reporting visibility remains machine-level unless a later decision explicitly expands scope.
 

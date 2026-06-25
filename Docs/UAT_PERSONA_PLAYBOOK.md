@@ -181,7 +181,7 @@ Agents can paste this into a PR comment or status update:
 | Login/reset/Google auth | Public Buyer for entry, Plus Account Owner, Technician, Super Admin as applicable |
 | Portal dashboard/account/orders | Plus Account Owner |
 | Training | Plus Account Owner, Corporate Partner, Technician |
-| Technician management | Plus Account Owner, Corporate Partner, Technician, Super Admin when override exists |
+| Technician management | Plus Account Owner, Corporate Partner, Scoped Admin for assigned-machine grants, Super Admin when override exists; Technician persona must not manage other Technicians |
 | Customer reporting | Plus Account Owner, Technician |
 | Partner reporting | Corporate Partner, Super Admin |
 | Admin support/orders/access/audit | Super Admin |

@@ -7,11 +7,13 @@ import {
   MapPin,
   CreditCard,
   ExternalLink,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
+import { canUsePortalTeamManagement } from '@/components/portal/portalNavigation';
 import { LanguagePreferenceControl } from '@/components/i18n/LanguagePreferenceControl';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -44,7 +46,7 @@ const formatMembershipStatus = (status: string) =>
     .join(' ');
 
 export default function AccountPage() {
-  const { user, canManageTechnicians, isCorporatePartner } = useAuth();
+  const { user, adminAccess, canManageTechnicians, capabilities, isCorporatePartner } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
@@ -132,6 +134,7 @@ export default function AccountPage() {
   const isMember = hasSummaryPlusAccess || hasPlusAccess(effectiveMembershipStatus);
   const isCorporatePartnerOnly =
     isCorporatePartner && !hasSummaryPlusAccess && !user?.plusAccess.hasPlusAccess && !user?.isSuperAdmin;
+  const isScopedAdminOnly = Boolean(user?.isScopedAdmin && !user?.isSuperAdmin);
   const hasPaidBilling =
     membershipSummary?.paidSubscriptionActive ??
     user?.plusAccess.paidSubscriptionActive ??
@@ -151,6 +154,10 @@ export default function AccountPage() {
       })
     : null;
   const membershipStatusLabel = useMemo(() => {
+    if (isScopedAdminOnly) {
+      return 'Scoped Admin';
+    }
+
     if (isCorporatePartnerOnly) {
       return 'Corporate Partner';
     }
@@ -168,8 +175,16 @@ export default function AccountPage() {
     }
 
     return formatMembershipStatus(effectiveMembershipStatus);
-  }, [accessSource, effectiveMembershipStatus, freeGrantExpiryLabel, isCorporatePartnerOnly]);
-  const accountAccessLabel = isCorporatePartnerOnly
+  }, [
+    accessSource,
+    effectiveMembershipStatus,
+    freeGrantExpiryLabel,
+    isCorporatePartnerOnly,
+    isScopedAdminOnly,
+  ]);
+  const accountAccessLabel = isScopedAdminOnly
+    ? 'Scoped Admin'
+    : isCorporatePartnerOnly
     ? 'Corporate Partner'
     : isMember
       ? 'Plus Basic'
@@ -182,6 +197,11 @@ export default function AccountPage() {
           day: 'numeric',
         })
       : null;
+  const canUseTeam = canUsePortalTeamManagement({ canManageTechnicians, capabilities });
+  const canUseAdminAccess =
+    Boolean(user?.isSuperAdmin) ||
+    adminAccess.allowedSurfaces.includes('*') ||
+    adminAccess.allowedSurfaces.includes('access');
 
   const handleManageBilling = async () => {
     if (!user?.email) {
@@ -244,7 +264,7 @@ export default function AccountPage() {
                 : []),
             ]}
             actions={
-              isCorporatePartnerOnly ? undefined : hasPaidBilling ? (
+              isScopedAdminOnly || isCorporatePartnerOnly ? undefined : hasPaidBilling ? (
                 <Button
                   variant="outline"
                   className="min-h-11"
@@ -261,14 +281,14 @@ export default function AccountPage() {
             }
           />
 
-          {!isCorporatePartnerOnly && accessSource === 'free_grant' && freeGrantExpiryLabel && (
+          {!isScopedAdminOnly && !isCorporatePartnerOnly && accessSource === 'free_grant' && freeGrantExpiryLabel && (
             <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
               Plus access is waived through {freeGrantExpiryLabel}. No subscription fee is being
               billed for this grant.
             </div>
           )}
 
-          {canManageTechnicians && (
+          {canUseTeam && (
             <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div className="flex min-w-0 items-start gap-3">
@@ -287,6 +307,30 @@ export default function AccountPage() {
                 </div>
                 <Button asChild className="min-h-11 w-full md:w-auto">
                   <Link to="/portal/team">Manage Technicians</Link>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!canUseTeam && user?.isScopedAdmin && canUseAdminAccess && (
+            <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <ShieldCheck className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="font-display text-lg font-semibold text-foreground">
+                      Scoped Admin access
+                    </h2>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                      Add Technicians for assigned machines from Admin Access. Portal Team remains
+                      reserved for Plus Customer owners and Corporate Partner managers.
+                    </p>
+                  </div>
+                </div>
+                <Button asChild className="min-h-11 w-full md:w-auto">
+                  <Link to="/admin/access?action=add-access&preset=technician">Open Admin Access</Link>
                 </Button>
               </div>
             </div>
@@ -350,6 +394,7 @@ export default function AccountPage() {
               </div>
 
               {/* Shipping */}
+              {!isScopedAdminOnly && (
               <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
@@ -433,6 +478,7 @@ export default function AccountPage() {
                   {saveProfileMutation.isPending ? t('account.saving') : t('account.updateAddress')}
                 </Button>
               </div>
+              )}
             </div>
 
             {/* Billing */}
@@ -441,7 +487,7 @@ export default function AccountPage() {
                 <LanguagePreferenceControl showText fullWidth />
               </div>
 
-              {!isCorporatePartnerOnly && (
+              {!isScopedAdminOnly && !isCorporatePartnerOnly && (
                 <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
                   <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
@@ -481,6 +527,7 @@ export default function AccountPage() {
                 </div>
               )}
 
+              {!isScopedAdminOnly && (
               <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
                 <h3 className="font-semibold text-foreground">Membership</h3>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
@@ -519,6 +566,7 @@ export default function AccountPage() {
                   </div>
                 )}
               </div>
+              )}
 
             </div>
           </div>

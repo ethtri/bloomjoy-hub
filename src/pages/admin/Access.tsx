@@ -193,7 +193,7 @@ export default function AdminAccessPage() {
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 {isSuperAdmin
                   ? 'Find a person, review their effective access, then grant, change, or revoke source-specific access with a required reason.'
-                  : 'Manage Corporate Partner permissions and reporting visibility for the machines included in your scoped admin grant.'}
+                  : 'Find a person, grant Technician access for assigned machines, and manage reporting visibility inside your scoped admin grant.'}
               </p>
               {isScopedAdmin && !isSuperAdmin && (
                 <Badge className="mt-3" variant="secondary">
@@ -204,17 +204,19 @@ export default function AdminAccessPage() {
           </div>
 
           <div className="mt-6">
-            {isSuperAdmin ? (
+            {(isSuperAdmin || isScopedAdmin) && (
               <AdminPersonAccessConsole
                 initialShowActivity={initialShowActivity}
                 initialLauncher={initialLauncher}
               />
-            ) : (
-              <div className="space-y-6">
+            )}
+
+            {!isSuperAdmin && (
+              <div className="mt-6 space-y-6">
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
                   Your scoped admin grant limits this workspace to assigned machines. Saving changes
-                  only affects Corporate Partner permissions and manual reporting grants inside that
-                  scope.
+                  only affects Technician grants, Corporate Partner permissions, and manual
+                  reporting grants inside that scope.
                 </div>
                 <PresetsTab />
                 <ScopedMachineTaxRatesPanel />

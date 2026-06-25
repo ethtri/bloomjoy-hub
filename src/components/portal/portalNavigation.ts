@@ -16,6 +16,7 @@ import type { TranslationKey } from '@/lib/i18n';
 
 export type PortalAccessLevel =
   | 'all'
+  | 'account'
   | 'baseline'
   | 'training'
   | 'plus'
@@ -77,7 +78,7 @@ export const portalDestinations: PortalDestination[] = [
     description: 'Profile, billing, shipping, and language preferences.',
     descriptionKey: 'portal.nav.accountDescription',
     icon: Settings,
-    access: 'baseline',
+    access: 'account',
     mobileOrder: 4,
   },
   {
@@ -157,19 +158,35 @@ export const getPortalDestinationByPath = (pathname: string) =>
       : pathname === destination.href || pathname.startsWith(`${destination.href}/`)
   ) ?? portalDestinations[0];
 
+export const canUsePortalTeamManagement = ({
+  canManageTechnicians = false,
+  capabilities = [],
+}: {
+  canManageTechnicians?: boolean;
+  capabilities?: string[];
+}) => canManageTechnicians || capabilities.includes('technicians.manage');
+
 export const canAccessPortalLevel = (
   accessTier: PortalAccessTier,
   accessLevel: PortalAccessLevel,
   hasReportingAccess = false,
   capabilities: string[] = [],
   hasRefundOperationsAccess = false,
-  canManageTechnicians = false
+  canManageTechnicians = false,
+  canAccessAccountSettings = false
 ): boolean => {
   const hasCapability = (capability: string) => capabilities.includes(capability);
 
   switch (accessLevel) {
     case 'all':
       return true;
+    case 'account':
+      return (
+        canAccessAccountSettings ||
+        accessTier === 'baseline' ||
+        accessTier === 'plus' ||
+        accessTier === 'corporate_partner'
+      );
     case 'baseline':
       return (
         accessTier === 'baseline' ||
@@ -192,7 +209,7 @@ export const canAccessPortalLevel = (
     case 'refunds':
       return hasRefundOperationsAccess || hasCapability('refunds.manage');
     case 'team':
-      return canManageTechnicians || hasCapability('technicians.manage');
+      return canUsePortalTeamManagement({ canManageTechnicians, capabilities });
     default:
       return false;
   }
@@ -202,6 +219,8 @@ export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
   switch (accessLevel) {
     case 'baseline':
       return 'Customer';
+    case 'account':
+      return 'Account';
     case 'training':
       return 'Training';
     case 'plus':
@@ -224,6 +243,8 @@ export const getAccessLevelLabelKey = (accessLevel: PortalAccessLevel): Translat
   switch (accessLevel) {
     case 'baseline':
       return 'portal.access.customer';
+    case 'account':
+      return 'portal.nav.account';
     case 'training':
       return 'portal.access.training';
     case 'plus':

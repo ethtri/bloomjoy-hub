@@ -367,10 +367,6 @@ export function TechnicianManagementPanel() {
     return null;
   }
 
-  if (!managementContext?.canManage && !managementErrorMessage) {
-    return null;
-  }
-
   const handleAddTechnician = async () => {
     const normalizedEmail = technicianEmail.trim().toLowerCase();
 
@@ -630,6 +626,17 @@ export function TechnicianManagementPanel() {
               <AlertDescription>
                 Existing Technician access is still available. Send/copy actions will retry invite
                 delivery history after the next change. {inviteDeliveriesErrorMessage}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {managementContext && !managementContext.canManage && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Technician management is not available</AlertTitle>
+              <AlertDescription>
+                This portal session does not have an active customer or partner Technician
+                management scope. Scoped Admin Technician grants are handled from Admin Access.
               </AlertDescription>
             </Alert>
           )}
