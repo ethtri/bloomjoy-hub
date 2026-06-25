@@ -636,7 +636,7 @@ export function TechnicianManagementPanel() {
               <AlertTitle>Technician management is not available</AlertTitle>
               <AlertDescription>
                 This portal session does not have an active customer or partner Technician
-                management scope. Scoped Admin Technician grants are handled from Admin Access.
+                management scope. Admin Technician grants are handled from Admin Access.
               </AlertDescription>
             </Alert>
           )}
