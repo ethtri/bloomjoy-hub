@@ -13,10 +13,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
-import { canUsePortalTeamManagement } from '@/components/portal/portalNavigation';
 import { LanguagePreferenceControl } from '@/components/i18n/LanguagePreferenceControl';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { openCustomerPortal } from '@/lib/stripeCheckout';
 import { hasPlusAccess } from '@/lib/membership';
 import {
@@ -46,8 +46,13 @@ const formatMembershipStatus = (status: string) =>
     .join(' ');
 
 export default function AccountPage() {
-  const { user, adminAccess, canManageTechnicians, capabilities, isCorporatePartner } = useAuth();
+  const { user, adminAccess, isCorporatePartner } = useAuth();
   const { t } = useLanguage();
+  const {
+    canUsePortalTeam,
+    hasAdvertisedTeamCapability,
+    isResolvingPortalTeam,
+  } = usePortalTechnicianManagement();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -197,11 +202,14 @@ export default function AccountPage() {
           day: 'numeric',
         })
       : null;
-  const canUseTeam = canUsePortalTeamManagement({ canManageTechnicians, capabilities });
   const canUseAdminAccess =
     Boolean(user?.isSuperAdmin) ||
     adminAccess.allowedSurfaces.includes('*') ||
     adminAccess.allowedSurfaces.includes('access');
+  const shouldShowAdminTechnicianCard =
+    canUseAdminAccess &&
+    (Boolean(user?.isScopedAdmin) ||
+      (hasAdvertisedTeamCapability && !isResolvingPortalTeam && !canUsePortalTeam));
 
   const handleManageBilling = async () => {
     if (!user?.email) {
@@ -288,7 +296,7 @@ export default function AccountPage() {
             </div>
           )}
 
-          {canUseTeam && (
+          {canUsePortalTeam && (
             <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div className="flex min-w-0 items-start gap-3">
@@ -312,7 +320,7 @@ export default function AccountPage() {
             </div>
           )}
 
-          {!canUseTeam && user?.isScopedAdmin && canUseAdminAccess && (
+          {shouldShowAdminTechnicianCard && (
             <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div className="flex min-w-0 items-start gap-3">
@@ -321,11 +329,12 @@ export default function AccountPage() {
                   </div>
                   <div className="min-w-0">
                     <h2 className="font-display text-lg font-semibold text-foreground">
-                      Scoped Admin access
+                      Technician administration
                     </h2>
                     <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-                      Add Technicians for assigned machines from Admin Access. Portal Team remains
-                      reserved for Plus Customer owners and Corporate Partner managers.
+                      Use Admin Access to add Technicians for assigned or admin-controlled
+                      machines. Portal Team appears only when this account has an active customer
+                      or partner team management scope.
                     </p>
                   </div>
                 </div>

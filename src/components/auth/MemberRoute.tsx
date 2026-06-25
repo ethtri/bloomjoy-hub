@@ -9,6 +9,7 @@ import {
   getPortalDestinationByPath,
 } from '@/components/portal/portalNavigation';
 import { Button } from '@/components/ui/button';
+import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 
 export function MemberRoute() {
   const {
@@ -24,8 +25,13 @@ export function MemberRoute() {
   const accessLabel = getAccessLevelLabel(lockedDestination.access);
   const isReportingRoute = lockedDestination.access === 'reporting';
   const isTeamRoute = lockedDestination.access === 'team';
+  const { canUsePortalTeam, isResolvingPortalTeam } = usePortalTechnicianManagement();
+  const canUseAdminAccess =
+    adminAccess.canAccessAdmin ||
+    adminAccess.allowedSurfaces.includes('*') ||
+    adminAccess.allowedSurfaces.includes('access');
 
-  if (loading) {
+  if (loading || (isTeamRoute && isResolvingPortalTeam)) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
         Loading...
@@ -33,8 +39,9 @@ export function MemberRoute() {
     );
   }
 
-  if (
-    canAccessPortalLevel(
+  const canAccessRoute = isTeamRoute
+    ? canUsePortalTeam
+    : canAccessPortalLevel(
       portalAccessTier,
       lockedDestination.access,
       hasReportingAccess,
@@ -42,8 +49,9 @@ export function MemberRoute() {
       false,
       canManageTechnicians,
       adminAccess.isScopedAdmin
-    )
-  ) {
+    );
+
+  if (canAccessRoute) {
     return <Outlet />;
   }
 
@@ -82,6 +90,13 @@ export function MemberRoute() {
                   </div>
                 </div>
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  {isTeamRoute && canUseAdminAccess && (
+                    <Button asChild className="min-h-11">
+                      <Link to="/admin/access?action=add-access&preset=technician">
+                        Open Admin Access
+                      </Link>
+                    </Button>
+                  )}
                   {lockedDestination.access !== 'baseline' && !isReportingRoute && !isTeamRoute && (
                     <Button asChild className="min-h-11">
                       <Link to="/plus">View Plus Membership</Link>

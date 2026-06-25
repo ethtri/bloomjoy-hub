@@ -20,6 +20,7 @@ import {
 } from '@/components/portal/portalNavigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { trackEvent } from '@/lib/analytics';
 import type { TranslationKey } from '@/lib/i18n';
 import { getOnboardingProgress } from '@/lib/onboardingChecklist';
@@ -123,8 +124,13 @@ export default function PortalDashboard() {
   const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
   const hasRefundOperationsAccess =
     isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
-  const canAccessPortalAction = (access: PortalAccessLevel) =>
-    canAccessPortalLevel(
+  const { canUsePortalTeam } = usePortalTechnicianManagement();
+  const canAccessPortalAction = (access: PortalAccessLevel) => {
+    if (access === 'team') {
+      return canUsePortalTeam;
+    }
+
+    return canAccessPortalLevel(
       portalAccessTier,
       access,
       hasReportingAccess,
@@ -133,6 +139,7 @@ export default function PortalDashboard() {
       canManageTechnicians,
       adminAccess.isScopedAdmin
     );
+  };
   const onboardingProgress = getOnboardingProgress(user?.email);
   const { data: library = [] } = useTrainingLibrary(canAccessTraining);
   const { data: trackDefinitions = [] } = useTrainingTracks(canAccessTraining);

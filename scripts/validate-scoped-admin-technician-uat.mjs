@@ -698,20 +698,36 @@ const runScenario = async ({ browser, args, recorder, state, name, test }) => {
   await installMockRoutes(context, state);
   const page = await context.newPage();
   const consoleErrors = [];
+  const pageErrors = [];
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
       consoleErrors.push(message.text());
     }
   });
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.stack || error.message);
+  });
 
   try {
     await test({ page, state, consoleErrors });
+    const unexpectedPageErrors = pageErrors.filter(Boolean);
     recorder.assert(
       `${name}: no unexpected browser console errors`,
-      unexpectedConsoleErrors(consoleErrors).length === 0,
-      unexpectedConsoleErrors(consoleErrors).slice(0, 3).join(' | ')
+      unexpectedConsoleErrors(consoleErrors).length === 0 && unexpectedPageErrors.length === 0,
+      [...unexpectedConsoleErrors(consoleErrors), ...unexpectedPageErrors].slice(0, 3).join(' | ')
     );
+  } catch (error) {
+    const unexpected = unexpectedConsoleErrors(consoleErrors);
+    if (unexpected.length > 0) {
+      console.error(`${name}: browser console errors before failure`);
+      console.error(unexpected.slice(0, 5).join('\n'));
+    }
+    if (pageErrors.length > 0) {
+      console.error(`${name}: page errors before failure`);
+      console.error(pageErrors.slice(0, 5).join('\n'));
+    }
+    throw error;
   } finally {
     await context.close();
   }
@@ -725,7 +741,19 @@ const openTechnicianLauncher = async (page, args, user) => {
   await page.goto(`${args.appUrl}/admin/access?action=add-access&preset=technician`, {
     waitUntil: 'domcontentloaded',
   });
-  await page.getByRole('heading', { name: 'Add Technician' }).waitFor({ timeout: 10000 });
+  await page
+    .getByRole('heading', { name: 'Add Technician' })
+    .waitFor({ timeout: 10000 })
+    .catch(async (error) => {
+      await page.screenshot({
+        path: path.join(args.artifactDir, 'admin-access-launcher-timeout.png'),
+        fullPage: true,
+      });
+      const bodyText = await page.locator('body').innerText().catch(() => '');
+      console.error(`Admin Access launcher did not open at ${page.url()}`);
+      console.error(bodyText.slice(0, 2000));
+      throw error;
+    });
   await page.getByLabel('Person or email').fill(targetEmail);
 };
 
@@ -912,6 +940,10 @@ const run = async () => {
         await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
         await page.getByText(/Team requires Team access/i).waitFor({ timeout: 10000 });
         recorder.assert(
+          'Scoped Admin direct Portal Team offers Admin Access exit',
+          await page.getByRole('link', { name: 'Open Admin Access' }).isVisible()
+        );
+        recorder.assert(
           'Scoped Admin direct Portal Team load is locked instead of looping',
           !(await page.getByRole('button', { name: /Save and send invite/i }).isVisible().catch(() => false))
         );
@@ -923,26 +955,40 @@ const run = async () => {
       args,
       recorder,
       name: 'Portal Team capability drift',
-      state: createState({ actor: 'scoped_admin', portalCapabilityDrift: true }),
+      state: createState({ actor: 'super_admin', portalCapabilityDrift: true }),
       test: async ({ page, state }) => {
-        await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
+        await page.goto(`${args.appUrl}/portal/account`, { waitUntil: 'domcontentloaded' });
         await login(page, state.user);
+        await page.goto(`${args.appUrl}/portal/account`, { waitUntil: 'domcontentloaded' });
+        await page.getByRole('heading', { name: 'Account Settings' }).waitFor({ timeout: 10000 });
+        await page.getByRole('link', { name: 'Open Admin Access' }).waitFor({ timeout: 10000 });
+        recorder.assert(
+          'Capability drift Account Settings points to Admin Access',
+          await page.getByRole('link', { name: 'Open Admin Access' }).isVisible()
+        );
+        recorder.assert(
+          'Capability drift Account Settings suppresses Portal Team Manage Technicians loop',
+          !(await page.getByRole('link', { name: 'Manage Technicians' }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Capability drift Portal nav hides dead Team destination',
+          !(await page.getByRole('link', { name: /^Team$/ }).isVisible().catch(() => false))
+        );
+        await page.screenshot({
+          path: path.join(args.artifactDir, 'portal-account-capability-drift.png'),
+          fullPage: true,
+        });
+
         await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
-        await page.waitForLoadState('networkidle').catch(() => undefined);
+        await page.getByText(/Team requires Team access/i).waitFor({ timeout: 10000 });
+        recorder.assert(
+          'Capability drift direct Portal Team offers Admin Access exit',
+          await page.getByRole('link', { name: 'Open Admin Access' }).isVisible()
+        );
         await page.screenshot({
           path: path.join(args.artifactDir, 'portal-team-capability-drift.png'),
           fullPage: true,
         });
-        const bodyText = await page.locator('body').innerText().catch(() => '');
-        const unavailableVisible = await page
-          .getByText('Technician management is not available')
-          .isVisible()
-          .catch(() => false);
-        recorder.assert(
-          'Portal Team capability drift renders explicit locked panel state',
-          unavailableVisible,
-          unavailableVisible ? '' : bodyText.slice(0, 1000)
-        );
         recorder.assert(
           'Portal Team capability drift does not expose add-Technician CTA',
           !(await page.getByRole('button', { name: /Save and send invite/i }).isVisible().catch(() => false))

@@ -21,6 +21,7 @@ import {
   getPortalDestinationByPath,
   portalDestinations,
 } from '@/components/portal/portalNavigation';
+import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 
 interface PortalLayoutProps {
   children: ReactNode;
@@ -42,11 +43,16 @@ export function PortalLayout({ children }: PortalLayoutProps) {
   const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
   const hasRefundOperationsAccess =
     isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
+  const { canUsePortalTeam } = usePortalTechnicianManagement();
   const sortedDestinations = [...portalDestinations].sort(
     (left, right) => left.mobileOrder - right.mobileOrder
   );
-  const canAccessDestination = (access: (typeof portalDestinations)[number]['access']) =>
-    canAccessPortalLevel(
+  const canAccessDestination = (access: (typeof portalDestinations)[number]['access']) => {
+    if (access === 'team') {
+      return canUsePortalTeam;
+    }
+
+    return canAccessPortalLevel(
       portalAccessTier,
       access,
       hasReportingAccess,
@@ -55,6 +61,7 @@ export function PortalLayout({ children }: PortalLayoutProps) {
       canManageTechnicians,
       adminAccess.isScopedAdmin
     );
+  };
   const visibleDestinations = sortedDestinations
     .filter((destination) => destination.access !== 'reporting' || canAccessDestination(destination.access))
     .filter((destination) => destination.access !== 'refunds' || canAccessDestination(destination.access))
