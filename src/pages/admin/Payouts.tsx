@@ -4,12 +4,16 @@ import {
   Ban,
   CheckCircle2,
   Clock3,
+  Copy,
   FileText,
   Loader2,
+  Mail,
+  Power,
   RefreshCw,
   RotateCcw,
   Send,
   ShieldCheck,
+  UserPlus,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -27,16 +31,22 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { getAccessInviteLoginUrl, sendAccessInvite } from '@/lib/accessInvites';
 import {
   addPayoutAdjustmentAdmin,
   calculatePayoutRunAdmin,
+  deactivateOperatorPayoutProfileAdmin,
+  fetchOperatorPayoutSetupContext,
   fetchPayoutReviewContext,
   finalizePayoutRunAdmin,
   issuePayStatementsAdmin,
   markPayoutRunReviewedAdmin,
   previewPayStatementsAdmin,
+  provisionOperatorPayoutAccessAdmin,
   reopenPayoutRunAdmin,
   voidPayoutRunAdmin,
+  type OperatorPayoutSetupOperator,
+  type OperatorWorkerType,
   type PayStatementPreviewResult,
   type PayoutCalculationWarning,
   type PayoutReviewPeriod,
@@ -46,6 +56,45 @@ import {
 import { cn } from '@/lib/utils';
 
 type ReviewAction = 'mark_reviewed' | 'finalize' | 'reopen' | 'void';
+
+type OperatorProvisionStatus = {
+  profileId: string;
+  email: string;
+  displayName: string;
+  authUserCreated: boolean;
+  inviteStatus: 'sent' | 'failed';
+  inviteError?: string;
+};
+
+type OperatorSetupForm = {
+  accountId: string;
+  email: string;
+  displayName: string;
+  workerType: OperatorWorkerType;
+  payoutPolicyId: string;
+  machineIds: string[];
+  reason: string;
+};
+
+const defaultOperatorSetupForm: OperatorSetupForm = {
+  accountId: '',
+  email: '',
+  displayName: '',
+  workerType: 'employee_w2',
+  payoutPolicyId: '',
+  machineIds: [],
+  reason: '',
+};
+
+const workerTypeOptions: Array<{ value: OperatorWorkerType; label: string }> = [
+  { value: 'employee_w2', label: 'Employee W-2' },
+  { value: 'part_time_employee', label: 'Part-time employee' },
+  { value: 'contractor_1099', label: 'Contractor 1099' },
+  { value: 'owner_operator', label: 'Owner/operator' },
+  { value: 'partner', label: 'Partner' },
+  { value: 'other', label: 'Other' },
+  { value: 'unspecified', label: 'Unspecified' },
+];
 
 const statusVariant = (status: string): 'default' | 'destructive' | 'outline' => {
   if (['finalized', 'issued', 'closed', 'reviewed'].includes(status)) return 'default';
@@ -68,6 +117,17 @@ const formatDate = (value: string | null | undefined) =>
       })
     : 'n/a';
 
+const formatDateTime = (value: string | null | undefined) =>
+  value
+    ? new Date(value).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : 'n/a';
+
 const formatCurrency = (cents: number | null | undefined) =>
   new Intl.NumberFormat(undefined, {
     style: 'currency',
@@ -75,6 +135,11 @@ const formatCurrency = (cents: number | null | undefined) =>
   }).format((cents ?? 0) / 100);
 
 const formatHours = (minutes: number) => `${(minutes / 60).toFixed(2)}h`;
+
+const formatMachineLabel = (machine: { machineLabel?: string; label?: string; locationName?: string | null }) => {
+  const label = machine.machineLabel ?? machine.label ?? 'Bloomjoy machine';
+  return machine.locationName ? `${label} at ${machine.locationName}` : label;
+};
 
 const centsFromCurrency = (value: string) => {
   const normalized = value.replace(/[$,\s]/g, '');
@@ -268,6 +333,17 @@ export default function AdminPayoutsPage() {
   const [isIssuingStatements, setIsIssuingStatements] = useState(false);
   const [issueReason, setIssueReason] = useState('');
   const [issueRevisionReason, setIssueRevisionReason] = useState('');
+  const [operatorSetupForm, setOperatorSetupForm] =
+    useState<OperatorSetupForm>(defaultOperatorSetupForm);
+  const [isProvisioningOperator, setIsProvisioningOperator] = useState(false);
+  const [operatorProvisionStatus, setOperatorProvisionStatus] =
+    useState<OperatorProvisionStatus | null>(null);
+  const [resendingOperatorId, setResendingOperatorId] = useState<string | null>(null);
+  const [deactivationForm, setDeactivationForm] = useState({
+    operatorProfileId: '',
+    reason: '',
+  });
+  const [isDeactivatingOperator, setIsDeactivatingOperator] = useState(false);
 
   const {
     data: reviewContext,
@@ -280,7 +356,38 @@ export default function AdminPayoutsPage() {
     staleTime: 1000 * 20,
   });
 
+  const {
+    data: setupContext,
+    isLoading: isLoadingSetup,
+    isFetching: isFetchingSetup,
+    error: setupError,
+  } = useQuery({
+    queryKey: ['admin-operator-payout-setup-context'],
+    queryFn: fetchOperatorPayoutSetupContext,
+    staleTime: 1000 * 20,
+  });
+
   const periods = useMemo(() => reviewContext?.periods ?? [], [reviewContext?.periods]);
+  const setupAccounts = useMemo(() => setupContext?.accounts ?? [], [setupContext?.accounts]);
+  const setupOperators = useMemo(() => setupContext?.operators ?? [], [setupContext?.operators]);
+  const selectedSetupAccount = useMemo(
+    () =>
+      setupAccounts.find((account) => account.id === operatorSetupForm.accountId) ??
+      setupAccounts[0] ??
+      null,
+    [operatorSetupForm.accountId, setupAccounts]
+  );
+  const selectedAccountOperators = useMemo(
+    () =>
+      selectedSetupAccount
+        ? setupOperators.filter((operator) => operator.accountId === selectedSetupAccount.id)
+        : setupOperators,
+    [selectedSetupAccount, setupOperators]
+  );
+  const activeSetupOperators = useMemo(
+    () => selectedAccountOperators.filter((operator) => operator.status === 'active'),
+    [selectedAccountOperators]
+  );
   const selectedPeriod = useMemo(
     () => periods.find((period) => period.id === selectedPeriodId) ?? periods[0] ?? null,
     [periods, selectedPeriodId]
@@ -305,6 +412,30 @@ export default function AdminPayoutsPage() {
   }, [periods, selectedPeriodId]);
 
   useEffect(() => {
+    if (!selectedSetupAccount) return;
+
+    setOperatorSetupForm((current) => {
+      if (current.accountId === selectedSetupAccount.id) return current;
+
+      return {
+        ...current,
+        accountId: selectedSetupAccount.id,
+        payoutPolicyId: selectedSetupAccount.policies[0]?.id ?? '',
+        machineIds: [],
+      };
+    });
+  }, [selectedSetupAccount]);
+
+  useEffect(() => {
+    if (deactivationForm.operatorProfileId || !activeSetupOperators[0]) return;
+
+    setDeactivationForm((current) => ({
+      ...current,
+      operatorProfileId: activeSetupOperators[0].id,
+    }));
+  }, [activeSetupOperators, deactivationForm.operatorProfileId]);
+
+  useEffect(() => {
     const firstOperator = selectedRun?.items[0]?.operatorProfileId ?? '';
     setAdjustmentForm((current) => ({
       ...current,
@@ -320,6 +451,222 @@ export default function AdminPayoutsPage() {
 
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['admin-payout-review-context'] });
+
+  const refreshSetup = () =>
+    queryClient.invalidateQueries({ queryKey: ['admin-operator-payout-setup-context'] });
+
+  const refreshPayoutSurfaces = async () => {
+    await Promise.all([refresh(), refreshSetup()]);
+  };
+
+  const updateOperatorSetupForm = (updates: Partial<OperatorSetupForm>) => {
+    setOperatorSetupForm((current) => ({ ...current, ...updates }));
+  };
+
+  const setOperatorSetupAccount = (accountId: string) => {
+    const account = setupAccounts.find((item) => item.id === accountId);
+    setOperatorSetupForm((current) => ({
+      ...current,
+      accountId,
+      payoutPolicyId: account?.policies[0]?.id ?? '',
+      machineIds: [],
+    }));
+  };
+
+  const toggleOperatorMachine = (machineId: string) => {
+    setOperatorSetupForm((current) => ({
+      ...current,
+      machineIds: current.machineIds.includes(machineId)
+        ? current.machineIds.filter((id) => id !== machineId)
+        : [...current.machineIds, machineId],
+    }));
+  };
+
+  const requireOperatorLoginUrl = (email: string) => {
+    const loginUrlResult = getAccessInviteLoginUrl('operator_payout', email);
+
+    if (!loginUrlResult.ok) {
+      throw new Error(loginUrlResult.message);
+    }
+
+    return loginUrlResult.loginUrl;
+  };
+
+  const provisionOperator = async () => {
+    const email = operatorSetupForm.email.trim().toLowerCase();
+    const reason = operatorSetupForm.reason.trim();
+
+    if (!email) {
+      toast.error('Enter the operator email before saving access.');
+      return;
+    }
+
+    if (!operatorSetupForm.accountId) {
+      toast.error('Choose the account for this operator.');
+      return;
+    }
+
+    if (operatorSetupForm.machineIds.length === 0) {
+      toast.error('Assign at least one machine before saving operator access.');
+      return;
+    }
+
+    if (!reason) {
+      toast.error('Enter an audit reason before saving operator access.');
+      return;
+    }
+
+    setIsProvisioningOperator(true);
+    setOperatorProvisionStatus(null);
+
+    try {
+      const result = await provisionOperatorPayoutAccessAdmin({
+        userEmail: email,
+        accountId: operatorSetupForm.accountId,
+        displayName: operatorSetupForm.displayName.trim() || email,
+        workerType: operatorSetupForm.workerType,
+        payoutPolicyId: operatorSetupForm.payoutPolicyId || null,
+        machineIds: operatorSetupForm.machineIds,
+        reason,
+      });
+
+      try {
+        const loginUrl = requireOperatorLoginUrl(result.operatorProfile.email);
+        await sendAccessInvite({
+          inviteType: 'operator_payout',
+          sourceId: result.operatorProfile.id,
+          targetEmail: result.operatorProfile.email,
+          loginUrl,
+        });
+
+        setOperatorProvisionStatus({
+          profileId: result.operatorProfile.id,
+          email: result.operatorProfile.email,
+          displayName: result.operatorProfile.displayName,
+          authUserCreated: result.authUserCreated,
+          inviteStatus: 'sent',
+        });
+        toast.success(
+          result.authUserCreated
+            ? 'Operator Auth user, payout profile, assignments, and invite are saved.'
+            : 'Operator payout profile, assignments, and invite are saved.'
+        );
+      } catch (inviteError) {
+        const message =
+          inviteError instanceof Error ? inviteError.message : 'Unable to send operator invite.';
+        setOperatorProvisionStatus({
+          profileId: result.operatorProfile.id,
+          email: result.operatorProfile.email,
+          displayName: result.operatorProfile.displayName,
+          authUserCreated: result.authUserCreated,
+          inviteStatus: 'failed',
+          inviteError: message,
+        });
+        toast.error('Operator access was saved, but the invite email failed.');
+      }
+
+      setOperatorSetupForm((current) => ({
+        ...current,
+        email: '',
+        displayName: '',
+        reason: '',
+      }));
+      await refreshPayoutSurfaces();
+    } catch (provisionError) {
+      toast.error(
+        provisionError instanceof Error
+          ? provisionError.message
+          : 'Unable to save operator payout access.'
+      );
+    } finally {
+      setIsProvisioningOperator(false);
+    }
+  };
+
+  const resendOperatorInvite = async (operator: OperatorPayoutSetupOperator) => {
+    const email = operator.email?.trim().toLowerCase();
+
+    if (!email) {
+      toast.error('This operator profile does not have an email to invite.');
+      return;
+    }
+
+    setResendingOperatorId(operator.id);
+    try {
+      const loginUrl = requireOperatorLoginUrl(email);
+      await sendAccessInvite({
+        inviteType: 'operator_payout',
+        sourceId: operator.id,
+        targetEmail: email,
+        loginUrl,
+      });
+      setOperatorProvisionStatus((current) =>
+        current?.profileId === operator.id
+          ? {
+              ...current,
+              email,
+              inviteStatus: 'sent',
+              inviteError: undefined,
+            }
+          : current
+      );
+      toast.success('Operator invite resent.');
+      await refreshSetup();
+    } catch (inviteError) {
+      toast.error(inviteError instanceof Error ? inviteError.message : 'Unable to resend invite.');
+    } finally {
+      setResendingOperatorId(null);
+    }
+  };
+
+  const copyOperatorLoginUrl = async (email: string | null) => {
+    if (!email) {
+      toast.error('This operator profile does not have an email to copy.');
+      return;
+    }
+
+    try {
+      const loginUrl = requireOperatorLoginUrl(email);
+      await navigator.clipboard.writeText(loginUrl);
+      toast.success('Operator login link copied.');
+    } catch (copyError) {
+      toast.error(copyError instanceof Error ? copyError.message : 'Unable to copy login link.');
+    }
+  };
+
+  const deactivateOperator = async () => {
+    const reason = deactivationForm.reason.trim();
+
+    if (!deactivationForm.operatorProfileId) {
+      toast.error('Choose an operator to deactivate.');
+      return;
+    }
+
+    if (!reason) {
+      toast.error('Enter an audit reason before deactivating operator access.');
+      return;
+    }
+
+    setIsDeactivatingOperator(true);
+    try {
+      await deactivateOperatorPayoutProfileAdmin({
+        operatorProfileId: deactivationForm.operatorProfileId,
+        reason,
+      });
+      toast.success('Operator access deactivated.');
+      setOperatorProvisionStatus(null);
+      setDeactivationForm({ operatorProfileId: '', reason: '' });
+      await refreshPayoutSurfaces();
+    } catch (deactivateError) {
+      toast.error(
+        deactivateError instanceof Error
+          ? deactivateError.message
+          : 'Unable to deactivate operator access.'
+      );
+    } finally {
+      setIsDeactivatingOperator(false);
+    }
+  };
 
   const runCalculation = async () => {
     if (!selectedPeriod) return;
@@ -538,8 +885,12 @@ export default function AdminPayoutsPage() {
                 adjustments, and finalization history before pay statements are issued.
               </p>
             </div>
-            <Button variant="outline" onClick={() => void refresh()} disabled={isFetching}>
-              {isFetching ? (
+            <Button
+              variant="outline"
+              onClick={() => void refreshPayoutSurfaces()}
+              disabled={isFetching || isFetchingSetup}
+            >
+              {isFetching || isFetchingSetup ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -551,7 +902,376 @@ export default function AdminPayoutsPage() {
       </section>
 
       <section className="section-padding">
-        <div className="container-page">
+        <div className="container-page space-y-6">
+          <div className="rounded-lg border border-border bg-background p-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <UserPlus className="h-5 w-5 text-primary" />
+                  <h2 className="font-display text-2xl font-semibold text-foreground">
+                    Operator Setup
+                  </h2>
+                  <Badge variant="outline">{activeSetupOperators.length} active</Badge>
+                </div>
+                <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                  Create employee operator access, assign machines, send the invite, and preserve
+                  setup evidence before the first time entry.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => void refreshSetup()}
+                disabled={isFetchingSetup}
+              >
+                {isFetchingSetup ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh Setup
+              </Button>
+            </div>
+
+            <div className="mt-5">
+              {isLoadingSetup ? (
+                <EmptyState title="Loading operator setup">
+                  Pulling manageable accounts, machines, payout policies, and invite evidence.
+                </EmptyState>
+              ) : setupError ? (
+                <EmptyState title="Unable to load operator setup">
+                  {setupError instanceof Error
+                    ? setupError.message
+                    : 'The operator setup context could not load.'}
+                </EmptyState>
+              ) : setupAccounts.length === 0 ? (
+                <EmptyState title="No operator setup access">
+                  Your account does not currently have payout setup access for any active machine.
+                </EmptyState>
+              ) : (
+                <>
+                  <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+                    <div className="space-y-5">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <Label htmlFor="operator-setup-account">Account</Label>
+                          <select
+                            id="operator-setup-account"
+                            value={operatorSetupForm.accountId}
+                            onChange={(event) => setOperatorSetupAccount(event.target.value)}
+                            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            {setupAccounts.map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <Label htmlFor="operator-setup-policy">Payout policy</Label>
+                          <select
+                            id="operator-setup-policy"
+                            value={operatorSetupForm.payoutPolicyId}
+                            onChange={(event) =>
+                              updateOperatorSetupForm({ payoutPolicyId: event.target.value })
+                            }
+                            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            <option value="">Use account default</option>
+                            {(selectedSetupAccount?.policies ?? []).map((policy) => (
+                              <option key={policy.id} value={policy.id}>
+                                {policy.name} / {formatStatus(policy.frequency)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <Label htmlFor="operator-setup-email">Operator email</Label>
+                          <Input
+                            id="operator-setup-email"
+                            type="email"
+                            value={operatorSetupForm.email}
+                            onChange={(event) =>
+                              updateOperatorSetupForm({ email: event.target.value })
+                            }
+                            placeholder="operator@example.com"
+                            className="mt-2"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="operator-setup-name">Display name</Label>
+                          <Input
+                            id="operator-setup-name"
+                            value={operatorSetupForm.displayName}
+                            onChange={(event) =>
+                              updateOperatorSetupForm({ displayName: event.target.value })
+                            }
+                            placeholder="Alex Operator"
+                            className="mt-2"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="operator-setup-worker-type">Worker type</Label>
+                          <select
+                            id="operator-setup-worker-type"
+                            value={operatorSetupForm.workerType}
+                            onChange={(event) =>
+                              updateOperatorSetupForm({
+                                workerType: event.target.value as OperatorWorkerType,
+                              })
+                            }
+                            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            {workerTypeOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between gap-3">
+                          <Label>Assigned machines</Label>
+                          <Badge variant="outline">{operatorSetupForm.machineIds.length} selected</Badge>
+                        </div>
+                        {(selectedSetupAccount?.machines ?? []).length === 0 ? (
+                          <p className="mt-3 rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                            No active manageable machines are available for this account.
+                          </p>
+                        ) : (
+                          <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            {(selectedSetupAccount?.machines ?? []).map((machine) => (
+                              <label
+                                key={machine.id}
+                                className={cn(
+                                  'flex min-h-12 items-start gap-3 rounded-md border border-border bg-muted/10 p-3 text-sm',
+                                  !machine.canManage && 'opacity-60'
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="mt-1"
+                                  checked={operatorSetupForm.machineIds.includes(machine.id)}
+                                  disabled={!machine.canManage}
+                                  onChange={() => toggleOperatorMachine(machine.id)}
+                                />
+                                <span>
+                                  <span className="block font-medium text-foreground">
+                                    {formatMachineLabel(machine)}
+                                  </span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {formatStatus(machine.machineType ?? 'machine')}
+                                  </span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <Label htmlFor="operator-setup-reason">Audit reason</Label>
+                        <Textarea
+                          id="operator-setup-reason"
+                          value={operatorSetupForm.reason}
+                          onChange={(event) =>
+                            updateOperatorSetupForm({ reason: event.target.value })
+                          }
+                          placeholder="Hired for the June machine service schedule."
+                          className="mt-2"
+                        />
+                      </div>
+
+                      {operatorProvisionStatus && (
+                        <div
+                          className={cn(
+                            'rounded-md border p-4 text-sm',
+                            operatorProvisionStatus.inviteStatus === 'sent'
+                              ? 'border-sage/30 bg-sage-light'
+                              : 'border-amber/30 bg-amber/10'
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            {operatorProvisionStatus.inviteStatus === 'sent' ? (
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 text-sage" />
+                            ) : (
+                              <AlertTriangle className="mt-0.5 h-4 w-4 text-amber" />
+                            )}
+                            <div>
+                              <p className="font-medium text-foreground">
+                                {operatorProvisionStatus.displayName} saved
+                              </p>
+                              <p className="mt-1 text-muted-foreground">
+                                {operatorProvisionStatus.inviteStatus === 'sent'
+                                  ? `Invite sent to ${operatorProvisionStatus.email}.`
+                                  : `Invite failed for ${operatorProvisionStatus.email}: ${
+                                      operatorProvisionStatus.inviteError ??
+                                      'retry from the operator list.'
+                                    }`}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <Button
+                        onClick={() => void provisionOperator()}
+                        disabled={isProvisioningOperator}
+                      >
+                        {isProvisioningOperator ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <UserPlus className="mr-2 h-4 w-4" />
+                        )}
+                        Save Operator and Send Invite
+                      </Button>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex items-center justify-between gap-3">
+                          <h3 className="font-semibold text-foreground">Operator Access</h3>
+                          <Badge variant="outline">{selectedAccountOperators.length}</Badge>
+                        </div>
+                        {selectedAccountOperators.length === 0 ? (
+                          <p className="mt-3 rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                            No operators are set up for this account yet.
+                          </p>
+                        ) : (
+                          <div className="mt-3 divide-y divide-border rounded-md border border-border">
+                            {selectedAccountOperators.map((operator) => (
+                              <div key={operator.id} className="p-4">
+                                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="font-medium text-foreground">
+                                        {operator.displayName}
+                                      </p>
+                                      <Badge variant={statusVariant(operator.status)}>
+                                        {formatStatus(operator.status)}
+                                      </Badge>
+                                    </div>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                      {operator.email ?? 'No email on Auth user'}
+                                    </p>
+                                    <p className="mt-2 text-xs text-muted-foreground">
+                                      {operator.activeAssignments.length} active machines
+                                      {operator.latestInvite
+                                        ? ` / last invite ${formatStatus(
+                                            operator.latestInvite.deliveryStatus
+                                          )} ${formatDateTime(operator.latestInvite.sentAt)}`
+                                        : ' / no invite evidence yet'}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button
+                                      variant="outline"
+                                      className="h-9 px-3"
+                                      onClick={() => void copyOperatorLoginUrl(operator.email)}
+                                    >
+                                      <Copy className="mr-2 h-4 w-4" />
+                                      Copy Link
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      className="h-9 px-3"
+                                      onClick={() => void resendOperatorInvite(operator)}
+                                      disabled={
+                                        !operator.canSendInvite ||
+                                        resendingOperatorId === operator.id ||
+                                        operator.status !== 'active'
+                                      }
+                                    >
+                                      {resendingOperatorId === operator.id ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Mail className="mr-2 h-4 w-4" />
+                                      )}
+                                      Resend
+                                    </Button>
+                                  </div>
+                                </div>
+                                {operator.activeAssignments.length > 0 && (
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {operator.activeAssignments.map((assignment) => (
+                                      <Badge key={assignment.assignmentId} variant="outline">
+                                        {formatMachineLabel(assignment)}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-md border border-border bg-muted/10 p-4">
+                        <div className="flex items-center gap-2">
+                          <Power className="h-4 w-4 text-destructive" />
+                          <h3 className="font-semibold text-foreground">Deactivate Access</h3>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          <div>
+                            <Label htmlFor="operator-deactivate-profile">Operator</Label>
+                            <select
+                              id="operator-deactivate-profile"
+                              value={deactivationForm.operatorProfileId}
+                              onChange={(event) =>
+                                setDeactivationForm((current) => ({
+                                  ...current,
+                                  operatorProfileId: event.target.value,
+                                }))
+                              }
+                              className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            >
+                              <option value="">Choose an active operator</option>
+                              {activeSetupOperators.map((operator) => (
+                                <option key={operator.id} value={operator.id}>
+                                  {operator.displayName}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <Label htmlFor="operator-deactivate-reason">Audit reason</Label>
+                            <Textarea
+                              id="operator-deactivate-reason"
+                              value={deactivationForm.reason}
+                              onChange={(event) =>
+                                setDeactivationForm((current) => ({
+                                  ...current,
+                                  reason: event.target.value,
+                                }))
+                              }
+                              placeholder="Employment ended; revoke future time entry access."
+                              className="mt-2"
+                            />
+                          </div>
+                          <Button
+                            variant="outline"
+                            className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                            onClick={() => void deactivateOperator()}
+                            disabled={isDeactivatingOperator || activeSetupOperators.length === 0}
+                          >
+                            {isDeactivatingOperator ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Power className="mr-2 h-4 w-4" />
+                            )}
+                            Deactivate Operator
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           {isLoading ? (
             <EmptyState title="Loading payout review">
               Pulling the latest payout periods, review states, and scoped manager permissions.

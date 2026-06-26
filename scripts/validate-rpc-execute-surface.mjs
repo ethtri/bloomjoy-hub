@@ -105,6 +105,32 @@ const serviceRoleOnlyFunctions = [
     name: 'operator_pay_statement_payload_for_item',
     migrationName: '202605200006_operator_pay_statements.sql',
   },
+  {
+    signature: 'public.operator_payout_can_manage_machine_set(uuid, uuid, uuid[])',
+    name: 'operator_payout_can_manage_machine_set',
+    migrationName: '20260626142851_operator_employee_provisioning.sql',
+  },
+  {
+    signature: 'public.can_send_operator_payout_invite(uuid, uuid)',
+    name: 'can_send_operator_payout_invite',
+    migrationName: '20260626142851_operator_employee_provisioning.sql',
+  },
+  {
+    signature: 'public.admin_find_auth_user_by_email(text)',
+    name: 'admin_find_auth_user_by_email',
+    migrationName: '20260626142851_operator_employee_provisioning.sql',
+  },
+  {
+    signature:
+      'public.admin_provision_operator_payout_for_user(uuid, uuid, text, uuid, text, text, uuid, uuid[], text)',
+    name: 'admin_provision_operator_payout_for_user',
+    migrationName: '20260626142851_operator_employee_provisioning.sql',
+  },
+  {
+    signature: 'public.admin_deactivate_operator_payout_profile_for_user(uuid, uuid, text)',
+    name: 'admin_deactivate_operator_payout_profile_for_user',
+    migrationName: '20260626142851_operator_employee_provisioning.sql',
+  },
 ];
 
 const protectedAuthenticatedFunctions = [
