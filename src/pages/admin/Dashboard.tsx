@@ -67,8 +67,7 @@ export default function AdminDashboardPage() {
               Admin Home
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Use the admin tools navigation for quick switches between access, setup,
-              reporting, and operations queues.
+              Use the sidebar to move between operations queues, access, setup, and reporting.
             </p>
           </div>
         </div>
@@ -77,8 +76,8 @@ export default function AdminDashboardPage() {
       <section className="section-padding">
         <div className="container-page">
           <div className="rounded-xl border border-sage/30 bg-sage-light px-4 py-3 text-sm text-sage">
-            Admin workspace is active. Use the modules below for orders, support, access,
-            partner records, machines, partnerships, and reporting operations.
+            Admin workspace is active. The modules below match the grouped sidebar so setup,
+            access, and operations work stay in one place.
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
