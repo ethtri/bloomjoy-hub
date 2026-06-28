@@ -43,6 +43,7 @@ export type AuthenticatedNavItem = {
   descriptionKey: TranslationKey;
   icon: LucideIcon;
   section: AuthenticatedNavSectionId;
+  kind: 'portal' | 'admin';
   end?: boolean;
   match?: (pathname: string) => boolean;
 };
@@ -73,6 +74,8 @@ export type AuthenticatedNavBuildInput = {
   isSuperAdmin: boolean;
   portalAccessTier: PortalAccessTier;
   canUsePortalTeam: boolean;
+  canUsePortalTimekeeping: boolean;
+  currentPathname?: string;
   showAccountLink: boolean;
 };
 
@@ -159,6 +162,15 @@ export const adminDestinations: AdminDestination[] = [
     requiresSuperAdmin: true,
   },
   {
+    href: '/portal/refunds',
+    labelKey: 'app.nav.refundCases',
+    shortLabelKey: 'app.nav.refundCases',
+    descriptionKey: 'admin.refundsDescription',
+    icon: ReceiptText,
+    section: 'operations',
+    surface: 'refunds',
+  },
+  {
     href: '/admin/payouts',
     labelKey: 'admin.payouts',
     shortLabelKey: 'admin.payouts',
@@ -226,6 +238,10 @@ const canAccessPortalDestination = (
     return input.canUsePortalTeam;
   }
 
+  if (destinationAccess === 'timekeeping') {
+    return input.canUsePortalTimekeeping;
+  }
+
   const allowedAdminSurfaces = getAllowedAdminSurfaces(input.adminAccess);
   const hasRefundOperationsAccess =
     input.isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
@@ -237,37 +253,63 @@ const canAccessPortalDestination = (
     input.capabilities,
     hasRefundOperationsAccess,
     input.canManageTechnicians,
-    input.adminAccess.isScopedAdmin
+    input.adminAccess.isScopedAdmin,
+    input.canUsePortalTimekeeping
   );
 };
 
 export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput) => {
-  const portalItems: AuthenticatedNavItem[] = portalDestinations
-    .filter((destination) => destination.href !== '/portal/account' || input.showAccountLink)
-    .filter((destination) => canAccessPortalDestination(destination.access, input))
-    .map((destination) => ({
-      href: destination.href,
-      labelKey: portalLabelOverrideByHref[destination.href] ?? destination.labelKey,
-      descriptionKey: destination.descriptionKey,
-      icon: portalIconOverrideByHref[destination.href] ?? destination.icon,
-      section: portalSectionByHref[destination.href] ?? 'work',
-      end: destination.end,
-    }));
-
   const adminItems: AuthenticatedNavItem[] = getVisibleAdminDestinations(input).map((destination) => ({
     href: destination.href,
     labelKey: destination.labelKey,
     descriptionKey: destination.descriptionKey,
     icon: destination.icon,
     section: destination.section,
+    kind: 'admin',
   }));
+  const adminHrefs = new Set(adminItems.map((item) => item.href));
+  const hasAdminItems = adminItems.length > 0;
+
+  const portalItems: AuthenticatedNavItem[] = portalDestinations
+    .filter((destination) => destination.href !== '/portal/account' || input.showAccountLink)
+    .filter((destination) => !adminHrefs.has(destination.href))
+    .filter((destination) => canAccessPortalDestination(destination.access, input))
+    .map((destination) => ({
+      href: destination.href,
+      labelKey:
+        destination.href === '/portal' && hasAdminItems
+          ? 'app.nav.portalDashboard'
+          : portalLabelOverrideByHref[destination.href] ?? destination.labelKey,
+      descriptionKey: destination.descriptionKey,
+      icon: portalIconOverrideByHref[destination.href] ?? destination.icon,
+      section: portalSectionByHref[destination.href] ?? 'work',
+      kind: 'portal',
+      end: destination.end,
+    }));
 
   const allItems = [...portalItems, ...adminItems];
+  const sectionOrder = input.currentPathname?.startsWith('/admin')
+    ? (['home', 'operations', 'accessSetup', 'work', 'learnSupport', 'settings'] satisfies AuthenticatedNavSectionId[])
+    : authenticatedNavSections.map((section) => section.id);
 
-  return authenticatedNavSections
+  return sectionOrder
+    .map((sectionId) => authenticatedNavSections.find((section) => section.id === sectionId))
+    .filter((section): section is AuthenticatedNavSectionDefinition => Boolean(section))
     .map((section) => ({
       ...section,
-      items: allItems.filter((item) => item.section === section.id),
+      items: allItems
+        .filter((item) => item.section === section.id)
+        .sort((left, right) => {
+          if (!input.currentPathname?.startsWith('/admin')) {
+            return 0;
+          }
+
+          if (left.kind === right.kind) {
+            return 0;
+          }
+
+          return left.kind === 'admin' ? -1 : 1;
+        }),
     }))
     .filter((section) => section.items.length > 0);
 };
@@ -275,6 +317,10 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
 export const isAuthenticatedNavItemActive = (pathname: string, item: AuthenticatedNavItem) => {
   if (item.href === '/portal') {
     return pathname === '/portal';
+  }
+
+  if (item.href === '/admin') {
+    return pathname === '/admin';
   }
 
   if (item.href === '/portal/refunds') {

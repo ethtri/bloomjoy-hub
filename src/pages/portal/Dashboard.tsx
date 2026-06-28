@@ -4,7 +4,6 @@ import {
   ArrowRight,
   BarChart3,
   CheckCircle2,
-  Lock,
   Package,
   Sparkles,
   type LucideIcon,
@@ -14,12 +13,12 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import {
   canAccessPortalLevel,
-  getAccessLevelLabelKey,
   portalDestinations,
   type PortalAccessLevel,
 } from '@/components/portal/portalNavigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { trackEvent } from '@/lib/analytics';
 import type { TranslationKey } from '@/lib/i18n';
@@ -33,7 +32,6 @@ import {
   useTrainingTracks,
 } from '@/lib/trainingRepository';
 import type { TrainingExperienceItem } from '@/lib/trainingTypes';
-import { cn } from '@/lib/utils';
 
 interface DashboardAction {
   titleKey: TranslationKey;
@@ -41,7 +39,6 @@ interface DashboardAction {
   href: string;
   icon: LucideIcon;
   access: PortalAccessLevel;
-  upsellCopyKey?: TranslationKey;
 }
 
 const sortTrainingItems = (left: TrainingExperienceItem, right: TrainingExperienceItem) => {
@@ -76,7 +73,6 @@ const dashboardActions: DashboardAction[] = [
       href: destination.href,
       icon: destination.icon,
       access: destination.access,
-      upsellCopyKey: destination.upsellCopyKey,
     })),
 ];
 
@@ -116,6 +112,7 @@ export default function PortalDashboard() {
     capabilities,
     hasReportingAccess,
     adminAccess,
+    isCorporatePartner,
     isSuperAdmin,
     reportingMachineCount,
     reportingLocationCount,
@@ -125,9 +122,14 @@ export default function PortalDashboard() {
   const hasRefundOperationsAccess =
     isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
   const { canUsePortalTeam } = usePortalTechnicianManagement();
+  const { canUsePortalTimekeeping } = usePortalTimekeepingAccess();
   const canAccessPortalAction = (access: PortalAccessLevel) => {
     if (access === 'team') {
       return canUsePortalTeam;
+    }
+
+    if (access === 'timekeeping') {
+      return canUsePortalTimekeeping;
     }
 
     return canAccessPortalLevel(
@@ -137,7 +139,8 @@ export default function PortalDashboard() {
       capabilities,
       hasRefundOperationsAccess,
       canManageTechnicians,
-      adminAccess.isScopedAdmin
+      adminAccess.isScopedAdmin,
+      canUsePortalTimekeeping
     );
   };
   const onboardingProgress = getOnboardingProgress(user?.email);
@@ -196,6 +199,9 @@ export default function PortalDashboard() {
           })
         : t('dashboard.reportingScopeMachines', { machines: reportingMachineCount })
       : t('dashboard.reportingScopeAssigned');
+  const availableDashboardActions = dashboardActions
+    .filter((action) => canAccessPortalAction(action.access))
+    .slice(0, 4);
 
   const primaryAction = hasReportingAccess && !isMember
     ? {
@@ -287,12 +293,14 @@ export default function PortalDashboard() {
             description={t('dashboard.description')}
             badges={[
               {
-                label: isMember
-                  ? t('dashboard.plusActive')
-                  : canAccessTraining
-                    ? t('dashboard.trainingAccess')
-                    : t('dashboard.baselineAccess'),
-                tone: isMember ? 'success' : canAccessTraining ? 'accent' : 'accent',
+                label: isCorporatePartner
+                  ? t('dashboard.partnerAccess')
+                  : isMember
+                    ? t('dashboard.plusActive')
+                    : canAccessTraining
+                      ? t('dashboard.trainingAccess')
+                      : t('dashboard.baselineAccess'),
+                tone: isCorporatePartner || isMember ? 'success' : 'accent',
                 icon: CheckCircle2,
               },
               {
@@ -360,14 +368,18 @@ export default function PortalDashboard() {
                     {t('dashboard.portalAccess')}
                   </p>
                   <p className="mt-2 font-display text-xl font-semibold text-foreground">
-                    {isMember
+                    {isCorporatePartner
+                      ? t('dashboard.partnerPortalReady')
+                      : isMember
                       ? t('dashboard.everythingUnlocked')
                       : canAccessTraining
                         ? t('dashboard.trainingUnlocked')
                         : t('dashboard.baselineEssentials')}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {isMember
+                    {isCorporatePartner
+                      ? t('dashboard.partnerPortalDescription')
+                      : isMember
                       ? t('dashboard.portalAccessDescriptionPlus')
                       : canAccessTraining
                         ? t('dashboard.portalAccessDescriptionTraining')
@@ -453,26 +465,7 @@ export default function PortalDashboard() {
               </div>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {dashboardActions
-                .filter((action) =>
-                  action.access !== 'reporting' ||
-                  canAccessPortalAction(action.access)
-                )
-                .filter((action) =>
-                  action.access !== 'refunds' ||
-                  canAccessPortalAction(action.access)
-                )
-                .filter((action) =>
-                  action.access !== 'team' ||
-                  canAccessPortalAction(action.access)
-                )
-                .filter((action) =>
-                  portalAccessTier === 'training'
-                    ? canAccessPortalAction(action.access)
-                    : true
-                )
-                .map((action) => {
-                const locked = !canAccessPortalAction(action.access);
+              {availableDashboardActions.map((action) => {
                 const ActionIcon = action.icon;
 
                 return (
@@ -480,39 +473,21 @@ export default function PortalDashboard() {
                     key={action.href}
                     to={action.href}
                     onClick={() => handleDashboardActionClick(action.href)}
-                    className={cn(
-                      'group rounded-[24px] border p-5 transition-all hover:-translate-y-0.5',
-                      locked
-                        ? 'border-primary/20 bg-primary/5 hover:border-primary/30'
-                        : 'border-border bg-background hover:border-primary/20 hover:bg-muted/20'
-                    )}
+                    className="group rounded-[24px] border border-border bg-background p-5 transition-all hover:-translate-y-0.5 hover:border-primary/20 hover:bg-muted/20"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <span
-                        className={cn(
-                          'flex h-11 w-11 items-center justify-center rounded-2xl',
-                          locked ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-                        )}
-                      >
+                      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
                         <ActionIcon className="h-5 w-5" />
                       </span>
-                      {locked && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-                          <Lock className="h-3.5 w-3.5" />
-                          {t(getAccessLevelLabelKey(action.access))}
-                        </span>
-                      )}
                     </div>
                     <h3 className="mt-4 font-display text-lg font-semibold text-foreground group-hover:text-primary">
                       {t(action.titleKey)}
                     </h3>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {locked
-                        ? t(action.upsellCopyKey ?? action.descriptionKey)
-                        : t(action.descriptionKey)}
+                      {t(action.descriptionKey)}
                     </p>
                     <div className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary">
-                      <span>{locked ? t('dashboard.seeAccessDetails') : t('dashboard.openNow')}</span>
+                      <span>{t('dashboard.openNow')}</span>
                       <ArrowRight className="h-4 w-4" />
                     </div>
                   </Link>

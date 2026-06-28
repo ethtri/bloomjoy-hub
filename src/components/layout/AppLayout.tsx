@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
 import type { TranslationKey } from '@/lib/i18n';
@@ -47,12 +48,9 @@ interface AppLayoutProps {
 }
 
 type UtilityLinksProps = {
-  accountLinkLabel: string;
-  accountUrl: string;
   marketingHomeUrl: string;
   onSignOut: () => void;
   profileMenu: ReactNode;
-  showAccountLink: boolean;
 };
 
 export function AppLayout({ children }: AppLayoutProps) {
@@ -80,6 +78,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
   const { canUsePortalTeam } = usePortalTechnicianManagement();
+  const { canUsePortalTimekeeping } = usePortalTimekeepingAccess();
   const navSections = isAuthenticated
     ? buildAuthenticatedNavSections({
         adminAccess,
@@ -89,6 +88,8 @@ export function AppLayout({ children }: AppLayoutProps) {
         isSuperAdmin,
         portalAccessTier,
         canUsePortalTeam,
+        canUsePortalTimekeeping,
+        currentPathname: location.pathname,
         showAccountLink,
       })
     : [];
@@ -103,8 +104,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          size="sm"
-          className="max-w-full justify-between gap-2 rounded-xl"
+          className="min-h-10 max-w-full justify-between gap-2 rounded-xl"
           aria-label={t('app.openProfileMenu')}
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -150,12 +150,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   );
 
   const utilities = {
-    accountLinkLabel,
-    accountUrl,
     marketingHomeUrl,
     onSignOut: () => void handleSignOut(),
     profileMenu: renderProfileMenu(),
-    showAccountLink,
   };
 
   if (!isAuthenticated) {
@@ -257,7 +254,6 @@ export function AppLayout({ children }: AppLayoutProps) {
           appTitle={t('app.operatorAppTitle')}
           currentPathname={location.pathname}
           navSections={navSections}
-          signedInEmail={signedInEmail}
           utilities={utilities}
         />
       </aside>
@@ -269,17 +265,12 @@ export function AppLayout({ children }: AppLayoutProps) {
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-[11px]">
                 {t('app.operatorApp')}
               </p>
-              <h1 className="truncate font-display text-lg font-semibold text-foreground sm:text-xl">
+              <p className="truncate font-display text-lg font-semibold text-foreground sm:text-xl">
                 {t(appContext.titleKey)}
-              </h1>
+              </p>
               <p className="hidden max-w-3xl truncate text-sm text-muted-foreground md:block">
                 {t(appContext.descriptionKey)}
               </p>
-            </div>
-
-            <div className="hidden items-center gap-3 lg:flex">
-              <LanguagePreferenceControl compact />
-              {renderProfileMenu()}
             </div>
 
             <div className="flex items-center gap-2 lg:hidden">
@@ -296,6 +287,12 @@ export function AppLayout({ children }: AppLayoutProps) {
                 <SheetContent
                   side="right"
                   className="flex w-[min(94vw,390px)] flex-col border-border bg-background px-0 py-0"
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault();
+                    window.setTimeout(() => {
+                      document.querySelector<HTMLElement>('[data-auth-mobile-nav-first="true"]')?.focus();
+                    }, 0);
+                  }}
                 >
                   <SheetHeader className="border-b border-border/70 px-5 py-5 text-left">
                     <SheetTitle>{t('app.operatorAppTitle')}</SheetTitle>
@@ -306,7 +303,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                     currentPathname={location.pathname}
                     mobile
                     navSections={navSections}
-                    signedInEmail={signedInEmail}
                     utilities={utilities}
                   />
                 </SheetContent>
@@ -330,7 +326,6 @@ type AuthenticatedSidebarProps = {
     labelKey: TranslationKey;
     items: AuthenticatedNavItem[];
   }>;
-  signedInEmail: string;
   utilities: UtilityLinksProps;
 };
 
@@ -339,12 +334,11 @@ function AuthenticatedSidebar({
   currentPathname,
   mobile = false,
   navSections,
-  signedInEmail,
   utilities,
 }: AuthenticatedSidebarProps) {
   const { t } = useLanguage();
   const shell = (
-    <div className={cn('flex min-h-0 flex-1 flex-col', mobile ? 'h-full' : 'h-screen')}>
+    <div className={cn('flex min-h-0 flex-1 flex-col', mobile ? 'h-full overflow-y-auto' : 'h-screen')}>
       {!mobile && (
         <div className="border-b border-sidebar-border px-4 py-4">
           <Link to="/portal" className="flex min-w-0 items-center gap-3">
@@ -370,22 +364,25 @@ function AuthenticatedSidebar({
 
       <nav
         aria-label={t('app.authenticatedNavigation')}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
+        className={cn('px-3 py-4', mobile ? 'flex-none' : 'min-h-0 flex-1 overflow-y-auto')}
       >
         <div className="space-y-5">
-          {navSections.map((section) => (
+          {navSections.map((section, sectionIndex) => (
             <div key={section.id}>
               <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 {t(section.labelKey)}
               </p>
               <div className="mt-2 space-y-1">
-                {section.items.map((item) => {
+                {section.items.map((item, itemIndex) => {
                   const isActive = isAuthenticatedNavItemActive(currentPathname, item);
                   const Icon = item.icon;
                   const itemLink = (
                     <Link
                       to={item.href}
                       aria-current={isActive ? 'page' : undefined}
+                      data-auth-mobile-nav-first={
+                        mobile && sectionIndex === 0 && itemIndex === 0 ? 'true' : undefined
+                      }
                       title={t(item.descriptionKey)}
                       className={cn(
                         'group flex min-h-11 items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors',
@@ -424,14 +421,6 @@ function AuthenticatedSidebar({
 
       <div className="border-t border-sidebar-border p-3">
         <div className="rounded-2xl border border-border bg-background p-3 shadow-[var(--shadow-sm)]">
-          <div className="mb-3 min-w-0">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              {t('app.signedInAs')}
-            </p>
-            <p className="mt-1 truncate text-sm font-semibold text-foreground">
-              {signedInEmail || t('app.profileMenu')}
-            </p>
-          </div>
           <div className="grid gap-2">
             <LanguagePreferenceControl fullWidth />
             {mobile ? (
@@ -458,27 +447,13 @@ function AuthenticatedSidebar({
 }
 
 function MobileUtilityLinks({
-  accountLinkLabel,
-  accountUrl,
   marketingHomeUrl,
   onSignOut,
-  showAccountLink,
 }: UtilityLinksProps) {
   const { t } = useLanguage();
 
   return (
     <>
-      {showAccountLink && (
-        <SheetClose asChild>
-          <Link
-            to={accountUrl}
-            className="flex min-h-10 items-center justify-between rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-          >
-            <span>{accountLinkLabel}</span>
-            <User className="h-4 w-4" />
-          </Link>
-        </SheetClose>
-      )}
       <a
         href={marketingHomeUrl}
         className="flex min-h-10 items-center justify-between rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
