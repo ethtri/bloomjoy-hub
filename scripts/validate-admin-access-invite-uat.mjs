@@ -682,6 +682,12 @@ const run = async () => {
     await page.getByRole('button', { name: 'Open email workspace' }).click();
     await page.getByRole('heading', { name: targetEmail }).waitFor({ timeout: 10000 });
     await page.getByText('Portal-ready partnerships').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Selected-person workspace separates common grant work from admin authority',
+      await page.getByText('Common access work', { exact: true }).isVisible() &&
+        await page.getByText('Customer, partner, and Technician access', { exact: true }).isVisible() &&
+        await page.getByText('Admin authority', { exact: true }).isVisible()
+    );
     await page.screenshot({
       path: path.join(args.artifactDir, 'admin-access-corporate-partner-before-save.png'),
       fullPage: true,
@@ -785,6 +791,25 @@ const run = async () => {
         state.accessInviteBodies[1]?.targetEmail === targetEmail &&
         String(state.accessInviteBodies[1]?.loginUrl ?? '').includes('intent=technician'),
       JSON.stringify(state.accessInviteBodies[1])
+    );
+
+    await page.getByTestId('machine-scope-source-map').getByText('Why machines are visible').waitFor({
+      timeout: 10000,
+    });
+    const sourceMapText = await page.getByTestId('machine-scope-source-map').innerText();
+    recorder.assert(
+      'Machine source map explains Corporate Partner visibility',
+      sourceMapText.includes('Corporate Partner') &&
+        sourceMapText.includes('Bubble Planet') &&
+        sourceMapText.includes(machineId),
+      sourceMapText
+    );
+    recorder.assert(
+      'Machine source map explains Technician visibility',
+      sourceMapText.includes('Technician') &&
+        sourceMapText.includes('Bubble Planet Pier 39') &&
+        sourceMapText.includes(machineTwoId),
+      sourceMapText
     );
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
