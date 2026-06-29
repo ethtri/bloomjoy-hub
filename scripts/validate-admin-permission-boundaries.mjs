@@ -12,11 +12,15 @@ const readText = (relativePath) =>
 
 const staticChecks = [
   {
-    name: 'Scoped Admin route is limited to Admin Access',
+    name: 'Scoped Admin route is limited to allowed admin surfaces',
     file: 'src/components/auth/AdminRoute.tsx',
     patterns: [
+      'const canAccessSurface = (surface: string)',
       "location.pathname === '/admin/access'",
       "location.pathname.startsWith('/admin/access/')",
+      'isAdminPartnershipsPath',
+      "canAccessSurface('partnerships')",
+      'Your current admin grant does not include this surface.',
       'Admin Access Required',
     ],
   },
@@ -27,29 +31,21 @@ const staticChecks = [
       '(isSuperAdmin || isScopedAdmin)',
       '<AdminPersonAccessConsole',
       'grant Technician access for assigned machines',
-      'only affects Technician grants, Corporate Partner permissions, and manual',
-      '<ReportingAccessTab />',
+      'person workspace above to manage Technician grants inside that assigned-machine',
     ],
   },
   {
-    name: 'Scoped Admin can use scoped Corporate Partner permissions panel',
+    name: 'Scoped Admin Access removes legacy Corporate Partner and tax panels',
     file: 'src/pages/admin/Access.tsx',
     patterns: [
+      '<AdminPersonAccessConsole',
+      'Your scoped admin grant limits this workspace to assigned machines.',
+      'person workspace above to manage Technician grants inside that assigned-machine',
+    ],
+    forbiddenPatterns: [
       '<PresetsTab />',
-      'Scoped Admin Corporate Partner management uses only partners whose active partnership',
-      'No Corporate Partner records are manageable inside your current admin scope.',
-      'only affects Technician grants, Corporate Partner permissions, and manual',
-    ],
-  },
-  {
-    name: 'Scoped Admin can use scoped machine tax-rate panel',
-    file: 'src/pages/admin/Access.tsx',
-    patterns: [
       '<ScopedMachineTaxRatesPanel />',
-      'Manage reporting tax assumptions only for machines inside your scoped admin grant.',
-      'fetchScopedMachineTaxSetup',
-      'saveScopedMachineTaxRate',
-      'Unable to load scoped machine tax setup.',
+      '<ReportingAccessTab />',
     ],
   },
   {

@@ -823,6 +823,10 @@ const run = async () => {
           !(await page.getByRole('radio', { name: /Corporate Partner/i }).isVisible().catch(() => false))
         );
         recorder.assert(
+          'Scoped Admin launcher hides Plus Customer preset',
+          !(await page.getByRole('radio', { name: /Plus Customer/i }).isVisible().catch(() => false))
+        );
+        recorder.assert(
           'Scoped Admin launcher hides Super Admin preset',
           !(await page.getByRole('radio', { name: /Super Admin/i }).isVisible().catch(() => false))
         );
@@ -891,6 +895,16 @@ const run = async () => {
         recorder.assert(
           'Scoped Admin Access hides Corporate Partner grant CTA',
           !(await page.getByRole('button', { name: /Grant Corporate Partner/i }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides Plus Customer grant controls',
+          !(await page.getByRole('heading', { name: 'Plus Customer' }).isVisible().catch(() => false)) &&
+            !(await page.getByRole('button', { name: /Grant Plus|Extend Plus|Revoke Plus/i }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides Super Admin grant controls',
+          !(await page.getByRole('heading', { name: 'Super Admin' }).isVisible().catch(() => false)) &&
+            !(await page.getByRole('button', { name: /Grant Super Admin|Revoke Super Admin/i }).isVisible().catch(() => false))
         );
         recorder.assert(
           'Scoped Admin Access hides legacy machine tax panel',
