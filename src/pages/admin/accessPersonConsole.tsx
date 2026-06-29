@@ -198,6 +198,12 @@ type CorporatePartnerSaveConfirmation = {
   inviteMessage: string;
 };
 
+type PrerequisiteChecklistItem = {
+  label: string;
+  ready: boolean;
+  detail: string;
+};
+
 const machineTypeMeta: Array<{ key: MachineType; label: string }> = [
   { key: 'commercial', label: 'Commercial' },
   { key: 'mini', label: 'Mini' },
@@ -1303,6 +1309,48 @@ function AccessLauncher({
           : 'Save will grant this person Corporate Partner access and send the invite.',
     };
   })();
+  const corporatePartnerPrerequisites: PrerequisiteChecklistItem[] = [
+    {
+      label: 'Person invite email',
+      ready: Boolean(normalizedEmail),
+      detail: normalizedEmail || 'Enter a valid email for the person receiving partner access.',
+    },
+    {
+      label: 'Partner record',
+      ready: Boolean(selectedPartner),
+      detail: selectedPartner
+        ? `${selectedPartner.partnerName} is selected.`
+        : 'Select or create the partner record first.',
+    },
+    {
+      label: 'Active partnership',
+      ready: hasActiveLinkedPartnership,
+      detail: hasActiveLinkedPartnership
+        ? `${selectedPartner?.portalPartnerships.length ?? 0} linked active partnership${(selectedPartner?.portalPartnerships.length ?? 0) === 1 ? '' : 's'} found.`
+        : 'Create or link an active reporting partnership before inviting a partner member.',
+    },
+    {
+      label: 'Active machines',
+      ready: hasActiveMachines,
+      detail: hasActiveMachines
+        ? `${allLinkedMachineIds.size} active reporting machine${allLinkedMachineIds.size === 1 ? '' : 's'} linked.`
+        : 'The partnership needs at least one active reporting machine.',
+    },
+    {
+      label: 'Partner portal access',
+      ready: corporatePartnerWillHavePortalScope,
+      detail: corporatePartnerWillHavePortalScope
+        ? `${effectivePortalEnabledPartnerships.length} partnership${effectivePortalEnabledPartnerships.length === 1 ? '' : 's'} will be portal-enabled.`
+        : 'Enable portal access for a machine-backed partnership before sending the invite.',
+    },
+    {
+      label: 'Audit reason',
+      ready: Boolean(grantReason.trim()),
+      detail: grantReason.trim()
+        ? 'Reason will be saved on the person grant and staged portal access change.'
+        : 'Enter why this person should receive Corporate Partner access.',
+    },
+  ];
   const selectedTechnicianAccount =
     technicianContext.accounts.find((account) => account.accountId === selectedAccountId) ??
     technicianContext.accounts[0] ??
@@ -1975,6 +2023,10 @@ function AccessLauncher({
                     </Badge>
                   </div>
                 </div>
+                <PrerequisiteChecklist
+                  title="Corporate Partner grant checklist"
+                  items={corporatePartnerPrerequisites}
+                />
                 <PreviewBox>
                   This will grant Corporate Partner access for{' '}
                   {selectedPartner?.partnerName ?? 'the selected partner'} and send an invite to{' '}
@@ -2552,6 +2604,47 @@ function PreviewBox({ children, tone = 'neutral' }: { children: React.ReactNode;
   );
 }
 
+function PrerequisiteChecklist({
+  title,
+  items,
+}: {
+  title: string;
+  items: PrerequisiteChecklistItem[];
+}) {
+  const readyCount = items.filter((item) => item.ready).length;
+
+  return (
+    <div className="rounded-md border border-border bg-muted/20 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {readyCount} of {items.length} requirements ready
+          </p>
+        </div>
+        <Badge className="w-fit" variant={readyCount === items.length ? 'default' : 'outline'}>
+          {readyCount === items.length ? 'Ready' : 'Needs setup'}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-2">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-start gap-2 rounded-md border border-border bg-background p-2">
+            {item.ready ? (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            ) : (
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+            )}
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">{item.label}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PlusCustomerAccessCard({
   identity,
   account,
@@ -2811,6 +2904,51 @@ function CorporatePartnerAccessCard({
   const selectedPartnerHasPortalScope =
     portalEnabledPartnerships.length > 0 && derivedMachineIds.size > 0;
   const activePartnerPartnershipCount = selectedPartner?.portalPartnerships.length ?? 0;
+  const corporatePartnerPrerequisites: PrerequisiteChecklistItem[] = [
+    {
+      label: 'Person email',
+      ready: Boolean(identity.email),
+      detail: identity.email ?? 'Select a person with an email before granting partner access.',
+    },
+    {
+      label: 'Partner record',
+      ready: Boolean(selectedPartner),
+      detail: selectedPartner
+        ? `${selectedPartner.partnerName} is selected.`
+        : 'Select the partner record connected to this person.',
+    },
+    {
+      label: 'Active partnership',
+      ready: activePartnerPartnershipCount > 0,
+      detail:
+        activePartnerPartnershipCount > 0
+          ? `${activePartnerPartnershipCount} linked active partnership${activePartnerPartnershipCount === 1 ? '' : 's'} found.`
+          : 'This partner needs an active reporting partnership before invite.',
+    },
+    {
+      label: 'Partner portal access',
+      ready: portalEnabledPartnerships.length > 0,
+      detail:
+        portalEnabledPartnerships.length > 0
+          ? `${portalEnabledPartnerships.length} partnership${portalEnabledPartnerships.length === 1 ? '' : 's'} portal-enabled.`
+          : 'Enable partner portal access below before inviting this person.',
+    },
+    {
+      label: 'Active machines',
+      ready: derivedMachineIds.size > 0,
+      detail:
+        derivedMachineIds.size > 0
+          ? `${derivedMachineIds.size} reporting machine${derivedMachineIds.size === 1 ? '' : 's'} will be visible.`
+          : 'Portal-enabled partnership scope needs at least one active reporting machine.',
+    },
+    {
+      label: 'Grant reason',
+      ready: Boolean(grantReason.trim()),
+      detail: grantReason.trim()
+        ? 'Reason is ready for the audit log.'
+        : 'Enter why this person should receive Corporate Partner access.',
+    },
+  ];
 
   const refreshOptions = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-corporate-partner-access-options'] });
@@ -3115,7 +3253,7 @@ function CorporatePartnerAccessCard({
                       />
                       <Button
                         variant="outline"
-                        disabled={revokingMembershipId === membership.id}
+                        disabled={revokingMembershipId === membership.id || !(revokeReasons[membership.id] ?? '').trim()}
                         onClick={() => void revokeCorporatePartner(membership.id)}
                       >
                         {revokingMembershipId === membership.id ? (
@@ -3147,6 +3285,11 @@ function CorporatePartnerAccessCard({
             value={pluralize(derivedMachineIds.size, 'machine')}
           />
         </div>
+
+        <PrerequisiteChecklist
+          title="Grant this person partner access"
+          items={corporatePartnerPrerequisites}
+        />
 
         {!selectedPartnerHasPortalScope && selectedPartner && (
           <div className="rounded-md border border-amber/40 bg-amber/10 p-3 text-sm text-foreground">
