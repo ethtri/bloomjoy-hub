@@ -66,8 +66,11 @@ const adminUser = {
 
 const targetEmail = 'new-partner-manager@example.test';
 const partnerId = '22222222-2222-4222-8222-222222222222';
+const noPortalPartnerId = '22222222-2222-4222-8222-333333333333';
 const partyId = '33333333-3333-4333-8333-333333333333';
+const noPortalPartyId = '33333333-3333-4333-8333-444444444444';
 const partnershipId = '44444444-4444-4444-8444-444444444444';
+const noPortalPartnershipId = '44444444-4444-4444-8444-555555555555';
 const machineId = '55555555-5555-4555-8555-555555555555';
 const machineTwoId = '55555555-5555-4555-8555-555555555556';
 const accountId = '66666666-6666-4666-8666-666666666666';
@@ -160,6 +163,34 @@ const buildCorporateOptions = (state) => ({
         },
       ],
     },
+    {
+      partnerId: noPortalPartnerId,
+      partnerName: 'Portal Setup Missing Partner',
+      partnerType: 'revenue_share_partner',
+      status: 'active',
+      memberships: [],
+      portalPartnerships: [
+        {
+          partyId: noPortalPartyId,
+          partnershipId: noPortalPartnershipId,
+          partnershipName: 'Portal Setup Missing Revenue Share',
+          partnershipStatus: 'active',
+          portalAccessEnabled: false,
+          machineCount: 1,
+          machines: [
+            {
+              machineId,
+              machineLabel: 'Bubble Planet Kiosk 01',
+              accountId,
+              accountName: 'Bubble Planet Pier 39',
+              locationId: '77777777-7777-4777-8777-777777777777',
+              locationName: 'Pier 39',
+              status: 'active',
+            },
+          ],
+        },
+      ],
+    },
   ],
 });
 
@@ -234,14 +265,23 @@ const installMockRoutes = async (context, state) => {
     const url = route.request().url();
 
     if (url.includes('/token')) {
+      state.isLoggedIn = true;
       return route.fulfill(jsonResponse(buildSession()));
     }
 
+    if (url.includes('/otp')) {
+      return route.fulfill(jsonResponse({}));
+    }
+
     if (url.includes('/user')) {
+      if (!state.isLoggedIn) {
+        return route.fulfill(jsonResponse({ message: 'No active mock session' }, 401));
+      }
       return route.fulfill(jsonResponse(adminUser));
     }
 
     if (url.includes('/logout')) {
+      state.isLoggedIn = false;
       return route.fulfill({ status: 204, body: '' });
     }
 
@@ -562,6 +602,7 @@ const run = async () => {
     memberships: [],
     technicianGrants: [],
     rpcCalls: [],
+    isLoggedIn: false,
   };
 
   await mkdir(args.artifactDir, { recursive: true });
@@ -673,6 +714,30 @@ const run = async () => {
         return details ? !details.open : false;
       })
     );
+    recorder.assert(
+      'Corporate Partner person workspace shows prerequisite checklist',
+      await page.getByText('Grant this person partner access').first().isVisible() &&
+        await page.getByText('Person email').first().isVisible() &&
+        await page.getByText('Partner portal access').first().isVisible()
+    );
+    recorder.assert(
+      'Corporate Partner checklist shows missing grant reason before save',
+      await page.getByText('5 of 6 requirements ready').isVisible()
+    );
+
+    await page.selectOption('#person-corporate-partner', noPortalPartnerId);
+    await page.getByText('Partner portal setup is required before invite.').waitFor({ timeout: 10000 });
+    await page.fill('#person-corporate-reason', 'Missing prerequisite UAT check');
+    recorder.assert(
+      'Corporate Partner save stays disabled when portal access prerequisite is missing',
+      await page.getByRole('button', { name: 'Grant and send invite' }).isDisabled()
+    );
+    recorder.assert(
+      'Corporate Partner missing prerequisite checklist names portal access',
+      await page.getByText('Enable partner portal access below before inviting this person.').isVisible()
+    );
+
+    await page.selectOption('#person-corporate-partner', partnerId);
 
     await page.fill('#person-corporate-reason', 'Agent UAT Corporate Partner grant');
     await page.getByRole('button', { name: 'Grant and send invite' }).click();
@@ -725,12 +790,16 @@ const run = async () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     recorder.assert('Admin Access desktop has no horizontal overflow', !overflow);
 
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await delay(250);
     await page.screenshot({
       path: path.join(args.artifactDir, 'admin-access-corporate-partner-invite-desktop.png'),
       fullPage: true,
     });
 
     await page.setViewportSize({ width: 390, height: 900 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await delay(250);
     await page.screenshot({
       path: path.join(args.artifactDir, 'admin-access-corporate-partner-invite-mobile.png'),
       fullPage: true,
