@@ -149,6 +149,17 @@ type TechnicianSourceRecord = {
   machineIds: string[];
 };
 
+type MachineScopeSource = 'Corporate Partner' | 'Technician' | 'Scoped Admin' | 'Manual Reporting' | 'Super Admin';
+
+type MachineScopeSourceRow = {
+  id: string;
+  machineId: string | null;
+  machineLabel: string;
+  source: MachineScopeSource;
+  detail: string;
+  accessKind: 'derived' | 'manual' | 'admin';
+};
+
 type AccessWorkspaceIdentity = {
   email: string | null;
   userId: string | null;
@@ -604,6 +615,122 @@ const getManualReportingMachineIds = (context: EffectiveAccessContext | null) =>
   return (context.scopes.machineIds ?? []).filter((machineId) => !derivedMachineIds.has(machineId));
 };
 
+const machineScopeSourceOrder: Record<MachineScopeSource, number> = {
+  'Super Admin': 0,
+  'Corporate Partner': 1,
+  Technician: 2,
+  'Scoped Admin': 3,
+  'Manual Reporting': 4,
+};
+
+const buildMachineScopeSourceRows = (context: EffectiveAccessContext | null): MachineScopeSourceRow[] => {
+  if (!context) return [];
+
+  const rows: MachineScopeSourceRow[] = [];
+  const rowKeys = new Set<string>();
+  const addRow = (row: MachineScopeSourceRow) => {
+    const rowKey = `${row.source}:${row.machineId ?? 'global'}`;
+    if (rowKeys.has(rowKey)) return;
+    rowKeys.add(rowKey);
+    rows.push(row);
+  };
+
+  if (context.presets.includes('Super Admin')) {
+    addRow({
+      id: 'super-admin:global',
+      machineId: null,
+      machineLabel: 'All machines and admin surfaces',
+      source: 'Super Admin',
+      detail: 'Global admin authority is not limited to a machine, partner, or account scope.',
+      accessKind: 'admin',
+    });
+  }
+
+  const corporatePartnerNames = uniqueValues(
+    getCorporateSources(context)
+      .filter((source) => source.isActive)
+      .map((source) => source.partnerName)
+      .filter(Boolean)
+  );
+  const corporateDetail =
+    corporatePartnerNames.length > 0
+      ? `Active Corporate Partner membership through ${corporatePartnerNames.join(', ')}. Machines come from portal-enabled partnerships attached to that partner.`
+      : 'Active Corporate Partner scope. Machines come from portal-enabled partnerships attached to that partner.';
+
+  (context.scopes.corporatePartnerMachineIds ?? []).forEach((machineId) => {
+    addRow({
+      id: `corporate:${machineId}`,
+      machineId,
+      machineLabel: machineId,
+      source: 'Corporate Partner',
+      detail: corporateDetail,
+      accessKind: 'derived',
+    });
+  });
+
+  getTechnicianSources(context)
+    .filter((source) => source.isActive)
+    .forEach((source) => {
+      source.machineIds.forEach((machineId) => {
+        addRow({
+          id: `technician:${source.id}:${machineId}`,
+          machineId,
+          machineLabel: machineId,
+          source: 'Technician',
+          detail: `Active Technician grant for ${source.accountName}. ${source.grantReason}`,
+          accessKind: 'derived',
+        });
+      });
+    });
+
+  (context.scopes.technicianMachineIds ?? []).forEach((machineId) => {
+    addRow({
+      id: `technician:${machineId}`,
+      machineId,
+      machineLabel: machineId,
+      source: 'Technician',
+      detail: 'Active Technician machine assignment from the reporting entitlement scope.',
+      accessKind: 'derived',
+    });
+  });
+
+  (context.scopes.scopedAdminMachineIds ?? []).forEach((machineId) => {
+    addRow({
+      id: `scoped-admin:${machineId}`,
+      machineId,
+      machineLabel: machineId,
+      source: 'Scoped Admin',
+      detail: 'Assigned Scoped Admin boundary for internal admin work on this machine.',
+      accessKind: 'admin',
+    });
+  });
+
+  getManualReportingMachineIds(context).forEach((machineId) => {
+    addRow({
+      id: `manual:${machineId}`,
+      machineId,
+      machineLabel: machineId,
+      source: 'Manual Reporting',
+      detail: 'Explicit reporting grant added outside partner, Technician, or Scoped Admin sources.',
+      accessKind: 'manual',
+    });
+  });
+
+  return rows.sort((a, b) => {
+    if (a.source === 'Super Admin' && b.source !== 'Super Admin') return -1;
+    if (b.source === 'Super Admin' && a.source !== 'Super Admin') return 1;
+    const machineCompare = a.machineLabel.localeCompare(b.machineLabel);
+    if (machineCompare !== 0) return machineCompare;
+    return machineScopeSourceOrder[a.source] - machineScopeSourceOrder[b.source];
+  });
+};
+
+const formatMachineScopeAccessKind = (accessKind: MachineScopeSourceRow['accessKind']) => {
+  if (accessKind === 'manual') return 'Manual grant';
+  if (accessKind === 'admin') return 'Admin authority';
+  return 'Derived';
+};
+
 const getSoonestFutureDate = (values: Array<string | null | undefined>) => {
   const now = Date.now();
   const futureDates = values
@@ -1013,6 +1140,15 @@ function AdminPersonAccessConsoleInner({
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.44fr)]">
             <div className="space-y-5">
+              <WorkspaceSectionHeader
+                eyebrow="Common access work"
+                title={isSuperAdmin ? 'Customer, partner, and Technician access' : 'Scoped Technician access'}
+                description={
+                  isSuperAdmin
+                    ? 'Start here for the access changes used most often: Plus, Corporate Partner, Technician, and manual reporting scope.'
+                    : 'Grant or adjust Technician access inside the machine boundary already assigned to you.'
+                }
+              />
               {isSuperAdmin && (
                 <>
                   <PlusCustomerAccessCard
@@ -1036,6 +1172,11 @@ function AdminPersonAccessConsoleInner({
               <ManualReportingAccessCard identity={identity} onChanged={refreshWorkspace} />
               {isSuperAdmin && (
                 <>
+                  <WorkspaceSectionHeader
+                    eyebrow="Admin authority"
+                    title="Internal admin roles"
+                    description="Use these only when the person needs operational admin authority, not customer or partner access."
+                  />
                   <ScopedAdminAccessCard identity={identity} onChanged={refreshWorkspace} />
                   <SuperAdminAccessCard identity={identity} onChanged={refreshWorkspace} />
                 </>
@@ -2548,6 +2689,24 @@ function SummaryMetric({ label, value }: { label: string; value: string }) {
     <div className="rounded-md border border-border bg-muted/20 p-3">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function WorkspaceSectionHeader({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="pt-1">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{eyebrow}</p>
+      <h3 className="mt-1 text-base font-semibold text-foreground">{title}</h3>
+      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -5101,6 +5260,9 @@ function ScopeBreakdownCard({
     ...corporateSources.map((source) => source.expiresAt),
     ...technicianSources.map((source) => source.expiresAt),
   ]);
+  const sourceRows = buildMachineScopeSourceRows(effectiveAccess);
+  const visibleSourceRows = sourceRows.slice(0, 10);
+  const hiddenSourceRowCount = Math.max(sourceRows.length - visibleSourceRows.length, 0);
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 sm:p-5">
@@ -5142,6 +5304,46 @@ function ScopeBreakdownCard({
           label="Next source expiry"
           value={nextExpiry ? formatDate(nextExpiry) : 'No expiry recorded'}
         />
+      </div>
+      <div className="mt-4" data-testid="machine-scope-source-map">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Why machines are visible
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Source-by-source explanation of the machine scope shown in reporting and grant workflows.
+          </p>
+        </div>
+        {visibleSourceRows.length === 0 ? (
+          <div className="mt-3 rounded-md border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+            No machine-scoped source is currently active for this person.
+          </div>
+        ) : (
+          <div className="mt-3 divide-y divide-border rounded-md border border-border">
+            {visibleSourceRows.map((row) => (
+              <div key={row.id} className="p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="break-all text-sm font-semibold text-foreground">{row.machineLabel}</p>
+                    {row.machineId && row.machineId !== row.machineLabel ? (
+                      <p className="mt-0.5 break-all text-xs text-muted-foreground">{row.machineId}</p>
+                    ) : null}
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{row.detail}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-1">
+                    <Badge variant="secondary">{row.source}</Badge>
+                    <Badge variant="outline">{formatMachineScopeAccessKind(row.accessKind)}</Badge>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {hiddenSourceRowCount > 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Showing 10 of {sourceRows.length} active machine-source rows.
+          </p>
+        ) : null}
       </div>
       <p className="mt-4 text-xs text-muted-foreground">
         Manual reporting access is shown in its own access section because it can be changed independently
