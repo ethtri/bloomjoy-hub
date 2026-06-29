@@ -212,15 +212,12 @@ export default function AdminAccessPage() {
             )}
 
             {!isSuperAdmin && (
-              <div className="mt-6 space-y-6">
+              <div className="mt-6">
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                  Your scoped admin grant limits this workspace to assigned machines. Saving changes
-                  only affects Technician grants, Corporate Partner permissions, and manual
-                  reporting grants inside that scope.
+                  Your scoped admin grant limits this workspace to assigned machines. Use the
+                  person workspace above to manage Technician grants inside that assigned-machine
+                  scope.
                 </div>
-                <PresetsTab />
-                <ScopedMachineTaxRatesPanel />
-                <ReportingAccessTab />
               </div>
             )}
           </div>
@@ -231,7 +228,6 @@ export default function AdminAccessPage() {
 }
 
 function PresetsTab() {
-  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [personEmail, setPersonEmail] = useState('');
   const [effectiveAccess, setEffectiveAccess] = useState<EffectiveAccessContext | null>(null);
@@ -1413,7 +1409,6 @@ function UsersTab() {
 }
 
 function ReportingAccessTab() {
-  const { isScopedAdmin, isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [peopleSearch, setPeopleSearch] = useState('');
   const [lookupEmail, setLookupEmail] = useState('');

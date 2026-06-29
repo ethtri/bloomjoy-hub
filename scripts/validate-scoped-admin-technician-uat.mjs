@@ -884,6 +884,22 @@ const run = async () => {
             state.accessInviteBodies[0]?.sourceId === grantId,
           JSON.stringify(state.accessInviteBodies[0])
         );
+        recorder.assert(
+          'Scoped Admin Access hides legacy Corporate Partner preset panel',
+          !(await page.getByRole('heading', { name: 'Corporate Partner preset' }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides Corporate Partner grant CTA',
+          !(await page.getByRole('button', { name: /Grant Corporate Partner/i }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides legacy machine tax panel',
+          !(await page.getByRole('heading', { name: 'Machine tax rates' }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides legacy reporting matrix loader',
+          !(await page.getByLabel('Add existing user by email').isVisible().catch(() => false))
+        );
 
         const updateInScopeProbe = await directRpcProbe(page, 'admin_update_technician_machines', {
           p_grant_id: grantId,
@@ -934,11 +950,15 @@ const run = async () => {
         );
         recorder.assert(
           'Scoped Admin Account Settings hides billing tools',
-          !(await page.getByText('Billing').isVisible().catch(() => false))
+          !(await page.getByRole('heading', { name: /^Billing$/ }).isVisible().catch(() => false)) &&
+            !(await page.getByRole('button', { name: /Open Billing Portal|Manage Billing/i }).isVisible().catch(() => false)) &&
+            !(await page.getByRole('link', { name: /View Plus Membership/i }).isVisible().catch(() => false))
         );
 
         await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
-        await page.getByText(/Team requires Team access/i).waitFor({ timeout: 10000 });
+        await page
+          .getByText(/Team management is reserved for Plus account owners/i)
+          .waitFor({ timeout: 10000 });
         recorder.assert(
           'Scoped Admin direct Portal Team offers Admin Access exit',
           await page.getByRole('link', { name: 'Open Admin Access' }).isVisible()
@@ -980,7 +1000,9 @@ const run = async () => {
         });
 
         await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
-        await page.getByText(/Team requires Team access/i).waitFor({ timeout: 10000 });
+        await page
+          .getByText(/Team management is reserved for Plus account owners/i)
+          .waitFor({ timeout: 10000 });
         recorder.assert(
           'Capability drift direct Portal Team offers Admin Access exit',
           await page.getByRole('link', { name: 'Open Admin Access' }).isVisible()
