@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -165,6 +165,7 @@ const roleSort = (a: AdminRoleRecord, b: AdminRoleRecord) => {
 
 export default function AdminAccessPage() {
   const { isScopedAdmin, isSuperAdmin } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialShowActivity = searchParams.get('tab') === 'audit';
   const initialLauncher = useMemo(
@@ -177,6 +178,26 @@ export default function AdminAccessPage() {
     }),
     [searchParams]
   );
+
+  useEffect(() => {
+    if (!isScopedAdmin || isSuperAdmin) return;
+
+    const legacyTab = searchParams.get('tab');
+    if (!legacyTab || legacyTab === 'audit') return;
+
+    const normalizedParams = new URLSearchParams(searchParams);
+    normalizedParams.delete('tab');
+    normalizedParams.set('action', 'add-access');
+    normalizedParams.set('preset', 'technician');
+
+    navigate(
+      {
+        pathname: '/admin/access',
+        search: `?${normalizedParams.toString()}`,
+      },
+      { replace: true }
+    );
+  }, [isScopedAdmin, isSuperAdmin, navigate, searchParams]);
 
   return (
     <AppLayout>

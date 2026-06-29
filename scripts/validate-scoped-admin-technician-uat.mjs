@@ -663,6 +663,76 @@ const login = async (page, user) => {
   await page.getByRole('button', { name: /sign in/i }).click();
 };
 
+const openPathAsUser = async (page, args, user, pathName) => {
+  await page.goto(`${args.appUrl}${pathName}`, { waitUntil: 'domcontentloaded' });
+  await login(page, user);
+  await page.goto(`${args.appUrl}${pathName}`, { waitUntil: 'domcontentloaded' });
+};
+
+const assertScopedAdminAccessRoute = async ({
+  page,
+  args,
+  recorder,
+  user,
+  pathName,
+  label,
+  expectLauncher = false,
+  expectActivity = false,
+}) => {
+  await openPathAsUser(page, args, user, pathName);
+  const primaryLocator = expectLauncher
+    ? page.getByRole('heading', { name: 'Add Technician' })
+    : page.getByRole('heading', { name: 'Access' });
+
+  await primaryLocator
+    .waitFor({ timeout: 10000 })
+    .catch(async (error) => {
+      await page.screenshot({
+        path: path.join(args.artifactDir, `${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-route-timeout.png`),
+        fullPage: true,
+      });
+      const bodyText = await page.locator('body').innerText().catch(() => '');
+      console.error(`${label} did not reach Admin Access at ${page.url()}`);
+      console.error(bodyText.slice(0, 2000));
+      throw error;
+    });
+
+  const url = new URL(page.url());
+  recorder.assert(
+    `${label} lands on Admin Access`,
+    url.pathname === '/admin/access',
+    page.url()
+  );
+
+  if (expectLauncher) {
+    const launcherUrl = new URL(page.url());
+    recorder.assert(
+      `${label} normalizes to Technician launcher`,
+      launcherUrl.searchParams.get('action') === 'add-access' &&
+        launcherUrl.searchParams.get('preset') === 'technician',
+      page.url()
+    );
+    recorder.assert(
+      `${label} opens Add Technician launcher`,
+      await page.getByRole('heading', { name: 'Add Technician' }).isVisible()
+    );
+  } else {
+    recorder.assert(
+      `${label} exposes Add Technician primary action`,
+      await page.getByRole('button', { name: 'Add Technician' }).isVisible()
+    );
+  }
+
+  if (expectActivity) {
+    await page.getByRole('heading', { name: 'Global activity' }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      `${label} preserves audit activity focus`,
+      url.searchParams.get('tab') === 'audit',
+      page.url()
+    );
+  }
+};
+
 const directRpcProbe = async (page, rpcName, payload) =>
   page.evaluate(
     async ({ rpcName: evaluatedRpcName, payload: evaluatedPayload, supabaseUrl }) => {
@@ -815,6 +885,51 @@ const run = async () => {
       name: 'Scoped Admin Technician grant',
       state: createState({ actor: 'scoped_admin' }),
       test: async ({ page, state }) => {
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin',
+          label: 'Scoped Admin /admin landing',
+          expectLauncher: true,
+        });
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin/access',
+          label: 'Scoped Admin /admin/access landing',
+        });
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin/access?tab=reporting-access',
+          label: 'Scoped Admin legacy reporting-access tab',
+          expectLauncher: true,
+        });
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin/access?action=add-access&preset=technician',
+          label: 'Scoped Admin explicit Technician launcher',
+          expectLauncher: true,
+        });
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin/audit',
+          label: 'Scoped Admin audit shortcut',
+          expectActivity: true,
+        });
+
         await openTechnicianLauncher(page, args, state.user);
         await page.locator('p').filter({ hasText: /^Scoped Admin machine scope$/ }).waitFor({ timeout: 10000 });
 

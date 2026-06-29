@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/auth-context';
 
+const scopedAdminAccessLanding = '/admin/access?action=add-access&preset=technician';
+
 export function AdminRoute() {
   const { adminAccess, loading, isAdmin, isScopedAdmin, isSuperAdmin } = useAuth();
   const location = useLocation();
@@ -15,6 +17,7 @@ export function AdminRoute() {
   const isAdminPartnershipsPath =
     location.pathname === '/admin/partnerships' ||
     location.pathname.startsWith('/admin/partnerships/');
+  const isAdminAuditShortcutPath = location.pathname === '/admin/audit';
 
   if (loading) {
     return (
@@ -37,18 +40,18 @@ export function AdminRoute() {
     return <Navigate to="/portal/refunds" replace />;
   }
 
-  if (!isSuperAdmin && isAdmin && location.pathname === '/admin') {
+  if (!isSuperAdmin && (isAdmin || isScopedAdmin) && location.pathname === '/admin') {
     const redirectTarget = canAccessSurface('payouts')
       ? '/admin/payouts'
       : canAccessSurface('refunds')
       ? '/portal/refunds'
       : canAccessSurface('partnerships')
       ? '/admin/partnerships'
-      : '/admin/access?tab=reporting-access';
+      : scopedAdminAccessLanding;
     return <Navigate to={redirectTarget} replace />;
   }
 
-  if (isScopedAdmin && canAccessSurface('access') && isAdminAccessPath) {
+  if (isScopedAdmin && canAccessSurface('access') && (isAdminAccessPath || isAdminAuditShortcutPath)) {
     return <Outlet />;
   }
 
