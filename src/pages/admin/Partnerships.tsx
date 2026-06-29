@@ -46,6 +46,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/contexts/auth-context';
 import {
   archiveReportingPartnershipAdmin,
   fetchPartnershipReportingSetup,
@@ -470,6 +471,7 @@ const applyPayoutModelPreset = (
 };
 
 export default function AdminPartnershipsPage() {
+  const { adminAccess, isScopedAdmin, isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedPartnershipId = searchParams.get('partnershipId') ?? '';
@@ -581,6 +583,23 @@ export default function AdminPartnershipsPage() {
     nextParams.delete('externalMachineName');
     setSearchParams(nextParams, { replace: true });
   };
+
+  if (
+    isScopedAdmin &&
+    !isSuperAdmin &&
+    (adminAccess.allowedSurfaces.includes('partnerships') ||
+      adminAccess.allowedSurfaces.includes('*'))
+  ) {
+    return (
+      <ScopedPartnershipsWorkspace
+        setup={setup}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        hasLoadError={Boolean(error)}
+        onRefresh={refresh}
+      />
+    );
+  }
 
   return (
     <AppLayout>
@@ -729,6 +748,574 @@ export default function AdminPartnershipsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </AppLayout>
+  );
+}
+
+function ScopedPartnershipsWorkspace({
+  setup,
+  isLoading,
+  isFetching,
+  hasLoadError,
+  onRefresh,
+}: {
+  setup: PartnershipReportingSetup;
+  isLoading: boolean;
+  isFetching: boolean;
+  hasLoadError: boolean;
+  onRefresh: () => Promise<unknown>;
+}) {
+  const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
+  const [form, setForm] = useState({ ...emptyPartnershipForm, reason: '' });
+  const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(() => new Set());
+  const [machineSearch, setMachineSearch] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
+
+  const visiblePartnerships = useMemo(
+    () => setup.partnerships.filter((partnership) => partnership.status !== 'archived'),
+    [setup.partnerships]
+  );
+  const selectedPartnership = useMemo(
+    () =>
+      visiblePartnerships.find((partnership) => partnership.id === selectedPartnershipId) ?? null,
+    [selectedPartnershipId, visiblePartnerships]
+  );
+  const currentDate = today();
+  const activeAssignments = useMemo(
+    () =>
+      selectedPartnership
+        ? setup.assignments.filter(
+            (assignment) =>
+              assignment.partnership_id === selectedPartnership.id &&
+              assignment.status === 'active' &&
+              assignment.effective_start_date <= currentDate &&
+              (!assignment.effective_end_date || assignment.effective_end_date >= currentDate)
+          )
+        : [],
+    [currentDate, selectedPartnership, setup.assignments]
+  );
+  const originalMachineIds = useMemo(
+    () => new Set(activeAssignments.map((assignment) => assignment.machine_id)),
+    [activeAssignments]
+  );
+  const machineById = useMemo(
+    () => new Map(setup.machines.map((machine) => [machine.id, machine])),
+    [setup.machines]
+  );
+  const selectedMachines = useMemo(
+    () =>
+      [...selectedMachineIds]
+        .map((machineId) => machineById.get(machineId))
+        .filter((machine): machine is PartnershipReportingSetup['machines'][number] =>
+          Boolean(machine)
+        ),
+    [machineById, selectedMachineIds]
+  );
+  const filteredMachines = useMemo(() => {
+    const normalizedSearch = machineSearch.trim().toLowerCase();
+    if (!normalizedSearch) return setup.machines;
+
+    return setup.machines.filter((machine) =>
+      [
+        machine.machine_label,
+        machine.account_name,
+        machine.location_name,
+        machine.sunze_machine_id ?? '',
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedSearch)
+    );
+  }, [machineSearch, setup.machines]);
+  const addedMachineIds = [...selectedMachineIds].filter((machineId) => !originalMachineIds.has(machineId));
+  const removedMachineIds = [...originalMachineIds].filter((machineId) => !selectedMachineIds.has(machineId));
+  const hasMachineChanges = addedMachineIds.length > 0 || removedMachineIds.length > 0;
+  const hasPartnershipChanges =
+    !selectedPartnership ||
+    form.name !== selectedPartnership.name ||
+    form.effectiveStartDate !== selectedPartnership.effective_start_date ||
+    form.status !== selectedPartnership.status ||
+    form.notes !== (selectedPartnership.notes ?? '');
+  const canSave =
+    !isSaving &&
+    form.name.trim().length > 0 &&
+    form.effectiveStartDate.length > 0 &&
+    form.reason.trim().length > 0 &&
+    selectedMachineIds.size > 0 &&
+    (hasPartnershipChanges || hasMachineChanges);
+
+  useEffect(() => {
+    if (selectedPartnershipId && !selectedPartnership) {
+      setSelectedPartnershipId('');
+    }
+  }, [selectedPartnership, selectedPartnershipId]);
+
+  useEffect(() => {
+    if (!selectedPartnership) {
+      setForm({ ...emptyPartnershipForm, reason: '' });
+      setSelectedMachineIds(new Set());
+      return;
+    }
+
+    setForm({
+      ...emptyPartnershipForm,
+      partnershipId: selectedPartnership.id,
+      name: selectedPartnership.name,
+      partnershipType: selectedPartnership.partnership_type,
+      reportingWeekEndDay: String(selectedPartnership.reporting_week_end_day),
+      timezone: selectedPartnership.timezone,
+      reportingFrequency: selectedPartnership.reporting_frequency ?? 'weekly_and_monthly',
+      monthlyReportDueDays:
+        selectedPartnership.monthly_report_due_days === null ||
+        selectedPartnership.monthly_report_due_days === undefined
+          ? ''
+          : String(selectedPartnership.monthly_report_due_days),
+      invoicePaymentDueDays:
+        selectedPartnership.invoice_payment_due_days === null ||
+        selectedPartnership.invoice_payment_due_days === undefined
+          ? ''
+          : String(selectedPartnership.invoice_payment_due_days),
+      paymentMethod: selectedPartnership.payment_method ?? '',
+      machineOwnershipModel: selectedPartnership.machine_ownership_model ?? 'unknown',
+      consumerPricingAuthority: selectedPartnership.consumer_pricing_authority ?? 'unknown',
+      contractReference: selectedPartnership.contract_reference ?? '',
+      effectiveStartDate: selectedPartnership.effective_start_date,
+      effectiveEndDate: selectedPartnership.effective_end_date ?? '',
+      status: selectedPartnership.status === 'draft' ? 'draft' : 'active',
+      notes: selectedPartnership.notes ?? '',
+      reason: '',
+    });
+    setSelectedMachineIds(new Set(originalMachineIds));
+  }, [originalMachineIds, selectedPartnership]);
+
+  const startNewPartnership = () => {
+    setSelectedPartnershipId('');
+    setForm({ ...emptyPartnershipForm, reason: '' });
+    setSelectedMachineIds(new Set());
+    setMachineSearch('');
+  };
+
+  const toggleMachine = (machineId: string, checked: boolean) => {
+    setSelectedMachineIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(machineId);
+      } else {
+        next.delete(machineId);
+      }
+      return next;
+    });
+  };
+
+  const saveScopedPartnership = async () => {
+    const reason = form.reason.trim();
+    if (!form.name.trim() || !form.effectiveStartDate) {
+      toast.error('Partnership name and effective start date are required.');
+      return;
+    }
+    if (!reason) {
+      toast.error('Enter a reason before saving this partnership.');
+      return;
+    }
+    if (selectedMachineIds.size === 0) {
+      toast.error('Select at least one assigned machine before saving.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const savedPartnership = await upsertReportingPartnershipAdmin({
+        ...form,
+        partnershipId: form.partnershipId,
+        name: form.name.trim(),
+        reportingWeekEndDay: Number(form.reportingWeekEndDay),
+        monthlyReportDueDays: optionalIntegerFromInput(form.monthlyReportDueDays),
+        invoicePaymentDueDays: optionalIntegerFromInput(form.invoicePaymentDueDays),
+        paymentMethod: form.paymentMethod.trim() || null,
+        contractReference: form.contractReference.trim() || null,
+        effectiveEndDate: form.effectiveEndDate || null,
+        notes: form.notes.trim() || null,
+        reason,
+      });
+
+      for (const machineId of addedMachineIds) {
+        await upsertReportingMachineAssignmentAdmin({
+          assignmentId: null,
+          machineId,
+          partnershipId: savedPartnership.id,
+          assignmentRole: 'primary_reporting',
+          effectiveStartDate: savedPartnership.effective_start_date,
+          effectiveEndDate: '',
+          status: 'active',
+          notes: null,
+          reason,
+        });
+      }
+
+      const assignmentsToArchive = activeAssignments.filter((assignment) =>
+        removedMachineIds.includes(assignment.machine_id)
+      );
+
+      for (const assignment of assignmentsToArchive) {
+        await upsertReportingMachineAssignmentAdmin({
+          assignmentId: assignment.id,
+          machineId: assignment.machine_id,
+          partnershipId: savedPartnership.id,
+          assignmentRole: assignment.assignment_role,
+          effectiveStartDate: assignment.effective_start_date,
+          effectiveEndDate: getSafeArchiveEndDate(assignment.effective_start_date),
+          status: 'archived',
+          notes: assignment.notes ?? null,
+          reason,
+        });
+      }
+
+      await onRefresh();
+      toast.success(form.partnershipId ? 'Partnership updated.' : 'Partnership created.');
+      setSelectedPartnershipId(savedPartnership.id);
+      setForm((current) => ({ ...current, partnershipId: savedPartnership.id, reason: '' }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save partnership.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <AppLayout>
+      <section className="section-padding admin-touch-targets">
+        <div className="container-page">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                Scoped Admin
+              </p>
+              <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
+                Partnerships
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                Create and update partnerships only for machines in your assigned admin scope.
+              </p>
+            </div>
+            <Button variant="outline" className="min-h-11" onClick={onRefresh} disabled={isFetching}>
+              {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Refresh
+            </Button>
+          </div>
+
+          {hasLoadError && (
+            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              Unable to load your scoped partnership setup.
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="mt-6 rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+              Loading scoped partnership setup...
+            </div>
+          ) : setup.machines.length === 0 ? (
+            <div className="mt-6 rounded-lg border border-border bg-card p-6">
+              <div className="flex items-start gap-3">
+                <Info className="mt-0.5 h-5 w-5 text-muted-foreground" />
+                <div>
+                  <h2 className="font-semibold text-foreground">No assigned machines</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    A Super Admin needs to assign machines before scoped partnership management can
+                    be used.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+              <aside className="space-y-4">
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="font-semibold text-foreground">Partnerships</h2>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Only scoped partnerships are listed.
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" className="min-h-11" onClick={startNewPartnership}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      New
+                    </Button>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {visiblePartnerships.length === 0 ? (
+                      <EmptyState text="No partnerships are linked to your machines yet." />
+                    ) : (
+                      visiblePartnerships.map((partnership) => {
+                        const isSelected = selectedPartnershipId === partnership.id;
+                        return (
+                          <button
+                            key={partnership.id}
+                            type="button"
+                            onClick={() => setSelectedPartnershipId(partnership.id)}
+                            className={`w-full rounded-md border px-3 py-3 text-left text-sm transition-colors ${
+                              isSelected
+                                ? 'border-primary/40 bg-primary/10 text-primary'
+                                : 'border-border bg-background text-foreground hover:bg-muted/40'
+                            }`}
+                          >
+                            <div className="font-medium">{partnership.name}</div>
+                            <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              <span>{formatLabel(partnership.status)}</span>
+                              <span>{formatDate(partnership.effective_start_date)}</span>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                  <Metric label="Scoped machines" value={String(setup.machines.length)} />
+                  <Metric label="Visible partnerships" value={String(visiblePartnerships.length)} />
+                  <Metric label="Selected machines" value={String(selectedMachineIds.size)} />
+                </div>
+              </aside>
+
+              <main className="min-w-0 space-y-4">
+                <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
+                  <div className="flex items-start gap-3">
+                    <Info className="mt-0.5 h-5 w-5 shrink-0" />
+                    <div>
+                      <div className="font-semibold">Assigned-machine scope is active</div>
+                      <div className="mt-1">
+                        The machine list below is the full set available to this admin. Out-of-scope
+                        machines and global reporting tools are intentionally hidden.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {setup.warnings.length > 0 && <WarningList warnings={setup.warnings} />}
+
+                <section className="rounded-lg border border-border bg-card p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h2 className="font-semibold text-foreground">
+                        {selectedPartnership ? 'Manage partnership' : 'Create partnership'}
+                      </h2>
+                      <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                        Name the partnership, select its assigned machines, and enter the reason for
+                        the audit log.
+                      </p>
+                    </div>
+                    {selectedPartnership && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11 border-destructive/40 text-destructive hover:border-destructive hover:text-destructive"
+                        onClick={() => setIsArchiveDialogOpen(true)}
+                      >
+                        <Archive className="mr-2 h-4 w-4" />
+                        Archive
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    <div>
+                      <Label htmlFor="scoped-partnership-name">Partnership name</Label>
+                      <Input
+                        id="scoped-partnership-name"
+                        value={form.name}
+                        onChange={(event) => setForm({ ...form, name: event.target.value })}
+                        placeholder="Venue or event partnership"
+                        className="h-11"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="scoped-partnership-status">Status</Label>
+                      <select
+                        id="scoped-partnership-status"
+                        value={form.status}
+                        onChange={(event) => setForm({ ...form, status: event.target.value })}
+                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="active">active</option>
+                        <option value="draft">draft</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label htmlFor="scoped-partnership-start">Effective start</Label>
+                      <Input
+                        id="scoped-partnership-start"
+                        type="date"
+                        value={form.effectiveStartDate}
+                        onChange={(event) =>
+                          setForm({ ...form, effectiveStartDate: event.target.value })
+                        }
+                        className="h-11"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="scoped-partnership-notes">Notes</Label>
+                      <Input
+                        id="scoped-partnership-notes"
+                        value={form.notes}
+                        onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                        placeholder="Optional internal note"
+                        className="h-11"
+                      />
+                    </div>
+                    <div className="lg:col-span-2">
+                      <Label htmlFor="scoped-partnership-reason">Reason for change</Label>
+                      <Textarea
+                        id="scoped-partnership-reason"
+                        value={form.reason}
+                        onChange={(event) => setForm({ ...form, reason: event.target.value })}
+                        placeholder="Example: Adam added MTLV Kiosk 01 to the venue partnership"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-lg border border-border bg-card p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <h2 className="font-semibold text-foreground">Assigned machines</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Select from the machines this admin is allowed to manage.
+                      </p>
+                    </div>
+                    <div className="min-w-0 sm:w-80">
+                      <Label htmlFor="scoped-machine-search">Find machines</Label>
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="scoped-machine-search"
+                          value={machineSearch}
+                          onChange={(event) => setMachineSearch(event.target.value)}
+                          className="h-11 pl-9"
+                          placeholder="Machine, account, location"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-lg border border-border">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3 text-sm">
+                      <div>
+                        <span className="font-medium text-foreground">{selectedMachineIds.size}</span>{' '}
+                        <span className="text-muted-foreground">selected</span>
+                      </div>
+                      {hasMachineChanges && (
+                        <Badge variant="secondary">
+                          +{addedMachineIds.length} / -{removedMachineIds.length}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="max-h-[520px] divide-y divide-border overflow-y-auto">
+                      {filteredMachines.length === 0 ? (
+                        <EmptyRow text="No assigned machines match this search." />
+                      ) : (
+                        filteredMachines.map((machine) => {
+                          const checked = selectedMachineIds.has(machine.id);
+                          const isOriginal = originalMachineIds.has(machine.id);
+
+                          return (
+                            <label
+                              key={machine.id}
+                              className="flex cursor-pointer items-start gap-3 px-4 py-4 transition-colors hover:bg-muted/30"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(value) => toggleMachine(machine.id, Boolean(value))}
+                                className="mt-1"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-medium text-foreground">
+                                  {machine.machine_label}
+                                </span>
+                                <span className="mt-1 block text-sm text-muted-foreground">
+                                  {machine.account_name} / {machine.location_name}
+                                </span>
+                                <span className="mt-2 inline-flex rounded-full border border-border bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
+                                  Visible through assigned admin machine scope
+                                </span>
+                              </span>
+                              {checked ? (
+                                <Badge variant={isOriginal ? 'secondary' : 'outline'}>
+                                  {isOriginal ? 'Current' : 'Added'}
+                                </Badge>
+                              ) : isOriginal ? (
+                                <Badge variant="destructive">Removing</Badge>
+                              ) : null}
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-lg border border-border bg-card p-5">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div>
+                      <h2 className="font-semibold text-foreground">Before</h2>
+                      <div className="mt-3 rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                        {activeAssignments.length === 0 ? (
+                          'No current machine assignments.'
+                        ) : (
+                          <ul className="space-y-1">
+                            {activeAssignments.map((assignment) => (
+                              <li key={assignment.id}>{assignment.machine_label}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <h2 className="font-semibold text-foreground">After save</h2>
+                      <div className="mt-3 rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                        {selectedMachines.length === 0 ? (
+                          'No machines selected.'
+                        ) : (
+                          <ul className="space-y-1">
+                            {selectedMachines.map((machine) => (
+                              <li key={machine.id}>{machine.machine_label}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-5 flex flex-wrap items-center gap-3">
+                    <Button className="min-h-11" onClick={saveScopedPartnership} disabled={!canSave}>
+                      {isSaving ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                      )}
+                      {form.partnershipId ? 'Save partnership' : 'Create partnership'}
+                    </Button>
+                    {!canSave && (
+                      <p className="text-sm text-muted-foreground">
+                        Name, date, reason, and at least one assigned machine are required.
+                      </p>
+                    )}
+                  </div>
+                </section>
+              </main>
+            </div>
+          )}
+        </div>
+      </section>
+      <ArchivePartnershipDialog
+        partnership={selectedPartnership}
+        open={isArchiveDialogOpen}
+        onOpenChange={setIsArchiveDialogOpen}
+        onArchived={async () => {
+          setSelectedPartnershipId('');
+          await onRefresh();
+        }}
+      />
     </AppLayout>
   );
 }

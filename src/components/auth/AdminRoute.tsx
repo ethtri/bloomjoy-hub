@@ -12,6 +12,9 @@ export function AdminRoute() {
     isSuperAdmin || allowedSurfaces.has('*') || allowedSurfaces.has(surface);
   const isAdminAccessPath =
     location.pathname === '/admin/access' || location.pathname.startsWith('/admin/access/');
+  const isAdminPartnershipsPath =
+    location.pathname === '/admin/partnerships' ||
+    location.pathname.startsWith('/admin/partnerships/');
 
   if (loading) {
     return (
@@ -39,11 +42,17 @@ export function AdminRoute() {
       ? '/admin/payouts'
       : canAccessSurface('refunds')
       ? '/portal/refunds'
+      : canAccessSurface('partnerships')
+      ? '/admin/partnerships'
       : '/admin/access?tab=reporting-access';
     return <Navigate to={redirectTarget} replace />;
   }
 
   if (isScopedAdmin && canAccessSurface('access') && isAdminAccessPath) {
+    return <Outlet />;
+  }
+
+  if (isScopedAdmin && canAccessSurface('partnerships') && isAdminPartnershipsPath) {
     return <Outlet />;
   }
 
