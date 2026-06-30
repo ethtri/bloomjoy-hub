@@ -5,8 +5,12 @@ import {
   CheckCircle2,
   Clock3,
   FileText,
+  ListChecks,
   Loader2,
+  MoreHorizontal,
+  PlusCircle,
   RefreshCw,
+  ReceiptText,
   RotateCcw,
   Send,
   ShieldCheck,
@@ -24,6 +28,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -46,6 +58,18 @@ import {
 import { cn } from '@/lib/utils';
 
 type ReviewAction = 'mark_reviewed' | 'finalize' | 'reopen' | 'void';
+type PrimaryAction = 'generate' | 'warnings' | 'operators' | 'finalize' | 'statements' | 'none';
+type StepState = 'done' | 'current' | 'blocked' | 'pending';
+
+type ReadinessState = {
+  tone: 'ready' | 'blocked' | 'attention' | 'neutral';
+  label: string;
+  title: string;
+  description: string;
+  primaryLabel: string;
+  primaryAction: PrimaryAction;
+  primaryDisabled?: boolean;
+};
 
 const statusVariant = (status: string): 'default' | 'destructive' | 'outline' => {
   if (['finalized', 'issued', 'closed', 'reviewed'].includes(status)) return 'default';
@@ -89,6 +113,137 @@ const collectWarnings = (run: PayoutRun | null): PayoutCalculationWarning[] => [
   ...(run?.items.flatMap((item) => item.warnings) ?? []),
 ];
 
+const getReadinessState = ({
+  period,
+  run,
+  warningCount,
+  blockerCount,
+  canMutateRun,
+  canIssueStatements,
+  hasIssuedStatements,
+}: {
+  period: PayoutReviewPeriod | null;
+  run: PayoutRun | null;
+  warningCount: number;
+  blockerCount: number;
+  canMutateRun: boolean;
+  canIssueStatements: boolean;
+  hasIssuedStatements: boolean;
+}): ReadinessState => {
+  if (!period) {
+    return {
+      tone: 'neutral',
+      label: 'No period selected',
+      title: 'Choose a payout period',
+      description: 'Select a period from the review queue to see status and next actions.',
+      primaryLabel: 'Select period',
+      primaryAction: 'none',
+      primaryDisabled: true,
+    };
+  }
+
+  if (!run) {
+    return {
+      tone: 'attention',
+      label: 'Needs payout run',
+      title: 'Generate the payout run before review',
+      description:
+        'The review starts after submitted time, revenue snapshots, rules, and adjustments are calculated into a draft run.',
+      primaryLabel: 'Generate payout run',
+      primaryAction: 'generate',
+      primaryDisabled: !period.canFinalize,
+    };
+  }
+
+  if (hasIssuedStatements) {
+    return {
+      tone: 'ready',
+      label: 'Pay stubs issued',
+      title: 'Operators can now see their pay stubs',
+      description:
+        'Use the statement panel only when a corrected revision is needed. Issued runs cannot be casually reopened.',
+      primaryLabel: 'Review pay stubs',
+      primaryAction: 'statements',
+    };
+  }
+
+  if (canIssueStatements) {
+    return {
+      tone: 'ready',
+      label: 'Ready to issue',
+      title: 'Final review is complete',
+      description:
+        'Operators cannot see pay stubs yet. Preview the rows, then issue them with an audit reason.',
+      primaryLabel: 'Issue pay stubs',
+      primaryAction: 'statements',
+    };
+  }
+
+  if (blockerCount > 0) {
+    return {
+      tone: 'blocked',
+      label: 'Blocked',
+      title: 'Resolve critical warnings before finalizing',
+      description:
+        'Critical warnings block finalization unless a manager records an explicit override reason.',
+      primaryLabel: 'Review blockers',
+      primaryAction: 'warnings',
+    };
+  }
+
+  if (!period.canFinalize) {
+    return {
+      tone: 'neutral',
+      label: 'Review only',
+      title: 'This period is outside your payout approval scope',
+      description:
+        'Payout approval stays with admins who have payout access. Plus and partner reporting remain separate.',
+      primaryLabel: 'Review operator totals',
+      primaryAction: 'operators',
+    };
+  }
+
+  return {
+    tone: warningCount > 0 ? 'attention' : 'ready',
+    label: warningCount > 0 ? 'Needs review' : 'Ready',
+    title: warningCount > 0 ? 'Review warnings, then finalize' : 'Ready for final review',
+    description:
+      warningCount > 0
+        ? 'Non-critical warnings are present. Check operator totals before recording the final decision.'
+        : 'No blockers found. Review operator totals once more, then finalize this payout run.',
+    primaryLabel: 'Finalize payout',
+    primaryAction: 'finalize',
+    primaryDisabled: !canMutateRun,
+  };
+};
+
+const getStepState = ({
+  step,
+  run,
+  blockerCount,
+  hasIssuedStatements,
+}: {
+  step: 'inputs' | 'warnings' | 'adjustments' | 'finalize' | 'statements';
+  run: PayoutRun | null;
+  blockerCount: number;
+  hasIssuedStatements: boolean;
+}): StepState => {
+  if (!run) return step === 'inputs' ? 'current' : 'pending';
+  if (step === 'inputs') return 'done';
+  if (step === 'warnings') return blockerCount > 0 ? 'blocked' : 'done';
+  if (step === 'adjustments') {
+    return ['draft', 'review', 'reopened'].includes(run.status) ? 'current' : 'done';
+  }
+  if (step === 'finalize') {
+    return ['finalized', 'issued', 'closed'].includes(run.status) ? 'done' : 'current';
+  }
+  if (step === 'statements') {
+    if (hasIssuedStatements) return 'done';
+    return ['finalized', 'issued'].includes(run.status) ? 'current' : 'pending';
+  }
+  return 'pending';
+};
+
 const Metric = ({
   label,
   value,
@@ -118,6 +273,48 @@ const EmptyState = ({ title, children }: { title: string; children: ReactNode })
     <p className="mt-2 text-muted-foreground">{children}</p>
   </div>
 );
+
+const ReviewStep = ({
+  index,
+  title,
+  description,
+  state,
+}: {
+  index: number;
+  title: string;
+  description: string;
+  state: StepState;
+}) => {
+  const isDone = state === 'done';
+  const isBlocked = state === 'blocked';
+  const isCurrent = state === 'current';
+
+  return (
+    <div className="flex gap-3 rounded-lg border border-border bg-background p-3">
+      <div
+        className={cn(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold',
+          isDone && 'border-sage/30 bg-sage-light text-foreground',
+          isBlocked && 'border-destructive/30 bg-destructive/10 text-destructive',
+          isCurrent && 'border-primary/30 bg-primary/10 text-primary',
+          state === 'pending' && 'border-border bg-muted/30 text-muted-foreground'
+        )}
+      >
+        {isDone ? (
+          <CheckCircle2 className="h-4 w-4" />
+        ) : isBlocked ? (
+          <AlertTriangle className="h-4 w-4" />
+        ) : (
+          index
+        )}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
+    </div>
+  );
+};
 
 const PeriodCard = ({
   period,
@@ -248,11 +445,13 @@ export default function AdminPayoutsPage() {
   const queryClient = useQueryClient();
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [calculateReason, setCalculateReason] = useState('');
+  const [isCalculationDialogOpen, setIsCalculationDialogOpen] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
   const [action, setAction] = useState<ReviewAction | null>(null);
   const [actionReason, setActionReason] = useState('');
   const [overrideBlockers, setOverrideBlockers] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
+  const [isAdjustmentDialogOpen, setIsAdjustmentDialogOpen] = useState(false);
   const [adjustmentForm, setAdjustmentForm] = useState({
     operatorProfileId: '',
     amount: '',
@@ -297,6 +496,74 @@ export default function AdminPayoutsPage() {
     Boolean(selectedRun) &&
     ['finalized', 'issued'].includes(selectedRun?.status ?? '');
   const hasIssuedStatements = Boolean(selectedPeriod?.issuedStatementCount);
+  const readiness = getReadinessState({
+    period: selectedPeriod,
+    run: selectedRun,
+    warningCount: warnings.length,
+    blockerCount,
+    canMutateRun,
+    canIssueStatements,
+    hasIssuedStatements,
+  });
+  const reviewSteps = [
+    {
+      title: 'Review inputs',
+      description: selectedRun
+        ? 'Time, revenue snapshots, and compensation rules are calculated.'
+        : 'Generate the run from submitted time and current payout rules.',
+      state: getStepState({
+        step: 'inputs',
+        run: selectedRun,
+        blockerCount,
+        hasIssuedStatements,
+      }),
+    },
+    {
+      title: 'Resolve issues',
+      description:
+        blockerCount > 0
+          ? 'Critical warnings need a fix or explicit override.'
+          : 'No critical blockers are stopping final review.',
+      state: getStepState({
+        step: 'warnings',
+        run: selectedRun,
+        blockerCount,
+        hasIssuedStatements,
+      }),
+    },
+    {
+      title: 'Adjust if needed',
+      description: 'Manual corrections stay available without crowding normal review.',
+      state: getStepState({
+        step: 'adjustments',
+        run: selectedRun,
+        blockerCount,
+        hasIssuedStatements,
+      }),
+    },
+    {
+      title: 'Finalize',
+      description: 'Record the manager decision and preserve a review snapshot.',
+      state: getStepState({
+        step: 'finalize',
+        run: selectedRun,
+        blockerCount,
+        hasIssuedStatements,
+      }),
+    },
+    {
+      title: 'Issue pay stubs',
+      description: hasIssuedStatements
+        ? 'Operators can download the latest issued statements.'
+        : 'Pay stubs become operator-visible only after issuance.',
+      state: getStepState({
+        step: 'statements',
+        run: selectedRun,
+        blockerCount,
+        hasIssuedStatements,
+      }),
+    },
+  ];
 
   useEffect(() => {
     if (!selectedPeriodId && periods[0]) {
@@ -339,6 +606,7 @@ export default function AdminPayoutsPage() {
       });
       toast.success(existingRun ? 'Payout run recalculated.' : 'Payout run generated.');
       setCalculateReason('');
+      setIsCalculationDialogOpen(false);
       await refresh();
     } catch (calculationError) {
       toast.error(
@@ -453,6 +721,7 @@ export default function AdminPayoutsPage() {
         description: '',
         reason: '',
       }));
+      setIsAdjustmentDialogOpen(false);
       await refresh();
     } catch (adjustmentError) {
       toast.error(
@@ -509,6 +778,45 @@ export default function AdminPayoutsPage() {
       toast.error(issueError instanceof Error ? issueError.message : 'Unable to issue pay statements.');
     } finally {
       setIsIssuingStatements(false);
+    }
+  };
+
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const startCalculation = () => {
+    if (selectedRun) {
+      setIsCalculationDialogOpen(true);
+      return;
+    }
+
+    void runCalculation();
+  };
+
+  const runPrimaryAction = () => {
+    if (readiness.primaryAction === 'generate') {
+      startCalculation();
+      return;
+    }
+
+    if (readiness.primaryAction === 'warnings') {
+      scrollToSection('payout-warnings');
+      return;
+    }
+
+    if (readiness.primaryAction === 'operators') {
+      scrollToSection('payout-operators');
+      return;
+    }
+
+    if (readiness.primaryAction === 'finalize') {
+      setAction('finalize');
+      return;
+    }
+
+    if (readiness.primaryAction === 'statements') {
+      scrollToSection('payout-pay-stubs');
     }
   };
 
@@ -582,115 +890,179 @@ export default function AdminPayoutsPage() {
                 ))}
               </aside>
 
-              <div className="space-y-6">
+              <div className="flex flex-col gap-6">
                 <div className="rounded-lg border border-border bg-background p-5">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="font-display text-2xl font-semibold text-foreground">
-                          {selectedPeriod?.accountName}
-                        </h2>
-                        <Badge variant={statusVariant(selectedRun?.status ?? selectedPeriod?.status ?? '')}>
-                          {formatStatus(selectedRun?.status ?? selectedPeriod?.status ?? '')}
-                        </Badge>
-                        {selectedPeriod?.canFinalize && (
-                          <Badge variant="outline" className="gap-1">
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            Review access
+                  <div className="flex flex-col gap-5">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="font-display text-2xl font-semibold text-foreground">
+                            {selectedPeriod?.accountName}
+                          </h2>
+                          <Badge
+                            variant={statusVariant(
+                              selectedRun?.status ?? selectedPeriod?.status ?? ''
+                            )}
+                          >
+                            {formatStatus(selectedRun?.status ?? selectedPeriod?.status ?? '')}
                           </Badge>
-                        )}
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {formatDate(selectedPeriod?.periodStartDate)} -{' '}
-                        {formatDate(selectedPeriod?.periodEndDate)} / target payout{' '}
-                        {formatDate(selectedPeriod?.targetPayoutDate)}
-                      </p>
-                      {selectedPeriod?.issuedStatementCount ? (
-                        <p className="mt-2 text-sm text-destructive">
-                          {selectedPeriod.issuedStatementCount} issued statements already exist;
-                          finalization is blocked to prevent duplicates.
+                          {selectedPeriod?.canFinalize && (
+                            <Badge variant="outline" className="gap-1">
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                              Review access
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {formatDate(selectedPeriod?.periodStartDate)} -{' '}
+                          {formatDate(selectedPeriod?.periodEndDate)} / target payout{' '}
+                          {formatDate(selectedPeriod?.targetPayoutDate)}
                         </p>
-                      ) : null}
+                        {selectedPeriod?.issuedStatementCount ? (
+                          <p className="mt-2 text-sm text-destructive">
+                            {selectedPeriod.issuedStatementCount} issued statements already exist;
+                            finalization is blocked to prevent duplicates.
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2 md:justify-end">
+                        <Button
+                          onClick={runPrimaryAction}
+                          disabled={
+                            readiness.primaryDisabled || isCalculating || isIssuingStatements
+                          }
+                        >
+                          {isCalculating || isIssuingStatements ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : readiness.primaryAction === 'statements' ? (
+                            <ReceiptText className="mr-2 h-4 w-4" />
+                          ) : readiness.primaryAction === 'generate' ? (
+                            <Clock3 className="mr-2 h-4 w-4" />
+                          ) : readiness.primaryAction === 'warnings' ? (
+                            <AlertTriangle className="mr-2 h-4 w-4" />
+                          ) : (
+                            <ShieldCheck className="mr-2 h-4 w-4" />
+                          )}
+                          {readiness.primaryLabel}
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline">
+                              <MoreHorizontal className="mr-2 h-4 w-4" />
+                              More
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel>Review actions</DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onSelect={() => setAction('mark_reviewed')}
+                              disabled={!canMutateRun}
+                            >
+                              <CheckCircle2 className="mr-2 h-4 w-4" />
+                              Mark Reviewed
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={startCalculation}
+                              disabled={!selectedPeriod || isCalculating}
+                            >
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              {selectedRun ? 'Recalculate run' : 'Generate run'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => setIsAdjustmentDialogOpen(true)}
+                              disabled={!canMutateRun}
+                            >
+                              <PlusCircle className="mr-2 h-4 w-4" />
+                              Add adjustment
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>Exception actions</DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onSelect={() => setAction('reopen')}
+                              disabled={!selectedRun || !selectedPeriod?.canFinalize}
+                            >
+                              <RotateCcw className="mr-2 h-4 w-4" />
+                              Reopen payout
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => setAction('void')}
+                              disabled={!selectedRun || !selectedPeriod?.canFinalize}
+                            >
+                              <Ban className="mr-2 h-4 w-4" />
+                              Void payout
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => setAction('mark_reviewed')}
-                        disabled={!canMutateRun}
-                      >
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                        Mark Reviewed
-                      </Button>
-                      <Button
-                        onClick={() => setAction('finalize')}
-                        disabled={!canMutateRun || Boolean(selectedPeriod?.issuedStatementCount)}
-                      >
-                        <ShieldCheck className="mr-2 h-4 w-4" />
-                        Finalize
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setAction('reopen')}
-                        disabled={!selectedRun || !selectedPeriod?.canFinalize}
-                      >
-                        <RotateCcw className="mr-2 h-4 w-4" />
-                        Reopen
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setAction('void')}
-                        disabled={!selectedRun || !selectedPeriod?.canFinalize}
-                      >
-                        <Ban className="mr-2 h-4 w-4" />
-                        Void
-                      </Button>
-                    </div>
-                  </div>
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <Metric label="Total payout" value={formatCurrency(selectedRun?.totalPayoutCents)} tone="good" />
-                    <Metric label="Operators" value={`${selectedRun?.items.length ?? 0}`} />
-                    <Metric label="Paid hours" value={formatHours(selectedRun?.totalRoundedPaidMinutes ?? 0)} />
-                    <Metric
-                      label="Warnings"
-                      value={`${warnings.length}`}
-                      tone={blockerCount > 0 ? 'warning' : 'default'}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border bg-background p-5">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                    <div>
-                      <h2 className="font-semibold text-foreground">Calculation</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Generate the first payout run or regenerate after corrections. Existing
-                        runs require an audit reason.
-                      </p>
-                    </div>
-                    <Button onClick={() => void runCalculation()} disabled={isCalculating || !selectedPeriod}>
-                      {isCalculating ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Clock3 className="mr-2 h-4 w-4" />
+                    <div
+                      className={cn(
+                        'rounded-lg border p-4',
+                        readiness.tone === 'ready' && 'border-sage/30 bg-sage-light',
+                        readiness.tone === 'blocked' && 'border-destructive/30 bg-destructive/10',
+                        readiness.tone === 'attention' && 'border-amber/30 bg-amber/10',
+                        readiness.tone === 'neutral' && 'border-border bg-muted/20'
                       )}
-                      {selectedRun ? 'Recalculate' : 'Generate'}
-                    </Button>
-                  </div>
-                  <div className="mt-4">
-                    <Label htmlFor="payout-calculate-reason">Audit reason</Label>
-                    <Textarea
-                      id="payout-calculate-reason"
-                      value={calculateReason}
-                      onChange={(event) => setCalculateReason(event.target.value)}
-                      placeholder="Explain the correction, override, or source-data refresh."
-                      className="mt-2"
-                    />
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="min-w-0">
+                          <Badge variant={readiness.tone === 'blocked' ? 'destructive' : 'outline'}>
+                            {readiness.label}
+                          </Badge>
+                          <h3 className="mt-3 text-lg font-semibold text-foreground">
+                            {readiness.title}
+                          </h3>
+                          <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                            {readiness.description}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <ListChecks className="h-4 w-4" />
+                          Guided review
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                      <Metric
+                        label="Total payout"
+                        value={formatCurrency(selectedRun?.totalPayoutCents)}
+                        tone="good"
+                      />
+                      <Metric label="Operators" value={`${selectedRun?.items.length ?? 0}`} />
+                      <Metric label="Paid hours" value={formatHours(selectedRun?.totalRoundedPaidMinutes ?? 0)} />
+                      <Metric
+                        label="Warnings"
+                        value={`${warnings.length}`}
+                        tone={blockerCount > 0 ? 'warning' : 'default'}
+                      />
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                      {reviewSteps.map((step, index) => (
+                        <ReviewStep
+                          key={step.title}
+                          index={index + 1}
+                          title={step.title}
+                          description={step.description}
+                          state={step.state}
+                        />
+                      ))}
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Admin-only payout approval. Plus and partner users keep separate reporting
+                      surfaces and cannot approve operator payouts from this workspace.
+                    </p>
                   </div>
                 </div>
 
                 {warnings.length > 0 && (
-                  <div className="rounded-lg border border-amber/30 bg-amber/10 p-5">
+                  <div
+                    id="payout-warnings"
+                    className="order-2 rounded-lg border border-amber/30 bg-amber/10 p-5"
+                  >
                     <div className="flex items-start gap-3">
                       <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-700" />
                       <div>
@@ -719,13 +1091,19 @@ export default function AdminPayoutsPage() {
                 )}
 
                 {selectedRun && (
-                  <div className="rounded-lg border border-border bg-background p-5">
+                  <div
+                    id="payout-pay-stubs"
+                    className="order-4 rounded-lg border border-border bg-background p-5"
+                  >
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div>
                         <h2 className="font-semibold text-foreground">Pay Statements</h2>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Preview operator statements, then publish the finalized payout run to the
-                          operator portal with versioned revision history.
+                          {hasIssuedStatements
+                            ? 'Operators can download the latest issued pay stubs from their portal.'
+                            : canIssueStatements
+                              ? 'Operators cannot see pay stubs yet. Preview the rows, then issue with an audit reason.'
+                              : 'Operators cannot see pay stubs until this payout run is finalized.'}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -755,41 +1133,49 @@ export default function AdminPayoutsPage() {
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-4 md:grid-cols-2">
-                      <div>
-                        <Label htmlFor="statement-issue-reason">Audit reason</Label>
-                        <Textarea
-                          id="statement-issue-reason"
-                          value={issueReason}
-                          onChange={(event) => setIssueReason(event.target.value)}
-                          placeholder="Approved after final payout review."
-                          className="mt-2"
-                        />
+                    {canIssueStatements && (
+                      <div className="mt-4 grid gap-4 md:grid-cols-2">
+                        <div>
+                          <Label htmlFor="statement-issue-reason">Audit reason</Label>
+                          <Textarea
+                            id="statement-issue-reason"
+                            value={issueReason}
+                            onChange={(event) => setIssueReason(event.target.value)}
+                            placeholder="Approved after final payout review."
+                            className="mt-2"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="statement-revision-reason">Revision reason</Label>
+                          <Textarea
+                            id="statement-revision-reason"
+                            value={issueRevisionReason}
+                            onChange={(event) => setIssueRevisionReason(event.target.value)}
+                            placeholder={
+                              hasIssuedStatements
+                                ? 'Required because statements already exist.'
+                                : 'Only needed when reissuing a statement.'
+                            }
+                            className="mt-2"
+                            disabled={!hasIssuedStatements}
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <Label htmlFor="statement-revision-reason">Revision reason</Label>
-                        <Textarea
-                          id="statement-revision-reason"
-                          value={issueRevisionReason}
-                          onChange={(event) => setIssueRevisionReason(event.target.value)}
-                          placeholder={
-                            hasIssuedStatements
-                              ? 'Required because statements already exist.'
-                              : 'Only needed when reissuing a statement.'
-                          }
-                          className="mt-2"
-                          disabled={!hasIssuedStatements}
-                        />
-                      </div>
-                    </div>
+                    )}
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-3">
                       <Metric
                         label="Statement records"
                         value={`${selectedPeriod?.issuedStatementCount ?? 0}`}
                       />
-                      <Metric label="Portal status" value={hasIssuedStatements ? 'Published' : 'Not issued'} />
-                      <Metric label="Eligible now" value={canIssueStatements ? 'Yes' : 'Finalize first'} />
+                      <Metric
+                        label="Operator visibility"
+                        value={hasIssuedStatements ? 'Visible' : 'Hidden'}
+                      />
+                      <Metric
+                        label="Next requirement"
+                        value={canIssueStatements ? 'Audit reason' : 'Finalize first'}
+                      />
                     </div>
 
                     {statementPreview && (
@@ -831,144 +1217,204 @@ export default function AdminPayoutsPage() {
                   </div>
                 )}
 
-                {selectedRun && (
-                  <div className="rounded-lg border border-border bg-background p-5">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                {selectedRun ? (
+                  <div id="payout-operators" className="order-3 space-y-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                       <div>
-                        <h2 className="font-semibold text-foreground">Manual Adjustment</h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Add bonuses, reimbursements, corrections, or deductions with both an
-                          operator-visible description and manager audit reason.
+                        <h2 className="font-semibold text-foreground">Operator review</h2>
+                        <p className="text-sm text-muted-foreground">
+                          Check each operator's paid hours, machine revenue basis, commission, and
+                          warnings.
                         </p>
                       </div>
                       <Button
                         variant="outline"
-                        onClick={() => void addAdjustment()}
-                        disabled={!canMutateRun || isAddingAdjustment}
+                        onClick={() => setIsAdjustmentDialogOpen(true)}
+                        disabled={!canMutateRun}
                       >
-                        {isAddingAdjustment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Add Adjustment
+                        <PlusCircle className="mr-2 h-4 w-4" />
+                        Add adjustment
                       </Button>
                     </div>
-                    <div className="mt-4 grid gap-4 md:grid-cols-2">
-                      <div>
-                        <Label htmlFor="adjustment-operator">Operator</Label>
-                        <select
-                          id="adjustment-operator"
-                          value={adjustmentForm.operatorProfileId}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              operatorProfileId: event.target.value,
-                            }))
-                          }
-                          className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          {selectedRun.items.map((item) => (
-                            <option key={item.id} value={item.operatorProfileId}>
-                              {item.operatorDisplayName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <Label htmlFor="adjustment-amount">Amount</Label>
-                        <Input
-                          id="adjustment-amount"
-                          value={adjustmentForm.amount}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              amount: event.target.value,
-                            }))
-                          }
-                          placeholder="75.00 or -25.00"
-                          className="mt-2"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="adjustment-type">Type</Label>
-                        <select
-                          id="adjustment-type"
-                          value={adjustmentForm.adjustmentType}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              adjustmentType: event.target.value,
-                            }))
-                          }
-                          className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="manual_adjustment">Manual adjustment</option>
-                          <option value="bonus">Bonus</option>
-                          <option value="reimbursement">Reimbursement</option>
-                          <option value="prior_period_correction">Prior period correction</option>
-                          <option value="deduction">Deduction</option>
-                        </select>
-                      </div>
-                      <label className="flex items-center gap-2 pt-7 text-sm text-muted-foreground">
-                        <input
-                          type="checkbox"
-                          checked={adjustmentForm.visibleToOperator}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              visibleToOperator: event.target.checked,
-                            }))
-                          }
-                        />
-                        Show on operator statement
-                      </label>
-                      <div className="md:col-span-2">
-                        <Label htmlFor="adjustment-description">Operator-visible description</Label>
-                        <Input
-                          id="adjustment-description"
-                          value={adjustmentForm.description}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              description: event.target.value,
-                            }))
-                          }
-                          placeholder="Weekend event bonus"
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <Label htmlFor="adjustment-reason">Manager audit reason</Label>
-                        <Textarea
-                          id="adjustment-reason"
-                          value={adjustmentForm.reason}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              reason: event.target.value,
-                            }))
-                          }
-                          placeholder="Approved by operations after event review."
-                          className="mt-2"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selectedRun ? (
-                  <div className="space-y-4">
                     {selectedRun.items.map((item) => (
                       <OperatorItemCard key={item.id} item={item} />
                     ))}
                   </div>
                 ) : (
-                  <EmptyState title="No payout run yet">
-                    Generate a payout run after operators have submitted time for this period.
-                  </EmptyState>
+                  <div id="payout-operators" className="order-3">
+                    <EmptyState title="No payout run yet">
+                      Generate a payout run after operators have submitted time for this period.
+                    </EmptyState>
+                  </div>
                 )}
               </div>
             </div>
           )}
         </div>
       </section>
+
+      <Dialog open={isCalculationDialogOpen} onOpenChange={setIsCalculationDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Recalculate Payout Run</DialogTitle>
+            <DialogDescription>
+              Recalculation refreshes the review numbers from current source data and writes an
+              audit trail.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label htmlFor="payout-calculate-reason-dialog">Audit reason</Label>
+            <Textarea
+              id="payout-calculate-reason-dialog"
+              value={calculateReason}
+              onChange={(event) => setCalculateReason(event.target.value)}
+              placeholder="Explain the correction, override, or source-data refresh."
+              className="mt-2"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsCalculationDialogOpen(false)}
+              disabled={isCalculating}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void runCalculation()} disabled={isCalculating}>
+              {isCalculating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Recalculate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAdjustmentDialogOpen} onOpenChange={setIsAdjustmentDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Manual Adjustment</DialogTitle>
+            <DialogDescription>
+              Add a bonus, reimbursement, correction, or deduction. The operator description and
+              manager audit reason are both required.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <Label htmlFor="adjustment-operator-dialog">Operator</Label>
+              <select
+                id="adjustment-operator-dialog"
+                value={adjustmentForm.operatorProfileId}
+                onChange={(event) =>
+                  setAdjustmentForm((current) => ({
+                    ...current,
+                    operatorProfileId: event.target.value,
+                  }))
+                }
+                className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {selectedRun?.items.map((item) => (
+                  <option key={item.id} value={item.operatorProfileId}>
+                    {item.operatorDisplayName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="adjustment-amount-dialog">Amount</Label>
+              <Input
+                id="adjustment-amount-dialog"
+                value={adjustmentForm.amount}
+                onChange={(event) =>
+                  setAdjustmentForm((current) => ({
+                    ...current,
+                    amount: event.target.value,
+                  }))
+                }
+                placeholder="75.00 or -25.00"
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label htmlFor="adjustment-type-dialog">Type</Label>
+              <select
+                id="adjustment-type-dialog"
+                value={adjustmentForm.adjustmentType}
+                onChange={(event) =>
+                  setAdjustmentForm((current) => ({
+                    ...current,
+                    adjustmentType: event.target.value,
+                  }))
+                }
+                className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="manual_adjustment">Manual adjustment</option>
+                <option value="bonus">Bonus</option>
+                <option value="reimbursement">Reimbursement</option>
+                <option value="prior_period_correction">Prior period correction</option>
+                <option value="deduction">Deduction</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 pt-7 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={adjustmentForm.visibleToOperator}
+                onChange={(event) =>
+                  setAdjustmentForm((current) => ({
+                    ...current,
+                    visibleToOperator: event.target.checked,
+                  }))
+                }
+              />
+              Show on operator statement
+            </label>
+            <div className="md:col-span-2">
+              <Label htmlFor="adjustment-description-dialog">Operator-visible description</Label>
+              <Input
+                id="adjustment-description-dialog"
+                value={adjustmentForm.description}
+                onChange={(event) =>
+                  setAdjustmentForm((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+                placeholder="Weekend event bonus"
+                className="mt-2"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="adjustment-reason-dialog">Manager audit reason</Label>
+              <Textarea
+                id="adjustment-reason-dialog"
+                value={adjustmentForm.reason}
+                onChange={(event) =>
+                  setAdjustmentForm((current) => ({
+                    ...current,
+                    reason: event.target.value,
+                  }))
+                }
+                placeholder="Approved by operations after event review."
+                className="mt-2"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsAdjustmentDialogOpen(false)}
+              disabled={isAddingAdjustment}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void addAdjustment()}
+              disabled={!canMutateRun || isAddingAdjustment}
+            >
+              {isAddingAdjustment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Add Adjustment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(action)} onOpenChange={(open) => !open && resetActionDialog()}>
         <DialogContent>

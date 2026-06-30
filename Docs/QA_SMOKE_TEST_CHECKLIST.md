@@ -191,6 +191,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Operator Time empty state explains that an admin or machine manager must add an operator payout profile and assigned machines before time can be submitted.
 
 ### Admin Operator Payout Review
+- [ ] Run `npm run operator-payouts:validate-admin-review-uat -- --app-url http://127.0.0.1:8081` for mocked guided-review desktop/mobile screenshots.
 - [ ] Admin or scoped payout manager can open `/admin/payouts`; users without payout admin access see the existing admin access-required state.
 - [ ] Payout periods list shows account, period dates, status, operator count, total payout, warnings, and revision count without horizontal overflow on desktop or mobile.
 - [ ] Generating or recalculating a payout run uses submitted/locked/included time, revenue snapshots, compensation rules, and adjustments; recalculation requires an audit reason.
