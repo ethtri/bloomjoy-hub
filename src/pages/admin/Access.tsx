@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -165,6 +165,7 @@ const roleSort = (a: AdminRoleRecord, b: AdminRoleRecord) => {
 
 export default function AdminAccessPage() {
   const { isScopedAdmin, isSuperAdmin } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialShowActivity = searchParams.get('tab') === 'audit';
   const initialLauncher = useMemo(
@@ -177,6 +178,26 @@ export default function AdminAccessPage() {
     }),
     [searchParams]
   );
+
+  useEffect(() => {
+    if (!isScopedAdmin || isSuperAdmin) return;
+
+    const legacyTab = searchParams.get('tab');
+    if (!legacyTab || legacyTab === 'audit') return;
+
+    const normalizedParams = new URLSearchParams(searchParams);
+    normalizedParams.delete('tab');
+    normalizedParams.set('action', 'add-access');
+    normalizedParams.set('preset', 'technician');
+
+    navigate(
+      {
+        pathname: '/admin/access',
+        search: `?${normalizedParams.toString()}`,
+      },
+      { replace: true }
+    );
+  }, [isScopedAdmin, isSuperAdmin, navigate, searchParams]);
 
   return (
     <AppLayout>
@@ -212,15 +233,12 @@ export default function AdminAccessPage() {
             )}
 
             {!isSuperAdmin && (
-              <div className="mt-6 space-y-6">
+              <div className="mt-6">
                 <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                  Your scoped admin grant limits this workspace to assigned machines. Saving changes
-                  only affects Technician grants, Corporate Partner permissions, and manual
-                  reporting grants inside that scope.
+                  Your scoped admin grant limits this workspace to assigned machines. Use the
+                  person workspace above to manage Technician grants inside that assigned-machine
+                  scope.
                 </div>
-                <PresetsTab />
-                <ScopedMachineTaxRatesPanel />
-                <ReportingAccessTab />
               </div>
             )}
           </div>
@@ -231,7 +249,6 @@ export default function AdminAccessPage() {
 }
 
 function PresetsTab() {
-  const { isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [personEmail, setPersonEmail] = useState('');
   const [effectiveAccess, setEffectiveAccess] = useState<EffectiveAccessContext | null>(null);
@@ -1413,7 +1430,6 @@ function UsersTab() {
 }
 
 function ReportingAccessTab() {
-  const { isScopedAdmin, isSuperAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [peopleSearch, setPeopleSearch] = useState('');
   const [lookupEmail, setLookupEmail] = useState('');

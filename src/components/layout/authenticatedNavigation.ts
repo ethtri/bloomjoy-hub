@@ -48,7 +48,7 @@ export type AuthenticatedNavItem = {
   match?: (pathname: string) => boolean;
 };
 
-type AdminSurface = 'access' | 'payouts' | 'refunds';
+type AdminSurface = 'access' | 'partnerships' | 'payouts' | 'refunds';
 
 export type AdminDestination = {
   href: string;
@@ -150,7 +150,7 @@ export const adminDestinations: AdminDestination[] = [
     descriptionKey: 'admin.partnershipsDescription',
     icon: Handshake,
     section: 'accessSetup',
-    requiresSuperAdmin: true,
+    surface: 'partnerships',
   },
   {
     href: '/admin/reporting',

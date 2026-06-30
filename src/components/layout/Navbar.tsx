@@ -29,6 +29,7 @@ export function Navbar() {
     (isSuperAdmin ||
       allowedAdminSurfaces.has('*') ||
       (isScopedAdmin && allowedAdminSurfaces.has('access')) ||
+      allowedAdminSurfaces.has('partnerships') ||
       allowedAdminSurfaces.has('payouts'));
   const currentLocation = typeof window === 'undefined' ? undefined : window.location;
   const operatorAppUrl = getCanonicalUrlForSurface('app', '/portal', '', '', currentLocation);

@@ -24,6 +24,29 @@ const appPathMatchers = [
 export const isAppPath = (pathname: string) =>
   appPathMatchers.some((matcher) => matcher.test(pathname));
 
+export const getSafeInternalAppPath = (value?: string | null) => {
+  const candidate = value?.trim();
+
+  if (!candidate || !candidate.startsWith('/') || candidate.startsWith('//')) {
+    return null;
+  }
+
+  const baseOrigin = 'https://bloomjoy.local';
+  let parsed: URL;
+
+  try {
+    parsed = new URL(candidate, baseOrigin);
+  } catch {
+    return null;
+  }
+
+  if (parsed.origin !== baseOrigin || parsed.pathname === '/login' || !isAppPath(parsed.pathname)) {
+    return null;
+  }
+
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+};
+
 export const getRouteSurface = (pathname: string): AppSurface =>
   isAppPath(pathname) ? 'app' : 'marketing';
 

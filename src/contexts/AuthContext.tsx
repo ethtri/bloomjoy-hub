@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AuthContext, type AdminAccessContext, type User } from '@/contexts/auth-context';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
-import { getCanonicalUrlForSurface } from '@/lib/appSurface';
+import { getCanonicalUrlForSurface, getSafeInternalAppPath } from '@/lib/appSurface';
 import {
   emptyPlusAccessSummary,
   hasTrainingAccess,
@@ -299,9 +299,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [queryClient]);
 
+  const getAuthRedirectPath = () => {
+    if (typeof window === 'undefined') {
+      return '/portal';
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    return getSafeInternalAppPath(params.get('next')) ?? '/portal';
+  };
+
   const getAuthRedirectUrl = () =>
     typeof window !== 'undefined'
-      ? getCanonicalUrlForSurface('app', '/portal', '', '', window.location)
+      ? getCanonicalUrlForSurface('app', getAuthRedirectPath(), '', '', window.location)
       : undefined;
   const getRecoveryRedirectUrl = () =>
     typeof window !== 'undefined'

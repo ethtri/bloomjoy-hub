@@ -38,6 +38,8 @@
     "admin-access:validate-invite-uat": "node scripts/validate-admin-access-invite-uat.mjs",
     "partner-technicians:validate-uat": "node scripts/validate-partner-technician-access-uat.mjs",
     "scoped-admin-technicians:validate-uat": "node scripts/validate-scoped-admin-technician-uat.mjs",
+    "scoped-partnerships:validate-uat": "node scripts/validate-scoped-partnerships-uat.mjs",
+    "scoped-partnerships:validate-authority": "node scripts/validate-scoped-partnership-authority.mjs",
     "refunds:pilot-readiness": "node scripts/refunds/pilot-readiness.mjs",
     "refunds:pilot-cohort-config": "node scripts/refunds/pilot-cohort-config.mjs",
     "operator-payouts:validate-foundation": "node scripts/validate-operator-payout-foundation.mjs",

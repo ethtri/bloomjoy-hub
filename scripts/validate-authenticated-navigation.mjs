@@ -37,6 +37,12 @@ assert(
   authenticatedNavigation.includes("'operations', 'accessSetup', 'work'"),
   'Admin context should prioritize Operations and Access & Setup before portal work links.',
 );
+assert(
+  authenticatedNavigation.includes("type AdminSurface = 'access' | 'partnerships' | 'payouts' | 'refunds'") &&
+    authenticatedNavigation.includes("href: '/admin/partnerships'") &&
+    authenticatedNavigation.includes("surface: 'partnerships'"),
+  'Scoped admins with the Partnerships surface must see the Partnerships destination in authenticated navigation.',
+);
 
 const portalNavigation = includes(
   'src/components/portal/portalNavigation.ts',
