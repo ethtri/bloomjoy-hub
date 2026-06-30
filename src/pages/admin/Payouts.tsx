@@ -4,6 +4,7 @@ import {
   Ban,
   CheckCircle2,
   Clock3,
+  Download,
   FileText,
   Loader2,
   RefreshCw,
@@ -30,6 +31,8 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   addPayoutAdjustmentAdmin,
   calculatePayoutRunAdmin,
+  downloadPayoutRegisterCsv,
+  fetchPayoutRegisterExportAdmin,
   fetchPayoutReviewContext,
   finalizePayoutRunAdmin,
   issuePayStatementsAdmin,
@@ -266,6 +269,7 @@ export default function AdminPayoutsPage() {
   const [statementPreview, setStatementPreview] = useState<PayStatementPreviewResult | null>(null);
   const [isPreviewingStatements, setIsPreviewingStatements] = useState(false);
   const [isIssuingStatements, setIsIssuingStatements] = useState(false);
+  const [isExportingRegister, setIsExportingRegister] = useState(false);
   const [issueReason, setIssueReason] = useState('');
   const [issueRevisionReason, setIssueRevisionReason] = useState('');
 
@@ -296,6 +300,10 @@ export default function AdminPayoutsPage() {
     Boolean(selectedPeriod?.canFinalize) &&
     Boolean(selectedRun) &&
     ['finalized', 'issued'].includes(selectedRun?.status ?? '');
+  const canExportPayoutRegister =
+    Boolean(selectedPeriod?.canFinalize) &&
+    Boolean(selectedRun) &&
+    ['finalized', 'issued', 'closed'].includes(selectedRun?.status ?? '');
   const hasIssuedStatements = Boolean(selectedPeriod?.issuedStatementCount);
 
   useEffect(() => {
@@ -509,6 +517,23 @@ export default function AdminPayoutsPage() {
       toast.error(issueError instanceof Error ? issueError.message : 'Unable to issue pay statements.');
     } finally {
       setIsIssuingStatements(false);
+    }
+  };
+
+  const exportPayoutRegister = async () => {
+    if (!selectedRun) return;
+
+    setIsExportingRegister(true);
+    try {
+      const register = await fetchPayoutRegisterExportAdmin(selectedRun.id);
+      downloadPayoutRegisterCsv(register);
+      toast.success(`Downloaded payout register for ${register.rowCount} operator${register.rowCount === 1 ? '' : 's'}.`);
+    } catch (exportError) {
+      toast.error(
+        exportError instanceof Error ? exportError.message : 'Unable to download payout register.'
+      );
+    } finally {
+      setIsExportingRegister(false);
     }
   };
 
@@ -828,6 +853,43 @@ export default function AdminPayoutsPage() {
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {selectedRun && (
+                  <div className="rounded-lg border border-border bg-background p-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <h2 className="font-semibold text-foreground">Payout Register</h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Download the approved CSV register for external payroll or payment
+                          execution after finalization. Bloomjoy Hub does not run payroll, taxes,
+                          direct deposit, or filings.
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => void exportPayoutRegister()}
+                        disabled={!canExportPayoutRegister || isExportingRegister}
+                      >
+                        {isExportingRegister ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Download className="mr-2 h-4 w-4" />
+                        )}
+                        Export Register
+                      </Button>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <Metric
+                        label="Register status"
+                        value={canExportPayoutRegister ? 'Ready' : 'Finalize first'}
+                        tone={canExportPayoutRegister ? 'good' : 'default'}
+                      />
+                      <Metric label="Rows" value={`${selectedRun.items.length}`} />
+                      <Metric label="Boundary" value="External only" />
+                    </div>
                   </div>
                 )}
 

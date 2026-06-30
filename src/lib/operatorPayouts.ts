@@ -233,6 +233,105 @@ export type IssuePayStatementsResult = {
   revision: boolean;
 };
 
+export type PayoutRegisterExportMachine = {
+  machineId: string;
+  machineLabel: string;
+  locationId: string;
+  locationName: string;
+  rawMinutes: number;
+  roundedPaidMinutes: number;
+  shiftCount: number;
+  netRevenueCents: number;
+  eligibleNetRevenueCents: number;
+  commissionBasisPoints: number | null;
+  commissionPayCents: number;
+  includedInCommissionBasis: boolean;
+  inclusionReason: string | null;
+};
+
+export type PayoutRegisterExportAdjustment = {
+  id: string;
+  amountCents: number;
+  adjustmentType: string;
+  description: string;
+  visibleToOperator: boolean;
+  createdAt: string;
+};
+
+export type PayoutRegisterExportRow = {
+  payoutRunItemId: string;
+  operatorProfileId: string;
+  operatorDisplayName: string;
+  workerType: OperatorWorkerType;
+  statement: {
+    id: string | null;
+    statementNumber: string | null;
+    statementLabel: string | null;
+    status: PayStatementStatus | null;
+    version: number | null;
+    issuedAt: string | null;
+    revisionReason: string | null;
+  };
+  time: {
+    rawMinutes: number;
+    roundedPaidMinutes: number;
+    shiftCount: number;
+  };
+  revenueBasis: {
+    eligibleNetRevenueCents: number;
+    commissionBasisPoints: number | null;
+  };
+  totals: {
+    hourlyRateCents: number | null;
+    hourlyPayCents: number;
+    commissionPayCents: number;
+    adjustmentsTotalCents: number;
+    totalPayoutCents: number;
+  };
+  status: PayoutRunItem['status'];
+  warnings: PayoutCalculationWarning[];
+  machines: PayoutRegisterExportMachine[];
+  adjustments: PayoutRegisterExportAdjustment[];
+};
+
+export type PayoutRegisterExport = {
+  schemaVersion: 'operator-payout-register-v1';
+  exportType: 'approved_external_payout_register';
+  generatedAt: string;
+  payoutRun: {
+    id: string;
+    accountId: string;
+    accountName: string;
+    payoutPeriodId: string;
+    periodStartDate: string;
+    periodEndDate: string;
+    targetPayoutDate: string;
+    status: Extract<PayoutRunStatus, 'finalized' | 'issued' | 'closed'>;
+    finalizedAt: string | null;
+    issuedAt: string | null;
+    updatedAt: string;
+  };
+  totals: {
+    rawMinutes: number;
+    roundedPaidMinutes: number;
+    hourlyPayCents: number;
+    commissionPayCents: number;
+    adjustmentsTotalCents: number;
+    totalPayoutCents: number;
+  };
+  warnings: PayoutCalculationWarning[];
+  rows: PayoutRegisterExportRow[];
+  rowCount: number;
+  disclaimer: string;
+  automation: {
+    taxComplianceEngine: false;
+    payrollProviderExecution: false;
+    directDepositExecution: false;
+    bankDataIncluded: false;
+    ssnIncluded: false;
+  };
+};
+
 export type OperatorPayoutPolicyContext = {
   id: string;
   name: string;
@@ -1050,6 +1149,20 @@ export const issuePayStatementsAdmin = async ({
   return data as IssuePayStatementsResult;
 };
 
+export const fetchPayoutRegisterExportAdmin = async (
+  payoutRunId: string
+): Promise<PayoutRegisterExport> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_payout_register_export', {
+    p_payout_run_id: payoutRunId,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to prepare payout register export.');
+  }
+
+  return data as PayoutRegisterExport;
+};
+
 export const markPayoutRunReviewedAdmin = async ({
   payoutRunId,
   reason,
@@ -1314,6 +1427,138 @@ export const downloadOperatorPayStatementHtml = (artifact: OperatorPayStatementA
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = artifact.artifact.downloadFileName || `${artifact.statement.statementNumber}.html`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
+const csvEscape = (value: unknown) => {
+  const text = String(value ?? '');
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
+  return text;
+};
+
+const fileSafeSegment = (value: string | null | undefined) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+
+const formatCsvHours = (minutes: number | null | undefined) =>
+  ((minutes ?? 0) / 60).toFixed(2);
+
+const formatCsvPercent = (basisPoints: number | null | undefined) =>
+  typeof basisPoints === 'number' ? (basisPoints / 100).toFixed(2) : '';
+
+const formatPayoutRegisterMachineBreakdown = (machines: PayoutRegisterExportMachine[]) =>
+  machines
+    .map((machine) =>
+      [
+        `${machine.machineLabel} (${machine.locationName})`,
+        `${formatCsvHours(machine.roundedPaidMinutes)}h`,
+        `${formatStatementMoney(machine.eligibleNetRevenueCents)} eligible revenue`,
+        machine.commissionBasisPoints === null
+          ? 'no commission rate'
+          : `${formatCsvPercent(machine.commissionBasisPoints)}% commission basis`,
+        `${formatStatementMoney(machine.commissionPayCents)} commission`,
+      ].join(' | ')
+    )
+    .join('; ');
+
+const formatPayoutRegisterAdjustments = (adjustments: PayoutRegisterExportAdjustment[]) =>
+  adjustments
+    .map((adjustment) =>
+      `${adjustment.adjustmentType.replaceAll('_', ' ')}: ${formatStatementMoney(
+        adjustment.amountCents
+      )} (${adjustment.description})`
+    )
+    .join('; ');
+
+const formatPayoutRegisterWarnings = (warnings: PayoutCalculationWarning[]) =>
+  warnings.map((warning) => `${warning.severity}: ${warning.message}`).join('; ');
+
+export const buildPayoutRegisterCsv = (register: PayoutRegisterExport) => {
+  const columns = [
+    'export_generated_at',
+    'payout_run_id',
+    'payout_run_status',
+    'account_name',
+    'period_start_date',
+    'period_end_date',
+    'target_payout_date',
+    'operator_name',
+    'worker_type',
+    'statement_number',
+    'statement_version',
+    'statement_status',
+    'statement_issued_at',
+    'paid_hours',
+    'shift_count',
+    'eligible_revenue',
+    'commission_rate_percent',
+    'hourly_pay',
+    'commission_pay',
+    'adjustments_total',
+    'total_payout',
+    'machine_breakdown',
+    'adjustments',
+    'warnings',
+    'finalized_at',
+    'issued_at',
+    'external_payroll_boundary',
+  ];
+
+  const rows = register.rows.map((row) => [
+    register.generatedAt,
+    register.payoutRun.id,
+    register.payoutRun.status,
+    register.payoutRun.accountName,
+    register.payoutRun.periodStartDate,
+    register.payoutRun.periodEndDate,
+    register.payoutRun.targetPayoutDate,
+    row.operatorDisplayName,
+    row.workerType,
+    row.statement.statementNumber ?? '',
+    row.statement.version ?? '',
+    row.statement.status ?? 'not_issued',
+    row.statement.issuedAt ?? '',
+    formatCsvHours(row.time.roundedPaidMinutes),
+    row.time.shiftCount,
+    formatStatementMoney(row.revenueBasis.eligibleNetRevenueCents),
+    formatCsvPercent(row.revenueBasis.commissionBasisPoints),
+    formatStatementMoney(row.totals.hourlyPayCents),
+    formatStatementMoney(row.totals.commissionPayCents),
+    formatStatementMoney(row.totals.adjustmentsTotalCents),
+    formatStatementMoney(row.totals.totalPayoutCents),
+    formatPayoutRegisterMachineBreakdown(row.machines),
+    formatPayoutRegisterAdjustments(row.adjustments),
+    formatPayoutRegisterWarnings(row.warnings),
+    register.payoutRun.finalizedAt ?? '',
+    register.payoutRun.issuedAt ?? '',
+    register.disclaimer,
+  ]);
+
+  return [columns, ...rows].map((row) => row.map(csvEscape).join(',')).join('\r\n');
+};
+
+export const getPayoutRegisterCsvFileName = (register: PayoutRegisterExport) => {
+  const account = fileSafeSegment(register.payoutRun.accountName) || 'account';
+  return `payout-register-${account}-${register.payoutRun.periodStartDate}-${register.payoutRun.periodEndDate}.csv`;
+};
+
+export const downloadPayoutRegisterCsv = (register: PayoutRegisterExport) => {
+  const csv = buildPayoutRegisterCsv(register);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = getPayoutRegisterCsvFileName(register);
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

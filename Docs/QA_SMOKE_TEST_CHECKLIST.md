@@ -208,6 +208,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Operators see only latest issued pay statements for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
 - [ ] Operators can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total payout, disclaimer, and revision status.
 - [ ] Direct artifact requests for drafts, missing statements, or another operator's statement fail with an access error.
+
+### Admin Operator Payout Register Export
+- [ ] `npm run operator-payouts:validate-register-export` passes.
+- [ ] With `npm run dev:uat` running, `npm run operator-payouts:validate-register-export-uat` passes and writes desktop/mobile screenshots to `output/playwright/`.
+- [ ] `/admin/payouts` shows `Export Register` only as a disabled or unavailable action until the selected payout run is finalized or issued.
+- [ ] For a finalized or issued payout run, `Export Register` downloads a CSV with period, account, operator, statement number/version when issued, assigned-machine hours, eligible revenue, commission basis, adjustments, total payout, status, and audit timestamps.
+- [ ] The CSV states it is for external payroll or payment execution and does not include SSNs, bank data, direct-deposit payloads, tax withholding, W-2, 1099, or payroll-provider execution fields.
+- [ ] Scoped payout managers cannot export out-of-scope operators or machines; direct RPC attempts against out-of-scope or non-finalized runs fail with an access or finalized/issued status error.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
 - [ ] Portal section navigation labels `/portal/account` as Settings and does not show a separate Admin link for admin users
