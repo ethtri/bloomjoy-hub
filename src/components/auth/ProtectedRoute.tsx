@@ -14,7 +14,9 @@ export function ProtectedRoute() {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
+    const nextPath = `${location.pathname}${location.search}${location.hash}`;
+    const loginSearch = new URLSearchParams({ next: nextPath }).toString();
+    return <Navigate to={`/login?${loginSearch}`} replace state={{ from: location }} />;
   }
 
   return <Outlet />;

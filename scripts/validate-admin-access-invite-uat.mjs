@@ -796,6 +796,9 @@ const run = async () => {
     await page.getByTestId('machine-scope-source-map').getByText('Why machines are visible').waitFor({
       timeout: 10000,
     });
+    await page.getByTestId('machine-scope-source-map').getByText(machineTwoId).waitFor({
+      timeout: 10000,
+    });
     const sourceMapText = await page.getByTestId('machine-scope-source-map').innerText();
     recorder.assert(
       'Machine source map explains Corporate Partner visibility',

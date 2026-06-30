@@ -893,6 +893,12 @@ function AdminPersonAccessConsoleInner({
       queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] }),
       queryClient.invalidateQueries({ queryKey: ['admin-person-audit'] }),
     ]);
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: ['admin-effective-access-context'], type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['admin-person-selected-account'], type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['admin-technician-access-context'], type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['admin-corporate-partner-access-options'], type: 'active' }),
+    ]);
   };
 
   const handleSearchSubmit = () => {
