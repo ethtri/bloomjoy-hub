@@ -77,6 +77,7 @@ import {
   formatMoney,
   getActiveMachineAssignments,
   getLastCompletedWeekEndingDate,
+  getReportablePartnershipIds,
   machineOwnershipModels,
   participantRoles,
   partnerTypes,
@@ -2217,14 +2218,21 @@ function MachineAssignmentsSection({
 
   const currentDate = today();
   const machineAlignmentStartDate = selectedPartnership.effective_start_date || today();
+  const reportablePartnershipIds = useMemo(
+    () => getReportablePartnershipIds(setup),
+    [setup]
+  );
 
   const activeAssignmentsByMachineId = useMemo(() => {
     const assignmentMap = new Map<string, ReturnType<typeof getActiveMachineAssignments>>();
     setup.machines.forEach((machine) => {
-      assignmentMap.set(machine.id, getActiveMachineAssignments(setup, machine.id, currentDate));
+      assignmentMap.set(
+        machine.id,
+        getActiveMachineAssignments(setup, machine.id, currentDate, reportablePartnershipIds)
+      );
     });
     return assignmentMap;
-  }, [currentDate, setup]);
+  }, [currentDate, reportablePartnershipIds, setup]);
 
   const activeAssignments = useMemo(
     () =>
