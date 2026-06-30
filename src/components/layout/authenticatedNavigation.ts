@@ -29,6 +29,9 @@ export type AuthenticatedNavSectionId =
   | 'work'
   | 'learnSupport'
   | 'operations'
+  | 'customers'
+  | 'reporting'
+  | 'administration'
   | 'accessSetup'
   | 'settings';
 
@@ -94,6 +97,9 @@ export const authenticatedNavSections: AuthenticatedNavSectionDefinition[] = [
   { id: 'work', labelKey: 'app.nav.work' },
   { id: 'learnSupport', labelKey: 'app.nav.learnSupport' },
   { id: 'operations', labelKey: 'app.nav.operations' },
+  { id: 'customers', labelKey: 'app.nav.customers' },
+  { id: 'reporting', labelKey: 'app.nav.reportingPartners' },
+  { id: 'administration', labelKey: 'app.nav.administration' },
   { id: 'accessSetup', labelKey: 'app.nav.accessSetup' },
   { id: 'settings', labelKey: 'app.nav.settings' },
 ];
@@ -132,7 +138,7 @@ export const adminDestinations: AdminDestination[] = [
     shortLabelKey: 'admin.accounts',
     descriptionKey: 'admin.accountsDescription',
     icon: Building2,
-    section: 'operations',
+    section: 'customers',
     surface: 'accounts',
   },
   {
@@ -141,7 +147,7 @@ export const adminDestinations: AdminDestination[] = [
     shortLabelKey: 'admin.machines',
     descriptionKey: 'admin.machinesDescription',
     icon: MonitorCog,
-    section: 'accessSetup',
+    section: 'customers',
     surface: 'machines',
   },
   {
@@ -150,7 +156,7 @@ export const adminDestinations: AdminDestination[] = [
     shortLabelKey: 'app.nav.peoplePermissions',
     descriptionKey: 'admin.accessDescription',
     icon: Users,
-    section: 'accessSetup',
+    section: 'administration',
     surface: 'access',
   },
   {
@@ -159,7 +165,7 @@ export const adminDestinations: AdminDestination[] = [
     shortLabelKey: 'admin.partnerRecordsShort',
     descriptionKey: 'admin.partnerRecordsDescription',
     icon: Building2,
-    section: 'accessSetup',
+    section: 'reporting',
     requiresSuperAdmin: true,
   },
   {
@@ -168,7 +174,7 @@ export const adminDestinations: AdminDestination[] = [
     shortLabelKey: 'admin.partnerships',
     descriptionKey: 'admin.partnershipsDescription',
     icon: Handshake,
-    section: 'accessSetup',
+    section: 'reporting',
     surface: 'partnerships',
   },
   {
@@ -177,7 +183,7 @@ export const adminDestinations: AdminDestination[] = [
     shortLabelKey: 'app.nav.adminReporting',
     descriptionKey: 'admin.reportingDescription',
     icon: BarChart3,
-    section: 'accessSetup',
+    section: 'reporting',
     requiresSuperAdmin: true,
   },
   {
@@ -186,7 +192,7 @@ export const adminDestinations: AdminDestination[] = [
     shortLabelKey: 'admin.audit',
     descriptionKey: 'admin.auditDescription',
     icon: ListChecks,
-    section: 'accessSetup',
+    section: 'administration',
     surface: 'audit',
   },
   {
@@ -287,6 +293,7 @@ const canAccessPortalDestination = (
 };
 
 export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput) => {
+  const isAdminContext = input.currentPathname?.startsWith('/admin') ?? false;
   const adminItems: AuthenticatedNavItem[] = getVisibleAdminDestinations(input).map((destination) => ({
     href: destination.href,
     labelKey: destination.labelKey,
@@ -298,26 +305,34 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
   const adminHrefs = new Set(adminItems.map((item) => item.href));
   const hasAdminItems = adminItems.length > 0;
 
-  const portalItems: AuthenticatedNavItem[] = portalDestinations
-    .filter((destination) => destination.href !== '/portal/account' || input.showAccountLink)
-    .filter((destination) => !adminHrefs.has(destination.href))
-    .filter((destination) => canAccessPortalDestination(destination.access, input))
-    .map((destination) => ({
-      href: destination.href,
-      labelKey:
-        destination.href === '/portal' && hasAdminItems
-          ? 'app.nav.portalDashboard'
-          : portalLabelOverrideByHref[destination.href] ?? destination.labelKey,
-      descriptionKey: destination.descriptionKey,
-      icon: portalIconOverrideByHref[destination.href] ?? destination.icon,
-      section: portalSectionByHref[destination.href] ?? 'work',
-      kind: 'portal',
-      end: destination.end,
-    }));
+  const portalItems: AuthenticatedNavItem[] = isAdminContext
+    ? []
+    : portalDestinations
+        .filter((destination) => destination.href !== '/portal/account' || input.showAccountLink)
+        .filter((destination) => !adminHrefs.has(destination.href))
+        .filter((destination) => canAccessPortalDestination(destination.access, input))
+        .map((destination) => ({
+          href: destination.href,
+          labelKey:
+            destination.href === '/portal' && hasAdminItems
+              ? 'app.nav.portalDashboard'
+              : portalLabelOverrideByHref[destination.href] ?? destination.labelKey,
+          descriptionKey: destination.descriptionKey,
+          icon: portalIconOverrideByHref[destination.href] ?? destination.icon,
+          section: portalSectionByHref[destination.href] ?? 'work',
+          kind: 'portal',
+          end: destination.end,
+        }));
 
   const allItems = [...portalItems, ...adminItems];
-  const sectionOrder = input.currentPathname?.startsWith('/admin')
-    ? (['home', 'operations', 'accessSetup', 'work', 'learnSupport', 'settings'] satisfies AuthenticatedNavSectionId[])
+  const sectionOrder = isAdminContext
+    ? ([
+        'home',
+        'operations',
+        'customers',
+        'administration',
+        'reporting',
+      ] satisfies AuthenticatedNavSectionId[])
     : authenticatedNavSections.map((section) => section.id);
 
   return sectionOrder

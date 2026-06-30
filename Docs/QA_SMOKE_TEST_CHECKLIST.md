@@ -447,16 +447,17 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/partnerships`
 - [ ] Super-admin user can access `/admin/partnerships`
 - [ ] Scoped Admin user can access `/admin/partnerships` only when the Partnerships admin surface is included in their admin context, and sees only assigned-machine partnership operations.
-- [ ] Admin dashboard and app nav expose separate Partner Records, Machines, Partnerships, and Reporting modules
-- [ ] Admin Console dashboard and sidebar use Admin Console language and do not present Operations or Portal as a competing top-level internal hierarchy
-- [ ] Authenticated desktop routes show one grouped left sidebar for Home, Work, Learn & Support, Operations, Access & Setup, and Settings
-- [ ] Desktop admin routes place Admin Console in Home; Orders, Support Queue, Refund Cases, and Payouts in Operations; and People & Permissions, Partner Records, Machines, Partnerships, Audit, and Admin Reporting in Access & Setup
+- [ ] Admin Console sidebar is the only primary admin navigation map; `/admin` does not render a second catalog of duplicate route cards
+- [ ] Admin Console overview is an attention dashboard with Work queues, Customers and machines, Access and audit, and Source of truth sections
+- [ ] Admin Console sidebar uses Admin Console language and does not present Portal Dashboard as a competing top-level internal destination; portal switching is a utility action
+- [ ] Authenticated desktop routes show one grouped left sidebar; portal routes keep portal work/learning/settings groups while admin routes use the streamlined Admin Console groups
+- [ ] Desktop admin routes place Admin Console in Home; Orders, Support Queue, Refund Cases, and Payouts in Operations; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
 - [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/accounts`, `/admin/access`, `/admin/audit`, and `/admin/payouts` do not also mark Admin Console active
-- [ ] Admin Home includes Refund Cases, uses the same grouped hierarchy as the sidebar, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
+- [ ] Admin Home includes Refund Cases as a work-queue signal, explains source-of-truth ownership, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
 - [ ] Portal Dashboard quick actions show only actions available to the signed-in account; locked/upsell destinations do not appear as a duplicate navigation catalog
 - [ ] `/portal/time` is hidden and route-blocked for accounts without an active operator timekeeping profile or explicit timekeeping capability
 - [ ] Desktop admin routes do not show the old Portal/Admin workspace pills, horizontal `Admin tools` navigation row, or horizontal admin scroller
-- [ ] Mobile authenticated routes expose the same grouped destinations in the menu drawer, prioritize admin Operations before long setup lists on admin routes, focus the first destination when opened, and close after selecting a destination
+- [ ] Mobile authenticated admin routes expose the same streamlined Admin Console groups in the drawer, keep Switch to Portal in utilities, focus the first destination when opened, and close after selecting a destination
 - [ ] Non-admin users see no admin destinations in the authenticated sidebar or mobile drawer
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`

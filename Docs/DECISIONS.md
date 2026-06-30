@@ -1,10 +1,12 @@
 # Decisions
 
 ## 2026-06-30 - Admin Console IA and Scoped Admin authority
-Admin features live in one `/admin` workspace named **Admin Console**. Admin Console uses shared sidebar navigation for Overview, Orders, Support, Accounts, Machines, Access, Audit, and the existing specialized admin surfaces.
+Admin features live in one `/admin` workspace named **Admin Console**. Admin Console uses shared sidebar navigation for Overview, Orders, Support, Accounts, Machines, Access, Audit, and the existing specialized admin surfaces. The sidebar is the single admin navigation map; the `/admin` overview is an attention dashboard, not a duplicate route launcher.
 
 **Canonical behavior**
 - Keep route compatibility under `/admin`; do not introduce a competing `/operations` hierarchy.
+- Admin routes group navigation by task domain: Operations, Customers, Administration, and Partners & Reporting. Portal Dashboard is not a primary admin nav item; switching back to the portal is a utility action.
+- `/admin` shows work queues, customer/machine setup gaps, access risk, audit signals, and source-of-truth guidance. It must not render generic "Open" cards for the same destinations already present in the sidebar.
 - Use `reporting_machines` as the first-class machine registry because it already backs reporting, refund, payout, partnership, Machine Manager, and scoped-admin authority.
 - `/admin/accounts` is a first-class account summary and machine-record context page. It must not edit legacy machine inventory counts inline.
 - `/admin/audit` is audit history only. Role and scoped-admin grant controls belong in `/admin/access`.
@@ -14,6 +16,7 @@ Admin features live in one `/admin` workspace named **Admin Console**. Admin Con
 
 **Why this choice**
 - The previous Admin, Operations, Governance, and Portal labels made the hierarchy feel like it jumped between products.
+- Duplicating Machines, Accounts, Access, and Audit as both sidebar links and dashboard route cards increases cognitive load. The overview should answer "what needs attention?" while the sidebar answers "where can I go?"
 - Separating Access from Audit keeps operational history review distinct from authority changes.
 - Reusing `reporting_machines` avoids a parallel machine registry while still satisfying per-machine scoped-admin grants.
 
