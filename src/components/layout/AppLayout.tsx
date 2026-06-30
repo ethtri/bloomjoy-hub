@@ -66,7 +66,7 @@ type AdminDestination = {
   descriptionKey: TranslationKey;
   icon: LucideIcon;
   requiresSuperAdmin?: boolean;
-  surface?: 'access' | 'payouts';
+  surface?: 'access' | 'partnerships' | 'payouts';
 };
 
 const adminDestinations: AdminDestination[] = [
@@ -145,7 +145,7 @@ const adminDestinations: AdminDestination[] = [
     description: 'Guided agreement setup, participants, assigned machines, split terms, and preview.',
     descriptionKey: 'admin.partnershipsDescription',
     icon: Handshake,
-    requiresSuperAdmin: true,
+    surface: 'partnerships',
   },
   {
     href: '/admin/reporting',

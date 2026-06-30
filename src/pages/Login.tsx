@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getCanonicalUrlForSurface } from '@/lib/appSurface';
+import { getCanonicalUrlForSurface, getSafeInternalAppPath } from '@/lib/appSurface';
 import type { TranslationKey } from '@/lib/i18n';
 import { toast } from 'sonner';
 
@@ -334,9 +334,16 @@ export default function LoginPage() {
   } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const fromPath =
-    (location.state as { from?: { pathname?: string } })?.from?.pathname || '/portal';
   const inviteParams = new URLSearchParams(location.search);
+  const stateFrom = (location.state as { from?: { pathname?: string; search?: string; hash?: string } })
+    ?.from;
+  const stateFromPath = stateFrom
+    ? `${stateFrom.pathname ?? ''}${stateFrom.search ?? ''}${stateFrom.hash ?? ''}`
+    : null;
+  const fromPath =
+    getSafeInternalAppPath(inviteParams.get('next')) ??
+    getSafeInternalAppPath(stateFromPath) ??
+    '/portal';
   const inviteIntent = getLoginInviteIntent(inviteParams.get('intent'));
   const inviteEmail = inviteParams.get('email')?.trim().toLowerCase() ?? '';
   const inviteCopy = inviteIntent ? getInviteIntentCopy(inviteIntent) : null;

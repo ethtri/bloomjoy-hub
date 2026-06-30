@@ -663,6 +663,76 @@ const login = async (page, user) => {
   await page.getByRole('button', { name: /sign in/i }).click();
 };
 
+const openPathAsUser = async (page, args, user, pathName) => {
+  await page.goto(`${args.appUrl}${pathName}`, { waitUntil: 'domcontentloaded' });
+  await login(page, user);
+  await page.goto(`${args.appUrl}${pathName}`, { waitUntil: 'domcontentloaded' });
+};
+
+const assertScopedAdminAccessRoute = async ({
+  page,
+  args,
+  recorder,
+  user,
+  pathName,
+  label,
+  expectLauncher = false,
+  expectActivity = false,
+}) => {
+  await openPathAsUser(page, args, user, pathName);
+  const primaryLocator = expectLauncher
+    ? page.getByRole('heading', { name: 'Add Technician' })
+    : page.getByRole('heading', { name: 'Access' });
+
+  await primaryLocator
+    .waitFor({ timeout: 10000 })
+    .catch(async (error) => {
+      await page.screenshot({
+        path: path.join(args.artifactDir, `${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-route-timeout.png`),
+        fullPage: true,
+      });
+      const bodyText = await page.locator('body').innerText().catch(() => '');
+      console.error(`${label} did not reach Admin Access at ${page.url()}`);
+      console.error(bodyText.slice(0, 2000));
+      throw error;
+    });
+
+  const url = new URL(page.url());
+  recorder.assert(
+    `${label} lands on Admin Access`,
+    url.pathname === '/admin/access',
+    page.url()
+  );
+
+  if (expectLauncher) {
+    const launcherUrl = new URL(page.url());
+    recorder.assert(
+      `${label} normalizes to Technician launcher`,
+      launcherUrl.searchParams.get('action') === 'add-access' &&
+        launcherUrl.searchParams.get('preset') === 'technician',
+      page.url()
+    );
+    recorder.assert(
+      `${label} opens Add Technician launcher`,
+      await page.getByRole('heading', { name: 'Add Technician' }).isVisible()
+    );
+  } else {
+    recorder.assert(
+      `${label} exposes Add Technician primary action`,
+      await page.getByRole('button', { name: 'Add Technician' }).isVisible()
+    );
+  }
+
+  if (expectActivity) {
+    await page.getByRole('heading', { name: 'Global activity' }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      `${label} preserves audit activity focus`,
+      url.searchParams.get('tab') === 'audit',
+      page.url()
+    );
+  }
+};
+
 const directRpcProbe = async (page, rpcName, payload) =>
   page.evaluate(
     async ({ rpcName: evaluatedRpcName, payload: evaluatedPayload, supabaseUrl }) => {
@@ -815,12 +885,61 @@ const run = async () => {
       name: 'Scoped Admin Technician grant',
       state: createState({ actor: 'scoped_admin' }),
       test: async ({ page, state }) => {
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin',
+          label: 'Scoped Admin /admin landing',
+          expectLauncher: true,
+        });
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin/access',
+          label: 'Scoped Admin /admin/access landing',
+        });
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin/access?tab=reporting-access',
+          label: 'Scoped Admin legacy reporting-access tab',
+          expectLauncher: true,
+        });
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin/access?action=add-access&preset=technician',
+          label: 'Scoped Admin explicit Technician launcher',
+          expectLauncher: true,
+        });
+        await assertScopedAdminAccessRoute({
+          page,
+          args,
+          recorder,
+          user: state.user,
+          pathName: '/admin/audit',
+          label: 'Scoped Admin audit shortcut',
+          expectActivity: true,
+        });
+
         await openTechnicianLauncher(page, args, state.user);
         await page.locator('p').filter({ hasText: /^Scoped Admin machine scope$/ }).waitFor({ timeout: 10000 });
 
         recorder.assert(
           'Scoped Admin launcher hides Corporate Partner preset',
           !(await page.getByRole('radio', { name: /Corporate Partner/i }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin launcher hides Plus Customer preset',
+          !(await page.getByRole('radio', { name: /Plus Customer/i }).isVisible().catch(() => false))
         );
         recorder.assert(
           'Scoped Admin launcher hides Super Admin preset',
@@ -884,6 +1003,32 @@ const run = async () => {
             state.accessInviteBodies[0]?.sourceId === grantId,
           JSON.stringify(state.accessInviteBodies[0])
         );
+        recorder.assert(
+          'Scoped Admin Access hides legacy Corporate Partner preset panel',
+          !(await page.getByRole('heading', { name: 'Corporate Partner preset' }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides Corporate Partner grant CTA',
+          !(await page.getByRole('button', { name: /Grant Corporate Partner/i }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides Plus Customer grant controls',
+          !(await page.getByRole('heading', { name: 'Plus Customer' }).isVisible().catch(() => false)) &&
+            !(await page.getByRole('button', { name: /Grant Plus|Extend Plus|Revoke Plus/i }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides Super Admin grant controls',
+          !(await page.getByRole('heading', { name: 'Super Admin' }).isVisible().catch(() => false)) &&
+            !(await page.getByRole('button', { name: /Grant Super Admin|Revoke Super Admin/i }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides legacy machine tax panel',
+          !(await page.getByRole('heading', { name: 'Machine tax rates' }).isVisible().catch(() => false))
+        );
+        recorder.assert(
+          'Scoped Admin Access hides legacy reporting matrix loader',
+          !(await page.getByLabel('Add existing user by email').isVisible().catch(() => false))
+        );
 
         const updateInScopeProbe = await directRpcProbe(page, 'admin_update_technician_machines', {
           p_grant_id: grantId,
@@ -934,11 +1079,15 @@ const run = async () => {
         );
         recorder.assert(
           'Scoped Admin Account Settings hides billing tools',
-          !(await page.getByText('Billing').isVisible().catch(() => false))
+          !(await page.getByRole('heading', { name: /^Billing$/ }).isVisible().catch(() => false)) &&
+            !(await page.getByRole('button', { name: /Open Billing Portal|Manage Billing/i }).isVisible().catch(() => false)) &&
+            !(await page.getByRole('link', { name: /View Plus Membership/i }).isVisible().catch(() => false))
         );
 
         await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
-        await page.getByText(/Team requires Team access/i).waitFor({ timeout: 10000 });
+        await page
+          .getByText(/Team management is reserved for Plus account owners/i)
+          .waitFor({ timeout: 10000 });
         recorder.assert(
           'Scoped Admin direct Portal Team offers Admin Access exit',
           await page.getByRole('link', { name: 'Open Admin Access' }).isVisible()
@@ -980,7 +1129,9 @@ const run = async () => {
         });
 
         await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
-        await page.getByText(/Team requires Team access/i).waitFor({ timeout: 10000 });
+        await page
+          .getByText(/Team management is reserved for Plus account owners/i)
+          .waitFor({ timeout: 10000 });
         recorder.assert(
           'Capability drift direct Portal Team offers Admin Access exit',
           await page.getByRole('link', { name: 'Open Admin Access' }).isVisible()
