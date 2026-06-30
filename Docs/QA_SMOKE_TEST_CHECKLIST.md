@@ -190,6 +190,13 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, payout-included, paid, or voided entries.
 - [ ] Operator Time empty state explains that an admin or machine manager must add an operator payout profile and assigned machines before time can be submitted.
 
+### Admin Operator Setup
+- [ ] Admin or scoped payout manager can open `/admin/payouts`, use Operator Setup to save a never-authenticated employee operator, create or reuse the Auth user server-side, assign only manageable active machines, and record an audit reason.
+- [ ] Saving Operator Setup automatically sends an `operator_payout` access invite, records `access_invite_deliveries` plus `admin_audit_log` evidence, and shows a saved-but-invite-failed state when delivery fails.
+- [ ] Operator Access shows active assignments, last invite status, resend invite, and copy login link actions without mixing those controls into payout run finalization.
+- [ ] Deactivating an operator revokes active machine assignments, keeps audit history, and prevents future `/portal/time` entry while preserving historical payout records.
+- [ ] DB/RLS smoke for operator setup proves a scoped payout manager can provision only in-scope machines; direct browser calls to service-role-only Auth/provisioning RPCs are blocked.
+
 ### Admin Operator Payout Review
 - [ ] Admin or scoped payout manager can open `/admin/payouts`; users without payout admin access see the existing admin access-required state.
 - [ ] Payout periods list shows account, period dates, status, operator count, total payout, warnings, and revision count without horizontal overflow on desktop or mobile.

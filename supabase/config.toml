@@ -31,6 +31,9 @@ verify_jwt = false
 [functions.access-invite]
 verify_jwt = false
 
+[functions.operator-payout-provision]
+verify_jwt = false
+
 [functions.sales-report-export]
 verify_jwt = false
 

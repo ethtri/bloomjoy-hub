@@ -26,8 +26,12 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
     })
   : null;
 
-type InviteType = "corporate_partner" | "technician" | "machine_manager";
-type SourceType = "corporate_partner_membership" | "technician_grant" | "reporting_machine";
+type InviteType = "corporate_partner" | "technician" | "machine_manager" | "operator_payout";
+type SourceType =
+  | "corporate_partner_membership"
+  | "technician_grant"
+  | "reporting_machine"
+  | "operator_payout_profile";
 
 type InviteSource = {
   inviteType: InviteType;
@@ -61,6 +65,7 @@ const sourceTypeByInviteType: Record<InviteType, SourceType> = {
   corporate_partner: "corporate_partner_membership",
   technician: "technician_grant",
   machine_manager: "reporting_machine",
+  operator_payout: "operator_payout_profile",
 };
 const maxEvidenceMessageLength = 500;
 const sentEvidenceFailureMessage =
@@ -410,6 +415,116 @@ async function getMachineManagerSource(sourceId: string, targetEmail: string): P
   };
 }
 
+async function getOperatorPayoutSource(sourceId: string, targetEmail: string): Promise<InviteSource> {
+  if (!supabase) throw new Error("Access invite email is not configured.");
+
+  const { data: profile, error: profileError } = await supabase
+    .from("operator_payout_profiles")
+    .select("id, account_id, user_id, display_name, worker_type, status")
+    .eq("id", sourceId)
+    .maybeSingle();
+
+  if (profileError || !profile) {
+    throw new Error("Operator payout profile was not found.");
+  }
+
+  const profileRecord = profile as Record<string, unknown>;
+  if (getStringValue(profileRecord, "status") !== "active") {
+    throw new Error("Operator payout profile is not active.");
+  }
+
+  const { data: authUser, error: authUserError } = await supabase.rpc("admin_find_auth_user_by_email", {
+    p_email: targetEmail,
+  });
+
+  if (authUserError) {
+    throw new Error("Unable to verify operator invite email.");
+  }
+
+  const authUserRecord = (authUser as Record<string, unknown> | null) ?? {};
+  const targetUserId = getStringValue(authUserRecord, "id");
+  if (!targetUserId || targetUserId !== getStringValue(profileRecord, "user_id")) {
+    throw new Error("Invite email does not match the operator payout profile.");
+  }
+
+  const accountId = getStringValue(profileRecord, "account_id");
+  const { data: account } = await supabase
+    .from("customer_accounts")
+    .select("name")
+    .eq("id", accountId)
+    .maybeSingle();
+  const accountName = getStringValue((account as Record<string, unknown> | null) ?? {}, "name") || "a Bloomjoy account";
+
+  const { data: assignments } = await supabase
+    .from("operator_machine_assignments")
+    .select("reporting_machine_id, status, revoked_at")
+    .eq("operator_profile_id", sourceId)
+    .eq("status", "active")
+    .is("revoked_at", null);
+
+  const machineIds = [
+    ...new Set(
+      ((assignments as Record<string, unknown>[] | null) ?? [])
+        .map((assignment) => getStringValue(assignment, "reporting_machine_id"))
+        .filter(Boolean)
+    ),
+  ];
+
+  let machineLabels: string[] = [];
+  if (machineIds.length > 0) {
+    const { data: machines } = await supabase
+      .from("reporting_machines")
+      .select("id, machine_label, machine_type, location_id")
+      .in("id", machineIds);
+    const machineRows = (machines as Record<string, unknown>[] | null) ?? [];
+    const locationIds = [
+      ...new Set(machineRows.map((machine) => getStringValue(machine, "location_id")).filter(Boolean)),
+    ];
+    let locationNameById = new Map<string, string>();
+
+    if (locationIds.length > 0) {
+      const { data: locations } = await supabase
+        .from("reporting_locations")
+        .select("id, name")
+        .in("id", locationIds);
+
+      locationNameById = new Map(
+        ((locations as Record<string, unknown>[] | null) ?? [])
+          .map((location) => [getStringValue(location, "id"), getStringValue(location, "name")] as const)
+          .filter(([id]) => Boolean(id))
+      );
+    }
+
+    const machineLabelById = new Map(
+      machineRows.map((machine) => {
+        const id = getStringValue(machine, "id");
+        const label = getStringValue(machine, "machine_label") || "Bloomjoy machine";
+        const locationName = locationNameById.get(getStringValue(machine, "location_id"));
+        return [id, locationName ? `${label} at ${locationName}` : label] as const;
+      })
+    );
+
+    machineLabels = machineIds.map((machineId) => machineLabelById.get(machineId) ?? "Bloomjoy machine");
+  }
+
+  const machineSummary = machineLabels.length === 0
+    ? "This operator profile is active but has no assigned machines yet. Contact Bloomjoy before entering time."
+    : machineLabels.length === 1
+      ? `This access includes time entry for one assigned machine: ${machineLabels[0]}.`
+      : `This access includes time entry for ${machineLabels.length} assigned machines: ${machineLabels.join(", ")}.`;
+
+  return {
+    inviteType: "operator_payout",
+    sourceType: "operator_payout_profile",
+    sourceId,
+    targetEmail,
+    targetUserId,
+    title: "Your Bloomjoy Operator invitation",
+    body: `You have been invited as a Bloomjoy Operator for ${accountName}.`,
+    accessSummary: machineSummary,
+  };
+}
+
 async function recordInviteEvidence(
   attempt: InviteAttempt,
   actorUserId: string,
@@ -534,6 +649,26 @@ async function canSendTechnicianAccessInvite(actorUserId: string, sourceId: stri
   return data === true;
 }
 
+async function canSendOperatorPayoutInvite(actorUserId: string, sourceId: string) {
+  if (!supabase) return false;
+
+  const { data, error } = await supabase.rpc("can_send_operator_payout_invite", {
+    p_user_id: actorUserId,
+    p_operator_profile_id: sourceId,
+  });
+
+  if (error) {
+    console.error("access-invite authorization check failed", {
+      source_type: "operator_payout_profile",
+      source_id: sourceId,
+      error_message: sanitizeErrorEvidence(error, "Unable to validate invite permission."),
+    });
+    return false;
+  }
+
+  return data === true;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -581,7 +716,7 @@ serve(async (req) => {
       allowConfiguredPreviewOrigins: true,
     });
 
-    if (!["corporate_partner", "technician", "machine_manager"].includes(inviteType)) {
+    if (!["corporate_partner", "technician", "machine_manager", "operator_payout"].includes(inviteType)) {
       return new Response(JSON.stringify({ error: "Unsupported invite type." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -611,16 +746,24 @@ serve(async (req) => {
 
     const { data: isAdmin } = await supabase.rpc("is_super_admin", { uid: user.id });
     if (!isAdmin) {
-      if (inviteType !== "technician") {
+      if (inviteType === "technician") {
+        const canSendTechnicianInvite = await canSendTechnicianAccessInvite(user.id, sourceId);
+        if (!canSendTechnicianInvite) {
+          return new Response(JSON.stringify({ error: "Technician invite access denied." }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } else if (inviteType === "operator_payout") {
+        const canSendOperatorInvite = await canSendOperatorPayoutInvite(user.id, sourceId);
+        if (!canSendOperatorInvite) {
+          return new Response(JSON.stringify({ error: "Operator payout invite access denied." }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } else {
         return new Response(JSON.stringify({ error: "Super Admin access required." }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const canSendTechnicianInvite = await canSendTechnicianAccessInvite(user.id, sourceId);
-      if (!canSendTechnicianInvite) {
-        return new Response(JSON.stringify({ error: "Technician invite access denied." }), {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -649,7 +792,9 @@ serve(async (req) => {
         ? await getCorporatePartnerSource(sourceId, targetEmail)
         : inviteType === "technician"
           ? await getTechnicianSource(sourceId, targetEmail)
-          : await getMachineManagerSource(sourceId, targetEmail);
+          : inviteType === "machine_manager"
+            ? await getMachineManagerSource(sourceId, targetEmail)
+            : await getOperatorPayoutSource(sourceId, targetEmail);
     } catch (sourceError) {
       await recordFailureEvidence(
         inviteAttempt,

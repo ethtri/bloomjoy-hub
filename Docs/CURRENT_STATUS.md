@@ -28,6 +28,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 - Operator payouts foundation sprint: the foundation is on `main`; active follow-on PRs add timekeeping, revenue snapshots, calculation, review, and pay statement slices.
 - Manager review/finalization slice `#448` adds the admin review gate before operator pay statements are issued.
 - Operator pay statements slice `#449` publishes versioned operator-visible pay statements from finalized payout runs.
+- Operator employee provisioning `#505` gives `/admin/payouts` a dedicated setup lane for Auth-user provisioning, machine assignment, invite evidence, and deactivation before future time entry.
 - Frontend work should use existing app patterns plus `PRODUCT.md`, `DESIGN.md`, and `impeccable` when the visible experience matters.
 
 ## Safety

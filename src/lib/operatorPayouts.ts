@@ -1,3 +1,4 @@
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import { supabaseClient } from '@/lib/supabaseClient';
 
 export type OperatorWorkerType =
@@ -575,6 +576,116 @@ export type SetOperatorMachineAssignmentsResult = {
   assignments: unknown[];
 };
 
+export type OperatorPayoutSetupMachine = {
+  id: string;
+  label: string;
+  machineType: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  status: 'active' | string;
+  canManage: boolean;
+};
+
+export type OperatorPayoutSetupPolicy = {
+  id: string;
+  name: string;
+  frequency: PayoutFrequency;
+  roundingRule: PayoutRoundingRule;
+  reviewModel: PayoutReviewModel;
+};
+
+export type OperatorPayoutSetupAccount = {
+  id: string;
+  name: string;
+  canManageAccount: boolean;
+  machines: OperatorPayoutSetupMachine[];
+  policies: OperatorPayoutSetupPolicy[];
+};
+
+export type OperatorPayoutSetupAssignment = {
+  assignmentId: string;
+  machineId: string;
+  machineLabel: string;
+  locationId: string | null;
+  locationName: string | null;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+  canManage?: boolean;
+};
+
+export type OperatorPayoutLatestInvite = {
+  id: string;
+  sentAt: string;
+  deliveryStatus: 'sent' | 'failed';
+  errorMessage: string | null;
+};
+
+export type OperatorPayoutSetupOperator = {
+  id: string;
+  accountId: string;
+  accountName: string;
+  userId: string;
+  email: string | null;
+  displayName: string;
+  workerType: OperatorWorkerType;
+  status: OperatorPayoutProfileStatus;
+  payoutPolicyId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  canSendInvite: boolean;
+  activeAssignments: OperatorPayoutSetupAssignment[];
+  latestInvite: OperatorPayoutLatestInvite | null;
+};
+
+export type OperatorPayoutSetupContext = {
+  accounts: OperatorPayoutSetupAccount[];
+  operators: OperatorPayoutSetupOperator[];
+};
+
+export type ProvisionOperatorPayoutAccessInput = {
+  userEmail: string;
+  accountId: string;
+  displayName: string;
+  workerType?: OperatorWorkerType;
+  payoutPolicyId?: string | null;
+  machineIds: string[];
+  reason: string;
+};
+
+export type ProvisionedOperatorPayoutProfile = {
+  id: string;
+  accountId: string;
+  accountName: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  workerType: OperatorWorkerType;
+  status: OperatorPayoutProfileStatus;
+  payoutPolicyId: string | null;
+};
+
+export type ProvisionOperatorPayoutAccessResult = {
+  ok?: true;
+  authUserCreated: boolean;
+  operatorProfile: ProvisionedOperatorPayoutProfile;
+  assignments: OperatorPayoutSetupAssignment[];
+  activeAssignmentCount: number;
+  error?: string;
+};
+
+export type DeactivateOperatorPayoutProfileInput = {
+  operatorProfileId: string;
+  reason: string;
+};
+
+export type DeactivateOperatorPayoutProfileResult = {
+  ok?: true;
+  operatorProfileId: string;
+  status: OperatorPayoutProfileStatus;
+  activeAssignmentCount: number;
+  error?: string;
+};
+
 export type SaveOperatorTimeEntryInput = {
   operatorProfileId: string;
   machineId: string;
@@ -739,6 +850,57 @@ export const fetchMyOperatorTimekeepingContext = async (
     ...((data as Partial<OperatorTimekeepingContext> | null) ?? {}),
   };
 };
+
+export const fetchOperatorPayoutSetupContext = async (): Promise<OperatorPayoutSetupContext> => {
+  const { data, error } = await supabaseClient.rpc('get_operator_payout_setup_context');
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load operator payout setup.');
+  }
+
+  return {
+    accounts: [],
+    operators: [],
+    ...((data as Partial<OperatorPayoutSetupContext> | null) ?? {}),
+  };
+};
+
+export const provisionOperatorPayoutAccessAdmin = async (
+  input: ProvisionOperatorPayoutAccessInput
+): Promise<ProvisionOperatorPayoutAccessResult> =>
+  invokeEdgeFunction<ProvisionOperatorPayoutAccessResult>(
+    'operator-payout-provision',
+    {
+      action: 'provision',
+      userEmail: input.userEmail,
+      accountId: input.accountId,
+      displayName: input.displayName,
+      workerType: input.workerType ?? null,
+      payoutPolicyId: input.payoutPolicyId ?? null,
+      machineIds: input.machineIds,
+      reason: input.reason,
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to provision operator payout access.',
+    }
+  );
+
+export const deactivateOperatorPayoutProfileAdmin = async (
+  input: DeactivateOperatorPayoutProfileInput
+): Promise<DeactivateOperatorPayoutProfileResult> =>
+  invokeEdgeFunction<DeactivateOperatorPayoutProfileResult>(
+    'operator-payout-provision',
+    {
+      action: 'deactivate',
+      operatorProfileId: input.operatorProfileId,
+      reason: input.reason,
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to deactivate operator payout access.',
+    }
+  );
 
 export const submitOperatorTimeEntry = async (
   input: SaveOperatorTimeEntryInput
