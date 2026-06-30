@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-06-30 - Admin Console IA and Scoped Admin authority
+Admin features live in one `/admin` workspace named **Admin Console**. Admin Console uses shared sidebar navigation for Overview, Orders, Support, Accounts, Machines, Access, Audit, and the existing specialized admin surfaces.
+
+**Canonical behavior**
+- Keep route compatibility under `/admin`; do not introduce a competing `/operations` hierarchy.
+- Use `reporting_machines` as the first-class machine registry because it already backs reporting, refund, payout, partnership, Machine Manager, and scoped-admin authority.
+- `/admin/accounts` is a first-class account summary and machine-record context page. It must not edit legacy machine inventory counts inline.
+- `/admin/audit` is audit history only. Role and scoped-admin grant controls belong in `/admin/access`.
+- Scoped Admin identity is separate from machine scope. A Scoped Admin can have zero machine grants, open Admin Console, and see an empty Machines state until a Super Admin grants machine access.
+- Scoped Admins may use non-role admin workflows such as orders, support, accounts, audit, and scoped machine setup. They cannot grant/revoke Super Admin or Scoped Admin authority.
+- Machine visibility/control remains explicit: Super Admins see all machines; Scoped Admins see and manage only machines in their active scoped machine grants.
+
+**Why this choice**
+- The previous Admin, Operations, Governance, and Portal labels made the hierarchy feel like it jumped between products.
+- Separating Access from Audit keeps operational history review distinct from authority changes.
+- Reusing `reporting_machines` avoids a parallel machine registry while still satisfying per-machine scoped-admin grants.
+
 ## 2026-06-25 - Scoped Admins can grant machine-scoped Technician status
 Scoped Admins may grant, update, renew, and revoke Technician access only when every assigned machine is inside their active Scoped Admin machine scope.
 

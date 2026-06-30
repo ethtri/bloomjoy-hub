@@ -38,10 +38,16 @@ assert(
   'Admin context should prioritize Operations and Access & Setup before portal work links.',
 );
 assert(
-  authenticatedNavigation.includes("type AdminSurface = 'access' | 'partnerships' | 'payouts' | 'refunds'") &&
+  authenticatedNavigation.includes('export type AdminSurface =') &&
+    authenticatedNavigation.includes("'overview'") &&
+    authenticatedNavigation.includes("'orders'") &&
+    authenticatedNavigation.includes("'support'") &&
+    authenticatedNavigation.includes("'accounts'") &&
+    authenticatedNavigation.includes("'machines'") &&
+    authenticatedNavigation.includes("'audit'") &&
     authenticatedNavigation.includes("href: '/admin/partnerships'") &&
     authenticatedNavigation.includes("surface: 'partnerships'"),
-  'Scoped admins with the Partnerships surface must see the Partnerships destination in authenticated navigation.',
+  'Scoped admins must get the broad Admin Console surface model while Partnerships remains surface-gated.',
 );
 
 const portalNavigation = includes(
@@ -78,8 +84,8 @@ assert(
 
 const adminDashboard = includes(
   'src/pages/admin/Dashboard.tsx',
-  "'app.nav.refundCases'",
-  'Admin Home must include Refund Cases in the module list.',
+  'getVisibleAdminDestinations',
+  'Admin Console must render role-aware modules from the shared authenticated navigation model.',
 );
 assert(
   !adminDashboard.includes('admin_roles') && !adminDashboard.includes('is_super_admin'),

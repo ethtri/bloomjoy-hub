@@ -367,7 +367,7 @@ try {
   await adminPage.goto(`${appUrl}/admin`, { waitUntil: 'networkidle' });
   await waitForHeading(
     adminPage,
-    { name: 'Admin Home', level: 1 },
+    { name: 'Admin Console', level: 1 },
     'portal-shell-admin-debug-failed.png',
   );
   await assert((await adminPage.locator('h1').count()) === 1, 'Admin route should render one H1.');
@@ -392,7 +392,7 @@ try {
 
   const activeAdminHome = await adminPage.locator('aside nav a[aria-current="page"]').allTextContents();
   await assert(
-    activeAdminHome.length === 1 && activeAdminHome[0].includes('Admin Overview'),
+    activeAdminHome.length === 1 && activeAdminHome[0].includes('Admin Console'),
     'Admin Home should have exactly one active nav item.',
   );
 
@@ -402,7 +402,7 @@ try {
     .allTextContents();
   await assert(
     activeAdminOrders.length === 1 && activeAdminOrders[0].includes('Admin Orders'),
-    'Admin child routes should not also mark Admin Overview active.',
+    'Admin child routes should not also mark Admin Console active.',
   );
   await adminPage.screenshot({ path: path.join(outputDir, 'portal-shell-admin-desktop.png'), fullPage: true });
   await adminPage.close();
@@ -416,7 +416,7 @@ try {
   await mobileAdminPage.waitForTimeout(150);
   const focusedText = await mobileAdminPage.evaluate(() => document.activeElement?.textContent ?? '');
   await assert(
-    focusedText.includes('Admin Overview'),
+    focusedText.includes('Admin Console'),
     'Mobile drawer should focus the first navigation destination.',
   );
   const mobileDrawerText = await textContent(mobileAdminPage.getByRole('dialog'));

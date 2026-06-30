@@ -48,7 +48,17 @@ export type AuthenticatedNavItem = {
   match?: (pathname: string) => boolean;
 };
 
-type AdminSurface = 'access' | 'partnerships' | 'payouts' | 'refunds';
+export type AdminSurface =
+  | 'overview'
+  | 'orders'
+  | 'support'
+  | 'accounts'
+  | 'machines'
+  | 'access'
+  | 'audit'
+  | 'partnerships'
+  | 'payouts'
+  | 'refunds';
 
 export type AdminDestination = {
   href: string;
@@ -96,7 +106,7 @@ export const adminDestinations: AdminDestination[] = [
     descriptionKey: 'admin.homeDescription',
     icon: LayoutDashboard,
     section: 'home',
-    requiresSuperAdmin: true,
+    surface: 'overview',
   },
   {
     href: '/admin/orders',
@@ -105,7 +115,7 @@ export const adminDestinations: AdminDestination[] = [
     descriptionKey: 'admin.ordersDescription',
     icon: ShoppingBag,
     section: 'operations',
-    requiresSuperAdmin: true,
+    surface: 'orders',
   },
   {
     href: '/admin/support',
@@ -114,7 +124,25 @@ export const adminDestinations: AdminDestination[] = [
     descriptionKey: 'admin.supportDescription',
     icon: LifeBuoy,
     section: 'operations',
-    requiresSuperAdmin: true,
+    surface: 'support',
+  },
+  {
+    href: '/admin/accounts',
+    labelKey: 'admin.accounts',
+    shortLabelKey: 'admin.accounts',
+    descriptionKey: 'admin.accountsDescription',
+    icon: Building2,
+    section: 'operations',
+    surface: 'accounts',
+  },
+  {
+    href: '/admin/machines',
+    labelKey: 'admin.machines',
+    shortLabelKey: 'admin.machines',
+    descriptionKey: 'admin.machinesDescription',
+    icon: MonitorCog,
+    section: 'accessSetup',
+    surface: 'machines',
   },
   {
     href: '/admin/access',
@@ -135,15 +163,6 @@ export const adminDestinations: AdminDestination[] = [
     requiresSuperAdmin: true,
   },
   {
-    href: '/admin/machines',
-    labelKey: 'admin.machines',
-    shortLabelKey: 'admin.machines',
-    descriptionKey: 'admin.machinesDescription',
-    icon: MonitorCog,
-    section: 'accessSetup',
-    requiresSuperAdmin: true,
-  },
-  {
     href: '/admin/partnerships',
     labelKey: 'admin.partnerships',
     shortLabelKey: 'admin.partnerships',
@@ -160,6 +179,15 @@ export const adminDestinations: AdminDestination[] = [
     icon: BarChart3,
     section: 'accessSetup',
     requiresSuperAdmin: true,
+  },
+  {
+    href: '/admin/audit',
+    labelKey: 'admin.audit',
+    shortLabelKey: 'admin.audit',
+    descriptionKey: 'admin.auditDescription',
+    icon: ListChecks,
+    section: 'accessSetup',
+    surface: 'audit',
   },
   {
     href: '/portal/refunds',

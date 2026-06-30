@@ -400,8 +400,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/access`
 - [ ] Super-admin user can access `/admin/access`
 - [ ] `/admin/access` defaults to the person-first `Find a person` view, not grant-type tabs
-- [ ] `/admin/accounts` redirects to `/admin/access?tab=users` and still lands on the person-first console
-- [ ] `/admin/audit` redirects to `/admin/access?tab=audit` and opens the secondary global activity view
+- [ ] `/admin/accounts` opens a first-class Admin Console Accounts summary page and does not expose legacy machine-count editing
+- [ ] `/admin/audit` opens a first-class Admin Console Audit page with log filtering only, not role-management controls
 - [ ] Admin Access person search returns rows by email/user ID and shows membership/order/support summary data without forcing a grant-type tab choice
 - [ ] Admin Access person search does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
 - [ ] Admin Access person search can find an existing Supabase Auth user by email even if they do not have orders yet
@@ -418,8 +418,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin can revoke Plus Customer access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
 - [ ] Plus Customer access grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
 - [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
-- [ ] Admin Access customer context card machine count edits require update reason and persist in `customer_machine_inventory`
-- [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
+- [ ] Admin Accounts links machine context to `/admin/machines`; machine records are managed as first-class `reporting_machines`, not account-level editable counts
+- [ ] Machine grant/revoke, machine setup edits, and machine tax/refund setup changes create `admin_audit_log` entries
 - [ ] Manual reporting access source card uses a contextual machine-scope editor, not a raw permission matrix
 - [ ] Manual reporting access source card can select multiple machines, save with a reason, and update that person's machine grants in one transactional save
 - [ ] Manual reporting access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
@@ -430,12 +430,13 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Technician source card can edit scope, renew current access, and revoke active Technician grants with required reasons
 - [ ] Admin Technician scope changes revoke only Technician-sourced reporting entitlements; unrelated manual reporting grants remain intact
 - [ ] Scoped Admin Technician source card shows only scoped machine choices, hides broad admin/customer/partner presets, requires at least one machine, and keeps out-of-scope or mixed-scope grants read-only with a Super Admin repair message
-- [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with selected machine scopes, save preview, and required reason
+- [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with zero or more selected machine scopes, save preview, and required reason
+- [ ] Scoped Admin with zero machine scopes can open `/admin`, `/admin/accounts`, `/admin/orders`, `/admin/support`, `/admin/access`, `/admin/audit`, and `/admin/machines`, with Machines showing the empty assigned-machine state
 - [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
 - [ ] Scoped Admin users can open `/portal/training*` but do not become Plus members or get Plus billing/commerce benefits
 - [ ] Scoped Admin users can open `/admin/partnerships` and the partner dashboard for partnerships fully covered by their scoped machines; partially covered partnerships remain hidden/blocked
-- [ ] Scoped Admin users can open `/admin/access?tab=reporting-access`, see only machines inside their scoped grant, and see only Access in admin tools navigation
-- [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/reporting` or `/admin/access?tab=global-roles`; `/admin/partnerships` is available only when scoped partnership authority is present and remains machine-scoped
+- [ ] Scoped Admin users see Admin Console navigation for Overview, Orders, Support, Accounts, Machines, Access, and Audit, with machine rows/actions limited to granted machines
+- [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/reporting`, `/admin/partner-records`, or global role controls; `/admin/partnerships` is available only when scoped partnership authority is present and remains machine-scoped
 - [ ] Scoped Admin reporting-access saves affect only manual reporting grants inside the scoped machine set and do not revoke Technician-derived grants
 - [ ] Scoped Admin grant, update, revoke, and reporting-access changes create `admin_audit_log` entries
 - [ ] `report_manager` users can open assigned `/portal/reports` views but remain blocked from `/admin`, `/admin/access`, and other admin routes
@@ -447,9 +448,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/partnerships`
 - [ ] Scoped Admin user can access `/admin/partnerships` only when the Partnerships admin surface is included in their admin context, and sees only assigned-machine partnership operations.
 - [ ] Admin dashboard and app nav expose separate Partner Records, Machines, Partnerships, and Reporting modules
+- [ ] Admin Console dashboard and sidebar use Admin Console language and do not present Operations or Portal as a competing top-level internal hierarchy
 - [ ] Authenticated desktop routes show one grouped left sidebar for Home, Work, Learn & Support, Operations, Access & Setup, and Settings
-- [ ] Desktop admin routes place Admin Overview in Home; Orders, Support Queue, Refund Cases, and Payouts in Operations; and People & Permissions, Partner Records, Machines, Partnerships, and Admin Reporting in Access & Setup
-- [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/access`, and `/admin/payouts` do not also mark Admin Overview active
+- [ ] Desktop admin routes place Admin Console in Home; Orders, Support Queue, Refund Cases, and Payouts in Operations; and People & Permissions, Partner Records, Machines, Partnerships, Audit, and Admin Reporting in Access & Setup
+- [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/accounts`, `/admin/access`, `/admin/audit`, and `/admin/payouts` do not also mark Admin Console active
 - [ ] Admin Home includes Refund Cases, uses the same grouped hierarchy as the sidebar, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
 - [ ] Portal Dashboard quick actions show only actions available to the signed-in account; locked/upsell destinations do not appear as a duplicate navigation catalog
 - [ ] `/portal/time` is hidden and route-blocked for accounts without an active operator timekeeping profile or explicit timekeeping capability
@@ -458,6 +460,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin users see no admin destinations in the authenticated sidebar or mobile drawer
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
+- [ ] Scoped Admin user can access `/admin/machines`, sees no machines before grants, and sees only explicitly granted machines after grants
+- [ ] Super-admin user sees all machine records in `/admin/machines` and can create/edit machine identity records
 - [ ] Admin Partner Records can search, create, edit, and archive reusable partner records with separate display name and legal name fields, without exposing "party" terminology
 - [ ] Issue `#326`: super-admin can archive an unused test partner record from `/admin/partner-records` with required reason copy naming the record, and `admin_audit_log` stores actor, target ID/status, timestamp, and reason without customer/payment/source payloads or signed URLs
 - [ ] Issue `#326`: archiving a partner record is blocked when active memberships, active partnership parties, active assignments, active schedules, report snapshots, schedule runs, sales facts, or applied adjustment history are tied to it

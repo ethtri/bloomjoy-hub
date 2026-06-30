@@ -1,85 +1,17 @@
 import { Link } from 'react-router-dom';
-import {
-  BarChart3,
-  Building2,
-  CircleDollarSign,
-  Handshake,
-  LifeBuoy,
-  MonitorCog,
-  ReceiptText,
-  ShieldCheck,
-  ShoppingBag,
-  Users,
-} from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { getVisibleAdminDestinations } from '@/components/layout/authenticatedNavigation';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
-import type { TranslationKey } from '@/lib/i18n';
-
-const adminModules = [
-  {
-    titleKey: 'admin.orders',
-    descriptionKey: 'admin.ordersDescription',
-    icon: ShoppingBag,
-    href: '/admin/orders',
-  },
-  {
-    titleKey: 'app.nav.supportQueue',
-    descriptionKey: 'admin.supportDescription',
-    icon: LifeBuoy,
-    href: '/admin/support',
-  },
-  {
-    titleKey: 'admin.access',
-    descriptionKey: 'admin.accessDescription',
-    icon: Users,
-    href: '/admin/access',
-  },
-  {
-    titleKey: 'admin.partnerRecordsShort',
-    descriptionKey: 'admin.partnerRecordsDescription',
-    icon: Building2,
-    href: '/admin/partner-records',
-  },
-  {
-    titleKey: 'admin.machines',
-    descriptionKey: 'admin.machinesDescription',
-    icon: MonitorCog,
-    href: '/admin/machines',
-  },
-  {
-    titleKey: 'admin.partnerships',
-    descriptionKey: 'admin.partnershipsDescription',
-    icon: Handshake,
-    href: '/admin/partnerships',
-  },
-  {
-    titleKey: 'app.nav.adminReporting',
-    descriptionKey: 'admin.reportingDescription',
-    icon: BarChart3,
-    href: '/admin/reporting',
-  },
-  {
-    titleKey: 'app.nav.refundCases',
-    descriptionKey: 'admin.refundsDescription',
-    icon: ReceiptText,
-    href: '/portal/refunds',
-  },
-  {
-    titleKey: 'admin.payouts',
-    descriptionKey: 'admin.payoutsDescription',
-    icon: CircleDollarSign,
-    href: '/admin/payouts',
-  },
-] satisfies Array<{
-  titleKey: TranslationKey;
-  descriptionKey: TranslationKey;
-  icon: typeof ShoppingBag;
-  href: string;
-}>;
 
 export default function AdminDashboardPage() {
   const { t } = useLanguage();
+  const { adminAccess, isSuperAdmin } = useAuth();
+  const adminModules = getVisibleAdminDestinations({ adminAccess, isSuperAdmin }).filter(
+    (destination) => destination.href !== '/admin'
+  );
 
   return (
     <AppLayout>
@@ -111,13 +43,18 @@ export default function AdminDashboardPage() {
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                   <module.icon className="h-5 w-5 text-primary" />
                 </div>
-                <h2 className="mt-4 font-semibold text-foreground">{t(module.titleKey)}</h2>
+                <h2 className="mt-4 font-semibold text-foreground">{t(module.shortLabelKey)}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">{t(module.descriptionKey)}</p>
                 <Button asChild variant="outline" size="sm" className="mt-4">
                   <Link to={module.href}>{t('admin.openModule')}</Link>
                 </Button>
               </div>
             ))}
+            {adminModules.length === 0 && (
+              <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+                No Admin Console modules are available for this account yet.
+              </div>
+            )}
           </div>
 
           <div className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">

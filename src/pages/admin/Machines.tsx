@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/auth-context';
 import {
   Dialog,
   DialogContent,
@@ -264,6 +265,7 @@ const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
 
 export default function AdminMachinesPage() {
   const queryClient = useQueryClient();
+  const { isScopedAdmin, isSuperAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [taxFilter, setTaxFilter] = useState<MachineTaxFilter>(() => parseTaxFilter(searchParams.get('tax')));
@@ -288,6 +290,8 @@ export default function AdminMachinesPage() {
   const highlightedMachineId = searchParams.get('machineId');
   const isMachineEditorRequested = searchParams.get('edit') === 'machine';
   const isLocalDemoMode = isLocalUatDemoForced();
+  const isMachineIdentityEditable = isSuperAdmin;
+  const hasScopedMachineLimit = isScopedAdmin && !isSuperAdmin;
   const pendingSourceMachineId =
     searchParams.get('externalMachineId') ?? searchParams.get('sunzeMachineId');
 
@@ -387,7 +391,9 @@ export default function AdminMachinesPage() {
       : null);
   const isMachineEditorOpen =
     isMachineDialogOpen ||
-    (isMachineEditorRequested && (!highlightedMachineId || Boolean(selectedMachineForEditor)));
+    (isMachineEditorRequested &&
+      (isMachineIdentityEditable || Boolean(selectedMachineForEditor)) &&
+      (!highlightedMachineId || Boolean(selectedMachineForEditor)));
 
   useEffect(() => {
     setTaxFilter(parseTaxFilter(searchParams.get('tax')));
@@ -495,6 +501,11 @@ export default function AdminMachinesPage() {
   };
 
   const openCreateMachine = () => {
+    if (!isMachineIdentityEditable) {
+      toast.error('Only Super Admins can create machine records.');
+      return;
+    }
+
     setEditingMachine(null);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('machineId');
@@ -665,19 +676,26 @@ export default function AdminMachinesPage() {
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Machines</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Manage machine labels, external machine IDs, Machine Managers, assignment readiness,
-                and reporting tax rates. Report membership is assigned from Partnerships.
+                Manage machine records, Machine Managers, refund readiness, and reporting tax
+                rates. Scoped Admins see only machines granted by a Super Admin.
               </p>
+              {hasScopedMachineLimit && (
+                <Badge className="mt-3" variant="secondary">
+                  Scoped Admin
+                </Badge>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={refresh} disabled={isFetching}>
                 {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh
               </Button>
-              <Button onClick={openCreateMachine} disabled={isLocalDemoMode}>
-                <Plus className="mr-2 h-4 w-4" />
-                New Manual Machine
-              </Button>
+              {isMachineIdentityEditable && (
+                <Button onClick={openCreateMachine} disabled={isLocalDemoMode}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Manual Machine
+                </Button>
+              )}
             </div>
           </div>
 
@@ -792,7 +810,11 @@ export default function AdminMachinesPage() {
             {isLoading ? (
               <div className="p-6 text-sm text-muted-foreground">Loading machines...</div>
             ) : machineRows.length === 0 ? (
-              <div className="p-6 text-sm text-muted-foreground">No machines match this filter.</div>
+              <div className="p-6 text-sm text-muted-foreground">
+                {hasScopedMachineLimit && setup.machines.length === 0
+                  ? 'No machines are assigned to your scoped admin grant yet.'
+                  : 'No machines match this filter.'}
+              </div>
             ) : (
               <div role="table" aria-label="Machine setup">
                 <div
@@ -816,6 +838,7 @@ export default function AdminMachinesPage() {
                       isHighlighted={highlightedMachineId === row.machine.id}
                       isSavingTax={savingTaxMachineId === row.machine.id}
                       onEdit={openEditMachine}
+                      canEditMachineIdentity={isMachineIdentityEditable}
                       onShowHistory={setHistoryMachine}
                       onOpenTaxChange={openTaxChangeDialog}
                       onSaveTax={saveTaxRate}
@@ -846,6 +869,7 @@ export default function AdminMachinesPage() {
         }
         isRefundManagerSetupLoading={isRefundManagerSetupLoading}
         isLocalDemoMode={isLocalDemoMode}
+        canEditMachineIdentity={isMachineIdentityEditable}
         demoManagerAccounts={demoMachineManagerAccounts}
         onDemoMachineManagersSaved={saveDemoMachineManagers}
         onDemoRefundReadinessSaved={saveDemoRefundReadiness}
@@ -910,6 +934,7 @@ function MachineSetupRow({
   isHighlighted,
   isSavingTax,
   onEdit,
+  canEditMachineIdentity,
   onShowHistory,
   onOpenTaxChange,
   onSaveTax,
@@ -920,6 +945,7 @@ function MachineSetupRow({
   isHighlighted: boolean;
   isSavingTax: boolean;
   onEdit: (machine: PartnershipSetupMachine) => void;
+  canEditMachineIdentity: boolean;
   onShowHistory: (machine: PartnershipSetupMachine) => void;
   onOpenTaxChange: (machine: PartnershipSetupMachine, taxRate?: ReportingMachineTaxRate) => void;
   onSaveTax: (
@@ -1076,7 +1102,7 @@ function MachineSetupRow({
         <div className="flex flex-wrap gap-2 xl:justify-end">
           <Button variant="outline" size="sm" onClick={() => onEdit(machine)}>
             <Pencil className="mr-2 h-4 w-4" />
-            Edit
+            {canEditMachineIdentity ? 'Edit' : 'Setup'}
           </Button>
           <Button
             variant="outline"
@@ -1226,6 +1252,7 @@ function MachineDialog({
   refundManagerSetup,
   isRefundManagerSetupLoading,
   isLocalDemoMode,
+  canEditMachineIdentity,
   demoManagerAccounts,
   onDemoMachineManagersSaved,
   onDemoRefundReadinessSaved,
@@ -1238,6 +1265,7 @@ function MachineDialog({
   refundManagerSetup: RefundManagerSetup['machines'][number] | null;
   isRefundManagerSetupLoading: boolean;
   isLocalDemoMode: boolean;
+  canEditMachineIdentity: boolean;
   demoManagerAccounts: AdminAccountSummary[];
   onDemoMachineManagersSaved: (machineId: string, managerEmails: string[]) => Promise<unknown>;
   onDemoRefundReadinessSaved: (machineId: string, readiness: DemoRefundReadiness) => Promise<unknown>;
@@ -1451,7 +1479,7 @@ function MachineDialog({
   ]);
 
   const saveMachine = async () => {
-    if (!form.machineLabel.trim()) {
+    if (canEditMachineIdentity && !form.machineLabel.trim()) {
       toast.error('Machine label is required.');
       return;
     }
@@ -1469,7 +1497,7 @@ function MachineDialog({
             normalizeComparableText(candidate.sunze_machine_id ?? '') === normalizeComparableText(sunzeMachineId)
         )
       : null;
-    if (duplicateSunze) {
+    if (canEditMachineIdentity && duplicateSunze) {
       toast.error('This external machine ID is already assigned to another machine.');
       return;
     }
@@ -1490,6 +1518,18 @@ function MachineDialog({
             ? 'Demo mode saved this refund setup in the browser only.'
             : 'Demo mode is visual only for machine identity changes.'
         );
+        onOpenChange(false);
+        return;
+      }
+
+      if (!canEditMachineIdentity) {
+        if (refundReadinessDraft && refundReadinessHasChanges) {
+          await persistRefundReadinessDraft(refundReadinessDraft);
+          toast.success('Refund setup saved.');
+          await onSaved();
+        } else {
+          toast.info('No machine setup changes to save.');
+        }
         onOpenChange(false);
         return;
       }
@@ -1713,11 +1753,17 @@ function MachineDialog({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
         <SheetHeader>
-          <SheetTitle>{form.machineId ? 'Edit Machine' : 'New Manual Machine'}</SheetTitle>
+          <SheetTitle>
+            {form.machineId
+              ? canEditMachineIdentity
+                ? 'Edit Machine'
+                : 'Machine Setup'
+              : 'New Manual Machine'}
+          </SheetTitle>
           <SheetDescription>
-            Manage machine identity and reporting account. Report membership is assigned from
-            Partnerships, and imported machines with queued sales are set up from Reporting
-            Operations.
+            {canEditMachineIdentity
+              ? 'Manage machine identity and reporting account. Report membership is assigned from Partnerships, and imported machines with queued sales are set up from Reporting Operations.'
+              : 'Review machine identity and manage the setup controls available inside your scoped machine grant.'}
           </SheetDescription>
         </SheetHeader>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -1727,6 +1773,7 @@ function MachineDialog({
               id="machine-label"
               value={form.machineLabel}
               onChange={(event) => setForm({ ...form, machineLabel: event.target.value })}
+              disabled={!canEditMachineIdentity}
             />
           </div>
           <div>
@@ -1735,6 +1782,7 @@ function MachineDialog({
               id="machine-account"
               value={form.accountName}
               onChange={(event) => setForm({ ...form, accountName: event.target.value })}
+              disabled={!canEditMachineIdentity}
             />
           </div>
           <div>
@@ -1743,6 +1791,7 @@ function MachineDialog({
               id="machine-type"
               value={form.machineType}
               onChange={(event) => setForm({ ...form, machineType: event.target.value as ReportingMachineType })}
+              disabled={!canEditMachineIdentity}
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
               {machineTypes.map((machineType) => (
@@ -2086,7 +2135,7 @@ function MachineDialog({
             ) : (
               <CheckCircle2 className="mr-2 h-4 w-4" />
             )}
-            Save machine changes
+            {canEditMachineIdentity ? 'Save machine changes' : 'Save setup changes'}
           </Button>
         </SheetFooter>
       </SheetContent>

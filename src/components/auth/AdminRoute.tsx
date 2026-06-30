@@ -3,21 +3,31 @@ import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/auth-context';
+import type { AdminSurface } from '@/components/layout/authenticatedNavigation';
 
-const scopedAdminAccessLanding = '/admin/access?action=add-access&preset=technician';
+const adminSurfaceByPath: Array<{ test: (pathname: string) => boolean; surface: AdminSurface }> = [
+  { test: (pathname) => pathname === '/admin', surface: 'overview' },
+  { test: (pathname) => pathname === '/admin/orders' || pathname.startsWith('/admin/orders/'), surface: 'orders' },
+  { test: (pathname) => pathname === '/admin/support' || pathname.startsWith('/admin/support/'), surface: 'support' },
+  { test: (pathname) => pathname === '/admin/accounts' || pathname.startsWith('/admin/accounts/'), surface: 'accounts' },
+  { test: (pathname) => pathname === '/admin/machines' || pathname.startsWith('/admin/machines/'), surface: 'machines' },
+  { test: (pathname) => pathname === '/admin/access' || pathname.startsWith('/admin/access/'), surface: 'access' },
+  { test: (pathname) => pathname === '/admin/audit' || pathname.startsWith('/admin/audit/'), surface: 'audit' },
+  { test: (pathname) => pathname === '/admin/partnerships' || pathname.startsWith('/admin/partnerships/'), surface: 'partnerships' },
+  { test: (pathname) => pathname === '/admin/payouts' || pathname.startsWith('/admin/payouts/'), surface: 'payouts' },
+  { test: (pathname) => pathname === '/admin/refunds' || pathname.startsWith('/admin/refunds/'), surface: 'refunds' },
+];
+
+const getAdminSurfaceForPath = (pathname: string) =>
+  adminSurfaceByPath.find((entry) => entry.test(pathname))?.surface ?? null;
 
 export function AdminRoute() {
-  const { adminAccess, loading, isAdmin, isScopedAdmin, isSuperAdmin } = useAuth();
+  const { adminAccess, loading, isAdmin, isSuperAdmin } = useAuth();
   const location = useLocation();
   const allowedSurfaces = new Set(adminAccess.allowedSurfaces);
   const canAccessSurface = (surface: string) =>
     isSuperAdmin || allowedSurfaces.has('*') || allowedSurfaces.has(surface);
-  const isAdminAccessPath =
-    location.pathname === '/admin/access' || location.pathname.startsWith('/admin/access/');
-  const isAdminPartnershipsPath =
-    location.pathname === '/admin/partnerships' ||
-    location.pathname.startsWith('/admin/partnerships/');
-  const isAdminAuditShortcutPath = location.pathname === '/admin/audit';
+  const adminSurface = getAdminSurfaceForPath(location.pathname);
 
   if (loading) {
     return (
@@ -31,39 +41,11 @@ export function AdminRoute() {
     return <Outlet />;
   }
 
-  if (
-    !isSuperAdmin &&
-    canAccessSurface('refunds') &&
-    !canAccessSurface('payouts') &&
-    location.pathname === '/admin'
-  ) {
+  if (location.pathname === '/admin' && !canAccessSurface('overview') && canAccessSurface('refunds')) {
     return <Navigate to="/portal/refunds" replace />;
   }
 
-  if (!isSuperAdmin && (isAdmin || isScopedAdmin) && location.pathname === '/admin') {
-    const redirectTarget = canAccessSurface('payouts')
-      ? '/admin/payouts'
-      : canAccessSurface('refunds')
-      ? '/portal/refunds'
-      : canAccessSurface('partnerships')
-      ? '/admin/partnerships'
-      : scopedAdminAccessLanding;
-    return <Navigate to={redirectTarget} replace />;
-  }
-
-  if (isScopedAdmin && canAccessSurface('access') && (isAdminAccessPath || isAdminAuditShortcutPath)) {
-    return <Outlet />;
-  }
-
-  if (isScopedAdmin && canAccessSurface('partnerships') && isAdminPartnershipsPath) {
-    return <Outlet />;
-  }
-
-  if (canAccessSurface('refunds') && location.pathname.startsWith('/admin/refunds')) {
-    return <Outlet />;
-  }
-
-  if (canAccessSurface('payouts') && location.pathname.startsWith('/admin/payouts')) {
+  if (adminSurface && canAccessSurface(adminSurface)) {
     return <Outlet />;
   }
 

@@ -1860,11 +1860,6 @@ function ScopedAdminsTab() {
       toast.error('Grant reason is required.');
       return;
     }
-    if (selectedMachineIds.size === 0) {
-      toast.error('Select at least one machine scope.');
-      return;
-    }
-
     setIsSavingGrant(true);
     try {
       await grantScopedAdminByEmail({
@@ -1919,8 +1914,9 @@ function ScopedAdminsTab() {
         <div>
           <h2 className="font-semibold text-foreground">Grant Scoped Admin</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Scoped Admin can open Admin Access and manage manual reporting grants for selected
-            machines only.
+            Scoped Admin can open Admin Console. Machine visibility and machine-level controls are
+            limited to selected machines; selecting none creates a scoped admin with no machine
+            access yet.
           </p>
         </div>
 

@@ -4748,11 +4748,6 @@ function ScopedAdminAccessCard({
       toast.error('Grant reason is required.');
       return;
     }
-    if (selectedMachineIds.size === 0) {
-      toast.error('Select at least one machine scope.');
-      return;
-    }
-
     setIsSavingGrant(true);
     try {
       await grantScopedAdminByEmail({
@@ -4805,7 +4800,7 @@ function ScopedAdminAccessCard({
       icon={ShieldCheck}
       title="Scoped Admin"
       status={activeGrant ? 'Active' : 'Inactive'}
-      description="Machine-scoped internal admin access for managing manual reporting grants inside assigned machines."
+      description="Internal admin access with machine visibility and machine-level controls limited to assigned machines."
     >
       {(machinesError || grantsError) && (
         <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -4882,9 +4877,10 @@ function ScopedAdminAccessCard({
           </div>
         </div>
         <PreviewBox>
-          This will let {identity.label} manage manual reporting grants for{' '}
-          {pluralize(selectedMachineIds.size, 'selected machine')}. It will not grant global admin,
-          partnership setup, imports, schedules, or unrelated reporting scopes.
+          This will let {identity.label} open Admin Console with{' '}
+          {pluralize(selectedMachineIds.size, 'selected machine')} visible. With 0 selected
+          machines, they can use non-machine admin workflows but will see an empty Machines view
+          until a Super Admin adds machine access.
         </PreviewBox>
         <MachineChecklist
           groupedMachines={groupedMachines}
