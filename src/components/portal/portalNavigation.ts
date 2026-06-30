@@ -23,7 +23,8 @@ export type PortalAccessLevel =
   | 'support'
   | 'reporting'
   | 'refunds'
-  | 'team';
+  | 'team'
+  | 'timekeeping';
 
 export interface PortalDestination {
   href: string;
@@ -58,7 +59,7 @@ export const portalDestinations: PortalDestination[] = [
     description: 'Submit assigned-machine shifts and review current payout-period time.',
     descriptionKey: 'portal.nav.timeDescription',
     icon: Clock3,
-    access: 'all',
+    access: 'timekeeping',
     mobileOrder: 2,
   },
   {
@@ -166,6 +167,18 @@ export const canUsePortalTeamManagement = ({
   capabilities?: string[];
 }) => canManageTechnicians || capabilities.includes('technicians.manage');
 
+export const canUsePortalTimekeeping = ({
+  capabilities = [],
+  hasTimekeepingAccess = false,
+}: {
+  capabilities?: string[];
+  hasTimekeepingAccess?: boolean;
+}) =>
+  hasTimekeepingAccess ||
+  capabilities.some((capability) =>
+    ['operator.timekeeping', 'timekeeping.submit', 'operator.payouts'].includes(capability)
+  );
+
 export const canAccessPortalLevel = (
   accessTier: PortalAccessTier,
   accessLevel: PortalAccessLevel,
@@ -173,7 +186,8 @@ export const canAccessPortalLevel = (
   capabilities: string[] = [],
   hasRefundOperationsAccess = false,
   canManageTechnicians = false,
-  canAccessAccountSettings = false
+  canAccessAccountSettings = false,
+  hasTimekeepingAccess = false
 ): boolean => {
   const hasCapability = (capability: string) => capabilities.includes(capability);
 
@@ -210,6 +224,8 @@ export const canAccessPortalLevel = (
       return hasRefundOperationsAccess || hasCapability('refunds.manage');
     case 'team':
       return canUsePortalTeamManagement({ canManageTechnicians, capabilities });
+    case 'timekeeping':
+      return canUsePortalTimekeeping({ capabilities, hasTimekeepingAccess });
     default:
       return false;
   }
@@ -233,6 +249,8 @@ export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
       return 'Refunds';
     case 'team':
       return 'Team';
+    case 'timekeeping':
+      return 'Timekeeping';
     case 'all':
     default:
       return 'Open';
@@ -257,6 +275,8 @@ export const getAccessLevelLabelKey = (accessLevel: PortalAccessLevel): Translat
       return 'portal.access.refunds';
     case 'team':
       return 'portal.access.team';
+    case 'timekeeping':
+      return 'portal.access.timekeeping';
     case 'all':
     default:
       return 'portal.access.open';

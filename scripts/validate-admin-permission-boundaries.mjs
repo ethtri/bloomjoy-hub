@@ -70,10 +70,12 @@ const staticChecks = [
   },
   {
     name: 'Scoped Admin navigation hides super-admin-only destinations',
-    file: 'src/components/layout/AppLayout.tsx',
+    file: 'src/components/layout/authenticatedNavigation.ts',
     patterns: [
       'requiresSuperAdmin',
       'isSuperAdmin || !item.requiresSuperAdmin',
+      "surface: 'partnerships'",
+      "allowedAdminSurfaces.has(item.surface)",
     ],
   },
   {

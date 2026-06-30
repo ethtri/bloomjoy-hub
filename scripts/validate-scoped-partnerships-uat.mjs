@@ -505,15 +505,15 @@ const runViewportScenario = async ({ browser, args, recorder, viewport, screensh
     );
     recorder.assert(
       `${screenshotName}: Partner Records link is hidden`,
-      !(await page.getByRole('link', { name: /Partner Records/i }).isVisible().catch(() => false))
+      !(await page.locator('a[href="/admin/partner-records"]').isVisible().catch(() => false))
     );
     recorder.assert(
       `${screenshotName}: Machines admin link is hidden`,
-      !(await page.getByRole('link', { name: /^Machines$/i }).isVisible().catch(() => false))
+      !(await page.locator('a[href="/admin/machines"]').isVisible().catch(() => false))
     );
     recorder.assert(
       `${screenshotName}: Reporting admin link is hidden`,
-      !(await page.getByRole('link', { name: /^Reporting$/i }).isVisible().catch(() => false))
+      !(await page.locator('a[href="/admin/reporting"]').isVisible().catch(() => false))
     );
 
     if (performSave) {

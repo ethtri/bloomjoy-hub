@@ -5,10 +5,10 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import {
   canAccessPortalLevel,
-  getAccessLevelLabel,
   getPortalDestinationByPath,
 } from '@/components/portal/portalNavigation';
 import { Button } from '@/components/ui/button';
+import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 
 export function MemberRoute() {
@@ -22,16 +22,21 @@ export function MemberRoute() {
   } = useAuth();
   const location = useLocation();
   const lockedDestination = getPortalDestinationByPath(location.pathname);
-  const accessLabel = getAccessLevelLabel(lockedDestination.access);
   const isReportingRoute = lockedDestination.access === 'reporting';
   const isTeamRoute = lockedDestination.access === 'team';
+  const isTimekeepingRoute = lockedDestination.access === 'timekeeping';
   const { canUsePortalTeam, isResolvingPortalTeam } = usePortalTechnicianManagement();
+  const { canUsePortalTimekeeping, isResolvingPortalTimekeeping } = usePortalTimekeepingAccess();
   const canUseAdminAccess =
     adminAccess.canAccessAdmin ||
     adminAccess.allowedSurfaces.includes('*') ||
     adminAccess.allowedSurfaces.includes('access');
 
-  if (loading || (isTeamRoute && isResolvingPortalTeam)) {
+  if (
+    loading ||
+    (isTeamRoute && isResolvingPortalTeam) ||
+    (isTimekeepingRoute && isResolvingPortalTimekeeping)
+  ) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
         Loading...
@@ -41,19 +46,43 @@ export function MemberRoute() {
 
   const canAccessRoute = isTeamRoute
     ? canUsePortalTeam
-    : canAccessPortalLevel(
-      portalAccessTier,
-      lockedDestination.access,
-      hasReportingAccess,
-      capabilities,
-      false,
-      canManageTechnicians,
-      adminAccess.isScopedAdmin
-    );
+    : isTimekeepingRoute
+      ? canUsePortalTimekeeping
+      : canAccessPortalLevel(
+        portalAccessTier,
+        lockedDestination.access,
+        hasReportingAccess,
+        capabilities,
+        false,
+        canManageTechnicians,
+        adminAccess.isScopedAdmin,
+        canUsePortalTimekeeping
+      );
 
   if (canAccessRoute) {
     return <Outlet />;
   }
+
+  const lockedTitle = isTimekeepingRoute
+    ? 'Timekeeping setup required'
+    : isReportingRoute
+      ? 'Reporting is not included with this account'
+      : isTeamRoute
+        ? 'Team management is not included with this account'
+        : `${lockedDestination.label} is not included with this account`;
+  const lockedDescription = isTimekeepingRoute
+    ? 'Ask Bloomjoy to create an active operator payout profile before using Time.'
+    : lockedDestination.upsellCopy ?? 'This area is not available for the signed-in account.';
+  const workflowDescription = isReportingRoute
+    ? 'Sales reporting is granted by account, location, or specific machine. Ask Bloomjoy to add the machines or locations this account should be able to review.'
+    : isTeamRoute
+      ? 'Team management is for account owners and partner managers who add Technicians or manage assigned-machine reporting access.'
+      : isTimekeepingRoute
+        ? 'Time opens after an operator profile is active. Assigned machines and payout-period details appear there once setup is complete.'
+        : lockedDestination.access === 'refunds'
+          ? 'Refund cases appear only for assigned refund reviewers and operations admins.'
+          : 'The dashboard only shows workflows that are available for this account right now.';
+  const showPlusLink = ['plus', 'support', 'training'].includes(lockedDestination.access);
 
   return (
     <PortalLayout>
@@ -61,14 +90,11 @@ export function MemberRoute() {
         <div className="container-page">
           <div className="mx-auto max-w-3xl">
             <PortalPageIntro
-              title={`${lockedDestination.label} requires ${accessLabel} access`}
-              description={
-                lockedDestination.upsellCopy ??
-                'This area is not included with the current portal access level.'
-              }
+              title={lockedTitle}
+              description={lockedDescription}
               badges={[
-                { label: `Locked for ${portalAccessTier} access`, tone: 'accent', icon: Lock },
-                { label: `${accessLabel} access required`, tone: 'muted' },
+                { label: 'Not included with this account', tone: 'accent', icon: Lock },
+                { label: isTimekeepingRoute ? 'Operator profile needed' : 'Ask Bloomjoy for access', tone: 'muted' },
               ]}
             >
               <div className="rounded-[24px] border border-primary/15 bg-background p-6 shadow-[var(--shadow-sm)]">
@@ -81,11 +107,7 @@ export function MemberRoute() {
                       This workflow is outside your current access
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {isReportingRoute
-                        ? 'Sales reporting access is granted by account, location, or specific machine. Ask Bloomjoy to add reporting permissions for the machines you should be able to view.'
-                        : isTeamRoute
-                          ? 'Team management is reserved for Plus account owners and eligible Corporate Partner managers. Technicians can use training and assigned reporting without access to customer team controls.'
-                        : 'Technicians without assigned machines can use the training hub. Customer account tools, onboarding, support, and billing stay reserved for account owners and eligible partners.'}
+                      {workflowDescription}
                     </p>
                   </div>
                 </div>
@@ -97,7 +119,7 @@ export function MemberRoute() {
                       </Link>
                     </Button>
                   )}
-                  {lockedDestination.access !== 'baseline' && !isReportingRoute && !isTeamRoute && (
+                  {showPlusLink && (
                     <Button asChild className="min-h-11">
                       <Link to="/plus">View Plus Membership</Link>
                     </Button>

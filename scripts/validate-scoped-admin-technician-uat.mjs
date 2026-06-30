@@ -1086,7 +1086,7 @@ const run = async () => {
 
         await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
         await page
-          .getByText(/Team management is reserved for Plus account owners/i)
+          .getByText(/Team management is not included with this account/i)
           .waitFor({ timeout: 10000 });
         recorder.assert(
           'Scoped Admin direct Portal Team offers Admin Access exit',
@@ -1130,7 +1130,7 @@ const run = async () => {
 
         await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
         await page
-          .getByText(/Team management is reserved for Plus account owners/i)
+          .getByText(/Team management is not included with this account/i)
           .waitFor({ timeout: 10000 });
         recorder.assert(
           'Capability drift direct Portal Team offers Admin Access exit',
