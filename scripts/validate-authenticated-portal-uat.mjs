@@ -237,6 +237,23 @@ const rpcResponse = (rpcName, persona) => {
             ]
           : [],
       };
+    case 'admin_get_account_summaries':
+    case 'admin_get_audit_log':
+    case 'admin_list_scoped_admin_grants':
+      return [];
+    case 'admin_get_partnership_reporting_setup':
+      return {
+        partners: [],
+        partnerships: [],
+        machines: [],
+        assignments: [],
+        parties: [],
+        taxRates: [],
+        financialRules: [],
+        warnings: [],
+      };
+    case 'admin_get_refund_manager_setup':
+      return { machines: [] };
     default:
       return {};
   }
@@ -367,7 +384,7 @@ try {
   await adminPage.goto(`${appUrl}/admin`, { waitUntil: 'networkidle' });
   await waitForHeading(
     adminPage,
-    { name: 'Admin Home', level: 1 },
+    { name: 'Overview', level: 1 },
     'portal-shell-admin-debug-failed.png',
   );
   await assert((await adminPage.locator('h1').count()) === 1, 'Admin route should render one H1.');
@@ -378,12 +395,24 @@ try {
 
   const adminNavText = await textContent(adminPage.locator('aside nav'));
   await assert(adminNavText.includes('Operations'), 'Admin nav must include Operations.');
-  await assert(adminNavText.includes('Refund Cases'), 'Admin nav must include Refund Cases.');
-  await assert(adminNavText.includes('Payouts'), 'Admin nav must include Payouts.');
-  await assert(adminNavText.includes('Portal Dashboard'), 'Admin nav must disambiguate Portal Dashboard.');
+  await assert(adminNavText.includes('Customers'), 'Admin nav must include Customers.');
+  await assert(adminNavText.includes('Partners & Reporting'), 'Admin nav must include Partners & Reporting.');
+  await assert(adminNavText.includes('Administration'), 'Admin nav must include Administration.');
+  await assert(adminNavText.includes('Refunds'), 'Admin nav must include the shared Refunds item.');
+  await assert(adminNavText.includes('Operator Pay'), 'Admin nav must include Operator Pay.');
   await assert(
-    adminNavText.indexOf('Operations') < adminNavText.indexOf('Access & Setup'),
-    'Admin routes should put Operations before Access & Setup.',
+    !adminNavText.includes('Portal Dashboard'),
+    'Admin nav must not show Portal Dashboard as a competing top-level destination.',
+  );
+  await assert(
+    await adminPage.getByText('Switch to Portal').isVisible(),
+    'Admin routes should expose Switch to Portal as a utility action.',
+  );
+  await assert(
+    adminNavText.indexOf('Operations') < adminNavText.indexOf('Customers') &&
+      adminNavText.indexOf('Customers') < adminNavText.indexOf('Administration') &&
+      adminNavText.indexOf('Administration') < adminNavText.indexOf('Partners & Reporting'),
+    'Admin routes should order Operations, Customers, Administration, then Partners & Reporting.',
   );
   await assert(
     !adminNavText.includes('admin_roles') && !adminNavText.includes('is_super_admin'),
@@ -392,7 +421,7 @@ try {
 
   const activeAdminHome = await adminPage.locator('aside nav a[aria-current="page"]').allTextContents();
   await assert(
-    activeAdminHome.length === 1 && activeAdminHome[0].includes('Admin Overview'),
+    activeAdminHome.length === 1 && activeAdminHome[0].includes('Admin Console'),
     'Admin Home should have exactly one active nav item.',
   );
 
@@ -402,7 +431,7 @@ try {
     .allTextContents();
   await assert(
     activeAdminOrders.length === 1 && activeAdminOrders[0].includes('Admin Orders'),
-    'Admin child routes should not also mark Admin Overview active.',
+    'Admin child routes should not also mark Admin Console active.',
   );
   await adminPage.screenshot({ path: path.join(outputDir, 'portal-shell-admin-desktop.png'), fullPage: true });
   await adminPage.close();
@@ -416,13 +445,19 @@ try {
   await mobileAdminPage.waitForTimeout(150);
   const focusedText = await mobileAdminPage.evaluate(() => document.activeElement?.textContent ?? '');
   await assert(
-    focusedText.includes('Admin Overview'),
+    focusedText.includes('Admin Console'),
     'Mobile drawer should focus the first navigation destination.',
   );
   const mobileDrawerText = await textContent(mobileAdminPage.getByRole('dialog'));
   await assert(
-    mobileDrawerText.indexOf('Operations') < mobileDrawerText.indexOf('Access & Setup'),
-    'Mobile admin drawer should expose Operations before long setup lists.',
+    !mobileDrawerText.includes('Portal Dashboard') && mobileDrawerText.includes('Switch to Portal'),
+    'Mobile admin drawer should keep portal switching in utilities, not the primary nav.',
+  );
+  await assert(
+    mobileDrawerText.indexOf('Operations') < mobileDrawerText.indexOf('Customers') &&
+      mobileDrawerText.indexOf('Customers') < mobileDrawerText.indexOf('Administration') &&
+      mobileDrawerText.indexOf('Administration') < mobileDrawerText.indexOf('Partners & Reporting'),
+    'Mobile admin drawer should expose the streamlined Admin Console IA order.',
   );
   await mobileAdminPage.screenshot({
     path: path.join(outputDir, 'portal-shell-admin-mobile-drawer.png'),

@@ -17,6 +17,7 @@ const appPathMatchers = [
   /^\/login$/,
   /^\/login\/operator$/,
   /^\/reset-password$/,
+  /^\/refunds$/,
   /^\/portal(?:\/.*)?$/,
   /^\/admin(?:\/.*)?$/,
 ];

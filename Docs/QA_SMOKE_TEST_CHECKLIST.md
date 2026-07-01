@@ -37,8 +37,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
 - [ ] Agent UAT server starts with `npm run dev:uat` and is tested at `http://127.0.0.1:8081`.
 - [ ] Run `npm run refunds:validate-machine-manager-uat -- --app-url http://127.0.0.1:8081` to exercise mocked Admin > Machines sample data, searchable Machine Manager lookup, autosave payload, customer-refund setup, read-only Nayax lookup setup, and visible persistence in the machine row.
-- [ ] Agent local seeded UAT uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`, open the printed one-click magic link, and confirm the QA actor reaches `/portal/refunds` without Google OAuth or a shared password.
-- [ ] Demo visual review is explicit: `/portal/refunds?demo=on` shows labeled cases `RF-UAT-CARD`, `RF-UAT-WAIT`, and `RF-UAT-CASH`; save/Nayax actions are disabled, and `/portal/refunds?demo=off` returns to the true empty state.
+- [ ] Agent local seeded UAT uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`, open the printed one-click magic link, and confirm the QA actor reaches `/refunds` without Google OAuth or a shared password.
+- [ ] Demo visual review is explicit: `/refunds?demo=on` shows labeled cases `RF-UAT-CARD`, `RF-UAT-WAIT`, and `RF-UAT-CASH`; save/Nayax actions are disabled, and `/refunds?demo=off` returns to the true empty state.
 - [ ] Public intake demo visual review is explicit: `/refunds/request?demo=on` shows synthetic machine/location options and redirects to a demo thank-you page without creating a real refund case.
 - [ ] Demo Machine Manager visual review is explicit: `/admin/machines?demo=on` shows labeled demo-only Machine Manager data, allows only listed demo users, saves in browser only, and does not claim Supabase persistence.
 - [ ] Agent UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, real card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
@@ -48,7 +48,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Submit a cash request that has one matching sales fact within +/- 1 hour and exact amount; case lands with matched cash correlation evidence and no auto-approval.
 - [ ] Submit a cash request with no conservative match; case lands in `waiting_on_customer` and logs the friendly more-info email.
 - [ ] Submit a request with multiple conservative cash candidates; case lands in manager review rather than writing a reporting adjustment.
-- [ ] Auth boundary: unauthenticated users cannot open `/portal/refunds`; Machine Managers can open `/portal/refunds` but do not see the Admin workspace/nav; `/admin/refunds` redirects to `/portal/refunds` or remains limited to super/scoped admins.
+- [ ] Auth boundary: unauthenticated users cannot open `/refunds`; Machine Managers can open `/refunds` but do not see Admin-only pages; `/portal/refunds` and `/admin/refunds` redirect to `/refunds` when the actor has refund workflow access.
 - [ ] Refund queue filters/searches cases, opens case details, shows customer issue text, photos, compact correlation evidence, decision/next action before history, and customer history behind readable sections.
 - [ ] Portal > Refunds uses the guided manager workbench: case summary, explicit Nayax/cash transaction result, candidate confirmation before decision, one recommended next action, customer-email preview, guarded card execution or Zelle completion, and collapsed timeline/history.
 - [ ] New refund submissions send a redacted manager notification to assigned Machine Managers plus Bloomjoy ops fallback with reference, machine, amount, incident time, payment method, case link, and status only.
@@ -190,7 +190,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, payout-included, paid, or voided entries.
 - [ ] Operator Time empty state explains that an admin or machine manager must add an operator payout profile and assigned machines before time can be submitted.
 
-### Admin Operator Payout Review
+### Admin Operator Pay Review
 - [ ] Admin or scoped payout manager can open `/admin/payouts`; users without payout admin access see the existing admin access-required state.
 - [ ] Payout periods list shows account, period dates, status, operator count, total payout, warnings, and revision count without horizontal overflow on desktop or mobile.
 - [ ] Generating or recalculating a payout run uses submitted/locked/included time, revenue snapshots, compensation rules, and adjustments; recalculation requires an audit reason.
@@ -400,8 +400,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/access`
 - [ ] Super-admin user can access `/admin/access`
 - [ ] `/admin/access` defaults to the person-first `Find a person` view, not grant-type tabs
-- [ ] `/admin/accounts` redirects to `/admin/access?tab=users` and still lands on the person-first console
-- [ ] `/admin/audit` redirects to `/admin/access?tab=audit` and opens the secondary global activity view
+- [ ] `/admin/accounts` opens a first-class Admin Console Accounts summary page and does not expose legacy machine-count editing
+- [ ] `/admin/audit` opens a first-class Admin Console Audit page with log filtering only, not role-management controls
 - [ ] Admin Access person search returns rows by email/user ID and shows membership/order/support summary data without forcing a grant-type tab choice
 - [ ] Admin Access person search does not show "Unable to load account summaries" and the network console does not show `404`/`PGRST202` for `admin_get_account_summaries`
 - [ ] Admin Access person search can find an existing Supabase Auth user by email even if they do not have orders yet
@@ -418,8 +418,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin can revoke Plus Customer access with a required reason and the customer is blocked from Plus-only portal pages after access is revoked
 - [ ] Plus Customer access grant, extension, and revoke actions create `admin_audit_log` entries with `entity_type=plus_access_grant`
 - [ ] Grant-only customers see waived Plus access on `/portal/account` and are not offered the Stripe billing portal unless they also have a paid subscription
-- [ ] Admin Access customer context card machine count edits require update reason and persist in `customer_machine_inventory`
-- [ ] Machine count edits create `admin_audit_log` entries with `action=machine_inventory.upserted`
+- [ ] Admin Accounts links machine context to `/admin/machines`; machine records are managed as first-class `reporting_machines`, not account-level editable counts
+- [ ] Machine grant/revoke, machine setup edits, and machine tax/refund setup changes create `admin_audit_log` entries
 - [ ] Manual reporting access source card uses a contextual machine-scope editor, not a raw permission matrix
 - [ ] Manual reporting access source card can select multiple machines, save with a reason, and update that person's machine grants in one transactional save
 - [ ] Manual reporting access save does not show missing-function errors for `admin_set_user_machine_reporting_access`
@@ -430,12 +430,13 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Technician source card can edit scope, renew current access, and revoke active Technician grants with required reasons
 - [ ] Admin Technician scope changes revoke only Technician-sourced reporting entitlements; unrelated manual reporting grants remain intact
 - [ ] Scoped Admin Technician source card shows only scoped machine choices, hides broad admin/customer/partner presets, requires at least one machine, and keeps out-of-scope or mixed-scope grants read-only with a Super Admin repair message
-- [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with selected machine scopes, save preview, and required reason
+- [ ] Scoped Admin source card can grant or update `scoped_admin` for an existing user with zero or more selected machine scopes, save preview, and required reason
+- [ ] Scoped Admin with zero machine scopes can open `/admin`, `/admin/accounts`, `/admin/orders`, `/admin/support`, `/admin/access`, `/admin/audit`, and `/admin/machines`, with Machines showing the empty assigned-machine state
 - [ ] Scoped Admin users with active machine scopes see `/portal/reports` for those machines without requiring separate `report_manager` entitlements
 - [ ] Scoped Admin users can open `/portal/training*` but do not become Plus members or get Plus billing/commerce benefits
 - [ ] Scoped Admin users can open `/admin/partnerships` and the partner dashboard for partnerships fully covered by their scoped machines; partially covered partnerships remain hidden/blocked
-- [ ] Scoped Admin users can open `/admin/access?tab=reporting-access`, see only machines inside their scoped grant, and see only Access in admin tools navigation
-- [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/reporting` or `/admin/access?tab=global-roles`; `/admin/partnerships` is available only when scoped partnership authority is present and remains machine-scoped
+- [ ] Scoped Admin users see Admin Console navigation for Overview, Orders, Support, Accounts, Machines, Access, and Audit, with machine rows/actions limited to granted machines
+- [ ] Scoped Admin users cannot open global-only admin routes such as `/admin/reporting`, `/admin/partner-records`, or global role controls; `/admin/partnerships` is available only when scoped partnership authority is present and remains machine-scoped
 - [ ] Scoped Admin reporting-access saves affect only manual reporting grants inside the scoped machine set and do not revoke Technician-derived grants
 - [ ] Scoped Admin grant, update, revoke, and reporting-access changes create `admin_audit_log` entries
 - [ ] `report_manager` users can open assigned `/portal/reports` views but remain blocked from `/admin`, `/admin/access`, and other admin routes
@@ -446,18 +447,22 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Non-admin user cannot access `/admin/partnerships`
 - [ ] Super-admin user can access `/admin/partnerships`
 - [ ] Scoped Admin user can access `/admin/partnerships` only when the Partnerships admin surface is included in their admin context, and sees only assigned-machine partnership operations.
-- [ ] Admin dashboard and app nav expose separate Partner Records, Machines, Partnerships, and Reporting modules
-- [ ] Authenticated desktop routes show one grouped left sidebar for Home, Work, Learn & Support, Operations, Access & Setup, and Settings
-- [ ] Desktop admin routes place Admin Overview in Home; Orders, Support Queue, Refund Cases, and Payouts in Operations; and People & Permissions, Partner Records, Machines, Partnerships, and Admin Reporting in Access & Setup
-- [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/access`, and `/admin/payouts` do not also mark Admin Overview active
-- [ ] Admin Home includes Refund Cases, uses the same grouped hierarchy as the sidebar, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
+- [ ] Admin Console sidebar is the only primary admin navigation map; `/admin` does not render a second catalog of duplicate route cards
+- [ ] Admin Console overview is an attention dashboard with Work queues, Customers and machines, Access and audit, and Source of truth sections
+- [ ] Admin Console sidebar uses Admin Console language and does not present Portal Dashboard as a competing top-level internal destination; portal switching is a utility action
+- [ ] Authenticated desktop routes show one grouped left sidebar; portal routes keep portal work/learning/settings groups while admin routes use the streamlined Admin Console groups
+- [ ] Desktop admin routes place Admin Console in Home; Orders and Support Queue in Admin operations; Refunds as a single core operations entry; Operator Pay in compensation review; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
+- [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/accounts`, `/admin/access`, `/admin/audit`, and `/admin/payouts` do not also mark Admin Console active
+- [ ] Admin Home treats Refunds as a core operations queue rather than an Admin-owned destination, explains source-of-truth ownership, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
 - [ ] Portal Dashboard quick actions show only actions available to the signed-in account; locked/upsell destinations do not appear as a duplicate navigation catalog
 - [ ] `/portal/time` is hidden and route-blocked for accounts without an active operator timekeeping profile or explicit timekeeping capability
 - [ ] Desktop admin routes do not show the old Portal/Admin workspace pills, horizontal `Admin tools` navigation row, or horizontal admin scroller
-- [ ] Mobile authenticated routes expose the same grouped destinations in the menu drawer, prioritize admin Operations before long setup lists on admin routes, focus the first destination when opened, and close after selecting a destination
+- [ ] Mobile authenticated admin routes expose the same streamlined Admin Console groups in the drawer, keep Switch to Portal in utilities, focus the first destination when opened, and close after selecting a destination
 - [ ] Non-admin users see no admin destinations in the authenticated sidebar or mobile drawer
 - [ ] Non-admin user cannot access `/admin/partner-records` or `/admin/machines`
 - [ ] Super-admin user can access `/admin/partner-records` and `/admin/machines`
+- [ ] Scoped Admin user can access `/admin/machines`, sees no machines before grants, and sees only explicitly granted machines after grants
+- [ ] Super-admin user sees all machine records in `/admin/machines` and can create/edit machine identity records
 - [ ] Admin Partner Records can search, create, edit, and archive reusable partner records with separate display name and legal name fields, without exposing "party" terminology
 - [ ] Issue `#326`: super-admin can archive an unused test partner record from `/admin/partner-records` with required reason copy naming the record, and `admin_audit_log` stores actor, target ID/status, timestamp, and reason without customer/payment/source payloads or signed URLs
 - [ ] Issue `#326`: archiving a partner record is blocked when active memberships, active partnership parties, active assignments, active schedules, report snapshots, schedule runs, sales facts, or applied adjustment history are tied to it

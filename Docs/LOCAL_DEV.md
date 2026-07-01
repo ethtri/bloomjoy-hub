@@ -239,7 +239,7 @@ To use all login methods in local dev:
 
 
 ## Refund operations agent QA and proof review
-Use this path for agent-run QA of `/refunds/request`, `/portal/refunds`, and Admin > Machines without Google OAuth and without sharing a password.
+Use this path for agent-run QA of `/refunds/request`, `/refunds`, and Admin > Machines without Google OAuth and without sharing a password.
 
 Executive proof review happens only after agent QA has a pass/fail evidence packet. The executive sponsor should not be the first person to discover broken saves, missing test data, or access-boundary defects.
 
@@ -251,7 +251,7 @@ Prereqs:
 - The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
 - For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.
 - Nayax card refund execution defaults to disabled/dry-run/kill-switch-on. Use `npm run refunds:validate-nayax-execution` to verify the fail-closed foundation; do not run real provider execution without sponsor go/no-go.
-- Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/portal/refunds` for case processing and do not see setup controls.
+- Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/refunds` for case processing and do not see setup controls.
 
 Steps:
 1) Start the agent UAT server from the worktree:
@@ -260,7 +260,7 @@ Steps:
 2) Seed synthetic fixtures and generate a one-click local magic link:
    - `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`
    - Add `--open` to open the generated link automatically.
-3) Open the printed magic link. It should land on `/portal/refunds` as a local super-admin/Machine Manager. `/admin/refunds` is only a compatibility path.
+3) Open the printed magic link. It should land on `/refunds` as a local super-admin/Machine Manager. `/portal/refunds` and `/admin/refunds` are compatibility paths.
 4) Review the synthetic queue cases:
    - `RF-UAT-CARD`: approved card path with matched transaction evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.

@@ -565,7 +565,7 @@ const installMockSupabaseRoutes = async (
   });
 };
 
-const signInRefundUser = async (page, appUrl, initialPath = '/portal/refunds', beforeSubmit) => {
+const signInRefundUser = async (page, appUrl, initialPath = '/refunds', beforeSubmit) => {
   await page.goto(`${appUrl}${initialPath}`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   try {
@@ -587,7 +587,7 @@ const signInRefundUser = async (page, appUrl, initialPath = '/portal/refunds', b
   await page.fill('#password', 'mock-password');
   beforeSubmit?.();
   await Promise.all([
-    page.waitForURL('**/portal/refunds*', { timeout: 20000 }),
+    page.waitForURL('**/refunds*', { timeout: 20000 }),
     page.getByRole('button', { name: /sign in/i }).click(),
   ]);
 };
@@ -641,10 +641,10 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, recorder }) => {
   });
   const page = await context.newPage();
 
-  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${appUrl}/refunds`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   recorder.assert(
-    'Unauthenticated /portal/refunds redirects to login',
+    'Unauthenticated /refunds redirects to login',
     pathname(page) === '/login',
     page.url()
   );
@@ -679,8 +679,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
 
   recorder.assert(
-    'Refund-only user lands on /portal/refunds',
-    pathname(page) === '/portal/refunds',
+    'Refund-only user lands on /refunds',
+    pathname(page) === '/refunds',
     page.url()
   );
   recorder.assert(
@@ -688,7 +688,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByRole('heading', { name: /^Refund Review Queue$/i }).isVisible()
   );
   recorder.assert(
-    'Portal Refunds navigation link is visible',
+    'Core Refunds navigation link is visible',
     (await countLinksByName(page, /^Refunds$/)) > 0
   );
   recorder.assert(
@@ -817,28 +817,28 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
 
   await page.goto(`${appUrl}/admin/refunds`, { waitUntil: 'networkidle' });
   recorder.assert(
-    'Authenticated /admin/refunds redirects to /portal/refunds',
-    pathname(page) === '/portal/refunds',
+    'Authenticated /admin/refunds redirects to /refunds',
+    pathname(page) === '/refunds',
     page.url()
   );
 
   await page.goto(`${appUrl}/admin/refunds?demo=on`, { waitUntil: 'networkidle' });
-  await page.waitForURL('**/portal/refunds?demo=on', { timeout: 10000 });
+  await page.waitForURL('**/refunds?demo=on', { timeout: 10000 });
   recorder.assert(
     'Admin refund compatibility route preserves demo query redirect',
-    page.url().includes('/portal/refunds?demo=on'),
+    page.url().includes('/refunds?demo=on'),
     page.url()
   );
 
   await page.goto(`${appUrl}/admin`, { waitUntil: 'networkidle' });
   recorder.assert(
-    'Refund-only /admin redirects to /portal/refunds',
-    pathname(page) === '/portal/refunds',
+    'Refund-only /admin redirects to /refunds',
+    pathname(page) === '/refunds',
     page.url()
   );
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'networkidle' });
+  await page.goto(`${appUrl}/refunds`, { waitUntil: 'networkidle' });
   await page.locator('button', { hasText: 'RF-UAT-CARD' }).click();
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
   await page.screenshot({
@@ -1192,7 +1192,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   rpcCalls.length = 0;
   page = await context.newPage();
   trackErrors(page);
-  await page.goto(`${appUrl}/portal/refunds?demo=on`, { waitUntil: 'networkidle' });
+  await page.goto(`${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
   await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
 
   recorder.assert(
@@ -1241,7 +1241,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     rpcCalls.join(', ')
   );
 
-  await page.goto(`${appUrl}/portal/refunds?demo=off`, { waitUntil: 'networkidle' });
+  await page.goto(`${appUrl}/refunds?demo=off`, { waitUntil: 'networkidle' });
   await page.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
   recorder.assert(
     'Demo mode off shows the true empty state',

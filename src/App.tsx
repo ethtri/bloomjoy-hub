@@ -65,10 +65,12 @@ const AdminSupport = lazyRoute(() => import("./pages/admin/Support"));
 const AdminAccess = lazyRoute(() => import("./pages/admin/Access"));
 const AdminPartnerRecords = lazyRoute(() => import("./pages/admin/PartnerRecords"));
 const AdminMachines = lazyRoute(() => import("./pages/admin/Machines"));
+const AdminAccounts = lazyRoute(() => import("./pages/admin/Accounts"));
 const AdminPartnerships = lazyRoute(() => import("./pages/admin/Partnerships"));
 const AdminReporting = lazyRoute(() => import("./pages/admin/Reporting"));
 const AdminPayouts = lazyRoute(() => import("./pages/admin/Payouts"));
 const AdminRefunds = lazyRoute(() => import("./pages/admin/Refunds"));
+const AdminAudit = lazyRoute(() => import("./pages/admin/Audit"));
 const NotFound = lazyRoute(() => import("./pages/NotFound"));
 
 const browserQueryClient = new QueryClient();
@@ -86,6 +88,7 @@ const RedirectWithSearch = ({ to }: { to: string }) => {
 const isAppLanguageSurface = (pathname: string) =>
   pathname === "/login" ||
   pathname === "/reset-password" ||
+  pathname === "/refunds" ||
   pathname.startsWith("/portal") ||
   pathname.startsWith("/admin");
 
@@ -178,7 +181,9 @@ export const AppShell = () => (
           <Route element={<ProtectedRoute />}>
             <Route path="/portal" element={<PortalDashboard />} />
             <Route element={<RefundOperationsRoute />}>
-              <Route path="/portal/refunds" element={<AdminRefunds />} />
+              <Route path="/refunds" element={<AdminRefunds />} />
+              <Route path="/portal/refunds" element={<RedirectWithSearch to="/refunds" />} />
+              <Route path="/admin/refunds" element={<RedirectWithSearch to="/refunds" />} />
             </Route>
             <Route element={<MemberRoute />}>
               <Route path="/portal/orders" element={<PortalOrders />} />
@@ -200,18 +205,11 @@ export const AppShell = () => (
               <Route path="/admin/access" element={<AdminAccess />} />
               <Route path="/admin/partner-records" element={<AdminPartnerRecords />} />
               <Route path="/admin/machines" element={<AdminMachines />} />
-              <Route
-                path="/admin/accounts"
-                element={<Navigate to="/admin/access?tab=users" replace />}
-              />
+              <Route path="/admin/accounts" element={<AdminAccounts />} />
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />
               <Route path="/admin/payouts" element={<AdminPayouts />} />
-              <Route path="/admin/refunds" element={<RedirectWithSearch to="/portal/refunds" />} />
-              <Route
-                path="/admin/audit"
-                element={<Navigate to="/admin/access?tab=audit" replace />}
-              />
+              <Route path="/admin/audit" element={<AdminAudit />} />
             </Route>
           </Route>
           <Route path="*" element={<NotFound />} />

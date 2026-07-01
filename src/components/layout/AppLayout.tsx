@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ExternalLink,
   KeyRound,
+  LayoutDashboard,
   LogOut,
   Menu,
   Settings,
@@ -50,6 +51,7 @@ interface AppLayoutProps {
 type UtilityLinksProps = {
   marketingHomeUrl: string;
   onSignOut: () => void;
+  showPortalSwitch: boolean;
   profileMenu: ReactNode;
 };
 
@@ -70,6 +72,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const appContext = getAppContext(location.pathname);
+  const isAdminSurface = location.pathname.startsWith('/admin');
   const currentLocation = typeof window === 'undefined' ? undefined : window.location;
   const marketingHomeUrl = getCanonicalUrlForSurface('marketing', '/', '', '', currentLocation);
   const accountUrl = '/portal/account';
@@ -104,7 +107,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="min-h-10 max-w-full justify-between gap-2 rounded-xl"
+          className="min-h-9 max-w-full justify-between gap-2 rounded-lg"
           aria-label={t('app.openProfileMenu')}
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -152,6 +155,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const utilities = {
     marketingHomeUrl,
     onSignOut: () => void handleSignOut(),
+    showPortalSwitch: isAdminSurface,
     profileMenu: renderProfileMenu(),
   };
 
@@ -340,7 +344,7 @@ function AuthenticatedSidebar({
   const shell = (
     <div className={cn('flex min-h-0 flex-1 flex-col', mobile ? 'h-full overflow-y-auto' : 'h-screen')}>
       {!mobile && (
-        <div className="border-b border-sidebar-border px-4 py-4">
+        <div className="border-b border-sidebar-border px-4 py-3">
           <Link to="/portal" className="flex min-w-0 items-center gap-3">
             <img
               src={logo}
@@ -348,7 +352,7 @@ function AuthenticatedSidebar({
               width={44}
               height={44}
               decoding="async"
-              className="h-11 w-11 shrink-0"
+              className="h-10 w-10 shrink-0"
             />
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -364,9 +368,9 @@ function AuthenticatedSidebar({
 
       <nav
         aria-label={t('app.authenticatedNavigation')}
-        className={cn('px-3 py-4', mobile ? 'flex-none' : 'min-h-0 flex-1 overflow-y-auto')}
+        className={cn('px-3 py-4', mobile ? 'flex-none' : 'min-h-0 flex-1 overflow-y-auto lg:py-3')}
       >
-        <div className="space-y-5">
+        <div className={cn(mobile ? 'space-y-5' : 'space-y-3.5')}>
           {navSections.map((section, sectionIndex) => (
             <div key={section.id}>
               <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -385,7 +389,8 @@ function AuthenticatedSidebar({
                       }
                       title={t(item.descriptionKey)}
                       className={cn(
-                        'group flex min-h-11 items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors',
+                        'group flex items-center gap-3 rounded-xl border px-3 text-sm font-medium transition-colors',
+                        mobile ? 'min-h-11 py-2.5' : 'min-h-10 py-2',
                         isActive
                           ? 'border-primary/20 bg-primary/10 text-primary shadow-[var(--shadow-sm)]'
                           : 'border-transparent text-muted-foreground hover:border-border hover:bg-background hover:text-foreground'
@@ -393,7 +398,8 @@ function AuthenticatedSidebar({
                     >
                       <span
                         className={cn(
-                          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+                          'flex shrink-0 items-center justify-center rounded-lg transition-colors',
+                          mobile ? 'h-8 w-8' : 'h-7 w-7',
                           isActive
                             ? 'bg-primary/15 text-primary'
                             : 'bg-muted/70 text-muted-foreground group-hover:text-foreground'
@@ -420,17 +426,30 @@ function AuthenticatedSidebar({
       </nav>
 
       <div className="border-t border-sidebar-border p-3">
-        <div className="rounded-2xl border border-border bg-background p-3 shadow-[var(--shadow-sm)]">
-          <div className="grid gap-2">
-            <LanguagePreferenceControl fullWidth />
+        <div className="rounded-xl border border-border bg-background p-2.5 shadow-[var(--shadow-sm)]">
+          <div className="grid gap-1.5">
+            <LanguagePreferenceControl
+              compact={!mobile}
+              fullWidth={mobile}
+              className={mobile ? undefined : '[&_button]:min-h-8 [&_button]:min-w-9'}
+            />
             {mobile ? (
               <MobileUtilityLinks {...utilities} />
             ) : (
               <>
                 {utilities.profileMenu}
+                {utilities.showPortalSwitch && (
+                  <Link
+                    to="/portal"
+                    className="flex min-h-9 items-center justify-between rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  >
+                    <span>{t('app.nav.switchToPortal')}</span>
+                    <LayoutDashboard className="h-4 w-4" />
+                  </Link>
+                )}
                 <a
                   href={utilities.marketingHomeUrl}
-                  className="flex min-h-10 items-center justify-between rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  className="flex min-h-9 items-center justify-between rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                 >
                   <span>{t('app.mainSite')}</span>
                   <ExternalLink className="h-4 w-4" />
@@ -449,11 +468,23 @@ function AuthenticatedSidebar({
 function MobileUtilityLinks({
   marketingHomeUrl,
   onSignOut,
+  showPortalSwitch,
 }: UtilityLinksProps) {
   const { t } = useLanguage();
 
   return (
     <>
+      {showPortalSwitch && (
+        <SheetClose asChild>
+          <Link
+            to="/portal"
+            className="flex min-h-10 items-center justify-between rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          >
+            <span>{t('app.nav.switchToPortal')}</span>
+            <LayoutDashboard className="h-4 w-4" />
+          </Link>
+        </SheetClose>
+      )}
       <a
         href={marketingHomeUrl}
         className="flex min-h-10 items-center justify-between rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"

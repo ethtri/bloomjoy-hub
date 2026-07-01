@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { PortalLayout } from '@/components/portal/PortalLayout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1714,7 +1714,7 @@ export default function AdminRefundsPage() {
       : null;
 
   return (
-    <PortalLayout>
+    <AppLayout>
       <section className="section-padding">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -2778,6 +2778,6 @@ export default function AdminRefundsPage() {
           </div>
         </div>
       </section>
-    </PortalLayout>
+    </AppLayout>
   );
 }

@@ -31,17 +31,28 @@ includes(
 includes(
   'src/components/layout/authenticatedNavigation.ts',
   "'app.nav.portalDashboard'",
-  'Admins must see Portal Dashboard instead of another ambiguous Dashboard label.',
+  'Admins must still see a disambiguated Portal Dashboard label outside the Admin Console context.',
 );
 assert(
-  authenticatedNavigation.includes("'operations', 'accessSetup', 'work'"),
-  'Admin context should prioritize Operations and Access & Setup before portal work links.',
+  authenticatedNavigation.includes("'operations'") &&
+    authenticatedNavigation.includes("'customers'") &&
+    authenticatedNavigation.includes("'reporting'") &&
+    authenticatedNavigation.includes("'administration'") &&
+    authenticatedNavigation.includes('const shouldIncludePortalDestination =') &&
+    authenticatedNavigation.includes("href === '/refunds'"),
+  'Admin context should keep one Admin Console navigation map while allowing core Refunds as a shared operations item.',
 );
 assert(
-  authenticatedNavigation.includes("type AdminSurface = 'access' | 'partnerships' | 'payouts' | 'refunds'") &&
+  authenticatedNavigation.includes('export type AdminSurface =') &&
+    authenticatedNavigation.includes("'overview'") &&
+    authenticatedNavigation.includes("'orders'") &&
+    authenticatedNavigation.includes("'support'") &&
+    authenticatedNavigation.includes("'accounts'") &&
+    authenticatedNavigation.includes("'machines'") &&
+    authenticatedNavigation.includes("'audit'") &&
     authenticatedNavigation.includes("href: '/admin/partnerships'") &&
     authenticatedNavigation.includes("surface: 'partnerships'"),
-  'Scoped admins with the Partnerships surface must see the Partnerships destination in authenticated navigation.',
+  'Scoped admins must get the broad Admin Console surface model while Partnerships remains surface-gated.',
 );
 
 const portalNavigation = includes(
@@ -71,6 +82,11 @@ const appLayout = includes(
   'data-auth-mobile-nav-first',
   'Mobile drawer should focus the first navigation destination instead of footer utilities.',
 );
+includes(
+  'src/components/layout/AppLayout.tsx',
+  "app.nav.switchToPortal",
+  'Admin routes should offer portal switching as a utility action, not a competing sidebar destination.',
+);
 assert(
   !appLayout.includes('<h1 className="truncate font-display text-lg font-semibold text-foreground sm:text-xl">'),
   'The app shell title must not render as an H1 because pages render their own H1.',
@@ -78,8 +94,19 @@ assert(
 
 const adminDashboard = includes(
   'src/pages/admin/Dashboard.tsx',
-  "'app.nav.refundCases'",
-  'Admin Home must include Refund Cases in the module list.',
+  'Use the sidebar as the map',
+  'Admin Console overview must explain that the sidebar is the navigation map.',
+);
+assert(
+  adminDashboard.includes('Work queues') &&
+    adminDashboard.includes('Customers and machines') &&
+    adminDashboard.includes('Access and audit') &&
+    adminDashboard.includes('Source of truth'),
+  'Admin Console overview should summarize attention areas instead of duplicating sidebar destinations.',
+);
+assert(
+  !adminDashboard.includes('adminModules') && !adminDashboard.includes('admin.openModule'),
+  'Admin Console overview must not render a second route-card navigation catalog.',
 );
 assert(
   !adminDashboard.includes('admin_roles') && !adminDashboard.includes('is_super_admin'),

@@ -19,7 +19,13 @@ const files = {
   page: path.join(repoRoot, 'src', 'pages', 'admin', 'Payouts.tsx'),
   app: path.join(repoRoot, 'src', 'App.tsx'),
   adminRoute: path.join(repoRoot, 'src', 'components', 'auth', 'AdminRoute.tsx'),
-  appLayout: path.join(repoRoot, 'src', 'components', 'layout', 'AppLayout.tsx'),
+  authenticatedNavigation: path.join(
+    repoRoot,
+    'src',
+    'components',
+    'layout',
+    'authenticatedNavigation.ts'
+  ),
   navbar: path.join(repoRoot, 'src', 'components', 'layout', 'Navbar.tsx'),
   i18n: path.join(repoRoot, 'src', 'lib', 'i18n.ts'),
   rpcSurface: path.join(repoRoot, 'scripts', 'validate-rpc-execute-surface.mjs'),
@@ -103,7 +109,7 @@ for (const snippet of [
 
 const page = readText(files.page);
 for (const snippet of [
-  'Payout Review',
+  'Operator Pay',
   'Manual Adjustment',
   'Finalize',
   'Critical warnings block finalization',
@@ -123,14 +129,14 @@ if (!app.includes('AdminPayouts') || !app.includes('path="/admin/payouts"')) {
 }
 
 const adminRoute = readText(files.adminRoute);
-if (!adminRoute.includes("canAccessSurface('payouts')")) {
+if (!adminRoute.includes("pathname === '/admin/payouts'") || !adminRoute.includes("surface: 'payouts'")) {
   fail('AdminRoute must allow the payouts admin surface.');
 }
 
-const appLayout = readText(files.appLayout);
-for (const snippet of ["surface?: 'access' | 'payouts'", "href: '/admin/payouts'", "surface: 'payouts'"]) {
-  if (!appLayout.includes(snippet)) {
-    fail(`AppLayout missing payouts navigation snippet: ${snippet}`);
+const authenticatedNavigation = readText(files.authenticatedNavigation);
+for (const snippet of ["surface?: AdminSurface", "href: '/admin/payouts'", "surface: 'payouts'"]) {
+  if (!authenticatedNavigation.includes(snippet)) {
+    fail(`Authenticated navigation missing payout navigation snippet: ${snippet}`);
   }
 }
 
@@ -157,8 +163,8 @@ if (!packageJson.includes('operator-payouts:validate-review')) {
 }
 
 const smoke = readText(files.smoke);
-if (!smoke.includes('Admin Operator Payout Review')) {
-  fail('Smoke checklist missing Admin Operator Payout Review coverage.');
+if (!smoke.includes('Admin Operator Pay Review')) {
+  fail('Smoke checklist missing Admin Operator Pay Review coverage.');
 }
 
 const status = readText(files.status);
