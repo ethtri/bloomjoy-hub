@@ -7,6 +7,7 @@ Admin features live in one `/admin` workspace named **Admin Console**. Admin Con
 - Keep route compatibility under `/admin`; do not introduce a competing `/operations` hierarchy.
 - Admin routes group navigation by task domain: Operations, Customers, Administration, and Partners & Reporting. Portal Dashboard is not a primary admin nav item; switching back to the portal is a utility action.
 - `/admin` shows work queues, customer/machine setup gaps, access risk, audit signals, and source-of-truth guidance. It must not render generic "Open" cards for the same destinations already present in the sidebar.
+- Refunds are a core authenticated operations workflow at `/refunds`. Legacy `/portal/refunds` and `/admin/refunds` paths may redirect for compatibility, but navigation should expose only one Refunds entry.
 - Use `reporting_machines` as the first-class machine registry because it already backs reporting, refund, payout, partnership, Machine Manager, and scoped-admin authority.
 - `/admin/accounts` is a first-class account summary and machine-record context page. It must not edit legacy machine inventory counts inline.
 - `/admin/audit` is audit history only. Role and scoped-admin grant controls belong in `/admin/access`.
@@ -80,7 +81,7 @@ Bloomjoy will build Operator Payouts as a vending-specific timekeeping, payout c
 - Keeping the first foundation on existing Bloomjoy account/machine/reporting primitives avoids overengineering while preserving a path for future vending-business customers.
 
 ## 2026-05-13 - Refund workflow card last-four visibility policy (`#436`)
-Authorized refund workflow users may see the customer-provided card last four inside `/portal/refunds` when they are allowed to manage that refund case.
+Authorized refund workflow users may see the customer-provided card last four inside `/refunds` when they are allowed to manage that refund case.
 
 **Approved visibility**
 - Machine Managers assigned to the machine, scoped admins for that machine scope, and super admins may view the submitted card last four and sanitized Nayax candidate evidence for cases they can manage.
@@ -150,7 +151,7 @@ Refund inquiries will move from the Google Form/AppSheet process into Bloomjoy H
 - Track execution through issues `#402`-`#409` and call out overlap with existing refund/reporting PR `#399` on implementation PRs.
 - Shadow-mode acceptance requires hosted-intake cases to complete end to end while the Google Form/AppSheet process remains available.
 - The first pilot can include all current authenticated Machine Managers, but it remains a shadow pilot until `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md` merge and cutover gates pass.
-- Refund case processing belongs in the authenticated Portal (`/portal/refunds`), not as a separate top-level workspace tab. Machine Manager assignment belongs with machine setup in Admin > Machines, with up to 3 authenticated managers per machine.
+- Refund case processing belongs in the authenticated core Refunds workflow (`/refunds`), not inside Admin Console or as a duplicated Portal/Admin destination. Machine Manager assignment belongs with machine setup in Admin > Machines, with up to 3 authenticated managers per machine.
 
 ## 2026-05-06 - Supply procurement notifications join the internal alert pipeline
 Supply procurement requests should use the same internal alert pattern as quote and paid order events.

@@ -398,8 +398,8 @@ try {
   await assert(adminNavText.includes('Customers'), 'Admin nav must include Customers.');
   await assert(adminNavText.includes('Partners & Reporting'), 'Admin nav must include Partners & Reporting.');
   await assert(adminNavText.includes('Administration'), 'Admin nav must include Administration.');
-  await assert(adminNavText.includes('Refund Cases'), 'Admin nav must include Refund Cases.');
-  await assert(adminNavText.includes('Payouts'), 'Admin nav must include Payouts.');
+  await assert(adminNavText.includes('Refunds'), 'Admin nav must include the shared Refunds item.');
+  await assert(adminNavText.includes('Operator Pay'), 'Admin nav must include Operator Pay.');
   await assert(
     !adminNavText.includes('Portal Dashboard'),
     'Admin nav must not show Portal Dashboard as a competing top-level destination.',

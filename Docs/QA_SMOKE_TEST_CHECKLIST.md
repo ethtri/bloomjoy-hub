@@ -37,8 +37,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
 - [ ] Agent UAT server starts with `npm run dev:uat` and is tested at `http://127.0.0.1:8081`.
 - [ ] Run `npm run refunds:validate-machine-manager-uat -- --app-url http://127.0.0.1:8081` to exercise mocked Admin > Machines sample data, searchable Machine Manager lookup, autosave payload, customer-refund setup, read-only Nayax lookup setup, and visible persistence in the machine row.
-- [ ] Agent local seeded UAT uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`, open the printed one-click magic link, and confirm the QA actor reaches `/portal/refunds` without Google OAuth or a shared password.
-- [ ] Demo visual review is explicit: `/portal/refunds?demo=on` shows labeled cases `RF-UAT-CARD`, `RF-UAT-WAIT`, and `RF-UAT-CASH`; save/Nayax actions are disabled, and `/portal/refunds?demo=off` returns to the true empty state.
+- [ ] Agent local seeded UAT uses synthetic data only: run `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`, open the printed one-click magic link, and confirm the QA actor reaches `/refunds` without Google OAuth or a shared password.
+- [ ] Demo visual review is explicit: `/refunds?demo=on` shows labeled cases `RF-UAT-CARD`, `RF-UAT-WAIT`, and `RF-UAT-CASH`; save/Nayax actions are disabled, and `/refunds?demo=off` returns to the true empty state.
 - [ ] Public intake demo visual review is explicit: `/refunds/request?demo=on` shows synthetic machine/location options and redirects to a demo thank-you page without creating a real refund case.
 - [ ] Demo Machine Manager visual review is explicit: `/admin/machines?demo=on` shows labeled demo-only Machine Manager data, allows only listed demo users, saves in browser only, and does not claim Supabase persistence.
 - [ ] Agent UAT privacy check: fixture cases use `example.test`/`.localhost` identities only, and no real customer names, emails, real card digits, payment IDs, source exports, or free-text complaint content appear in logs, screenshots, docs, PRs, issues, or chat.
@@ -48,7 +48,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Submit a cash request that has one matching sales fact within +/- 1 hour and exact amount; case lands with matched cash correlation evidence and no auto-approval.
 - [ ] Submit a cash request with no conservative match; case lands in `waiting_on_customer` and logs the friendly more-info email.
 - [ ] Submit a request with multiple conservative cash candidates; case lands in manager review rather than writing a reporting adjustment.
-- [ ] Auth boundary: unauthenticated users cannot open `/portal/refunds`; Machine Managers can open `/portal/refunds` but do not see the Admin workspace/nav; `/admin/refunds` redirects to `/portal/refunds` or remains limited to super/scoped admins.
+- [ ] Auth boundary: unauthenticated users cannot open `/refunds`; Machine Managers can open `/refunds` but do not see Admin-only pages; `/portal/refunds` and `/admin/refunds` redirect to `/refunds` when the actor has refund workflow access.
 - [ ] Refund queue filters/searches cases, opens case details, shows customer issue text, photos, compact correlation evidence, decision/next action before history, and customer history behind readable sections.
 - [ ] Portal > Refunds uses the guided manager workbench: case summary, explicit Nayax/cash transaction result, candidate confirmation before decision, one recommended next action, customer-email preview, guarded card execution or Zelle completion, and collapsed timeline/history.
 - [ ] New refund submissions send a redacted manager notification to assigned Machine Managers plus Bloomjoy ops fallback with reference, machine, amount, incident time, payment method, case link, and status only.
@@ -190,7 +190,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, payout-included, paid, or voided entries.
 - [ ] Operator Time empty state explains that an admin or machine manager must add an operator payout profile and assigned machines before time can be submitted.
 
-### Admin Operator Payout Review
+### Admin Operator Pay Review
 - [ ] Admin or scoped payout manager can open `/admin/payouts`; users without payout admin access see the existing admin access-required state.
 - [ ] Payout periods list shows account, period dates, status, operator count, total payout, warnings, and revision count without horizontal overflow on desktop or mobile.
 - [ ] Generating or recalculating a payout run uses submitted/locked/included time, revenue snapshots, compensation rules, and adjustments; recalculation requires an audit reason.
@@ -451,9 +451,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Console overview is an attention dashboard with Work queues, Customers and machines, Access and audit, and Source of truth sections
 - [ ] Admin Console sidebar uses Admin Console language and does not present Portal Dashboard as a competing top-level internal destination; portal switching is a utility action
 - [ ] Authenticated desktop routes show one grouped left sidebar; portal routes keep portal work/learning/settings groups while admin routes use the streamlined Admin Console groups
-- [ ] Desktop admin routes place Admin Console in Home; Orders, Support Queue, Refund Cases, and Payouts in Operations; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
+- [ ] Desktop admin routes place Admin Console in Home; Orders and Support Queue in Admin operations; Refunds as a single core operations entry; Operator Pay in compensation review; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
 - [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/accounts`, `/admin/access`, `/admin/audit`, and `/admin/payouts` do not also mark Admin Console active
-- [ ] Admin Home includes Refund Cases as a work-queue signal, explains source-of-truth ownership, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
+- [ ] Admin Home treats Refunds as a core operations queue rather than an Admin-owned destination, explains source-of-truth ownership, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
 - [ ] Portal Dashboard quick actions show only actions available to the signed-in account; locked/upsell destinations do not appear as a duplicate navigation catalog
 - [ ] `/portal/time` is hidden and route-blocked for accounts without an active operator timekeeping profile or explicit timekeeping capability
 - [ ] Desktop admin routes do not show the old Portal/Admin workspace pills, horizontal `Admin tools` navigation row, or horizontal admin scroller

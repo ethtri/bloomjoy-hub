@@ -99,9 +99,9 @@ export const translations = {
       'Guided agreement setup, participants, assigned machines, split terms, and preview.',
     'admin.reporting': 'Reporting',
     'admin.reportingDescription': 'Report schedules, exports, and sync status.',
-    'admin.payouts': 'Payouts',
+    'admin.payouts': 'Operator Pay',
     'admin.payoutsDescription':
-      'Operator payout review, adjustments, finalization, and revision history.',
+      'Timekeeping-based pay review, adjustments, finalization, and pay statements.',
     'admin.refunds': 'Refunds',
     'admin.refundsDescription':
       'Refund intake, correlation evidence, manager decisions, and settlement readiness.',

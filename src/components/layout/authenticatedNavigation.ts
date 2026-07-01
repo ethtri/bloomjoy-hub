@@ -196,15 +196,6 @@ export const adminDestinations: AdminDestination[] = [
     surface: 'audit',
   },
   {
-    href: '/portal/refunds',
-    labelKey: 'app.nav.refundCases',
-    shortLabelKey: 'app.nav.refundCases',
-    descriptionKey: 'admin.refundsDescription',
-    icon: ReceiptText,
-    section: 'operations',
-    surface: 'refunds',
-  },
-  {
     href: '/admin/payouts',
     labelKey: 'admin.payouts',
     shortLabelKey: 'admin.payouts',
@@ -220,7 +211,7 @@ const portalSectionByHref: Record<string, AuthenticatedNavSectionId> = {
   '/portal/time': 'work',
   '/portal/orders': 'work',
   '/portal/reports': 'work',
-  '/portal/refunds': 'operations',
+  '/refunds': 'operations',
   '/portal/training': 'learnSupport',
   '/portal/onboarding': 'learnSupport',
   '/portal/support': 'learnSupport',
@@ -230,7 +221,6 @@ const portalSectionByHref: Record<string, AuthenticatedNavSectionId> = {
 
 const portalLabelOverrideByHref: Partial<Record<string, TranslationKey>> = {
   '/portal/orders': 'app.nav.myOrders',
-  '/portal/refunds': 'app.nav.refundCases',
 };
 
 const portalIconOverrideByHref: Partial<Record<string, LucideIcon>> = {
@@ -294,6 +284,8 @@ const canAccessPortalDestination = (
 
 export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput) => {
   const isAdminContext = input.currentPathname?.startsWith('/admin') ?? false;
+  const shouldIncludePortalDestination = (href: string) =>
+    !isAdminContext || href === '/refunds';
   const adminItems: AuthenticatedNavItem[] = getVisibleAdminDestinations(input).map((destination) => ({
     href: destination.href,
     labelKey: destination.labelKey,
@@ -305,9 +297,8 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
   const adminHrefs = new Set(adminItems.map((item) => item.href));
   const hasAdminItems = adminItems.length > 0;
 
-  const portalItems: AuthenticatedNavItem[] = isAdminContext
-    ? []
-    : portalDestinations
+  const portalItems: AuthenticatedNavItem[] = portalDestinations
+        .filter((destination) => shouldIncludePortalDestination(destination.href))
         .filter((destination) => destination.href !== '/portal/account' || input.showAccountLink)
         .filter((destination) => !adminHrefs.has(destination.href))
         .filter((destination) => canAccessPortalDestination(destination.access, input))
@@ -340,19 +331,7 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
     .filter((section): section is AuthenticatedNavSectionDefinition => Boolean(section))
     .map((section) => ({
       ...section,
-      items: allItems
-        .filter((item) => item.section === section.id)
-        .sort((left, right) => {
-          if (!input.currentPathname?.startsWith('/admin')) {
-            return 0;
-          }
-
-          if (left.kind === right.kind) {
-            return 0;
-          }
-
-          return left.kind === 'admin' ? -1 : 1;
-        }),
+      items: allItems.filter((item) => item.section === section.id),
     }))
     .filter((section) => section.items.length > 0);
 };
@@ -366,8 +345,10 @@ export const isAuthenticatedNavItemActive = (pathname: string, item: Authenticat
     return pathname === '/admin';
   }
 
-  if (item.href === '/portal/refunds') {
+  if (item.href === '/refunds') {
     return (
+      pathname === '/refunds' ||
+      pathname.startsWith('/refunds/') ||
       pathname === '/portal/refunds' ||
       pathname.startsWith('/portal/refunds/') ||
       pathname === '/admin/refunds' ||
@@ -386,6 +367,15 @@ export const getAdminDestinationByPath = (pathname: string) =>
   adminDestinations[0];
 
 export const getAppContext = (pathname: string): AppContext => {
+  if (pathname === '/refunds' || pathname.startsWith('/refunds/')) {
+    const currentDestination = getPortalDestinationByPath(pathname);
+
+    return {
+      titleKey: portalLabelOverrideByHref[currentDestination.href] ?? currentDestination.labelKey,
+      descriptionKey: currentDestination.descriptionKey,
+    };
+  }
+
   if (pathname.startsWith('/portal')) {
     const currentDestination = getPortalDestinationByPath(pathname);
 

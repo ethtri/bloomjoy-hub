@@ -38,9 +38,9 @@ assert(
     authenticatedNavigation.includes("'customers'") &&
     authenticatedNavigation.includes("'reporting'") &&
     authenticatedNavigation.includes("'administration'") &&
-    authenticatedNavigation.includes('const portalItems: AuthenticatedNavItem[] = isAdminContext') &&
-    authenticatedNavigation.includes('? []'),
-  'Admin context should show one Admin Console navigation map and hide portal destinations from the sidebar.',
+    authenticatedNavigation.includes('const shouldIncludePortalDestination =') &&
+    authenticatedNavigation.includes("href === '/refunds'"),
+  'Admin context should keep one Admin Console navigation map while allowing core Refunds as a shared operations item.',
 );
 assert(
   authenticatedNavigation.includes('export type AdminSurface =') &&

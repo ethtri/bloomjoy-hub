@@ -88,6 +88,7 @@ const RedirectWithSearch = ({ to }: { to: string }) => {
 const isAppLanguageSurface = (pathname: string) =>
   pathname === "/login" ||
   pathname === "/reset-password" ||
+  pathname === "/refunds" ||
   pathname.startsWith("/portal") ||
   pathname.startsWith("/admin");
 
@@ -180,7 +181,9 @@ export const AppShell = () => (
           <Route element={<ProtectedRoute />}>
             <Route path="/portal" element={<PortalDashboard />} />
             <Route element={<RefundOperationsRoute />}>
-              <Route path="/portal/refunds" element={<AdminRefunds />} />
+              <Route path="/refunds" element={<AdminRefunds />} />
+              <Route path="/portal/refunds" element={<RedirectWithSearch to="/refunds" />} />
+              <Route path="/admin/refunds" element={<RedirectWithSearch to="/refunds" />} />
             </Route>
             <Route element={<MemberRoute />}>
               <Route path="/portal/orders" element={<PortalOrders />} />
@@ -206,7 +209,6 @@ export const AppShell = () => (
               <Route path="/admin/partnerships" element={<AdminPartnerships />} />
               <Route path="/admin/reporting" element={<AdminReporting />} />
               <Route path="/admin/payouts" element={<AdminPayouts />} />
-              <Route path="/admin/refunds" element={<RedirectWithSearch to="/portal/refunds" />} />
               <Route path="/admin/audit" element={<AdminAudit />} />
             </Route>
           </Route>

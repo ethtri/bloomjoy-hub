@@ -206,21 +206,12 @@ export default function AdminDashboardPage() {
                   tone={openSupportRequests > 0 ? 'warning' : 'success'}
                 />
               )}
-              {canAccessSurface('refunds') && (
-                <AttentionRow
-                  title="Refund cases"
-                  detail="Refund review stays in one queue; machine setup remains in Machines."
-                  href="/portal/refunds"
-                  action="Open refunds"
-                  tone="neutral"
-                />
-              )}
               {canAccessSurface('payouts') && (
                 <AttentionRow
-                  title="Payout review"
-                  detail="Operator payout review, adjustments, finalization, and revisions."
+                  title="Operator pay"
+                  detail="Timekeeping-based pay review, adjustments, finalization, and statements."
                   href="/admin/payouts"
-                  action="Open payouts"
+                  action="Review pay"
                   tone="neutral"
                 />
               )}
@@ -327,7 +318,9 @@ export default function AdminDashboardPage() {
               description="Where each task belongs, so admins do not hunt through duplicate screens."
               icon={Wrench}
             >
-              <GuidanceRow label="Orders, support, refunds, payouts" value="Work queues" />
+              <GuidanceRow label="Orders and support" value="Admin work queues" />
+              <GuidanceRow label="Refunds" value="Core operations queue" />
+              <GuidanceRow label="Operator pay" value="Compensation review" />
               <GuidanceRow label="Customer status and linked machine context" value="Accounts" />
               <GuidanceRow label="Machine identity, managers, tax, refund setup" value="Machines" />
               <GuidanceRow label="Admin grants, scoped admin machine access" value="Access" />

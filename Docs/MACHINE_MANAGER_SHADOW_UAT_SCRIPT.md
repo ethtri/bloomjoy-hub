@@ -11,16 +11,16 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 - Use synthetic or owner-approved shadow-mode cases only.
 - Do not paste real customer names, emails, phone numbers, card digits, Zelle contacts, complaint text, screenshots, or raw provider data into GitHub, docs, chat, or feedback notes.
 - Confirm the tester has the right persona:
-  - Machine Manager/operator: sees only assigned-machine refund cases at `/portal/refunds`.
+  - Machine Manager/operator: sees only assigned-machine refund cases at `/refunds`.
   - Scoped admin: sees only scoped-machine refund cases.
   - Super admin: sees all refund cases and manages Machine Managers from Admin > Machines.
 - Confirm the tester knows refunds are still completed manually in Nayax or Zelle for MVP.
-- For agent visual QA, start the app with `npm run dev:uat` and use `http://127.0.0.1:8081`. Append `?demo=on` for clearly labeled demo-only review on `/refunds/request`, `/portal/refunds`, and `/admin/machines`. Demo mode is not evidence that saves, access scope, Nayax lookup, automation emails, or reporting write-through work.
+- For agent visual QA, start the app with `npm run dev:uat` and use `http://127.0.0.1:8081`. Append `?demo=on` for clearly labeled demo-only review on `/refunds/request`, `/refunds`, and `/admin/machines`. Demo mode is not evidence that saves, access scope, Nayax lookup, automation emails, or reporting write-through work.
 - For functional QA, use seeded synthetic users/cases or post-production shadow-mode data with authenticated Machine Managers. The executive sponsor does not need to run this script before agents prove it works.
 
 ## Manager Script
 1. Sign in to the Bloomjoy operator app.
-2. Open `/portal/refunds`.
+2. Open `/refunds`.
 3. Confirm `Refunds` appears inside the Portal navigation, not as a top-level workspace tab.
 4. Confirm the queue only shows refund cases for machines you manage.
 5. Search for a known test case or select the first visible case.
@@ -47,9 +47,9 @@ Keep the current Google Form/AppSheet flow live. Managers should not use the new
 14. On a phone-sized screen, confirm the queue and detail are readable without sideways scrolling.
 
 ## Expected Results
-- Machine Managers can open `/portal/refunds`.
+- Machine Managers can open `/refunds`.
 - Machine Managers do not see the Admin workspace, Admin tools, Machine Manager setup, Nayax setup controls, machine setup identifiers, or raw provider payloads.
-- `/admin` and `/admin/refunds` redirect refund-only users back to `/portal/refunds`.
+- `/admin` and `/admin/refunds` redirect refund-only users back to `/refunds`.
 - The queue is understandable at a glance.
 - The selected case shows the decision area before timeline and message history.
 - Timeline and customer messages are available but not crowding the default view.

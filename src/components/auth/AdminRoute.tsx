@@ -15,7 +15,6 @@ const adminSurfaceByPath: Array<{ test: (pathname: string) => boolean; surface: 
   { test: (pathname) => pathname === '/admin/audit' || pathname.startsWith('/admin/audit/'), surface: 'audit' },
   { test: (pathname) => pathname === '/admin/partnerships' || pathname.startsWith('/admin/partnerships/'), surface: 'partnerships' },
   { test: (pathname) => pathname === '/admin/payouts' || pathname.startsWith('/admin/payouts/'), surface: 'payouts' },
-  { test: (pathname) => pathname === '/admin/refunds' || pathname.startsWith('/admin/refunds/'), surface: 'refunds' },
 ];
 
 const getAdminSurfaceForPath = (pathname: string) =>
@@ -42,7 +41,7 @@ export function AdminRoute() {
   }
 
   if (location.pathname === '/admin' && !canAccessSurface('overview') && canAccessSurface('refunds')) {
-    return <Navigate to="/portal/refunds" replace />;
+    return <Navigate to="/refunds" replace />;
   }
 
   if (adminSurface && canAccessSurface(adminSurface)) {
@@ -79,10 +78,13 @@ export function AdminRoute() {
 }
 
 export function RefundOperationsRoute() {
-  const { adminAccess, loading, isSuperAdmin } = useAuth();
+  const { adminAccess, capabilities, loading, isSuperAdmin } = useAuth();
   const allowedSurfaces = new Set(adminAccess.allowedSurfaces);
   const canAccessRefunds =
-    isSuperAdmin || allowedSurfaces.has('*') || allowedSurfaces.has('refunds');
+    isSuperAdmin ||
+    allowedSurfaces.has('*') ||
+    allowedSurfaces.has('refunds') ||
+    capabilities.includes('refunds.manage');
 
   if (loading) {
     return (
