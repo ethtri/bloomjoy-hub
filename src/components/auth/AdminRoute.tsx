@@ -21,9 +21,10 @@ const getAdminSurfaceForPath = (pathname: string) =>
   adminSurfaceByPath.find((entry) => entry.test(pathname))?.surface ?? null;
 
 export function AdminRoute() {
-  const { adminAccess, loading, isAdmin, isSuperAdmin } = useAuth();
+  const { adminAccess, loading, isAdmin, isScopedAdmin, isSuperAdmin } = useAuth();
   const location = useLocation();
   const allowedSurfaces = new Set(adminAccess.allowedSurfaces);
+  const scopedMachineCount = adminAccess.scopedMachineIds.length;
   const canAccessSurface = (surface: string) =>
     isSuperAdmin || allowedSurfaces.has('*') || allowedSurfaces.has(surface);
   const adminSurface = getAdminSurfaceForPath(location.pathname);
@@ -65,6 +66,13 @@ export function AdminRoute() {
                 ? ' Your current admin grant does not include this surface.'
                 : ''}
             </p>
+            {isScopedAdmin && !isSuperAdmin && (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Scoped Admin access includes Admin Console workflows, but role management is
+                unavailable and machine-level work is limited to {scopedMachineCount}{' '}
+                {scopedMachineCount === 1 ? 'granted machine' : 'granted machines'}.
+              </p>
+            )}
             <div className="mt-8 flex items-center justify-center gap-3">
               <Button asChild variant="outline" className="min-h-11">
                 <Link to="/portal">Back to Portal</Link>

@@ -5,10 +5,10 @@ Admin features live in one `/admin` workspace named **Admin Console**. Admin Con
 
 **Canonical behavior**
 - Keep route compatibility under `/admin`; do not introduce a competing `/operations` hierarchy.
-- Admin routes group navigation by task domain: Operations, Customers, Administration, and Partners & Reporting. Portal Dashboard is not a primary admin nav item; switching back to the portal is a utility action.
-- `/admin` shows work queues, customer/machine setup gaps, access risk, audit signals, and source-of-truth guidance. It must not render generic "Open" cards for the same destinations already present in the sidebar.
+- Admin routes group navigation by task domain: shared Work, Operations, Customers, Administration, and Partners & Reporting. Portal Dashboard is not a primary admin nav item; switching back to the portal is a utility action.
+- `/admin` shows live work queues, customer/machine setup gaps, access risk, and audit signals. It must not render generic "Open" cards or static source-of-truth catalogs for the same destinations already present in the sidebar.
 - Refunds are a core authenticated operations workflow at `/refunds`. Legacy `/portal/refunds` and `/admin/refunds` paths may redirect for compatibility, but navigation should expose only one Refunds entry.
-- Use `reporting_machines` as the first-class machine registry because it already backs reporting, refund, payout, partnership, Machine Manager, and scoped-admin authority.
+- Use `reporting_machines` as the first-class machine registry because it already backs reporting, refunds, operator pay, partnerships, Machine Manager, and scoped-admin authority.
 - `/admin/accounts` is a first-class account summary and machine-record context page. It must not edit legacy machine inventory counts inline.
 - `/admin/audit` is audit history only. Role and scoped-admin grant controls belong in `/admin/access`.
 - Scoped Admin identity is separate from machine scope. A Scoped Admin can have zero machine grants, open Admin Console, and see an empty Machines state until a Super Admin grants machine access.
@@ -64,14 +64,14 @@ Technician remains a training-first, read-only reporting persona, but a single T
 - Merlin-style partner staff often need the same narrow reporting view across several properties without receiving Corporate Partner or admin authority.
 - Expanding the existing Technician machine assignment set avoids adding another role while preserving source-aware audit and revoke behavior.
 
-## 2026-05-20 - Right-sized operator payouts and payroll automation (`#443`, `#444`)
-Bloomjoy will build Operator Payouts as a vending-specific timekeeping, payout calculation, and pay-statement workflow inside the existing reporting/machine/account model.
+## 2026-05-20 - Right-sized operator pay and payroll automation (`#443`, `#444`)
+Bloomjoy will build Operator Pay as a vending-specific timekeeping, pay-run calculation, and pay-statement workflow inside the existing reporting/machine/account model.
 
 **Canonical rule**
-- Use **Operator Payouts**, **Payout Run**, **Compensation Rule**, and **Pay Statement** as the default product language.
+- Use **Operator Pay**, **Pay Run**, **Compensation Rule**, and **Pay Statement** as the default user-facing product language. Existing backend table, RPC, and TypeScript names may continue using `payout` until a separate low-risk migration is warranted.
 - `customer_accounts` remain the entity boundary for V1; do not introduce a parallel business-entity platform while the current reporting/account model already provides tenant separation.
-- Reuse `reporting_machines`, `reporting_locations`, machine-scoped admin access, Machine Manager assignments, `machine_sales_facts`, and `sales_adjustment_facts` for payout scope and revenue basis.
-- Bloomjoy defaults are monthly calendar periods, time due 2 days after period end, lock on day 3, target payout day 5, final manager review only, and shift-level `round_up_60_minutes`.
+- Reuse `reporting_machines`, `reporting_locations`, machine-scoped admin access, Machine Manager assignments, `machine_sales_facts`, and `sales_adjustment_facts` for pay scope and revenue basis.
+- Bloomjoy defaults are monthly calendar periods, time due 2 days after period end, lock on day 3, target pay date day 5, final manager review only, and shift-level `round_up_60_minutes`.
 - Default worker type is `contractor_1099`, but worker type is a descriptive label only. The module does not calculate withholding, payroll taxes, overtime compliance, direct deposit, W-2s, or 1099 filing in V1.
 - Provider-backed payroll, direct deposit, filing, and compliance automation require a later explicit provider decision and integration spike.
 
@@ -119,7 +119,7 @@ Bloomjoy will continue toward a fully automated refund operations system, but pa
 - Managers remain the business approver. Automation may send status/customer emails, remind/escalate stale cases, and prepare payment execution only after manager approval.
 - Nayax card refund execution must run through a backend-only Edge Function with feature flags, kill switch, dry-run default, explicit sponsor go/no-go, per-machine allowlist, amount caps, idempotency, and redacted audit attempts.
 - Wallet/Apple Pay last-four mismatches stay manual-review for the first automated execution release.
-- Zelle payouts remain manual until Bloomjoy approves a payout provider and records a separate decision.
+- Zelle refunds remain manual until Bloomjoy approves a refund-payment provider and records a separate decision.
 - Public refund intake exposes only machines explicitly enabled for refund intake, not every active reporting machine.
 - Hosted refund cases and legacy Google/AppSheet refund rows share a business-fingerprint guard so likely duplicates stay review-only instead of writing duplicate settlement adjustments.
 

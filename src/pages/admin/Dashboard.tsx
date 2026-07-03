@@ -9,7 +9,6 @@ import {
   RefreshCw,
   ShieldCheck,
   ShoppingBag,
-  Wrench,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
@@ -150,8 +149,8 @@ export default function AdminDashboardPage() {
             <div className="max-w-3xl">
               <h1 className="font-display text-3xl font-bold text-foreground">Overview</h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Use the sidebar as the map. This overview only shows what needs attention now:
-                queues, setup gaps, access risk, and recent sensitive activity.
+                Use the sidebar as the map. This overview only shows live queues, setup gaps,
+                access risk, and recent sensitive activity.
               </p>
             </div>
             <Button variant="outline" onClick={refreshDashboard} disabled={isRefreshing}>
@@ -206,14 +205,8 @@ export default function AdminDashboardPage() {
                   tone={openSupportRequests > 0 ? 'warning' : 'success'}
                 />
               )}
-              {canAccessSurface('payouts') && (
-                <AttentionRow
-                  title="Operator pay"
-                  detail="Timekeeping-based pay review, adjustments, finalization, and statements."
-                  href="/admin/payouts"
-                  action="Review pay"
-                  tone="neutral"
-                />
+              {!canAccessSurface('orders') && !canAccessSurface('support') && (
+                <EmptyPanelRow text="No live work queues are visible for this admin grant." />
               )}
             </OverviewPanel>
 
@@ -270,6 +263,9 @@ export default function AdminDashboardPage() {
                   tone="warning"
                 />
               )}
+              {!canAccessSurface('accounts') && !canAccessSurface('machines') && (
+                <EmptyPanelRow text="No customer or machine signals are visible for this admin grant." />
+              )}
             </OverviewPanel>
 
             <OverviewPanel
@@ -311,21 +307,11 @@ export default function AdminDashboardPage() {
                   tone={sensitiveAuditCount > 0 ? 'neutral' : 'success'}
                 />
               )}
+              {!canAccessSurface('access') && !canAccessSurface('audit') && (
+                <EmptyPanelRow text="No access or audit signals are visible for this admin grant." />
+              )}
             </OverviewPanel>
 
-            <OverviewPanel
-              title="Source of truth"
-              description="Where each task belongs, so admins do not hunt through duplicate screens."
-              icon={Wrench}
-            >
-              <GuidanceRow label="Orders and support" value="Admin work queues" />
-              <GuidanceRow label="Refunds" value="Core operations queue" />
-              <GuidanceRow label="Operator pay" value="Compensation review" />
-              <GuidanceRow label="Customer status and linked machine context" value="Accounts" />
-              <GuidanceRow label="Machine identity, managers, tax, refund setup" value="Machines" />
-              <GuidanceRow label="Admin grants, scoped admin machine access" value="Access" />
-              <GuidanceRow label="History and evidence only" value="Audit" />
-            </OverviewPanel>
           </div>
 
           <div className="mt-8 flex items-center gap-2 text-sm text-muted-foreground">
@@ -405,11 +391,10 @@ function AttentionRow({
   );
 }
 
-function GuidanceRow({ label, value }: { label: string; value: string }) {
+function EmptyPanelRow({ text }: { text: string }) {
   return (
-    <div className="grid gap-1 px-4 py-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground">{value}</span>
+    <div className="px-4 py-3 text-sm leading-5 text-muted-foreground">
+      {text}
     </div>
   );
 }

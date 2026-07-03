@@ -46,7 +46,7 @@ export type AuthenticatedNavItem = {
   descriptionKey: TranslationKey;
   icon: LucideIcon;
   section: AuthenticatedNavSectionId;
-  kind: 'portal' | 'admin';
+  kind: 'core' | 'portal' | 'admin';
   end?: boolean;
   match?: (pathname: string) => boolean;
 };
@@ -72,6 +72,16 @@ export type AdminDestination = {
   section: AuthenticatedNavSectionId;
   requiresSuperAdmin?: boolean;
   surface?: AdminSurface;
+};
+
+export type CoreDestination = {
+  href: string;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  icon: LucideIcon;
+  section: AuthenticatedNavSectionId;
+  access: PortalAccessLevel;
+  end?: boolean;
 };
 
 export type AppContext = {
@@ -206,12 +216,25 @@ export const adminDestinations: AdminDestination[] = [
   },
 ];
 
+const coreDestinations: CoreDestination[] = [
+  {
+    href: '/refunds',
+    labelKey: 'portal.nav.refunds',
+    descriptionKey: 'portal.nav.refundsDescription',
+    icon: ReceiptText,
+    section: 'work',
+    access: 'refunds',
+    end: true,
+  },
+];
+
+const coreDestinationHrefs = new Set(coreDestinations.map((destination) => destination.href));
+
 const portalSectionByHref: Record<string, AuthenticatedNavSectionId> = {
   '/portal': 'home',
   '/portal/time': 'work',
   '/portal/orders': 'work',
   '/portal/reports': 'work',
-  '/refunds': 'operations',
   '/portal/training': 'learnSupport',
   '/portal/onboarding': 'learnSupport',
   '/portal/support': 'learnSupport',
@@ -284,8 +307,6 @@ const canAccessPortalDestination = (
 
 export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput) => {
   const isAdminContext = input.currentPathname?.startsWith('/admin') ?? false;
-  const shouldIncludePortalDestination = (href: string) =>
-    !isAdminContext || href === '/refunds';
   const adminItems: AuthenticatedNavItem[] = getVisibleAdminDestinations(input).map((destination) => ({
     href: destination.href,
     labelKey: destination.labelKey,
@@ -297,8 +318,21 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
   const adminHrefs = new Set(adminItems.map((item) => item.href));
   const hasAdminItems = adminItems.length > 0;
 
+  const coreItems: AuthenticatedNavItem[] = coreDestinations
+    .filter((destination) => canAccessPortalDestination(destination.access, input))
+    .map((destination) => ({
+      href: destination.href,
+      labelKey: destination.labelKey,
+      descriptionKey: destination.descriptionKey,
+      icon: destination.icon,
+      section: destination.section,
+      kind: 'core',
+      end: destination.end,
+    }));
+
   const portalItems: AuthenticatedNavItem[] = portalDestinations
-        .filter((destination) => shouldIncludePortalDestination(destination.href))
+        .filter(() => !isAdminContext)
+        .filter((destination) => !coreDestinationHrefs.has(destination.href))
         .filter((destination) => destination.href !== '/portal/account' || input.showAccountLink)
         .filter((destination) => !adminHrefs.has(destination.href))
         .filter((destination) => canAccessPortalDestination(destination.access, input))
@@ -315,10 +349,11 @@ export const buildAuthenticatedNavSections = (input: AuthenticatedNavBuildInput)
           end: destination.end,
         }));
 
-  const allItems = [...portalItems, ...adminItems];
+  const allItems = [...coreItems, ...portalItems, ...adminItems];
   const sectionOrder = isAdminContext
     ? ([
         'home',
+        'work',
         'operations',
         'customers',
         'administration',
@@ -368,11 +403,9 @@ export const getAdminDestinationByPath = (pathname: string) =>
 
 export const getAppContext = (pathname: string): AppContext => {
   if (pathname === '/refunds' || pathname.startsWith('/refunds/')) {
-    const currentDestination = getPortalDestinationByPath(pathname);
-
     return {
-      titleKey: portalLabelOverrideByHref[currentDestination.href] ?? currentDestination.labelKey,
-      descriptionKey: currentDestination.descriptionKey,
+      titleKey: 'portal.nav.refunds',
+      descriptionKey: 'portal.nav.refundsDescription',
     };
   }
 

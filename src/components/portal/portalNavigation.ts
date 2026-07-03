@@ -56,7 +56,7 @@ export const portalDestinations: PortalDestination[] = [
     href: '/portal/time',
     label: 'Time',
     labelKey: 'portal.nav.time',
-    description: 'Submit assigned-machine shifts and review current payout-period time.',
+    description: 'Submit assigned-machine shifts and review current pay-period time.',
     descriptionKey: 'portal.nav.timeDescription',
     icon: Clock3,
     access: 'timekeeping',

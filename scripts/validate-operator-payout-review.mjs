@@ -116,7 +116,10 @@ for (const snippet of [
   'issued statements already exist',
   'Show on operator statement',
   'Review access',
-  'No payout run yet',
+  'No pay run yet',
+  'does not run payroll',
+  'direct deposit',
+  'refund payments',
 ]) {
   if (!page.includes(snippet)) {
     fail(`Admin payouts page missing ${snippet}`);

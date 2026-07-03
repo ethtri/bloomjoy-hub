@@ -452,7 +452,7 @@ const installMockSupabaseRoutes = async (
             blocks: ['feature_disabled'],
             dryRun: true,
             killSwitchActive: true,
-            message: 'Nayax refund execution is disabled for this pilot environment.',
+            message: 'Card refund execution is disabled for this pilot environment.',
           }
         ),
       });
@@ -723,7 +723,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'Primary action is explicit for matched card case',
-    (await page.getByText('Run Nayax refund in Bloomjoy Hub').count()) >= 1
+    (await page.getByText('Refund card payment').count()) >= 1
   );
   recorder.assert(
     'Nayax result card is visible and explicit',
@@ -751,7 +751,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-run-nayax-refund').isVisible() &&
       (await page.getByText('Action happens outside Bloomjoy Hub.').count()) === 0 &&
       (await page.getByText('Open Nayax and refund the matched card sale.').count()) === 0 &&
-      (await page.getByText('Nayax refund confirmation/reference').count()) === 0
+      (await page.getByText('Card refund confirmation/reference').count()) === 0
   );
   recorder.assert(
     'Transaction check does not imply required action in Step 2',
@@ -785,10 +785,10 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
   const lastSaveBody = saveBodies.at(-1)?.body ?? {};
   recorder.assert(
-    'Primary action attempts guarded Nayax refund before completion',
+    'Primary action attempts guarded card refund before completion',
     functionCalls.includes('nayax-card-refund') &&
       !saveBodies.some((entry) => entry.body?.status === 'completed') &&
-      await page.getByText('Nayax refund execution is disabled for this pilot environment.').isVisible(),
+      await page.getByText('Card refund execution is disabled for this pilot environment.').isVisible(),
     JSON.stringify({ functionCalls, lastSaveBody })
   );
   recorder.assert(
@@ -806,7 +806,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Blocked Nayax execution leaves customer uncontacted',
     !saveBodies.some((entry) => entry.body?.customerMessageType === 'completed') &&
       !functionCalls.includes('refund-case-message-send') &&
-      await page.getByText('Nayax refund was not completed. The customer was not contacted.').isVisible(),
+      await page.getByText('Card refund was not completed. The customer was not contacted.').isVisible(),
     JSON.stringify({ functionCalls, saveBodies })
   );
 
@@ -1130,7 +1130,7 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, recorder }) => 
       executed: true,
       status: 'succeeded',
       providerReference: 'NAYAX-PROVIDER-REF-1',
-      message: 'Nayax refund completed.',
+      message: 'Card refund completed.',
     },
   });
 
@@ -1148,7 +1148,7 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, recorder }) => 
   const completionBody = adminUpdateBodies.find((body) => body.status === 'completed') ?? {};
 
   recorder.assert(
-    'Successful guarded Nayax execution completes case through admin update',
+    'Successful guarded card refund execution completes case through admin update',
     functionCalls.includes('nayax-card-refund') &&
       completionBody.status === 'completed' &&
       completionBody.manualRefundReference === 'NAYAX-PROVIDER-REF-1' &&
@@ -1156,7 +1156,7 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, recorder }) => 
     JSON.stringify({ functionCalls, completionBody })
   );
   recorder.assert(
-    'Successful guarded Nayax execution still avoids standalone customer message send',
+    'Successful guarded card refund execution still avoids standalone customer message send',
     !functionCalls.includes('refund-case-message-send'),
     functionCalls.join(', ')
   );

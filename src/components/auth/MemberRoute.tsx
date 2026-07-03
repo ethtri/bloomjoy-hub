@@ -71,14 +71,14 @@ export function MemberRoute() {
         ? 'Team management is not included with this account'
         : `${lockedDestination.label} is not included with this account`;
   const lockedDescription = isTimekeepingRoute
-    ? 'Ask Bloomjoy to create an active operator payout profile before using Time.'
+    ? 'Ask Bloomjoy to create an active operator pay profile before using Time.'
     : lockedDestination.upsellCopy ?? 'This area is not available for the signed-in account.';
   const workflowDescription = isReportingRoute
     ? 'Sales reporting is granted by account, location, or specific machine. Ask Bloomjoy to add the machines or locations this account should be able to review.'
     : isTeamRoute
       ? 'Team management is for account owners and partner managers who add Technicians or manage assigned-machine reporting access.'
       : isTimekeepingRoute
-        ? 'Time opens after an operator profile is active. Assigned machines and payout-period details appear there once setup is complete.'
+        ? 'Time opens after an operator profile is active. Assigned machines and pay-period details appear there once setup is complete.'
         : lockedDestination.access === 'refunds'
           ? 'Refund cases appear only for assigned refund reviewers and operations admins.'
           : 'The dashboard only shows workflows that are available for this account right now.';

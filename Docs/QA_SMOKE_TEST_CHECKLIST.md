@@ -50,7 +50,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Submit a request with multiple conservative cash candidates; case lands in manager review rather than writing a reporting adjustment.
 - [ ] Auth boundary: unauthenticated users cannot open `/refunds`; Machine Managers can open `/refunds` but do not see Admin-only pages; `/portal/refunds` and `/admin/refunds` redirect to `/refunds` when the actor has refund workflow access.
 - [ ] Refund queue filters/searches cases, opens case details, shows customer issue text, photos, compact correlation evidence, decision/next action before history, and customer history behind readable sections.
-- [ ] Portal > Refunds uses the guided manager workbench: case summary, explicit Nayax/cash transaction result, candidate confirmation before decision, one recommended next action, customer-email preview, guarded card execution or Zelle completion, and collapsed timeline/history.
+- [ ] `/refunds` uses the guided manager workbench as one shared core workflow: case summary, explicit card/cash transaction result, candidate confirmation before decision, one recommended next action, customer-email preview, guarded card refund execution or Zelle refund completion, and collapsed timeline/history.
 - [ ] New refund submissions send a redacted manager notification to assigned Machine Managers plus Bloomjoy ops fallback with reference, machine, amount, incident time, payment method, case link, and status only.
 - [ ] Refund detail lets managers verify confirmation and more-info customer email state from `RF-UAT-WAIT` or an equivalent synthetic waiting-on-customer case.
 - [ ] Manager can send editable more-info/status/approval/denial/completion customer email from the portal; the message logs in `refund_case_messages`, uses `Reply-To: info@bloomjoysweets.com`, and includes the case reference.
@@ -184,29 +184,29 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
-- [ ] Operator Time (`/portal/time`) loads for an authenticated operator with an active payout profile as a lightweight hub, shows current period dates, due date, lock date, this-period entries, past shifts without duplicate current-period entries, and a clear Add Time action without embedding the time-entry form.
+- [ ] Operator Time (`/portal/time`) loads for an authenticated operator with an active pay profile as a lightweight hub, shows current period dates, due date, lock date, this-period entries, past shifts without duplicate current-period entries, and a clear Add Time action without embedding the time-entry form.
 - [ ] Focused Add Time (`/portal/time/new`) allows only assigned machines, shows actual time and paid hours before save, rounds a short shift up to the Bloomjoy default full hour, and saves through the portal without exposing payroll/tax language.
 - [ ] Operator Time warns before save for end-before-start, work date outside the current period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
-- [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, payout-included, paid, or voided entries.
-- [ ] Operator Time empty state explains that an admin or machine manager must add an operator payout profile and assigned machines before time can be submitted.
+- [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, pay-included, paid, or voided entries.
+- [ ] Operator Time empty state explains that an admin or machine manager must add an operator pay profile and assigned machines before time can be submitted.
 
 ### Admin Operator Pay Review
-- [ ] Admin or scoped payout manager can open `/admin/payouts`; users without payout admin access see the existing admin access-required state.
-- [ ] Payout periods list shows account, period dates, status, operator count, total payout, warnings, and revision count without horizontal overflow on desktop or mobile.
-- [ ] Generating or recalculating a payout run uses submitted/locked/included time, revenue snapshots, compensation rules, and adjustments; recalculation requires an audit reason.
+- [ ] Admin or scoped Operator Pay manager can open `/admin/payouts`; users without Operator Pay admin access see the existing admin access-required state.
+- [ ] Pay periods list shows account, period dates, status, operator count, total operator pay, warnings, and revision count without horizontal overflow on desktop or mobile.
+- [ ] Generating or recalculating a pay run uses submitted/locked/included time, revenue snapshots, compensation rules, and adjustments; recalculation requires an audit reason.
 - [ ] Manager review shows operator totals, machine-level time/revenue/commission breakdown, adjustments, and warning details while respecting scoped machine visibility.
 - [ ] Adding an adjustment requires operator, non-zero amount, operator-visible description, and manager audit reason, then recalculates the run.
-- [ ] Finalization blocks when critical payout warnings are present unless the manager records an explicit override reason.
+- [ ] Finalization blocks when critical pay warnings are present unless the manager records an explicit override reason.
 - [ ] Finalization blocks if issued/revised pay statements already exist for the run, preventing duplicate statements.
 - [ ] Mark reviewed, finalize, reopen, and void actions all require audit reasons and preserve review/revision snapshots.
 - [ ] Reopening or voiding an unissued run leaves the period ready for corrected calculation without unlocking unrelated admin surfaces.
 
 ### Operator Pay Statements
 - [ ] Managers can preview pay statements before issuance from `/admin/payouts`; preview rows are not visible to operators and do not create statement records.
-- [ ] Issuing pay statements requires a finalized payout run plus an audit reason; reissuing existing statements also requires a revision reason.
+- [ ] Issuing pay statements requires a finalized pay run plus an audit reason; reissuing existing statements also requires a revision reason.
 - [ ] Issuance creates one versioned statement per payable operator, marks previous versions revised, publishes portal availability, marks included time paid, and records an audit entry without executing payroll provider payments.
 - [ ] Operators see only latest issued pay statements for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
-- [ ] Operators can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total payout, disclaimer, and revision status.
+- [ ] Operators can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total operator pay, disclaimer, and revision status.
 - [ ] Direct artifact requests for drafts, missing statements, or another operator's statement fail with an access error.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
@@ -448,12 +448,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super-admin user can access `/admin/partnerships`
 - [ ] Scoped Admin user can access `/admin/partnerships` only when the Partnerships admin surface is included in their admin context, and sees only assigned-machine partnership operations.
 - [ ] Admin Console sidebar is the only primary admin navigation map; `/admin` does not render a second catalog of duplicate route cards
-- [ ] Admin Console overview is an attention dashboard with Work queues, Customers and machines, Access and audit, and Source of truth sections
+- [ ] Admin Console overview is an exception dashboard with Work queues, Customers and machines, and Access and audit sections, without a duplicate source-of-truth catalog
 - [ ] Admin Console sidebar uses Admin Console language and does not present Portal Dashboard as a competing top-level internal destination; portal switching is a utility action
 - [ ] Authenticated desktop routes show one grouped left sidebar; portal routes keep portal work/learning/settings groups while admin routes use the streamlined Admin Console groups
-- [ ] Desktop admin routes place Admin Console in Home; Orders and Support Queue in Admin operations; Refunds as a single core operations entry; Operator Pay in compensation review; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
+- [ ] Desktop admin routes place Admin Console in Home; Refunds as the single shared Work entry; Orders, Support Queue, and Operator Pay in Operations; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
 - [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/accounts`, `/admin/access`, `/admin/audit`, and `/admin/payouts` do not also mark Admin Console active
-- [ ] Admin Home treats Refunds as a core operations queue rather than an Admin-owned destination, explains source-of-truth ownership, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
+- [ ] Admin Home treats Refunds as a shared core workflow rather than an Admin-owned destination, shows only live exception signals, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
 - [ ] Portal Dashboard quick actions show only actions available to the signed-in account; locked/upsell destinations do not appear as a duplicate navigation catalog
 - [ ] `/portal/time` is hidden and route-blocked for accounts without an active operator timekeeping profile or explicit timekeeping capability
 - [ ] Desktop admin routes do not show the old Portal/Admin workspace pills, horizontal `Admin tools` navigation row, or horizontal admin scroller

@@ -394,6 +394,7 @@ try {
   );
 
   const adminNavText = await textContent(adminPage.locator('aside nav'));
+  await assert(adminNavText.includes('Work'), 'Admin nav must include shared Work.');
   await assert(adminNavText.includes('Operations'), 'Admin nav must include Operations.');
   await assert(adminNavText.includes('Customers'), 'Admin nav must include Customers.');
   await assert(adminNavText.includes('Partners & Reporting'), 'Admin nav must include Partners & Reporting.');
@@ -409,10 +410,11 @@ try {
     'Admin routes should expose Switch to Portal as a utility action.',
   );
   await assert(
-    adminNavText.indexOf('Operations') < adminNavText.indexOf('Customers') &&
+    adminNavText.indexOf('Work') < adminNavText.indexOf('Operations') &&
+      adminNavText.indexOf('Operations') < adminNavText.indexOf('Customers') &&
       adminNavText.indexOf('Customers') < adminNavText.indexOf('Administration') &&
       adminNavText.indexOf('Administration') < adminNavText.indexOf('Partners & Reporting'),
-    'Admin routes should order Operations, Customers, Administration, then Partners & Reporting.',
+    'Admin routes should order shared Work before Operations, Customers, Administration, then Partners & Reporting.',
   );
   await assert(
     !adminNavText.includes('admin_roles') && !adminNavText.includes('is_super_admin'),
@@ -454,7 +456,9 @@ try {
     'Mobile admin drawer should keep portal switching in utilities, not the primary nav.',
   );
   await assert(
-    mobileDrawerText.indexOf('Operations') < mobileDrawerText.indexOf('Customers') &&
+    mobileDrawerText.includes('Work') &&
+      mobileDrawerText.indexOf('Work') < mobileDrawerText.indexOf('Operations') &&
+      mobileDrawerText.indexOf('Operations') < mobileDrawerText.indexOf('Customers') &&
       mobileDrawerText.indexOf('Customers') < mobileDrawerText.indexOf('Administration') &&
       mobileDrawerText.indexOf('Administration') < mobileDrawerText.indexOf('Partners & Reporting'),
     'Mobile admin drawer should expose the streamlined Admin Console IA order.',

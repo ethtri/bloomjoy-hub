@@ -36,11 +36,15 @@ includes(
 assert(
   authenticatedNavigation.includes("'operations'") &&
     authenticatedNavigation.includes("'customers'") &&
+    authenticatedNavigation.includes("'work'") &&
     authenticatedNavigation.includes("'reporting'") &&
     authenticatedNavigation.includes("'administration'") &&
-    authenticatedNavigation.includes('const shouldIncludePortalDestination =') &&
-    authenticatedNavigation.includes("href === '/refunds'"),
-  'Admin context should keep one Admin Console navigation map while allowing core Refunds as a shared operations item.',
+    authenticatedNavigation.includes('const coreDestinations') &&
+    authenticatedNavigation.includes("kind: 'core'") &&
+    authenticatedNavigation.includes("href: '/refunds'") &&
+    authenticatedNavigation.includes('!coreDestinationHrefs.has(destination.href)') &&
+    !authenticatedNavigation.includes('const shouldIncludePortalDestination ='),
+  'Admin context should keep one Admin Console navigation map while exposing Refunds as a shared core Work item.',
 );
 assert(
   authenticatedNavigation.includes('export type AdminSurface =') &&
@@ -101,8 +105,9 @@ assert(
   adminDashboard.includes('Work queues') &&
     adminDashboard.includes('Customers and machines') &&
     adminDashboard.includes('Access and audit') &&
-    adminDashboard.includes('Source of truth'),
-  'Admin Console overview should summarize attention areas instead of duplicating sidebar destinations.',
+    !adminDashboard.includes('Source of truth') &&
+    !adminDashboard.includes('GuidanceRow'),
+  'Admin Console overview should summarize exception areas without duplicating sidebar destinations.',
 );
 assert(
   !adminDashboard.includes('adminModules') && !adminDashboard.includes('admin.openModule'),

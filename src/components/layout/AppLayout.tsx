@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   Settings,
+  ShieldCheck,
   User,
 } from 'lucide-react';
 import logo from '@/assets/logo.png';
@@ -63,6 +64,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     hasReportingAccess,
     isAuthenticated,
     isCorporatePartner,
+    isScopedAdmin,
     isSuperAdmin,
     portalAccessTier,
     signOut,
@@ -80,6 +82,13 @@ export function AppLayout({ children }: AppLayoutProps) {
   const accountLinkLabel = isCorporatePartner ? 'Account Settings' : t('app.account');
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
+  const scopedMachineCount = adminAccess.scopedMachineIds.length;
+  const scopedAdminContext =
+    isScopedAdmin && !isSuperAdmin
+      ? `Scoped Admin - ${scopedMachineCount} granted ${
+          scopedMachineCount === 1 ? 'machine' : 'machines'
+        } - Role management unavailable`
+      : '';
   const { canUsePortalTeam } = usePortalTechnicianManagement();
   const { canUsePortalTimekeeping } = usePortalTimekeepingAccess();
   const navSections = isAuthenticated
@@ -275,6 +284,12 @@ export function AppLayout({ children }: AppLayoutProps) {
               <p className="hidden max-w-3xl truncate text-sm text-muted-foreground md:block">
                 {t(appContext.descriptionKey)}
               </p>
+              {scopedAdminContext && (
+                <p className="mt-1 flex max-w-3xl items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span className="truncate">{scopedAdminContext}</span>
+                </p>
+              )}
             </div>
 
             <div className="flex items-center gap-2 lg:hidden">

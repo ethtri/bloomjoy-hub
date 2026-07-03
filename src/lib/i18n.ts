@@ -104,7 +104,7 @@ export const translations = {
       'Timekeeping-based pay review, adjustments, finalization, and pay statements.',
     'admin.refunds': 'Refunds',
     'admin.refundsDescription':
-      'Refund intake, correlation evidence, manager decisions, and settlement readiness.',
+      'Refund intake, correlation evidence, manager decisions, and completion follow-up.',
 
     'portal.memberPortal': 'Member Portal',
     'portal.description':
@@ -132,7 +132,7 @@ export const translations = {
     'portal.nav.ordersDescription': 'Receipts, totals, and shipment tracking.',
     'portal.nav.time': 'Time',
     'portal.nav.timeDescription':
-      'Submit assigned-machine shifts and review current payout-period time.',
+      'Submit assigned-machine shifts and review current pay-period time.',
     'portal.nav.account': 'Account Settings',
     'portal.nav.accountDescription': 'Profile, billing, shipping, and language preferences.',
     'portal.nav.team': 'Team',
