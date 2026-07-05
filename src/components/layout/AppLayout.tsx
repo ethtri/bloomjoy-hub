@@ -83,11 +83,11 @@ export function AppLayout({ children }: AppLayoutProps) {
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
   const scopedMachineCount = adminAccess.scopedMachineIds.length;
+  const scopedAdminContextKey: TranslationKey =
+    scopedMachineCount === 1 ? 'app.scopedAdminContextOne' : 'app.scopedAdminContextMany';
   const scopedAdminContext =
     isScopedAdmin && !isSuperAdmin
-      ? `Scoped Admin - ${scopedMachineCount} granted ${
-          scopedMachineCount === 1 ? 'machine' : 'machines'
-        } - Role management unavailable`
+      ? t(scopedAdminContextKey, { count: scopedMachineCount })
       : '';
   const { canUsePortalTeam } = usePortalTechnicianManagement();
   const { canUsePortalTimekeeping } = usePortalTimekeepingAccess();
