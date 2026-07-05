@@ -452,7 +452,7 @@ const installMockSupabaseRoutes = async (
             blocks: ['feature_disabled'],
             dryRun: true,
             killSwitchActive: true,
-            message: 'Nayax refund execution is disabled for this pilot environment.',
+            message: 'Card refund execution is disabled for this pilot environment.',
           }
         ),
       });
@@ -565,7 +565,7 @@ const installMockSupabaseRoutes = async (
   });
 };
 
-const signInRefundUser = async (page, appUrl, initialPath = '/portal/refunds', beforeSubmit) => {
+const signInRefundUser = async (page, appUrl, initialPath = '/refunds', beforeSubmit) => {
   await page.goto(`${appUrl}${initialPath}`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   try {
@@ -587,7 +587,7 @@ const signInRefundUser = async (page, appUrl, initialPath = '/portal/refunds', b
   await page.fill('#password', 'mock-password');
   beforeSubmit?.();
   await Promise.all([
-    page.waitForURL('**/portal/refunds*', { timeout: 20000 }),
+    page.waitForURL('**/refunds*', { timeout: 20000 }),
     page.getByRole('button', { name: /sign in/i }).click(),
   ]);
 };
@@ -641,10 +641,10 @@ const runUnauthenticatedChecks = async ({ browser, appUrl, recorder }) => {
   });
   const page = await context.newPage();
 
-  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${appUrl}/refunds`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   recorder.assert(
-    'Unauthenticated /portal/refunds redirects to login',
+    'Unauthenticated /refunds redirects to login',
     pathname(page) === '/login',
     page.url()
   );
@@ -679,8 +679,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
 
   recorder.assert(
-    'Refund-only user lands on /portal/refunds',
-    pathname(page) === '/portal/refunds',
+    'Refund-only user lands on /refunds',
+    pathname(page) === '/refunds',
     page.url()
   );
   recorder.assert(
@@ -688,7 +688,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await page.getByRole('heading', { name: /^Refund Review Queue$/i }).isVisible()
   );
   recorder.assert(
-    'Portal Refunds navigation link is visible',
+    'Core Refunds navigation link is visible',
     (await countLinksByName(page, /^Refunds$/)) > 0
   );
   recorder.assert(
@@ -723,7 +723,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'Primary action is explicit for matched card case',
-    (await page.getByText('Run Nayax refund in Bloomjoy Hub').count()) >= 1
+    (await page.getByText('Refund card payment').count()) >= 1
   );
   recorder.assert(
     'Nayax result card is visible and explicit',
@@ -751,7 +751,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-run-nayax-refund').isVisible() &&
       (await page.getByText('Action happens outside Bloomjoy Hub.').count()) === 0 &&
       (await page.getByText('Open Nayax and refund the matched card sale.').count()) === 0 &&
-      (await page.getByText('Nayax refund confirmation/reference').count()) === 0
+      (await page.getByText('Card refund confirmation/reference').count()) === 0
   );
   recorder.assert(
     'Transaction check does not imply required action in Step 2',
@@ -785,10 +785,10 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
   const lastSaveBody = saveBodies.at(-1)?.body ?? {};
   recorder.assert(
-    'Primary action attempts guarded Nayax refund before completion',
+    'Primary action attempts guarded card refund before completion',
     functionCalls.includes('nayax-card-refund') &&
       !saveBodies.some((entry) => entry.body?.status === 'completed') &&
-      await page.getByText('Nayax refund execution is disabled for this pilot environment.').isVisible(),
+      await page.getByText('Card refund execution is disabled for this pilot environment.').isVisible(),
     JSON.stringify({ functionCalls, lastSaveBody })
   );
   recorder.assert(
@@ -806,7 +806,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Blocked Nayax execution leaves customer uncontacted',
     !saveBodies.some((entry) => entry.body?.customerMessageType === 'completed') &&
       !functionCalls.includes('refund-case-message-send') &&
-      await page.getByText('Nayax refund was not completed. The customer was not contacted.').isVisible(),
+      await page.getByText('Card refund was not completed. The customer was not contacted.').isVisible(),
     JSON.stringify({ functionCalls, saveBodies })
   );
 
@@ -817,28 +817,28 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
 
   await page.goto(`${appUrl}/admin/refunds`, { waitUntil: 'networkidle' });
   recorder.assert(
-    'Authenticated /admin/refunds redirects to /portal/refunds',
-    pathname(page) === '/portal/refunds',
+    'Authenticated /admin/refunds redirects to /refunds',
+    pathname(page) === '/refunds',
     page.url()
   );
 
   await page.goto(`${appUrl}/admin/refunds?demo=on`, { waitUntil: 'networkidle' });
-  await page.waitForURL('**/portal/refunds?demo=on', { timeout: 10000 });
+  await page.waitForURL('**/refunds?demo=on', { timeout: 10000 });
   recorder.assert(
     'Admin refund compatibility route preserves demo query redirect',
-    page.url().includes('/portal/refunds?demo=on'),
+    page.url().includes('/refunds?demo=on'),
     page.url()
   );
 
   await page.goto(`${appUrl}/admin`, { waitUntil: 'networkidle' });
   recorder.assert(
-    'Refund-only /admin redirects to /portal/refunds',
-    pathname(page) === '/portal/refunds',
+    'Refund-only /admin redirects to /refunds',
+    pathname(page) === '/refunds',
     page.url()
   );
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${appUrl}/portal/refunds`, { waitUntil: 'networkidle' });
+  await page.goto(`${appUrl}/refunds`, { waitUntil: 'networkidle' });
   await page.locator('button', { hasText: 'RF-UAT-CARD' }).click();
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
   await page.screenshot({
@@ -1130,7 +1130,7 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, recorder }) => 
       executed: true,
       status: 'succeeded',
       providerReference: 'NAYAX-PROVIDER-REF-1',
-      message: 'Nayax refund completed.',
+      message: 'Card refund completed.',
     },
   });
 
@@ -1148,7 +1148,7 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, recorder }) => 
   const completionBody = adminUpdateBodies.find((body) => body.status === 'completed') ?? {};
 
   recorder.assert(
-    'Successful guarded Nayax execution completes case through admin update',
+    'Successful guarded card refund execution completes case through admin update',
     functionCalls.includes('nayax-card-refund') &&
       completionBody.status === 'completed' &&
       completionBody.manualRefundReference === 'NAYAX-PROVIDER-REF-1' &&
@@ -1156,7 +1156,7 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, recorder }) => 
     JSON.stringify({ functionCalls, completionBody })
   );
   recorder.assert(
-    'Successful guarded Nayax execution still avoids standalone customer message send',
+    'Successful guarded card refund execution still avoids standalone customer message send',
     !functionCalls.includes('refund-case-message-send'),
     functionCalls.join(', ')
   );
@@ -1192,7 +1192,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   rpcCalls.length = 0;
   page = await context.newPage();
   trackErrors(page);
-  await page.goto(`${appUrl}/portal/refunds?demo=on`, { waitUntil: 'networkidle' });
+  await page.goto(`${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
   await page.getByText('DEMO DATA - visual review only').waitFor({ timeout: 10000 });
 
   recorder.assert(
@@ -1241,7 +1241,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     rpcCalls.join(', ')
   );
 
-  await page.goto(`${appUrl}/portal/refunds?demo=off`, { waitUntil: 'networkidle' });
+  await page.goto(`${appUrl}/refunds?demo=off`, { waitUntil: 'networkidle' });
   await page.getByText('No refund cases are assigned here yet.').last().waitFor({ timeout: 10000 });
   recorder.assert(
     'Demo mode off shows the true empty state',

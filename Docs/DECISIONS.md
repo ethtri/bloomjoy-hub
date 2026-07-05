@@ -1,5 +1,26 @@
 # Decisions
 
+## 2026-06-30 - Admin Console IA and Scoped Admin authority
+Admin features live in one `/admin` workspace named **Admin Console**. Admin Console uses shared sidebar navigation for Overview, Orders, Support, Accounts, Machines, Access, Audit, and the existing specialized admin surfaces. The sidebar is the single admin navigation map; the `/admin` overview is an attention dashboard, not a duplicate route launcher.
+
+**Canonical behavior**
+- Keep route compatibility under `/admin`; do not introduce a competing `/operations` hierarchy.
+- Admin routes group navigation by task domain: shared Work, Operations, Customers, Administration, and Partners & Reporting. Portal Dashboard is not a primary admin nav item; switching back to the portal is a utility action.
+- `/admin` shows live work queues, customer/machine setup gaps, access risk, and audit signals. It must not render generic "Open" cards or static source-of-truth catalogs for the same destinations already present in the sidebar.
+- Refunds are a core authenticated operations workflow at `/refunds`. Legacy `/portal/refunds` and `/admin/refunds` paths may redirect for compatibility, but navigation should expose only one Refunds entry.
+- Use `reporting_machines` as the first-class machine registry because it already backs reporting, refunds, operator pay, partnerships, Machine Manager, and scoped-admin authority.
+- `/admin/accounts` is a first-class account summary and machine-record context page. It must not edit legacy machine inventory counts inline.
+- `/admin/audit` is audit history only. Role and scoped-admin grant controls belong in `/admin/access`.
+- Scoped Admin identity is separate from machine scope. A Scoped Admin can have zero machine grants, open Admin Console, and see an empty Machines state until a Super Admin grants machine access.
+- Scoped Admins may use non-role admin workflows such as orders, support, accounts, audit, and scoped machine setup. They cannot grant/revoke Super Admin or Scoped Admin authority.
+- Machine visibility/control remains explicit: Super Admins see all machines; Scoped Admins see and manage only machines in their active scoped machine grants.
+
+**Why this choice**
+- The previous Admin, Operations, Governance, and Portal labels made the hierarchy feel like it jumped between products.
+- Duplicating Machines, Accounts, Access, and Audit as both sidebar links and dashboard route cards increases cognitive load. The overview should answer "what needs attention?" while the sidebar answers "where can I go?"
+- Separating Access from Audit keeps operational history review distinct from authority changes.
+- Reusing `reporting_machines` avoids a parallel machine registry while still satisfying per-machine scoped-admin grants.
+
 ## 2026-06-25 - Scoped Admins can grant machine-scoped Technician status
 Scoped Admins may grant, update, renew, and revoke Technician access only when every assigned machine is inside their active Scoped Admin machine scope.
 
@@ -43,14 +64,14 @@ Technician remains a training-first, read-only reporting persona, but a single T
 - Merlin-style partner staff often need the same narrow reporting view across several properties without receiving Corporate Partner or admin authority.
 - Expanding the existing Technician machine assignment set avoids adding another role while preserving source-aware audit and revoke behavior.
 
-## 2026-05-20 - Right-sized operator payouts and payroll automation (`#443`, `#444`)
-Bloomjoy will build Operator Payouts as a vending-specific timekeeping, payout calculation, and pay-statement workflow inside the existing reporting/machine/account model.
+## 2026-05-20 - Right-sized operator pay and payroll automation (`#443`, `#444`)
+Bloomjoy will build Operator Pay as a vending-specific timekeeping, pay-run calculation, and pay-statement workflow inside the existing reporting/machine/account model.
 
 **Canonical rule**
-- Use **Operator Payouts**, **Payout Run**, **Compensation Rule**, and **Pay Statement** as the default product language.
+- Use **Operator Pay**, **Pay Run**, **Compensation Rule**, and **Pay Statement** as the default user-facing product language. Existing backend table, RPC, and TypeScript names may continue using `payout` until a separate low-risk migration is warranted.
 - `customer_accounts` remain the entity boundary for V1; do not introduce a parallel business-entity platform while the current reporting/account model already provides tenant separation.
-- Reuse `reporting_machines`, `reporting_locations`, machine-scoped admin access, Machine Manager assignments, `machine_sales_facts`, and `sales_adjustment_facts` for payout scope and revenue basis.
-- Bloomjoy defaults are monthly calendar periods, time due 2 days after period end, lock on day 3, target payout day 5, final manager review only, and shift-level `round_up_60_minutes`.
+- Reuse `reporting_machines`, `reporting_locations`, machine-scoped admin access, Machine Manager assignments, `machine_sales_facts`, and `sales_adjustment_facts` for pay scope and revenue basis.
+- Bloomjoy defaults are monthly calendar periods, time due 2 days after period end, lock on day 3, target pay date day 5, final manager review only, and shift-level `round_up_60_minutes`.
 - Default worker type is `contractor_1099`, but worker type is a descriptive label only. The module does not calculate withholding, payroll taxes, overtime compliance, direct deposit, W-2s, or 1099 filing in V1.
 - Provider-backed payroll, direct deposit, filing, and compliance automation require a later explicit provider decision and integration spike.
 
@@ -60,7 +81,7 @@ Bloomjoy will build Operator Payouts as a vending-specific timekeeping, payout c
 - Keeping the first foundation on existing Bloomjoy account/machine/reporting primitives avoids overengineering while preserving a path for future vending-business customers.
 
 ## 2026-05-13 - Refund workflow card last-four visibility policy (`#436`)
-Authorized refund workflow users may see the customer-provided card last four inside `/portal/refunds` when they are allowed to manage that refund case.
+Authorized refund workflow users may see the customer-provided card last four inside `/refunds` when they are allowed to manage that refund case.
 
 **Approved visibility**
 - Machine Managers assigned to the machine, scoped admins for that machine scope, and super admins may view the submitted card last four and sanitized Nayax candidate evidence for cases they can manage.
@@ -98,7 +119,7 @@ Bloomjoy will continue toward a fully automated refund operations system, but pa
 - Managers remain the business approver. Automation may send status/customer emails, remind/escalate stale cases, and prepare payment execution only after manager approval.
 - Nayax card refund execution must run through a backend-only Edge Function with feature flags, kill switch, dry-run default, explicit sponsor go/no-go, per-machine allowlist, amount caps, idempotency, and redacted audit attempts.
 - Wallet/Apple Pay last-four mismatches stay manual-review for the first automated execution release.
-- Zelle payouts remain manual until Bloomjoy approves a payout provider and records a separate decision.
+- Zelle refunds remain manual until Bloomjoy approves a refund-payment provider and records a separate decision.
 - Public refund intake exposes only machines explicitly enabled for refund intake, not every active reporting machine.
 - Hosted refund cases and legacy Google/AppSheet refund rows share a business-fingerprint guard so likely duplicates stay review-only instead of writing duplicate settlement adjustments.
 
@@ -130,7 +151,7 @@ Refund inquiries will move from the Google Form/AppSheet process into Bloomjoy H
 - Track execution through issues `#402`-`#409` and call out overlap with existing refund/reporting PR `#399` on implementation PRs.
 - Shadow-mode acceptance requires hosted-intake cases to complete end to end while the Google Form/AppSheet process remains available.
 - The first pilot can include all current authenticated Machine Managers, but it remains a shadow pilot until `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md` merge and cutover gates pass.
-- Refund case processing belongs in the authenticated Portal (`/portal/refunds`), not as a separate top-level workspace tab. Machine Manager assignment belongs with machine setup in Admin > Machines, with up to 3 authenticated managers per machine.
+- Refund case processing belongs in the authenticated core Refunds workflow (`/refunds`), not inside Admin Console or as a duplicated Portal/Admin destination. Machine Manager assignment belongs with machine setup in Admin > Machines, with up to 3 authenticated managers per machine.
 
 ## 2026-05-06 - Supply procurement notifications join the internal alert pipeline
 Supply procurement requests should use the same internal alert pattern as quote and paid order events.

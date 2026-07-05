@@ -685,7 +685,7 @@ export const fetchMyOperatorPayoutContext = async (): Promise<OperatorPayoutCont
   const { data, error } = await supabaseClient.rpc('get_my_operator_payout_context');
 
   if (error) {
-    throw new Error(error.message || 'Unable to load operator payouts.');
+    throw new Error(error.message || 'Unable to load operator pay.');
   }
 
   return {
@@ -822,7 +822,7 @@ export const fetchPayoutRevenueSnapshotContext = async (
   });
 
   if (error) {
-    throw new Error(error.message || 'Unable to load payout revenue snapshots.');
+    throw new Error(error.message || 'Unable to load pay revenue snapshots.');
   }
 
   return {
@@ -856,7 +856,7 @@ export const generatePayoutRevenueSnapshotAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to generate payout revenue snapshot.');
+    throw new Error(error?.message || 'Unable to generate pay revenue snapshot.');
   }
 
   return data as GeneratePayoutRevenueSnapshotResult;
@@ -877,7 +877,7 @@ export const generatePayoutRevenueSnapshotsForPeriodAdmin = async ({
   );
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to generate payout revenue snapshots.');
+    throw new Error(error?.message || 'Unable to generate pay revenue snapshots.');
   }
 
   return data as GeneratePayoutRevenueSnapshotsForPeriodResult;
@@ -899,7 +899,7 @@ export const overridePayoutRevenueSnapshotAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to override payout revenue snapshot.');
+    throw new Error(error?.message || 'Unable to override pay revenue snapshot.');
   }
 
   return data as GeneratePayoutRevenueSnapshotResult;
@@ -913,7 +913,7 @@ export const fetchPayoutCalculationContext = async (
   });
 
   if (error) {
-    throw new Error(error.message || 'Unable to load payout calculation.');
+    throw new Error(error.message || 'Unable to load pay calculation.');
   }
 
   return {
@@ -972,7 +972,7 @@ export const calculatePayoutRunAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to calculate payout run.');
+    throw new Error(error?.message || 'Unable to calculate pay run.');
   }
 
   return data as CalculatePayoutRunResult;
@@ -998,7 +998,7 @@ export const addPayoutAdjustmentAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to add payout adjustment.');
+    throw new Error(error?.message || 'Unable to add pay adjustment.');
   }
 
   return data as AddPayoutAdjustmentResult;
@@ -1008,7 +1008,7 @@ export const fetchPayoutReviewContext = async (): Promise<PayoutReviewContext> =
   const { data, error } = await supabaseClient.rpc('get_payout_review_context');
 
   if (error) {
-    throw new Error(error.message || 'Unable to load payout review context.');
+    throw new Error(error.message || 'Unable to load pay review context.');
   }
 
   return {
@@ -1060,7 +1060,7 @@ export const markPayoutRunReviewedAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to mark payout run reviewed.');
+    throw new Error(error?.message || 'Unable to mark pay run reviewed.');
   }
 
   return data as PayoutReviewWorkflowResult;
@@ -1080,7 +1080,7 @@ export const finalizePayoutRunAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to finalize payout run.');
+    throw new Error(error?.message || 'Unable to finalize pay run.');
   }
 
   return data as PayoutReviewWorkflowResult;
@@ -1096,7 +1096,7 @@ export const reopenPayoutRunAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to reopen payout run.');
+    throw new Error(error?.message || 'Unable to reopen pay run.');
   }
 
   return data as PayoutReviewWorkflowResult;
@@ -1112,7 +1112,7 @@ export const voidPayoutRunAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to void payout run.');
+    throw new Error(error?.message || 'Unable to void pay run.');
   }
 
   return data as PayoutReviewWorkflowResult;
@@ -1136,7 +1136,7 @@ export const upsertOperatorPayoutProfileAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to save operator payout profile.');
+    throw new Error(error?.message || 'Unable to save operator pay profile.');
   }
 
   return data as OperatorPayoutProfileRecord;
@@ -1265,7 +1265,7 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
           <div class="metric"><p class="label">Operator</p><p class="value">${escapeHtml(statement.operator.displayName)}</p></div>
           <div class="metric"><p class="label">Period</p><p class="value">${escapeHtml(formatStatementDate(statement.period.periodStartDate))} - ${escapeHtml(formatStatementDate(statement.period.periodEndDate))}</p></div>
           <div class="metric"><p class="label">Issued</p><p class="value">${escapeHtml(formatStatementDate(statement.issuedAt))}</p></div>
-          <div class="metric"><p class="label">Total payout</p><p class="value">${escapeHtml(formatStatementMoney(statement.totals.totalPayoutCents))}</p></div>
+          <div class="metric"><p class="label">Total operator pay</p><p class="value">${escapeHtml(formatStatementMoney(statement.totals.totalPayoutCents))}</p></div>
         </div>
 
         <h2>Summary</h2>

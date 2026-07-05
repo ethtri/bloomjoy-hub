@@ -326,7 +326,7 @@ export default function AdminPayoutsPage() {
     const existingRun = Boolean(selectedPeriod.payoutRun);
 
     if (existingRun && !calculateReason.trim()) {
-      toast.error('Enter a recalculation reason before regenerating this payout run.');
+      toast.error('Enter a recalculation reason before regenerating this pay run.');
       return;
     }
 
@@ -337,14 +337,14 @@ export default function AdminPayoutsPage() {
         regenerate: existingRun,
         reason: calculateReason.trim() || null,
       });
-      toast.success(existingRun ? 'Payout run recalculated.' : 'Payout run generated.');
+      toast.success(existingRun ? 'Pay run recalculated.' : 'Pay run generated.');
       setCalculateReason('');
       await refresh();
     } catch (calculationError) {
       toast.error(
         calculationError instanceof Error
           ? calculationError.message
-          : 'Unable to calculate payout run.'
+          : 'Unable to calculate pay run.'
       );
     } finally {
       setIsCalculating(false);
@@ -362,12 +362,12 @@ export default function AdminPayoutsPage() {
     if (!selectedRun || !action) return;
 
     if (!actionReason.trim()) {
-      toast.error('Enter an audit reason before saving this payout action.');
+      toast.error('Enter an audit reason before saving this pay action.');
       return;
     }
 
     if (action === 'finalize' && overrideBlockers && !overrideReason.trim()) {
-      toast.error('Enter an override reason for critical payout warnings.');
+      toast.error('Enter an override reason for critical pay warnings.');
       return;
     }
 
@@ -378,7 +378,7 @@ export default function AdminPayoutsPage() {
           payoutRunId: selectedRun.id,
           reason: actionReason.trim(),
         });
-        toast.success('Payout run marked reviewed.');
+        toast.success('Pay run marked reviewed.');
       }
 
       if (action === 'finalize') {
@@ -388,7 +388,7 @@ export default function AdminPayoutsPage() {
           overrideBlockers,
           overrideReason: overrideBlockers ? overrideReason.trim() : null,
         });
-        toast.success('Payout run finalized.');
+        toast.success('Pay run finalized.');
       }
 
       if (action === 'reopen') {
@@ -396,7 +396,7 @@ export default function AdminPayoutsPage() {
           payoutRunId: selectedRun.id,
           reason: actionReason.trim(),
         });
-        toast.success('Payout run reopened.');
+        toast.success('Pay run reopened.');
       }
 
       if (action === 'void') {
@@ -404,13 +404,13 @@ export default function AdminPayoutsPage() {
           payoutRunId: selectedRun.id,
           reason: actionReason.trim(),
         });
-        toast.success('Payout run voided.');
+        toast.success('Pay run voided.');
       }
 
       resetActionDialog();
       await refresh();
     } catch (actionError) {
-      toast.error(actionError instanceof Error ? actionError.message : 'Unable to update payout run.');
+      toast.error(actionError instanceof Error ? actionError.message : 'Unable to update pay run.');
     } finally {
       setIsRunningAction(false);
     }
@@ -446,7 +446,7 @@ export default function AdminPayoutsPage() {
         visibleToOperator: adjustmentForm.visibleToOperator,
         reason: adjustmentForm.reason.trim(),
       });
-      toast.success('Adjustment added and payout run recalculated.');
+      toast.success('Adjustment added and pay run recalculated.');
       setAdjustmentForm((current) => ({
         ...current,
         amount: '',
@@ -516,10 +516,10 @@ export default function AdminPayoutsPage() {
     action === 'mark_reviewed'
       ? 'Mark Reviewed'
       : action === 'finalize'
-        ? 'Finalize Payout'
+        ? 'Finalize Pay Run'
         : action === 'reopen'
-          ? 'Reopen Payout'
-          : 'Void Payout';
+          ? 'Reopen Pay Run'
+          : 'Void Pay Run';
 
   return (
     <AppLayout>
@@ -528,14 +528,18 @@ export default function AdminPayoutsPage() {
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Operator Payouts
+                Compensation
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Payout Review
+                Operator Pay
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 Review assigned-machine time, revenue snapshots, compensation rules, warnings,
                 adjustments, and finalization history before pay statements are issued.
+              </p>
+              <p className="mt-3 max-w-3xl rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+                Operator Pay publishes reviewed pay statements only. It does not run payroll,
+                direct deposit, tax withholding, W-2s, 1099s, or refund payments.
               </p>
             </div>
             <Button variant="outline" onClick={() => void refresh()} disabled={isFetching}>
@@ -553,23 +557,23 @@ export default function AdminPayoutsPage() {
       <section className="section-padding">
         <div className="container-page">
           {isLoading ? (
-            <EmptyState title="Loading payout review">
-              Pulling the latest payout periods, review states, and scoped manager permissions.
+            <EmptyState title="Loading pay review">
+              Pulling the latest pay periods, review states, and scoped manager permissions.
             </EmptyState>
           ) : error ? (
-            <EmptyState title="Unable to load payouts">
-              {error instanceof Error ? error.message : 'The payout review queue could not load.'}
+            <EmptyState title="Unable to load pay review">
+              {error instanceof Error ? error.message : 'The pay review queue could not load.'}
             </EmptyState>
           ) : periods.length === 0 ? (
-            <EmptyState title="No payout periods ready">
-              Create an operator payout profile and payout period first. Payout review appears here
-              after a period has assigned time or a generated payout run.
+            <EmptyState title="No pay periods ready">
+              Create an operator pay profile and pay period first. Pay review appears here after a
+              period has assigned time or a generated pay run.
             </EmptyState>
           ) : (
             <div className="grid gap-6 lg:grid-cols-[minmax(260px,360px)_1fr]">
               <aside className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="font-semibold text-foreground">Periods</h2>
+                  <h2 className="font-semibold text-foreground">Pay periods</h2>
                   <Badge variant="outline">{periods.length}</Badge>
                 </div>
                 {periods.map((period) => (
@@ -602,7 +606,7 @@ export default function AdminPayoutsPage() {
                       </div>
                       <p className="mt-2 text-sm text-muted-foreground">
                         {formatDate(selectedPeriod?.periodStartDate)} -{' '}
-                        {formatDate(selectedPeriod?.periodEndDate)} / target payout{' '}
+                        {formatDate(selectedPeriod?.periodEndDate)} / target pay date{' '}
                         {formatDate(selectedPeriod?.targetPayoutDate)}
                       </p>
                       {selectedPeriod?.issuedStatementCount ? (
@@ -626,7 +630,7 @@ export default function AdminPayoutsPage() {
                         disabled={!canMutateRun || Boolean(selectedPeriod?.issuedStatementCount)}
                       >
                         <ShieldCheck className="mr-2 h-4 w-4" />
-                        Finalize
+                        Finalize Pay Run
                       </Button>
                       <Button
                         variant="outline"
@@ -634,7 +638,7 @@ export default function AdminPayoutsPage() {
                         disabled={!selectedRun || !selectedPeriod?.canFinalize}
                       >
                         <RotateCcw className="mr-2 h-4 w-4" />
-                        Reopen
+                        Reopen Pay Run
                       </Button>
                       <Button
                         variant="outline"
@@ -642,13 +646,13 @@ export default function AdminPayoutsPage() {
                         disabled={!selectedRun || !selectedPeriod?.canFinalize}
                       >
                         <Ban className="mr-2 h-4 w-4" />
-                        Void
+                        Void Pay Run
                       </Button>
                     </div>
                   </div>
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <Metric label="Total payout" value={formatCurrency(selectedRun?.totalPayoutCents)} tone="good" />
+                    <Metric label="Total operator pay" value={formatCurrency(selectedRun?.totalPayoutCents)} tone="good" />
                     <Metric label="Operators" value={`${selectedRun?.items.length ?? 0}`} />
                     <Metric label="Paid hours" value={formatHours(selectedRun?.totalRoundedPaidMinutes ?? 0)} />
                     <Metric
@@ -662,9 +666,9 @@ export default function AdminPayoutsPage() {
                 <div className="rounded-lg border border-border bg-background p-5">
                   <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div>
-                      <h2 className="font-semibold text-foreground">Calculation</h2>
+                      <h2 className="font-semibold text-foreground">Pay Run</h2>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Generate the first payout run or regenerate after corrections. Existing
+                        Generate the first pay run or regenerate after corrections. Existing
                         runs require an audit reason.
                       </p>
                     </div>
@@ -674,7 +678,7 @@ export default function AdminPayoutsPage() {
                       ) : (
                         <Clock3 className="mr-2 h-4 w-4" />
                       )}
-                      {selectedRun ? 'Recalculate' : 'Generate'}
+                      {selectedRun ? 'Recalculate Pay Run' : 'Generate Pay Run'}
                     </Button>
                   </div>
                   <div className="mt-4">
@@ -724,7 +728,7 @@ export default function AdminPayoutsPage() {
                       <div>
                         <h2 className="font-semibold text-foreground">Pay Statements</h2>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Preview operator statements, then publish the finalized payout run to the
+                          Preview operator statements, then publish the finalized pay run to the
                           operator portal with versioned revision history.
                         </p>
                       </div>
@@ -762,7 +766,7 @@ export default function AdminPayoutsPage() {
                           id="statement-issue-reason"
                           value={issueReason}
                           onChange={(event) => setIssueReason(event.target.value)}
-                          placeholder="Approved after final payout review."
+                          placeholder="Approved after final pay review."
                           className="mt-2"
                         />
                       </div>
@@ -960,8 +964,8 @@ export default function AdminPayoutsPage() {
                     ))}
                   </div>
                 ) : (
-                  <EmptyState title="No payout run yet">
-                    Generate a payout run after operators have submitted time for this period.
+                  <EmptyState title="No pay run yet">
+                    Generate a pay run after operators have submitted time for this period.
                   </EmptyState>
                 )}
               </div>
@@ -975,8 +979,8 @@ export default function AdminPayoutsPage() {
           <DialogHeader>
             <DialogTitle>{actionTitle}</DialogTitle>
             <DialogDescription>
-              This action writes an audit record and preserves a review snapshot before the payout
-              status changes.
+              This action writes an audit record and preserves a review snapshot before the pay run
+              changes state.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1008,7 +1012,7 @@ export default function AdminPayoutsPage() {
                       id="payout-override-reason"
                       value={overrideReason}
                       onChange={(event) => setOverrideReason(event.target.value)}
-                      placeholder="Document why the payout can proceed despite critical warnings."
+                      placeholder="Document why the pay run can proceed despite critical warnings."
                       className="mt-2"
                     />
                   </div>

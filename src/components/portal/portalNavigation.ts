@@ -56,7 +56,7 @@ export const portalDestinations: PortalDestination[] = [
     href: '/portal/time',
     label: 'Time',
     labelKey: 'portal.nav.time',
-    description: 'Submit assigned-machine shifts and review current payout-period time.',
+    description: 'Submit assigned-machine shifts and review current pay-period time.',
     descriptionKey: 'portal.nav.timeDescription',
     icon: Clock3,
     access: 'timekeeping',
@@ -105,7 +105,7 @@ export const portalDestinations: PortalDestination[] = [
     upsellCopyKey: 'portal.nav.reportingUpsell',
   },
   {
-    href: '/portal/refunds',
+    href: '/refunds',
     label: 'Refunds',
     labelKey: 'portal.nav.refunds',
     description: 'Review assigned customer refund cases, evidence, and follow-up.',
@@ -113,6 +113,7 @@ export const portalDestinations: PortalDestination[] = [
     icon: ReceiptText,
     access: 'refunds',
     mobileOrder: 7,
+    end: true,
   },
   {
     href: '/portal/training',

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { PortalLayout } from '@/components/portal/PortalLayout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -101,7 +101,7 @@ const customerMessageOptions: Array<{
   {
     value: 'completed',
     label: 'Completion note',
-    helper: 'Use after Bloomjoy completes the Nayax card refund or Zelle payment.',
+    helper: 'Use after Bloomjoy completes the card refund or Zelle refund.',
   },
 ];
 
@@ -248,7 +248,7 @@ const nayaxLookupNoticeClass = (tone: NayaxLookupNotice['tone']) =>
     tone === 'info' && 'border-sky-200 bg-white/80 text-sky-800'
   );
 
-const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'Zelle payment confirmation/reference';
+const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'Zelle refund confirmation/reference';
 
 const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) => {
   if (refundCase.status === 'waiting_on_customer') {
@@ -269,7 +269,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
 
   if (refundCase.decision === 'approved' && refundCase.status !== 'completed') {
     return refundCase.paymentMethod === 'card'
-      ? 'Confirm the refund amount, then run the guarded Nayax refund in Bloomjoy Hub.'
+      ? 'Confirm the refund amount, then refund the matched card payment.'
       : 'Send the Zelle refund, enter the Zelle confirmation/reference, then mark complete.';
   }
 
@@ -285,10 +285,10 @@ const taskLabel = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'completed') return 'Done';
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'Closed';
   if (refundCase.status === 'waiting_on_customer') return 'Needs customer info';
-  if (refundCase.status === 'card_refund_pending') return 'Nayax refund';
+  if (refundCase.status === 'card_refund_pending') return 'Card refund';
   if (refundCase.status === 'cash_zelle_pending') return 'Zelle refund';
   if (refundCase.status === 'approved') {
-    return refundCase.paymentMethod === 'card' ? 'Nayax refund' : 'Zelle refund';
+    return refundCase.paymentMethod === 'card' ? 'Card refund' : 'Zelle refund';
   }
   return 'Review needed';
 };
@@ -373,7 +373,7 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
     signals.push({ label: 'Waiting on customer', className: 'border-amber-200 bg-amber-50 text-amber-800' });
   }
   if (isReadyToPayCase(refundCase)) {
-    signals.push({ label: 'Ready to pay', className: 'border-sky-200 bg-sky-50 text-sky-700' });
+    signals.push({ label: 'Ready to refund', className: 'border-sky-200 bg-sky-50 text-sky-700' });
   }
   return signals.slice(0, 3);
 };
@@ -468,7 +468,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: Math.max(candidates.length, 1),
       summary: transactionMatchSummary(refundCase, toEditorState(refundCase), candidates),
-      recommendedAction: 'Confirm the refund amount, then run the guarded Nayax refund in Bloomjoy Hub.',
+      recommendedAction: 'Confirm the refund amount, then refund the matched card payment.',
     };
   }
 
@@ -689,7 +689,7 @@ const transactionMatchSummary = (
   }
 
   if (refundCase.correlationStatus === 'no_match') {
-    return 'No conservative cash sale match was found. Ask the customer for more detail before payout.';
+    return 'No conservative cash sale match was found. Ask the customer for more detail before refunding.';
   }
 
   return 'Cash transaction review is still in progress.';
@@ -759,8 +759,8 @@ const primaryActionConfig = (
   if (refundCase.paymentMethod === 'card') {
     if (editor.decision === 'approved' || editor.status === 'card_refund_pending' || refundCase.status === 'card_refund_pending') {
       return {
-        label: 'Run Nayax refund in Bloomjoy Hub',
-        helper: 'Confirm the refund amount, then attempt the guarded Nayax refund from this page. The customer is emailed only after a successful execution.',
+        label: 'Refund card payment',
+        helper: 'Confirm the refund amount, then attempt the card refund from this page. The customer is emailed only after a successful execution.',
         targetStatus: 'completed',
         targetDecision: 'approved',
         messageType: 'completed',
@@ -770,7 +770,7 @@ const primaryActionConfig = (
 
     return {
       label: 'Confirm this card sale',
-      helper: 'Confirm the card sale and send the approval email. The next step is guarded Nayax refund execution in Bloomjoy Hub.',
+      helper: 'Confirm the card sale and send the approval email. The next step is card refund execution in Bloomjoy Hub.',
       targetStatus: 'card_refund_pending',
       targetDecision: 'approved',
       messageType: 'approved',
@@ -791,7 +791,7 @@ const primaryActionConfig = (
 
   return {
     label: 'Approve cash refund',
-    helper: 'Approve the request and send the approval email. The next step is manual Zelle payout.',
+    helper: 'Approve the request and send the approval email. The next step is manual Zelle refund.',
     targetStatus: 'cash_zelle_pending',
     targetDecision: 'approved',
     messageType: 'approved',
@@ -891,7 +891,7 @@ const nayaxExecutionBlockLabel = (block: string) => {
     case 'configuration_missing':
       return 'Execution approval or configuration is missing.';
     case 'provider_contract_unconfirmed':
-      return 'Bloomjoy has not confirmed the live Nayax refund contract yet.';
+      return 'Bloomjoy has not confirmed the live card-refund contract yet.';
     case 'authorization_failed':
       return 'Your account is not authorized to run this card refund.';
     case 'already_refunded':
@@ -912,7 +912,7 @@ const formatNayaxExecutionBlockedMessage = (result: NayaxCardRefundExecutionResp
   if (result.error) return result.error;
   if (result.errorCode) return nayaxExecutionBlockLabel(result.errorCode);
   if (result.blocks?.length) return nayaxExecutionBlockLabel(result.blocks[0]);
-  return 'Nayax refund execution was blocked by Bloomjoy safety controls.';
+  return 'Card refund execution was blocked by Bloomjoy safety controls.';
 };
 
 const getNayaxExecutionReference = (result: NayaxCardRefundExecutionResponse) => {
@@ -1036,7 +1036,7 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
       selectedCase.status === 'card_refund_pending' &&
       selectedCase.refundAmountCents !== refundAmountCents
     ) {
-      issues.push('Card refund amount must be saved on the case before running the Nayax refund. Refresh the case or reconfirm the card sale first.');
+      issues.push('Card refund amount must be saved on the case before refunding the card payment. Refresh the case or reconfirm the card sale first.');
     }
 
     if (selectedCase.paymentMethod !== 'card' && !editor.manualRefundReference.trim()) {
@@ -1273,9 +1273,9 @@ export default function AdminRefundsPage() {
     if (isUsingDemoData) {
       setNayaxExecutionNotice({
         tone: 'info',
-        message: 'Demo mode shows the disabled Nayax refund controls only. Use seeded local UAT to test execution blockers and saves.',
+        message: 'Demo mode shows disabled card refund controls only. Use seeded local UAT to test execution blockers and saves.',
       });
-      toast.info('Demo cases are read-only. Seed local Supabase fixtures to test Nayax refund execution.');
+      toast.info('Demo cases are read-only. Seed local Supabase fixtures to test card refund execution.');
       return;
     }
 
@@ -1283,7 +1283,7 @@ export default function AdminRefundsPage() {
     if (!editor.refundAmount || refundAmountCents === null || refundAmountCents <= 0) {
       setNayaxExecutionNotice({
         tone: 'warning',
-        message: 'Enter a positive refund amount before running the Nayax refund.',
+        message: 'Enter a positive refund amount before refunding the card payment.',
       });
       return;
     }
@@ -1315,7 +1315,7 @@ export default function AdminRefundsPage() {
           tone: 'warning',
           message: formatNayaxExecutionBlockedMessage(result),
         });
-        toast.error('Nayax refund was blocked by safety controls. The case was not completed.');
+        toast.error('Card refund was blocked by safety controls. The case was not completed.');
         return;
       }
 
@@ -1333,12 +1333,12 @@ export default function AdminRefundsPage() {
         ? formatNayaxExecutionBlockedMessage(response)
         : executionError instanceof Error
           ? executionError.message
-          : 'Nayax refund execution was blocked or could not be prepared.';
+          : 'Card refund execution was blocked or could not be prepared.';
       setNayaxExecutionNotice({
         tone: 'warning',
         message,
       });
-      toast.error('Nayax refund was not completed. The customer was not contacted.');
+      toast.error('Card refund was not completed. The customer was not contacted.');
     } finally {
       setIsRunningNayaxRefund(false);
     }
@@ -1701,11 +1701,11 @@ export default function AdminRefundsPage() {
   const primaryActionIsCompletion = primaryAction?.targetStatus === 'completed';
   const isCardCompletion = primaryActionIsCompletion && selectedCase?.paymentMethod === 'card';
   const completionProvider = 'Zelle';
-  const completionActionName = selectedCase?.paymentMethod === 'card' ? 'Nayax refund' : 'Zelle payment';
+  const completionActionName = selectedCase?.paymentMethod === 'card' ? 'card refund' : 'Zelle refund';
   const completionOutsideAction =
     selectedCase?.paymentMethod === 'card'
-      ? 'run the guarded refund in Bloomjoy Hub'
-      : 'send the Zelle payment';
+      ? 'refund the card payment in Bloomjoy Hub'
+      : 'send the Zelle refund';
   const customerUpdateStep = isCardCompletion ? 5 : 4;
   const historyStep = isCardCompletion ? 6 : 5;
   const matchedCardSaleAmountCents =
@@ -1714,7 +1714,7 @@ export default function AdminRefundsPage() {
       : null;
 
   return (
-    <PortalLayout>
+    <AppLayout>
       <section className="section-padding">
         <div className="container-page">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -1726,7 +1726,7 @@ export default function AdminRefundsPage() {
                 Refund Review Queue
               </h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                Review assigned refund requests, confirm the transaction, and run the guarded refund workflow.
+                Review assigned refund requests, confirm the transaction, and complete the refund workflow.
               </p>
             </div>
             <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || isUsingDemoData}>
@@ -1745,7 +1745,7 @@ export default function AdminRefundsPage() {
               <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.needsAction}</p>
             </div>
             <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Ready to pay</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Ready to refund</p>
               <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.readyToPay}</p>
             </div>
             <div className="rounded-lg border border-border bg-card p-3">
@@ -1791,7 +1791,7 @@ export default function AdminRefundsPage() {
             >
               <option value="needs_action">Needs action</option>
               <option value="waiting_on_customer">Waiting on customer</option>
-              <option value="ready_to_pay">Ready to pay</option>
+              <option value="ready_to_pay">Ready to refund</option>
               <option value="blocked">Blocked / failed</option>
               <option value="completed">Completed</option>
               <option value="all">All cases</option>
@@ -2007,7 +2007,7 @@ export default function AdminRefundsPage() {
                           </p>
                           <p className="mt-1 text-lg font-semibold text-foreground">
                             {isCardCompletion
-                              ? 'Run Nayax refund in Bloomjoy Hub'
+                              ? 'Refund card payment'
                               : primaryActionIsCompletion
                                 ? `Record ${completionActionName} completion`
                                 : primaryAction?.label ?? 'Review case'}
@@ -2015,7 +2015,7 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 text-muted-foreground">
                             {primaryActionIsCompletion
                               ? isCardCompletion
-                                ? 'Step 2 confirms the sale match. Confirm the amount in Step 3, then run the guarded refund in Step 4.'
+                                ? 'Step 2 confirms the sale match. Confirm the amount in Step 3, then refund the card payment in Step 4.'
                                 : `Step 2 only confirms the sale match. After you ${completionOutsideAction}, enter the confirmation in Step 3.`
                               : primaryAction?.helper ?? getSuggestedNextAction(selectedCase, nayaxCandidates)}
                           </p>
@@ -2086,7 +2086,7 @@ export default function AdminRefundsPage() {
                             Refund path
                           </p>
                           <p className="mt-1 capitalize text-foreground">
-                            {selectedCase.paymentMethod === 'cash' ? 'Cash refund by Zelle' : 'Card refund by Nayax'}
+                            {selectedCase.paymentMethod === 'cash' ? 'Cash refund by Zelle' : 'Card refund via Nayax'}
                           </p>
                           {selectedCase.paymentMethod === 'cash' && (
                             <p className="mt-1 break-words text-muted-foreground">
@@ -2202,7 +2202,7 @@ export default function AdminRefundsPage() {
                         title={isCardCompletion ? 'Confirm refund amount' : primaryActionIsCompletion ? `Record ${completionActionName} completion` : 'Decision'}
                       >
                         {isCardCompletion
-                          ? 'Confirm the requested amount against the matched sale before running the in-app Nayax refund.'
+                          ? 'Confirm the requested amount against the matched sale before refunding the card payment.'
                           : primaryActionIsCompletion
                             ? `Use this step after you ${completionOutsideAction}.`
                           : 'Use the recommended action. Customer email sends with the action when a message is required.'}
@@ -2253,10 +2253,10 @@ export default function AdminRefundsPage() {
                         <div data-testid="refund-completion-panel" className="grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
                           <div className="rounded-md border border-primary/20 bg-background p-3 text-sm text-muted-foreground">
                             <p className="font-medium text-foreground">
-                              Record the Zelle payment after sending it.
+                              Record the Zelle refund after sending it.
                             </p>
                             <ol className="mt-2 list-decimal space-y-1 pl-5">
-                              <li>Send the Zelle payment to the customer.</li>
+                              <li>Send the Zelle refund to the customer.</li>
                               <li>Paste the confirmation/reference below.</li>
                               <li>Save to complete the case and email the customer.</li>
                             </ol>
@@ -2419,8 +2419,8 @@ export default function AdminRefundsPage() {
 
                       {isCardCompletion && (
                         <div data-testid="refund-card-execution-panel" className="space-y-3 rounded-lg border border-border bg-background p-4">
-                          <StepHeader step={4} title="Run Nayax refund in Bloomjoy Hub">
-                            Bloomjoy attempts the guarded card refund here. If safety controls block execution, the case stays open and the customer is not emailed.
+                          <StepHeader step={4} title="Refund card payment">
+                            Bloomjoy attempts the card refund here through guarded backend controls. If safety controls block execution, the case stays open and the customer is not emailed.
                           </StepHeader>
                           <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2450,7 +2450,7 @@ export default function AdminRefundsPage() {
                                 ) : (
                                   <CheckCircle2 className="mr-2 h-4 w-4" />
                                 )}
-                                Run Nayax refund
+                                Refund card payment
                               </Button>
                             </div>
                             {isUsingDemoData && (
@@ -2778,6 +2778,6 @@ export default function AdminRefundsPage() {
           </div>
         </div>
       </section>
-    </PortalLayout>
+    </AppLayout>
   );
 }

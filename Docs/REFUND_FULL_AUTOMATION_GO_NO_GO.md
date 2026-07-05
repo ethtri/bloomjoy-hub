@@ -75,7 +75,7 @@ Set or verify these server-only Supabase secrets by name only; do not paste valu
 ## Post-Deploy Smoke
 Use sanitized evidence only:
 - Public `/refunds/request` loads production-enabled refund machines only.
-- Manager can open `/portal/refunds` and update a synthetic or approved shadow case.
+- Manager can open `/refunds` and update a synthetic or approved shadow case.
 - `refund-case-admin-update` logs a customer message row without exposing payment/provider payloads.
 - `nayax-card-refund` remains blocked by default flags and records only sanitized attempt metadata.
 - Duplicate Google/AppSheet rows remain review-only when they collide with hosted refund cases.

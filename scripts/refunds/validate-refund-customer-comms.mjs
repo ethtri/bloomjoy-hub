@@ -49,7 +49,7 @@ const run = async () => {
       'runCustomerCommsFailureChecks',
       'refund-case-message-send',
       'nayax-card-refund',
-      'Successful guarded Nayax execution completes case through admin update',
+      'Successful guarded card refund execution completes case through admin update',
       'messageType ===',
       'customer was not contacted',
     ])

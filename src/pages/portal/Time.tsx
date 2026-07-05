@@ -445,7 +445,7 @@ export default function PortalTimePage() {
 
     if (
       window.confirm(
-        `Delete this submitted time entry?\n\n${shiftSummary}\n\nIt will be removed from this payout period.`
+        `Delete this submitted time entry?\n\n${shiftSummary}\n\nIt will be removed from this pay period.`
       )
     ) {
       deleteMutation.mutate(entry.id);
@@ -550,10 +550,10 @@ export default function PortalTimePage() {
               <div className="mx-auto max-w-xl text-center">
                 <Clock3 className="mx-auto h-10 w-10 text-muted-foreground" />
                 <h2 className="mt-4 text-xl font-semibold text-foreground">
-                  No operator payout profile yet
+                  No operator pay profile yet
                 </h2>
                 <p className="mt-2 text-pretty text-sm text-muted-foreground">
-                  Ask a Bloomjoy admin or machine manager to add your operator payout profile and
+                  Ask a Bloomjoy admin or machine manager to add your operator pay profile and
                   assigned machines before submitting time.
                 </p>
               </div>
@@ -840,7 +840,7 @@ export default function PortalTimePage() {
 
                     <TimeEntriesPanel
                       title="Past Shifts"
-                      description="Earlier payout periods only."
+                      description="Earlier pay periods only."
                       entries={pastEntries}
                       emptyMessage="No past shifts yet."
                       onEdit={startEditing}
@@ -884,7 +884,7 @@ function PayStatementsPanel({
           <div>
             <h2 className="text-balance text-lg font-semibold text-foreground">Pay Statements</h2>
             <p className="mt-1 text-pretty text-sm text-muted-foreground">
-              Download issued pay statements for finalized payout periods.
+              Download issued pay statements for finalized pay periods.
             </p>
           </div>
         </div>
@@ -926,7 +926,7 @@ function PayStatementsPanel({
                       {formatDate(statement.periodEndDate)}
                     </span>
                     <span>Issued {formatDate(statement.issuedAt)}</span>
-                    <span>Target payout {formatDate(statement.targetPayoutDate)}</span>
+                    <span>Target pay date {formatDate(statement.targetPayoutDate)}</span>
                     <span className="font-semibold tabular-nums text-foreground">
                       {formatCurrency(statement.totalPayoutCents)}
                     </span>
@@ -1003,9 +1003,9 @@ function ValidationPanel({
 }) {
   const messages = [
     hasInvalidTimes ? 'End time must be after start time.' : null,
-    !isWorkDateInCurrentPeriod ? 'Work date must stay inside the current payout period.' : null,
+    !isWorkDateInCurrentPeriod ? 'Work date must stay inside the current pay period.' : null,
     !hasSelectedMachine ? 'Select an assigned machine that is active for this work date.' : null,
-    !isPeriodEditable ? 'This payout period is locked for operator edits.' : null,
+    !isPeriodEditable ? 'This pay period is locked for operator edits.' : null,
     exactDuplicate ? 'This looks like a duplicate of an existing shift.' : null,
     overlappingEntries.length > 0
       ? `This shift overlaps ${overlappingEntries.length} existing entr${
