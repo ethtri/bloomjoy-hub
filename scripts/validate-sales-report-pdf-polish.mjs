@@ -4,6 +4,9 @@ const files = {
   sharedBuilder: 'supabase/functions/_shared/sales-report-pdf.ts',
   exportFunction: 'supabase/functions/sales-report-export/index.ts',
   reportingClient: 'src/lib/reporting.ts',
+  signedExportWindow: 'src/lib/signedExportWindow.ts',
+  portalReports: 'src/pages/portal/Reports.tsx',
+  adminReporting: 'src/pages/admin/Reporting.tsx',
   smokeChecklist: 'Docs/QA_SMOKE_TEST_CHECKLIST.md',
 };
 
@@ -17,6 +20,9 @@ const assert = (condition, message) => {
 const sharedBuilder = read(files.sharedBuilder);
 const exportFunction = read(files.exportFunction);
 const reportingClient = read(files.reportingClient);
+const signedExportWindow = read(files.signedExportWindow);
+const portalReports = read(files.portalReports);
+const adminReporting = read(files.adminReporting);
 const smokeChecklist = read(files.smokeChecklist);
 
 assert(
@@ -59,6 +65,27 @@ assert(
     reportingClient.includes('response.pdfGeneratorVersion !== expectedSalesReportPdfGeneratorVersion') &&
     reportingClient.includes('outdated PDF generator'),
   'Portal report exports must block stale sales-report-export responses instead of opening them.',
+);
+
+assert(
+  signedExportWindow.includes("window.open('about:blank', '_blank')") &&
+    signedExportWindow.includes('target.location.href = signedUrl') &&
+    signedExportWindow.includes('window.location.assign(signedUrl)'),
+  'Report exports must reserve a browser window before async signed URL work.',
+);
+
+assert(
+  portalReports.includes('reserveSignedExportWindow()') &&
+    portalReports.includes('openSignedExportUrl(exportResult.signedUrl, exportWindow)') &&
+    portalReports.includes('closeReservedSignedExportWindow(exportWindow)'),
+  'Portal report exports must use the reserved signed export window helper.',
+);
+
+assert(
+  adminReporting.includes('reserveSignedExportWindow()') &&
+    adminReporting.includes('openSignedExportUrl(signedUrl, exportWindow)') &&
+    adminReporting.includes('closeReservedSignedExportWindow(exportWindow)'),
+  'Admin report artifact exports must use the reserved signed export window helper.',
 );
 
 assert(

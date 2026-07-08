@@ -48,6 +48,11 @@ import {
   type ReportingMachineType,
 } from '@/lib/reporting';
 import { trackEvent } from '@/lib/analytics';
+import {
+  closeReservedSignedExportWindow,
+  openSignedExportUrl,
+  reserveSignedExportWindow,
+} from '@/lib/signedExportWindow';
 import { formatLabel, machineTypes } from '@/pages/admin/reportingSetupUi';
 
 const sunzeStaleHours = 30;
@@ -1332,12 +1337,14 @@ function ExportsTab({ snapshots }: { snapshots: AdminReportViewSnapshot[] }) {
     artifact: AdminReportExportArtifact
   ) => {
     const artifactKey = `${snapshot.id}:${artifact.storagePath}`;
+    const exportWindow = reserveSignedExportWindow();
     setOpeningArtifactKey(artifactKey);
 
     try {
       const signedUrl = await createReportExportSignedUrl(artifact.storagePath);
-      window.open(signedUrl, '_blank', 'noopener,noreferrer');
+      openSignedExportUrl(signedUrl, exportWindow);
     } catch (error) {
+      closeReservedSignedExportWindow(exportWindow);
       toast.error(error instanceof Error ? error.message : 'Unable to open report export.');
     } finally {
       setOpeningArtifactKey(null);
