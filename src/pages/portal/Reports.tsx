@@ -88,6 +88,11 @@ import {
   type PartnerDashboardTotals,
 } from '@/lib/partnerDashboardReporting';
 import type { TranslationKey } from '@/lib/i18n';
+import {
+  closeReservedSignedExportWindow,
+  openSignedExportUrl,
+  reserveSignedExportWindow,
+} from '@/lib/signedExportWindow';
 import { cn } from '@/lib/utils';
 
 type ReportingView = 'operator' | 'partner';
@@ -773,6 +778,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
   };
 
   const exportPdf = async () => {
+    const exportWindow = reserveSignedExportWindow();
     setIsExporting(true);
     try {
       const exportResult = await exportSalesReportPdf({
@@ -780,8 +786,9 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
         title: 'Bloomjoy Operator Sales Report',
       });
       toast.success('Polished operator report PDF is ready.');
-      window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
+      openSignedExportUrl(exportResult.signedUrl, exportWindow);
     } catch (exportError) {
+      closeReservedSignedExportWindow(exportWindow);
       toast.error(exportError instanceof Error ? exportError.message : 'Unable to export report.');
     } finally {
       setIsExporting(false);
@@ -1477,6 +1484,7 @@ function PartnerDashboardView() {
       return;
     }
 
+    const exportWindow = reserveSignedExportWindow();
     setExportingPartnerFormat(format);
     try {
       const exportPeriodLabel = currentPeriod
@@ -1492,7 +1500,7 @@ function PartnerDashboardView() {
         format,
         machineIds: scopedMachineIds,
       });
-      window.open(exportResult.signedUrl, '_blank', 'noopener,noreferrer');
+      openSignedExportUrl(exportResult.signedUrl, exportWindow);
       const exportFormatLabel =
         format === 'pdf' ? 'PDF' : format === 'xlsx' ? 'Excel workbook' : 'CSV';
       const machineScopeLabel = selectedMachineLabel ? ` for ${selectedMachineLabel}` : '';
@@ -1500,6 +1508,7 @@ function PartnerDashboardView() {
         `${trendLabel} partner ${exportFormatLabel} generated${machineScopeLabel} for ${exportPeriodLabel}.`
       );
     } catch (error) {
+      closeReservedSignedExportWindow(exportWindow);
       toast.error(error instanceof Error ? error.message : 'Unable to export partner report.');
     } finally {
       setExportingPartnerFormat(null);
