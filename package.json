@@ -8,6 +8,7 @@
     "dev:uat": "vite --host 127.0.0.1 --port 8081 --strictPort",
     "build": "vite build && node scripts/prerender-public-routes.mjs",
     "build:dev": "vite build --mode development && node scripts/prerender-public-routes.mjs",
+    "test": "node scripts/validate-sales-report-pdf-polish.mjs",
     "seo:check": "node scripts/seo-regression-check.mjs",
     "security:validate-public-intake": "node scripts/validate-public-intake-anti-abuse.mjs",
     "auth:preflight": "node scripts/auth-preflight.mjs",

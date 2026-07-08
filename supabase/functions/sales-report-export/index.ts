@@ -5,6 +5,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   buildSalesReportReference,
   buildSalesReportPdf,
+  SALES_REPORT_PDF_GENERATOR_VERSION,
   summarizeSalesReportPdfRows,
   type SalesReportPdfRow,
 } from "../_shared/sales-report-pdf.ts";
@@ -282,6 +283,7 @@ serve(async (req) => {
       snapshotId: snapshot.id,
       storagePath,
       signedUrl: signedUrlData.signedUrl,
+      pdfGeneratorVersion: SALES_REPORT_PDF_GENERATOR_VERSION,
       rowCount: rows.length,
     });
   } catch (error) {

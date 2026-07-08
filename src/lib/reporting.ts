@@ -338,9 +338,11 @@ type ExportSalesReportResponse = {
   snapshotId: string;
   storagePath: string;
   signedUrl: string;
+  pdfGeneratorVersion?: string;
   rowCount?: number;
 };
 
+const expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/polished-v1';
 const reportExportBucket = 'sales-report-exports';
 
 const exportFormatOrder: Record<AdminReportExportFormat, number> = {
@@ -690,8 +692,8 @@ export const fetchSalesReport = async (filters: SalesReportFilters): Promise<Sal
 
 export const exportSalesReportPdf = async (
   filters: SalesReportFilters & { title?: string }
-): Promise<ExportSalesReportResponse> =>
-  invokeEdgeFunction<ExportSalesReportResponse>(
+): Promise<ExportSalesReportResponse> => {
+  const response = await invokeEdgeFunction<ExportSalesReportResponse>(
     'sales-report-export',
     { filters },
     {
@@ -699,6 +701,15 @@ export const exportSalesReportPdf = async (
       authErrorMessage: 'Log in to export sales reports.',
     }
   );
+
+  if (response.pdfGeneratorVersion !== expectedSalesReportPdfGeneratorVersion) {
+    throw new Error(
+      'Operator report export is running an outdated PDF generator. Redeploy the sales-report-export Edge Function before sharing this report.'
+    );
+  }
+
+  return response;
+};
 
 export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverview> => {
   const [
