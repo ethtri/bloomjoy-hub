@@ -46,6 +46,7 @@ const requiredFiles = [
   "scripts/agent-preflight.mjs",
   "scripts/agent-context.mjs",
   "scripts/agent-github-hygiene.mjs",
+  "scripts/agent-worktree-hygiene.mjs",
   "scripts/agent-merge-gate.mjs",
   "scripts/validate-agent-workflow.mjs",
 ];
@@ -94,6 +95,7 @@ if (exists("package.json")) {
   assert(pkg.scripts?.["agent:preflight"], "package.json must include agent:preflight.");
   assert(pkg.scripts?.["agent:context"], "package.json must include agent:context.");
   assert(pkg.scripts?.["agent:github-hygiene"], "package.json must include agent:github-hygiene.");
+  assert(pkg.scripts?.["agent:worktree-hygiene"], "package.json must include agent:worktree-hygiene.");
   assert(pkg.scripts?.["agent:merge-gate"], "package.json must include agent:merge-gate.");
   assert(pkg.scripts?.["agent:validate-workflow"], "package.json must include agent:validate-workflow.");
 }
@@ -108,7 +110,7 @@ for (const file of [".github/ISSUE_TEMPLATE/feature_task.yml", ".github/ISSUE_TE
   const source = read(file);
   assert(/^name:/m.test(source), `${file} must define name.`);
   assert(/^body:/m.test(source), `${file} must define body.`);
-  assert(/Owner approval triggers/.test(source), `${file} must include owner approval triggers.`);
+  assert(/Executive decision and risk triggers/.test(source), `${file} must include executive decision and risk triggers.`);
   assert(/Sensitive data warning/.test(source), `${file} must include sensitive data warning.`);
   assert(/Expected verification/.test(source), `${file} must include expected verification.`);
 }
@@ -123,6 +125,7 @@ const hygieneDocs = [
   "AGENTS.md",
   "Docs/LOCAL_DEV.md",
   "Docs/AI_WORKFLOW.md",
+  "Docs/AGENT_SPRINT_WORKFLOW.md",
   ".agents/skills/bloomjoy-agent-workflow/SKILL.md",
 ];
 
@@ -130,6 +133,23 @@ for (const file of hygieneDocs) {
   if (!exists(file)) continue;
   const source = read(file);
   assert(/agent:github-hygiene/.test(source), `${file} must mention npm run agent:github-hygiene.`);
+  assert(/agent:worktree-hygiene/.test(source), `${file} must mention npm run agent:worktree-hygiene.`);
+}
+
+const mergeAutonomyDocs = [
+  "AGENTS.md",
+  "Docs/AI_WORKFLOW.md",
+  "Docs/LOCAL_DEV.md",
+  "Docs/AGENT_SPRINT_WORKFLOW.md",
+  ".agents/skills/bloomjoy-agent-workflow/SKILL.md",
+  ".github/PULL_REQUEST_TEMPLATE.md",
+];
+
+for (const file of mergeAutonomyDocs) {
+  if (!exists(file)) continue;
+  const source = read(file);
+  assert(/executive decision/i.test(source), `${file} must reserve owner approval for executive decisions.`);
+  assert(/proactive/i.test(source), `${file} must describe proactive PR closeout or merge responsibility.`);
 }
 
 const workflowDocs = [

@@ -36,9 +36,11 @@ Repeatable PM/PO orchestration for Bloomjoy Hub agent sprints.
 - If a shared foundation PR merges, sync dependent branches from `main` and rerun verification before marking them ready.
 - Before any agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>` and record the result in the PR.
 - Merge in dependency order: foundations first, then feature slices, then QA/docs closeout.
+- When a PR already exists, proactively test, review, merge, and clean it up when the gate passes. Do not wait for Ethan approval unless an executive decision is genuinely needed.
 
 ## 5. Blockers
 - Treat external-account work, production credentials, owner product decisions, missing secrets, and ambiguous go/no-go calls as blockers.
+- Use `needs-owner-decision` only for true executive decision blockers, not routine review confidence or merge readiness.
 - Record blockers in the issue or PR. Update `Docs/CURRENT_STATUS.md` only for compact launch-level blockers or cross-cutting context that should outlive one issue.
 - Park stale or blocked branches as issues instead of leaving broad draft PRs open.
 - Do not invent new platforms, CMS, commerce providers, or workflow infrastructure without a `Docs/DECISIONS.md` entry.
@@ -58,12 +60,15 @@ PR body must include:
 - Verification commands and exact results: `npm ci`, `npm run agent:preflight -- --issue <number>`, `npm run build`, `npm test --if-present`, `npm run lint --if-present`, and `git diff --check`; include `npm run agent:validate-workflow` for workflow/template/config/skill changes and route-specific checks when relevant.
 - How to test: localhost steps, key URLs, and any non-secret test credentials or persona notes.
 - Risk/overlap notes: open PRs, shared files, blockers, rollback if high risk.
-- Merge autonomy: Green, Yellow, or Red lane; owner approval status; merge-gate result before agent merge.
+- Merge autonomy: Green, Yellow, or Red lane; executive decision status; merge-gate result before agent merge.
+- Independent review / QA evidence for high-risk technical, UAT-required, or stale PR closeout work.
 - UI/design evidence for visible UI changes.
 
 ## 8. Sprint Closeout
 - Confirm all implementation, QA challenge, and docs closeout PRs are merged or intentionally parked.
 - Update issues and project board status.
+- Run `npm run agent:github-hygiene` and `npm run agent:worktree-hygiene` for broad closeout sweeps.
+- Remove clean merged/closed worktrees and prune local branches after confirming no uncommitted work remains.
 - Close superseded PRs only when the replacement evidence is clear.
 - Update `Docs/CURRENT_STATUS.md` only for compact launch-level changes or blockers that should survive beyond one issue.
 - Update `Docs/QA_SMOKE_TEST_CHECKLIST.md` when a new user-facing flow exists.

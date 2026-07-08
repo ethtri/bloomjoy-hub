@@ -15,14 +15,9 @@ const failOnFindings = Boolean(args["fail-on-findings"]);
 const now = new Date();
 
 const priorityLabels = ["P0", "P1", "P2", "P3"];
-const redLabels = new Set([
-  "blocked",
-  "blocked-external",
-  "needs-owner-decision",
-  "risky-auth-payment",
-  "risky-db-change",
-  "uat-required",
-]);
+const executiveDecisionLabels = new Set(["blocked-external", "needs-owner-decision"]);
+const unresolvedBlockerLabels = new Set(["blocked"]);
+const technicalRiskLabels = new Set(["risky-auth-payment", "risky-db-change", "uat-required"]);
 const blockerLabels = new Set(["blocked", "blocked-external", "needs-owner-decision", "parked"]);
 
 function parseArgs(argv) {
@@ -157,14 +152,18 @@ function prAttentionReasons(pr, issuesByNumber) {
   const reasons = [];
   const linkedIssues = linkedIssueNumbers(pr.body);
   const labels = collectPrLabels(pr, issuesByNumber);
-  const red = labels.filter((label) => redLabels.has(label));
+  const executive = labels.filter((label) => executiveDecisionLabels.has(label));
+  const unresolved = labels.filter((label) => unresolvedBlockerLabels.has(label));
+  const technicalRisk = labels.filter((label) => technicalRiskLabels.has(label));
   const age = daysSince(pr.updatedAt);
 
   if (!linkedIssues.length) reasons.push("no linked issue in PR body");
   if (pr.isDraft) reasons.push("draft");
   if (pr.baseRefName !== "main") reasons.push(`targets ${pr.baseRefName}, not main`);
   if (!["CLEAN", "HAS_HOOKS"].includes(pr.mergeStateStatus)) reasons.push(`merge state ${pr.mergeStateStatus}`);
-  if (red.length) reasons.push(`red-lane labels: ${red.join(", ")}`);
+  if (executive.length) reasons.push(`executive decision labels: ${executive.join(", ")}`);
+  if (unresolved.length) reasons.push(`unresolved blocker labels: ${unresolved.join(", ")}`);
+  if (technicalRisk.length) reasons.push(`technical-risk labels need review evidence: ${technicalRisk.join(", ")}`);
   if (age >= prDays) reasons.push(`${age}d since PR update`);
 
   return {
@@ -285,7 +284,7 @@ const priorityCounts = Object.fromEntries(
   priorityLabels.map((label) => [label, issues.filter((issue) => hasLabel(issue, label)).length]),
 );
 const riskCounts = Object.fromEntries(
-  [...redLabels, "parked", "ui-change", "docs-only"].map((label) => [
+  [...executiveDecisionLabels, ...unresolvedBlockerLabels, ...technicalRiskLabels, "parked", "ui-change", "docs-only"].map((label) => [
     label,
     issues.filter((issue) => hasLabel(issue, label)).length,
   ]),
@@ -424,7 +423,7 @@ if (outputJson) {
   lines.push("1. Add missing open issues to the Bloomjoy Project board.");
   lines.push("2. Move blocked or parked work out of active In Progress unless an agent is actively unblocking it.");
   lines.push("3. Add short status comments to stale P0/P1 issues, especially owner/blocker items.");
-  lines.push("4. Close, park, or rebuild stale PRs after merge-gate and owner-approval rules are applied.");
+  lines.push("4. Close, park, rebuild, or agent-merge stale PRs after merge-gate and executive-decision rules are applied.");
   lines.push("5. Keep task chronology in issue/PR comments; update repo docs only for durable decisions or compact launch snapshots.");
   lines.push("");
 

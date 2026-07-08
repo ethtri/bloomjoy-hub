@@ -8,7 +8,7 @@ This repo is operated primarily through AI coding agents. The owner is not expec
 - Use `npm run agent:context -- --issue <number>` to gather compact issue, board, PR, docs, and verification context.
 - Convert vague ideas, parked work, or exploratory branches into issues instead of leaving long-lived draft PRs.
 - Use the GitHub issue and PR templates as the source of truth for active scope, risk, verification, UAT steps, screenshots, rollback, and closeout evidence.
-- Ask the owner only for product judgment, external-account actions, final high-risk UAT, or ambiguous go/no-go decisions.
+- Ask the owner only for executive decision work: product judgment, external-account actions, legal/brand/account commitments, secrets, production go/no-go, or genuinely ambiguous acceptance.
 - For repeatable PM/PO sprint orchestration with subagent execution and QA challenge lanes, use `Docs/AGENT_SPRINT_WORKFLOW.md`.
 
 ## Risk levels
@@ -28,24 +28,26 @@ This repo is operated primarily through AI coding agents. The owner is not expec
 - For high-risk changes, include an explicit rollback plan and independent AI review evidence.
 
 Use an independent AI reviewer or delegated subagent for high-risk review when the current agent environment allows it. If not available, perform a separate review pass and record what was checked.
+When a PR already exists, proactively drive it through testing, review, merge, and cleanup instead of waiting for Ethan approval. Owner approval is reserved for executive decision blockers, not routine code review or technical confidence.
 
 ## Owner involvement
 - Green lane: no owner involvement unless wording or product direction is unclear.
-- Yellow lane: owner UAT is optional; agents provide the extra preview, browser, overlap, or performance evidence that matches the change.
-- Red lane: owner UAT, explicit owner direction, or go/no-go confirmation is required before merge or production rollout.
+- Yellow lane: owner UAT is optional; agents provide the extra preview, browser, overlap, independent-review, or performance evidence that matches the change.
+- Red lane: only executive decision labels or unresolved external blockers require owner direction before merge or production rollout.
 
 The owner should not need to inspect code diffs to make routine decisions. PRs should present enough evidence for a product-level go/no-go.
 
 See `Docs/UAT_PERSONA_PLAYBOOK.md` for the persona-based checklist agents should use before asking the owner for UAT.
 
-Before any agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>`. The gate blocks red-lane labels and unready PRs; it is evidence for merge readiness, not a replacement for required owner direction.
+Before any agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>`. The gate blocks executive-decision labels, unresolved blockers, and unready PRs; it is evidence for merge readiness, not a replacement for required owner direction when a true executive decision exists.
 
 ## Weekly hygiene
 Agents should periodically:
 - run `npm run agent:github-hygiene` and use the report as the starting point;
-- list stale PRs and recommend close, merge, park, or rebuild;
-- close/supersede stale PRs after owner approval when needed;
-- prune branches and worktrees only after confirming no uncommitted work remains;
+- run `npm run agent:worktree-hygiene` before local cleanup sweeps;
+- list stale PRs and proactively close, merge, park, or rebuild according to merge-gate evidence;
+- close/supersede stale PRs without owner approval when replacement evidence is clear and no executive decision is needed;
+- prune branches and worktrees after confirming no uncommitted work remains;
 - ensure GitHub issues, labels, and the project board reflect the actual work queue;
 - keep `Docs/CURRENT_STATUS.md` limited to compact launch-level snapshots and cross-cutting blockers.
 

@@ -5,19 +5,17 @@ const args = parseArgs(process.argv.slice(2));
 const prNumber = args.pr || process.env.AGENT_PR || "";
 const repo = args.repo || process.env.AGENT_REPO || "ethtri/bloomjoy-hub";
 
-const redLabels = new Set([
-  "blocked",
-  "blocked-external",
-  "needs-owner-decision",
-  "risky-auth-payment",
-  "risky-db-change",
-  "uat-required",
-]);
+const executiveDecisionLabels = new Set(["blocked-external", "needs-owner-decision"]);
+const unresolvedBlockerLabels = new Set(["blocked"]);
+const highRiskTechnicalLabels = new Set(["risky-auth-payment", "risky-db-change"]);
+const uatEvidenceLabels = new Set(["uat-required"]);
 
 const yellowLabels = new Set([
   "P0",
   "P1",
   "ui-change",
+  ...highRiskTechnicalLabels,
+  ...uatEvidenceLabels,
 ]);
 
 const passingConclusions = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
@@ -146,15 +144,19 @@ function claimedLane(body) {
   return match?.[1]?.toLowerCase() ?? "";
 }
 
-function ownerApprovalRequired(body) {
+function executiveDecisionRequired(body) {
   const autonomy = sectionText(body, "Merge Autonomy");
-  return /owner approval\s*:\s*required/i.test(autonomy);
+  return /(?:owner approval|executive decision)\s*:\s*required/i.test(autonomy);
 }
 
 function laneFromLabels(labels) {
-  if (labels.some((label) => redLabels.has(label))) return "red";
+  if (labels.some((label) => executiveDecisionLabels.has(label) || unresolvedBlockerLabels.has(label))) return "red";
   if (labels.some((label) => yellowLabels.has(label))) return "yellow";
   return "green";
+}
+
+function labelsIn(labels, labelSet) {
+  return labels.filter((label) => labelSet.has(label));
 }
 
 function summarize(labels, lane) {
@@ -190,7 +192,17 @@ const linkedIssues = linkedIssueNumbers(pr.body);
 const verification = sectionText(pr.body, "Verification");
 const risk = sectionText(pr.body, "Risk And Overlap") || sectionText(pr.body, "Risk and overlap");
 const designEvidence = sectionText(pr.body, "UI / Design Evidence");
+const reviewEvidence =
+  sectionText(pr.body, "Independent Review / QA Evidence") ||
+  sectionText(pr.body, "Independent Review") ||
+  sectionText(pr.body, "Review / QA Evidence");
+const howToTest = sectionText(pr.body, "How To Test Locally") || sectionText(pr.body, "How To Test");
 const autonomy = sectionText(pr.body, "Merge Autonomy");
+const executiveLabels = labelsIn(labels, executiveDecisionLabels);
+const unresolvedBlockerLabelHits = labelsIn(labels, unresolvedBlockerLabels);
+const highRiskTechnicalLabelHits = labelsIn(labels, highRiskTechnicalLabels);
+const uatEvidenceLabelHits = labelsIn(labels, uatEvidenceLabels);
+const isDependabot = pr.headRefName?.startsWith("dependabot/");
 
 summarize(labels, inferredLane);
 
@@ -205,13 +217,17 @@ if (!["CLEAN", "HAS_HOOKS"].includes(pr.mergeStateStatus)) {
 
 checkStatusRollup(pr.statusCheckRollup);
 
-if (!linkedIssues.length) failures.push("PR body does not link a GitHub issue.");
+if (!linkedIssues.length && !isDependabot) failures.push("PR body does not link a GitHub issue.");
 if (!isSubstantive(verification)) failures.push("PR body needs substantive verification results.");
 if (!isSubstantive(risk)) failures.push("PR body needs a substantive Risk And Overlap section.");
 if (!isSubstantive(autonomy)) failures.push("PR body needs a substantive Merge Autonomy section.");
 
-if (inferredLane === "red") {
-  failures.push("Red-lane labels are present. Owner approval is required; do not agent-merge.");
+if (executiveLabels.length) {
+  failures.push(`Executive decision label(s) present: ${executiveLabels.join(", ")}. Owner direction is required; do not agent-merge.`);
+}
+
+if (unresolvedBlockerLabelHits.length) {
+  failures.push(`Unresolved blocker label(s) present: ${unresolvedBlockerLabelHits.join(", ")}. Remove the blocker or document resolution before merge.`);
 }
 
 if (!laneClaim) {
@@ -219,19 +235,33 @@ if (!laneClaim) {
 } else if (inferredLane === "yellow" && laneClaim === "green") {
   failures.push("PR claims Green lane, but labels require Yellow lane evidence.");
 } else if (laneClaim === "red") {
-  failures.push("PR claims Red lane. Owner approval is required; do not agent-merge.");
+  failures.push("PR claims Red lane. Reclassify only after executive/blocker status is resolved, or wait for owner direction.");
 }
 
-if (ownerApprovalRequired(pr.body) && inferredLane !== "red") {
-  failures.push("PR says owner approval is required. Do not agent-merge until it is reclassified or owner merges.");
+if (executiveDecisionRequired(pr.body) && !executiveLabels.length) {
+  failures.push("PR says an executive decision is required without an executive decision label. Reclassify or document the executive blocker before merge.");
 }
 
 if (labels.includes("ui-change") && !isSubstantive(designEvidence)) {
   failures.push("ui-change PRs need substantive UI / Design Evidence.");
 }
 
+if (highRiskTechnicalLabelHits.length && !isSubstantive(reviewEvidence)) {
+  failures.push(
+    `${highRiskTechnicalLabelHits.join(", ")} PRs need substantive Independent Review / QA Evidence before agent merge.`,
+  );
+}
+
+if (uatEvidenceLabelHits.length && !isSubstantive(howToTest)) {
+  failures.push(`${uatEvidenceLabelHits.join(", ")} PRs need substantive UAT or How To Test evidence before agent merge.`);
+}
+
 if (labels.includes("P0") || labels.includes("P1")) {
-  warnings.push("P0/P1 priority detected. Confirm this is not launch-critical or owner-blocking before merge.");
+  warnings.push("P0/P1 priority detected. Confirm the PR evidence proves it is not executive-blocked before merge.");
+}
+
+if (isDependabot) {
+  warnings.push("Dependabot branch detected. A linked issue is optional, but local verification and merge-autonomy evidence are still required.");
 }
 
 if (warnings.length) {
