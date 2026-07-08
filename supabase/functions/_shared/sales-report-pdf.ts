@@ -80,6 +80,8 @@ type MachineRollup = {
   transactionCount: number;
 };
 
+export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/polished-v1";
+
 const COLORS = {
   page: rgb(0.995, 0.985, 0.99),
   white: rgb(1, 1, 1),
@@ -1110,6 +1112,9 @@ export const buildSalesReportPdf = async ({
   summary?: SalesReportPdfSummary;
 }): Promise<Uint8Array> => {
   const pdfDoc = await PDFDocument.create();
+  pdfDoc.setTitle(toAscii(title) || "Bloomjoy Operator Sales Report");
+  pdfDoc.setSubject(SALES_REPORT_PDF_GENERATOR_VERSION);
+  pdfDoc.setCreator("Bloomjoy Hub");
   const fonts = {
     regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
     bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),

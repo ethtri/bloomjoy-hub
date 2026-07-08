@@ -26,6 +26,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 - Admin Console IA uses `/admin` as the single internal workspace. The sidebar is the only primary admin navigation map, `/admin` is an exception dashboard rather than a duplicate route launcher, Refunds is one shared core `/refunds` workflow, and Scoped Admins can enter with zero machine grants while machine records/actions remain limited to explicitly granted `reporting_machines`.
 - Scoped Admin Technician provisioning is tracked by P0 issues `#536`-`#542`; local executable implementation/UAT belongs in `#537`-`#541`, while `#542` requires post-deploy live invite/account verification.
 - Operator Pay, partner reporting, and scheduled exports are active shared foundations.
+- Operator report PDF exports depend on the deployed `sales-report-export` Edge Function matching the repo's polished generator; stale deployments can still produce legacy monospaced PDFs and should be redeployed before partner-facing report sharing.
 - Operator payouts foundation sprint: the foundation is on `main`; active follow-on PRs add timekeeping, revenue snapshots, calculation, review, and pay statement slices.
 - Manager review/finalization slice `#448` adds the admin review gate before operator pay statements are issued.
 - Operator pay statements slice `#449` publishes versioned operator-visible pay statements from finalized pay runs.
