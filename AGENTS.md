@@ -27,6 +27,7 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Run `npm run agent:preflight` before edits and again before PR closeout.
 - Run `npm run agent:context -- --issue <number>` at kickoff when an issue number is available.
 - Run `npm run agent:github-hygiene` for weekly or as-requested issue board hygiene sweeps.
+- Run `npm run agent:worktree-hygiene` before broad cleanup or when worktree state looks confusing.
 - Run `npm run agent:merge-gate -- --pr <number>` before agent-merging a PR.
 - Run `npm run agent:validate-workflow` when changing agent docs, templates, Codex config, skills, or workflow scripts.
 - Keep PRs small and focused: one feature, fix, workflow upgrade, or vertical slice per PR.
@@ -61,7 +62,7 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - `.codex/config.toml` defines conservative project subagent limits.
 - `.codex/agents/*.toml` defines read-only helper agents for repo mapping, QA challenge, design review, docs research, and security/risk review.
 - `.agents/skills/bloomjoy-agent-workflow/SKILL.md` holds the repo-local workflow skill so detailed workflow guidance loads only when relevant.
-- Use subagents only when they reduce real risk or parallelize meaningful lanes: repo mapping, QA challenge, design review, docs research, or security/risk review.
+- Use subagents only when they reduce real risk or parallelize meaningful lanes: repo mapping, QA challenge, design review, docs research, security/risk review, or independent PR closeout review.
 - Keep small single-lane fixes local to the primary agent to reduce overhead and context confusion.
 - Subagents are advisory. The primary agent remains responsible for final code, verification, and PR quality.
 - Prefer repo skills and plugin guidance when the task clearly matches them.
@@ -78,15 +79,15 @@ A task is done when:
 
 ## Merge Autonomy
 
-Agents should not make Ethan the default merge bottleneck. Use the PR labels, issue labels, PR evidence, and `npm run agent:merge-gate -- --pr <number>` to classify the merge lane.
+Agents should not make Ethan the default merge bottleneck. When a PR already exists, agents are expected to proactively test it, request or run independent subagent review when risk warrants it, update evidence, merge it when eligible, and clean up the worktree afterward. Use the PR labels, issue labels, PR evidence, and `npm run agent:merge-gate -- --pr <number>` to classify the merge lane.
 
 ### Green Lane - Agent May Merge
 
 Agent merge is allowed when all of these are true:
 
 - PR targets `main`, is not draft, has no merge conflicts, and all required checks are green.
-- PR links a GitHub issue and includes verification, risk/overlap, rollback, and board closeout notes.
-- No red-lane labels are present on the PR or linked issue.
+- PR links a GitHub issue, except routine Dependabot PRs, and includes verification, risk/overlap, rollback, and board closeout notes.
+- No executive decision or unresolved-blocker labels are present on the PR or linked issue.
 - The change is low-risk: docs, workflow tooling, lint/build cleanup, safe dependency updates, small tests, or narrow non-sensitive code cleanup.
 
 ### Yellow Lane - Agent May Merge With Extra Evidence
@@ -96,20 +97,18 @@ Agent merge is allowed after extra evidence is recorded in the PR:
 - Visible UI changes: include browser evidence at relevant desktop/mobile widths and `impeccable` or design-review notes when design quality matters.
 - Shared code or workflow changes: call out open-PR overlap and rollback.
 - Performance/build changes: include before/after evidence.
-- P0/P1 priority without red-lane labels: confirm the work is not launch-critical, owner-blocked, or externally dependent.
+- P0/P1 priority: confirm the work is not executive-blocked or externally dependent.
+- `uat-required`: include agent-run UAT, localhost/preview evidence, or exact proof that the required UAT path passed.
+- `risky-db-change` or `risky-auth-payment`: include independent AI/subagent review evidence and rollback notes.
 
-### Red Lane - Owner Approval Required
+### Red Lane - Executive Decision Required
 
-Agents must not merge without explicit owner direction when the PR or linked issue has any of these labels:
+Agents must not merge without explicit owner direction when the PR or linked issue has an unresolved executive decision label:
 
 - `needs-owner-decision`
-- `uat-required`
-- `blocked`
 - `blocked-external`
-- `risky-db-change`
-- `risky-auth-payment`
 
-Also treat production deploys, secrets, auth/permission changes, payments, refunds, RLS, migrations, destructive data changes, vendor/account setup, legal/terms changes, and brand commitments as red lane unless the issue explicitly scopes them as safe and non-production.
+The `blocked` label blocks merge until resolved, but it is not owner approval by itself. Technical-risk labels such as `uat-required`, `risky-db-change`, and `risky-auth-payment` require stronger evidence and independent review, not Ethan approval, unless the PR also needs an executive decision. Treat production deploys, secrets, destructive data changes, vendor/account setup, legal/terms changes, and brand commitments as executive-decision work unless the issue explicitly scopes them as safe and non-production.
 
 ## Version Control Protocol
 
@@ -131,6 +130,7 @@ Also treat production deploys, secrets, auth/permission changes, payments, refun
 - Worktree directory: `..\wt-<short-task-slug>`.
 - Branch: `agent/<short-task-slug>`.
 - One worktree equals one checked-out branch.
+- Run `npm run agent:worktree-hygiene` before cleanup sweeps and after confusing multi-agent sessions.
 - If you must run without worktrees, run only one agent at a time.
 
 ## Operational Safeguards

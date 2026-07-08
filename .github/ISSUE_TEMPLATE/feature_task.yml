@@ -61,13 +61,13 @@ body:
     validations:
       required: true
   - type: checkboxes
-    id: owner_approval_triggers
+    id: executive_decision_triggers
     attributes:
-      label: Owner approval triggers
-      description: Apply matching labels after creating the issue. Any selected trigger makes the PR red lane until owner direction is recorded.
+      label: Executive decision and risk triggers
+      description: Apply matching labels after creating the issue. Executive decision triggers require owner direction; technical-risk triggers require stronger agent evidence.
       options:
         - label: Needs owner decision (`needs-owner-decision`)
-        - label: Owner UAT or go/no-go required (`uat-required`)
+        - label: Agent UAT evidence required (`uat-required`)
         - label: Blocked by external account, vendor, credentials, or owner-controlled setup (`blocked-external`)
         - label: Touches database schema, migrations, RLS, or production data paths (`risky-db-change`)
         - label: Touches auth, permissions, Stripe, payments, or server-side secrets (`risky-auth-payment`)
@@ -88,6 +88,7 @@ body:
         - npm ci
         - npm run agent:context -- --issue <number>
         - npm run agent:preflight -- --issue <number>
+        - npm run agent:worktree-hygiene when workflow/worktree cleanup is in scope
         - npm run agent:validate-workflow when workflow/templates/config/skills changed
         - npm run build
         - npm test --if-present

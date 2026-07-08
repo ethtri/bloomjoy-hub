@@ -41,6 +41,7 @@ Context to read:
 Verification:
 - npm ci
 - npm run agent:preflight -- --issue ___
+- npm run agent:worktree-hygiene when cleaning stale PR/worktree state
 - npm run agent:merge-gate -- --pr ___ before agent merge
 - npm run agent:validate-workflow when agent workflow docs/templates/config/scripts/skills changed
 - npm run build
@@ -57,13 +58,16 @@ PR requirements:
 - Include localhost how-to-test steps
 - Call out risk, overlap, and rollback notes
 - Classify merge autonomy as Green, Yellow, or Red
-- Record owner approval status and merge-gate result before agent merge
+- Record executive decision status and merge-gate result before agent merge
+- Include independent review / QA evidence when the PR is high-risk, stale, or UAT-required
 - Include UI/design evidence when applicable
 
 Board closeout:
 - Move/update the project-board item
 - Add closeout evidence to the issue or PR
 - Run `npm run agent:github-hygiene` when the task is board, stale PR, or issue hygiene work
+- Run `npm run agent:worktree-hygiene` when the task is stale worktree or branch cleanup
+- Proactively merge eligible PRs after testing/review; ask the owner only for a true executive decision
 - Note remaining follow-ups as GitHub issues, not static backlog entries
 ```
 

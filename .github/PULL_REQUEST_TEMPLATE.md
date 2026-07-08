@@ -10,6 +10,7 @@
 ## Verification
 - [ ] `npm ci` -
 - [ ] `npm run agent:preflight` -
+- [ ] `npm run agent:worktree-hygiene` if this changes workflow or cleans stale worktrees -
 - [ ] `npm run agent:merge-gate -- --pr <number>` before agent merge -
 - [ ] `npm run agent:validate-workflow` if workflow/templates/config/skills changed -
 - [ ] `npm run build` -
@@ -29,8 +30,12 @@
 
 ## Merge Autonomy
 - Lane: Green / Yellow / Red
-- Owner approval: Not required / Required because ___
+- Executive decision: Not required / Required because ___
 - Gate evidence: checks green, issue linked, risk labels reviewed, merge gate result recorded
+- Proactive closeout: agent may merge after gate passes / blocked because ___
+
+## Independent Review / QA Evidence
+- Subagent or separate review notes, if high-risk/stale/UAT-required:
 
 ## UI / Design Evidence
 - Screenshots or browser notes:

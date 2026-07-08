@@ -302,12 +302,13 @@ Privacy guardrails:
 - Start from a GitHub issue and Bloomjoy Project board item. Those are the source of truth for active status, priority, blockers, and acceptance.
 - Generate compact kickoff context with `npm run agent:context -- --issue <number>`.
 - Run `npm run agent:github-hygiene` for weekly or as-requested GitHub issue/board hygiene reports.
+- Run `npm run agent:worktree-hygiene` before broad local cleanup or when many `wt-*` directories make ownership unclear.
 - Use `/goal` for multi-step, multi-PR, high-risk, or ambiguous work. Use `/plan` first if acceptance is unclear.
 - Each agent uses its own worktree and its own `.env` file.
 - Do not copy another person's `.env`; create your own from `.env.example`.
 - Never commit or paste secret keys, raw customer data, payment IDs, vendor exports, or free-text complaint content in PRs, issues, docs, or chat.
 - Keep PRs small and focused; one change set per PR.
-- Use green/yellow/red merge autonomy: agents may merge green/yellow PRs after evidence is complete, but red-lane PRs require owner direction.
+- Use green/yellow/red merge autonomy: agents proactively test, review, merge, and clean up green/yellow PRs after evidence is complete; only executive decision blockers require owner direction.
 - Run `npm run agent:merge-gate -- --pr <number>` before any agent-initiated merge.
 - Enable repo git hooks once per clone: `git config core.hooksPath .githooks`
 - Fetch before checking recent merges or status: `git fetch origin`
@@ -325,16 +326,17 @@ Privacy guardrails:
 5) Run `npm run agent:context -- --issue <number>` when the task has a GitHub issue.
 6) Run `git status -sb` and make sure the output is reviewable.
 7) Run `npm run agent:validate-workflow` when changing workflow docs, GitHub templates, Codex config, skills, or agent scripts.
-8) Run `npm run agent:merge-gate -- --pr <number>` before agent-merging a PR.
-9) Run `npm run auth:preflight` when working on auth/OAuth launch tasks.
-10) Run `npm run commerce:preflight` when working on Stripe/order/notification changes.
-11) Run `npm run db:validate-migrations` when working on Supabase migrations.
-12) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree.
+8) Run `npm run agent:worktree-hygiene` before cleanup sweeps or when local worktree state is confusing.
+9) Run `npm run agent:merge-gate -- --pr <number>` before agent-merging a PR.
+10) Run `npm run auth:preflight` when working on auth/OAuth launch tasks.
+11) Run `npm run commerce:preflight` when working on Stripe/order/notification changes.
+12) Run `npm run db:validate-migrations` when working on Supabase migrations.
+13) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree.
 
 ## Merge autonomy lanes
 - Green: low-risk docs, workflow tooling, lint/build cleanup, safe dependency updates, tests, or narrow non-sensitive cleanup. Agents may merge when checks are green and the PR evidence is complete.
-- Yellow: UI changes, shared code/workflow changes, performance/build changes, or P0/P1 work without risk labels. Agents may merge after the PR includes the extra browser/design/overlap/performance evidence that matches the change.
-- Red: `needs-owner-decision`, `uat-required`, `blocked`, `blocked-external`, `risky-db-change`, or `risky-auth-payment`. Agents do not merge red-lane PRs without explicit owner direction.
+- Yellow: UI changes, shared code/workflow changes, performance/build changes, P0/P1 work, `uat-required`, `risky-db-change`, or `risky-auth-payment`. Agents may merge after the PR includes the extra browser/design/overlap/UAT/independent-review/performance evidence that matches the change.
+- Red: `needs-owner-decision` or `blocked-external`. The `blocked` label also blocks merge until resolved. Agents do not ask for routine merge approval; they ask only when an executive decision is genuinely needed.
 
 ## Post-merge hygiene (2 minutes)
 Use this after a PR is merged or intentionally closed. Do not remove a worktree that still has uncommitted work.
@@ -345,13 +347,15 @@ Use this after a PR is merged or intentionally closed. Do not remove a worktree 
    - `git status -sb`
 3) Refresh local remote-tracking refs:
    - `git fetch --prune origin`
-4) Remove the task worktree:
+4) For cleanup sweeps or confusing state, generate the read-only local report:
+   - `npm run agent:worktree-hygiene`
+5) Remove the task worktree:
    - `git worktree remove C:\Repos\wt-<task>`
-5) Delete the local task branch with the safe form:
+6) Delete the local task branch with the safe form:
    - `git branch -d agent/<task>`
-6) Prune stale worktree metadata:
+7) Prune stale worktree metadata:
    - `git worktree prune`
-7) Verify cleanup:
+8) Verify cleanup:
    - `git worktree list`
    - `git branch --all --list "*<task>*"`
 
@@ -362,7 +366,8 @@ Use this after a PR is merged or intentionally closed. Do not remove a worktree 
 - Keep repo docs light: `Docs/CURRENT_STATUS.md` is a short, plain-language snapshot and `Docs/BACKLOG.md` is only a historical pointer.
 - Capture task status, handoffs, and test evidence in issue/PR comments instead of static markdown.
 - Use `npm run agent:context -- --issue <number>` to summarize issue, project, linked PR, docs, and verification context before asking agents to implement.
-- Use `npm run agent:github-hygiene` to surface missing board items, stale active work, stale P0/P1 status comments, red-lane PRs, and open PRs needing cleanup.
+- Use `npm run agent:github-hygiene` to surface missing board items, stale active work, stale P0/P1 status comments, executive-decision PRs, and open PRs needing cleanup.
+- Use `npm run agent:worktree-hygiene` to surface stale/duplicate/detached/dirty local worktrees and local branches with no open PR or issue evidence.
 - If you keep personal notes, store them locally and do not commit them.
 
 

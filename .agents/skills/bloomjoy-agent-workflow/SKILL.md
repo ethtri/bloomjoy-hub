@@ -39,8 +39,9 @@ description: Use for Bloomjoy Hub GitHub issue or PR work, agent workflow upgrad
 
 - Use the verification profile from `npm run agent:context -- --issue <number>`.
 - For board hygiene, run `npm run agent:github-hygiene` and summarize the report in the issue or PR comment.
+- For local cleanup, run `npm run agent:worktree-hygiene` and use it to identify stale, duplicate, detached, dirty, merged, or closed PR worktrees before removing anything.
 - For workflow/template changes, also run `npm run agent:validate-workflow`.
 - Every repo change gets a PR into `main` with linked issue, summary, files changed, verification results, risk/overlap, and how-to-test steps.
 - Before an agent-initiated merge, run `npm run agent:merge-gate -- --pr <number>` and record the result in the PR.
-- Agents may merge Green and Yellow lane PRs after required evidence is complete. Red lane PRs require explicit owner direction.
+- Agents should proactively test, review, merge, and clean up Green and Yellow lane PRs after required evidence is complete. Red lane means an executive decision or unresolved blocker exists and requires explicit owner direction or blocker resolution.
 - Put task chronology and closeout evidence in the issue or PR, not static markdown docs.
