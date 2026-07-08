@@ -768,24 +768,25 @@ const drawDashboardPage = (
     scopeWidth,
   );
 
-  y -= 220;
-  drawCard(page, { x: MARGIN, y, width: CONTENT_WIDTH, height: 178 });
+  const rollupCardHeight = 210;
+  y -= rollupCardHeight + 42;
+  drawCard(page, { x: MARGIN, y, width: CONTENT_WIDTH, height: rollupCardHeight });
   page.drawText("Machine rollup", {
     x: MARGIN + 18,
-    y: y + 150,
+    y: y + rollupCardHeight - 28,
     size: 14,
     font: fonts.bold,
     color: COLORS.ink,
   });
   page.drawText("Top machines by net sales for the selected period.", {
     x: MARGIN + 18,
-    y: y + 134,
+    y: y + rollupCardHeight - 44,
     size: 8.5,
     font: fonts.regular,
     color: COLORS.muted,
   });
 
-  const tableTop = y + 108;
+  const tableTop = y + rollupCardHeight - 70;
   const columns = [
     { label: "Machine", x: MARGIN + 18, width: 220, align: "left" as const },
     { label: "Gross", x: MARGIN + 260, width: 64, align: "right" as const },
@@ -899,13 +900,16 @@ const drawDashboardPage = (
     color: COLORS.muted,
     maxWidth: CONTENT_WIDTH - 28,
   });
-  drawText(page, fonts, `${formatInteger(Math.max(0, machineRollups.length - visibleRollups.length))} additional machine rollups continue in row-level detail when applicable.`, {
-    x: MARGIN + 18,
-    y: noteY,
-    size: 7,
-    color: COLORS.softText,
-    maxWidth: CONTENT_WIDTH - 36,
-  });
+  const additionalRollups = Math.max(0, machineRollups.length - visibleRollups.length);
+  if (additionalRollups > 0) {
+    drawText(page, fonts, `${formatInteger(additionalRollups)} additional machine rollups continue in row-level detail when applicable.`, {
+      x: MARGIN + 18,
+      y: noteY,
+      size: 7,
+      color: COLORS.softText,
+      maxWidth: CONTENT_WIDTH - 36,
+    });
+  }
 
   drawFooter(page, fonts, 1, context.reportReference);
 };

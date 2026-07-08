@@ -41,6 +41,13 @@ assert(
 );
 
 assert(
+  sharedBuilder.includes('const rollupCardHeight = 210') &&
+    sharedBuilder.includes('y -= rollupCardHeight + 42') &&
+    sharedBuilder.includes('if (additionalRollups > 0)'),
+  'Operator PDF machine rollup summary must reserve space for continuation notes.',
+);
+
+assert(
   exportFunction.includes('SALES_REPORT_PDF_GENERATOR_VERSION') &&
     exportFunction.includes('pdfGeneratorVersion: SALES_REPORT_PDF_GENERATOR_VERSION') &&
     exportFunction.includes('buildSalesReportPdf({'),
