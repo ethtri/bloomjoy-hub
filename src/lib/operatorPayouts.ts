@@ -32,6 +32,8 @@ export type TimeEntryStatus =
   | 'paid'
   | 'voided';
 
+export type TimeEntryManagerReviewStatus = 'pending' | 'approved' | 'needs_correction';
+
 export type PayStatementStatus = 'draft' | 'issued' | 'revised' | 'voided';
 
 export type OperatorAssignedMachine = {
@@ -278,6 +280,9 @@ export type OperatorTimeEntry = {
   roundedPaidMinutes: number;
   notes: string | null;
   status: TimeEntryStatus;
+  managerReviewStatus: TimeEntryManagerReviewStatus;
+  managerReviewReason: string | null;
+  managerReviewedAt: string | null;
   lockedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -542,6 +547,27 @@ export type OperatorTimekeepingContext = {
   profiles: OperatorTimekeepingProfileContext[];
 };
 
+export type OperatorTimeReviewMachine = {
+  machineId: string;
+  machineLabel: string;
+  locationId: string;
+  locationName: string;
+};
+
+export type OperatorTimeReviewEntry = OperatorTimeEntry & {
+  accountName: string;
+  operatorName: string;
+};
+
+export type OperatorTimeReviewContext = {
+  workDate: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  hasAccess: boolean;
+  machines: OperatorTimeReviewMachine[];
+  entries: OperatorTimeReviewEntry[];
+};
+
 export type OperatorPayoutProfileRecord = {
   id: string;
   account_id: string;
@@ -587,6 +613,13 @@ export type SaveOperatorTimeEntryInput = {
 
 export type UpdateOperatorTimeEntryInput = SaveOperatorTimeEntryInput & {
   timeEntryId: string;
+};
+
+export type ReviewOperatorTimeEntryInput = {
+  timeEntryId: string;
+  decision: Extract<TimeEntryManagerReviewStatus, 'approved' | 'needs_correction'>;
+  reason?: string | null;
+  workDate?: string;
 };
 
 export type GeneratePayoutRevenueSnapshotInput = {
@@ -738,6 +771,50 @@ export const fetchMyOperatorTimekeepingContext = async (
     profiles: [],
     ...((data as Partial<OperatorTimekeepingContext> | null) ?? {}),
   };
+};
+
+export const fetchMyTimeReviewContext = async (
+  workDate?: string
+): Promise<OperatorTimeReviewContext> => {
+  const { data, error } = await supabaseClient.rpc('get_my_time_review_context', {
+    p_work_date: workDate ?? null,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load time review.');
+  }
+
+  return {
+    workDate: workDate ?? getLocalDateInputValue(),
+    periodStartDate: '',
+    periodEndDate: '',
+    hasAccess: false,
+    machines: [],
+    entries: [],
+    ...((data as Partial<OperatorTimeReviewContext> | null) ?? {}),
+  };
+};
+
+export const reviewOperatorTimeEntry = async (
+  input: ReviewOperatorTimeEntryInput
+): Promise<OperatorTimeReviewContext> => {
+  const { data, error } = await supabaseClient.rpc('review_operator_time_entry', {
+    p_time_entry_id: input.timeEntryId,
+    p_decision: input.decision,
+    p_reason: input.reason ?? null,
+    p_work_date: input.workDate ?? null,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to review time entry.');
+  }
+
+  const payload = data as { context?: OperatorTimeReviewContext };
+  if (!payload.context) {
+    throw new Error('Time review saved, but the updated review queue was not returned.');
+  }
+
+  return payload.context;
 };
 
 export const submitOperatorTimeEntry = async (

@@ -138,6 +138,22 @@ const buildContext = (state) => ({
   ],
 });
 
+const buildReviewContext = (state) => ({
+  workDate,
+  periodStartDate: '2026-05-01',
+  periodEndDate: '2026-05-31',
+  hasAccess: true,
+  machines: [
+    {
+      machineId,
+      machineLabel: 'Cotton Candy 01',
+      locationId,
+      locationName: 'Mall Atrium',
+    },
+  ],
+  entries: state.reviewEntries,
+});
+
 const makeEntry = (body, state, id = `time-entry-${state.nextEntryId++}`) => {
   const minutes = rawMinutes(body.p_start_time, body.p_end_time);
 
@@ -158,6 +174,9 @@ const makeEntry = (body, state, id = `time-entry-${state.nextEntryId++}`) => {
     roundedPaidMinutes: roundUpHour(minutes),
     notes: body.p_notes || null,
     status: body.p_status || 'submitted',
+    managerReviewStatus: 'pending',
+    managerReviewReason: null,
+    managerReviewedAt: null,
     lockedAt: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
@@ -312,8 +331,8 @@ const installMockSupabaseRoutes = async (context, state) => {
         jsonResponse({
           isSuperAdmin: false,
           isScopedAdmin: false,
-          canAccessAdmin: false,
-          allowedSurfaces: [],
+          canAccessAdmin: state.managerMode,
+          allowedSurfaces: state.managerMode ? ['payouts'] : [],
           scopedMachineIds: [],
         })
       );
@@ -381,6 +400,30 @@ const installMockSupabaseRoutes = async (context, state) => {
 
     if (rpcName === 'get_my_operator_timekeeping_context') {
       return route.fulfill(jsonResponse(buildContext(state)));
+    }
+
+    if (rpcName === 'get_my_time_review_context') {
+      return route.fulfill(jsonResponse(buildReviewContext(state)));
+    }
+
+    if (rpcName === 'review_operator_time_entry') {
+      state.reviewEntries = state.reviewEntries.map((entry) =>
+        entry.id === body.p_time_entry_id
+          ? {
+              ...entry,
+              managerReviewStatus: body.p_decision,
+              managerReviewReason: body.p_reason || null,
+              managerReviewedAt: now.toISOString(),
+              updatedAt: now.toISOString(),
+            }
+          : entry
+      );
+      return route.fulfill(
+        jsonResponse({
+          timeEntry: state.reviewEntries.find((entry) => entry.id === body.p_time_entry_id),
+          context: buildReviewContext(state),
+        })
+      );
     }
 
     if (rpcName === 'get_my_operator_pay_statement_context') {
@@ -507,6 +550,7 @@ const run = async () => {
   const args = parseArgs(process.argv.slice(2));
   const recorder = createRecorder();
   const state = {
+    managerMode: false,
     entries: [
       {
         id: 'time-entry-past',
@@ -525,9 +569,66 @@ const run = async () => {
         roundedPaidMinutes: 180,
         notes: 'April payout close.',
         status: 'paid',
+        managerReviewStatus: 'approved',
+        managerReviewReason: null,
+        managerReviewedAt: isoHoursAgo(73),
         lockedAt: isoHoursAgo(72),
         createdAt: isoHoursAgo(96),
         updatedAt: isoHoursAgo(72),
+      },
+    ],
+    reviewEntries: [
+      {
+        id: 'time-entry-manager-approve',
+        accountId,
+        accountName: 'Bloomjoy UAT',
+        operatorProfileId: '66000000-0000-4000-8000-000000000040',
+        operatorName: 'Jordan Contractor',
+        machineId,
+        machineLabel: 'Cotton Candy 01',
+        locationId,
+        locationName: 'Mall Atrium',
+        payoutPolicyId: policyId,
+        payoutPeriodId: periodId,
+        workDate: '2026-05-19',
+        startTime: '09:00',
+        endTime: '12:30',
+        rawDurationMinutes: 210,
+        roundedPaidMinutes: 240,
+        notes: 'Morning service and cleanup.',
+        status: 'submitted',
+        managerReviewStatus: 'pending',
+        managerReviewReason: null,
+        managerReviewedAt: null,
+        lockedAt: null,
+        createdAt: isoHoursAgo(30),
+        updatedAt: isoHoursAgo(30),
+      },
+      {
+        id: 'time-entry-manager-correction',
+        accountId,
+        accountName: 'Bloomjoy UAT',
+        operatorProfileId: '66000000-0000-4000-8000-000000000041',
+        operatorName: 'Sam Contractor',
+        machineId,
+        machineLabel: 'Cotton Candy 01',
+        locationId,
+        locationName: 'Mall Atrium',
+        payoutPolicyId: policyId,
+        payoutPeriodId: periodId,
+        workDate: '2026-05-20',
+        startTime: '13:00',
+        endTime: '15:10',
+        rawDurationMinutes: 130,
+        roundedPaidMinutes: 180,
+        notes: null,
+        status: 'submitted',
+        managerReviewStatus: 'pending',
+        managerReviewReason: null,
+        managerReviewedAt: null,
+        lockedAt: null,
+        createdAt: isoHoursAgo(20),
+        updatedAt: isoHoursAgo(20),
       },
     ],
     nextEntryId: 1,
@@ -563,12 +664,12 @@ const run = async () => {
     await page.fill('#email-password', mockUser.email);
     await page.fill('#password', 'mock-password');
     await Promise.all([
-      page.waitForURL('**/portal/time', { timeout: 20000 }),
+      page.waitForURL(/\/portal\/time(?:\?month=\d{4}-\d{2})?$/, { timeout: 20000 }),
       page.getByRole('button', { name: /sign in/i }).click(),
     ]);
 
     await page.locator('h1').filter({ hasText: /^Time$/ }).waitFor({ timeout: 10000 });
-    await page.getByRole('link', { name: /^add time$/i }).waitFor({ timeout: 10000 });
+    await page.getByRole('link', { name: /add completed shift/i }).waitFor({ timeout: 10000 });
 
     recorder.assert('Portal Time route loads after auth', new URL(page.url()).pathname === '/portal/time', page.url());
     recorder.assert(
@@ -576,9 +677,9 @@ const run = async () => {
       (await page.locator('#work-date').count()) === 0
     );
     recorder.assert(
-      'Period due and lock dates are visible',
-      (await page.getByText('Time due', { exact: true }).isVisible()) &&
-        (await page.getByText('Locks', { exact: true }).isVisible())
+      'Monthly hub shows the primary entry action and month control',
+      (await page.getByRole('link', { name: /add completed shift/i }).isVisible()) &&
+        (await page.locator('#time-month').isVisible())
     );
     recorder.assert(
       'Pay statement download is visible',
@@ -618,15 +719,9 @@ const run = async () => {
         payStatementDownload.suggestedFilename() === 'may-2026-pay-statement.html'
     );
     recorder.assert(
-      'Past shifts are review-only',
-      (await page
-        .locator('article', { hasText: 'Apr 20, 2026' })
-        .getByText('Past shifts are view-only here.')
-        .isVisible()) &&
-        (await page
-          .locator('article', { hasText: 'Apr 20, 2026' })
-          .getByRole('button', { name: /edit/i })
-          .count()) === 0
+      'Worker review summary is visible',
+      (await page.getByRole('heading', { name: 'Record completed work' }).isVisible()) &&
+        (await page.locator('#time-month').isVisible())
     );
     await page.waitForTimeout(4500);
     await page.screenshot({
@@ -636,7 +731,7 @@ const run = async () => {
 
     await Promise.all([
       page.waitForURL('**/portal/time/new', { timeout: 10000 }),
-      page.getByRole('link', { name: /^add time$/i }).click(),
+      page.getByRole('link', { name: /add completed shift/i }).click(),
     ]);
     await page.locator('h1').filter({ hasText: /^Add Time$/ }).waitFor({ timeout: 10000 });
     await page.getByText(/Cotton Candy 01/).first().waitFor({ timeout: 10000 });
@@ -657,12 +752,20 @@ const run = async () => {
     await page.fill('#time-notes', 'Restocked sugar and cleaned spinner head.');
 
     recorder.assert('Actual time preview updates', await page.getByText('30 min').isVisible());
-    recorder.assert('Paid-time preview rounds to full hour', await page.getByText('1 paid hr').isVisible());
+    recorder.assert(
+      'Rounded-time preview rounds to full hour',
+      await page.getByText('1 rounded hr').isVisible()
+    );
 
-    await page.getByRole('button', { name: /add time/i }).click();
-    await page.waitForURL('**/portal/time', { timeout: 10000 });
+    await page.getByRole('button', { name: /submit shift/i }).click();
+    await page.waitForURL(/\/portal\/time(?:\?month=\d{4}-\d{2})?$/, { timeout: 10000 });
     await page.getByText('Time entry saved.').last().waitFor({ timeout: 10000 });
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-after-save.png'),
+      fullPage: true,
+    });
     await page.getByText('Restocked sugar and cleaned spinner head.').waitFor({ timeout: 10000 });
+    await page.getByText('Waiting for review').waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Submit RPC receives assigned machine and date',
@@ -677,7 +780,7 @@ const run = async () => {
 
     await Promise.all([
       page.waitForURL('**/portal/time/new', { timeout: 10000 }),
-      page.getByRole('link', { name: /^add time$/i }).click(),
+      page.getByRole('link', { name: /add completed shift/i }).click(),
     ]);
     await page.fill('#work-date', workDate);
     await page.fill('#start-time', '09:00');
@@ -685,7 +788,7 @@ const run = async () => {
     await page.getByText(/duplicate of an existing shift/i).waitFor({ timeout: 10000 });
     recorder.assert(
       'Exact duplicate blocks save',
-      await page.getByRole('button', { name: /add time/i }).isDisabled()
+      await page.getByRole('button', { name: /submit shift/i }).isDisabled()
     );
 
     await page.fill('#start-time', '09:15');
@@ -697,7 +800,7 @@ const run = async () => {
       sawOverlapConfirmation = dialog.message().includes('overlaps 1 existing entry');
       await dialog.dismiss();
     });
-    await page.getByRole('button', { name: /add time/i }).click();
+    await page.getByRole('button', { name: /submit shift/i }).click();
     await waitForCondition(
       () => sawOverlapConfirmation,
       'Timed out waiting for overlap confirmation dialog'
@@ -716,7 +819,7 @@ const run = async () => {
       sawLongShiftConfirmation = dialog.message().includes('10+ hours');
       await dialog.dismiss();
     });
-    await page.getByRole('button', { name: /add time/i }).click();
+    await page.getByRole('button', { name: /submit shift/i }).click();
     await waitForCondition(
       () => sawLongShiftConfirmation,
       'Timed out waiting for long-shift confirmation dialog'
@@ -728,7 +831,7 @@ const run = async () => {
 
     await page.goto(`${args.appUrl}/portal/time`, { waitUntil: 'domcontentloaded' });
     await Promise.all([
-      page.waitForURL('**/portal/time/time-entry-1/edit', { timeout: 10000 }),
+      page.waitForURL(/\/portal\/time\/time-entry-1\/edit\?month=2026-05$/, { timeout: 10000 }),
       page.locator('article', { hasText: 'Restocked sugar' }).getByRole('button', { name: /edit/i }).click(),
     ]);
     await page.locator('h1').filter({ hasText: /^Edit Time$/ }).waitFor({ timeout: 10000 });
@@ -741,10 +844,10 @@ const run = async () => {
     await page.setViewportSize({ width: 1365, height: 900 });
     await page.fill('#start-time', '10:00');
     await page.fill('#end-time', '11:01');
-    await page.getByText('2 paid hrs').waitFor({ timeout: 10000 });
+    await page.getByText('2 rounded hrs').waitFor({ timeout: 10000 });
     await page.fill('#time-notes', 'Updated shift after manager text.');
-    await page.getByRole('button', { name: /save time/i }).click();
-    await page.waitForURL('**/portal/time', { timeout: 10000 });
+    await page.getByRole('button', { name: /save changes/i }).click();
+    await page.waitForURL(/\/portal\/time(?:\?month=\d{4}-\d{2})?$/, { timeout: 10000 });
     await waitForCondition(
       () => state.rpcCalls.some((call) => call.rpcName === 'update_operator_time_entry'),
       'Timed out waiting for update_operator_time_entry RPC'
@@ -768,7 +871,7 @@ const run = async () => {
     });
     await page.locator('article', { hasText: 'Updated shift' }).getByRole('button', { name: /delete/i }).click();
     await page.getByText('Time entry deleted.').last().waitFor({ timeout: 10000 });
-    await page.getByText('No time entered for this period yet.').waitFor({ timeout: 10000 });
+    await page.getByText(/No shifts entered for this month yet/i).waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Delete uses void RPC instead of direct hard delete',
@@ -789,11 +892,78 @@ const run = async () => {
 
     await Promise.all([
       page.waitForURL('**/portal/time/new', { timeout: 10000 }),
-      page.getByRole('link', { name: /^add time$/i }).click(),
+      page.getByRole('link', { name: /add completed shift/i }).click(),
     ]);
     await page.locator('h1').filter({ hasText: /^Add Time$/ }).waitFor({ timeout: 10000 });
     await page.screenshot({
       path: path.join(args.artifactDir, 'portal-time-add-mobile.png'),
+      fullPage: true,
+    });
+
+    state.managerMode = true;
+    await page.setViewportSize({ width: 1365, height: 900 });
+    await page.goto(`${args.appUrl}/portal/time-review`, { waitUntil: 'domcontentloaded' });
+    await page.locator('h1').filter({ hasText: /^Review time$/ }).waitFor({ timeout: 10000 });
+    await page.fill('#review-month', '2026-05');
+    await page.getByText('Jordan Contractor', { exact: true }).waitFor({ timeout: 10000 });
+
+    recorder.assert(
+      'Machine Manager review queue loads managed-machine shifts',
+      (await page.getByText('Jordan Contractor', { exact: true }).isVisible()) &&
+        (await page.getByText('Sam Contractor', { exact: true }).isVisible()) &&
+        (await page.getByText('Cotton Candy 01 · Mall Atrium').first().isVisible())
+    );
+
+    await page
+      .locator('article', { hasText: 'Jordan Contractor' })
+      .getByRole('button', { name: /^approve$/i })
+      .click();
+    await page.getByText('Shift approved.').last().waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Approve action uses the machine-manager review RPC',
+      state.rpcCalls.some(
+        (call) =>
+          call.rpcName === 'review_operator_time_entry' &&
+          call.body?.p_time_entry_id === 'time-entry-manager-approve' &&
+          call.body?.p_decision === 'approved'
+      )
+    );
+
+    await page
+      .locator('article', { hasText: 'Sam Contractor' })
+      .getByRole('button', { name: /request correction/i })
+      .click();
+    await page.fill('#correction-reason', 'Please confirm the end time; the venue log shows 2:45 PM.');
+    await page.getByRole('button', { name: /send correction request/i }).click();
+    await page.getByText('Correction requested.').last().waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Correction action sends a required worker-visible reason',
+      state.rpcCalls.some(
+        (call) =>
+          call.rpcName === 'review_operator_time_entry' &&
+          call.body?.p_time_entry_id === 'time-entry-manager-correction' &&
+          call.body?.p_decision === 'needs_correction' &&
+          call.body?.p_reason === 'Please confirm the end time; the venue log shows 2:45 PM.'
+      )
+    );
+
+    await page.getByRole('button', { name: /Returned \(1\)/i }).click();
+    await page
+      .getByText('Please confirm the end time; the venue log shows 2:45 PM.')
+      .waitFor({ timeout: 10000 });
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-review-desktop.png'),
+      fullPage: true,
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const reviewOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1
+    );
+    recorder.assert('Mobile Time Review page has no horizontal overflow', !reviewOverflow);
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-review-mobile.png'),
       fullPage: true,
     });
 

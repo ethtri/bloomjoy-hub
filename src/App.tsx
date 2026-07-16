@@ -59,6 +59,7 @@ const PortalAccount = lazyRoute(() => import("./pages/portal/Account"));
 const PortalTeam = lazyRoute(() => import("./pages/portal/Team"));
 const PortalReports = lazyRoute(() => import("./pages/portal/Reports"));
 const PortalTime = lazyRoute(() => import("./pages/portal/Time"));
+const PortalTimeReview = lazyRoute(() => import("./pages/portal/TimeReview"));
 const AdminDashboard = lazyRoute(() => import("./pages/admin/Dashboard"));
 const AdminOrders = lazyRoute(() => import("./pages/admin/Orders"));
 const AdminSupport = lazyRoute(() => import("./pages/admin/Support"));
@@ -180,6 +181,7 @@ export const AppShell = () => (
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/portal" element={<PortalDashboard />} />
+            <Route path="/portal/time-review" element={<PortalTimeReview />} />
             <Route element={<RefundOperationsRoute />}>
               <Route path="/refunds" element={<AdminRefunds />} />
               <Route path="/portal/refunds" element={<RedirectWithSearch to="/refunds" />} />

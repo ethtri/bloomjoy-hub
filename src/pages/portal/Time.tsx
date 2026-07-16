@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   ArrowLeft,
+  CalendarDays,
+  CheckCircle2,
   Clock3,
   Download,
   Edit3,
@@ -71,6 +73,9 @@ const defaultForm = (): TimeEntryForm => ({
   notes: '',
 });
 
+const isValidMonthValue = (value: string | null): value is string =>
+  Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
+
 const formatDate = (value: string | null | undefined) => {
   if (!value) return 'Not set';
 
@@ -82,6 +87,12 @@ const formatDate = (value: string | null | undefined) => {
     year: 'numeric',
   });
 };
+
+const formatMonth = (value: string) =>
+  new Date(`${value}-01T00:00:00`).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  });
 
 const formatMinutes = (minutes: number) => {
   const hours = Math.floor(minutes / 60);
@@ -95,7 +106,7 @@ const formatMinutes = (minutes: number) => {
 const formatPaidHours = (minutes: number) =>
   `${paidMinutesToHours(minutes).toLocaleString(undefined, {
     maximumFractionDigits: 2,
-  })} paid hr${minutes === 60 ? '' : 's'}`;
+  })} rounded hr${minutes === 60 ? '' : 's'}`;
 
 const formatCurrency = (cents: number | null | undefined) =>
   new Intl.NumberFormat(undefined, {
@@ -158,10 +169,29 @@ const getStatusLabel = (status: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 
+const getEntryReviewLabel = (entry: OperatorTimeEntry) => {
+  if (entry.status === 'draft') return 'Draft';
+  if (entry.status === 'paid') return 'Paid';
+  if (entry.status === 'included_in_payout') return 'Included';
+  if (entry.status === 'locked') return 'Locked';
+  if (entry.managerReviewStatus === 'approved') return 'Approved';
+  if (entry.managerReviewStatus === 'needs_correction') return 'Correction requested';
+  return 'Waiting for review';
+};
+
+const getEntryReviewClassName = (entry: OperatorTimeEntry) => {
+  if (entry.status !== 'submitted') return 'border-border bg-muted text-muted-foreground';
+  if (entry.managerReviewStatus === 'approved') return 'border-sage/25 bg-sage-light text-sage';
+  if (entry.managerReviewStatus === 'needs_correction') {
+    return 'border-amber/25 bg-amber/10 text-amber';
+  }
+  return 'border-primary/20 bg-primary/10 text-primary';
+};
+
 const getMachineLabel = (entry: OperatorTimeEntry) =>
   `${entry.machineLabel} - ${entry.locationName}`;
 
-const getContextQueryKey = ['operator-timekeeping'] as const;
+const getContextQueryKey = (workDate: string) => ['operator-timekeeping', workDate] as const;
 const getPayStatementsQueryKey = ['operator-pay-statements'] as const;
 const emptyProfiles: OperatorTimekeepingProfileContext[] = [];
 const timeActionClassName =
@@ -177,10 +207,26 @@ export default function PortalTimePage() {
   const navigate = useNavigate();
   const { entryId } = useParams<{ entryId?: string }>();
   const isTimeEntryScreen = location.pathname === '/portal/time/new' || Boolean(entryId);
+  const requestedMonth = new URLSearchParams(location.search).get('month');
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [downloadingStatementId, setDownloadingStatementId] = useState<string | null>(null);
-  const [form, setForm] = useState<TimeEntryForm>(() => defaultForm());
+  const [form, setForm] = useState<TimeEntryForm>(() => {
+    const initialForm = defaultForm();
+
+    return entryId && isValidMonthValue(requestedMonth)
+      ? { ...initialForm, workDate: `${requestedMonth}-01` }
+      : initialForm;
+  });
+  const [viewMonth, setViewMonth] = useState(() =>
+    isValidMonthValue(requestedMonth)
+      ? requestedMonth
+      : todayInputValue().slice(0, 7)
+  );
+  const contextMonth = isTimeEntryScreen
+    ? (form.workDate || todayInputValue()).slice(0, 7)
+    : viewMonth;
+  const contextWorkDate = `${contextMonth}-01`;
 
   const {
     data: context,
@@ -188,8 +234,8 @@ export default function PortalTimePage() {
     isFetching,
     error,
   } = useQuery({
-    queryKey: getContextQueryKey,
-    queryFn: () => fetchMyOperatorTimekeepingContext(),
+    queryKey: getContextQueryKey(contextWorkDate),
+    queryFn: () => fetchMyOperatorTimekeepingContext(contextWorkDate),
     staleTime: 1000 * 20,
   });
 
@@ -220,7 +266,7 @@ export default function PortalTimePage() {
 
     return (
       profiles
-        .flatMap((profile) => profile.currentEntries)
+        .flatMap((profile) => [...profile.currentEntries, ...profile.recentEntries])
         .find((entry) => entry.id === entryId) ?? null
     );
   }, [entryId, profiles]);
@@ -232,13 +278,20 @@ export default function PortalTimePage() {
     [selectedProfile, statementContext?.profiles]
   );
   const issuedStatements = selectedStatementProfile?.statements ?? [];
-  const pastEntries = useMemo(() => {
-    if (!selectedProfile) return [];
+  const periodSummary = useMemo(() => {
+    const entries = selectedProfile?.currentEntries ?? [];
 
-    const { periodStartDate, periodEndDate } = selectedProfile.currentPeriod;
-    return selectedProfile.recentEntries.filter(
-      (entry) => !isDateInsideRange(entry.workDate, periodStartDate, periodEndDate)
-    );
+    return {
+      rawMinutes: entries.reduce((total, entry) => total + entry.rawDurationMinutes, 0),
+      roundedMinutes: entries.reduce((total, entry) => total + entry.roundedPaidMinutes, 0),
+      waiting: entries.filter(
+        (entry) => entry.status === 'submitted' && entry.managerReviewStatus === 'pending'
+      ).length,
+      approved: entries.filter((entry) => entry.managerReviewStatus === 'approved').length,
+      needsCorrection: entries.filter(
+        (entry) => entry.managerReviewStatus === 'needs_correction'
+      ).length,
+    };
   }, [selectedProfile]);
 
   useEffect(() => {
@@ -368,14 +421,19 @@ export default function PortalTimePage() {
       });
     },
     onSuccess: (nextContext) => {
-      queryClient.setQueryData<OperatorTimekeepingContext>(getContextQueryKey, nextContext);
+      const nextMonth = nextContext.workDate.slice(0, 7);
+      queryClient.setQueryData<OperatorTimekeepingContext>(
+        getContextQueryKey(`${nextMonth}-01`),
+        nextContext
+      );
+      setViewMonth(nextMonth);
       setEditingEntryId(null);
       setForm({
         ...defaultForm(),
         machineId: nextContext.profiles[0]?.assignedMachines[0]?.machineId ?? '',
       });
       toast.success('Time entry saved.');
-      navigate('/portal/time');
+      navigate(`/portal/time?month=${nextMonth}`);
     },
     onError: (mutationError: Error) => {
       toast.error(mutationError.message || 'Unable to save time entry.');
@@ -389,7 +447,11 @@ export default function PortalTimePage() {
         reason: 'Operator deleted unlocked shift from Portal Time',
       }),
     onSuccess: (nextContext) => {
-      queryClient.setQueryData<OperatorTimekeepingContext>(getContextQueryKey, nextContext);
+      const nextMonth = nextContext.workDate.slice(0, 7);
+      queryClient.setQueryData<OperatorTimekeepingContext>(
+        getContextQueryKey(`${nextMonth}-01`),
+        nextContext
+      );
       setEditingEntryId(null);
       toast.success('Time entry deleted.');
     },
@@ -400,7 +462,7 @@ export default function PortalTimePage() {
 
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: getContextQueryKey }),
+      queryClient.invalidateQueries({ queryKey: ['operator-timekeeping'] }),
       queryClient.invalidateQueries({ queryKey: getPayStatementsQueryKey }),
     ]);
   };
@@ -421,7 +483,7 @@ export default function PortalTimePage() {
   };
 
   const startEditing = (entry: OperatorTimeEntry) => {
-    navigate(`/portal/time/${entry.id}/edit`);
+    navigate(`/portal/time/${entry.id}/edit?month=${entry.workDate.slice(0, 7)}`);
   };
 
   const cancelEditing = () => {
@@ -430,7 +492,7 @@ export default function PortalTimePage() {
       ...defaultForm(),
       machineId: effectiveMachines[0]?.machineId ?? '',
     });
-    navigate('/portal/time');
+    navigate(`/portal/time?month=${form.workDate.slice(0, 7)}`);
   };
 
   const confirmDelete = (entry: OperatorTimeEntry) => {
@@ -492,25 +554,25 @@ export default function PortalTimePage() {
             title={isTimeEntryScreen ? (editingEntryId ? 'Edit Time' : 'Add Time') : 'Time'}
             description={
               isTimeEntryScreen
-                ? 'Submit one shift at a time.'
-                : 'Add time, review submitted shifts, and download pay statements.'
+                ? 'Enter one completed shift. You can correct it until the period locks.'
+                : 'Enter completed shifts, follow manager review, and access issued statements.'
             }
             badges={[
               {
                 label: selectedProfile
                   ? `${getStatusLabel(selectedProfile.currentPeriod.status)} period`
-                  : 'Operator timekeeping',
+                  : 'Timekeeping',
                 tone: selectedProfile?.currentPeriod.status === 'locked' ? 'warning' : 'default',
               },
               {
-                label: isFetching ? 'Refreshing' : 'Assigned-machine only',
+                label: isFetching ? 'Refreshing' : 'Whole-hour rounding',
                 tone: 'muted',
               },
             ]}
             actions={
               isTimeEntryScreen ? (
                 <Button asChild variant="outline" className={timeActionClassName}>
-                  <Link to="/portal/time">
+                  <Link to={`/portal/time?month=${contextMonth}`}>
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Time home
                   </Link>
@@ -550,11 +612,11 @@ export default function PortalTimePage() {
               <div className="mx-auto max-w-xl text-center">
                 <Clock3 className="mx-auto h-10 w-10 text-muted-foreground" />
                 <h2 className="mt-4 text-xl font-semibold text-foreground">
-                  No operator pay profile yet
+                  Timekeeping setup needed
                 </h2>
                 <p className="mt-2 text-pretty text-sm text-muted-foreground">
-                  Ask a Bloomjoy admin or machine manager to add your operator pay profile and
-                  assigned machines before submitting time.
+                  Ask a Bloomjoy admin or machine manager to add your timekeeping profile and
+                  assigned machines before entering shifts.
                 </p>
               </div>
             </div>
@@ -573,10 +635,11 @@ export default function PortalTimePage() {
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <h2 className="text-balance text-lg font-semibold text-foreground">
-                            {editingEntryId ? 'Edit Time' : 'Add Time'}
+                            {editingEntryId ? 'Edit completed shift' : 'Add completed shift'}
                           </h2>
                           <p className="mt-1 text-pretty text-sm text-muted-foreground">
-                            Enter one shift at a time, then return to your time summary.
+                            Use the actual start and end time. Bloomjoy rounds each saved shift up to
+                            the next full hour.
                           </p>
                         </div>
                         {profiles.length > 1 && (
@@ -617,8 +680,7 @@ export default function PortalTimePage() {
                             id="work-date"
                             type="date"
                             value={form.workDate}
-                            min={selectedProfile.currentPeriod.periodStartDate}
-                            max={selectedProfile.currentPeriod.periodEndDate}
+                            max={todayInputValue()}
                             onChange={(event) =>
                               setForm((current) => ({ ...current, workDate: event.target.value }))
                             }
@@ -706,7 +768,7 @@ export default function PortalTimePage() {
                           }
                         />
                         <Metric
-                          label="You'll be paid for"
+                          label="Rounded time"
                           value={
                             roundedPaidMinutes ? formatPaidHours(roundedPaidMinutes) : 'Set times'
                           }
@@ -747,13 +809,14 @@ export default function PortalTimePage() {
                           ) : (
                             <Plus className="mr-2 h-4 w-4" />
                           )}
-                          {editingEntryId ? 'Save Time' : 'Add Time'}
+                          {editingEntryId ? 'Save changes' : 'Submit shift'}
                         </Button>
                       </div>
 
                       {hasBlockingValidation && !saveMutation.isPending && (
                         <p className="mt-3 text-xs text-muted-foreground">
-                          Enter a date, assigned machine, start time, and end time to add time.
+                          Enter a date, assigned machine, start time, and end time to submit the
+                          shift.
                         </p>
                       )}
 
@@ -767,88 +830,140 @@ export default function PortalTimePage() {
                   )}
                 </div>
               ) : (
-                <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.15fr)]">
-                  <div className="space-y-6">
-                    <div className="card-elevated p-4 sm:p-5">
-                      <h2 className="text-balance text-lg font-semibold text-foreground">
-                        What do you need?
-                      </h2>
-                      <div className="mt-4 grid gap-3">
-                        <Button
-                          asChild
-                          size="lg"
-                          className={cn('justify-start', timeActionClassName)}
-                        >
-                          <Link to="/portal/time/new">
-                            <Plus className="mr-2 h-4 w-4" />
-                            Add Time
-                          </Link>
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={cn('justify-start', timeActionClassName)}
-                        >
-                          <a href="#this-period">Review submitted time</a>
-                        </Button>
-                        <Button
-                          asChild
-                          variant="outline"
-                          className={cn('justify-start', timeActionClassName)}
-                        >
-                          <a href="#pay-statements">Download pay statements</a>
-                        </Button>
+                <div className="mt-6 space-y-6">
+                  <div className="rounded-[24px] border border-border bg-background p-4 shadow-[var(--shadow-sm)] sm:p-5">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h2 className="font-display text-xl font-semibold text-foreground">
+                          Record completed work
+                        </h2>
+                        <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                          Add each shift after you finish. Your machine manager will review submitted
+                          time here.
+                        </p>
                       </div>
+                      <Button asChild size="lg" className={timeActionClassName}>
+                        <Link to="/portal/time/new">
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add completed shift
+                        </Link>
+                      </Button>
                     </div>
 
-                    <div className="card-elevated p-4 sm:p-5">
-                      <h2 className="text-balance text-lg font-semibold text-foreground">
-                        Current Period
-                      </h2>
-                      <p className="mt-1 text-pretty text-sm text-muted-foreground">
-                        Time is due by {formatDate(selectedProfile.currentPeriod.submissionDueDate)}
-                        .
+                    {periodSummary.needsCorrection > 0 && (
+                      <a
+                        href="#this-period"
+                        className="mt-5 flex items-start gap-3 rounded-xl border border-amber/25 bg-amber/10 px-3 py-3 text-sm text-foreground transition-colors hover:bg-amber/20"
+                      >
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+                        <span>
+                          <strong className="font-semibold">
+                            {periodSummary.needsCorrection}{' '}
+                            {periodSummary.needsCorrection === 1 ? 'shift needs' : 'shifts need'} a
+                            correction.
+                          </strong>{' '}
+                          Open the shift below to see your manager&apos;s note.
+                        </span>
+                      </a>
+                    )}
+
+                    <div className="mt-5 border-t border-border pt-5">
+                      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label htmlFor="time-month" className="mb-1.5 block text-sm font-medium">
+                              Month
+                            </label>
+                            <div className="relative">
+                              <CalendarDays className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+                              <Input
+                                id="time-month"
+                                type="month"
+                                value={viewMonth}
+                                max={todayInputValue().slice(0, 7)}
+                                onChange={(event) =>
+                                  setViewMonth(event.target.value || todayInputValue().slice(0, 7))
+                                }
+                                className="min-h-11 pl-9 sm:w-52"
+                              />
+                            </div>
+                          </div>
+                          {profiles.length > 1 && (
+                            <div>
+                              <label className="mb-1.5 block text-sm font-medium">
+                                Work profile
+                              </label>
+                              <Select value={selectedProfile.id} onValueChange={setSelectedProfileId}>
+                                <SelectTrigger className="min-h-11 sm:w-64">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {profiles.map((profile) => (
+                                    <SelectItem key={profile.id} value={profile.id}>
+                                      {profile.accountName}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm text-muted-foreground">
+                          <span>
+                            <strong className="block text-base font-semibold tabular-nums text-foreground">
+                              {formatMinutes(periodSummary.rawMinutes)}
+                            </strong>
+                            actual time
+                          </span>
+                          <span>
+                            <strong className="block text-base font-semibold tabular-nums text-foreground">
+                              {formatPaidHours(periodSummary.roundedMinutes)}
+                            </strong>
+                            rounded time
+                          </span>
+                          <span>
+                            <strong className="block text-base font-semibold tabular-nums text-foreground">
+                              {periodSummary.waiting}
+                            </strong>
+                            waiting
+                          </span>
+                          <span>
+                            <strong className="block text-base font-semibold tabular-nums text-foreground">
+                              {periodSummary.approved}
+                            </strong>
+                            approved
+                          </span>
+                        </div>
+                      </div>
+                      <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                        Due {formatDate(selectedProfile.currentPeriod.submissionDueDate)}. Each shift
+                        is rounded up to the next full hour.
                       </p>
-                      <PeriodDetails profile={selectedProfile} />
                     </div>
                   </div>
 
-                  <div className="space-y-6">
-                    <div id="pay-statements">
-                      <PayStatementsPanel
-                        statements={issuedStatements}
-                        isRefreshing={isFetchingStatements}
-                        error={statementError}
-                        downloadingStatementId={downloadingStatementId}
-                        onDownload={downloadStatement}
-                      />
-                    </div>
-
-                    <div id="this-period">
-                      <TimeEntriesPanel
-                        title="This Period"
-                        description={`${formatDate(
-                          selectedProfile.currentPeriod.periodStartDate
-                        )} to ${formatDate(selectedProfile.currentPeriod.periodEndDate)}`}
-                        entries={selectedProfile.currentEntries}
-                        emptyMessage="No time entered for this period yet."
-                        onEdit={startEditing}
-                        onDelete={confirmDelete}
-                        isDeleting={deleteMutation.isPending}
-                      />
-                    </div>
-
+                  <div id="this-period">
                     <TimeEntriesPanel
-                      title="Past Shifts"
-                      description="Earlier pay periods only."
-                      entries={pastEntries}
-                      emptyMessage="No past shifts yet."
+                      title={`${formatMonth(viewMonth)} shifts`}
+                      description={`${formatDate(
+                        selectedProfile.currentPeriod.periodStartDate
+                      )} to ${formatDate(selectedProfile.currentPeriod.periodEndDate)}`}
+                      entries={selectedProfile.currentEntries}
+                      emptyMessage="No shifts entered for this month yet. Add a completed shift to get started."
                       onEdit={startEditing}
                       onDelete={confirmDelete}
                       isDeleting={deleteMutation.isPending}
-                      compact
-                      allowActions={false}
-                      readOnlyMessage="Past shifts are view-only here."
+                    />
+                  </div>
+
+                  <div id="pay-statements">
+                    <PayStatementsPanel
+                      statements={issuedStatements}
+                      isRefreshing={isFetchingStatements}
+                      error={statementError}
+                      downloadingStatementId={downloadingStatementId}
+                      onDownload={downloadStatement}
                     />
                   </div>
                 </div>
@@ -884,7 +999,7 @@ function PayStatementsPanel({
           <div>
             <h2 className="text-balance text-lg font-semibold text-foreground">Pay Statements</h2>
             <p className="mt-1 text-pretty text-sm text-muted-foreground">
-              Download issued pay statements for finalized pay periods.
+              Download issued pay statements here when they become available.
             </p>
           </div>
         </div>
@@ -961,14 +1076,13 @@ function PeriodDetails({ profile }: { profile: OperatorTimekeepingProfileContext
   const period = profile.currentPeriod;
 
   return (
-    <div className={cn('mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4', timeInsetPanelClassName)}>
+    <div className={cn('mt-4 grid gap-3 sm:grid-cols-3', timeInsetPanelClassName)}>
       <Metric
         label="Period"
         value={`${formatDate(period.periodStartDate)} to ${formatDate(period.periodEndDate)}`}
       />
       <Metric label="Time due" value={formatDate(period.submissionDueDate)} />
-      <Metric label="Locks" value={formatDate(period.lockDate)} />
-      <Metric label="Rounding" value={profile.policy.roundingRule.replaceAll('_', ' ')} />
+      <Metric label="Rounding" value="Each shift up to the next full hour" />
     </div>
   );
 }
@@ -1078,8 +1192,13 @@ function TimeEntriesPanel({
                       <h3 className="break-words text-balance font-semibold text-foreground">
                         {entry.machineLabel}
                       </h3>
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                        {getStatusLabel(entry.status)}
+                      <span
+                        className={cn(
+                          'rounded-full border px-2.5 py-1 text-xs font-semibold',
+                          getEntryReviewClassName(entry)
+                        )}
+                      >
+                        {getEntryReviewLabel(entry)}
                       </span>
                     </div>
                     <p className="mt-1 text-pretty text-sm text-muted-foreground">
@@ -1098,6 +1217,21 @@ function TimeEntriesPanel({
                         {entry.notes}
                       </p>
                     )}
+                    {!compact &&
+                      entry.managerReviewStatus === 'needs_correction' &&
+                      entry.managerReviewReason && (
+                        <div className="mt-3 rounded-xl border border-amber/25 bg-amber/10 px-3 py-3 text-sm leading-6 text-foreground">
+                          <p className="font-semibold">Your manager requested a correction</p>
+                          <p className="mt-1 text-pretty">{entry.managerReviewReason}</p>
+                        </div>
+                      )}
+                    {!compact &&
+                      entry.managerReviewStatus === 'approved' &&
+                      entry.status === 'submitted' && (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Editing this shift will send it back for manager review.
+                        </p>
+                      )}
                   </div>
 
                   {allowActions ? (

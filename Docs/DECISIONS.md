@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-07-16 - Timekeeping V1 is shift entry and machine-manager review (`#587`)
+Bloomjoy will replace the contractor Google Sheets/AppSheet workflow with a lightweight Hub timekeeping flow before expanding into payment execution.
+
+**Canonical behavior**
+- V1 uses after-the-fact completed-shift entry; it does not add a live clock-in/clock-out mode.
+- Pay periods are monthly calendar periods. Each completed shift is rounded up to the next full hour before monthly totals are shown.
+- Existing Machine Manager authority is the review boundary. Do not create a separate payroll approver role for shift review.
+- Machine Managers may approve an unlocked submitted shift or return it for correction. A correction requires a worker-visible reason; all review changes retain immutable review and admin-audit history.
+- Workers may edit an unlocked approved or returned shift. Any material shift edit resets it to waiting for manager review.
+- Time-review state does not calculate, issue, or send payment. Payment execution, direct deposit, tax/compliance processing, and provider integration remain post-MVP.
+- Issued pay statements remain available for worker self-service. Availability notification may be automated separately, but V1 does not mail physical statements or create payment-provider behavior.
+
+**Why this choice**
+- Workers need one fast mobile task after a shift, and managers need one scoped queue showing what requires attention.
+- Reusing assigned-machine authority preserves least privilege without adding role-administration overhead.
+- Separating timekeeping from payment behavior lets Bloomjoy retire Sheets/AppSheet sooner without presenting the Hub as a full payroll system.
+
 ## 2026-06-30 - Admin Console IA and Scoped Admin authority
 Admin features live in one `/admin` workspace named **Admin Console**. Admin Console uses shared sidebar navigation for Overview, Orders, Support, Accounts, Machines, Access, Audit, and the existing specialized admin surfaces. The sidebar is the single admin navigation map; the `/admin` overview is an attention dashboard, not a duplicate route launcher.
 
