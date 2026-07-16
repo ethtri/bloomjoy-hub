@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
   BookOpen,
+  ClipboardCheck,
   Clock3,
   HeadphonesIcon,
   LayoutDashboard,
@@ -24,7 +25,8 @@ export type PortalAccessLevel =
   | 'reporting'
   | 'refunds'
   | 'team'
-  | 'timekeeping';
+  | 'timekeeping'
+  | 'time-review';
 
 export interface PortalDestination {
   href: string;
@@ -63,6 +65,16 @@ export const portalDestinations: PortalDestination[] = [
     mobileOrder: 2,
   },
   {
+    href: '/portal/time-review',
+    label: 'Review Time',
+    labelKey: 'portal.nav.timeReview',
+    description: 'Approve or return submitted shifts for managed machines.',
+    descriptionKey: 'portal.nav.timeReviewDescription',
+    icon: ClipboardCheck,
+    access: 'time-review',
+    mobileOrder: 3,
+  },
+  {
     href: '/portal/orders',
     label: 'Orders',
     labelKey: 'portal.nav.orders',
@@ -70,7 +82,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.ordersDescription',
     icon: ShoppingBag,
     access: 'baseline',
-    mobileOrder: 3,
+    mobileOrder: 4,
   },
   {
     href: '/portal/account',
@@ -80,7 +92,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.accountDescription',
     icon: Settings,
     access: 'account',
-    mobileOrder: 4,
+    mobileOrder: 5,
   },
   {
     href: '/portal/team',
@@ -90,7 +102,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.teamDescription',
     icon: Users,
     access: 'team',
-    mobileOrder: 5,
+    mobileOrder: 6,
   },
   {
     href: '/portal/reports',
@@ -100,7 +112,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.reportingDescription',
     icon: BarChart3,
     access: 'reporting',
-    mobileOrder: 6,
+    mobileOrder: 7,
     upsellCopy: 'Sales reporting is available only for machines Bloomjoy has granted to this account.',
     upsellCopyKey: 'portal.nav.reportingUpsell',
   },
@@ -112,7 +124,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.refundsDescription',
     icon: ReceiptText,
     access: 'refunds',
-    mobileOrder: 7,
+    mobileOrder: 8,
     end: true,
   },
   {
@@ -123,7 +135,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.trainingDescription',
     icon: BookOpen,
     access: 'training',
-    mobileOrder: 8,
+    mobileOrder: 9,
     upsellCopy: 'Unlock the operator hub, quick aids, and certificate path.',
     upsellCopyKey: 'portal.nav.trainingUpsell',
   },
@@ -135,7 +147,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.onboardingDescription',
     icon: ListChecks,
     access: 'plus',
-    mobileOrder: 9,
+    mobileOrder: 10,
     upsellCopy: 'Unlock guided setup steps and first-spin milestones.',
     upsellCopyKey: 'portal.nav.onboardingUpsell',
   },
@@ -147,7 +159,7 @@ export const portalDestinations: PortalDestination[] = [
     descriptionKey: 'portal.nav.supportDescription',
     icon: HeadphonesIcon,
     access: 'support',
-    mobileOrder: 10,
+    mobileOrder: 11,
     upsellCopy: 'Unlock guided support requests and concierge escalation.',
     upsellCopyKey: 'portal.nav.supportUpsell',
   },
@@ -227,6 +239,8 @@ export const canAccessPortalLevel = (
       return canUsePortalTeamManagement({ canManageTechnicians, capabilities });
     case 'timekeeping':
       return canUsePortalTimekeeping({ capabilities, hasTimekeepingAccess });
+    case 'time-review':
+      return capabilities.includes('timekeeping.review');
     default:
       return false;
   }
@@ -252,6 +266,8 @@ export const getAccessLevelLabel = (accessLevel: PortalAccessLevel) => {
       return 'Team';
     case 'timekeeping':
       return 'Timekeeping';
+    case 'time-review':
+      return 'Time Review';
     case 'all':
     default:
       return 'Open';
@@ -278,6 +294,8 @@ export const getAccessLevelLabelKey = (accessLevel: PortalAccessLevel): Translat
       return 'portal.access.team';
     case 'timekeeping':
       return 'portal.access.timekeeping';
+    case 'time-review':
+      return 'portal.access.timeReview';
     case 'all':
     default:
       return 'portal.access.open';

@@ -184,11 +184,19 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
 - [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
-- [ ] Operator Time (`/portal/time`) loads for an authenticated operator with an active pay profile as a lightweight hub, shows current period dates, due date, lock date, this-period entries, past shifts without duplicate current-period entries, and a clear Add Time action without embedding the time-entry form.
-- [ ] Focused Add Time (`/portal/time/new`) allows only assigned machines, shows actual time and paid hours before save, rounds a short shift up to the Bloomjoy default full hour, and saves through the portal without exposing payroll/tax language.
-- [ ] Operator Time warns before save for end-before-start, work date outside the current period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
+- [ ] Operator Time (`/portal/time`) loads for an authenticated worker with an active timekeeping profile as a lightweight monthly hub, with one dominant Add completed shift action, month selection, actual/rounded totals, and manager-review states.
+- [ ] Focused Add Time (`/portal/time/new`) allows only assigned machines effective on the work date, shows actual and rounded time before save, rounds a short shift up to the next full hour, and submits without exposing tax, direct-deposit, or payment-execution controls.
+- [ ] Operator Time warns before save for end-before-start, work date outside the selected monthly period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
+- [ ] Operator Time shows Waiting for review, Approved, Correction requested, Included, and Paid states; a correction includes the manager reason, and editing approved/returned time resets review to pending.
 - [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, pay-included, paid, or voided entries.
-- [ ] Operator Time empty state explains that an admin or machine manager must add an operator pay profile and assigned machines before time can be submitted.
+- [ ] Operator Time empty state explains that an admin or machine manager must add a timekeeping profile and assigned machines before shifts can be submitted.
+- [ ] Review Time (`/portal/time-review`) appears only for users with existing machine-manager/payout-management authority and the server returns only shifts for machines they can manage.
+- [ ] Review Time defaults to the current month, supports reviewing another month, filters by managed machine and review state, and shows worker, machine, location, actual duration, and rounded time without worker email or unrelated account data.
+- [ ] A Machine Manager can approve an unlocked submitted shift with one action or request a correction with a required worker-visible reason; each action updates the queue and preserves review/audit history.
+- [ ] Out-of-scope users, out-of-scope time-entry IDs, locked entries, and non-submitted entries fail closed when calling the manager-review RPC directly.
+- [ ] A worker direct table INSERT/UPDATE attempt cannot self-approve or bypass the audited timekeeping RPCs; browser table writes fail, and the insert guard also forces pending/null review fields as defense in depth.
+- [ ] Manager review does not generate a pay run, issue a pay statement, mark time paid, or invoke payment/provider behavior.
+- [ ] Worker and manager timekeeping pages have no horizontal page overflow at `390x844` and remain usable at desktop width.
 
 ### Admin Operator Pay Review
 - [ ] Admin or scoped Operator Pay manager can open `/admin/payouts`; users without Operator Pay admin access see the existing admin access-required state.

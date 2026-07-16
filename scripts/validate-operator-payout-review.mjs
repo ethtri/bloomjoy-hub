@@ -171,8 +171,8 @@ if (!smoke.includes('Admin Operator Pay Review')) {
 }
 
 const status = readText(files.status);
-if (!status.includes('Manager review/finalization slice `#448`')) {
-  fail('CURRENT_STATUS missing #448 payout review update.');
+if (!status.includes('Operator Pay calculation, finalization')) {
+  fail('CURRENT_STATUS missing the separation between Timekeeping V1 and pay-run review.');
 }
 
 const actionOrder = ['draft', 'review', 'finalized', 'reopened', 'voided'];

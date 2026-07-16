@@ -123,7 +123,7 @@ const assertDocs = () => {
   const status = readText(statusPath);
 
   for (const snippet of [
-    'Right-sized operator payouts and payroll automation',
+    'Timekeeping V1 is shift entry and machine-manager review',
     'does not calculate withholding',
     'Pay Statement',
   ]) {
@@ -132,8 +132,8 @@ const assertDocs = () => {
     }
   }
 
-  if (!status.includes('Operator payouts foundation sprint')) {
-    fail('Docs/CURRENT_STATUS.md missing operator payouts sprint status.');
+  if (!status.includes('Timekeeping V1 is a distinct worker-entry')) {
+    fail('Docs/CURRENT_STATUS.md missing the durable Timekeeping V1 boundary.');
   }
 };
 

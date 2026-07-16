@@ -27,9 +27,9 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 - Scoped Admin Technician provisioning is tracked by P0 issues `#536`-`#542`; local executable implementation/UAT belongs in `#537`-`#541`, while `#542` requires post-deploy live invite/account verification.
 - Operator Pay, partner reporting, and scheduled exports are active shared foundations.
 - Operator report PDF exports depend on the deployed `sales-report-export` Edge Function matching the repo's polished generator; stale deployments can still produce legacy monospaced PDFs and should be redeployed before partner-facing report sharing.
-- Operator payouts foundation sprint: the foundation is on `main`; active follow-on PRs add timekeeping, revenue snapshots, calculation, review, and pay statement slices.
-- Manager review/finalization slice `#448` adds the admin review gate before operator pay statements are issued.
-- Operator pay statements slice `#449` publishes versioned operator-visible pay statements from finalized pay runs.
+- Timekeeping V1 is a distinct worker-entry and machine-manager-review workflow: monthly completed shifts, per-shift whole-hour rounding, worker-visible correction notes, and issued-statement self-service. Shift review does not execute or alter payments.
+- Operator Pay calculation, finalization, payment execution, tax/compliance handling, and provider integration remain separate from the Timekeeping V1 replacement for Sheets/AppSheet.
+- Operator pay statements slice `#449` remains the versioned foundation for issued-statement self-service; drafts and manager previews are not worker-visible.
 - Frontend work should use existing app patterns plus `PRODUCT.md`, `DESIGN.md`, and `impeccable` when the visible experience matters.
 
 ## Safety

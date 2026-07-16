@@ -126,6 +126,7 @@ export const translations = {
     'portal.access.refunds': 'Refunds',
     'portal.access.team': 'Team',
     'portal.access.timekeeping': 'Timekeeping',
+    'portal.access.timeReview': 'Time Review',
     'portal.access.open': 'Open',
 
     'portal.nav.dashboard': 'Dashboard',
@@ -135,6 +136,9 @@ export const translations = {
     'portal.nav.time': 'Time',
     'portal.nav.timeDescription':
       'Submit assigned-machine shifts and review current pay-period time.',
+    'portal.nav.timeReview': 'Review Time',
+    'portal.nav.timeReviewDescription':
+      'Approve or return submitted shifts for managed machines.',
     'portal.nav.account': 'Account Settings',
     'portal.nav.accountDescription': 'Profile, billing, shipping, and language preferences.',
     'portal.nav.team': 'Team',
@@ -746,6 +750,7 @@ export const translations = {
     'portal.access.refunds': '退款',
     'portal.access.team': '团队',
     'portal.access.timekeeping': '工时',
+    'portal.access.timeReview': '工时审核',
     'portal.access.open': '开放',
 
     'portal.nav.dashboard': '仪表盘',
@@ -754,6 +759,8 @@ export const translations = {
     'portal.nav.ordersDescription': '收据、总额和物流跟踪。',
     'portal.nav.time': '工时',
     'portal.nav.timeDescription': '提交已分配机器的班次，并查看当前结算周期的工时。',
+    'portal.nav.timeReview': '审核工时',
+    'portal.nav.timeReviewDescription': '审核或退回所管理机器的已提交班次。',
     'portal.nav.account': '账户设置 / Account Settings',
     'portal.nav.accountDescription': '资料、账单、收货信息和语言偏好。',
     'portal.nav.team': '团队 / Team',

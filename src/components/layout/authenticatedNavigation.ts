@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
   Building2,
+  ClipboardCheck,
   Clock3,
   Handshake,
   HeadphonesIcon,
@@ -233,6 +234,7 @@ const coreDestinationHrefs = new Set(coreDestinations.map((destination) => desti
 const portalSectionByHref: Record<string, AuthenticatedNavSectionId> = {
   '/portal': 'home',
   '/portal/time': 'work',
+  '/portal/time-review': 'work',
   '/portal/orders': 'work',
   '/portal/reports': 'work',
   '/portal/training': 'learnSupport',
@@ -249,6 +251,7 @@ const portalLabelOverrideByHref: Partial<Record<string, TranslationKey>> = {
 const portalIconOverrideByHref: Partial<Record<string, LucideIcon>> = {
   '/portal/orders': ShoppingBag,
   '/portal/time': Clock3,
+  '/portal/time-review': ClipboardCheck,
   '/portal/onboarding': ListChecks,
   '/portal/support': HeadphonesIcon,
   '/portal/account': Settings,
@@ -287,6 +290,16 @@ const canAccessPortalDestination = (
 
   if (destinationAccess === 'timekeeping') {
     return input.canUsePortalTimekeeping;
+  }
+
+  if (destinationAccess === 'time-review') {
+    const allowedAdminSurfaces = getAllowedAdminSurfaces(input.adminAccess);
+    return (
+      input.isSuperAdmin ||
+      allowedAdminSurfaces.has('*') ||
+      allowedAdminSurfaces.has('payouts') ||
+      input.capabilities.includes('timekeeping.review')
+    );
   }
 
   const allowedAdminSurfaces = getAllowedAdminSurfaces(input.adminAccess);
