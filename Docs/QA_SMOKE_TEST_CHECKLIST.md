@@ -142,6 +142,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
+- [ ] Login, authenticated portal, and Admin Console primary buttons, selected controls, links, and focus rings use the app-scoped interaction palette; normal text meets WCAG AA 4.5:1 contrast, focus indicators meet 3:1, and public-site colors remain unchanged
 - [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
 - [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights, the top app header stays compact without an extra context row pushing content below the fold, and visible auth/header/menu controls have touch-friendly hit areas

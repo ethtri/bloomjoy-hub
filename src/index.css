@@ -81,6 +81,22 @@
     --sidebar-ring: 345 72% 68%;
   }
 
+  .app-surface {
+    /*
+     * Authenticated app interaction palette.
+     * Keep the lighter candy pink on public marketing pages while giving
+     * login, portal, admin, and portalled controls AA-safe action colors.
+     */
+    --primary: 345 56% 40%;
+    --primary-foreground: 340 30% 99%;
+    --ring: 345 56% 40%;
+    --coral-dark: 345 60% 34%;
+    --shadow-warm: 0 4px 14px -3px hsl(345 56% 40% / 0.24);
+    --sidebar-primary: 345 56% 40%;
+    --sidebar-primary-foreground: 340 30% 99%;
+    --sidebar-ring: 345 56% 40%;
+  }
+
   .dark {
     --background: 220 20% 10%;
     --foreground: 340 20% 96%;
@@ -109,6 +125,17 @@
     --border: 220 15% 20%;
     --input: 220 15% 20%;
     --ring: 345 72% 68%;
+  }
+
+  .dark.app-surface,
+  .dark .app-surface {
+    --primary: 345 68% 72%;
+    --primary-foreground: 220 20% 10%;
+    --ring: 345 68% 72%;
+    --coral-dark: 345 68% 78%;
+    --sidebar-primary: 345 68% 72%;
+    --sidebar-primary-foreground: 220 20% 10%;
+    --sidebar-ring: 345 68% 72%;
   }
 }
 
