@@ -328,14 +328,13 @@ select ok(
 );
 
 set local role anon;
-select like(
+select ok(
   pg_temp.capture_error($$
     select public.get_my_time_review_context(current_date)
-  $$),
-  '%permission denied for function get_my_time_review_context%',
+  $$) like '%permission denied for function get_my_time_review_context%',
   'an anonymous actor is behaviorally denied the review queue RPC'
 );
-select like(
+select ok(
   pg_temp.capture_error($$
     select public.review_operator_time_entry(
       '80000000-0000-0000-0000-000000000001',
@@ -343,8 +342,7 @@ select like(
       null,
       current_date
     )
-  $$),
-  '%permission denied for function review_operator_time_entry%',
+  $$) like '%permission denied for function review_operator_time_entry%',
   'an anonymous actor is behaviorally denied the review action RPC'
 );
 reset role;
