@@ -19,6 +19,7 @@ type EventName =
   | 'start_plus_checkout'
   | 'plus_subscription_activated'
   | 'login'
+  | 'portal_bootstrap_timing'
   | 'view_dashboard'
   | 'view_training_catalog'
   | 'open_training_item'
@@ -87,12 +88,20 @@ export function trackEvent(name: EventName, properties?: EventProperties): void 
   // PostHog stub
   const analyticsWindow = getAnalyticsWindow();
   if (analyticsWindow?.posthog) {
-    analyticsWindow.posthog.capture(name, properties);
+    try {
+      analyticsWindow.posthog.capture(name, properties);
+    } catch {
+      // Analytics must never interrupt a user-facing flow.
+    }
   }
 
   // GA4 stub
   if (analyticsWindow?.gtag) {
-    analyticsWindow.gtag('event', name, properties);
+    try {
+      analyticsWindow.gtag('event', name, properties);
+    } catch {
+      // Analytics must never interrupt a user-facing flow.
+    }
   }
 }
 
@@ -103,6 +112,10 @@ export function identifyUser(userId: string, traits?: Record<string, unknown>): 
 
   const analyticsWindow = getAnalyticsWindow();
   if (analyticsWindow?.posthog) {
-    analyticsWindow.posthog.identify(userId, traits);
+    try {
+      analyticsWindow.posthog.identify(userId, traits);
+    } catch {
+      // Identification failure must not block authenticated access.
+    }
   }
 }
