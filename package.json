@@ -22,6 +22,7 @@
     "portal:validate-contrast": "node scripts/validate-app-color-contrast.mjs",
     "portal-nav:validate": "node scripts/validate-authenticated-navigation.mjs",
     "portal-nav:uat": "node scripts/validate-authenticated-portal-uat.mjs",
+    "portal-personas:uat": "node scripts/validate-authenticated-portal-uat.mjs",
     "portal-bootstrap:uat": "node scripts/validate-portal-bootstrap-performance.mjs",
     "commerce:preflight": "node scripts/commerce-preflight.mjs",
     "edge-url-allowlists:check": "node scripts/validate-edge-url-allowlists.mjs",
