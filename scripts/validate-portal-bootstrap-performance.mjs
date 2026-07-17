@@ -526,6 +526,11 @@ try {
       normalTiming.sessionToDashboardData >= normalTiming.sessionToDashboard,
     'Dashboard data-ready timing must be recorded after useful dashboard content is visible.',
   );
+  assert(
+    normalTiming.sessionToDashboardData !== null &&
+      normalTiming.sessionToDashboardData < 3_000,
+    `Normal dashboard data should be ready within 3s; measured ${normalTiming.sessionToDashboardData}ms.`,
+  );
   assertSingleCriticalBootstrap(normal.state, 'Normal baseline');
   assertAccessStartsAfterResolution(normal.state, 'Normal baseline');
 

@@ -70,6 +70,22 @@ const personas = {
     capabilities: ['operator.timekeeping'],
     timekeeping: true,
   },
+  profileOnlyTimekeeper: {
+    id: '00000000-0000-4000-9000-000000000009',
+    email: 'profile-only-timekeeper-uat@bloomjoy.localhost',
+    plus: false,
+    portalAccessTier: 'baseline',
+    isSuperAdmin: false,
+    isScopedAdmin: false,
+    canAccessAdmin: false,
+    allowedSurfaces: [],
+    hasReportingAccess: false,
+    canManageTechnicians: false,
+    canManageTeam: false,
+    isCorporatePartner: false,
+    capabilities: [],
+    timekeeping: true,
+  },
   training: {
     id: '00000000-0000-4000-9000-000000000004',
     email: 'training-uat@bloomjoy.localhost',
@@ -84,6 +100,54 @@ const personas = {
     canManageTeam: false,
     isCorporatePartner: false,
     capabilities: [],
+    timekeeping: false,
+  },
+  reportingTechnician: {
+    id: '00000000-0000-4000-9000-000000000006',
+    email: 'reporting-technician-uat@bloomjoy.localhost',
+    plus: false,
+    portalAccessTier: 'training',
+    isSuperAdmin: false,
+    isScopedAdmin: false,
+    canAccessAdmin: false,
+    allowedSurfaces: [],
+    hasReportingAccess: true,
+    canManageTechnicians: false,
+    canManageTeam: false,
+    isCorporatePartner: false,
+    capabilities: ['training.view'],
+    timekeeping: false,
+  },
+  plusMember: {
+    id: '00000000-0000-4000-9000-000000000007',
+    email: 'plus-member-uat@bloomjoy.localhost',
+    plus: true,
+    portalAccessTier: 'plus',
+    isSuperAdmin: false,
+    isScopedAdmin: false,
+    canAccessAdmin: false,
+    allowedSurfaces: [],
+    hasReportingAccess: false,
+    canManageTechnicians: false,
+    canManageTeam: false,
+    isCorporatePartner: false,
+    capabilities: [],
+    timekeeping: false,
+  },
+  corporatePartner: {
+    id: '00000000-0000-4000-9000-000000000008',
+    email: 'corporate-partner-uat@bloomjoy.localhost',
+    plus: false,
+    portalAccessTier: 'corporate_partner',
+    isSuperAdmin: false,
+    isScopedAdmin: false,
+    canAccessAdmin: false,
+    allowedSurfaces: [],
+    hasReportingAccess: false,
+    canManageTechnicians: true,
+    canManageTeam: true,
+    isCorporatePartner: true,
+    capabilities: ['reports.partner.view', 'training.view', 'technicians.manage'],
     timekeeping: false,
   },
   scopedAdmin: {
@@ -102,6 +166,27 @@ const personas = {
     capabilities: [],
     timekeeping: false,
   },
+};
+
+const requiredTrainingIds = [
+  'software-setup-quickstart',
+  'start-up-shutdown-procedure',
+  'pricing-passwords-payment-settings',
+  'alarm-and-power-timer-setup',
+  'daily-maintenance-routine',
+  'consumables-loading-and-stick-handling',
+  'troubleshooting-common-issues',
+];
+
+const normalizeDashboardTaskHref = (href) => {
+  if (href?.startsWith('/portal/training')) {
+    return '/portal/training';
+  }
+  if (href?.startsWith('/portal/time')) {
+    return '/portal/time';
+  }
+
+  return href;
 };
 
 const assert = async (conditionOrPromise, message) => {
@@ -330,13 +415,21 @@ const createPageForPersona = async (
   browser,
   persona,
   viewport,
-  { failLanguageSync = false } = {},
+  {
+    failLanguageSync = false,
+    dashboardStatusDelayMs = 0,
+    dashboardStatusFailureAttempts = 0,
+    trainingProgressRecords = [],
+    onboardingCompletedStepIds = null,
+    language = 'en',
+  } = {},
 ) => {
   const context = await browser.newContext({ viewport });
   const session = makeSession(persona);
+  let dashboardStatusRequestCount = 0;
 
   await context.addInitScript(
-    ({ value }) => {
+    ({ value, email, completedStepIds, initialLanguage }) => {
       const sessionValue = JSON.stringify(value);
       const isSupabaseAuthKey = (key) =>
         typeof key === 'string' && /^sb-.+-auth-token$/.test(key);
@@ -358,8 +451,23 @@ const createPageForPersona = async (
 
         return originalSetItem.call(this, key, nextValue);
       };
+
+      if (Array.isArray(completedStepIds)) {
+        window.localStorage.setItem(
+          `bloomjoy-onboarding:${email.toLowerCase()}`,
+          JSON.stringify({ completedStepIds }),
+        );
+      }
+      if (window.localStorage.getItem('bloomjoy.language.v1') === null) {
+        window.localStorage.setItem('bloomjoy.language.v1', initialLanguage);
+      }
     },
-    { value: session },
+    {
+      value: session,
+      email: persona.email,
+      completedStepIds: onboardingCompletedStepIds,
+      initialLanguage: language,
+    },
   );
 
   await context.route('**/auth/v1/user', (route) =>
@@ -376,16 +484,34 @@ const createPageForPersona = async (
       body: JSON.stringify(session),
     }),
   );
-  await context.route('**/rest/v1/rpc/**', (route) => {
-    const rpcName = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop());
-    if (debug) {
-      console.log(`[${persona.email}] rpc ${rpcName}`);
+  const fulfillRpc = async (route, rpcName) => {
+    if (rpcName === 'get_my_operator_timekeeping_context') {
+      dashboardStatusRequestCount += 1;
+      if (dashboardStatusDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, dashboardStatusDelayMs));
+      }
+      if (dashboardStatusRequestCount <= dashboardStatusFailureAttempts) {
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Dashboard status unavailable in UAT.' }),
+        });
+      }
     }
+
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(rpcResponse(rpcName, persona)),
     });
+  };
+
+  await context.route('**/rest/v1/rpc/**', async (route) => {
+    const rpcName = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop());
+    if (debug) {
+      console.log(`[${persona.email}] rpc ${rpcName}`);
+    }
+    return fulfillRpc(route, rpcName);
   });
   await context.route('**/rest/v1/**', (route) =>
     {
@@ -396,11 +522,7 @@ const createPageForPersona = async (
           console.log(`[${persona.email}] rpc ${rpcName}`);
         }
 
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(rpcResponse(rpcName, persona)),
-        });
+        return fulfillRpc(route, rpcName);
       }
 
       if (
@@ -412,6 +534,14 @@ const createPageForPersona = async (
           status: 503,
           contentType: 'application/json',
           body: JSON.stringify({ message: 'Language preference sync unavailable in UAT.' }),
+        });
+      }
+
+      if (requestUrl.pathname.endsWith('/training_progress')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(trainingProgressRecords),
         });
       }
 
@@ -432,7 +562,15 @@ const createPageForPersona = async (
       failLanguageSync &&
       message.type() === 'error' &&
       message.text().includes('503 (Service Unavailable)');
-    if (message.type() === 'error' && !isExpectedLanguageSyncFailure) {
+    const isExpectedDashboardStatusFailure =
+      dashboardStatusFailureAttempts > 0 &&
+      message.type() === 'error' &&
+      message.text().includes('503 (Service Unavailable)');
+    if (
+      message.type() === 'error' &&
+      !isExpectedLanguageSyncFailure &&
+      !isExpectedDashboardStatusFailure
+    ) {
       const errorMessage = `[${persona.email}] console error: ${message.text()}`;
       unexpectedBrowserErrors.push(errorMessage);
       console.error(errorMessage);
@@ -440,6 +578,38 @@ const createPageForPersona = async (
   });
   page.on('pageerror', (error) => {
     const errorMessage = `[${persona.email}] page error: ${error.message}`;
+    unexpectedBrowserErrors.push(errorMessage);
+    console.error(errorMessage);
+  });
+  page.on('requestfailed', (request) => {
+    const errorMessage =
+      `[${persona.email}] request failed: ${request.method()} ${request.url()} ` +
+      `(${request.failure()?.errorText ?? 'unknown error'})`;
+    unexpectedBrowserErrors.push(errorMessage);
+    console.error(errorMessage);
+  });
+  page.on('response', (response) => {
+    if (response.status() < 400) {
+      return;
+    }
+
+    const requestUrl = new URL(response.url());
+    const isExpectedDashboardStatusFailure =
+      dashboardStatusFailureAttempts > 0 &&
+      response.status() === 503 &&
+      requestUrl.pathname.endsWith('/rest/v1/rpc/get_my_operator_timekeeping_context');
+    const isExpectedLanguageSyncFailure =
+      failLanguageSync &&
+      response.status() === 503 &&
+      requestUrl.pathname.endsWith('/customer_profiles');
+
+    if (isExpectedDashboardStatusFailure || isExpectedLanguageSyncFailure) {
+      return;
+    }
+
+    const errorMessage =
+      `[${persona.email}] unexpected response: ${response.status()} ` +
+      `${response.request().method()} ${response.url()}`;
     unexpectedBrowserErrors.push(errorMessage);
     console.error(errorMessage);
   });
@@ -476,6 +646,100 @@ const assertNoHorizontalOverflow = async (page, label) => {
     dimensions.documentWidth <= dimensions.viewportWidth + 1,
     `${label} must not overflow horizontally (${dimensions.documentWidth}px > ${dimensions.viewportWidth}px).`,
   );
+};
+
+const assertDashboardExperience = async (
+  page,
+  {
+    label,
+    expectedPrimaryHref,
+    expectedState = 'ready',
+    primaryInFirstViewport = false,
+  },
+) => {
+  const primaryAction = page.locator('[data-dashboard-primary-action]');
+  await primaryAction.waitFor();
+  await assert(
+    (await page.locator('main h1').count()) === 1,
+    `${label} must render exactly one page H1.`,
+  );
+  await assert(
+    (await primaryAction.count()) === 1,
+    `${label} must render exactly one primary dashboard action.`,
+  );
+  await assert(
+    (await primaryAction.getAttribute('href')) === expectedPrimaryHref,
+    `${label} primary action must target ${expectedPrimaryHref}.`,
+  );
+  await assert(
+    (await page.locator('[data-dashboard-state]').getAttribute('data-dashboard-state')) ===
+      expectedState,
+    `${label} must finish in the ${expectedState} dashboard state.`,
+  );
+
+  const attentionItems = page.locator('[data-dashboard-attention-item]');
+  await assert(
+    (await attentionItems.count()) <= 2,
+    `${label} must cap secondary attention items at two.`,
+  );
+  const attentionHrefs = await attentionItems.locator('a').evaluateAll((links) =>
+    links.map((link) => link.getAttribute('href')).filter(Boolean),
+  );
+  const secondaryAction = page.locator('[data-dashboard-secondary-action]');
+  const secondaryHref =
+    (await secondaryAction.count()) > 0
+      ? await secondaryAction.getAttribute('href')
+      : null;
+  const allTaskHrefs = [expectedPrimaryHref, secondaryHref, ...attentionHrefs]
+    .filter(Boolean)
+    .map(normalizeDashboardTaskHref);
+  await assert(
+    new Set(allTaskHrefs).size === allTaskHrefs.length,
+    `${label} must not duplicate a task across primary, secondary, and attention actions.`,
+  );
+  await assert(
+    (await page.locator('main a[href="/portal/reports"]').count()) <= 1,
+    `${label} must render Reporting at most once inside the dashboard.`,
+  );
+
+  const primaryBox = await primaryAction.boundingBox();
+  await assert(
+    primaryBox && primaryBox.height >= 44,
+    `${label} primary action must provide at least a 44px touch target.`,
+  );
+  if (primaryInFirstViewport) {
+    const viewport = page.viewportSize();
+    await assert(
+      primaryBox && viewport && primaryBox.y + primaryBox.height <= viewport.height,
+      `${label} primary action must remain visible in the first mobile viewport.`,
+    );
+  }
+
+  await assertNoHorizontalOverflow(page, label);
+};
+
+const assertDashboardPrimaryNavigation = async (page, { label, expectedPath }) => {
+  const primaryAction = page.locator('[data-dashboard-primary-action]');
+  await primaryAction.click();
+  await page.waitForURL((url) => url.pathname === expectedPath);
+  await page.locator('main h1').first().waitFor();
+  const destinationText = await textContent(page.locator('main'));
+  await assert(
+    !/Page not found|Access required|Timekeeping setup required|not included with this account|outside your current access|Ask Bloomjoy for access/i.test(
+      destinationText,
+    ),
+    `${label} primary action must reach its authorized destination without a route guard.`,
+  );
+  if (expectedPath.startsWith('/portal') || expectedPath.startsWith('/admin')) {
+    await assert(
+      (await page.locator('[data-app-shell-content-header]').count()) === 1,
+      `${label} primary action must remain inside the authenticated application shell.`,
+    );
+    await assert(
+      (await page.locator('aside nav a[aria-current="page"]').count()) === 1,
+      `${label} primary destination must activate exactly one authenticated navigation item.`,
+    );
+  }
 };
 
 const assertHeaderAlignment = async (page, label) => {
@@ -638,6 +902,51 @@ try {
   await adminPage.screenshot({ path: path.join(outputDir, 'portal-shell-admin-desktop.png'), fullPage: true });
   await adminPage.close();
 
+  const adminDashboardPage = await createPageForPersona(browser, personas.admin, {
+    width: 1366,
+    height: 768,
+  });
+  let adminTrainingProgressRequests = 0;
+  adminDashboardPage.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/training_progress')) {
+      adminTrainingProgressRequests += 1;
+    }
+  });
+  await adminDashboardPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await waitForHeading(
+    adminDashboardPage,
+    { name: 'Welcome back', level: 1 },
+    'portal-dashboard-admin-debug-failed.png',
+  );
+  await assertDashboardExperience(adminDashboardPage, {
+    label: 'Super Admin dashboard',
+    expectedPrimaryHref: '/admin',
+  });
+  await assert(
+    (await adminDashboardPage.getByText('Continue Setup').count()) === 0,
+    'Super Admin dashboard must not treat a device-local customer checklist as admin work.',
+  );
+  await assert(
+    adminTrainingProgressRequests === 0,
+    'Super Admin dashboard readiness must not depend on irrelevant training-progress requests.',
+  );
+  await assert(
+    await adminDashboardPage.evaluate(
+      () =>
+        performance.getEntriesByName('bloomjoy.portal.dashboard_data_ready').length === 1,
+    ),
+    'Super Admin dashboard must emit its data-ready performance mark without training data.',
+  );
+  await adminDashboardPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-admin-desktop.png'),
+    fullPage: true,
+  });
+  await assertDashboardPrimaryNavigation(adminDashboardPage, {
+    label: 'Super Admin dashboard',
+    expectedPath: '/admin',
+  });
+  await adminDashboardPage.close();
+
   const mobileAdminPage = await createPageForPersona(browser, personas.admin, {
     width: 390,
     height: 844,
@@ -696,10 +1005,22 @@ try {
     (await customerPage.getByText('See access details').count()) === 0,
     'Portal dashboard should not render locked quick-action cards.',
   );
+  await assertDashboardExperience(customerPage, {
+    label: 'Baseline customer dashboard',
+    expectedPrimaryHref: '/supplies',
+  });
+  await assert(
+    (await customerPage.locator('[data-dashboard-attention-list]').count()) === 0,
+    'Baseline dashboard must not invent setup or training attention items.',
+  );
   await assertHeaderAlignment(customerPage, 'Portal desktop shell');
   await customerPage.screenshot({
-    path: path.join(outputDir, 'portal-shell-dashboard-desktop.png'),
+    path: path.join(outputDir, 'portal-dashboard-baseline-desktop.png'),
     fullPage: true,
+  });
+  await assertDashboardPrimaryNavigation(customerPage, {
+    label: 'Baseline customer dashboard',
+    expectedPath: '/supplies',
   });
   await customerPage.goto(`${appUrl}/portal/time`, { waitUntil: 'networkidle' });
   await customerPage.getByText('Timekeeping setup required').waitFor();
@@ -727,6 +1048,18 @@ try {
     (await timekeeperPage.locator('aside nav a[href="/portal/time"]').count()) === 1,
     'Timekeeper should see Time in navigation.',
   );
+  await assertDashboardExperience(timekeeperPage, {
+    label: 'Timekeeper dashboard',
+    expectedPrimaryHref: '/portal/time/new',
+  });
+  await timekeeperPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-timekeeper-desktop.png'),
+    fullPage: true,
+  });
+  await assertDashboardPrimaryNavigation(timekeeperPage, {
+    label: 'Timekeeper dashboard',
+    expectedPath: '/portal/time/new',
+  });
   await timekeeperPage.goto(`${appUrl}/portal/time`, { waitUntil: 'networkidle' });
   await waitForHeading(
     timekeeperPage,
@@ -828,12 +1161,168 @@ try {
     (await visibleLanguageControls(mobileDashboardPage).count()) === 0,
     'Mobile dashboard shell must not render a language selector.',
   );
-  await assertNoHorizontalOverflow(mobileDashboardPage, 'Dashboard mobile');
+  await assertDashboardExperience(mobileDashboardPage, {
+    label: 'Baseline mobile dashboard',
+    expectedPrimaryHref: '/supplies',
+    primaryInFirstViewport: true,
+  });
   await mobileDashboardPage.screenshot({
-    path: path.join(outputDir, 'portal-shell-dashboard-mobile.png'),
+    path: path.join(outputDir, 'portal-dashboard-mobile-en.png'),
     fullPage: true,
   });
   await mobileDashboardPage.close();
+
+  const mobileChineseDashboardPage = await createPageForPersona(
+    browser,
+    personas.customer,
+    {
+      width: 390,
+      height: 844,
+    },
+    { language: 'zh-Hans' },
+  );
+  await mobileChineseDashboardPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await waitForHeading(
+    mobileChineseDashboardPage,
+    { name: '欢迎回来', level: 1 },
+    'portal-dashboard-mobile-zh-debug-failed.png',
+  );
+  await assertDashboardExperience(mobileChineseDashboardPage, {
+    label: 'Chinese baseline mobile dashboard',
+    expectedPrimaryHref: '/supplies',
+    primaryInFirstViewport: true,
+  });
+  const chineseDashboardText = await textContent(
+    mobileChineseDashboardPage.locator('[data-dashboard-state]'),
+  );
+  await assert(
+    !chineseDashboardText.includes('dashboard.'),
+    'Chinese dashboard must not expose raw translation keys.',
+  );
+  await mobileChineseDashboardPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-mobile-zh.png'),
+    fullPage: true,
+  });
+  await mobileChineseDashboardPage.close();
+
+  const loadingDashboardPage = await createPageForPersona(
+    browser,
+    personas.profileOnlyTimekeeper,
+    {
+      width: 390,
+      height: 844,
+    },
+    { dashboardStatusDelayMs: 1_500 },
+  );
+  await loadingDashboardPage.goto(`${appUrl}/portal`, { waitUntil: 'domcontentloaded' });
+  await waitForHeading(
+    loadingDashboardPage,
+    { name: 'Welcome back', level: 1 },
+    'portal-dashboard-loading-debug-failed.png',
+  );
+  await loadingDashboardPage.locator('[data-dashboard-primary-loading]').waitFor();
+  await assert(
+    (await loadingDashboardPage.locator('[data-dashboard-primary-action]').count()) === 0,
+    'Profile-derived timekeeping access must not expose a fallback primary action while access is unresolved.',
+  );
+  await assert(
+    (await loadingDashboardPage.locator('[data-dashboard-state]').getAttribute('data-dashboard-state')) ===
+      'loading',
+    'Delayed current-work data must render an explicit loading dashboard state.',
+  );
+  await assert(
+    await loadingDashboardPage.evaluate(
+      () =>
+        performance.getEntriesByName('bloomjoy.portal.dashboard_data_ready').length === 0,
+    ),
+    'Dashboard data-ready mark must remain absent while the primary current-work signal is gated.',
+  );
+  await assert(
+    (await loadingDashboardPage.locator('[data-dashboard-attention-empty]').count()) === 0,
+    'Loading dashboard must not claim that the user is caught up.',
+  );
+  await loadingDashboardPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-loading-mobile.png'),
+    fullPage: true,
+  });
+  await assertDashboardExperience(loadingDashboardPage, {
+    label: 'Resolved delayed timekeeper dashboard',
+    expectedPrimaryHref: '/portal/time/new',
+    primaryInFirstViewport: true,
+  });
+  await assertDashboardPrimaryNavigation(loadingDashboardPage, {
+    label: 'Profile-only timekeeper dashboard',
+    expectedPath: '/portal/time/new',
+  });
+  await loadingDashboardPage.close();
+
+  const errorDashboardPage = await createPageForPersona(
+    browser,
+    personas.timekeeper,
+    {
+      width: 1366,
+      height: 768,
+    },
+    { dashboardStatusFailureAttempts: 4 },
+  );
+  await errorDashboardPage.goto(`${appUrl}/portal`, { waitUntil: 'domcontentloaded' });
+  await errorDashboardPage.locator('[data-dashboard-error-state]').waitFor({
+    timeout: 20_000,
+  });
+  await assertDashboardExperience(errorDashboardPage, {
+    label: 'Unavailable timekeeper dashboard',
+    expectedPrimaryHref: '/portal/time',
+    expectedState: 'error',
+  });
+  await errorDashboardPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-error-desktop.png'),
+    fullPage: true,
+  });
+  await errorDashboardPage.getByRole('button', { name: 'Retry status' }).click();
+  await errorDashboardPage
+    .locator('[data-dashboard-primary-action][href="/portal/time/new"]')
+    .waitFor();
+  await errorDashboardPage.locator('[data-dashboard-error-state]').waitFor({ state: 'hidden' });
+  await assertDashboardExperience(errorDashboardPage, {
+    label: 'Recovered timekeeper dashboard',
+    expectedPrimaryHref: '/portal/time/new',
+  });
+  await errorDashboardPage.close();
+
+  const completedTrainingRecords = requiredTrainingIds.map((trainingId) => ({
+    training_id: trainingId,
+    started_at: '2026-06-01T00:00:00.000Z',
+    completed_at: '2026-06-02T00:00:00.000Z',
+    completion_source: 'uat',
+  }));
+  const completedDashboardPage = await createPageForPersona(
+    browser,
+    personas.plusMember,
+    {
+      width: 1366,
+      height: 768,
+    },
+    {
+      trainingProgressRecords: completedTrainingRecords,
+      onboardingCompletedStepIds: ['1', '2', '3', '4', '5'],
+    },
+  );
+  await completedDashboardPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await completedDashboardPage.locator('[data-dashboard-empty-state]').waitFor();
+  await assertDashboardExperience(completedDashboardPage, {
+    label: 'Completed Plus dashboard',
+    expectedPrimaryHref: '/portal/training',
+    expectedState: 'empty',
+  });
+  await completedDashboardPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-empty-desktop.png'),
+    fullPage: true,
+  });
+  await assertDashboardPrimaryNavigation(completedDashboardPage, {
+    label: 'Completed Plus dashboard',
+    expectedPath: '/portal/training',
+  });
+  await completedDashboardPage.close();
 
   const accountPage = await createPageForPersona(browser, personas.customer, {
     width: 1366,
@@ -1001,11 +1490,111 @@ try {
   });
   await mobileReportingPage.close();
 
+  const startedTrainingRecords = [
+    {
+      training_id: 'software-setup-quickstart',
+      started_at: '2026-06-01T00:00:00.000Z',
+      completed_at: null,
+      completion_source: null,
+    },
+  ];
+  const plusDashboardPage = await createPageForPersona(browser, personas.plusMember, {
+    width: 1366,
+    height: 768,
+  }, { trainingProgressRecords: startedTrainingRecords });
+  await plusDashboardPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertDashboardExperience(plusDashboardPage, {
+    label: 'Plus member dashboard',
+    expectedPrimaryHref: '/portal/onboarding',
+  });
+  await assert(
+    (await plusDashboardPage.getByText(/not checked on this device/i).count()) > 0,
+    'Plus setup progress must be labeled as device-local rather than authoritative account state.',
+  );
+  await plusDashboardPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-plus-desktop.png'),
+    fullPage: true,
+  });
+  await assertDashboardPrimaryNavigation(plusDashboardPage, {
+    label: 'Plus member dashboard',
+    expectedPath: '/portal/onboarding',
+  });
+  await plusDashboardPage.close();
+
+  const reportingTechnicianDashboardPage = await createPageForPersona(
+    browser,
+    personas.reportingTechnician,
+    {
+      width: 1366,
+      height: 768,
+    },
+    { trainingProgressRecords: startedTrainingRecords },
+  );
+  await reportingTechnicianDashboardPage.goto(`${appUrl}/portal`, {
+    waitUntil: 'networkidle',
+  });
+  await assertDashboardExperience(reportingTechnicianDashboardPage, {
+    label: 'Reporting Technician dashboard',
+    expectedPrimaryHref: '/portal/reports',
+  });
+  await assert(
+    (await reportingTechnicianDashboardPage.locator('main a[href="/portal/account"]').count()) ===
+      0,
+    'Reporting Technician dashboard must not expose Account Settings.',
+  );
+  await reportingTechnicianDashboardPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-reporting-technician-desktop.png'),
+    fullPage: true,
+  });
+  await assertDashboardPrimaryNavigation(reportingTechnicianDashboardPage, {
+    label: 'Reporting Technician dashboard',
+    expectedPath: '/portal/reports',
+  });
+  await reportingTechnicianDashboardPage.close();
+
+  const partnerDashboardPage = await createPageForPersona(
+    browser,
+    personas.corporatePartner,
+    {
+      width: 1366,
+      height: 768,
+    },
+  );
+  await partnerDashboardPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertDashboardExperience(partnerDashboardPage, {
+    label: 'Corporate Partner dashboard',
+    expectedPrimaryHref: '/portal/reports',
+  });
+  const partnerDashboardText = await textContent(
+    partnerDashboardPage.locator('[data-dashboard-state]'),
+  );
+  await assert(
+    !/Plus Membership|Admin Console/.test(partnerDashboardText),
+    'Corporate Partner dashboard must not expose Plus upsell or admin-only concepts.',
+  );
+  await assertDashboardPrimaryNavigation(partnerDashboardPage, {
+    label: 'Corporate Partner dashboard',
+    expectedPath: '/portal/reports',
+  });
+  await partnerDashboardPage.close();
+
   const scopedAdminPage = await createPageForPersona(browser, personas.scopedAdmin, {
     width: 1366,
     height: 768,
   });
-  await scopedAdminPage.goto(`${appUrl}/admin/orders`, { waitUntil: 'networkidle' });
+  await scopedAdminPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertDashboardExperience(scopedAdminPage, {
+    label: 'Orders-scoped Admin dashboard',
+    expectedPrimaryHref: '/admin/orders',
+  });
+  await scopedAdminPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-scoped-admin-desktop.png'),
+    fullPage: true,
+  });
+  await assertDashboardPrimaryNavigation(scopedAdminPage, {
+    label: 'Orders-scoped Admin dashboard',
+    expectedPath: '/admin/orders',
+  });
   await scopedAdminPage.locator('[data-app-shell-content-header]').waitFor();
   await assertHeaderAlignment(scopedAdminPage, 'Scoped Admin desktop shell');
   const scopedHeaderFitsEnglish = await scopedAdminPage
@@ -1033,10 +1622,15 @@ try {
   });
   await scopedAdminPage.close();
 
-  const trainingPage = await createPageForPersona(browser, personas.training, {
-    width: 1366,
-    height: 768,
-  });
+  const trainingPage = await createPageForPersona(
+    browser,
+    personas.training,
+    {
+      width: 1366,
+      height: 768,
+    },
+    { trainingProgressRecords: startedTrainingRecords },
+  );
   await trainingPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
   await waitForHeading(
     trainingPage,
@@ -1051,6 +1645,24 @@ try {
     (await visibleLanguageControls(trainingPage).count()) === 0,
     'Training-only authenticated shell must not reintroduce the language selector.',
   );
+  await assertDashboardExperience(trainingPage, {
+    label: 'Training-only dashboard',
+    expectedPrimaryHref: '/portal/training/software-setup-quickstart',
+  });
+  await assert(
+    (await trainingPage.locator('main a[href="/portal/orders"]').count()) === 0 &&
+      (await trainingPage.locator('main a[href="/portal/team"]').count()) === 0 &&
+      (await trainingPage.locator('main a[href^="/admin"]').count()) === 0,
+    'Training-only dashboard must not expose owner, Team, or Admin work.',
+  );
+  await trainingPage.screenshot({
+    path: path.join(outputDir, 'portal-dashboard-training-desktop.png'),
+    fullPage: true,
+  });
+  await assertDashboardPrimaryNavigation(trainingPage, {
+    label: 'Training-only dashboard',
+    expectedPath: '/portal/training/software-setup-quickstart',
+  });
   await trainingPage.getByRole('button', { name: 'Open profile menu' }).click();
   await trainingPage.getByText('Sign Out', { exact: true }).waitFor();
   await trainingPage.close();

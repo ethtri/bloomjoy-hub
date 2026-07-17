@@ -139,12 +139,37 @@ assert(
 
 const portalDashboard = includes(
   'src/pages/portal/Dashboard.tsx',
-  'availableDashboardActions',
-  'Portal dashboard should render a curated set of available actions instead of a second full nav catalog.',
+  'data-dashboard-primary-action',
+  'Portal dashboard must expose one deterministic primary-action contract.',
 );
 assert(
-  !portalDashboard.includes('getAccessLevelLabelKey') && !portalDashboard.includes('<Lock'),
-  'Portal dashboard quick actions should not render locked access cards.',
+  !portalDashboard.includes('dashboardActions') &&
+    !portalDashboard.includes('availableDashboardActions') &&
+    !portalDashboard.includes('portalDestinations.map') &&
+    !portalDashboard.includes('getAccessLevelLabelKey') &&
+    !portalDashboard.includes('<Lock'),
+  'Portal dashboard must stay task-first instead of rebuilding the sidebar or rendering locked access cards.',
+);
+assert(
+  portalDashboard.includes('data-dashboard-attention-list') &&
+    portalDashboard.includes('data-dashboard-empty-state') &&
+    portalDashboard.includes('data-dashboard-status-loading') &&
+    portalDashboard.includes('data-dashboard-error-state') &&
+    portalDashboard.includes('attentionItems.slice(0, 2)') &&
+    portalDashboard.includes('.slice(0, 3)'),
+  'Portal dashboard must cap task density and expose truthful loading, empty, and error states.',
+);
+assert(
+  portalDashboard.includes('getVisibleAdminDestinations') &&
+    portalDashboard.includes("capabilities.includes('reports.partner.view')") &&
+    portalDashboard.includes('canUsePortalTimekeeping') &&
+    portalDashboard.includes('markPortalDashboardVisible') &&
+    portalDashboard.includes('markPortalDashboardDataReady'),
+  'Portal dashboard must preserve persona-safe admin, partner-reporting, timekeeping, and performance contracts.',
+);
+assert(
+  !portalDashboard.includes('transition-all') && !portalDashboard.includes('hover:-translate'),
+  'Portal dashboard interactions should use restrained product motion.',
 );
 
 const { translations } = await import(pathToFileURL(path.join(repoRoot, 'src/lib/i18n.ts')));
