@@ -7,6 +7,7 @@ import {
   MapPin,
   CreditCard,
   ExternalLink,
+  Languages,
   ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -492,9 +493,30 @@ export default function AccountPage() {
 
             {/* Billing */}
             <div className="min-w-0">
-              <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">
-                <LanguagePreferenceControl showText fullWidth />
-              </div>
+              <section
+                className="mt-6 card-elevated min-w-0 p-5 sm:p-6"
+                aria-labelledby="account-preferences-title"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <Languages className="h-5 w-5 text-primary" aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2
+                      id="account-preferences-title"
+                      className="font-display text-lg font-semibold text-foreground"
+                    >
+                      {t('account.preferences')}
+                    </h2>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {t('language.selectorDescription')}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5">
+                  <LanguagePreferenceControl showText fullWidth />
+                </div>
+              </section>
 
               {!isScopedAdminOnly && !isCorporatePartnerOnly && (
                 <div className="mt-6 card-elevated min-w-0 p-5 sm:p-6">

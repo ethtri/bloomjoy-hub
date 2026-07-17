@@ -27,10 +27,17 @@ import {
 
 type LanguageContextValue = {
   language: LanguageCode;
+  languageSyncStatus: LanguageSyncStatus;
   setLanguage: (language: LanguageCode) => void;
   supportedLanguages: typeof supportedLanguages;
   t: (key: TranslationKey, params?: TranslationParams) => string;
 };
+
+export type LanguageSyncStatus =
+  | 'device-only'
+  | 'syncing'
+  | 'synced'
+  | 'sync-unavailable';
 
 const LanguageContext = createContext<LanguageContextValue | undefined>(undefined);
 
@@ -46,8 +53,12 @@ const readStoredLanguage = (): LanguageCode => {
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [language, setLanguageState] = useState<LanguageCode>(readStoredLanguage);
+  const [languageSyncStatus, setLanguageSyncStatus] =
+    useState<LanguageSyncStatus>('device-only');
   const languageRef = useRef(language);
   const manualChangeCounterRef = useRef(0);
+  const syncGenerationRef = useRef(0);
+  const activeUserIdRef = useRef<string | null>(user?.id ?? null);
 
   useEffect(() => {
     languageRef.current = language;
@@ -59,44 +70,103 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, [language]);
 
   useEffect(() => {
-    if (!user?.id) {
-      return;
+    const requestUserId = user?.id ?? null;
+    const requestGeneration = syncGenerationRef.current + 1;
+    syncGenerationRef.current = requestGeneration;
+    activeUserIdRef.current = requestUserId;
+
+    const isCurrentAuthRequest = () =>
+      syncGenerationRef.current === requestGeneration &&
+      activeUserIdRef.current === requestUserId;
+    const invalidateAuthRequest = () => {
+      if (syncGenerationRef.current === requestGeneration) {
+        syncGenerationRef.current += 1;
+        activeUserIdRef.current = null;
+      }
+    };
+
+    if (!requestUserId) {
+      setLanguageSyncStatus('device-only');
+      return invalidateAuthRequest;
     }
 
     let active = true;
     const requestCounter = manualChangeCounterRef.current;
+    setLanguageSyncStatus('syncing');
 
     const syncProfilePreference = async () => {
-      const profileLanguage = await fetchPortalLanguagePreference(user.id);
+      try {
+        const profileLanguage = await fetchPortalLanguagePreference(requestUserId);
 
-      if (!active) {
-        return;
-      }
-
-      if (profileLanguage) {
-        if (manualChangeCounterRef.current === requestCounter) {
-          setLanguageState(profileLanguage);
+        if (
+          !active ||
+          !isCurrentAuthRequest() ||
+          manualChangeCounterRef.current !== requestCounter
+        ) {
+          return;
         }
-        return;
-      }
 
-      await savePortalLanguagePreference(user.id, languageRef.current).catch(() => undefined);
+        if (profileLanguage) {
+          setLanguageState(profileLanguage);
+          setLanguageSyncStatus('synced');
+          return;
+        }
+
+        await savePortalLanguagePreference(requestUserId, languageRef.current);
+
+        if (
+          active &&
+          isCurrentAuthRequest() &&
+          manualChangeCounterRef.current === requestCounter
+        ) {
+          setLanguageSyncStatus('synced');
+        }
+      } catch {
+        if (
+          active &&
+          isCurrentAuthRequest() &&
+          manualChangeCounterRef.current === requestCounter
+        ) {
+          setLanguageSyncStatus('sync-unavailable');
+        }
+      }
     };
 
-    void syncProfilePreference().catch(() => undefined);
+    void syncProfilePreference();
 
     return () => {
       active = false;
+      invalidateAuthRequest();
     };
   }, [user?.id]);
 
   const setLanguage = useCallback(
     (nextLanguage: LanguageCode) => {
       manualChangeCounterRef.current += 1;
+      const requestCounter = manualChangeCounterRef.current;
       setLanguageState(nextLanguage);
 
       if (user?.id) {
-        void savePortalLanguagePreference(user.id, nextLanguage).catch(() => undefined);
+        const requestUserId = user.id;
+        const requestGeneration = syncGenerationRef.current;
+        const isCurrentManualRequest = () =>
+          manualChangeCounterRef.current === requestCounter &&
+          syncGenerationRef.current === requestGeneration &&
+          activeUserIdRef.current === requestUserId;
+        setLanguageSyncStatus('syncing');
+        void savePortalLanguagePreference(requestUserId, nextLanguage)
+          .then(() => {
+            if (isCurrentManualRequest()) {
+              setLanguageSyncStatus('synced');
+            }
+          })
+          .catch(() => {
+            if (isCurrentManualRequest()) {
+              setLanguageSyncStatus('sync-unavailable');
+            }
+          });
+      } else {
+        setLanguageSyncStatus('device-only');
       }
     },
     [user?.id]
@@ -110,11 +180,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const value = useMemo<LanguageContextValue>(
     () => ({
       language,
+      languageSyncStatus,
       setLanguage,
       supportedLanguages,
       t,
     }),
-    [language, setLanguage, t]
+    [language, languageSyncStatus, setLanguage, t]
   );
 
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;

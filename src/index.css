@@ -20,6 +20,12 @@
     /* Cotton candy pink primary */
     --primary: 345 72% 68%;
     --primary-foreground: 0 0% 100%;
+    --action: 345 72% 68%;
+    --action-foreground: 0 0% 100%;
+    --action-hover: 345 72% 58%;
+    --action-active: 345 72% 58%;
+    --action-shadow: 0 4px 14px -3px hsl(345 72% 68% / 0.3);
+    --action-shadow-hover: 0 6px 20px -3px hsl(16 85% 55% / 0.35);
 
     /* Soft pink secondary */
     --secondary: 340 40% 96%;
@@ -79,6 +85,8 @@
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 340 20% 92%;
     --sidebar-ring: 345 72% 68%;
+    --app-shell-header-height: 4.25rem;
+    --app-shell-divider: 340 20% 90%;
   }
 
   .app-surface {
@@ -87,14 +95,21 @@
      * Keep the lighter candy pink on public marketing pages while giving
      * login, portal, admin, and portalled controls AA-safe action colors.
      */
-    --primary: 345 56% 40%;
+    --primary: 335 65% 40%;
     --primary-foreground: 340 30% 99%;
-    --ring: 345 56% 40%;
-    --coral-dark: 345 60% 34%;
-    --shadow-warm: 0 4px 14px -3px hsl(345 56% 40% / 0.24);
-    --sidebar-primary: 345 56% 40%;
+    --ring: 335 65% 40%;
+    --coral-dark: 335 65% 34%;
+    --action: 345 72% 68%;
+    --action-foreground: 220 20% 14%;
+    --action-hover: 345 72% 64%;
+    --action-active: 345 72% 62%;
+    --action-shadow: 0 4px 14px -3px hsl(345 72% 68% / 0.26);
+    --action-shadow-hover: 0 6px 20px -3px hsl(345 72% 68% / 0.36);
+    --shadow-warm: var(--action-shadow);
+    --sidebar-primary: 335 65% 40%;
     --sidebar-primary-foreground: 340 30% 99%;
-    --sidebar-ring: 345 56% 40%;
+    --sidebar-ring: 335 65% 40%;
+    --app-shell-divider: 340 20% 90%;
   }
 
   .dark {
@@ -109,6 +124,10 @@
 
     --primary: 345 72% 68%;
     --primary-foreground: 0 0% 100%;
+    --action: 345 72% 68%;
+    --action-foreground: 0 0% 100%;
+    --action-hover: 345 72% 58%;
+    --action-active: 345 72% 58%;
 
     --secondary: 220 15% 18%;
     --secondary-foreground: 340 20% 96%;
@@ -125,6 +144,7 @@
     --border: 220 15% 20%;
     --input: 220 15% 20%;
     --ring: 345 72% 68%;
+    --app-shell-divider: 220 15% 20%;
   }
 
   .dark.app-surface,
@@ -133,9 +153,16 @@
     --primary-foreground: 220 20% 10%;
     --ring: 345 68% 72%;
     --coral-dark: 345 68% 78%;
+    --action: 345 68% 72%;
+    --action-foreground: 220 20% 10%;
+    --action-hover: 345 68% 68%;
+    --action-active: 345 68% 66%;
+    --action-shadow: 0 4px 14px -3px hsl(345 68% 72% / 0.24);
+    --action-shadow-hover: 0 6px 20px -3px hsl(345 68% 72% / 0.34);
     --sidebar-primary: 345 68% 72%;
     --sidebar-primary-foreground: 220 20% 10%;
     --sidebar-ring: 345 68% 72%;
+    --app-shell-divider: 220 15% 20%;
   }
 }
 
@@ -180,6 +207,16 @@
     @apply space-y-6 sm:space-y-8;
   }
 
+  .app-shell-header-row {
+    border-bottom: 1px solid hsl(var(--app-shell-divider));
+  }
+
+  @media (min-width: 1024px) {
+    .app-shell-header-row {
+      height: var(--app-shell-header-height);
+    }
+  }
+
   .text-balance {
     text-wrap: balance;
   }
@@ -209,7 +246,7 @@
   }
 
   .btn-shadow:hover {
-    box-shadow: 0 6px 20px -3px hsl(345 72% 68% / 0.4);
+    box-shadow: var(--action-shadow-hover);
   }
 
   .gradient-candy {

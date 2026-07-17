@@ -95,6 +95,25 @@ assert(
   !appLayout.includes('<h1 className="truncate font-display text-lg font-semibold text-foreground sm:text-xl">'),
   'The app shell title must not render as an H1 because pages render their own H1.',
 );
+const authenticatedSidebarSource = appLayout.slice(
+  appLayout.indexOf('function AuthenticatedSidebar'),
+);
+assert(
+  !authenticatedSidebarSource.includes('LanguagePreferenceControl'),
+  'Authenticated desktop and mobile navigation must keep language preference in Account Settings.',
+);
+assert(
+  appLayout.includes('data-app-shell-sidebar-header') &&
+    appLayout.includes('data-app-shell-content-header'),
+  'Authenticated shell headers must expose the shared divider contract.',
+);
+
+const accountPage = read('src/pages/portal/Account.tsx');
+assert(
+  (accountPage.match(/<LanguagePreferenceControl/g) ?? []).length === 1 &&
+    accountPage.includes("t('account.preferences')"),
+  'Account Settings must own exactly one labeled language preference section.',
+);
 
 const adminDashboard = includes(
   'src/pages/admin/Dashboard.tsx',

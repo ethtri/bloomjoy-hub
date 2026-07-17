@@ -148,11 +148,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Pending Technician first login resolves entitlements before access reads, then exposes assigned Training and Reporting access without a second login.
 - [ ] Signing out or changing users while access is loading invalidates the earlier request; a stale response cannot restore the prior user or permissions.
 - [ ] Login, authenticated portal, and Admin Console primary buttons, selected controls, links, and focus rings use the app-scoped interaction palette; normal text meets WCAG AA 4.5:1 contrast, focus indicators meet 3:1, and public-site colors remain unchanged
+- [ ] Run `npm run portal:validate-contrast` and confirm the bright authenticated action fill, foreground, hover, active, deeper link/selection ink, and focus ring pass in light and dark token states while public primary/action tokens remain unchanged
+- [ ] Reporting `Export polished PDF` and representative shared primary actions use bright Bloomjoy pink with dark readable text, a pink app hover shadow, and no burgundy/red or orange action treatment
 - [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
 - [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights, the top app header stays compact without an extra context row pushing content below the fold, and visible auth/header/menu controls have touch-friendly hit areas
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
 - [ ] Language selector on `/login` switches between English and Simplified Chinese and the selected language persists after refresh on desktop
+- [ ] `/login` renders exactly one visible language selector on desktop and `390x844`, including while the mobile navigation drawer is open; both language targets are at least `44x44` CSS px with a visible keyboard focus ring
 - [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
 - [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
 - [ ] Password sign-in works for an existing email/password user
@@ -229,6 +232,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Portal section navigation labels `/portal/account` as Settings and does not show a separate Admin link for admin users
 - [ ] Mobile app navigation keeps Account Settings and Sign Out as session utilities without duplicate session or admin actions in the same sheet
 - [ ] Signed-in `/portal/account` language preference switches core portal navigation, dashboard/reporting/training/support/account entry labels, then persists after refresh
+- [ ] Authenticated desktop sidebar and mobile drawer render no persistent language selector; `/portal/account` renders exactly one labeled Preferences > Language preference section with full `English` and `简体中文` labels
+- [ ] If account preference sync fails, changing language still persists on the current device and Account Settings reports the non-blocking sync failure instead of claiming account sync succeeded
+- [ ] Training-only users retain their existing restricted route permissions; language recovery remains available by signing out and using the single selector on `/login`
+- [ ] At desktop widths, normal portal, normal admin, Scoped Admin, and permission-neutral loading shells align sidebar/content header dividers within `1` CSS px, use one divider color, and keep EN/ZH scoped context inside the fixed header row
+- [ ] Run `npm run portal-nav:uat -- --app-url http://127.0.0.1:8081` and review desktop/`390x844` screenshots for login, dashboard, Account Settings EN/ZH, Reporting export, normal/scoped headers, and mobile overflow in `output/playwright`
 - [ ] On mobile (`390x844`), Chinese app-shell and portal navigation labels fit without horizontal page overflow
 - [ ] User with reporting access sees Reporting in portal navigation, quick actions, and the above-the-fold dashboard reporting card linking to `/portal/reports`
 - [ ] User without reporting access does not see Reporting in portal navigation or dashboard quick actions

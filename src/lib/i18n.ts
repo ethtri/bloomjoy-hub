@@ -29,6 +29,11 @@ export const translations = {
     'language.english': 'English',
     'language.chineseSimplified': 'Simplified Chinese',
     'language.savedLocally': 'Saved on this device and synced to your account when available.',
+    'language.deviceOnly': 'Saved on this device.',
+    'language.syncing': 'Saved on this device. Syncing to your account…',
+    'language.synced': 'Saved on this device and synced to your account.',
+    'language.syncUnavailable':
+      'Saved on this device. Account sync is unavailable; try again later.',
 
     'app.operatorApp': 'Operator App',
     'app.operatorLogin': 'Operator login',
@@ -624,6 +629,7 @@ export const translations = {
     'support.unableSubmit': 'Unable to submit support request.',
 
     'account.title': 'Account Settings',
+    'account.preferences': 'Preferences',
     'account.description':
       'Manage the profile information, shipping address, and language preference that keep portal work running smoothly.',
     'team.title': 'Team',
@@ -661,6 +667,10 @@ export const translations = {
     'language.english': 'English',
     'language.chineseSimplified': '简体中文',
     'language.savedLocally': '会保存在此设备；可用时也会同步到账号。',
+    'language.deviceOnly': '已保存在此设备。',
+    'language.syncing': '已保存在此设备。正在同步到您的账号…',
+    'language.synced': '已保存在此设备，并已同步到您的账号。',
+    'language.syncUnavailable': '已保存在此设备。账号同步暂不可用，请稍后再试。',
 
     'app.operatorApp': '运营应用',
     'app.operatorLogin': '运营登录',
@@ -1166,6 +1176,7 @@ export const translations = {
     'support.unableSubmit': '无法提交支持请求。',
 
     'account.title': '账户设置 / Account Settings',
+    'account.preferences': '偏好设置 / Preferences',
     'account.description': '管理资料、收货地址和语言偏好，让门户工作更顺畅。',
     'team.title': '团队 / Team',
     'team.description': '添加 Technician、发送邀请，并管理每个人可以查看报表的机器。',
