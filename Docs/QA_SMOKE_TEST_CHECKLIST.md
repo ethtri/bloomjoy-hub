@@ -142,6 +142,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
+- [ ] Run `npm run portal-bootstrap:uat -- --app-url <local-or-preview-url>` and confirm the permission-neutral shell appears within 2 seconds, useful dashboard content appears within 3 seconds under the normal deterministic fixture, and screenshots are written to `output/playwright`.
+- [ ] With entitlement/access responses delayed, `/portal` and `/admin` render the branded structural shell without generic `Loading...`, baseline upsells, access-sensitive navigation, false zero states, or unauthorized content.
+- [ ] Initial session hydration calls Technician resolution and each access-context RPC once; repeated `SIGNED_IN` and `TOKEN_REFRESHED` events do not restart bootstrap or replace a ready page with loading UI.
+- [ ] Pending Technician first login resolves entitlements before access reads, then exposes assigned Training and Reporting access without a second login.
+- [ ] Signing out or changing users while access is loading invalidates the earlier request; a stale response cannot restore the prior user or permissions.
 - [ ] Login, authenticated portal, and Admin Console primary buttons, selected controls, links, and focus rings use the app-scoped interaction palette; normal text meets WCAG AA 4.5:1 contrast, focus indicators meet 3:1, and public-site colors remain unchanged
 - [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`

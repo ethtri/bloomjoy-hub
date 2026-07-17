@@ -33,9 +33,20 @@ export interface User {
   adminAccess: AdminAccessContext;
 }
 
+export type AuthBootstrapStatus =
+  | 'checking-session'
+  | 'hydrating-access'
+  | 'ready'
+  | 'signed-out'
+  | 'error';
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  bootstrapStatus: AuthBootstrapStatus;
+  bootstrapError: string | null;
+  hasAuthenticatedSession: boolean;
+  retryBootstrap: () => Promise<void>;
   signInWithMagicLink: (email: string) => Promise<{ error: AuthError | null }>;
   signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;

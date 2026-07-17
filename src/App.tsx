@@ -11,12 +11,15 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { AuthenticatedShellSkeleton } from "@/components/auth/AuthenticatedShellSkeleton";
 import { MemberRoute } from "@/components/auth/MemberRoute";
 import { AdminRoute, RefundOperationsRoute } from "@/components/auth/AdminRoute";
 import { HostRedirectGate } from "@/components/routing/HostRedirectGate";
 import { RouteErrorBoundary } from "@/components/routing/RouteErrorBoundary";
 import { RouteSeoManager } from "@/components/seo/RouteSeoManager";
 import { lazyRoute } from "@/lib/lazyRoute";
+import { loadPortalDashboard } from "@/lib/portalRouteModules";
+import { useAuth } from "@/contexts/auth-context";
 
 import Index from "./pages/Index";
 
@@ -49,7 +52,7 @@ const RefundRequest = lazyRoute(() => import("./pages/RefundRequest"));
 const RefundThankYou = lazyRoute(() => import("./pages/RefundThankYou"));
 const Login = lazyRoute(() => import("./pages/Login"));
 const ResetPassword = lazyRoute(() => import("./pages/ResetPassword"));
-const PortalDashboard = lazyRoute(() => import("./pages/portal/Dashboard"));
+const PortalDashboard = lazyRoute(loadPortalDashboard);
 const PortalTraining = lazyRoute(() => import("./pages/portal/Training"));
 const PortalTrainingDetail = lazyRoute(() => import("./pages/portal/TrainingDetail"));
 const PortalSupport = lazyRoute(() => import("./pages/portal/Support"));
@@ -76,9 +79,23 @@ const NotFound = lazyRoute(() => import("./pages/NotFound"));
 
 const browserQueryClient = new QueryClient();
 
-const RouteFallback = () => (
-  <div className="container-page py-10 text-sm text-muted-foreground">Loading page...</div>
-);
+const RouteFallback = () => {
+  const { hasAuthenticatedSession } = useAuth();
+  const { pathname } = useLocation();
+  const isAuthenticatedSurface =
+    pathname === "/portal" ||
+    pathname.startsWith("/portal/") ||
+    pathname === "/admin" ||
+    pathname.startsWith("/admin/");
+
+  if (isAuthenticatedSurface && hasAuthenticatedSession) {
+    return <AuthenticatedShellSkeleton status="route-loading" />;
+  }
+
+  return (
+    <div className="container-page py-10 text-sm text-muted-foreground">Loading page...</div>
+  );
+};
 
 const RedirectWithSearch = ({ to }: { to: string }) => {
   const location = useLocation();

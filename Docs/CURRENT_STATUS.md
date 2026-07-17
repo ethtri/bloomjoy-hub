@@ -30,6 +30,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 - Timekeeping V1 is a distinct worker-entry and machine-manager-review workflow: monthly completed shifts, per-shift whole-hour rounding, worker-visible correction notes, and issued-statement self-service. Shift review does not execute or alter payments.
 - Operator Pay calculation, finalization, payment execution, tax/compliance handling, and provider integration remain separate from the Timekeeping V1 replacement for Sheets/AppSheet.
 - Operator pay statements slice `#449` remains the versioned foundation for issued-statement self-service; drafts and manager previews are not worker-visible.
+- Authenticated portal bootstrap is shell-first and permission-neutral: Technician entitlement resolution remains authoritative before access reads, access-sensitive navigation waits for hydration, and session-to-shell/dashboard timing contains no account or identity data.
 - Frontend work should use existing app patterns plus `PRODUCT.md`, `DESIGN.md`, and `impeccable` when the visible experience matters.
 
 ## Safety

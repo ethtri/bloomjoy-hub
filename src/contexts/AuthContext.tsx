@@ -1,7 +1,12 @@
-import React, { useState, useEffect, useRef, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, useCallback, ReactNode } from 'react';
 import type { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
-import { AuthContext, type AdminAccessContext, type User } from '@/contexts/auth-context';
+import {
+  AuthContext,
+  type AdminAccessContext,
+  type AuthBootstrapStatus,
+  type User,
+} from '@/contexts/auth-context';
 import { supabaseClient } from '@/lib/supabaseClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { getCanonicalUrlForSurface, getSafeInternalAppPath } from '@/lib/appSurface';
@@ -20,6 +25,12 @@ import {
   type ReportingAccessContext,
 } from '@/lib/reporting';
 import { resolveMyTechnicianEntitlements } from '@/lib/technicianEntitlements';
+import {
+  beginPortalBootstrap,
+  getPortalRouteCategory,
+  markPortalAccessReady,
+} from '@/lib/portalPerformance';
+import { preloadPortalDashboard } from '@/lib/portalRouteModules';
 
 type AdminRoleRecord = {
   role: string;
@@ -240,64 +251,278 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const activeAuthUserIdRef = useRef<string | null>(null);
+  const bootstrapStatusRef = useRef<AuthBootstrapStatus>('checking-session');
+  const bootstrapGenerationRef = useRef(0);
+  const mountedRef = useRef(false);
+  const hydrationRef = useRef<{
+    userId: string;
+    promise: Promise<User>;
+  } | null>(null);
+  const pendingForcedHydrationRef = useRef<SupabaseUser | null>(null);
+  const hydrateAccessForUserRef = useRef<
+    (supabaseUser: SupabaseUser, force?: boolean) => Promise<void>
+  >(async () => undefined);
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [bootstrapStatus, setBootstrapStatus] =
+    useState<AuthBootstrapStatus>('checking-session');
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [hasAuthenticatedSession, setHasAuthenticatedSession] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
+  const updateBootstrapStatus = useCallback((nextStatus: AuthBootstrapStatus) => {
+    bootstrapStatusRef.current = nextStatus;
+    setBootstrapStatus(nextStatus);
+  }, []);
 
-    const clearQueryCacheForUserChange = (nextUserId: string | null) => {
-      if (activeAuthUserIdRef.current === nextUserId) return;
-
-      activeAuthUserIdRef.current = nextUserId;
-      queryClient.clear();
-    };
-
-    const setUserFromSession = async (supabaseUser: SupabaseUser | null) => {
-      if (!mounted) return;
-
-      clearQueryCacheForUserChange(supabaseUser?.id ?? null);
-
-      if (!supabaseUser) {
-        setUser(null);
-        setLoading(false);
+  const clearQueryCacheForUserChange = useCallback(
+    (nextUserId: string | null) => {
+      if (activeAuthUserIdRef.current === nextUserId) {
         return;
       }
 
-      const authUser = await buildAuthUser(supabaseUser);
+      activeAuthUserIdRef.current = nextUserId;
+      queryClient.clear();
+    },
+    [queryClient]
+  );
 
-      if (!mounted) return;
-      setUser(authUser);
-      identifyUser(authUser.id, {
-        email: authUser.email,
-        is_admin: authUser.isAdmin,
-        portal_access_tier: authUser.portalAccessTier,
-      });
-      setLoading(false);
-    };
+  const moveToSignedOut = useCallback(() => {
+    bootstrapGenerationRef.current += 1;
+    hydrationRef.current = null;
+    pendingForcedHydrationRef.current = null;
+    clearQueryCacheForUserChange(null);
+    setUser(null);
+    setBootstrapError(null);
+    setHasAuthenticatedSession(false);
+    updateBootstrapStatus('signed-out');
+  }, [clearQueryCacheForUserChange, updateBootstrapStatus]);
 
-    const hydrateSession = async () => {
-      const {
-        data: { session },
-      } = await supabaseClient.auth.getSession();
+  const hydrateAccessForUser = useCallback(
+    async (supabaseUser: SupabaseUser, force = false): Promise<void> => {
+      if (!mountedRef.current) {
+        return;
+      }
 
-      await setUserFromSession(session?.user ?? null);
-    };
+      const sameUser = activeAuthUserIdRef.current === supabaseUser.id;
+      const inFlight =
+        hydrationRef.current?.userId === supabaseUser.id ? hydrationRef.current : null;
 
-    void hydrateSession();
+      if (!force && sameUser && bootstrapStatusRef.current === 'ready') {
+        return;
+      }
+
+      if (!force && inFlight) {
+        await inFlight.promise.catch(() => undefined);
+        return;
+      }
+
+      clearQueryCacheForUserChange(supabaseUser.id);
+      setHasAuthenticatedSession(true);
+      setBootstrapError(null);
+      setUser(null);
+      updateBootstrapStatus('hydrating-access');
+
+      const routeCategory = getPortalRouteCategory();
+      if (!force) {
+        beginPortalBootstrap(routeCategory);
+      }
+      if (routeCategory === 'portal-dashboard') {
+        preloadPortalDashboard();
+      }
+
+      const generation = ++bootstrapGenerationRef.current;
+      const hydrationPromise = buildAuthUser(supabaseUser);
+      hydrationRef.current = {
+        userId: supabaseUser.id,
+        promise: hydrationPromise,
+      };
+
+      try {
+        const authUser = await hydrationPromise;
+
+        if (
+          !mountedRef.current ||
+          generation !== bootstrapGenerationRef.current ||
+          activeAuthUserIdRef.current !== supabaseUser.id
+        ) {
+          return;
+        }
+
+        if (pendingForcedHydrationRef.current?.id === supabaseUser.id) {
+          return;
+        }
+
+        setUser(authUser);
+        identifyUser(authUser.id, {
+          email: authUser.email,
+          is_admin: authUser.isAdmin,
+          portal_access_tier: authUser.portalAccessTier,
+        });
+        updateBootstrapStatus('ready');
+        markPortalAccessReady();
+      } catch {
+        if (
+          !mountedRef.current ||
+          generation !== bootstrapGenerationRef.current ||
+          activeAuthUserIdRef.current !== supabaseUser.id
+        ) {
+          return;
+        }
+
+        if (pendingForcedHydrationRef.current?.id === supabaseUser.id) {
+          return;
+        }
+
+        setUser(null);
+        setBootstrapError('We could not verify your account access. Please retry.');
+        updateBootstrapStatus('error');
+      } finally {
+        if (hydrationRef.current?.promise === hydrationPromise) {
+          hydrationRef.current = null;
+        }
+
+        const pendingUser = pendingForcedHydrationRef.current;
+        if (
+          pendingUser?.id === supabaseUser.id &&
+          mountedRef.current &&
+          generation === bootstrapGenerationRef.current &&
+          activeAuthUserIdRef.current === supabaseUser.id
+        ) {
+          pendingForcedHydrationRef.current = null;
+          const scheduledGeneration = bootstrapGenerationRef.current;
+          setTimeout(() => {
+            if (
+              !mountedRef.current ||
+              scheduledGeneration !== bootstrapGenerationRef.current ||
+              activeAuthUserIdRef.current !== pendingUser.id
+            ) {
+              return;
+            }
+
+            void hydrateAccessForUserRef.current(pendingUser, true);
+          }, 0);
+        }
+      }
+    },
+    [clearQueryCacheForUserChange, updateBootstrapStatus]
+  );
+
+  useEffect(() => {
+    hydrateAccessForUserRef.current = hydrateAccessForUser;
+  }, [hydrateAccessForUser]);
+
+  useEffect(() => {
+    mountedRef.current = true;
 
     const {
       data: { subscription },
-    } = supabaseClient.auth.onAuthStateChange((_event, session) => {
-      setLoading(true);
-      void setUserFromSession(session?.user ?? null);
+    } = supabaseClient.auth.onAuthStateChange((event, session) => {
+      const sessionUser = session?.user ?? null;
+
+      if (event === 'SIGNED_OUT' || !sessionUser) {
+        moveToSignedOut();
+        return;
+      }
+
+      setHasAuthenticatedSession(true);
+
+      const sameUser = activeAuthUserIdRef.current === sessionUser.id;
+
+      if (!sameUser) {
+        bootstrapGenerationRef.current += 1;
+        hydrationRef.current = null;
+        pendingForcedHydrationRef.current = null;
+        clearQueryCacheForUserChange(sessionUser.id);
+        setUser(null);
+        setBootstrapError(null);
+        updateBootstrapStatus('hydrating-access');
+      }
+
+      const isAlreadyHydrating =
+        sameUser &&
+        hydrationRef.current?.userId === sessionUser.id &&
+        bootstrapStatusRef.current === 'hydrating-access';
+      const isAlreadyReady = sameUser && bootstrapStatusRef.current === 'ready';
+      const force = event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY';
+
+      if (force && sameUser && bootstrapStatusRef.current === 'hydrating-access') {
+        pendingForcedHydrationRef.current = sessionUser;
+        return;
+      }
+
+      if (
+        (event === 'TOKEN_REFRESHED' && (isAlreadyHydrating || isAlreadyReady)) ||
+        ((event === 'INITIAL_SESSION' || event === 'SIGNED_IN') &&
+          (isAlreadyHydrating || isAlreadyReady))
+      ) {
+        return;
+      }
+
+      const scheduledGeneration = bootstrapGenerationRef.current;
+      const scheduledUserId = sessionUser.id;
+      setTimeout(() => {
+        if (
+          !mountedRef.current ||
+          scheduledGeneration !== bootstrapGenerationRef.current ||
+          activeAuthUserIdRef.current !== scheduledUserId
+        ) {
+          return;
+        }
+
+        void hydrateAccessForUser(sessionUser, force);
+      }, 0);
     });
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
+      bootstrapGenerationRef.current += 1;
+      hydrationRef.current = null;
+      pendingForcedHydrationRef.current = null;
       subscription.unsubscribe();
     };
-  }, [queryClient]);
+  }, [
+    clearQueryCacheForUserChange,
+    hydrateAccessForUser,
+    moveToSignedOut,
+    updateBootstrapStatus,
+  ]);
+
+  const retryBootstrap = useCallback(async () => {
+    const retryGeneration = ++bootstrapGenerationRef.current;
+    const expectedUserId = activeAuthUserIdRef.current;
+    hydrationRef.current = null;
+    pendingForcedHydrationRef.current = null;
+    setBootstrapError(null);
+    updateBootstrapStatus('hydrating-access');
+
+    const {
+      data: { session },
+      error,
+    } = await supabaseClient.auth.getSession();
+
+    if (
+      !mountedRef.current ||
+      retryGeneration !== bootstrapGenerationRef.current ||
+      (expectedUserId !== null &&
+        session?.user?.id !== undefined &&
+        session.user.id !== expectedUserId)
+    ) {
+      return;
+    }
+
+    if (error) {
+      setBootstrapError('We could not recheck your secure session. Please retry.');
+      updateBootstrapStatus('error');
+      return;
+    }
+
+    if (!session?.user) {
+      moveToSignedOut();
+      return;
+    }
+
+    setHasAuthenticatedSession(true);
+    await hydrateAccessForUser(session.user, true);
+  }, [hydrateAccessForUser, moveToSignedOut, updateBootstrapStatus]);
 
   const getAuthRedirectPath = () => {
     if (typeof window === 'undefined') {
@@ -411,17 +636,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = signInWithMagicLink;
 
   const signOut = async () => {
-    activeAuthUserIdRef.current = null;
-    queryClient.clear();
-    await supabaseClient.auth.signOut();
-    setUser(null);
+    moveToSignedOut();
+    const { error } = await supabaseClient.auth.signOut();
+
+    if (!error) {
+      return;
+    }
+
+    const { error: localSignOutError } = await supabaseClient.auth.signOut({ scope: 'local' });
+    if (localSignOutError) {
+      setHasAuthenticatedSession(true);
+      setBootstrapError('We could not complete sign out. Please retry.');
+      updateBootstrapStatus('error');
+    }
   };
+
+  const loading =
+    bootstrapStatus === 'checking-session' || bootstrapStatus === 'hydrating-access';
+  const isAuthenticated = bootstrapStatus === 'ready' && Boolean(user);
 
   return (
     <AuthContext.Provider
       value={{
         user,
         loading,
+        bootstrapStatus,
+        bootstrapError,
+        hasAuthenticatedSession,
+        retryBootstrap,
         signInWithMagicLink,
         signInWithPassword,
         signUpWithPassword,
@@ -431,7 +673,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updatePassword,
         signIn,
         signOut,
-        isAuthenticated: !!user,
+        isAuthenticated,
         isMember: user?.plusAccess.hasPlusAccess ?? false,
         portalAccessTier: user?.portalAccessTier ?? 'baseline',
         canAccessTraining: hasTrainingAccess(user?.portalAccessTier),

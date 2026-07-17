@@ -21,6 +21,10 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { trackEvent } from '@/lib/analytics';
+import {
+  markPortalDashboardDataReady,
+  markPortalDashboardVisible,
+} from '@/lib/portalPerformance';
 import type { TranslationKey } from '@/lib/i18n';
 import { getOnboardingProgress } from '@/lib/onboardingChecklist';
 import {
@@ -121,8 +125,10 @@ export default function PortalDashboard() {
   const allowedAdminSurfaces = new Set(adminAccess.allowedSurfaces);
   const hasRefundOperationsAccess =
     isSuperAdmin || allowedAdminSurfaces.has('*') || allowedAdminSurfaces.has('refunds');
-  const { canUsePortalTeam } = usePortalTechnicianManagement();
-  const { canUsePortalTimekeeping } = usePortalTimekeepingAccess();
+  const teamAccess = usePortalTechnicianManagement();
+  const timekeepingAccess = usePortalTimekeepingAccess();
+  const { canUsePortalTeam } = teamAccess;
+  const { canUsePortalTimekeeping } = timekeepingAccess;
   const canAccessPortalAction = (access: PortalAccessLevel) => {
     if (access === 'team') {
       return canUsePortalTeam;
@@ -144,13 +150,32 @@ export default function PortalDashboard() {
     );
   };
   const onboardingProgress = getOnboardingProgress(user?.email);
-  const { data: library = [] } = useTrainingLibrary(canAccessTraining);
-  const { data: trackDefinitions = [] } = useTrainingTracks(canAccessTraining);
-  const { data: trainingProgress = [] } = useTrainingProgress(user?.id, canAccessTraining);
+  const libraryQuery = useTrainingLibrary(canAccessTraining);
+  const tracksQuery = useTrainingTracks(canAccessTraining);
+  const progressQuery = useTrainingProgress(user?.id, canAccessTraining);
+  const { data: library = [] } = libraryQuery;
+  const { data: trackDefinitions = [] } = tracksQuery;
+  const { data: trainingProgress = [] } = progressQuery;
+  const dashboardDataReady =
+    !teamAccess.isLoading &&
+    !timekeepingAccess.isLoading &&
+    (!canAccessTraining ||
+      (!libraryQuery.isLoading && !tracksQuery.isLoading && !progressQuery.isLoading));
 
   useEffect(() => {
     trackEvent('view_dashboard');
+    const frame = window.requestAnimationFrame(markPortalDashboardVisible);
+    return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    if (!user?.id || !dashboardDataReady) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(markPortalDashboardDataReady);
+    return () => window.cancelAnimationFrame(frame);
+  }, [dashboardDataReady, user?.id]);
 
   if (!user) {
     return null;

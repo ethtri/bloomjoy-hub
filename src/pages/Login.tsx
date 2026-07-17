@@ -330,7 +330,7 @@ export default function LoginPage() {
     signInWithGoogle,
     signInWithGoogleIdToken,
     requestPasswordReset,
-    isAuthenticated,
+    hasAuthenticatedSession,
   } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -352,10 +352,10 @@ export default function LoginPage() {
   const plusUrl = getCanonicalUrlForSurface('marketing', '/plus', '', '', window.location);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (hasAuthenticatedSession) {
       navigate(fromPath, { replace: true });
     }
-  }, [fromPath, isAuthenticated, navigate]);
+  }, [fromPath, hasAuthenticatedSession, navigate]);
 
   useEffect(() => {
     signInWithGoogleIdTokenRef.current = signInWithGoogleIdToken;

@@ -42,6 +42,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { usePortalTimekeepingAccess } from '@/hooks/usePortalTimekeepingAccess';
 import { usePortalTechnicianManagement } from '@/hooks/usePortalTechnicianManagement';
 import { getCanonicalUrlForSurface } from '@/lib/appSurface';
+import { markPortalShellHidden, markPortalShellVisible } from '@/lib/portalPerformance';
 import type { TranslationKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
@@ -108,11 +109,18 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   useLayoutEffect(() => {
     document.body.classList.add('app-surface');
+    const frame = isAuthenticated
+      ? window.requestAnimationFrame(markPortalShellVisible)
+      : null;
 
     return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+        markPortalShellHidden();
+      }
       document.body.classList.remove('app-surface');
     };
-  }, []);
+  }, [isAuthenticated]);
 
   const handleSignOut = async () => {
     await signOut();
