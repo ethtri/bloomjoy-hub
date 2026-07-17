@@ -1,6 +1,9 @@
 begin;
 
-select plan(36);
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions;
+
+select plan(58);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -23,6 +26,16 @@ security definer
 set search_path = public
 as $$
   select public.can_manage_operator_payout_machine(actor_user_id, machine_id);
+$$;
+
+create function pg_temp.is_corporate_partner_for(actor_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.is_active_corporate_partner_user(actor_user_id);
 $$;
 
 insert into auth.users (
@@ -49,21 +62,36 @@ values
 insert into public.customer_accounts (id, name, account_type)
 values ('20000000-0000-0000-0000-000000000001', 'Timekeeping persona test account', 'customer');
 
-insert into public.customer_account_memberships (
+insert into public.reporting_partners (
   id,
-  account_id,
-  user_id,
-  email,
-  role,
-  active
+  name,
+  partner_type,
+  status
 )
 values (
   '21000000-0000-0000-0000-000000000001',
-  '20000000-0000-0000-0000-000000000001',
+  'Timekeeping persona corporate partner',
+  'platform_partner',
+  'active'
+);
+
+insert into public.corporate_partner_memberships (
+  id,
+  partner_id,
+  user_id,
+  member_email,
+  status,
+  starts_at,
+  grant_reason
+)
+values (
+  '21100000-0000-0000-0000-000000000001',
+  '21000000-0000-0000-0000-000000000001',
   '10000000-0000-0000-0000-000000000006',
   'time-partner-no-grant@example.test',
-  'partner',
-  true
+  'active',
+  now() - interval '1 day',
+  'Timekeeping persona test fixture'
 );
 
 insert into public.plus_access_grants (
@@ -110,13 +138,21 @@ insert into public.reporting_machine_refund_managers (
   manager_email,
   grant_reason
 )
-values (
-  '41000000-0000-0000-0000-000000000001',
-  '40000000-0000-0000-0000-000000000001',
-  '10000000-0000-0000-0000-000000000003',
-  'time-manager-assigned@example.test',
-  'Timekeeping persona test fixture'
-);
+values
+  (
+    '41000000-0000-0000-0000-000000000001',
+    '40000000-0000-0000-0000-000000000001',
+    '10000000-0000-0000-0000-000000000003',
+    'time-manager-assigned@example.test',
+    'Timekeeping persona test fixture'
+  ),
+  (
+    '41000000-0000-0000-0000-000000000002',
+    '40000000-0000-0000-0000-000000000002',
+    '10000000-0000-0000-0000-000000000004',
+    'time-manager-unassigned@example.test',
+    'Other-machine manager test fixture'
+  );
 
 insert into public.payout_policies (
   id,
@@ -291,6 +327,28 @@ select ok(
   'authenticated callers cannot delete time entries directly'
 );
 
+set local role anon;
+select like(
+  pg_temp.capture_error($$
+    select public.get_my_time_review_context(current_date)
+  $$),
+  '%permission denied for function get_my_time_review_context%',
+  'an anonymous actor is behaviorally denied the review queue RPC'
+);
+select like(
+  pg_temp.capture_error($$
+    select public.review_operator_time_entry(
+      '80000000-0000-0000-0000-000000000001',
+      'approved',
+      null,
+      current_date
+    )
+  $$),
+  '%permission denied for function review_operator_time_entry%',
+  'an anonymous actor is behaviorally denied the review action RPC'
+);
+reset role;
+
 set local role authenticated;
 select set_config(
   'request.jwt.claim.sub',
@@ -312,9 +370,9 @@ select is(
   'a worker has no implicit manager authority over another machine'
 );
 select is(
-  (select count(*)::integer from public.time_entries),
-  1,
-  'a worker sees only their own time entry through RLS'
+  (select string_agg(id::text, ',' order by id) from public.time_entries),
+  '80000000-0000-0000-0000-000000000001',
+  'a worker sees the exact expected own entry through RLS'
 );
 select is(
   pg_temp.capture_error($$
@@ -343,6 +401,31 @@ select is(
   'Operator timekeeping access required',
   'another worker cannot edit another worker entry'
 );
+select is(
+  pg_temp.capture_error($$
+    select public.submit_operator_time_entry(
+      '60000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0000-000000000002',
+      current_date - 1,
+      '13:00',
+      '14:00',
+      null,
+      'submitted'
+    )
+  $$),
+  'Time entry machine is not assigned for this work date',
+  'a worker cannot submit time to an unassigned machine'
+);
+select is(
+  pg_temp.capture_error($$
+    select public.void_operator_time_entry(
+      '80000000-0000-0000-0000-000000000002',
+      'Unauthorized cross-worker delete test'
+    )
+  $$),
+  'Operator timekeeping access required',
+  'another worker cannot void another worker entry'
+);
 
 select set_config(
   'request.jwt.claim.sub',
@@ -353,7 +436,7 @@ select set_config(
 select is(
   auth.uid(),
   '10000000-0000-0000-0000-000000000004'::uuid,
-  'the unassigned-manager JWT fixture resolves to the intended actor'
+  'the other-machine manager JWT fixture resolves to the intended actor'
 );
 select is(
   pg_temp.can_manage_for(
@@ -361,17 +444,35 @@ select is(
     '40000000-0000-0000-0000-000000000001'
   ),
   false,
-  'an unassigned Machine Manager has no machine authority'
+  'a Machine Manager assigned elsewhere has no authority over the target machine'
+);
+select is(
+  pg_temp.can_manage_for(
+    auth.uid(),
+    '40000000-0000-0000-0000-000000000002'
+  ),
+  true,
+  'the other-machine persona is an active Machine Manager'
 );
 select is(
   public.get_my_time_review_context(current_date - 1)->>'hasAccess',
-  'false',
-  'an unassigned Machine Manager has no review access'
+  'true',
+  'the other-machine manager can reach only their own review scope'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
-  0,
-  'an unassigned Machine Manager receives no entries'
+  public.get_my_time_review_context(current_date - 1)->'machines'->0->>'machineId',
+  '40000000-0000-0000-0000-000000000002',
+  'the other-machine manager receives the exact assigned machine'
+);
+select is(
+  public.get_my_time_review_context(current_date - 1)->'entries'->0->>'id',
+  '80000000-0000-0000-0000-000000000002',
+  'the other-machine manager receives only their assigned-machine entry'
+);
+select is(
+  (select string_agg(id::text, ',' order by id) from public.time_entries),
+  '80000000-0000-0000-0000-000000000002',
+  'the other-machine manager RLS read exposes only their assigned-machine entry'
 );
 select is(
   pg_temp.capture_error($$
@@ -383,7 +484,7 @@ select is(
     )
   $$),
   'Machine manager access required',
-  'an unassigned Machine Manager cannot review a shift'
+  'a Machine Manager assigned elsewhere cannot review the target shift'
 );
 
 select set_config(
@@ -419,6 +520,18 @@ select is(
   0,
   'Plus access without a machine grant exposes no time entries'
 );
+select is(
+  pg_temp.capture_error($$
+    select public.review_operator_time_entry(
+      '80000000-0000-0000-0000-000000000001',
+      'approved',
+      null,
+      current_date - 1
+    )
+  $$),
+  'Machine manager access required',
+  'Plus access without a machine grant cannot mutate a review'
+);
 
 select set_config(
   'request.jwt.claim.sub',
@@ -429,7 +542,11 @@ select set_config(
 select is(
   auth.uid(),
   '10000000-0000-0000-0000-000000000006'::uuid,
-  'the partner JWT fixture resolves to the intended actor'
+  'the Corporate Partner JWT fixture resolves to the intended actor'
+);
+select ok(
+  pg_temp.is_corporate_partner_for(auth.uid()),
+  'the Corporate Partner fixture uses an active canonical membership'
 );
 select is(
   pg_temp.can_manage_for(
@@ -447,7 +564,19 @@ select is(
 select is(
   (select count(*)::integer from public.time_entries),
   0,
-  'a partner membership without a machine grant exposes no time entries'
+  'a Corporate Partner membership without a machine grant exposes no time entries'
+);
+select is(
+  pg_temp.capture_error($$
+    select public.review_operator_time_entry(
+      '80000000-0000-0000-0000-000000000001',
+      'approved',
+      null,
+      current_date - 1
+    )
+  $$),
+  'Machine manager access required',
+  'a Corporate Partner without a machine grant cannot mutate a review'
 );
 
 select set_config(
@@ -483,14 +612,19 @@ select is(
   'an assigned Machine Manager has review access'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
-  1,
-  'an assigned Machine Manager receives only their managed machine'
+  public.get_my_time_review_context(current_date - 1)->'machines'->0->>'machineId',
+  '40000000-0000-0000-0000-000000000001',
+  'an assigned Machine Manager receives the exact managed machine'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
-  1,
-  'an assigned Machine Manager receives only entries on their managed machine'
+  public.get_my_time_review_context(current_date - 1)->'entries'->0->>'id',
+  '80000000-0000-0000-0000-000000000001',
+  'an assigned Machine Manager receives the exact in-scope entry'
+);
+select is(
+  (select string_agg(id::text, ',' order by id) from public.time_entries),
+  '80000000-0000-0000-0000-000000000001',
+  'the assigned Machine Manager RLS read exposes only the in-scope entry'
 );
 select is(
   pg_temp.capture_error($$
@@ -525,6 +659,27 @@ select is(
   'approved',
   'the approved review state is persisted'
 );
+select is(
+  (
+    select manager_reviewed_by
+    from public.time_entries
+    where id = '80000000-0000-0000-0000-000000000001'
+  ),
+  '10000000-0000-0000-0000-000000000003'::uuid,
+  'the approved review records the assigned manager actor'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.time_entry_review_events', 'insert'),
+  'authenticated callers cannot insert review events directly'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.time_entry_review_events', 'update'),
+  'authenticated callers cannot update review events'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.time_entry_review_events', 'delete'),
+  'authenticated callers cannot delete review events'
+);
 
 reset role;
 
@@ -537,6 +692,35 @@ select is(
   ),
   1,
   'the review action records an immutable review event'
+);
+select is(
+  (
+    select concat(decision, ':', reviewed_by::text)
+    from public.time_entry_review_events
+    where time_entry_id = '80000000-0000-0000-0000-000000000001'
+      and decision = 'approved'
+  ),
+  'approved:10000000-0000-0000-0000-000000000003',
+  'the approval event records the exact decision and manager actor'
+);
+select is(
+  (
+    select concat(
+      action,
+      ':',
+      actor_user_id::text,
+      ':',
+      meta->>'machine_manager_review',
+      ':',
+      meta->>'payment_behavior_changed'
+    )
+    from public.admin_audit_log
+    where entity_type = 'time_entry'
+      and entity_id = '80000000-0000-0000-0000-000000000001'
+      and action = 'operator_time_entry.manager_approved'
+  ),
+  'operator_time_entry.manager_approved:10000000-0000-0000-0000-000000000003:true:false',
+  'the approval audit log records actor, manager scope, and unchanged payment behavior'
 );
 
 set local role authenticated;
@@ -557,6 +741,69 @@ select is(
   $$),
   'A correction reason is required',
   'requesting correction requires a reason'
+);
+select is(
+  pg_temp.capture_error($$
+    select public.review_operator_time_entry(
+      '80000000-0000-0000-0000-000000000001',
+      'needs_correction',
+      'Correct the shift end time',
+      current_date - 1
+    )
+  $$),
+  null,
+  'an assigned Machine Manager can request a correction with a reason'
+);
+select is(
+  (
+    select concat(manager_review_status, ':', manager_review_reason)
+    from public.time_entries
+    where id = '80000000-0000-0000-0000-000000000001'
+  ),
+  'needs_correction:Correct the shift end time',
+  'the correction state and reason are persisted'
+);
+
+reset role;
+
+select is(
+  (
+    select count(*)::integer
+    from public.time_entry_review_events
+    where time_entry_id = '80000000-0000-0000-0000-000000000001'
+  ),
+  2,
+  'approval and correction each create an immutable review event'
+);
+select is(
+  (
+    select concat(decision, ':', reason, ':', reviewed_by::text)
+    from public.time_entry_review_events
+    where time_entry_id = '80000000-0000-0000-0000-000000000001'
+      and decision = 'needs_correction'
+  ),
+  'needs_correction:Correct the shift end time:10000000-0000-0000-0000-000000000003',
+  'the correction event records the reason and manager actor'
+);
+select is(
+  (
+    select concat(
+      count(*)::text,
+      ':',
+      bool_and((meta->>'payment_behavior_changed')::boolean = false)::text,
+      ':',
+      count(distinct actor_user_id)::text
+    )
+    from public.admin_audit_log
+    where entity_type = 'time_entry'
+      and entity_id = '80000000-0000-0000-0000-000000000001'
+      and action in (
+        'operator_time_entry.manager_approved',
+        'operator_time_entry.correction_requested'
+      )
+  ),
+  '2:true:1',
+  'both manager decisions are audited without changing payment behavior'
 );
 
 select * from finish();
