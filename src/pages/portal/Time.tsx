@@ -172,7 +172,7 @@ const getStatusLabel = (status: string) =>
 const getEntryReviewLabel = (entry: OperatorTimeEntry) => {
   if (entry.status === 'draft') return 'Draft';
   if (entry.status === 'paid') return 'Paid';
-  if (entry.status === 'included_in_payout') return 'Included';
+  if (entry.status === 'included_in_payout') return 'Included in pay';
   if (entry.status === 'locked') return 'Locked';
   if (entry.managerReviewStatus === 'approved') return 'Approved';
   if (entry.managerReviewStatus === 'needs_correction') return 'Correction requested';
@@ -180,10 +180,12 @@ const getEntryReviewLabel = (entry: OperatorTimeEntry) => {
 };
 
 const getEntryReviewClassName = (entry: OperatorTimeEntry) => {
-  if (entry.status !== 'submitted') return 'border-border bg-muted text-muted-foreground';
-  if (entry.managerReviewStatus === 'approved') return 'border-sage/25 bg-sage-light text-sage';
+  if (entry.status !== 'submitted') return 'border-border bg-muted/60 text-foreground';
+  if (entry.managerReviewStatus === 'approved') {
+    return 'border-sage/40 bg-sage/10 text-foreground';
+  }
   if (entry.managerReviewStatus === 'needs_correction') {
-    return 'border-amber/25 bg-amber/10 text-amber';
+    return 'border-amber/40 bg-amber/10 text-foreground';
   }
   return 'border-primary/20 bg-primary/10 text-primary';
 };
@@ -233,10 +235,12 @@ export default function PortalTimePage() {
     isLoading,
     isFetching,
     error,
+    refetch: refetchTimekeeping,
   } = useQuery({
     queryKey: getContextQueryKey(contextWorkDate),
     queryFn: () => fetchMyOperatorTimekeepingContext(contextWorkDate),
     staleTime: 1000 * 20,
+    retry: false,
   });
 
   const {
@@ -253,12 +257,17 @@ export default function PortalTimePage() {
 
   useEffect(() => {
     if (!selectedProfileId && profiles.length > 0) {
-      setSelectedProfileId(profiles[0].id);
+      setSelectedProfileId(
+        profiles.find((profile) => profile.assignedMachines.length > 0)?.id ?? profiles[0].id
+      );
     }
   }, [profiles, selectedProfileId]);
 
   const selectedProfile = useMemo(
-    () => profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0],
+    () =>
+      profiles.find((profile) => profile.id === selectedProfileId) ??
+      profiles.find((profile) => profile.assignedMachines.length > 0) ??
+      profiles[0],
     [profiles, selectedProfileId]
   );
   const routeEntry = useMemo(() => {
@@ -284,12 +293,16 @@ export default function PortalTimePage() {
     return {
       rawMinutes: entries.reduce((total, entry) => total + entry.rawDurationMinutes, 0),
       roundedMinutes: entries.reduce((total, entry) => total + entry.roundedPaidMinutes, 0),
+      submitted: entries.filter((entry) => entry.status === 'submitted').length,
       waiting: entries.filter(
         (entry) => entry.status === 'submitted' && entry.managerReviewStatus === 'pending'
       ).length,
-      approved: entries.filter((entry) => entry.managerReviewStatus === 'approved').length,
+      approved: entries.filter(
+        (entry) => entry.status === 'submitted' && entry.managerReviewStatus === 'approved'
+      ).length,
       needsCorrection: entries.filter(
-        (entry) => entry.managerReviewStatus === 'needs_correction'
+        (entry) =>
+          entry.status === 'submitted' && entry.managerReviewStatus === 'needs_correction'
       ).length,
     };
   }, [selectedProfile]);
@@ -305,6 +318,13 @@ export default function PortalTimePage() {
 
     if (!entryId) {
       setEditingEntryId(null);
+      setForm(() => {
+        const nextForm = defaultForm();
+
+        return isValidMonthValue(requestedMonth)
+          ? { ...nextForm, workDate: `${requestedMonth}-01` }
+          : nextForm;
+      });
       return;
     }
 
@@ -318,7 +338,7 @@ export default function PortalTimePage() {
       endTime: routeEntry.endTime,
       notes: routeEntry.notes ?? '',
     });
-  }, [entryId, isTimeEntryScreen, routeEntry]);
+  }, [entryId, isTimeEntryScreen, requestedMonth, routeEntry]);
 
   useEffect(() => {
     if (!isTimeEntryScreen && editingEntryId) {
@@ -467,6 +487,10 @@ export default function PortalTimePage() {
     ]);
   };
 
+  const retryTimekeeping = async () => {
+    await refetchTimekeeping();
+  };
+
   const downloadStatement = async (statement: OperatorPayStatementSummary) => {
     setDownloadingStatementId(statement.id);
     try {
@@ -595,19 +619,36 @@ export default function PortalTimePage() {
             }
           />
 
-          {error && (
-            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              Unable to load timekeeping. Please refresh and try again.
-            </div>
-          )}
-
-          {isLoading && (
+          {isLoading ? (
             <div className="mt-6 card-elevated px-5 py-10 text-center text-sm text-muted-foreground">
+              <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin" />
               Loading timekeeping...
             </div>
-          )}
-
-          {!isLoading && profiles.length === 0 && (
+          ) : error ? (
+            <div className="mt-6 card-elevated px-5 py-8">
+              <AlertTriangle className="h-6 w-6 text-destructive" />
+              <h2 className="mt-4 text-xl font-semibold text-foreground">
+                Timekeeping is unavailable
+              </h2>
+              <p className="mt-2 max-w-2xl text-pretty text-sm leading-6 text-muted-foreground">
+                Your shifts could not be loaded. Try again before entering or changing time.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className={cn('mt-5', timeActionClassName)}
+                onClick={() => void retryTimekeeping()}
+                disabled={isFetching}
+              >
+                {isFetching ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Try again
+              </Button>
+            </div>
+          ) : !selectedProfile || selectedProfile.assignedMachines.length === 0 ? (
             <div className="mt-6 card-elevated px-5 py-10">
               <div className="mx-auto max-w-xl text-center">
                 <Clock3 className="mx-auto h-10 w-10 text-muted-foreground" />
@@ -615,14 +656,32 @@ export default function PortalTimePage() {
                   Timekeeping setup needed
                 </h2>
                 <p className="mt-2 text-pretty text-sm text-muted-foreground">
-                  Ask a Bloomjoy admin or machine manager to add your timekeeping profile and
-                  assigned machines before entering shifts.
+                  {selectedProfile
+                    ? 'Ask a Bloomjoy admin or machine manager to assign at least one machine before entering shifts.'
+                    : 'Ask a Bloomjoy admin or machine manager to add your timekeeping profile and assigned machines before entering shifts.'}
                 </p>
+                <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void retryTimekeeping()}
+                    disabled={isFetching}
+                    className={timeActionClassName}
+                  >
+                    {isFetching ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Check setup again
+                  </Button>
+                  <Button asChild variant="ghost" className={timeActionClassName}>
+                    <Link to="/portal">Back to dashboard</Link>
+                  </Button>
+                </div>
               </div>
             </div>
-          )}
-
-          {selectedProfile && (
+          ) : (
             <>
               {isTimeEntryScreen ? (
                 <div className="mx-auto mt-6 max-w-3xl">
@@ -644,7 +703,10 @@ export default function PortalTimePage() {
                         </div>
                         {profiles.length > 1 && (
                           <div className="w-full sm:w-56">
-                            <label className="mb-1 block text-sm font-medium text-foreground">
+                            <label
+                              htmlFor="operator-profile-select"
+                              className="mb-1 block text-sm font-medium text-foreground"
+                            >
                               Operator profile
                             </label>
                             <Select
@@ -654,7 +716,7 @@ export default function PortalTimePage() {
                                 setEditingEntryId(null);
                               }}
                             >
-                              <SelectTrigger>
+                              <SelectTrigger id="operator-profile-select">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -668,6 +730,22 @@ export default function PortalTimePage() {
                           </div>
                         )}
                       </div>
+
+                      {entryBeingEdited?.managerReviewStatus === 'needs_correction' &&
+                        entryBeingEdited.managerReviewReason && (
+                          <div
+                            role="note"
+                            aria-labelledby="edit-time-correction-heading"
+                            className="mt-5 rounded-xl border border-amber/40 bg-amber/10 px-3 py-3 text-sm leading-6 text-foreground"
+                          >
+                            <p id="edit-time-correction-heading" className="font-semibold">
+                              Your manager requested a correction
+                            </p>
+                            <p className="mt-1 text-pretty">
+                              {entryBeingEdited.managerReviewReason}
+                            </p>
+                          </div>
+                        )}
 
                       <PeriodDetails profile={selectedProfile} />
 
@@ -813,6 +891,18 @@ export default function PortalTimePage() {
                         </Button>
                       </div>
 
+                      {saveMutation.isError && (
+                        <div
+                          role="alert"
+                          className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-3 text-sm text-foreground"
+                        >
+                          <p className="font-semibold">Shift was not saved</p>
+                          <p className="mt-1 text-pretty text-muted-foreground">
+                            Your entries are still here. Check your connection and try again.
+                          </p>
+                        </div>
+                      )}
+
                       {hasBlockingValidation && !saveMutation.isPending && (
                         <p className="mt-3 text-xs text-muted-foreground">
                           Enter a date, assigned machine, start time, and end time to submit the
@@ -843,7 +933,7 @@ export default function PortalTimePage() {
                         </p>
                       </div>
                       <Button asChild size="lg" className={timeActionClassName}>
-                        <Link to="/portal/time/new">
+                        <Link to={`/portal/time/new?month=${viewMonth}`}>
                           <Plus className="mr-2 h-4 w-4" />
                           Add completed shift
                         </Link>
@@ -890,11 +980,17 @@ export default function PortalTimePage() {
                           </div>
                           {profiles.length > 1 && (
                             <div>
-                              <label className="mb-1.5 block text-sm font-medium">
+                              <label
+                                htmlFor="work-profile-select"
+                                className="mb-1.5 block text-sm font-medium"
+                              >
                                 Work profile
                               </label>
                               <Select value={selectedProfile.id} onValueChange={setSelectedProfileId}>
-                                <SelectTrigger className="min-h-11 sm:w-64">
+                                <SelectTrigger
+                                  id="work-profile-select"
+                                  className="min-h-11 sm:w-64"
+                                >
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -921,6 +1017,12 @@ export default function PortalTimePage() {
                               {formatPaidHours(periodSummary.roundedMinutes)}
                             </strong>
                             rounded time
+                          </span>
+                          <span>
+                            <strong className="block text-base font-semibold tabular-nums text-foreground">
+                              {periodSummary.submitted}
+                            </strong>
+                            submitted shifts
                           </span>
                           <span>
                             <strong className="block text-base font-semibold tabular-nums text-foreground">
@@ -1193,6 +1295,7 @@ function TimeEntriesPanel({
                         {entry.machineLabel}
                       </h3>
                       <span
+                        data-time-status-badge={getEntryReviewLabel(entry)}
                         className={cn(
                           'rounded-full border px-2.5 py-1 text-xs font-semibold',
                           getEntryReviewClassName(entry)
@@ -1242,6 +1345,7 @@ function TimeEntriesPanel({
                         size="sm"
                         onClick={() => onEdit(entry)}
                         disabled={locked}
+                        aria-label={`Edit shift on ${formatDate(entry.workDate)}, ${entry.startTime} to ${entry.endTime}, ${getMachineLabel(entry)}`}
                         className={timeSmallActionClassName}
                       >
                         <Edit3 className="mr-1.5 h-4 w-4" />
@@ -1253,6 +1357,7 @@ function TimeEntriesPanel({
                         size="sm"
                         onClick={() => onDelete(entry)}
                         disabled={locked || isDeleting}
+                        aria-label={`Delete shift on ${formatDate(entry.workDate)}, ${entry.startTime} to ${entry.endTime}, ${getMachineLabel(entry)}`}
                         className={timeSmallActionClassName}
                       >
                         {isDeleting ? (

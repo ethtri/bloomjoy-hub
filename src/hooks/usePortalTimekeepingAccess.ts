@@ -8,7 +8,7 @@ export function usePortalTimekeepingAccess() {
 
   const query = useQuery({
     queryKey: ['operator-timekeeping-access', user?.id],
-    queryFn: fetchMyOperatorTimekeepingContext,
+    queryFn: () => fetchMyOperatorTimekeepingContext(),
     enabled: Boolean(user?.id),
     staleTime: 30_000,
   });

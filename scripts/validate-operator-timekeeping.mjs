@@ -27,6 +27,7 @@ const files = {
   app: path.join(repoRoot, 'src', 'App.tsx'),
   nav: path.join(repoRoot, 'src', 'components', 'portal', 'portalNavigation.ts'),
   helper: path.join(repoRoot, 'src', 'lib', 'operatorPayouts.ts'),
+  accessHook: path.join(repoRoot, 'src', 'hooks', 'usePortalTimekeepingAccess.ts'),
   smoke: path.join(repoRoot, 'Docs', 'QA_SMOKE_TEST_CHECKLIST.md'),
 };
 
@@ -86,9 +87,22 @@ for (const snippet of [
   'Delete this submitted time entry',
   'duplicate of an existing shift',
   'Record completed work',
+  'submitted shifts',
   'Waiting for review',
   'Correction requested',
+  'Timekeeping is unavailable',
+  'Check setup again',
+  'Shift was not saved',
   'Each shift up to the next full hour',
+  'id="operator-profile-select"',
+  'id="work-profile-select"',
+  'Your manager requested a correction',
+  'data-time-status-badge',
+  'border-sage/40 bg-sage/10 text-foreground',
+  'border-amber/40 bg-amber/10 text-foreground',
+  'border-border bg-muted/60 text-foreground',
+  'aria-label={`Edit shift on',
+  'aria-label={`Delete shift on',
 ]) {
   if (!page.includes(snippet)) {
     fail(`Time page missing ${snippet}`);
@@ -138,6 +152,16 @@ for (const snippet of [
   'Request correction',
   'A reason is required',
   'No managed machines',
+  'Review was not saved',
+  'time-review-queue-heading',
+  'role="status"',
+  'aria-live="polite"',
+  'data-time-status-badge',
+  'border-sage/40 bg-sage/10 text-foreground',
+  'border-amber/40 bg-amber/10 text-foreground',
+  'border-border bg-muted/60 text-foreground',
+  'aria-label={`Request correction for',
+  "aria-label={`${entry.managerReviewStatus === 'approved' ? 'Approved' : 'Approve'}",
 ]) {
   if (!reviewPage.includes(snippet)) {
     fail(`Time Review page missing ${snippet}`);
@@ -153,6 +177,11 @@ expect(readText(files.nav), "href: '/portal/time-review'", 'portal review naviga
 expect(readText(files.helper), 'fetchMyOperatorTimekeepingContext', 'operator payout helper');
 expect(readText(files.helper), 'fetchMyTimeReviewContext', 'time review context helper');
 expect(readText(files.helper), 'reviewOperatorTimeEntry', 'time review action helper');
+expect(
+  readText(files.accessHook),
+  'queryFn: () => fetchMyOperatorTimekeepingContext()',
+  'timekeeping access query'
+);
 expect(readText(files.smoke), 'Operator Time (`/portal/time`)', 'smoke checklist');
 expect(readText(files.smoke), 'Review Time (`/portal/time-review`)', 'review smoke checklist');
 

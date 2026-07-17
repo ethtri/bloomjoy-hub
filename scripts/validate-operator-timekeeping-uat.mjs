@@ -74,12 +74,14 @@ const mockSession = {
 };
 
 const profileId = '66000000-0000-4000-8000-000000000010';
+const secondaryProfileId = '66000000-0000-4000-8000-000000000017';
 const accountId = '66000000-0000-4000-8000-000000000011';
 const periodId = '66000000-0000-4000-8000-000000000012';
 const policyId = '66000000-0000-4000-8000-000000000013';
 const machineId = '66000000-0000-4000-8000-000000000014';
 const locationId = '66000000-0000-4000-8000-000000000015';
 const workDate = '2026-05-20';
+const selectedMonth = workDate.slice(0, 7);
 
 const roundUpHour = (minutes) => Math.ceil(Math.max(minutes, 0) / 60) * 60;
 
@@ -90,13 +92,62 @@ const minutesForTime = (value) => {
 
 const rawMinutes = (startTime, endTime) => minutesForTime(endTime) - minutesForTime(startTime);
 
-const isCurrentPeriodEntry = (entry) =>
-  entry.workDate >= '2026-05-01' && entry.workDate <= '2026-05-31';
+const formatDateInput = (date) =>
+  `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    date.getUTCDate()
+  ).padStart(2, '0')}`;
 
-const buildContext = (state) => ({
-  workDate,
-  profiles: [
-    {
+const getMockPeriod = (requestedWorkDate = workDate) => {
+  const requestedMonth = String(requestedWorkDate || workDate).slice(0, 7);
+  const [year, month] = requestedMonth.split('-').map(Number);
+  const periodStart = new Date(Date.UTC(year, month - 1, 1));
+  const periodEnd = new Date(Date.UTC(year, month, 0));
+  const dueDate = new Date(periodEnd);
+  const lockDate = new Date(periodEnd);
+  const targetPayoutDate = new Date(periodEnd);
+  dueDate.setUTCDate(dueDate.getUTCDate() + 2);
+  lockDate.setUTCDate(lockDate.getUTCDate() + 3);
+  targetPayoutDate.setUTCDate(targetPayoutDate.getUTCDate() + 5);
+
+  return {
+    id: requestedMonth === selectedMonth ? periodId : `mock-period-${requestedMonth}`,
+    periodStartDate: formatDateInput(periodStart),
+    periodEndDate: formatDateInput(periodEnd),
+    submissionDueDate: formatDateInput(dueDate),
+    lockDate: formatDateInput(lockDate),
+    targetPayoutDate: formatDateInput(targetPayoutDate),
+    status: 'open',
+  };
+};
+
+const entryIsInPeriod = (entry, period) =>
+  entry.workDate >= period.periodStartDate && entry.workDate <= period.periodEndDate;
+
+const buildContext = (state, requestedWorkDate = workDate) => {
+  const period = getMockPeriod(requestedWorkDate);
+
+  if (state.workerContextMode === 'setup') {
+    return {
+      workDate: requestedWorkDate,
+      profiles: [],
+    };
+  }
+
+  const assignedMachines =
+    state.workerContextMode === 'no_assignments'
+      ? []
+      : [
+          {
+            assignmentId: '66000000-0000-4000-8000-000000000016',
+            machineId,
+            machineLabel: 'Cotton Candy 01',
+            locationId,
+            locationName: 'Mall Atrium',
+            effectiveStartDate: '2026-01-01',
+            effectiveEndDate: null,
+          },
+        ];
+  const primaryProfile = {
       id: profileId,
       accountId,
       accountName: 'Bloomjoy UAT',
@@ -110,49 +161,58 @@ const buildContext = (state) => ({
         roundingRule: 'round_up_60_minutes',
         reviewModel: 'final_review_only',
       },
-      currentPeriod: {
-        id: periodId,
-        periodStartDate: '2026-05-01',
-        periodEndDate: '2026-05-31',
-        submissionDueDate: '2026-06-02',
-        lockDate: '2026-06-03',
-        targetPayoutDate: '2026-06-05',
-        status: 'open',
-      },
-      assignedMachines: [
-        {
-          assignmentId: '66000000-0000-4000-8000-000000000016',
-          machineId,
-          machineLabel: 'Cotton Candy 01',
-          locationId,
-          locationName: 'Mall Atrium',
-          effectiveStartDate: '2026-05-01',
-          effectiveEndDate: null,
-        },
-      ],
-      currentEntries: state.entries.filter(
-        (entry) => entry.status !== 'voided' && isCurrentPeriodEntry(entry)
-      ),
+      currentPeriod: period,
+      assignedMachines,
+      currentEntries:
+        state.workerContextMode === 'empty'
+          ? []
+          : state.entries.filter(
+              (entry) => entry.status !== 'voided' && entryIsInPeriod(entry, period)
+            ),
       recentEntries: state.entries.filter((entry) => entry.status !== 'voided'),
-    },
-  ],
-});
+  };
 
-const buildReviewContext = (state) => ({
-  workDate,
-  periodStartDate: '2026-05-01',
-  periodEndDate: '2026-05-31',
-  hasAccess: true,
-  machines: [
-    {
-      machineId,
-      machineLabel: 'Cotton Candy 01',
-      locationId,
-      locationName: 'Mall Atrium',
-    },
-  ],
-  entries: state.reviewEntries,
-});
+  return {
+    workDate: requestedWorkDate,
+    profiles: [
+      primaryProfile,
+      {
+        ...primaryProfile,
+        id: secondaryProfileId,
+        accountName: 'Bloomjoy UAT East',
+        displayName: 'East operator time',
+        currentEntries: [],
+        recentEntries: [],
+      },
+    ],
+  };
+};
+
+const buildReviewContext = (state, requestedWorkDate = workDate) => {
+  const period = getMockPeriod(requestedWorkDate);
+  const hasAccess = state.reviewContextMode !== 'no_access';
+
+  return {
+    workDate: requestedWorkDate,
+    periodStartDate: period.periodStartDate,
+    periodEndDate: period.periodEndDate,
+    hasAccess,
+    machines: hasAccess
+      ? [
+          {
+            machineId,
+            machineLabel: 'Cotton Candy 01',
+            locationId,
+            locationName: 'Mall Atrium',
+          },
+        ]
+      : [],
+    entries:
+      state.reviewContextMode === 'empty' || !hasAccess
+        ? []
+        : state.reviewEntries.filter((entry) => entryIsInPeriod(entry, period)),
+  };
+};
 
 const makeEntry = (body, state, id = `time-entry-${state.nextEntryId++}`) => {
   const minutes = rawMinutes(body.p_start_time, body.p_end_time);
@@ -166,7 +226,7 @@ const makeEntry = (body, state, id = `time-entry-${state.nextEntryId++}`) => {
     locationId,
     locationName: 'Mall Atrium',
     payoutPolicyId: policyId,
-    payoutPeriodId: periodId,
+    payoutPeriodId: getMockPeriod(body.p_work_date).id,
     workDate: body.p_work_date,
     startTime: body.p_start_time,
     endTime: body.p_end_time,
@@ -180,6 +240,45 @@ const makeEntry = (body, state, id = `time-entry-${state.nextEntryId++}`) => {
     lockedAt: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
+  };
+};
+
+const makeWorkerFixture = ({
+  id,
+  notes,
+  startTime,
+  endTime,
+  status = 'submitted',
+  managerReviewStatus = 'pending',
+  managerReviewReason = null,
+  managerReviewedAt = null,
+  lockedAt = null,
+}) => {
+  const minutes = rawMinutes(startTime, endTime);
+
+  return {
+    id,
+    accountId,
+    operatorProfileId: profileId,
+    machineId,
+    machineLabel: 'Cotton Candy 01',
+    locationId,
+    locationName: 'Mall Atrium',
+    payoutPolicyId: policyId,
+    payoutPeriodId: periodId,
+    workDate,
+    startTime,
+    endTime,
+    rawDurationMinutes: minutes,
+    roundedPaidMinutes: roundUpHour(minutes),
+    notes,
+    status,
+    managerReviewStatus,
+    managerReviewReason,
+    managerReviewedAt,
+    lockedAt,
+    createdAt: isoHoursAgo(24),
+    updatedAt: isoHoursAgo(12),
   };
 };
 
@@ -293,6 +392,22 @@ const jsonResponse = (body) => ({
   body: JSON.stringify(body),
 });
 
+const rpcErrorResponse = (message, status = 503) => ({
+  status,
+  contentType: 'application/json',
+  body: JSON.stringify({
+    code: 'MOCK_UAT_FAILURE',
+    details: null,
+    hint: null,
+    message,
+  }),
+});
+
+const wait = (milliseconds) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+
 const installMockSupabaseRoutes = async (context, state) => {
   await context.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
@@ -399,14 +514,33 @@ const installMockSupabaseRoutes = async (context, state) => {
     }
 
     if (rpcName === 'get_my_operator_timekeeping_context') {
-      return route.fulfill(jsonResponse(buildContext(state)));
+      const requestedWorkerDate =
+        typeof body?.p_work_date === 'string' ? body.p_work_date : workDate;
+      const isWorkerPageRequest = typeof body?.p_work_date === 'string';
+      if (isWorkerPageRequest && state.workerLoadDelayMs > 0) {
+        await wait(state.workerLoadDelayMs);
+      }
+      if (isWorkerPageRequest && state.workerLoadError) {
+        return route.fulfill(rpcErrorResponse('Mock worker timekeeping load failed.'));
+      }
+      return route.fulfill(jsonResponse(buildContext(state, requestedWorkerDate)));
     }
 
     if (rpcName === 'get_my_time_review_context') {
-      return route.fulfill(jsonResponse(buildReviewContext(state)));
+      if (state.reviewLoadDelayMs > 0) {
+        await wait(state.reviewLoadDelayMs);
+      }
+      if (state.reviewLoadError) {
+        return route.fulfill(rpcErrorResponse('Mock manager review load failed.'));
+      }
+      return route.fulfill(jsonResponse(buildReviewContext(state, body?.p_work_date ?? workDate)));
     }
 
     if (rpcName === 'review_operator_time_entry') {
+      if (state.failNextReview) {
+        state.failNextReview = false;
+        return route.fulfill(rpcErrorResponse('Mock review save failed. Try again.', 500));
+      }
       state.reviewEntries = state.reviewEntries.map((entry) =>
         entry.id === body.p_time_entry_id
           ? {
@@ -421,7 +555,7 @@ const installMockSupabaseRoutes = async (context, state) => {
       return route.fulfill(
         jsonResponse({
           timeEntry: state.reviewEntries.find((entry) => entry.id === body.p_time_entry_id),
-          context: buildReviewContext(state),
+          context: buildReviewContext(state, body?.p_work_date ?? workDate),
         })
       );
     }
@@ -466,9 +600,18 @@ const installMockSupabaseRoutes = async (context, state) => {
     }
 
     if (rpcName === 'submit_operator_time_entry') {
+      if (state.failNextSubmit) {
+        state.failNextSubmit = false;
+        return route.fulfill(rpcErrorResponse('Mock shift save failed. Try again.', 500));
+      }
       const entry = makeEntry(body, state);
       state.entries.push(entry);
-      return route.fulfill(jsonResponse({ timeEntry: entry, context: buildContext(state) }));
+      return route.fulfill(
+        jsonResponse({
+          timeEntry: entry,
+          context: buildContext(state, body?.p_work_date ?? workDate),
+        })
+      );
     }
 
     if (rpcName === 'update_operator_time_entry') {
@@ -477,15 +620,24 @@ const installMockSupabaseRoutes = async (context, state) => {
         state.entries[index] = makeEntry(body, state, body.p_time_entry_id);
       }
       return route.fulfill(
-        jsonResponse({ timeEntry: state.entries[index], context: buildContext(state) })
+        jsonResponse({
+          timeEntry: state.entries[index],
+          context: buildContext(state, body?.p_work_date ?? workDate),
+        })
       );
     }
 
     if (rpcName === 'void_operator_time_entry') {
+      const voidedEntry = state.entries.find((entry) => entry.id === body.p_time_entry_id);
       state.entries = state.entries.map((entry) =>
         entry.id === body.p_time_entry_id ? { ...entry, status: 'voided' } : entry
       );
-      return route.fulfill(jsonResponse({ timeEntryId: body.p_time_entry_id, context: buildContext(state) }));
+      return route.fulfill(
+        jsonResponse({
+          timeEntryId: body.p_time_entry_id,
+          context: buildContext(state, voidedEntry?.workDate ?? workDate),
+        })
+      );
     }
 
     return route.fulfill(jsonResponse({}));
@@ -551,6 +703,14 @@ const run = async () => {
   const recorder = createRecorder();
   const state = {
     managerMode: false,
+    workerContextMode: 'normal',
+    reviewContextMode: 'normal',
+    workerLoadDelayMs: 0,
+    reviewLoadDelayMs: 0,
+    workerLoadError: false,
+    reviewLoadError: false,
+    failNextSubmit: false,
+    failNextReview: false,
     entries: [
       {
         id: 'time-entry-past',
@@ -576,6 +736,57 @@ const run = async () => {
         createdAt: isoHoursAgo(96),
         updatedAt: isoHoursAgo(72),
       },
+      makeWorkerFixture({
+        id: 'time-entry-worker-pending',
+        notes: 'Pending shift for manager review.',
+        startTime: '08:00',
+        endTime: '09:15',
+      }),
+      makeWorkerFixture({
+        id: 'time-entry-worker-approved',
+        notes: 'Approved shift ready for edit-reset QA.',
+        startTime: '10:00',
+        endTime: '11:30',
+        managerReviewStatus: 'approved',
+        managerReviewedAt: isoHoursAgo(8),
+      }),
+      makeWorkerFixture({
+        id: 'time-entry-worker-correction',
+        notes: 'Correction shift needs an updated end time.',
+        startTime: '12:00',
+        endTime: '13:10',
+        managerReviewStatus: 'needs_correction',
+        managerReviewReason: 'Please update the end time to match the venue log.',
+        managerReviewedAt: isoHoursAgo(6),
+      }),
+      makeWorkerFixture({
+        id: 'time-entry-worker-included',
+        notes: 'Included shift cannot be changed.',
+        startTime: '14:00',
+        endTime: '15:20',
+        status: 'included_in_payout',
+        managerReviewStatus: 'approved',
+        managerReviewedAt: isoHoursAgo(5),
+        lockedAt: isoHoursAgo(4),
+      }),
+      makeWorkerFixture({
+        id: 'time-entry-worker-paid',
+        notes: 'Paid shift cannot be changed.',
+        startTime: '16:00',
+        endTime: '17:10',
+        status: 'paid',
+        managerReviewStatus: 'approved',
+        managerReviewedAt: isoHoursAgo(4),
+        lockedAt: isoHoursAgo(3),
+      }),
+      makeWorkerFixture({
+        id: 'time-entry-worker-locked',
+        notes: 'Locked shift cannot be changed.',
+        startTime: '18:00',
+        endTime: '19:05',
+        status: 'locked',
+        lockedAt: isoHoursAgo(2),
+      }),
     ],
     reviewEntries: [
       {
@@ -647,6 +858,82 @@ const run = async () => {
 
   const page = await context.newPage();
   const consoleErrors = [];
+  const desktopViewport = { width: 1365, height: 900 };
+
+  const capture390State = async (screenshotName, assertionLabel) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(250);
+    const hasOverflow = await page.evaluate(() => {
+      const documentOverflows = document.documentElement.scrollWidth > window.innerWidth + 1;
+      const dialogOverflows = [...document.querySelectorAll('[role="dialog"]')].some((dialog) => {
+        const rect = dialog.getBoundingClientRect();
+        return rect.left < -1 || rect.right > window.innerWidth + 1;
+      });
+
+      return documentOverflows || dialogOverflows;
+    });
+    recorder.assert(`390px ${assertionLabel} has no horizontal overflow`, !hasOverflow);
+    await page.screenshot({
+      path: path.join(args.artifactDir, screenshotName),
+      fullPage: true,
+    });
+    await page.setViewportSize(desktopViewport);
+  };
+
+  const readContrast = async (locator) =>
+    locator.evaluate((element) => {
+      const parseColor = (value) => {
+        const channels = value.match(/[\d.]+/g)?.map(Number) ?? [];
+        return {
+          red: channels[0] ?? 0,
+          green: channels[1] ?? 0,
+          blue: channels[2] ?? 0,
+          alpha: channels[3] ?? 1,
+        };
+      };
+      const composite = (foreground, background) => ({
+        red: foreground.red * foreground.alpha + background.red * (1 - foreground.alpha),
+        green:
+          foreground.green * foreground.alpha + background.green * (1 - foreground.alpha),
+        blue: foreground.blue * foreground.alpha + background.blue * (1 - foreground.alpha),
+        alpha: 1,
+      });
+      const layers = [];
+      let node = element;
+      while (node instanceof Element) {
+        layers.push(parseColor(getComputedStyle(node).backgroundColor));
+        node = node.parentElement;
+      }
+      const background = layers
+        .reverse()
+        .reduce(
+          (currentBackground, layer) => composite(layer, currentBackground),
+          { red: 255, green: 255, blue: 255, alpha: 1 }
+        );
+      const foreground = composite(parseColor(getComputedStyle(element).color), background);
+      const luminance = (color) =>
+        [color.red, color.green, color.blue]
+          .map((channel) => channel / 255)
+          .map((channel) =>
+            channel <= 0.04045
+              ? channel / 12.92
+              : ((channel + 0.055) / 1.055) ** 2.4
+          )
+          .reduce(
+            (total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index],
+            0
+          );
+      const foregroundLuminance = luminance(foreground);
+      const backgroundLuminance = luminance(background);
+
+      return {
+        ratio:
+          (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+          (Math.min(foregroundLuminance, backgroundLuminance) + 0.05),
+        fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
+      };
+    });
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
@@ -658,13 +945,15 @@ const run = async () => {
   });
 
   try {
-    await page.goto(`${args.appUrl}/portal/time`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${args.appUrl}/portal/time?month=${selectedMonth}`, {
+      waitUntil: 'domcontentloaded',
+    });
     await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
     await page.waitForSelector('#email-password', { timeout: 10000 });
     await page.fill('#email-password', mockUser.email);
     await page.fill('#password', 'mock-password');
     await Promise.all([
-      page.waitForURL(/\/portal\/time(?:\?month=\d{4}-\d{2})?$/, { timeout: 20000 }),
+      page.waitForURL(/\/portal\/time\?month=2026-05$/, { timeout: 20000 }),
       page.getByRole('button', { name: /sign in/i }).click(),
     ]);
 
@@ -673,14 +962,116 @@ const run = async () => {
 
     recorder.assert('Portal Time route loads after auth', new URL(page.url()).pathname === '/portal/time', page.url());
     recorder.assert(
+      'Portal access probe sends a null date instead of React Query context',
+      state.rpcCalls.some(
+        (call) =>
+          call.rpcName === 'get_my_operator_timekeeping_context' &&
+          call.body?.p_work_date === null
+      ) &&
+        !state.rpcCalls.some(
+          (call) =>
+            call.rpcName === 'get_my_operator_timekeeping_context' &&
+            typeof call.body?.p_work_date === 'object' &&
+            call.body?.p_work_date !== null
+        )
+    );
+    recorder.assert(
       'Time hub keeps data entry out of the dashboard',
       (await page.locator('#work-date').count()) === 0
     );
     recorder.assert(
       'Monthly hub shows the primary entry action and month control',
       (await page.getByRole('link', { name: /add completed shift/i }).isVisible()) &&
-        (await page.locator('#time-month').isVisible())
+        (await page.locator('#time-month').isVisible()) &&
+        (await page.getByLabel('Work profile').isVisible())
     );
+    recorder.assert(
+      'Fixed-period mock keeps selected month, date range, and due date aligned',
+      (await page.locator('#time-month').inputValue()) === selectedMonth &&
+        (await page.getByRole('heading', { name: 'May 2026 shifts' }).isVisible()) &&
+        (await page
+          .getByText('May 1, 2026 to May 31, 2026', { exact: true })
+          .first()
+          .isVisible()) &&
+        (await page.getByText(/Due Jun 2, 2026\./).isVisible())
+    );
+    recorder.assert(
+      'Worker summary shows submitted-shift count',
+      await page
+        .locator('span')
+        .filter({ hasText: /submitted shifts/i })
+        .getByText('3', { exact: true })
+        .isVisible()
+    );
+
+    const workerStatusCases = [
+      ['Pending shift for manager review.', 'Waiting for review', false],
+      ['Approved shift ready for edit-reset QA.', 'Approved', false],
+      ['Correction shift needs an updated end time.', 'Correction requested', false],
+      ['Included shift cannot be changed.', 'Included in pay', true],
+      ['Paid shift cannot be changed.', 'Paid', true],
+      ['Locked shift cannot be changed.', 'Locked', true],
+    ];
+    for (const [note, status, shouldBeLocked] of workerStatusCases) {
+      const entry = page.locator('article', { hasText: note });
+      recorder.assert(
+        `Worker ${status} state is visible`,
+        (await entry.getByText(status, { exact: true }).isVisible()) &&
+          (!shouldBeLocked ||
+            ((await entry.getByRole('button', { name: /edit/i }).isDisabled()) &&
+              (await entry.getByRole('button', { name: /delete/i }).isDisabled())))
+      );
+    }
+    const pendingWorkerEntry = page.locator('article', {
+      hasText: 'Pending shift for manager review.',
+    });
+    recorder.assert(
+      'Repeated worker actions include shift context in their accessible names',
+      (await pendingWorkerEntry
+        .getByRole('button', {
+          name: /Edit shift on May 20, 2026, 08:00 to 09:15, Cotton Candy 01 - Mall Atrium/i,
+        })
+        .isVisible()) &&
+        (await pendingWorkerEntry
+          .getByRole('button', {
+            name: /Delete shift on May 20, 2026, 08:00 to 09:15, Cotton Candy 01 - Mall Atrium/i,
+          })
+          .isVisible())
+    );
+    recorder.assert(
+      'Worker correction state includes manager reason',
+      await page
+        .getByText('Please update the end time to match the venue log.', { exact: true })
+        .isVisible()
+    );
+    const contrastBadgeLabels = [
+      'Correction requested',
+      'Approved',
+      'Included in pay',
+      'Paid',
+      'Locked',
+    ];
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((nextTheme) => {
+        document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+      }, theme);
+      await page.waitForTimeout(50);
+      for (const label of contrastBadgeLabels) {
+        const result = await readContrast(
+          page.locator(`[data-time-status-badge="${label}"]`).first()
+        );
+        recorder.assert(
+          `${theme} ${label} 12px badge meets WCAG AA normal-text contrast`,
+          result.fontSize === 12 && result.ratio >= 4.5,
+          `${result.ratio.toFixed(2)}:1 at ${result.fontSize}px`
+        );
+      }
+    }
+    await capture390State(
+      'portal-time-worker-status-badges-dark-mobile.png',
+      'dark worker status-badge page'
+    );
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
     recorder.assert(
       'Pay statement download is visible',
       (await page.getByRole('heading', { name: 'Pay Statements' }).isVisible()) &&
@@ -718,19 +1109,173 @@ const run = async () => {
         ) &&
         payStatementDownload.suggestedFilename() === 'may-2026-pay-statement.html'
     );
+    await page
+      .getByText('Pay statement downloaded.', { exact: true })
+      .last()
+      .waitFor({ state: 'hidden', timeout: 10000 });
     recorder.assert(
       'Worker review summary is visible',
       (await page.getByRole('heading', { name: 'Record completed work' }).isVisible()) &&
         (await page.locator('#time-month').isVisible())
     );
-    await page.waitForTimeout(4500);
     await page.screenshot({
-      path: path.join(args.artifactDir, 'portal-time-hub-desktop.png'),
+      path: path.join(args.artifactDir, 'portal-time-worker-states-desktop.png'),
       fullPage: true,
     });
+    await capture390State(
+      'portal-time-worker-states-mobile.png',
+      'worker state-rich monthly hub'
+    );
+
+    state.workerLoadDelayMs = 4000;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByText('Loading timekeeping...', { exact: true }).waitFor({ timeout: 5000 });
+    recorder.assert(
+      'Worker loading state is exclusive',
+      (await page.getByText('Timekeeping is unavailable', { exact: true }).count()) === 0 &&
+        (await page.getByText('Timekeeping setup needed', { exact: true }).count()) === 0
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-loading-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State('portal-time-loading-mobile.png', 'worker loading state');
+    state.workerLoadDelayMs = 0;
+    await page.getByRole('heading', { name: 'Record completed work' }).waitFor({ timeout: 10000 });
+
+    state.workerLoadError = true;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page
+      .getByText('Timekeeping is unavailable', { exact: true })
+      .waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Worker load error is exclusive and actionable',
+      (await page.getByRole('button', { name: 'Try again' }).isVisible()) &&
+        (await page.getByRole('heading', { name: 'Record completed work' }).count()) === 0 &&
+        (await page.getByText('Timekeeping setup needed', { exact: true }).count()) === 0
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-load-error-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State('portal-time-load-error-mobile.png', 'worker load-error state');
+    state.workerLoadError = false;
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await page.getByRole('heading', { name: 'Record completed work' }).waitFor({ timeout: 10000 });
+    recorder.pass('Worker load retry restores the monthly hub');
+
+    state.workerContextMode = 'no_assignments';
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByText('Timekeeping setup needed', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Worker setup state explains assignment recovery without showing an empty shift list',
+      (await page.getByText(/assign at least one machine/i).isVisible()) &&
+        (await page.getByRole('button', { name: 'Check setup again' }).isVisible()) &&
+        (await page.getByText(/No shifts entered for this month yet/i).count()) === 0
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-setup-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State('portal-time-setup-mobile.png', 'worker setup state');
+    state.workerContextMode = 'normal';
+    await page.getByRole('button', { name: 'Check setup again' }).click();
+    await page.getByRole('heading', { name: 'Record completed work' }).waitFor({ timeout: 10000 });
+    recorder.pass('Worker setup recovery restores the monthly hub');
+
+    state.workerContextMode = 'empty';
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByText(/No shifts entered for this month yet/i).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Worker empty state stays distinct from setup and load failure',
+      (await page.getByRole('link', { name: /add completed shift/i }).isVisible()) &&
+        (await page.getByText('Timekeeping setup needed', { exact: true }).count()) === 0 &&
+        (await page.getByText('Timekeeping is unavailable', { exact: true }).count()) === 0
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-empty-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State('portal-time-empty-mobile.png', 'worker empty state');
+    state.workerContextMode = 'normal';
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await page.getByText('Pending shift for manager review.', { exact: true }).waitFor({
+      timeout: 10000,
+    });
+
+    const editAndAssertReviewReset = async ({
+      sourceNote,
+      nextNote,
+      endTime,
+      screenshotName,
+      expectedCorrectionReason,
+    }) => {
+      const sourceEntry = page.locator('article', { hasText: sourceNote });
+      await sourceEntry.getByRole('button', { name: /edit/i }).click();
+      await page.locator('h1').filter({ hasText: /^Edit Time$/ }).waitFor({ timeout: 10000 });
+      recorder.assert(
+        'Focused Edit Time associates the multi-profile select with its visible label',
+        await page.getByLabel('Operator profile').isVisible()
+      );
+      if (expectedCorrectionReason) {
+        recorder.assert(
+          'Focused Edit Time keeps the manager correction reason visible',
+          (await page
+            .getByRole('note')
+            .getByText(expectedCorrectionReason, { exact: true })
+            .isVisible()) &&
+            (await page
+              .getByRole('note')
+              .getByText('Your manager requested a correction', { exact: true })
+              .isVisible())
+        );
+      }
+      if (screenshotName) {
+        await capture390State(screenshotName, 'focused Edit Time correction state');
+      }
+      await page.fill('#end-time', endTime);
+      await page.fill('#time-notes', nextNote);
+      await page.getByRole('button', { name: /save changes/i }).click();
+      await page.waitForURL(/\/portal\/time\?month=2026-05$/, { timeout: 10000 });
+      await page.getByText('Time entry saved.').last().waitFor({ timeout: 10000 });
+      const updatedEntry = page.locator('article', { hasText: nextNote });
+      await updatedEntry.getByText('Waiting for review', { exact: true }).waitFor({
+        timeout: 10000,
+      });
+      return updatedEntry;
+    };
+
+    const correctedEntry = await editAndAssertReviewReset({
+      sourceNote: 'Correction shift needs an updated end time.',
+      nextNote: 'Corrected shift after manager note.',
+      endTime: '13:25',
+      screenshotName: 'portal-time-correction-edit-mobile.png',
+      expectedCorrectionReason: 'Please update the end time to match the venue log.',
+    });
+    recorder.assert(
+      'Editing a correction-requested shift resets review and clears the old reason',
+      (await correctedEntry.getByText('Waiting for review', { exact: true }).isVisible()) &&
+        (await correctedEntry
+          .getByText('Please update the end time to match the venue log.', { exact: true })
+          .count()) === 0
+    );
+
+    const approvedEntry = await editAndAssertReviewReset({
+      sourceNote: 'Approved shift ready for edit-reset QA.',
+      nextNote: 'Approved shift updated by worker.',
+      endTime: '11:40',
+    });
+    recorder.assert(
+      'Editing an approved shift resets review to pending',
+      await approvedEntry.getByText('Waiting for review', { exact: true }).isVisible()
+    );
+    recorder.assert(
+      'Edit reset uses audited update RPC',
+      state.rpcCalls.filter((call) => call.rpcName === 'update_operator_time_entry').length >= 2
+    );
 
     await Promise.all([
-      page.waitForURL('**/portal/time/new', { timeout: 10000 }),
+      page.waitForURL(/\/portal\/time\/new\?month=2026-05$/, { timeout: 10000 }),
       page.getByRole('link', { name: /add completed shift/i }).click(),
     ]);
     await page.locator('h1').filter({ hasText: /^Add Time$/ }).waitFor({ timeout: 10000 });
@@ -745,10 +1290,16 @@ const run = async () => {
       'Assigned machine is visible on focused Add Time route',
       await page.getByText(/Cotton Candy 01/).first().isVisible()
     );
+    recorder.assert(
+      'Focused Add Time keeps the selected mock period',
+      (await page.locator('#work-date').inputValue()) === '2026-05-01' &&
+        (await page.getByText('May 1, 2026 to May 31, 2026', { exact: true }).isVisible()) &&
+        (await page.getByText('Jun 2, 2026', { exact: true }).isVisible())
+    );
 
     await page.fill('#work-date', workDate);
-    await page.fill('#start-time', '09:00');
-    await page.fill('#end-time', '09:30');
+    await page.fill('#start-time', '20:30');
+    await page.fill('#end-time', '21:00');
     await page.fill('#time-notes', 'Restocked sugar and cleaned spinner head.');
 
     recorder.assert('Actual time preview updates', await page.getByText('30 min').isVisible());
@@ -757,42 +1308,62 @@ const run = async () => {
       await page.getByText('1 rounded hr').isVisible()
     );
 
+    state.failNextSubmit = true;
     await page.getByRole('button', { name: /submit shift/i }).click();
-    await page.waitForURL(/\/portal\/time(?:\?month=\d{4}-\d{2})?$/, { timeout: 10000 });
+    await page.getByText('Shift was not saved', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Worker mutation failure preserves form for retry',
+      new URL(page.url()).pathname === '/portal/time/new' &&
+        (await page.locator('#time-notes').inputValue()) ===
+          'Restocked sugar and cleaned spinner head.' &&
+        (await page.locator('#start-time').inputValue()) === '20:30'
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-mutation-error-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State(
+      'portal-time-mutation-error-mobile.png',
+      'worker mutation-failure state'
+    );
+    await page.getByRole('button', { name: /submit shift/i }).click();
+    await page.waitForURL(/\/portal\/time\?month=2026-05$/, { timeout: 10000 });
     await page.getByText('Time entry saved.').last().waitFor({ timeout: 10000 });
     await page.screenshot({
       path: path.join(args.artifactDir, 'portal-time-after-save.png'),
       fullPage: true,
     });
     await page.getByText('Restocked sugar and cleaned spinner head.').waitFor({ timeout: 10000 });
-    await page.getByText('Waiting for review').waitFor({ timeout: 10000 });
+    await page
+      .locator('article', { hasText: 'Restocked sugar and cleaned spinner head.' })
+      .getByText('Waiting for review', { exact: true })
+      .waitFor({ timeout: 10000 });
 
     recorder.assert(
-      'Submit RPC receives assigned machine and date',
-      state.rpcCalls.some(
+      'Worker mutation retry submits assigned machine and date',
+      state.rpcCalls.filter(
         (call) =>
           call.rpcName === 'submit_operator_time_entry' &&
           call.body?.p_reporting_machine_id === machineId &&
           call.body?.p_work_date === workDate
-      ),
-      JSON.stringify(state.rpcCalls.filter((call) => call.rpcName === 'submit_operator_time_entry'))
+      ).length === 2
     );
 
     await Promise.all([
-      page.waitForURL('**/portal/time/new', { timeout: 10000 }),
+      page.waitForURL(/\/portal\/time\/new\?month=2026-05$/, { timeout: 10000 }),
       page.getByRole('link', { name: /add completed shift/i }).click(),
     ]);
     await page.fill('#work-date', workDate);
-    await page.fill('#start-time', '09:00');
-    await page.fill('#end-time', '09:30');
+    await page.fill('#start-time', '20:30');
+    await page.fill('#end-time', '21:00');
     await page.getByText(/duplicate of an existing shift/i).waitFor({ timeout: 10000 });
     recorder.assert(
       'Exact duplicate blocks save',
       await page.getByRole('button', { name: /submit shift/i }).isDisabled()
     );
 
-    await page.fill('#start-time', '09:15');
-    await page.fill('#end-time', '10:00');
+    await page.fill('#start-time', '20:45');
+    await page.fill('#end-time', '21:15');
     await page.getByText(/overlaps 1 existing entry/i).waitFor({ timeout: 10000 });
     recorder.pass('Overlap warning appears before saving');
     let sawOverlapConfirmation = false;
@@ -810,6 +1381,7 @@ const run = async () => {
       sawOverlapConfirmation && new URL(page.url()).pathname === '/portal/time/new'
     );
 
+    await page.fill('#work-date', '2026-05-21');
     await page.fill('#start-time', '08:00');
     await page.fill('#end-time', '20:00');
     await page.getByText(/10\+ hours/i).waitFor({ timeout: 10000 });
@@ -829,113 +1401,205 @@ const run = async () => {
       sawLongShiftConfirmation && new URL(page.url()).pathname === '/portal/time/new'
     );
 
-    await page.goto(`${args.appUrl}/portal/time`, { waitUntil: 'domcontentloaded' });
-    await Promise.all([
-      page.waitForURL(/\/portal\/time\/time-entry-1\/edit\?month=2026-05$/, { timeout: 10000 }),
-      page.locator('article', { hasText: 'Restocked sugar' }).getByRole('button', { name: /edit/i }).click(),
-    ]);
-    await page.locator('h1').filter({ hasText: /^Edit Time$/ }).waitFor({ timeout: 10000 });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'portal-time-edit-mobile.png'),
-      fullPage: true,
-    });
-    await page.setViewportSize({ width: 1365, height: 900 });
-    await page.fill('#start-time', '10:00');
-    await page.fill('#end-time', '11:01');
-    await page.getByText('2 rounded hrs').waitFor({ timeout: 10000 });
-    await page.fill('#time-notes', 'Updated shift after manager text.');
-    await page.getByRole('button', { name: /save changes/i }).click();
-    await page.waitForURL(/\/portal\/time(?:\?month=\d{4}-\d{2})?$/, { timeout: 10000 });
-    await waitForCondition(
-      () => state.rpcCalls.some((call) => call.rpcName === 'update_operator_time_entry'),
-      'Timed out waiting for update_operator_time_entry RPC'
-    );
-    await page.getByText('Time entry saved.').last().waitFor({ timeout: 10000 });
-    await page.getByText('Updated shift after manager text.').waitFor({ timeout: 10000 });
-
-    recorder.assert(
-      'Update RPC receives edited time entry',
-      state.rpcCalls.some(
-        (call) =>
-          call.rpcName === 'update_operator_time_entry' &&
-          call.body?.p_start_time === '10:00' &&
-          call.body?.p_end_time === '11:01'
-      ),
-      JSON.stringify(state.rpcCalls.filter((call) => call.rpcName.includes('time_entry')))
-    );
+    await capture390State('portal-time-add-mobile.png', 'Add Time validation state');
+    await page.getByRole('link', { name: /time home/i }).click();
+    await page.waitForURL(/\/portal\/time\?month=2026-05$/, { timeout: 10000 });
 
     page.once('dialog', async (dialog) => {
       await dialog.accept();
     });
-    await page.locator('article', { hasText: 'Updated shift' }).getByRole('button', { name: /delete/i }).click();
+    await page
+      .locator('article', { hasText: 'Restocked sugar and cleaned spinner head.' })
+      .getByRole('button', { name: /delete/i })
+      .click();
     await page.getByText('Time entry deleted.').last().waitFor({ timeout: 10000 });
-    await page.getByText(/No shifts entered for this month yet/i).waitFor({ timeout: 10000 });
 
     recorder.assert(
       'Delete uses void RPC instead of direct hard delete',
       state.rpcCalls.some((call) => call.rpcName === 'void_operator_time_entry')
     );
 
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(4500);
-
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
-    recorder.assert('Mobile Time page has no horizontal overflow', !overflow);
-
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'portal-time-mobile.png'),
-      fullPage: true,
-    });
-
-    await Promise.all([
-      page.waitForURL('**/portal/time/new', { timeout: 10000 }),
-      page.getByRole('link', { name: /add completed shift/i }).click(),
-    ]);
-    await page.locator('h1').filter({ hasText: /^Add Time$/ }).waitFor({ timeout: 10000 });
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'portal-time-add-mobile.png'),
-      fullPage: true,
-    });
-
     state.managerMode = true;
-    await page.setViewportSize({ width: 1365, height: 900 });
+    state.reviewLoadDelayMs = 4000;
+    await page.setViewportSize(desktopViewport);
     await page.goto(`${args.appUrl}/portal/time-review`, { waitUntil: 'domcontentloaded' });
-    await page.locator('h1').filter({ hasText: /^Review time$/ }).waitFor({ timeout: 10000 });
-    await page.fill('#review-month', '2026-05');
+    await page.getByText('Loading submitted time...', { exact: true }).waitFor({ timeout: 5000 });
+    recorder.assert(
+      'Manager loading state is exclusive',
+      (await page.getByText('Time review is unavailable', { exact: true }).count()) === 0 &&
+        (await page.getByText('No managed machines', { exact: true }).count()) === 0
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-review-loading-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State(
+      'portal-time-review-loading-mobile.png',
+      'manager loading state'
+    );
+    state.reviewLoadDelayMs = 0;
+    await page.locator('#review-month').waitFor({ timeout: 10000 });
+
+    state.reviewLoadError = true;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByText('Time review is unavailable', { exact: true }).waitFor({
+      timeout: 30000,
+    });
+    recorder.assert(
+      'Manager load error is exclusive and actionable',
+      (await page.getByRole('button', { name: 'Try again' }).isVisible()) &&
+        (await page.locator('#review-month').count()) === 0 &&
+        (await page.getByText('No managed machines', { exact: true }).count()) === 0
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-review-load-error-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State(
+      'portal-time-review-load-error-mobile.png',
+      'manager load-error state'
+    );
+    state.reviewLoadError = false;
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await page.locator('#review-month').waitFor({ timeout: 10000 });
+    recorder.pass('Manager load retry restores review controls');
+
+    state.reviewContextMode = 'no_access';
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByText('No managed machines', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Manager setup state explains assignment recovery without showing the queue',
+      (await page.getByText(/update your machine assignment/i).isVisible()) &&
+        (await page.locator('#review-month').count()) === 0
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-review-no-access-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State(
+      'portal-time-review-no-access-mobile.png',
+      'manager no-access state'
+    );
+    state.reviewContextMode = 'normal';
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await page.locator('#review-month').waitFor({ timeout: 10000 });
+    recorder.pass('Manager setup refresh restores review controls');
+
+    state.reviewContextMode = 'empty';
+    await page.fill('#review-month', selectedMonth);
+    await page.getByText('Nothing waiting for review', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Manager empty queue stays distinct from setup and load failure',
+      (await page.getByText(/caught up for this month/i).isVisible()) &&
+        (await page.getByText('No managed machines', { exact: true }).count()) === 0 &&
+        (await page.getByText('Time review is unavailable', { exact: true }).count()) === 0
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-review-empty-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State('portal-time-review-empty-mobile.png', 'manager empty-queue state');
+    state.reviewContextMode = 'normal';
+    await page.getByRole('button', { name: 'Refresh' }).click();
     await page.getByText('Jordan Contractor', { exact: true }).waitFor({ timeout: 10000 });
 
+    recorder.assert(
+      'Manager fixed-period evidence matches the selected month',
+      (await page.locator('#review-month').inputValue()) === selectedMonth &&
+        (await page.getByText('May 1, 2026 to May 31, 2026', { exact: true }).isVisible())
+    );
     recorder.assert(
       'Machine Manager review queue loads managed-machine shifts',
       (await page.getByText('Jordan Contractor', { exact: true }).isVisible()) &&
         (await page.getByText('Sam Contractor', { exact: true }).isVisible()) &&
-        (await page.getByText('Cotton Candy 01 · Mall Atrium').first().isVisible())
+        (await page.getByText(/Cotton Candy 01.*Mall Atrium/).first().isVisible())
     );
 
-    await page
-      .locator('article', { hasText: 'Jordan Contractor' })
-      .getByRole('button', { name: /^approve$/i })
-      .click();
-    await page.getByText('Shift approved.').last().waitFor({ timeout: 10000 });
+    state.failNextReview = true;
+    const jordanEntry = page.locator('article', { hasText: 'Jordan Contractor' });
+    const jordanApproveButton = jordanEntry.getByRole('button', {
+      name: /^Approve Jordan Contractor's shift on May 19, 2026/i,
+    });
     recorder.assert(
-      'Approve action uses the machine-manager review RPC',
-      state.rpcCalls.some(
+      'Repeated manager actions include shift context in their accessible names',
+      (await jordanApproveButton.isVisible()) &&
+        (await page
+          .locator('article', { hasText: 'Sam Contractor' })
+          .getByRole('button', {
+            name: /^Request correction for Sam Contractor's shift on May 20, 2026/i,
+          })
+          .isVisible())
+    );
+    await jordanApproveButton.click();
+    await page.getByText('Review was not saved', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Manager mutation failure keeps the shift actionable for retry',
+      (await jordanApproveButton.isEnabled()) &&
+        state.reviewEntries.find((entry) => entry.id === 'time-entry-manager-approve')
+          ?.managerReviewStatus === 'pending'
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'portal-time-review-mutation-error-desktop.png'),
+      fullPage: true,
+    });
+    await capture390State(
+      'portal-time-review-mutation-error-mobile.png',
+      'manager mutation-failure state'
+    );
+    await jordanApproveButton.click();
+    await page.getByText('Shift approved.').last().waitFor({ timeout: 10000 });
+    const queueFocusedAfterApprove = await page
+      .waitForFunction(
+        () => document.activeElement?.id === 'time-review-queue-heading',
+        undefined,
+        { timeout: 5000 }
+      )
+      .then(() => true)
+      .catch(() => false);
+    recorder.assert(
+      'Approve retry uses the machine-manager review RPC',
+      state.rpcCalls.filter(
         (call) =>
           call.rpcName === 'review_operator_time_entry' &&
           call.body?.p_time_entry_id === 'time-entry-manager-approve' &&
           call.body?.p_decision === 'approved'
-      )
+      ).length === 2
     );
-
+    recorder.assert(
+      'Successful approve moves keyboard focus to the live review queue heading',
+      queueFocusedAfterApprove &&
+        (await page
+          .getByText('Shift approved. The review queue is updated.', { exact: true })
+          .isVisible())
+    );
     await page
-      .locator('article', { hasText: 'Sam Contractor' })
-      .getByRole('button', { name: /request correction/i })
+      .getByText('Shift approved.', { exact: true })
+      .last()
+      .waitFor({ state: 'hidden', timeout: 10000 });
+
+    const samEntry = page.locator('article', { hasText: 'Sam Contractor' });
+    await samEntry
+      .getByRole('button', {
+        name: /^Request correction for Sam Contractor's shift on May 20, 2026/i,
+      })
       .click();
+    await page.getByRole('dialog').waitFor({ timeout: 10000 });
+    await page.waitForTimeout(300);
+    await capture390State(
+      'portal-time-review-correction-dialog-mobile.png',
+      'manager correction-dialog state'
+    );
     await page.fill('#correction-reason', 'Please confirm the end time; the venue log shows 2:45 PM.');
     await page.getByRole('button', { name: /send correction request/i }).click();
     await page.getByText('Correction requested.').last().waitFor({ timeout: 10000 });
+    const queueFocusedAfterCorrection = await page
+      .waitForFunction(
+        () => document.activeElement?.id === 'time-review-queue-heading',
+        undefined,
+        { timeout: 5000 }
+      )
+      .then(() => true)
+      .catch(() => false);
     recorder.assert(
       'Correction action sends a required worker-visible reason',
       state.rpcCalls.some(
@@ -946,31 +1610,36 @@ const run = async () => {
           call.body?.p_reason === 'Please confirm the end time; the venue log shows 2:45 PM.'
       )
     );
+    recorder.assert(
+      'Successful correction moves keyboard focus to the live review queue heading',
+      queueFocusedAfterCorrection &&
+        (await page
+          .getByText('Correction requested. The review queue is updated.', { exact: true })
+          .isVisible())
+    );
 
     await page.getByRole('button', { name: /Returned \(1\)/i }).click();
     await page
       .getByText('Please confirm the end time; the venue log shows 2:45 PM.')
       .waitFor({ timeout: 10000 });
+    await page
+      .getByText('Correction requested.', { exact: true })
+      .last()
+      .waitFor({ state: 'hidden', timeout: 10000 });
     await page.screenshot({
       path: path.join(args.artifactDir, 'portal-time-review-desktop.png'),
       fullPage: true,
     });
 
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.evaluate(() => window.scrollTo(0, 0));
-    const reviewOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth + 1
-    );
-    recorder.assert('Mobile Time Review page has no horizontal overflow', !reviewOverflow);
-    await page.screenshot({
-      path: path.join(args.artifactDir, 'portal-time-review-mobile.png'),
-      fullPage: true,
-    });
+    await capture390State('portal-time-review-mobile.png', 'manager returned-shift queue');
 
+    const unexpectedConsoleErrors = consoleErrors.filter(
+      (message) => !/status of (500|503)/i.test(message)
+    );
     recorder.assert(
-      'No browser console/page errors during mocked Operator Time QA pass',
-      consoleErrors.length === 0,
-      consoleErrors.slice(0, 3).join(' | ')
+      'No unexpected browser console/page errors during mocked Operator Time QA pass',
+      unexpectedConsoleErrors.length === 0,
+      unexpectedConsoleErrors.slice(0, 3).join(' | ')
     );
   } finally {
     await context.close();
@@ -984,7 +1653,7 @@ const run = async () => {
   }
 
   console.log('\nOperator Time UAT validation passed.');
-  console.log(`Screenshot written to ${path.join(args.artifactDir, 'portal-time-mobile.png')}`);
+  console.log(`Screenshots written to ${args.artifactDir}`);
 };
 
 run().catch((error) => {

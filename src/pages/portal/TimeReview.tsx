@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarDays,
@@ -92,7 +92,7 @@ const getReviewLabel = (
   entryStatus: OperatorTimeReviewEntry['status']
 ) => {
   if (entryStatus === 'paid') return 'Paid';
-  if (entryStatus === 'included_in_payout') return 'Included';
+  if (entryStatus === 'included_in_payout') return 'Included in pay';
   if (entryStatus === 'locked') return 'Locked';
   if (reviewStatus === 'approved') return 'Approved';
   if (reviewStatus === 'needs_correction') return 'Correction requested';
@@ -103,9 +103,11 @@ const getReviewBadgeClass = (
   reviewStatus: TimeEntryManagerReviewStatus,
   entryStatus: OperatorTimeReviewEntry['status']
 ) => {
-  if (entryStatus !== 'submitted') return 'border-border bg-muted text-muted-foreground';
-  if (reviewStatus === 'approved') return 'border-sage/25 bg-sage-light text-sage';
-  if (reviewStatus === 'needs_correction') return 'border-amber/25 bg-amber/10 text-amber';
+  if (entryStatus !== 'submitted') return 'border-border bg-muted/60 text-foreground';
+  if (reviewStatus === 'approved') return 'border-sage/40 bg-sage/10 text-foreground';
+  if (reviewStatus === 'needs_correction') {
+    return 'border-amber/40 bg-amber/10 text-foreground';
+  }
   return 'border-primary/20 bg-primary/10 text-primary';
 };
 
@@ -128,12 +130,15 @@ export default function PortalTimeReviewPage() {
   const [filter, setFilter] = useState<ReviewFilter>('needs_review');
   const [correctionEntry, setCorrectionEntry] = useState<OperatorTimeReviewEntry | null>(null);
   const [correctionReason, setCorrectionReason] = useState('');
+  const [reviewAnnouncement, setReviewAnnouncement] = useState('');
+  const queueHeadingRef = useRef<HTMLHeadingElement>(null);
   const workDate = `${month}-01`;
 
   const { data: context, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: reviewQueryKey(workDate),
     queryFn: () => fetchMyTimeReviewContext(workDate),
     staleTime: 1000 * 20,
+    retry: false,
   });
 
   const entries = context?.entries ?? emptyReviewEntries;
@@ -171,6 +176,11 @@ export default function PortalTimeReviewPage() {
       toast.success(
         variables.decision === 'approved' ? 'Shift approved.' : 'Correction requested.'
       );
+      setReviewAnnouncement(
+        variables.decision === 'approved'
+          ? 'Shift approved. The review queue is updated.'
+          : 'Correction requested. The review queue is updated.'
+      );
       setCorrectionEntry(null);
       setCorrectionReason('');
     },
@@ -200,6 +210,12 @@ export default function PortalTimeReviewPage() {
 
   const isMutatingEntry = (entryId: string) =>
     reviewMutation.isPending && reviewMutation.variables?.timeEntryId === entryId;
+
+  useEffect(() => {
+    if (!reviewAnnouncement) return;
+
+    queueHeadingRef.current?.focus();
+  }, [reviewAnnouncement, visibleEntries.length]);
 
   return (
     <PortalLayout>
@@ -252,7 +268,7 @@ export default function PortalTimeReviewPage() {
                 Try again
               </Button>
             </div>
-          ) : !context?.hasAccess ? (
+          ) : !context?.hasAccess || context.machines.length === 0 ? (
             <div className="mt-6 rounded-[24px] border border-border bg-background px-5 py-8 shadow-[var(--shadow-sm)]">
               <Lock className="h-6 w-6 text-muted-foreground" />
               <h2 className="mt-4 font-display text-xl font-semibold text-foreground">
@@ -268,6 +284,19 @@ export default function PortalTimeReviewPage() {
             </div>
           ) : (
             <div className="mt-6 space-y-5">
+              {reviewMutation.isError && (
+                <div
+                  role="alert"
+                  className="rounded-[20px] border border-destructive/20 bg-destructive/5 px-4 py-4 text-sm"
+                >
+                  <p className="font-semibold text-foreground">Review was not saved</p>
+                  <p className="mt-1 max-w-2xl text-pretty leading-6 text-muted-foreground">
+                    The shift is unchanged. Check your connection, then approve it or request a
+                    correction again.
+                  </p>
+                </div>
+              )}
+
               <div className="rounded-[24px] border border-border bg-background p-4 shadow-[var(--shadow-sm)] sm:p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -352,11 +381,23 @@ export default function PortalTimeReviewPage() {
 
               <div className="overflow-hidden rounded-[24px] border border-border bg-background shadow-[var(--shadow-sm)]">
                 <div className="border-b border-border px-4 py-4 sm:px-5">
-                  <h2 className="font-display text-xl font-semibold text-foreground">
+                  <h2
+                    id="time-review-queue-heading"
+                    ref={queueHeadingRef}
+                    tabIndex={-1}
+                    aria-describedby="time-review-queue-status"
+                    className="font-display text-xl font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
                     {filter === 'needs_review' ? 'Ready for your review' : 'Monthly time'}
                   </h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {formatDate(context.periodStartDate)} to {formatDate(context.periodEndDate)}
+                  <p
+                    id="time-review-queue-status"
+                    role="status"
+                    aria-live="polite"
+                    className="mt-1 text-sm text-muted-foreground"
+                  >
+                    {reviewAnnouncement ||
+                      `${formatDate(context.periodStartDate)} to ${formatDate(context.periodEndDate)}`}
                   </p>
                 </div>
 
@@ -385,6 +426,10 @@ export default function PortalTimeReviewPage() {
                               <div className="flex flex-wrap items-center gap-2">
                                 <h3 className="font-semibold text-foreground">{entry.operatorName}</h3>
                                 <span
+                                  data-time-status-badge={getReviewLabel(
+                                    entry.managerReviewStatus,
+                                    entry.status
+                                  )}
                                   className={cn(
                                     'rounded-full border px-2.5 py-1 text-xs font-semibold',
                                     getReviewBadgeClass(entry.managerReviewStatus, entry.status)
@@ -429,6 +474,7 @@ export default function PortalTimeReviewPage() {
                                   type="button"
                                   variant="outline"
                                   disabled={isSaving}
+                                  aria-label={`Request correction for ${entry.operatorName}'s shift on ${formatDate(entry.workDate)}, ${formatTime(entry.startTime)} to ${formatTime(entry.endTime)}, ${entry.machineLabel} at ${entry.locationName}`}
                                   onClick={() => {
                                     setCorrectionEntry(entry);
                                     setCorrectionReason(entry.managerReviewReason ?? '');
@@ -440,6 +486,7 @@ export default function PortalTimeReviewPage() {
                                 <Button
                                   type="button"
                                   disabled={isSaving || entry.managerReviewStatus === 'approved'}
+                                  aria-label={`${entry.managerReviewStatus === 'approved' ? 'Approved' : 'Approve'} ${entry.operatorName}'s shift on ${formatDate(entry.workDate)}, ${formatTime(entry.startTime)} to ${formatTime(entry.endTime)}, ${entry.machineLabel} at ${entry.locationName}`}
                                   onClick={() => approveEntry(entry)}
                                 >
                                   {isSaving ? (
