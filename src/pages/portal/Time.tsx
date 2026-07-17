@@ -262,7 +262,10 @@ export default function PortalTimePage() {
   }, [profiles, selectedProfileId]);
 
   const selectedProfile = useMemo(
-    () => profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0],
+    () =>
+      profiles.find((profile) => profile.id === selectedProfileId) ??
+      profiles.find((profile) => profile.assignedMachines.length > 0) ??
+      profiles[0],
     [profiles, selectedProfileId]
   );
   const routeEntry = useMemo(() => {
