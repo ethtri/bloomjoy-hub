@@ -328,11 +328,10 @@ select ok(
 );
 
 set local role anon;
-select ok(
-  pg_temp.capture_error($$
-    select * from public.time_entries
-  $$) like '%permission denied for table time_entries%',
-  'an anonymous actor is behaviorally denied direct time-entry reads'
+select is(
+  (select count(*)::integer from public.time_entries),
+  0,
+  'an anonymous actor receives no time entries through direct-table RLS'
 );
 select ok(
   pg_temp.capture_error($$
