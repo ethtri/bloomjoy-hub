@@ -863,9 +863,16 @@ const run = async () => {
   const capture390State = async (screenshotName, assertionLabel) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => window.scrollTo(0, 0));
-    const hasOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth + 1
-    );
+    await page.waitForTimeout(250);
+    const hasOverflow = await page.evaluate(() => {
+      const documentOverflows = document.documentElement.scrollWidth > window.innerWidth + 1;
+      const dialogOverflows = [...document.querySelectorAll('[role="dialog"]')].some((dialog) => {
+        const rect = dialog.getBoundingClientRect();
+        return rect.left < -1 || rect.right > window.innerWidth + 1;
+      });
+
+      return documentOverflows || dialogOverflows;
+    });
     recorder.assert(`390px ${assertionLabel} has no horizontal overflow`, !hasOverflow);
     await page.screenshot({
       path: path.join(args.artifactDir, screenshotName),
