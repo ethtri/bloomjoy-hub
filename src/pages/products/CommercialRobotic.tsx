@@ -132,10 +132,10 @@ export default function CommercialRoboticPage() {
                 Bloomjoy Sweets {MACHINE_NAMES.commercial}
               </h1>
               <p className="mt-2 font-display text-3xl font-bold text-primary">
-                From $6,250
+                Request a quote
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Base machine price; add-ons and shipping are quoted separately.
+                We will confirm configuration, wrap, shipping, and delivery in your quote.
               </p>
 
               <p className="mt-6 text-lg leading-relaxed text-muted-foreground">

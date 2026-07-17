@@ -13,7 +13,7 @@ import microMain from '@/assets/real/micro-main.webp';
 const productCards = [
   {
     title: MACHINE_NAMES.commercial,
-    price: 'From $6,250',
+    price: 'Request a quote',
     description: 'Full-size commercial unit with automatic stick dispensing, complex patterns, and Commercial-only custom wrap via quote.',
     href: '/machines/commercial-robotic-machine',
     badge: 'Most Popular',

@@ -82,6 +82,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Commercial page shows native specs content (not image-only text for core specs)
 - [ ] Commercial page "Open full size" actions open in-page modal and can be closed to return to the same screen
 - [ ] Commercial machine sales copy/quote CTA clearly shows wrap options and marks custom wrap as Commercial-only with offline design-team handoff
+- [ ] Home, `/machines`, Commercial detail, comparison, and payback-planner surfaces do not show a Commercial Machine price; they direct buyers to request a quote
 - [ ] Mini and Micro machine pages do not advertise custom wrap as an available option
 - [ ] Mini page shows live-availability copy, `$4,000`, and no Mini waitlist form or waitlist success/error state
 - [ ] Mini page CTA opens `/contact?type=quote&interest=mini&source=%2Fmachines%2Fmini`

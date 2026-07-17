@@ -8,7 +8,7 @@ export interface Product {
   sku: string;
   name: string;
   type: 'machine' | 'supply';
-  price: number;
+  price?: number;
   description: string;
   shortDescription: string;
   features: string[];
@@ -23,9 +23,8 @@ export const products: Record<string, Product> = {
     sku: 'commercial-robotic',
     name: 'Bloomjoy Sweets Commercial Machine',
     type: 'machine',
-    price: 6250,
     description: 'Full-size commercial robotic cotton candy machine designed for high-throughput venues. Automated stick dispensing, complex pattern capabilities, and built for continuous operation. Commercial-only custom wrap is available and finalized offline with the Bloomjoy design team.',
-    shortDescription: 'Full-size commercial robotic machine for high-volume venues, from $6,250 base',
+    shortDescription: 'Full-size commercial robotic machine for high-volume venues; request a quote',
     features: [
       'Automatic stick dispensing',
       'Complex pattern capabilities',
