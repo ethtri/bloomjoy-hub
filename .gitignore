@@ -12,6 +12,7 @@ dist
 dist-ssr
 sunze-sync-diagnostic.json
 output/
+.playwright-cli/
 
 # Env
 .env

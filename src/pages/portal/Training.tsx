@@ -805,9 +805,9 @@ export default function TrainingPage() {
                     key={trackDefinition.id}
                     type="button"
                     onClick={() => handleSelectTrack(trackDefinition.id)}
-                    className={`min-h-24 rounded-2xl border p-4 text-left transition-all ${
+                    className={`min-h-24 rounded-2xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                       isActive
-                        ? 'border-primary/30 bg-primary/5 shadow-sm'
+                        ? 'border-primary bg-primary/5 shadow-sm'
                         : 'border-border bg-background hover:border-primary/20 hover:bg-muted/20'
                     }`}
                   >
