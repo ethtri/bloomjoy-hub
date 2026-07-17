@@ -92,7 +92,7 @@ const getReviewLabel = (
   entryStatus: OperatorTimeReviewEntry['status']
 ) => {
   if (entryStatus === 'paid') return 'Paid';
-  if (entryStatus === 'included_in_payout') return 'Included';
+  if (entryStatus === 'included_in_payout') return 'Included in pay';
   if (entryStatus === 'locked') return 'Locked';
   if (reviewStatus === 'approved') return 'Approved';
   if (reviewStatus === 'needs_correction') return 'Correction requested';
@@ -134,6 +134,7 @@ export default function PortalTimeReviewPage() {
     queryKey: reviewQueryKey(workDate),
     queryFn: () => fetchMyTimeReviewContext(workDate),
     staleTime: 1000 * 20,
+    retry: false,
   });
 
   const entries = context?.entries ?? emptyReviewEntries;
@@ -252,7 +253,7 @@ export default function PortalTimeReviewPage() {
                 Try again
               </Button>
             </div>
-          ) : !context?.hasAccess ? (
+          ) : !context?.hasAccess || context.machines.length === 0 ? (
             <div className="mt-6 rounded-[24px] border border-border bg-background px-5 py-8 shadow-[var(--shadow-sm)]">
               <Lock className="h-6 w-6 text-muted-foreground" />
               <h2 className="mt-4 font-display text-xl font-semibold text-foreground">
@@ -268,6 +269,19 @@ export default function PortalTimeReviewPage() {
             </div>
           ) : (
             <div className="mt-6 space-y-5">
+              {reviewMutation.isError && (
+                <div
+                  role="alert"
+                  className="rounded-[20px] border border-destructive/20 bg-destructive/5 px-4 py-4 text-sm"
+                >
+                  <p className="font-semibold text-foreground">Review was not saved</p>
+                  <p className="mt-1 max-w-2xl text-pretty leading-6 text-muted-foreground">
+                    The shift is unchanged. Check your connection, then approve it or request a
+                    correction again.
+                  </p>
+                </div>
+              )}
+
               <div className="rounded-[24px] border border-border bg-background p-4 shadow-[var(--shadow-sm)] sm:p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div className="grid gap-3 sm:grid-cols-2">
