@@ -86,7 +86,7 @@ export const paybackScenarioProfiles: Record<
     description:
       "A fixed or semi-fixed venue placement where sales depend on foot traffic, family presence, dwell time, visibility, uptime, and venue terms.",
     planningNotes: [
-      "Use the quoted machine amount when you have it; listed/base pricing can exclude freight, tariffs, duties, brokerage, delivery, and setup.",
+      "Request a quote, then enter the quoted machine amount here. Confirm whether it includes freight, tariffs, duties, brokerage, delivery, and setup.",
       "Revenue share and rent can materially change the payback math, so model both before negotiating.",
       "Family traffic matters. Parents buying for kids are usually the demand signal to validate.",
     ],
@@ -94,7 +94,7 @@ export const paybackScenarioProfiles: Record<
       "/resources/business-playbook/best-locations-for-cotton-candy-vending-machines",
     articleLabel: "Read the location guide",
     defaultStartupCosts: {
-      machine: 6250,
+      machine: 0,
       importFreight: 0,
       accessoriesPayment: 350,
       deliverySetup: 800,
@@ -223,9 +223,9 @@ export const paybackPresets: PaybackPreset[] = [
     scenario: "commercial",
     title: "Commercial pilot example",
     description:
-      "A fictional family-venue pilot with modest daily order assumptions and venue participation.",
+      "A fictional family-venue pilot with modest daily order assumptions; enter your quoted machine amount.",
     startupCosts: {
-      machine: 6250,
+      machine: 0,
       importFreight: 1800,
       accessoriesPayment: 500,
       deliverySetup: 900,

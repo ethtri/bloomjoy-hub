@@ -15,7 +15,7 @@ const machineProducts = [
   {
     sku: 'commercial-robotic',
     name: MACHINE_NAMES.commercial,
-    price: 'From $6,250',
+    price: 'Request a quote',
     description: 'Full-size commercial unit with automatic stick dispensing, complex patterns, and Commercial-only custom wrap via quote.',
     href: '/machines/commercial-robotic-machine',
     image: commercialMain,
@@ -46,7 +46,7 @@ const comparisonRows = [
     model: MACHINE_NAMES.commercial,
     fit: 'High-traffic venues, retail locations, entertainment sites, and event operations',
     capability: 'Automatic stick dispensing, 64 preset patterns, four sugar colors',
-    buyingPath: 'Quote-led purchase starting from $6,250 before add-ons and shipping',
+    buyingPath: 'Quote required; final pricing depends on configuration, wrap, shipping, and delivery',
   },
   {
     model: MACHINE_NAMES.mini,

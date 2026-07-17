@@ -822,7 +822,7 @@ export default function BusinessPlaybookPaybackPlannerPage() {
                   </div>
                 </div>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                  Listing price is not the whole launch cost. Add import fees, tariffs, shipping,
+                  Machine price is not the whole launch cost. Add import fees, tariffs, shipping,
                   duties, brokerage, delivery, supplies, and readiness costs when they apply.
                 </p>
 
@@ -830,7 +830,9 @@ export default function BusinessPlaybookPaybackPlannerPage() {
                   {startupCostKeys.map((key) => {
                     const label = paybackStartupCostLabels[key];
                     const helper =
-                      key === "importFreight"
+                      key === "machine" && scenario === "commercial"
+                        ? "Request a Commercial Machine quote, then enter the quoted machine amount here."
+                        : key === "importFreight"
                         ? "Use actual quote terms when known. Ask whether international freight, tariffs, duties, customs, brokerage, and delivery are included."
                         : label.helper;
 
