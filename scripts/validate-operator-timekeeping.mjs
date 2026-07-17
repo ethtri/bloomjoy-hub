@@ -16,6 +16,12 @@ const files = {
     'migrations',
     '202607160001_timekeeping_manager_review.sql'
   ),
+  managerAuthorityMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '202607170001_timekeeping_manager_authority_fail_closed.sql'
+  ),
   page: path.join(repoRoot, 'src', 'pages', 'portal', 'Time.tsx'),
   reviewPage: path.join(repoRoot, 'src', 'pages', 'portal', 'TimeReview.tsx'),
   app: path.join(repoRoot, 'src', 'App.tsx'),
@@ -110,6 +116,17 @@ for (const snippet of [
   'grant execute on function public.review_operator_time_entry',
 ]) {
   expect(managerMigration, snippet, 'timekeeping manager-review migration');
+}
+
+const managerAuthorityMigration = readText(files.managerAuthorityMigration);
+for (const snippet of [
+  'create or replace function public.can_manage_operator_payout_machine',
+  'select coalesce(',
+  'false',
+  'revoke execute on function public.can_manage_operator_payout_machine',
+  'grant execute on function public.can_manage_operator_payout_machine',
+]) {
+  expect(managerAuthorityMigration, snippet, 'timekeeping manager-authority migration');
 }
 
 const reviewPage = readText(files.reviewPage);
