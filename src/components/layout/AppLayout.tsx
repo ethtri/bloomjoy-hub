@@ -64,7 +64,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     capabilities,
     hasReportingAccess,
     isAuthenticated,
-    isCorporatePartner,
     isScopedAdmin,
     isSuperAdmin,
     portalAccessTier,
@@ -80,7 +79,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const marketingHomeUrl = getCanonicalUrlForSurface('marketing', '/', '', '', currentLocation);
   const accountUrl = '/portal/account';
   const showAccountLink = portalAccessTier !== 'training' || adminAccess.isScopedAdmin;
-  const accountLinkLabel = isCorporatePartner ? 'Account Settings' : t('app.account');
+  const accountLinkLabel = t('app.account');
   const signedInEmail = user?.email ?? '';
   const profileMenuLabel = signedInEmail ? signedInEmail.split('@')[0] : t('app.profileMenu');
   const scopedMachineCount = adminAccess.scopedMachineIds.length;
@@ -246,7 +245,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                       <SheetDescription>{t(appContext.descriptionKey)}</SheetDescription>
                     </SheetHeader>
                     <div className="mt-6 space-y-3">
-                      <LanguagePreferenceControl fullWidth />
                       <a
                         href={marketingHomeUrl}
                         className="flex items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
@@ -278,7 +276,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="app-surface min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
-      <aside className="hidden border-r border-border/70 bg-sidebar/80 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
+      <aside className="hidden border-r border-[hsl(var(--app-shell-divider))] bg-sidebar/80 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
         <AuthenticatedSidebar
           appTitle={t('app.operatorAppTitle')}
           currentPathname={location.pathname}
@@ -288,8 +286,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-col bg-gradient-to-b from-background via-background to-muted/20">
-        <header className="sticky top-0 z-40 border-b border-border/70 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 lg:static lg:bg-background/80">
-          <div className="flex min-h-[4.25rem] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <header
+          className="app-shell-header-row sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 lg:static lg:bg-background/80"
+          data-app-shell-content-header
+        >
+          <div className="flex min-h-[4.25rem] items-center justify-between gap-3 px-4 sm:px-6 lg:h-full lg:min-h-0 lg:px-8">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-[11px]">
                 {t('app.operatorApp')}
@@ -297,13 +298,14 @@ export function AppLayout({ children }: AppLayoutProps) {
               <p className="truncate font-display text-lg font-semibold text-foreground sm:text-xl">
                 {t(appContext.titleKey)}
               </p>
-              <p className="hidden max-w-3xl truncate text-sm text-muted-foreground md:block">
-                {t(appContext.descriptionKey)}
-              </p>
-              {scopedAdminContext && (
+              {scopedAdminContext ? (
                 <p className="mt-1 flex max-w-3xl items-center gap-1.5 text-xs font-medium text-muted-foreground">
                   <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
                   <span className="truncate">{scopedAdminContext}</span>
+                </p>
+              ) : (
+                <p className="hidden max-w-3xl truncate text-sm text-muted-foreground md:block">
+                  {t(appContext.descriptionKey)}
                 </p>
               )}
             </div>
@@ -375,8 +377,8 @@ function AuthenticatedSidebar({
   const shell = (
     <div className={cn('flex min-h-0 flex-1 flex-col', mobile ? 'h-full overflow-y-auto' : 'h-screen')}>
       {!mobile && (
-        <div className="border-b border-sidebar-border px-4 py-3">
-          <Link to="/portal" className="flex min-w-0 items-center gap-3">
+        <div className="app-shell-header-row" data-app-shell-sidebar-header>
+          <Link to="/portal" className="flex h-full min-w-0 items-center gap-3 px-4">
             <img
               src={logo}
               alt="Bloomjoy Sweets"
@@ -459,11 +461,6 @@ function AuthenticatedSidebar({
       <div className="border-t border-sidebar-border p-3">
         <div className="rounded-xl border border-border bg-background p-2.5 shadow-[var(--shadow-sm)]">
           <div className="grid gap-1.5">
-            <LanguagePreferenceControl
-              compact={!mobile}
-              fullWidth={mobile}
-              className={mobile ? undefined : '[&_button]:min-h-8 [&_button]:min-w-9'}
-            />
             {mobile ? (
               <MobileUtilityLinks {...utilities} />
             ) : (

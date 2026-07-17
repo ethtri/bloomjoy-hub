@@ -819,7 +819,11 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button onClick={exportPdf} disabled={isExporting || reportRows.length === 0}>
+              <Button
+                onClick={exportPdf}
+                disabled={isExporting || reportRows.length === 0}
+                data-portal-report-export="operator-pdf"
+              >
                 {isExporting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -1686,7 +1690,11 @@ function PartnerDashboardView() {
               <div className="flex flex-col gap-2 sm:flex-row lg:col-span-2 lg:justify-end xl:col-span-1">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button disabled={partnerExportDisabled} className="w-full justify-center sm:w-auto">
+                    <Button
+                      disabled={partnerExportDisabled}
+                      className="w-full justify-center sm:w-auto"
+                      data-portal-report-export="partner"
+                    >
                       {exportingPartnerFormat ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (

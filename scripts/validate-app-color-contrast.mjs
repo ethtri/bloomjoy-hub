@@ -10,10 +10,22 @@ const trainingPath = path.join(repoRoot, 'src', 'pages', 'portal', 'Training.tsx
 const partnershipsPath = path.join(repoRoot, 'src', 'pages', 'admin', 'Partnerships.tsx');
 const timePath = path.join(repoRoot, 'src', 'pages', 'portal', 'Time.tsx');
 const timeReviewPath = path.join(repoRoot, 'src', 'pages', 'portal', 'TimeReview.tsx');
+const buttonVariantsPath = path.join(
+  repoRoot,
+  'src',
+  'components',
+  'ui',
+  'button-variants.ts',
+);
 const training = fs.readFileSync(trainingPath, 'utf8');
 const partnerships = fs.readFileSync(partnershipsPath, 'utf8');
 const time = fs.readFileSync(timePath, 'utf8');
 const timeReview = fs.readFileSync(timeReviewPath, 'utf8');
+const buttonVariants = fs.readFileSync(buttonVariantsPath, 'utf8');
+const reports = fs.readFileSync(
+  path.join(repoRoot, 'src', 'pages', 'portal', 'Reports.tsx'),
+  'utf8',
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -101,11 +113,17 @@ const muted = hslToRgb(parseHsl(tokenValue(rootBlock, 'muted'), '--muted'));
 const amber = hslToRgb(parseHsl(tokenValue(rootBlock, 'amber'), '--amber'));
 const sage = hslToRgb(parseHsl(tokenValue(rootBlock, 'sage'), '--sage'));
 const primary = hslToRgb(parseHsl(tokenValue(appBlock, 'primary'), '--primary'));
-const primaryForeground = hslToRgb(
-  parseHsl(tokenValue(appBlock, 'primary-foreground'), '--primary-foreground'),
-);
 const ring = hslToRgb(parseHsl(tokenValue(appBlock, 'ring'), '--ring'));
-const coralDark = hslToRgb(parseHsl(tokenValue(appBlock, 'coral-dark'), '--coral-dark'));
+const action = hslToRgb(parseHsl(tokenValue(appBlock, 'action'), '--action'));
+const actionForeground = hslToRgb(
+  parseHsl(tokenValue(appBlock, 'action-foreground'), '--action-foreground'),
+);
+const actionHover = hslToRgb(
+  parseHsl(tokenValue(appBlock, 'action-hover'), '--action-hover'),
+);
+const actionActive = hslToRgb(
+  parseHsl(tokenValue(appBlock, 'action-active'), '--action-active'),
+);
 const primaryTint = composite(primary, background, 0.1);
 const primaryAtEightyPercent = composite(primary, background, 0.8);
 
@@ -120,12 +138,18 @@ const darkMuted = hslToRgb(parseHsl(tokenValue(darkBlock, 'muted'), 'dark --mute
 const darkPrimary = hslToRgb(
   parseHsl(tokenValue(darkAppBlock, 'primary'), 'dark --primary'),
 );
-const darkPrimaryForeground = hslToRgb(
-  parseHsl(tokenValue(darkAppBlock, 'primary-foreground'), 'dark --primary-foreground'),
-);
 const darkRing = hslToRgb(parseHsl(tokenValue(darkAppBlock, 'ring'), 'dark --ring'));
-const darkCoralDark = hslToRgb(
-  parseHsl(tokenValue(darkAppBlock, 'coral-dark'), 'dark --coral-dark'),
+const darkAction = hslToRgb(
+  parseHsl(tokenValue(darkAppBlock, 'action'), 'dark --action'),
+);
+const darkActionForeground = hslToRgb(
+  parseHsl(tokenValue(darkAppBlock, 'action-foreground'), 'dark --action-foreground'),
+);
+const darkActionHover = hslToRgb(
+  parseHsl(tokenValue(darkAppBlock, 'action-hover'), 'dark --action-hover'),
+);
+const darkActionActive = hslToRgb(
+  parseHsl(tokenValue(darkAppBlock, 'action-active'), 'dark --action-active'),
 );
 const darkPrimaryTint = composite(darkPrimary, darkBackground, 0.1);
 const darkPrimaryAtEightyPercent = composite(darkPrimary, darkBackground, 0.8);
@@ -139,7 +163,17 @@ const darkSettledBadgeTint = composite(darkMuted, darkBackground, 0.6);
 const checks = [
   {
     label: 'filled primary action text',
-    ratio: contrastRatio(primary, primaryForeground),
+    ratio: contrastRatio(action, actionForeground),
+    minimum: 4.5,
+  },
+  {
+    label: 'filled primary action hover text',
+    ratio: contrastRatio(actionHover, actionForeground),
+    minimum: 4.5,
+  },
+  {
+    label: 'filled primary action active text',
+    ratio: contrastRatio(actionActive, actionForeground),
     minimum: 4.5,
   },
   {
@@ -158,11 +192,6 @@ const checks = [
     minimum: 4.5,
   },
   {
-    label: 'text on 80% primary hover fill',
-    ratio: contrastRatio(primaryAtEightyPercent, primaryForeground),
-    minimum: 4.5,
-  },
-  {
     label: 'focus ring on app background',
     ratio: contrastRatio(ring, background),
     minimum: 3,
@@ -178,13 +207,18 @@ const checks = [
     minimum: 3,
   },
   {
-    label: 'primary button hover fill',
-    ratio: contrastRatio(coralDark, primaryForeground),
+    label: 'dark filled primary action text',
+    ratio: contrastRatio(darkAction, darkActionForeground),
     minimum: 4.5,
   },
   {
-    label: 'dark filled primary action text',
-    ratio: contrastRatio(darkPrimary, darkPrimaryForeground),
+    label: 'dark filled primary action hover text',
+    ratio: contrastRatio(darkActionHover, darkActionForeground),
+    minimum: 4.5,
+  },
+  {
+    label: 'dark filled primary action active text',
+    ratio: contrastRatio(darkActionActive, darkActionForeground),
     minimum: 4.5,
   },
   {
@@ -203,11 +237,6 @@ const checks = [
     minimum: 4.5,
   },
   {
-    label: 'dark text on 80% primary hover fill',
-    ratio: contrastRatio(darkPrimaryAtEightyPercent, darkPrimaryForeground),
-    minimum: 4.5,
-  },
-  {
     label: 'dark focus ring on app background',
     ratio: contrastRatio(darkRing, darkBackground),
     minimum: 3,
@@ -221,11 +250,6 @@ const checks = [
     label: 'dark selected-state border on app background',
     ratio: contrastRatio(darkPrimary, darkBackground),
     minimum: 3,
-  },
-  {
-    label: 'dark primary button hover fill',
-    ratio: contrastRatio(darkCoralDark, darkPrimaryForeground),
-    minimum: 4.5,
   },
   {
     label: '12px approved badge text',
@@ -274,6 +298,43 @@ assert(
 assert(
   tokenValue(rootBlock, 'primary') !== tokenValue(appBlock, 'primary'),
   'App and public primary tokens must remain independently scoped.',
+);
+assert(
+  tokenValue(rootBlock, 'action') === tokenValue(rootBlock, 'primary') &&
+    tokenValue(rootBlock, 'action-foreground') === tokenValue(rootBlock, 'primary-foreground'),
+  'Public action tokens must preserve the existing public primary treatment.',
+);
+assert(
+  tokenValue(rootBlock, 'action-shadow-hover') ===
+    '0 6px 20px -3px hsl(16 85% 55% / 0.35)',
+  'Public buttons must preserve their existing hover shadow.',
+);
+assert(
+  tokenValue(appBlock, 'action') === '345 72% 68%' &&
+    tokenValue(appBlock, 'action-foreground') === '220 20% 14%' &&
+    tokenValue(appBlock, 'action-hover') === '345 72% 64%' &&
+    tokenValue(appBlock, 'action-active') === '345 72% 62%',
+  'Authenticated light actions must use the approved bright Bloomjoy semantic treatment.',
+);
+assert(
+  tokenValue(appBlock, 'primary') === '335 65% 40%' &&
+    tokenValue(appBlock, 'ring') === '335 65% 40%',
+  'Authenticated links and focus rings must retain the approved deeper interaction ink.',
+);
+assert(
+  buttonVariants.includes(
+    'bg-action text-action-foreground shadow-action hover:bg-action-hover',
+  ) && buttonVariants.includes('active:bg-action-active'),
+  'Shared default and hero buttons must use the semantic action treatment.',
+);
+assert(
+  !buttonVariants.includes('hsl(16_85%_55%'),
+  'Shared buttons must not reintroduce the hard-coded orange hover shadow.',
+);
+assert(
+  reports.includes('data-portal-report-export="operator-pdf"') &&
+    reports.includes('data-portal-report-export="partner"'),
+  'Reporting exports must expose shared-action UAT contracts.',
 );
 assert(
   training.includes("? 'border-primary bg-primary/5 shadow-sm'"),

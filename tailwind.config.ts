@@ -28,6 +28,12 @@ export default {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
         },
+        action: {
+          DEFAULT: "hsl(var(--action))",
+          foreground: "hsl(var(--action-foreground))",
+          hover: "hsl(var(--action-hover))",
+          active: "hsl(var(--action-active))",
+        },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
@@ -83,6 +89,8 @@ export default {
         'warm': 'var(--shadow-warm)',
         'elevated': 'var(--shadow-md)',
         'elevated-lg': 'var(--shadow-lg)',
+        'action': 'var(--action-shadow)',
+        'action-hover': 'var(--action-shadow-hover)',
       },
       keyframes: {
         "accordion-down": {

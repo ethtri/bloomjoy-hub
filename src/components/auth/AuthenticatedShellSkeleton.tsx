@@ -105,8 +105,11 @@ export function AuthenticatedShellSkeleton({
 
   return (
     <div className="app-surface min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
-      <aside className="hidden border-r border-border/70 bg-sidebar/80 lg:flex lg:min-h-screen lg:flex-col">
-        <div className="flex min-h-[4.25rem] items-center gap-3 border-b border-border/70 px-4">
+      <aside className="hidden border-r border-[hsl(var(--app-shell-divider))] bg-sidebar/80 lg:flex lg:min-h-screen lg:flex-col">
+        <div
+          className="app-shell-header-row flex min-h-[4.25rem] items-center gap-3 px-4 lg:min-h-0"
+          data-app-shell-sidebar-header
+        >
           <img
             src={logo}
             alt="Bloomjoy Sweets"
@@ -136,7 +139,10 @@ export function AuthenticatedShellSkeleton({
       </aside>
 
       <div className="min-w-0">
-        <header className="flex min-h-[4.25rem] items-center border-b border-border/70 bg-background/95 px-4 sm:px-6">
+        <header
+          className="app-shell-header-row flex min-h-[4.25rem] items-center bg-background/95 px-4 sm:px-6 lg:min-h-0"
+          data-app-shell-content-header
+        >
           <div className="flex w-full items-center gap-3">
             <img
               src={logo}
