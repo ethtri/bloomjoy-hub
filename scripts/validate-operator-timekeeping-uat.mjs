@@ -863,7 +863,18 @@ const run = async () => {
   const capture390State = async (screenshotName, assertionLabel) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(250);
+    await page.locator('[role="dialog"]').evaluateAll(async (dialogs) => {
+      const animations = dialogs.flatMap((dialog) =>
+        dialog.getAnimations({ subtree: true })
+      );
+      await Promise.all(animations.map((animation) => animation.finished.catch(() => undefined)));
+    });
+    await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        })
+    );
     const hasOverflow = await page.evaluate(() => {
       const documentOverflows = document.documentElement.scrollWidth > window.innerWidth + 1;
       const dialogOverflows = [...document.querySelectorAll('[role="dialog"]')].some((dialog) => {
