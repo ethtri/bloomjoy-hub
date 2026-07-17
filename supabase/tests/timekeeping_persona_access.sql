@@ -271,7 +271,7 @@ values
     '30000000-0000-0000-0000-000000000001',
     '50000000-0000-0000-0000-000000000001',
     '70000000-0000-0000-0000-000000000001',
-    current_date - 1,
+    date_trunc('month', current_date)::date,
     '09:00',
     '10:30',
     90,
@@ -286,7 +286,7 @@ values
     '30000000-0000-0000-0000-000000000001',
     '50000000-0000-0000-0000-000000000001',
     '70000000-0000-0000-0000-000000000001',
-    current_date - 1,
+    date_trunc('month', current_date)::date,
     '11:00',
     '12:00',
     60,
@@ -344,7 +344,7 @@ select ok(
     select public.submit_operator_time_entry(
       '60000000-0000-0000-0000-000000000001',
       '40000000-0000-0000-0000-000000000001',
-      current_date - 1,
+      date_trunc('month', current_date)::date,
       '08:00',
       '09:00',
       null,
@@ -358,7 +358,7 @@ select ok(
     select public.update_operator_time_entry(
       '80000000-0000-0000-0000-000000000001',
       '40000000-0000-0000-0000-000000000001',
-      current_date - 1,
+      date_trunc('month', current_date)::date,
       '08:00',
       '09:00',
       null,
@@ -426,7 +426,7 @@ select is(
       '80000000-0000-0000-0000-000000000002',
       'approved',
       null,
-      current_date - 1
+      date_trunc('month', current_date)::date
     )
   $$),
   'Machine manager access required',
@@ -437,7 +437,7 @@ select is(
     select public.update_operator_time_entry(
       '80000000-0000-0000-0000-000000000002',
       '40000000-0000-0000-0000-000000000002',
-      current_date - 1,
+      date_trunc('month', current_date)::date,
       '11:00',
       '12:30',
       null,
@@ -452,7 +452,7 @@ select is(
     select public.submit_operator_time_entry(
       '60000000-0000-0000-0000-000000000001',
       '40000000-0000-0000-0000-000000000002',
-      current_date - 1,
+      date_trunc('month', current_date)::date,
       '13:00',
       '14:00',
       null,
@@ -467,7 +467,7 @@ select is(
     select public.submit_operator_time_entry(
       '60000000-0000-0000-0000-000000000002',
       '40000000-0000-0000-0000-000000000002',
-      current_date - 1,
+      date_trunc('month', current_date)::date,
       '13:00',
       '14:00',
       null,
@@ -516,27 +516,27 @@ select is(
   'the other-machine persona is an active Machine Manager'
 );
 select is(
-  public.get_my_time_review_context(current_date - 1)->>'hasAccess',
+  public.get_my_time_review_context(date_trunc('month', current_date)::date)->>'hasAccess',
   'true',
   'the other-machine manager can reach only their own review scope'
 );
 select is(
-  public.get_my_time_review_context(current_date - 1)->'machines'->0->>'machineId',
+  public.get_my_time_review_context(date_trunc('month', current_date)::date)->'machines'->0->>'machineId',
   '40000000-0000-0000-0000-000000000002',
   'the other-machine manager receives the exact assigned machine'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
+  jsonb_array_length(public.get_my_time_review_context(date_trunc('month', current_date)::date)->'machines'),
   1,
   'the other-machine manager queue contains no extra machines'
 );
 select is(
-  public.get_my_time_review_context(current_date - 1)->'entries'->0->>'id',
+  public.get_my_time_review_context(date_trunc('month', current_date)::date)->'entries'->0->>'id',
   '80000000-0000-0000-0000-000000000002',
   'the other-machine manager receives only their assigned-machine entry'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
+  jsonb_array_length(public.get_my_time_review_context(date_trunc('month', current_date)::date)->'entries'),
   1,
   'the other-machine manager queue contains no extra entries'
 );
@@ -551,7 +551,7 @@ select is(
       '80000000-0000-0000-0000-000000000001',
       'approved',
       null,
-      current_date - 1
+      date_trunc('month', current_date)::date
     )
   $$),
   'Machine manager access required',
@@ -582,17 +582,17 @@ select ok(
   'the Plus test persona has active Plus access'
 );
 select is(
-  public.get_my_time_review_context(current_date - 1)->>'hasAccess',
+  public.get_my_time_review_context(date_trunc('month', current_date)::date)->>'hasAccess',
   'false',
   'Plus access without a machine grant does not grant review access'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
+  jsonb_array_length(public.get_my_time_review_context(date_trunc('month', current_date)::date)->'machines'),
   0,
   'Plus access without a machine grant receives no review machines'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
+  jsonb_array_length(public.get_my_time_review_context(date_trunc('month', current_date)::date)->'entries'),
   0,
   'Plus access without a machine grant receives no review entries'
 );
@@ -607,7 +607,7 @@ select is(
       '80000000-0000-0000-0000-000000000001',
       'approved',
       null,
-      current_date - 1
+      date_trunc('month', current_date)::date
     )
   $$),
   'Machine manager access required',
@@ -638,17 +638,17 @@ select is(
   'a partner membership without a machine grant creates no machine authority'
 );
 select is(
-  public.get_my_time_review_context(current_date - 1)->>'hasAccess',
+  public.get_my_time_review_context(date_trunc('month', current_date)::date)->>'hasAccess',
   'false',
   'a partner membership without a machine grant does not grant review access'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
+  jsonb_array_length(public.get_my_time_review_context(date_trunc('month', current_date)::date)->'machines'),
   0,
   'a Corporate Partner without a machine grant receives no review machines'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
+  jsonb_array_length(public.get_my_time_review_context(date_trunc('month', current_date)::date)->'entries'),
   0,
   'a Corporate Partner without a machine grant receives no review entries'
 );
@@ -663,7 +663,7 @@ select is(
       '80000000-0000-0000-0000-000000000001',
       'approved',
       null,
-      current_date - 1
+      date_trunc('month', current_date)::date
     )
   $$),
   'Machine manager access required',
@@ -698,27 +698,27 @@ select is(
   'an assigned Machine Manager has no authority over an unassigned machine'
 );
 select is(
-  public.get_my_time_review_context(current_date - 1)->>'hasAccess',
+  public.get_my_time_review_context(date_trunc('month', current_date)::date)->>'hasAccess',
   'true',
   'an assigned Machine Manager has review access'
 );
 select is(
-  public.get_my_time_review_context(current_date - 1)->'machines'->0->>'machineId',
+  public.get_my_time_review_context(date_trunc('month', current_date)::date)->'machines'->0->>'machineId',
   '40000000-0000-0000-0000-000000000001',
   'an assigned Machine Manager receives the exact managed machine'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
+  jsonb_array_length(public.get_my_time_review_context(date_trunc('month', current_date)::date)->'machines'),
   1,
   'the assigned Machine Manager queue contains no extra machines'
 );
 select is(
-  public.get_my_time_review_context(current_date - 1)->'entries'->0->>'id',
+  public.get_my_time_review_context(date_trunc('month', current_date)::date)->'entries'->0->>'id',
   '80000000-0000-0000-0000-000000000001',
   'an assigned Machine Manager receives the exact in-scope entry'
 );
 select is(
-  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
+  jsonb_array_length(public.get_my_time_review_context(date_trunc('month', current_date)::date)->'entries'),
   1,
   'the assigned Machine Manager queue contains no extra entries'
 );
@@ -733,7 +733,7 @@ select is(
       '80000000-0000-0000-0000-000000000002',
       'approved',
       null,
-      current_date - 1
+      date_trunc('month', current_date)::date
     )
   $$),
   'Machine manager access required',
@@ -745,7 +745,7 @@ select is(
       '80000000-0000-0000-0000-000000000001',
       'approved',
       null,
-      current_date - 1
+      date_trunc('month', current_date)::date
     )
   $$),
   null,
@@ -837,7 +837,7 @@ select is(
       '80000000-0000-0000-0000-000000000001',
       'needs_correction',
       null,
-      current_date - 1
+      date_trunc('month', current_date)::date
     )
   $$),
   'A correction reason is required',
@@ -849,7 +849,7 @@ select is(
       '80000000-0000-0000-0000-000000000001',
       'needs_correction',
       'Correct the shift end time',
-      current_date - 1
+      date_trunc('month', current_date)::date
     )
   $$),
   null,
