@@ -411,7 +411,7 @@ select is(
       'submitted'
     )
   $$),
-  'Time entry machine is not assigned for this work date',
+  'Operator is not assigned to this machine for the work date',
   'a worker cannot submit time to an unassigned machine'
 );
 select is(
