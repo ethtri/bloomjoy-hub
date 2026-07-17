@@ -15,6 +15,16 @@ exception
 end;
 $$;
 
+create function pg_temp.can_manage_for(actor_user_id uuid, machine_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.can_manage_operator_payout_machine(actor_user_id, machine_id);
+$$;
+
 insert into auth.users (
   instance_id,
   id,
@@ -294,7 +304,7 @@ select is(
   'the worker-one JWT fixture resolves to the intended actor'
 );
 select is(
-  public.can_manage_operator_payout_machine(
+  pg_temp.can_manage_for(
     auth.uid(),
     '40000000-0000-0000-0000-000000000002'
   ),
@@ -346,7 +356,7 @@ select is(
   'the unassigned-manager JWT fixture resolves to the intended actor'
 );
 select is(
-  public.can_manage_operator_payout_machine(
+  pg_temp.can_manage_for(
     auth.uid(),
     '40000000-0000-0000-0000-000000000001'
   ),
@@ -388,7 +398,7 @@ select is(
   'the Plus JWT fixture resolves to the intended actor'
 );
 select is(
-  public.can_manage_operator_payout_machine(
+  pg_temp.can_manage_for(
     auth.uid(),
     '40000000-0000-0000-0000-000000000001'
   ),
@@ -422,7 +432,7 @@ select is(
   'the partner JWT fixture resolves to the intended actor'
 );
 select is(
-  public.can_manage_operator_payout_machine(
+  pg_temp.can_manage_for(
     auth.uid(),
     '40000000-0000-0000-0000-000000000001'
   ),
@@ -452,7 +462,7 @@ select is(
   'the assigned-manager JWT fixture resolves to the intended actor'
 );
 select is(
-  public.can_manage_operator_payout_machine(
+  pg_temp.can_manage_for(
     auth.uid(),
     '40000000-0000-0000-0000-000000000001'
   ),
@@ -460,7 +470,7 @@ select is(
   'an assigned Machine Manager has authority over the assigned machine'
 );
 select is(
-  public.can_manage_operator_payout_machine(
+  pg_temp.can_manage_for(
     auth.uid(),
     '40000000-0000-0000-0000-000000000002'
   ),
