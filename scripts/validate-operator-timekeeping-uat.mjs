@@ -874,6 +874,20 @@ const run = async () => {
 
     recorder.assert('Portal Time route loads after auth', new URL(page.url()).pathname === '/portal/time', page.url());
     recorder.assert(
+      'Portal access probe sends a null date instead of React Query context',
+      state.rpcCalls.some(
+        (call) =>
+          call.rpcName === 'get_my_operator_timekeeping_context' &&
+          call.body?.p_work_date === null
+      ) &&
+        !state.rpcCalls.some(
+          (call) =>
+            call.rpcName === 'get_my_operator_timekeeping_context' &&
+            typeof call.body?.p_work_date === 'object' &&
+            call.body?.p_work_date !== null
+        )
+    );
+    recorder.assert(
       'Time hub keeps data entry out of the dashboard',
       (await page.locator('#work-date').count()) === 0
     );
