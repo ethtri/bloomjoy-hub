@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(58);
+select plan(73);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -330,6 +330,55 @@ select ok(
 set local role anon;
 select ok(
   pg_temp.capture_error($$
+    select * from public.time_entries
+  $$) like '%permission denied for table time_entries%',
+  'an anonymous actor is behaviorally denied direct time-entry reads'
+);
+select ok(
+  pg_temp.capture_error($$
+    select public.get_my_operator_timekeeping_context(current_date)
+  $$) like '%permission denied for function get_my_operator_timekeeping_context%',
+  'an anonymous actor is behaviorally denied the worker context RPC'
+);
+select ok(
+  pg_temp.capture_error($$
+    select public.submit_operator_time_entry(
+      '60000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0000-000000000001',
+      current_date - 1,
+      '08:00',
+      '09:00',
+      null,
+      'submitted'
+    )
+  $$) like '%permission denied for function submit_operator_time_entry%',
+  'an anonymous actor is behaviorally denied worker submission'
+);
+select ok(
+  pg_temp.capture_error($$
+    select public.update_operator_time_entry(
+      '80000000-0000-0000-0000-000000000001',
+      '40000000-0000-0000-0000-000000000001',
+      current_date - 1,
+      '08:00',
+      '09:00',
+      null,
+      'submitted'
+    )
+  $$) like '%permission denied for function update_operator_time_entry%',
+  'an anonymous actor is behaviorally denied worker updates'
+);
+select ok(
+  pg_temp.capture_error($$
+    select public.void_operator_time_entry(
+      '80000000-0000-0000-0000-000000000001',
+      'Anonymous delete attempt'
+    )
+  $$) like '%permission denied for function void_operator_time_entry%',
+  'an anonymous actor is behaviorally denied worker voids'
+);
+select ok(
+  pg_temp.capture_error($$
     select public.get_my_time_review_context(current_date)
   $$) like '%permission denied for function get_my_time_review_context%',
   'an anonymous actor is behaviorally denied the review queue RPC'
@@ -416,6 +465,21 @@ select is(
 );
 select is(
   pg_temp.capture_error($$
+    select public.submit_operator_time_entry(
+      '60000000-0000-0000-0000-000000000002',
+      '40000000-0000-0000-0000-000000000002',
+      current_date - 1,
+      '13:00',
+      '14:00',
+      null,
+      'submitted'
+    )
+  $$),
+  'Operator payout profile not found',
+  'a worker cannot submit time against another worker profile'
+);
+select is(
+  pg_temp.capture_error($$
     select public.void_operator_time_entry(
       '80000000-0000-0000-0000-000000000002',
       'Unauthorized cross-worker delete test'
@@ -463,9 +527,19 @@ select is(
   'the other-machine manager receives the exact assigned machine'
 );
 select is(
+  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
+  1,
+  'the other-machine manager queue contains no extra machines'
+);
+select is(
   public.get_my_time_review_context(current_date - 1)->'entries'->0->>'id',
   '80000000-0000-0000-0000-000000000002',
   'the other-machine manager receives only their assigned-machine entry'
+);
+select is(
+  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
+  1,
+  'the other-machine manager queue contains no extra entries'
 );
 select is(
   (select string_agg(id::text, ',' order by id) from public.time_entries),
@@ -514,6 +588,16 @@ select is(
   'Plus access without a machine grant does not grant review access'
 );
 select is(
+  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
+  0,
+  'Plus access without a machine grant receives no review machines'
+);
+select is(
+  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
+  0,
+  'Plus access without a machine grant receives no review entries'
+);
+select is(
   (select count(*)::integer from public.time_entries),
   0,
   'Plus access without a machine grant exposes no time entries'
@@ -558,6 +642,16 @@ select is(
   public.get_my_time_review_context(current_date - 1)->>'hasAccess',
   'false',
   'a partner membership without a machine grant does not grant review access'
+);
+select is(
+  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
+  0,
+  'a Corporate Partner without a machine grant receives no review machines'
+);
+select is(
+  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
+  0,
+  'a Corporate Partner without a machine grant receives no review entries'
 );
 select is(
   (select count(*)::integer from public.time_entries),
@@ -615,9 +709,19 @@ select is(
   'an assigned Machine Manager receives the exact managed machine'
 );
 select is(
+  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'machines'),
+  1,
+  'the assigned Machine Manager queue contains no extra machines'
+);
+select is(
   public.get_my_time_review_context(current_date - 1)->'entries'->0->>'id',
   '80000000-0000-0000-0000-000000000001',
   'an assigned Machine Manager receives the exact in-scope entry'
+);
+select is(
+  jsonb_array_length(public.get_my_time_review_context(current_date - 1)->'entries'),
+  1,
+  'the assigned Machine Manager queue contains no extra entries'
 );
 select is(
   (select string_agg(id::text, ',' order by id) from public.time_entries),
@@ -782,6 +886,27 @@ select is(
   ),
   'needs_correction:Correct the shift end time:10000000-0000-0000-0000-000000000003',
   'the correction event records the reason and manager actor'
+);
+select is(
+  (
+    select concat(
+      action,
+      ':',
+      actor_user_id::text,
+      ':',
+      meta->>'reason',
+      ':',
+      meta->>'machine_manager_review',
+      ':',
+      meta->>'payment_behavior_changed'
+    )
+    from public.admin_audit_log
+    where entity_type = 'time_entry'
+      and entity_id = '80000000-0000-0000-0000-000000000001'
+      and action = 'operator_time_entry.correction_requested'
+  ),
+  'operator_time_entry.correction_requested:10000000-0000-0000-0000-000000000003:Correct the shift end time:true:false',
+  'the correction audit row records actor, reason, manager scope, and unchanged payment behavior'
 );
 select is(
   (
