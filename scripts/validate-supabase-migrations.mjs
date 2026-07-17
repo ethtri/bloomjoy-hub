@@ -13,6 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
+const testsDir = path.join(repoRoot, 'supabase', 'tests');
 
 function printHelp() {
   console.log(`Usage: npm run db:validate-migrations [-- --keep-temp] [-- --debug]
@@ -147,6 +148,11 @@ function writeTempSupabaseProject(tempRoot, projectId, dbPort, shadowPort) {
   fs.cpSync(migrationsDir, path.join(tempSupabaseDir, 'migrations'), {
     recursive: true,
   });
+  if (fs.existsSync(testsDir)) {
+    fs.cpSync(testsDir, path.join(tempSupabaseDir, 'tests'), {
+      recursive: true,
+    });
+  }
 
   const config = `project_id = "${projectId}"
 
@@ -227,6 +233,16 @@ async function main() {
 
     run('supabase', args, { stdio: 'inherit' });
     log('\nSupabase migration apply validation passed.');
+
+    if (fs.existsSync(testsDir)) {
+      const testArgs = ['test', 'db', '--workdir', tempRoot];
+      if (options.debug) {
+        testArgs.push('--debug');
+      }
+
+      run('supabase', testArgs, { stdio: 'inherit' });
+      log('Supabase database persona tests passed.');
+    }
   } catch (error) {
     validationError = error;
   } finally {
