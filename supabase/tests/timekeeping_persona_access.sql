@@ -328,10 +328,11 @@ select ok(
 );
 
 set local role anon;
-select is(
-  (select count(*)::integer from public.time_entries),
-  0,
-  'an anonymous actor receives no time entries through direct-table RLS'
+select ok(
+  pg_temp.capture_error($$
+    select * from public.time_entries
+  $$) like '%permission denied for function can_access_operator_payout_profile_current_user%',
+  'an anonymous actor is denied while evaluating direct time-entry RLS'
 );
 select ok(
   pg_temp.capture_error($$
