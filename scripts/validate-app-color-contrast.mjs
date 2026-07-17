@@ -8,8 +8,12 @@ const cssPath = path.join(repoRoot, 'src', 'index.css');
 const css = fs.readFileSync(cssPath, 'utf8');
 const trainingPath = path.join(repoRoot, 'src', 'pages', 'portal', 'Training.tsx');
 const partnershipsPath = path.join(repoRoot, 'src', 'pages', 'admin', 'Partnerships.tsx');
+const timePath = path.join(repoRoot, 'src', 'pages', 'portal', 'Time.tsx');
+const timeReviewPath = path.join(repoRoot, 'src', 'pages', 'portal', 'TimeReview.tsx');
 const training = fs.readFileSync(trainingPath, 'utf8');
 const partnerships = fs.readFileSync(partnershipsPath, 'utf8');
+const time = fs.readFileSync(timePath, 'utf8');
+const timeReview = fs.readFileSync(timeReviewPath, 'utf8');
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -92,6 +96,10 @@ assert(darkAppMatch, 'Missing dark app token block.');
 const darkAppBlock = darkAppMatch[1];
 const background = hslToRgb(parseHsl(tokenValue(rootBlock, 'background'), '--background'));
 const card = hslToRgb(parseHsl(tokenValue(rootBlock, 'card'), '--card'));
+const foreground = hslToRgb(parseHsl(tokenValue(rootBlock, 'foreground'), '--foreground'));
+const muted = hslToRgb(parseHsl(tokenValue(rootBlock, 'muted'), '--muted'));
+const amber = hslToRgb(parseHsl(tokenValue(rootBlock, 'amber'), '--amber'));
+const sage = hslToRgb(parseHsl(tokenValue(rootBlock, 'sage'), '--sage'));
 const primary = hslToRgb(parseHsl(tokenValue(appBlock, 'primary'), '--primary'));
 const primaryForeground = hslToRgb(
   parseHsl(tokenValue(appBlock, 'primary-foreground'), '--primary-foreground'),
@@ -105,6 +113,10 @@ const darkBackground = hslToRgb(
   parseHsl(tokenValue(darkBlock, 'background'), 'dark --background'),
 );
 const darkCard = hslToRgb(parseHsl(tokenValue(darkBlock, 'card'), 'dark --card'));
+const darkForeground = hslToRgb(
+  parseHsl(tokenValue(darkBlock, 'foreground'), 'dark --foreground'),
+);
+const darkMuted = hslToRgb(parseHsl(tokenValue(darkBlock, 'muted'), 'dark --muted'));
 const darkPrimary = hslToRgb(
   parseHsl(tokenValue(darkAppBlock, 'primary'), 'dark --primary'),
 );
@@ -117,6 +129,12 @@ const darkCoralDark = hslToRgb(
 );
 const darkPrimaryTint = composite(darkPrimary, darkBackground, 0.1);
 const darkPrimaryAtEightyPercent = composite(darkPrimary, darkBackground, 0.8);
+const approvedBadgeTint = composite(sage, background, 0.1);
+const correctionBadgeTint = composite(amber, background, 0.1);
+const settledBadgeTint = composite(muted, background, 0.6);
+const darkApprovedBadgeTint = composite(sage, darkBackground, 0.1);
+const darkCorrectionBadgeTint = composite(amber, darkBackground, 0.1);
+const darkSettledBadgeTint = composite(darkMuted, darkBackground, 0.6);
 
 const checks = [
   {
@@ -209,6 +227,36 @@ const checks = [
     ratio: contrastRatio(darkCoralDark, darkPrimaryForeground),
     minimum: 4.5,
   },
+  {
+    label: '12px approved badge text',
+    ratio: contrastRatio(foreground, approvedBadgeTint),
+    minimum: 4.5,
+  },
+  {
+    label: '12px correction badge text',
+    ratio: contrastRatio(foreground, correctionBadgeTint),
+    minimum: 4.5,
+  },
+  {
+    label: '12px included, paid, and locked badge text',
+    ratio: contrastRatio(foreground, settledBadgeTint),
+    minimum: 4.5,
+  },
+  {
+    label: 'dark 12px approved badge text',
+    ratio: contrastRatio(darkForeground, darkApprovedBadgeTint),
+    minimum: 4.5,
+  },
+  {
+    label: 'dark 12px correction badge text',
+    ratio: contrastRatio(darkForeground, darkCorrectionBadgeTint),
+    minimum: 4.5,
+  },
+  {
+    label: 'dark 12px included, paid, and locked badge text',
+    ratio: contrastRatio(darkForeground, darkSettledBadgeTint),
+    minimum: 4.5,
+  },
 ];
 
 for (const check of checks) {
@@ -235,6 +283,23 @@ assert(
   partnerships.includes("? 'border-primary bg-primary/10'"),
   'The active mobile partnership step needs a full-strength primary border.',
 );
+for (const [source, label] of [
+  [time, 'Operator Time'],
+  [timeReview, 'Time Review'],
+]) {
+  assert(
+    source.includes('border-sage/40 bg-sage/10 text-foreground'),
+    `${label} approved badges need theme-safe normal-text contrast classes.`,
+  );
+  assert(
+    source.includes('border-amber/40 bg-amber/10 text-foreground'),
+    `${label} correction badges need theme-safe normal-text contrast classes.`,
+  );
+  assert(
+    source.includes('border-border bg-muted/60 text-foreground'),
+    `${label} included, paid, and locked badges need theme-safe normal-text contrast classes.`,
+  );
+}
 
 console.log('Authenticated app color contrast validation passed.');
 process.exit(0);

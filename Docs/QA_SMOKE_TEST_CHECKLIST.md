@@ -197,7 +197,9 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Out-of-scope users, out-of-scope time-entry IDs, locked entries, and non-submitted entries fail closed when calling the manager-review RPC directly.
 - [ ] A worker direct table INSERT/UPDATE attempt cannot self-approve or bypass the audited timekeeping RPCs; browser table writes fail, and the insert guard also forces pending/null review fields as defense in depth.
 - [ ] Manager review does not generate a pay run, issue a pay statement, mark time paid, or invoke payment/provider behavior.
-- [ ] Worker and manager timekeeping pages have no horizontal page overflow at `390x844` and remain usable at desktop width.
+- [ ] Worker and manager timekeeping pages have no horizontal page overflow at `390x844` across loading, load-error, setup/no-access, empty, mutation-failure, correction-dialog, and populated queue states, and remain usable at desktop width.
+- [ ] Timekeeping status badges for correction requested, approved, included in pay, paid, and locked meet WCAG AA normal-text contrast at 12px in light and dark themes.
+- [ ] Multi-profile timekeeping selects have associated visible labels; repeated Edit, Delete, Approve, and Request correction controls announce the shift context; successful manager actions move keyboard focus to the updated review-queue heading.
 
 ### Admin Operator Pay Review
 - [ ] Admin or scoped Operator Pay manager can open `/admin/payouts`; users without Operator Pay admin access see the existing admin access-required state.

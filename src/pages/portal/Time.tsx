@@ -180,10 +180,12 @@ const getEntryReviewLabel = (entry: OperatorTimeEntry) => {
 };
 
 const getEntryReviewClassName = (entry: OperatorTimeEntry) => {
-  if (entry.status !== 'submitted') return 'border-border bg-muted text-muted-foreground';
-  if (entry.managerReviewStatus === 'approved') return 'border-sage/25 bg-sage-light text-sage';
+  if (entry.status !== 'submitted') return 'border-border bg-muted/60 text-foreground';
+  if (entry.managerReviewStatus === 'approved') {
+    return 'border-sage/40 bg-sage/10 text-foreground';
+  }
   if (entry.managerReviewStatus === 'needs_correction') {
-    return 'border-amber/25 bg-amber/10 text-amber';
+    return 'border-amber/40 bg-amber/10 text-foreground';
   }
   return 'border-primary/20 bg-primary/10 text-primary';
 };
@@ -701,7 +703,10 @@ export default function PortalTimePage() {
                         </div>
                         {profiles.length > 1 && (
                           <div className="w-full sm:w-56">
-                            <label className="mb-1 block text-sm font-medium text-foreground">
+                            <label
+                              htmlFor="operator-profile-select"
+                              className="mb-1 block text-sm font-medium text-foreground"
+                            >
                               Operator profile
                             </label>
                             <Select
@@ -711,7 +716,7 @@ export default function PortalTimePage() {
                                 setEditingEntryId(null);
                               }}
                             >
-                              <SelectTrigger>
+                              <SelectTrigger id="operator-profile-select">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -725,6 +730,22 @@ export default function PortalTimePage() {
                           </div>
                         )}
                       </div>
+
+                      {entryBeingEdited?.managerReviewStatus === 'needs_correction' &&
+                        entryBeingEdited.managerReviewReason && (
+                          <div
+                            role="note"
+                            aria-labelledby="edit-time-correction-heading"
+                            className="mt-5 rounded-xl border border-amber/40 bg-amber/10 px-3 py-3 text-sm leading-6 text-foreground"
+                          >
+                            <p id="edit-time-correction-heading" className="font-semibold">
+                              Your manager requested a correction
+                            </p>
+                            <p className="mt-1 text-pretty">
+                              {entryBeingEdited.managerReviewReason}
+                            </p>
+                          </div>
+                        )}
 
                       <PeriodDetails profile={selectedProfile} />
 
@@ -959,11 +980,17 @@ export default function PortalTimePage() {
                           </div>
                           {profiles.length > 1 && (
                             <div>
-                              <label className="mb-1.5 block text-sm font-medium">
+                              <label
+                                htmlFor="work-profile-select"
+                                className="mb-1.5 block text-sm font-medium"
+                              >
                                 Work profile
                               </label>
                               <Select value={selectedProfile.id} onValueChange={setSelectedProfileId}>
-                                <SelectTrigger className="min-h-11 sm:w-64">
+                                <SelectTrigger
+                                  id="work-profile-select"
+                                  className="min-h-11 sm:w-64"
+                                >
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1268,6 +1295,7 @@ function TimeEntriesPanel({
                         {entry.machineLabel}
                       </h3>
                       <span
+                        data-time-status-badge={getEntryReviewLabel(entry)}
                         className={cn(
                           'rounded-full border px-2.5 py-1 text-xs font-semibold',
                           getEntryReviewClassName(entry)
@@ -1317,6 +1345,7 @@ function TimeEntriesPanel({
                         size="sm"
                         onClick={() => onEdit(entry)}
                         disabled={locked}
+                        aria-label={`Edit shift on ${formatDate(entry.workDate)}, ${entry.startTime} to ${entry.endTime}, ${getMachineLabel(entry)}`}
                         className={timeSmallActionClassName}
                       >
                         <Edit3 className="mr-1.5 h-4 w-4" />
@@ -1328,6 +1357,7 @@ function TimeEntriesPanel({
                         size="sm"
                         onClick={() => onDelete(entry)}
                         disabled={locked || isDeleting}
+                        aria-label={`Delete shift on ${formatDate(entry.workDate)}, ${entry.startTime} to ${entry.endTime}, ${getMachineLabel(entry)}`}
                         className={timeSmallActionClassName}
                       >
                         {isDeleting ? (

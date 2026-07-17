@@ -94,6 +94,15 @@ for (const snippet of [
   'Check setup again',
   'Shift was not saved',
   'Each shift up to the next full hour',
+  'id="operator-profile-select"',
+  'id="work-profile-select"',
+  'Your manager requested a correction',
+  'data-time-status-badge',
+  'border-sage/40 bg-sage/10 text-foreground',
+  'border-amber/40 bg-amber/10 text-foreground',
+  'border-border bg-muted/60 text-foreground',
+  'aria-label={`Edit shift on',
+  'aria-label={`Delete shift on',
 ]) {
   if (!page.includes(snippet)) {
     fail(`Time page missing ${snippet}`);
@@ -144,6 +153,15 @@ for (const snippet of [
   'A reason is required',
   'No managed machines',
   'Review was not saved',
+  'time-review-queue-heading',
+  'role="status"',
+  'aria-live="polite"',
+  'data-time-status-badge',
+  'border-sage/40 bg-sage/10 text-foreground',
+  'border-amber/40 bg-amber/10 text-foreground',
+  'border-border bg-muted/60 text-foreground',
+  'aria-label={`Request correction for',
+  "aria-label={`${entry.managerReviewStatus === 'approved' ? 'Approved' : 'Approve'}",
 ]) {
   if (!reviewPage.includes(snippet)) {
     fail(`Time Review page missing ${snippet}`);
