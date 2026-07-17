@@ -1,6 +1,19 @@
 begin;
 
-select plan(25);
+select plan(36);
+
+create function pg_temp.capture_error(statement text)
+returns text
+language plpgsql
+as $$
+begin
+  execute statement;
+  return null;
+exception
+  when others then
+    return sqlerrm;
+end;
+$$;
 
 insert into auth.users (
   instance_id,
@@ -276,24 +289,37 @@ select set_config(
 );
 
 select is(
+  auth.uid(),
+  '10000000-0000-0000-0000-000000000001'::uuid,
+  'the worker-one JWT fixture resolves to the intended actor'
+);
+select is(
+  public.can_manage_operator_payout_machine(
+    auth.uid(),
+    '40000000-0000-0000-0000-000000000002'
+  ),
+  false,
+  'a worker has no implicit manager authority over another machine'
+);
+select is(
   (select count(*)::integer from public.time_entries),
   1,
   'a worker sees only their own time entry through RLS'
 );
-select throws_matching(
-  $$
+select is(
+  pg_temp.capture_error($$
     select public.review_operator_time_entry(
       '80000000-0000-0000-0000-000000000002',
       'approved',
       null,
       current_date - 1
     )
-  $$,
+  $$),
   'Machine manager access required',
   'another worker cannot review another worker entry'
 );
-select throws_matching(
-  $$
+select is(
+  pg_temp.capture_error($$
     select public.update_operator_time_entry(
       '80000000-0000-0000-0000-000000000002',
       '40000000-0000-0000-0000-000000000002',
@@ -303,7 +329,7 @@ select throws_matching(
       null,
       'submitted'
     )
-  $$,
+  $$),
   'Operator timekeeping access required',
   'another worker cannot edit another worker entry'
 );
@@ -315,6 +341,19 @@ select set_config(
 );
 
 select is(
+  auth.uid(),
+  '10000000-0000-0000-0000-000000000004'::uuid,
+  'the unassigned-manager JWT fixture resolves to the intended actor'
+);
+select is(
+  public.can_manage_operator_payout_machine(
+    auth.uid(),
+    '40000000-0000-0000-0000-000000000001'
+  ),
+  false,
+  'an unassigned Machine Manager has no machine authority'
+);
+select is(
   public.get_my_time_review_context(current_date - 1)->>'hasAccess',
   'false',
   'an unassigned Machine Manager has no review access'
@@ -324,15 +363,15 @@ select is(
   0,
   'an unassigned Machine Manager receives no entries'
 );
-select throws_matching(
-  $$
+select is(
+  pg_temp.capture_error($$
     select public.review_operator_time_entry(
       '80000000-0000-0000-0000-000000000001',
       'approved',
       null,
       current_date - 1
     )
-  $$,
+  $$),
   'Machine manager access required',
   'an unassigned Machine Manager cannot review a shift'
 );
@@ -343,6 +382,19 @@ select set_config(
   true
 );
 
+select is(
+  auth.uid(),
+  '10000000-0000-0000-0000-000000000005'::uuid,
+  'the Plus JWT fixture resolves to the intended actor'
+);
+select is(
+  public.can_manage_operator_payout_machine(
+    auth.uid(),
+    '40000000-0000-0000-0000-000000000001'
+  ),
+  false,
+  'Plus access without a machine grant creates no machine authority'
+);
 select ok(
   (select has_plus_access from public.get_my_plus_access()),
   'the Plus test persona has active Plus access'
@@ -365,6 +417,19 @@ select set_config(
 );
 
 select is(
+  auth.uid(),
+  '10000000-0000-0000-0000-000000000006'::uuid,
+  'the partner JWT fixture resolves to the intended actor'
+);
+select is(
+  public.can_manage_operator_payout_machine(
+    auth.uid(),
+    '40000000-0000-0000-0000-000000000001'
+  ),
+  false,
+  'a partner membership without a machine grant creates no machine authority'
+);
+select is(
   public.get_my_time_review_context(current_date - 1)->>'hasAccess',
   'false',
   'a partner membership without a machine grant does not grant review access'
@@ -382,6 +447,27 @@ select set_config(
 );
 
 select is(
+  auth.uid(),
+  '10000000-0000-0000-0000-000000000003'::uuid,
+  'the assigned-manager JWT fixture resolves to the intended actor'
+);
+select is(
+  public.can_manage_operator_payout_machine(
+    auth.uid(),
+    '40000000-0000-0000-0000-000000000001'
+  ),
+  true,
+  'an assigned Machine Manager has authority over the assigned machine'
+);
+select is(
+  public.can_manage_operator_payout_machine(
+    auth.uid(),
+    '40000000-0000-0000-0000-000000000002'
+  ),
+  false,
+  'an assigned Machine Manager has no authority over an unassigned machine'
+);
+select is(
   public.get_my_time_review_context(current_date - 1)->>'hasAccess',
   'true',
   'an assigned Machine Manager has review access'
@@ -396,27 +482,28 @@ select is(
   1,
   'an assigned Machine Manager receives only entries on their managed machine'
 );
-select throws_matching(
-  $$
+select is(
+  pg_temp.capture_error($$
     select public.review_operator_time_entry(
       '80000000-0000-0000-0000-000000000002',
       'approved',
       null,
       current_date - 1
     )
-  $$,
+  $$),
   'Machine manager access required',
   'an assigned Machine Manager cannot review an out-of-scope machine'
 );
-select lives_ok(
-  $$
+select is(
+  pg_temp.capture_error($$
     select public.review_operator_time_entry(
       '80000000-0000-0000-0000-000000000001',
       'approved',
       null,
       current_date - 1
     )
-  $$,
+  $$),
+  null,
   'an assigned Machine Manager can approve an in-scope shift'
 );
 select is(
@@ -428,6 +515,9 @@ select is(
   'approved',
   'the approved review state is persisted'
 );
+
+reset role;
+
 select is(
   (
     select count(*)::integer
@@ -438,15 +528,23 @@ select is(
   1,
   'the review action records an immutable review event'
 );
-select throws_matching(
-  $$
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  '10000000-0000-0000-0000-000000000003',
+  true
+);
+
+select is(
+  pg_temp.capture_error($$
     select public.review_operator_time_entry(
       '80000000-0000-0000-0000-000000000001',
       'needs_correction',
       null,
       current_date - 1
     )
-  $$,
+  $$),
   'A correction reason is required',
   'requesting correction requires a reason'
 );
