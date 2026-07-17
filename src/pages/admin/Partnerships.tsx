@@ -1491,9 +1491,9 @@ function StepRail({
               disabled={isDisabled}
               onClick={() => onStepChange(step.key)}
               aria-current={isActive ? 'step' : undefined}
-              className={`flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors ${
+              className={`flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                 isActive
-                  ? 'border-primary/40 bg-primary/10'
+                  ? 'border-primary bg-primary/10'
                   : 'border-border bg-background hover:bg-muted/40'
               } ${isDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
             >

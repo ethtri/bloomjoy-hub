@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useLayoutEffect, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ChevronDown,
@@ -106,6 +106,14 @@ export function AppLayout({ children }: AppLayoutProps) {
       })
     : [];
 
+  useLayoutEffect(() => {
+    document.body.classList.add('app-surface');
+
+    return () => {
+      document.body.classList.remove('app-surface');
+    };
+  }, []);
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/login', { replace: true });
@@ -170,7 +178,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-muted/20">
+      <div className="app-surface flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-muted/20">
         <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="container-page py-2.5 sm:py-4">
             <div className="flex items-center justify-between gap-4">
@@ -261,7 +269,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
+    <div className="app-surface min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
       <aside className="hidden border-r border-border/70 bg-sidebar/80 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
         <AuthenticatedSidebar
           appTitle={t('app.operatorAppTitle')}
