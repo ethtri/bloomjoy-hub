@@ -142,7 +142,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth / portal
 - [ ] Login flow works (magic link or configured method)
-- [ ] Run `npm run portal-bootstrap:uat -- --app-url <local-or-preview-url>` and confirm the permission-neutral shell appears within 2 seconds, useful dashboard content appears within 3 seconds under the normal deterministic fixture, and screenshots are written to `output/playwright`.
+- [ ] Run `npm run portal-bootstrap:uat -- --app-url <local-or-preview-url>` and confirm the permission-neutral shell appears within 2 seconds, useful dashboard content and its data-ready mark both appear within 3 seconds under the normal deterministic fixture, and screenshots are written to `output/playwright`.
 - [ ] With entitlement/access responses delayed, `/portal` and `/admin` render the branded structural shell without generic `Loading...`, baseline upsells, access-sensitive navigation, false zero states, or unauthorized content.
 - [ ] Initial session hydration calls Technician resolution and each access-context RPC once; repeated `SIGNED_IN` and `TOKEN_REFRESHED` events do not restart bootstrap or replace a ready page with loading UI.
 - [ ] Pending Technician first login resolves entitlements before access reads, then exposes assigned Training and Reporting access without a second login.
@@ -191,7 +191,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 - [ ] Logged-out visit to `/portal` redirects to login
 - [ ] App-shell routes (`/login`, `/reset-password`, `/portal*`, `/admin*`) do not render the public sales navbar or public footer
-- [ ] Dashboard loads with membership status, primary next step, and quick actions visible without excessive dead space on a desktop viewport
+- [ ] Dashboard renders exactly one persona-relevant primary action, no more than two real needs-attention rows, a compact current-work summary, and no more than three useful links without rebuilding the sidebar as a card catalog.
+- [ ] Baseline, Plus, training-only, assigned-reporting Technician, Corporate Partner, timekeeper, Super Admin, and orders-scoped Admin fixtures land on the expected primary destination without exposing unauthorized account, Team, reporting, or admin concepts.
+- [ ] Dashboard loading does not show a fallback action or premature zero/caught-up state while profile-derived timekeeping access is unresolved; an unavailable current-work query keeps known capability-based access usable, shows plain-language Retry, and recovers after a successful retry; completed setup/training renders an explicit caught-up state.
+- [ ] Device-local onboarding checklist progress is labeled as device-local; training completion is shown only when progress records exist, and fallback training content is not called a live recommendation.
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
 - [ ] Operator Time (`/portal/time`) loads for an authenticated worker with an active timekeeping profile as a lightweight monthly hub, with one dominant Add completed shift action, month selection, actual/rounded totals, and manager-review states.
 - [ ] Focused Add Time (`/portal/time/new`) allows only assigned machines effective on the work date, shows actual and rounded time before save, rounds a short shift up to the next full hour, and submits without exposing tax, direct-deposit, or payment-execution controls.
@@ -236,14 +239,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] If account preference sync fails, changing language still persists on the current device and Account Settings reports the non-blocking sync failure instead of claiming account sync succeeded
 - [ ] Training-only users retain their existing restricted route permissions; language recovery remains available by signing out and using the single selector on `/login`
 - [ ] At desktop widths, normal portal, normal admin, Scoped Admin, and permission-neutral loading shells align sidebar/content header dividers within `1` CSS px, use one divider color, and keep EN/ZH scoped context inside the fixed header row
-- [ ] Run `npm run portal-nav:uat -- --app-url http://127.0.0.1:8081` and review desktop/`390x844` screenshots for login, dashboard, Account Settings EN/ZH, Reporting export, normal/scoped headers, and mobile overflow in `output/playwright`
+- [ ] Run `npm run portal-nav:uat -- --app-url http://127.0.0.1:8081` and review desktop/`390x844` screenshots for login, baseline/Plus/admin/training/reporting/timekeeper dashboards, dashboard loading/empty/error states, dashboard EN/ZH, Account Settings EN/ZH, Reporting export, normal/scoped headers, and mobile overflow in `output/playwright`.
 - [ ] On mobile (`390x844`), Chinese app-shell and portal navigation labels fit without horizontal page overflow
-- [ ] User with reporting access sees Reporting in portal navigation, quick actions, and the above-the-fold dashboard reporting card linking to `/portal/reports`
-- [ ] User without reporting access does not see Reporting in portal navigation or dashboard quick actions
+- [ ] User with reporting access, including Corporate Partner capability-based access, sees Reporting in portal navigation and exactly one dashboard link to `/portal/reports`; assigned machine/location scope is truthful, including the zero-machine state.
+- [ ] User without reporting access does not see Reporting in portal navigation, the primary dashboard action, needs-attention rows, or useful links.
 - [ ] On mobile app routes, page-intro actions stack cleanly full width instead of squeezing side-by-side on `/portal`, `/portal/orders`, `/portal/account`, `/portal/onboarding`, `/portal/support`, and `/portal/training`
 - [ ] Non-Plus login can access baseline pages (`/portal`, `/portal/orders`, `/portal/account`)
 - [ ] Non-Plus login is blocked from gated pages (`/portal/training`, `/portal/onboarding`, `/portal/support`, `/portal/team`) with clear access messaging
-- [ ] Non-Plus login still sees Plus/training gated destinations in portal navigation and dashboard action cards with clear locked/access-tier treatment; Reporting stays hidden unless reporting access is granted
+- [ ] Non-Plus dashboard renders only available actions; Plus/training upsell discovery stays outside the task-first dashboard and Reporting stays hidden unless reporting access is granted.
 - [ ] Active Plus member sees Team in portal navigation and Technician Access on `/portal/team`; Settings (`/portal/account`) links to Team without duplicating the Technician workflow
 - [ ] Adding training-only Technician access sends the Technician an invite email with a login link
 - [ ] Technician Access shows active, pending, and legacy training-only people in one list with a clear setup message when the database rollout is missing
@@ -478,7 +481,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Desktop admin routes place Admin Console in Home; Refunds as the single shared Work entry; Orders, Support Queue, and Operator Pay in Operations; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
 - [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/accounts`, `/admin/access`, `/admin/audit`, and `/admin/payouts` do not also mark Admin Console active
 - [ ] Admin Home treats Refunds as a shared core workflow rather than an Admin-owned destination, shows only live exception signals, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
-- [ ] Portal Dashboard quick actions show only actions available to the signed-in account; locked/upsell destinations do not appear as a duplicate navigation catalog
+- [ ] Portal Dashboard useful links show only actions available to the signed-in account, exclude the primary/secondary task, cap at three, and do not render locked/upsell destinations or a duplicate navigation catalog.
 - [ ] `/portal/time` is hidden and route-blocked for accounts without an active operator timekeeping profile or explicit timekeeping capability
 - [ ] Desktop admin routes do not show the old Portal/Admin workspace pills, horizontal `Admin tools` navigation row, or horizontal admin scroller
 - [ ] Mobile authenticated admin routes expose the same streamlined Admin Console groups in the drawer, keep Switch to Portal in utilities, focus the first destination when opened, and close after selecting a destination
