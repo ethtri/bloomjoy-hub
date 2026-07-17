@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outputDir = path.join(repoRoot, 'output', 'playwright');
+const outputDir = path.join(repoRoot, 'output', 'playwright', 'issue-553');
 
 const getArg = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -147,7 +147,39 @@ const personas = {
     canManageTechnicians: true,
     canManageTeam: true,
     isCorporatePartner: true,
-    capabilities: ['reports.partner.view', 'training.view', 'technicians.manage'],
+    capabilities: [
+      'reports.partner.view',
+      'training.view',
+      'technicians.manage',
+      'support.request',
+      'supplies.member_discount',
+    ],
+    timekeeping: false,
+  },
+  canonicalScopedAdmin: {
+    id: '00000000-0000-4000-9000-000000000010',
+    email: 'canonical-scoped-admin-uat@bloomjoy.localhost',
+    plus: false,
+    portalAccessTier: 'baseline',
+    isSuperAdmin: false,
+    isScopedAdmin: true,
+    canAccessAdmin: true,
+    allowedSurfaces: [
+      'overview',
+      'orders',
+      'support',
+      'accounts',
+      'machines',
+      'access',
+      'audit',
+      'refunds',
+      'partnerships',
+    ],
+    hasReportingAccess: false,
+    canManageTechnicians: false,
+    canManageTeam: false,
+    isCorporatePartner: false,
+    capabilities: [],
     timekeeping: false,
   },
   scopedAdmin: {
@@ -302,8 +334,10 @@ const rpcResponse = (rpcName, persona) => {
         is_admin: persona.canAccessAdmin,
         can_manage_operator_training: persona.plus,
         is_corporate_partner: persona.isCorporatePartner,
-        has_supply_discount: persona.plus,
-        can_request_support: persona.plus,
+        has_supply_discount:
+          persona.plus || persona.capabilities.includes('supplies.member_discount'),
+        can_request_support:
+          persona.plus || persona.capabilities.includes('support.request'),
         can_manage_technicians: persona.canManageTechnicians,
         capabilities: persona.capabilities,
         effective_presets: [],
@@ -582,6 +616,9 @@ const createPageForPersona = async (
     console.error(errorMessage);
   });
   page.on('requestfailed', (request) => {
+    if (request.failure()?.errorText === 'net::ERR_ABORTED') {
+      return;
+    }
     const errorMessage =
       `[${persona.email}] request failed: ${request.method()} ${request.url()} ` +
       `(${request.failure()?.errorText ?? 'unknown error'})`;
@@ -617,6 +654,18 @@ const createPageForPersona = async (
   return page;
 };
 
+const createSignedOutPage = async (browser, viewport) => {
+  const context = await browser.newContext({ viewport });
+  await context.route('**/auth/v1/**', (route) =>
+    route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'No active UAT session.' }),
+    }),
+  );
+  return context.newPage();
+};
+
 const textContent = async (locator) => (await locator.textContent()) ?? '';
 
 const waitForHeading = async (page, options, screenshotName) => {
@@ -637,6 +686,224 @@ const waitForHeading = async (page, options, screenshotName) => {
 const visibleLanguageControls = (page) =>
   page.locator('[data-language-preference-control]:visible');
 
+const normalizedHrefs = async (locator) =>
+  locator.evaluateAll((links) =>
+    links.map((link) => {
+      const url = new URL(link.href);
+      return `${url.pathname}${url.search}${url.hash}`;
+    }),
+  );
+
+const assertExactNav = async (page, expectedHrefs, label, scope = null) => {
+  const primaryNavs = (scope ?? page).locator('[data-auth-primary-navigation]:visible');
+  await primaryNavs.first().waitFor();
+  await assert(
+    (await primaryNavs.count()) === 1,
+    `${label} must expose exactly one visible authenticated primary navigation.`,
+  );
+
+  const actualHrefs = await normalizedHrefs(primaryNavs.first().locator('a[href]'));
+  const actualSorted = [...actualHrefs].sort();
+  const expectedSorted = [...expectedHrefs].sort();
+  await assert(
+    JSON.stringify(actualSorted) === JSON.stringify(expectedSorted),
+    `${label} navigation mismatch.\nExpected: ${expectedSorted.join(', ')}\nActual: ${actualSorted.join(', ')}`,
+  );
+  await assert(
+    new Set(actualHrefs).size === actualHrefs.length,
+    `${label} must not contain duplicate authenticated navigation destinations.`,
+  );
+};
+
+const assertActiveHref = async (page, expectedHref, label, scope = null) => {
+  const primaryNav = (scope ?? page).locator('[data-auth-primary-navigation]:visible').first();
+  const activeLinks = primaryNav.locator('a[aria-current="page"]');
+  await activeLinks.first().waitFor();
+  await assert(
+    (await activeLinks.count()) === 1,
+    `${label} must expose exactly one active authenticated destination.`,
+  );
+  const activeHref = (await normalizedHrefs(activeLinks))[0];
+  await assert(
+    activeHref === expectedHref,
+    `${label} must activate ${expectedHref}; found ${activeHref ?? 'none'}.`,
+  );
+};
+
+const waitForElementAnimations = (locator) =>
+  locator.evaluate(async (element) => {
+    await Promise.all(
+      element.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+    );
+  });
+
+const routeGuardPattern =
+  /Page not found|Admin Access Required|Refund Workflow Access Required|Time review access required|Timekeeping setup required|not included with this account|outside your current access/i;
+
+const assertAllowedDirectLoad = async (
+  page,
+  { route, activeHref = route, label },
+) => {
+  await page.goto(`${appUrl}${route}`, { waitUntil: 'networkidle' });
+  await page
+    .locator(`[data-auth-primary-navigation]:visible a[aria-current="page"][href="${activeHref}"]`)
+    .waitFor();
+  const currentUrl = new URL(page.url());
+  const expectedUrl = new URL(`${appUrl}${route}`);
+  await assert(
+    currentUrl.pathname === expectedUrl.pathname,
+    `${label} must remain on ${expectedUrl.pathname}; found ${currentUrl.pathname}.`,
+  );
+  const mainText = await textContent(page.locator('main').first());
+  await assert(
+    !routeGuardPattern.test(mainText),
+    `${label} must render the authorized page instead of an access guard.`,
+  );
+  await assertActiveHref(page, activeHref, label);
+};
+
+const assertBlockedDirectLoad = async (
+  page,
+  { route, expectedHeading, forbiddenHref = route, label },
+) => {
+  await page.goto(`${appUrl}${route}`, { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: expectedHeading, level: 1 }).waitFor();
+  await assert(
+    (await page.locator(`[data-auth-primary-navigation]:visible a[href="${forbiddenHref}"]`).count()) ===
+      0,
+    `${label} must not advertise the denied destination ${forbiddenHref}.`,
+  );
+  await assert(
+    (await page.locator('[data-auth-primary-navigation]:visible a[aria-current="page"]').count()) ===
+      0,
+    `${label} must not mark an unauthorized destination active.`,
+  );
+};
+
+const assertSignedOutRedirect = async (page, route, label) => {
+  await page.goto(`${appUrl}${route}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL((url) => url.pathname === '/login');
+  const currentUrl = new URL(page.url());
+  await assert(
+    currentUrl.searchParams.get('next') === route,
+    `${label} must preserve the full protected destination in next; found ${currentUrl.searchParams.get('next')}.`,
+  );
+  await page
+    .getByRole('heading', { name: 'Sign in to the Bloomjoy operator app', level: 1 })
+    .waitFor();
+  await assert(
+    (await page.locator('[data-auth-primary-navigation]').count()) === 0,
+    `${label} must not flash authenticated navigation while signed out.`,
+  );
+};
+
+const assertProtectedRedirect = async (
+  page,
+  { from, to, activeHref, label },
+) => {
+  await page.goto(`${appUrl}${from}`, { waitUntil: 'networkidle' });
+  await page.waitForURL(`${appUrl}${to}`);
+  await assertActiveHref(page, activeHref, label);
+  const mainText = await textContent(page.locator('main').first());
+  await assert(
+    !routeGuardPattern.test(mainText),
+    `${label} must resolve to an authorized canonical destination.`,
+  );
+};
+
+const assertMobileDrawerBehavior = async (
+  page,
+  {
+    label,
+    initialRoute,
+    expectedHrefs,
+    clickHref,
+    expectScrollable,
+    screenshotName,
+  },
+) => {
+  await page.goto(`${appUrl}${initialRoute}`, { waitUntil: 'networkidle' });
+  const trigger = page.getByRole('button', { name: 'Open operator navigation menu' });
+  await trigger.click();
+  const dialog = page.getByRole('dialog');
+  await dialog.waitFor();
+  await waitForElementAnimations(dialog);
+  const firstDestination = dialog.locator('[data-auth-mobile-nav-first="true"]');
+  await firstDestination.waitFor();
+  await assert(
+    await firstDestination.evaluate((element) => document.activeElement === element),
+    `${label} must focus the first permitted destination when the drawer opens.`,
+  );
+  await assertExactNav(page, expectedHrefs, `${label} drawer`, dialog);
+
+  const scrollSurface = dialog.locator('[data-auth-mobile-nav-scroll="true"]');
+  const scrollMetrics = await scrollSurface.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    clientWidth: element.clientWidth,
+    scrollHeight: element.scrollHeight,
+    scrollWidth: element.scrollWidth,
+  }));
+  await assert(
+    scrollMetrics.scrollWidth <= scrollMetrics.clientWidth + 1,
+    `${label} drawer must not overflow horizontally (${scrollMetrics.scrollWidth}px > ${scrollMetrics.clientWidth}px).`,
+  );
+  if (expectScrollable) {
+    await assert(
+      scrollMetrics.scrollHeight > scrollMetrics.clientHeight,
+      `${label} drawer must scroll when the navigation exceeds the viewport.`,
+    );
+    await scrollSurface.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await assert(
+      (await scrollSurface.evaluate((element) => element.scrollTop)) > 0,
+      `${label} drawer must permit scrolling to utility actions.`,
+    );
+    await dialog.getByText('Sign Out', { exact: true }).waitFor();
+  }
+  const dialogBounds = await dialog.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      width: rect.width,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  await assert(
+    dialogBounds.left >= -1 &&
+      dialogBounds.right <= dialogBounds.viewportWidth + 1 &&
+      dialogBounds.width >= dialogBounds.viewportWidth * 0.7,
+    `${label} drawer must stay fully inside the viewport at a usable width (${JSON.stringify(dialogBounds)}).`,
+  );
+  await assertNoHorizontalOverflow(page, `${label} open drawer`);
+  await page.screenshot({
+    path: path.join(outputDir, screenshotName),
+    fullPage: false,
+  });
+
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+  await assert(
+    await trigger.evaluate((element) => document.activeElement === element),
+    `${label} must restore focus to the menu trigger after Escape.`,
+  );
+
+  await trigger.click();
+  await dialog.waitFor();
+  await waitForElementAnimations(dialog);
+  await dialog.locator(`a[href="${clickHref}"]`).click();
+  await page.waitForURL((url) => url.pathname === clickHref);
+  await dialog.waitFor({ state: 'hidden' });
+
+  await trigger.click();
+  await dialog.waitFor();
+  await waitForElementAnimations(dialog);
+  await assertActiveHref(page, clickHref, `${label} selected destination`, dialog);
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+};
+
 const assertNoHorizontalOverflow = async (page, label) => {
   const dimensions = await page.evaluate(() => ({
     viewportWidth: window.innerWidth,
@@ -645,6 +912,21 @@ const assertNoHorizontalOverflow = async (page, label) => {
   await assert(
     dimensions.documentWidth <= dimensions.viewportWidth + 1,
     `${label} must not overflow horizontally (${dimensions.documentWidth}px > ${dimensions.viewportWidth}px).`,
+  );
+};
+
+const assertDesktopProfileTriggerContained = async (page, label) => {
+  const sidebar = page.locator('aside');
+  const profileTrigger = page.getByRole('button', { name: 'Open profile menu' });
+  const [sidebarBox, triggerBox] = await Promise.all([
+    sidebar.boundingBox(),
+    profileTrigger.boundingBox(),
+  ]);
+  await assert(sidebarBox && triggerBox, `${label} profile trigger must be measurable.`);
+  await assert(
+    triggerBox.x >= sidebarBox.x - 1 &&
+      triggerBox.x + triggerBox.width <= sidebarBox.x + sidebarBox.width + 1,
+    `${label} profile trigger must remain inside the desktop sidebar.`,
   );
 };
 
@@ -735,10 +1017,32 @@ const assertDashboardPrimaryNavigation = async (page, { label, expectedPath }) =
       (await page.locator('[data-app-shell-content-header]').count()) === 1,
       `${label} primary action must remain inside the authenticated application shell.`,
     );
-    await assert(
-      (await page.locator('aside nav a[aria-current="page"]').count()) === 1,
-      `${label} primary destination must activate exactly one authenticated navigation item.`,
-    );
+    const expectedActiveHref = expectedPath.startsWith('/portal/time/')
+      ? '/portal/time'
+      : expectedPath.startsWith('/portal/training/')
+        ? '/portal/training'
+        : expectedPath;
+    if ((await page.locator('[data-auth-primary-navigation]:visible').count()) > 0) {
+      await assertActiveHref(
+        page,
+        expectedActiveHref,
+        `${label} primary destination`,
+      );
+    } else {
+      const trigger = page.getByRole('button', { name: 'Open operator navigation menu' });
+      await trigger.click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor();
+      await waitForElementAnimations(dialog);
+      await assertActiveHref(
+        page,
+        expectedActiveHref,
+        `${label} mobile primary destination`,
+        dialog,
+      );
+      await page.keyboard.press('Escape');
+      await dialog.waitFor({ state: 'hidden' });
+    }
   }
 };
 
@@ -1666,6 +1970,450 @@ try {
   await trainingPage.getByRole('button', { name: 'Open profile menu' }).click();
   await trainingPage.getByText('Sign Out', { exact: true }).waitFor();
   await trainingPage.close();
+
+  const baselinePortalHrefs = ['/portal', '/portal/orders', '/portal/account'];
+  const plusPortalHrefs = [
+    '/portal',
+    '/portal/orders',
+    '/portal/account',
+    '/portal/training',
+    '/portal/onboarding',
+    '/portal/support',
+  ];
+  const timekeeperPortalHrefs = [...baselinePortalHrefs, '/portal/time'];
+  const trainingPortalHrefs = ['/portal', '/portal/training'];
+  const reportingTechnicianPortalHrefs = [
+    '/portal',
+    '/portal/reports',
+    '/portal/training',
+  ];
+  const corporatePartnerPortalHrefs = [
+    '/portal',
+    '/portal/orders',
+    '/portal/account',
+    '/portal/team',
+    '/portal/reports',
+    '/portal/training',
+    '/portal/support',
+  ];
+  const superAdminHrefs = [
+    '/refunds',
+    '/admin',
+    '/admin/orders',
+    '/admin/support',
+    '/admin/accounts',
+    '/admin/machines',
+    '/admin/access',
+    '/admin/partner-records',
+    '/admin/partnerships',
+    '/admin/reporting',
+    '/admin/audit',
+    '/admin/payouts',
+  ];
+  const superAdminPortalHrefs = [
+    '/portal',
+    '/portal/time-review',
+    '/portal/orders',
+    '/portal/account',
+    '/portal/team',
+    '/portal/reports',
+    '/portal/training',
+    '/portal/onboarding',
+    '/portal/support',
+    ...superAdminHrefs,
+  ];
+  const scopedAdminHrefs = [
+    '/refunds',
+    '/admin',
+    '/admin/orders',
+    '/admin/support',
+    '/admin/accounts',
+    '/admin/machines',
+    '/admin/access',
+    '/admin/partnerships',
+    '/admin/audit',
+  ];
+  const scopedAdminPortalHrefs = [...baselinePortalHrefs, ...scopedAdminHrefs];
+
+  const signedOutPage = await createSignedOutPage(browser, {
+    width: 1366,
+    height: 768,
+  });
+  for (const route of [
+    '/portal/reports?source=qa#matrix',
+    '/admin/access?source=qa#matrix',
+    '/refunds?source=qa#matrix',
+    '/portal/time-review?source=qa#matrix',
+  ]) {
+    await assertSignedOutRedirect(signedOutPage, route, `Signed-out ${route}`);
+  }
+  await signedOutPage.screenshot({
+    path: path.join(outputDir, 'persona-signed-out-protected-redirect.png'),
+    fullPage: true,
+  });
+  await signedOutPage.close();
+
+  const superAdminMatrixPage = await createPageForPersona(browser, personas.admin, {
+    width: 1366,
+    height: 768,
+  });
+  await superAdminMatrixPage.goto(`${appUrl}/admin`, { waitUntil: 'networkidle' });
+  await assertExactNav(superAdminMatrixPage, superAdminHrefs, 'Super Admin');
+  await assertDesktopProfileTriggerContained(superAdminMatrixPage, 'Super Admin');
+  await superAdminMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(
+    superAdminMatrixPage,
+    superAdminPortalHrefs,
+    'Super Admin portal context',
+  );
+  for (const [route, activeHref] of [
+    ['/portal/orders', '/portal/orders'],
+    ['/portal/reports', '/portal/reports'],
+    ['/portal/training', '/portal/training'],
+    ['/portal/support', '/portal/support'],
+    ['/portal/account', '/portal/account'],
+    ['/portal/time-review', '/portal/time-review'],
+    ['/admin', '/admin'],
+    ['/admin/access', '/admin/access'],
+    ['/admin/partnerships', '/admin/partnerships'],
+    ['/admin/reporting', '/admin/reporting'],
+    ['/admin/payouts', '/admin/payouts'],
+  ]) {
+    await assertAllowedDirectLoad(superAdminMatrixPage, {
+      route,
+      activeHref,
+      label: `Super Admin direct load ${route}`,
+    });
+  }
+  await assertProtectedRedirect(superAdminMatrixPage, {
+    from: '/portal/refunds?case=uat#history',
+    to: '/refunds?case=uat#history',
+    activeHref: '/refunds',
+    label: 'Super Admin legacy refund redirect',
+  });
+  await assertAllowedDirectLoad(superAdminMatrixPage, {
+    route: '/admin',
+    label: 'Super Admin evidence return to Admin Console',
+  });
+  await assertExactNav(superAdminMatrixPage, superAdminHrefs, 'Super Admin evidence');
+  await superAdminMatrixPage.screenshot({
+    path: path.join(outputDir, 'persona-super-admin-admin-console.png'),
+    fullPage: true,
+  });
+  await superAdminMatrixPage.close();
+
+  const baselineMatrixPage = await createPageForPersona(browser, personas.customer, {
+    width: 1366,
+    height: 768,
+  });
+  await baselineMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(baselineMatrixPage, baselinePortalHrefs, 'Baseline customer');
+  for (const route of ['/portal/orders', '/portal/account']) {
+    await assertAllowedDirectLoad(baselineMatrixPage, {
+      route,
+      label: `Baseline customer direct load ${route}`,
+    });
+  }
+  for (const [route, expectedHeading] of [
+    ['/portal/time', 'Timekeeping setup required'],
+    ['/portal/time-review', 'Time review access required'],
+    ['/portal/reports', /Reporting is not included/],
+    ['/portal/training', /Training is not included/],
+    ['/portal/support', /Support is not included/],
+    ['/portal/team', /Team management is not included/],
+    ['/admin/access', 'Admin Access Required'],
+    ['/refunds', 'Refund Workflow Access Required'],
+  ]) {
+    await assertBlockedDirectLoad(baselineMatrixPage, {
+      route,
+      expectedHeading,
+      label: `Baseline customer denied direct load ${route}`,
+    });
+  }
+  await baselineMatrixPage.close();
+
+  const plusMatrixPage = await createPageForPersona(browser, personas.plusMember, {
+    width: 1366,
+    height: 768,
+  });
+  await plusMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(plusMatrixPage, plusPortalHrefs, 'Generic Plus member');
+  for (const route of [
+    '/portal/orders',
+    '/portal/account',
+    '/portal/training',
+    '/portal/onboarding',
+    '/portal/support',
+  ]) {
+    await assertAllowedDirectLoad(plusMatrixPage, {
+      route,
+      label: `Generic Plus member direct load ${route}`,
+    });
+  }
+  for (const [route, expectedHeading] of [
+    ['/portal/time', 'Timekeeping setup required'],
+    ['/portal/time-review', 'Time review access required'],
+    ['/portal/reports', /Reporting is not included/],
+    ['/portal/team', /Team management is not included/],
+    ['/admin/access', 'Admin Access Required'],
+    ['/refunds', 'Refund Workflow Access Required'],
+  ]) {
+    await assertBlockedDirectLoad(plusMatrixPage, {
+      route,
+      expectedHeading,
+      label: `Generic Plus member denied direct load ${route}`,
+    });
+  }
+  await plusMatrixPage.close();
+
+  const partnerMatrixPage = await createPageForPersona(browser, personas.corporatePartner, {
+    width: 1366,
+    height: 768,
+  });
+  await partnerMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(
+    partnerMatrixPage,
+    corporatePartnerPortalHrefs,
+    'Corporate Partner account manager',
+  );
+  for (const route of [
+    '/portal/orders',
+    '/portal/account',
+    '/portal/team',
+    '/portal/reports',
+    '/portal/training',
+    '/portal/support',
+  ]) {
+    await assertAllowedDirectLoad(partnerMatrixPage, {
+      route,
+      label: `Corporate Partner direct load ${route}`,
+    });
+  }
+  for (const [route, expectedHeading] of [
+    ['/portal/time', 'Timekeeping setup required'],
+    ['/portal/time-review', 'Time review access required'],
+    ['/admin/access', 'Admin Access Required'],
+    ['/refunds', 'Refund Workflow Access Required'],
+  ]) {
+    await assertBlockedDirectLoad(partnerMatrixPage, {
+      route,
+      expectedHeading,
+      label: `Corporate Partner denied direct load ${route}`,
+    });
+  }
+  await partnerMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(
+    partnerMatrixPage,
+    corporatePartnerPortalHrefs,
+    'Corporate Partner evidence',
+  );
+  await assertActiveHref(
+    partnerMatrixPage,
+    '/portal',
+    'Corporate Partner evidence',
+  );
+  await partnerMatrixPage.screenshot({
+    path: path.join(outputDir, 'persona-corporate-partner-portal.png'),
+    fullPage: true,
+  });
+  await partnerMatrixPage.close();
+
+  const reportingTechnicianMatrixPage = await createPageForPersona(
+    browser,
+    personas.reportingTechnician,
+    {
+      width: 1366,
+      height: 768,
+    },
+  );
+  await reportingTechnicianMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(
+    reportingTechnicianMatrixPage,
+    reportingTechnicianPortalHrefs,
+    'Reporting Technician',
+  );
+  for (const route of ['/portal/reports', '/portal/training']) {
+    await assertAllowedDirectLoad(reportingTechnicianMatrixPage, {
+      route,
+      label: `Reporting Technician direct load ${route}`,
+    });
+  }
+  for (const [route, expectedHeading] of [
+    ['/portal/orders', /Orders is not included/],
+    ['/portal/account', /Account Settings is not included/],
+    ['/portal/time', 'Timekeeping setup required'],
+    ['/portal/time-review', 'Time review access required'],
+    ['/portal/support', /Support is not included/],
+    ['/portal/team', /Team management is not included/],
+    ['/admin/access', 'Admin Access Required'],
+    ['/refunds', 'Refund Workflow Access Required'],
+  ]) {
+    await assertBlockedDirectLoad(reportingTechnicianMatrixPage, {
+      route,
+      expectedHeading,
+      label: `Reporting Technician denied direct load ${route}`,
+    });
+  }
+  await reportingTechnicianMatrixPage.close();
+
+  const trainingMatrixPage = await createPageForPersona(browser, personas.training, {
+    width: 1366,
+    height: 768,
+  });
+  await trainingMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(trainingMatrixPage, trainingPortalHrefs, 'Training-only Technician');
+  await assertAllowedDirectLoad(trainingMatrixPage, {
+    route: '/portal/training',
+    label: 'Training-only Technician direct load /portal/training',
+  });
+  for (const [route, expectedHeading] of [
+    ['/portal/orders', /Orders is not included/],
+    ['/portal/account', /Account Settings is not included/],
+    ['/portal/time', 'Timekeeping setup required'],
+    ['/portal/time-review', 'Time review access required'],
+    ['/portal/reports', /Reporting is not included/],
+    ['/portal/support', /Support is not included/],
+    ['/portal/team', /Team management is not included/],
+    ['/admin/access', 'Admin Access Required'],
+    ['/refunds', 'Refund Workflow Access Required'],
+  ]) {
+    await assertBlockedDirectLoad(trainingMatrixPage, {
+      route,
+      expectedHeading,
+      label: `Training-only Technician denied direct load ${route}`,
+    });
+  }
+  await trainingMatrixPage.close();
+
+  const timekeeperMatrixPage = await createPageForPersona(browser, personas.timekeeper, {
+    width: 1366,
+    height: 768,
+  });
+  await timekeeperMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(timekeeperMatrixPage, timekeeperPortalHrefs, 'Operator timekeeper');
+  for (const route of ['/portal/orders', '/portal/account', '/portal/time']) {
+    await assertAllowedDirectLoad(timekeeperMatrixPage, {
+      route,
+      label: `Operator timekeeper direct load ${route}`,
+    });
+  }
+  for (const [route, expectedHeading] of [
+    ['/portal/time-review', 'Time review access required'],
+    ['/portal/reports', /Reporting is not included/],
+    ['/portal/training', /Training is not included/],
+    ['/portal/support', /Support is not included/],
+    ['/portal/team', /Team management is not included/],
+    ['/admin/access', 'Admin Access Required'],
+    ['/refunds', 'Refund Workflow Access Required'],
+  ]) {
+    await assertBlockedDirectLoad(timekeeperMatrixPage, {
+      route,
+      expectedHeading,
+      label: `Operator timekeeper denied direct load ${route}`,
+    });
+  }
+  await timekeeperMatrixPage.close();
+
+  const scopedAdminMatrixPage = await createPageForPersona(
+    browser,
+    personas.canonicalScopedAdmin,
+    {
+      width: 1366,
+      height: 768,
+    },
+  );
+  await scopedAdminMatrixPage.goto(`${appUrl}/admin`, { waitUntil: 'networkidle' });
+  await assertExactNav(scopedAdminMatrixPage, scopedAdminHrefs, 'Canonical Scoped Admin');
+  await assertDesktopProfileTriggerContained(
+    scopedAdminMatrixPage,
+    'Canonical Scoped Admin',
+  );
+  await scopedAdminMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
+  await assertExactNav(
+    scopedAdminMatrixPage,
+    scopedAdminPortalHrefs,
+    'Canonical Scoped Admin portal context',
+  );
+  for (const [route, activeHref] of [
+    ['/admin', '/admin'],
+    ['/admin/access', '/admin/access'],
+    ['/admin/partnerships', '/admin/partnerships'],
+    ['/portal/orders', '/portal/orders'],
+    ['/portal/account', '/portal/account'],
+  ]) {
+    await assertAllowedDirectLoad(scopedAdminMatrixPage, {
+      route,
+      activeHref,
+      label: `Canonical Scoped Admin direct load ${route}`,
+    });
+  }
+  await assertProtectedRedirect(scopedAdminMatrixPage, {
+    from: '/portal/refunds?case=uat#history',
+    to: '/refunds?case=uat#history',
+    activeHref: '/refunds',
+    label: 'Canonical Scoped Admin legacy refund redirect',
+  });
+  await assertAllowedDirectLoad(scopedAdminMatrixPage, {
+    route: '/admin',
+    label: 'Canonical Scoped Admin evidence return to Admin Console',
+  });
+  await assertExactNav(
+    scopedAdminMatrixPage,
+    scopedAdminHrefs,
+    'Canonical Scoped Admin evidence',
+  );
+  await assertDesktopProfileTriggerContained(
+    scopedAdminMatrixPage,
+    'Canonical Scoped Admin evidence',
+  );
+  await scopedAdminMatrixPage.screenshot({
+    path: path.join(outputDir, 'persona-scoped-admin-console.png'),
+    fullPage: true,
+  });
+  for (const [route, expectedHeading] of [
+    ['/portal/team', /Team management is not included/],
+    ['/admin/reporting', 'Admin Access Required'],
+    ['/admin/payouts', 'Admin Access Required'],
+  ]) {
+    await assertBlockedDirectLoad(scopedAdminMatrixPage, {
+      route,
+      expectedHeading,
+      label: `Canonical Scoped Admin denied direct load ${route}`,
+    });
+  }
+  await scopedAdminMatrixPage.screenshot({
+    path: path.join(outputDir, 'persona-scoped-admin-denied-global-surface.png'),
+    fullPage: true,
+  });
+  await scopedAdminMatrixPage.close();
+
+  const adminMobileMatrixPage = await createPageForPersona(browser, personas.admin, {
+    width: 390,
+    height: 844,
+  });
+  await assertMobileDrawerBehavior(adminMobileMatrixPage, {
+    label: 'Super Admin mobile',
+    initialRoute: '/admin',
+    expectedHrefs: superAdminHrefs,
+    clickHref: '/admin/orders',
+    expectScrollable: true,
+    screenshotName: 'persona-super-admin-mobile-drawer-scrolled.png',
+  });
+  await adminMobileMatrixPage.close();
+
+  const baselineMobileMatrixPage = await createPageForPersona(browser, personas.customer, {
+    width: 390,
+    height: 844,
+  });
+  await assertMobileDrawerBehavior(baselineMobileMatrixPage, {
+    label: 'Baseline customer mobile',
+    initialRoute: '/portal',
+    expectedHrefs: baselinePortalHrefs,
+    clickHref: '/portal/orders',
+    expectScrollable: false,
+    screenshotName: 'persona-baseline-mobile-drawer.png',
+  });
+  await baselineMobileMatrixPage.close();
 
   await assert(
     unexpectedBrowserErrors.length === 0,

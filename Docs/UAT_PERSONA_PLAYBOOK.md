@@ -85,6 +85,41 @@ Owner UAT focus:
 - Technician management on `/portal/team`, when present, only allows assigned machines the owner already controls.
 - The default Technician cap is clear when reached.
 
+### Generic Plus Member
+Use this persona when validating Plus benefits without implying account-owner or Technician-management authority.
+
+Key routes:
+
+- `/login`
+- `/portal`
+- `/portal/orders`
+- `/portal/account`
+- `/portal/onboarding`
+- `/portal/support`
+- `/portal/training`
+
+Owner UAT focus:
+
+- Plus training, onboarding, support, and member benefits are available.
+- Reporting, Team, Time, Review Time, refunds, and Admin Console remain hidden and direct-load blocked unless separately granted.
+- Evidence labels this persona as a Generic Plus Member, not a Plus Account Owner.
+
+### Baseline Customer
+Use this persona for an authenticated customer without Plus, reporting, timekeeping, partner, or admin grants.
+
+Key routes:
+
+- `/login`
+- `/portal`
+- `/portal/orders`
+- `/portal/account`
+
+Owner UAT focus:
+
+- Dashboard, Orders, and Account Settings remain usable.
+- Training, Support, Reporting, Team, Time, Review Time, refunds, and Admin Console are absent from navigation and direct-load blocked.
+- The portal does not invent locked cards or imply benefits the account does not have.
+
 ### Technician
 Use this persona for customer staff with training and assigned-machine reporting access.
 
@@ -104,6 +139,43 @@ Owner UAT focus:
 - Technician cannot see Plus discounts, billing, account-owner tools, partner settlement, admin routes, or grant-management controls.
 - Reassigning or revoking a Technician changes access as expected after refresh or re-login.
 
+### Operator Timekeeper
+Use this persona for a worker with an active operator pay profile or explicit timekeeping capability.
+
+Key routes:
+
+- `/login`
+- `/portal`
+- `/portal/time`
+- `/portal/time/new`
+
+Owner UAT focus:
+
+- Time appears only after an active profile or explicit capability is available.
+- The worker can submit assigned-machine shifts but cannot open Review Time.
+- Reporting, Team, support, training, refunds, and Admin Console remain unavailable unless separately granted.
+
+### Scoped Admin
+Use this persona for an internal operator with an explicit subset of Admin Console surfaces.
+
+Key routes depend on the grant and may include:
+
+- `/admin`
+- `/admin/orders`
+- `/admin/support`
+- `/admin/accounts`
+- `/admin/machines`
+- `/admin/access`
+- `/admin/partnerships`
+- `/admin/audit`
+- `/refunds`
+
+Owner UAT focus:
+
+- Only granted Admin Console destinations appear and direct loads fail closed for all others.
+- Global-only Admin Reporting, Partner Records, Operator Pay, and Super Admin role controls stay unavailable unless explicitly supported by policy.
+- Portal Account and Orders remain available, while `/portal/team` still requires separate Plus-owner or Corporate Partner authority.
+
 ### Super Admin
 Use this persona for internal Bloomjoy admin work.
 
@@ -118,6 +190,8 @@ Key routes:
 - `/admin/partnerships`
 - `/admin/reporting`
 - `/admin/audit`
+- `/admin/payouts`
+- `/refunds`
 
 Owner UAT focus:
 
@@ -131,8 +205,13 @@ Use this persona for Merlin/Bubble Planet-style partner users with explicit Corp
 
 Expected route direction:
 
+- `/portal`
+- `/portal/orders`
+- `/portal/account`
 - `/portal/reports` for permissioned partner/reporting views.
 - `/portal/team` for partner-authorized Technician management.
+- `/portal/training`
+- `/portal/support`
 - Approved report artifacts or dashboards only after the product flow supports them.
 
 Owner UAT focus:
@@ -141,6 +220,28 @@ Owner UAT focus:
 - Corporate Partner can access training, support, supply discounts, and Technician management for their derived machines.
 - Corporate Partner cannot access billing, imports, tax/rule editing, schedules, warning ledgers, machine metadata editing, or `/admin`.
 - Partnership setup alone does not create partner portal access.
+
+### Signed Out
+Use this state to validate protected-route entry and return-to-destination behavior.
+
+Required direct loads:
+
+- `/portal/reports?source=qa#matrix`
+- `/portal/time-review?source=qa#matrix`
+- `/admin/access?source=qa#matrix`
+- `/refunds?source=qa#matrix`
+
+Owner UAT focus:
+
+- Each route redirects to `/login`.
+- The complete path, query, and hash are preserved in the `next` parameter.
+- Authenticated navigation and protected page content do not flash before login.
+
+## Deterministic Persona QA Versus Live Authorization
+
+`npm run portal-personas:uat -- --app-url <local-or-preview-url>` uses deterministic intercepted sessions and API responses. It proves browser-visible navigation, route guards, active states, redirects, dashboard destinations, and mobile drawer behavior for every modeled persona without storing credentials.
+
+This deterministic suite does not replace live Supabase authorization, RLS/RPC, email-delivery, or production-data validation. When live persona JWTs or owner-managed test accounts are unavailable, record that limitation explicitly instead of silently skipping it. Run the live admin-boundary and workflow-specific validators whenever their documented credentials and fixtures are available.
 
 ## UAT Packet Template
 Agents can paste this into a PR comment or status update:

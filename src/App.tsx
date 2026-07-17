@@ -198,13 +198,13 @@ export const AppShell = () => (
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/portal" element={<PortalDashboard />} />
-            <Route path="/portal/time-review" element={<PortalTimeReview />} />
             <Route element={<RefundOperationsRoute />}>
               <Route path="/refunds" element={<AdminRefunds />} />
               <Route path="/portal/refunds" element={<RedirectWithSearch to="/refunds" />} />
               <Route path="/admin/refunds" element={<RedirectWithSearch to="/refunds" />} />
             </Route>
             <Route element={<MemberRoute />}>
+              <Route path="/portal/time-review" element={<PortalTimeReview />} />
               <Route path="/portal/orders" element={<PortalOrders />} />
               <Route path="/portal/time" element={<PortalTime />} />
               <Route path="/portal/time/new" element={<PortalTime />} />

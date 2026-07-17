@@ -131,10 +131,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="min-h-9 max-w-full justify-between gap-2 rounded-lg"
+          className="min-h-9 w-full min-w-0 max-w-full justify-between gap-2 overflow-hidden rounded-lg"
           aria-label={t('app.openProfileMenu')}
         >
-          <span className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
             <User className="h-4 w-4 shrink-0" />
             <span className="truncate">{profileMenuLabel}</span>
           </span>
@@ -375,7 +375,13 @@ function AuthenticatedSidebar({
 }: AuthenticatedSidebarProps) {
   const { t } = useLanguage();
   const shell = (
-    <div className={cn('flex min-h-0 flex-1 flex-col', mobile ? 'h-full overflow-y-auto' : 'h-screen')}>
+    <div
+      data-auth-mobile-nav-scroll={mobile ? 'true' : undefined}
+      className={cn(
+        'flex min-h-0 flex-1 flex-col',
+        mobile ? 'h-full w-full overflow-x-hidden overflow-y-auto' : 'h-screen'
+      )}
+    >
       {!mobile && (
         <div className="app-shell-header-row" data-app-shell-sidebar-header>
           <Link to="/portal" className="flex h-full min-w-0 items-center gap-3 px-4">
@@ -401,6 +407,7 @@ function AuthenticatedSidebar({
 
       <nav
         aria-label={t('app.authenticatedNavigation')}
+        data-auth-primary-navigation
         className={cn('px-3 py-4', mobile ? 'flex-none' : 'min-h-0 flex-1 overflow-y-auto lg:py-3')}
       >
         <div className={cn(mobile ? 'space-y-5' : 'space-y-3.5')}>

@@ -76,15 +76,34 @@ const memberRoute = includes(
   'Route protection must special-case timekeeping access.',
 );
 assert(
+  memberRoute.includes('isTimeReviewRoute') &&
+    memberRoute.includes("adminAccess.allowedSurfaces.includes('payouts')") &&
+    memberRoute.includes("capabilities.includes('timekeeping.review')"),
+  'Review Time must enforce the same reviewer/admin authorization used by authenticated navigation.',
+);
+assert(
   memberRoute.includes('Timekeeping setup required') &&
     !memberRoute.includes('Locked for ${portalAccessTier} access'),
   'Locked route copy must be user-facing and avoid internal access-tier language.',
+);
+const appRoutes = read('src/App.tsx');
+const memberRouteStart = appRoutes.indexOf('<Route element={<MemberRoute />}>');
+const memberRouteEnd = appRoutes.indexOf('</Route>', memberRouteStart);
+const timeReviewRoute = appRoutes.indexOf('<Route path="/portal/time-review"', memberRouteStart);
+assert(
+  memberRouteStart >= 0 && timeReviewRoute > memberRouteStart && timeReviewRoute < memberRouteEnd,
+  'Review Time must be nested under MemberRoute instead of relying on authentication alone.',
 );
 
 const appLayout = includes(
   'src/components/layout/AppLayout.tsx',
   'data-auth-mobile-nav-first',
   'Mobile drawer should focus the first navigation destination instead of footer utilities.',
+);
+assert(
+  appLayout.includes('data-auth-primary-navigation') &&
+    appLayout.includes('data-auth-mobile-nav-scroll'),
+  'Authenticated navigation must expose stable primary-nav and mobile-scroll hooks for persona QA.',
 );
 includes(
   'src/components/layout/AppLayout.tsx',
