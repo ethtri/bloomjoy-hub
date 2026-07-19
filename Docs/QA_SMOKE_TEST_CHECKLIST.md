@@ -231,6 +231,15 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Operators see only latest issued pay statements for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
 - [ ] Operators can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total operator pay, disclaimer, and revision status.
 - [ ] Direct artifact requests for drafts, missing statements, or another operator's statement fail with an access error.
+
+### Operator Payouts Production Monitoring
+- [ ] Review `Docs/OPERATOR_PAYOUTS_PRODUCTION_MONITORING.md` before first-cycle UAT and assign support, payout admin, technical, and payroll/compliance owners.
+- [ ] Supabase API logs are checked for non-2xx, `404`, or `PGRST202` responses on `/portal/time`, `/portal/time/new`, `/admin/payouts`, and payout RPC paths named in the monitoring checklist.
+- [ ] `admin_audit_log` is checked for expected payout events: profile setup/update, revenue snapshot create/regenerate/override, run calculation/review/finalization/reopen/void, statement issuance, and operator time-entry void.
+- [ ] After PR `#560` is deployed, `access-invite`, `operator-payout-provision`, and `access_invite_deliveries` are checked for failed `operator_payout` invites, missing evidence, provider failures, and deactivation evidence.
+- [ ] After PR `#559` is deployed, `admin_get_payout_register_export` is checked for finalized/issued-run availability, scoped access denial, and absence of SSN, bank, direct-deposit, tax filing, or raw provider fields.
+- [ ] Support triage rehearsal covers failed invite, failed time save, failed statement issue, failed statement download, and out-of-scope access attempt using redacted or synthetic evidence only.
+- [ ] Post-pilot monitoring review comment is posted to `#506` using the template in `Docs/OPERATOR_PAYOUTS_PRODUCTION_MONITORING.md`.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
 - [ ] Portal section navigation labels `/portal/account` as Settings and does not show a separate Admin link for admin users
