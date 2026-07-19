@@ -155,7 +155,7 @@ const PeriodCard = ({
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
         <span>{formatCurrency(run?.totalPayoutCents ?? 0)}</span>
-        <span>{run?.items.length ?? 0} operators</span>
+        <span>{run?.items.length ?? 0} Technicians</span>
         {warningCount > 0 && <span>{warningCount} warnings</span>}
         {period.revisionCount > 0 && <span>{period.revisionCount} revisions</span>}
       </div>
@@ -421,7 +421,7 @@ export default function AdminPayoutsPage() {
     const amountCents = centsFromCurrency(adjustmentForm.amount);
 
     if (!adjustmentForm.operatorProfileId) {
-      toast.error('Choose an operator for the adjustment.');
+      toast.error('Choose a Technician for the adjustment.');
       return;
     }
 
@@ -531,14 +531,14 @@ export default function AdminPayoutsPage() {
                 Compensation
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Operator Pay
+                Technician Pay
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 Review assigned-machine time, revenue snapshots, compensation rules, warnings,
                 adjustments, and finalization history before pay statements are issued.
               </p>
               <p className="mt-3 max-w-3xl rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-                Operator Pay publishes reviewed pay statements only. It does not run payroll,
+                Technician Pay publishes reviewed pay statements only. It does not run payroll,
                 direct deposit, tax withholding, W-2s, 1099s, or refund payments.
               </p>
             </div>
@@ -566,7 +566,7 @@ export default function AdminPayoutsPage() {
             </EmptyState>
           ) : periods.length === 0 ? (
             <EmptyState title="No pay periods ready">
-              Create an operator pay profile and pay period first. Pay review appears here after a
+              Create a Technician pay profile and pay period first. Pay review appears here after a
               period has assigned time or a generated pay run.
             </EmptyState>
           ) : (
@@ -652,8 +652,8 @@ export default function AdminPayoutsPage() {
                   </div>
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <Metric label="Total operator pay" value={formatCurrency(selectedRun?.totalPayoutCents)} tone="good" />
-                    <Metric label="Operators" value={`${selectedRun?.items.length ?? 0}`} />
+                    <Metric label="Total Technician pay" value={formatCurrency(selectedRun?.totalPayoutCents)} tone="good" />
+                    <Metric label="Technicians" value={`${selectedRun?.items.length ?? 0}`} />
                     <Metric label="Paid hours" value={formatHours(selectedRun?.totalRoundedPaidMinutes ?? 0)} />
                     <Metric
                       label="Warnings"
@@ -728,8 +728,8 @@ export default function AdminPayoutsPage() {
                       <div>
                         <h2 className="font-semibold text-foreground">Pay Statements</h2>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Preview operator statements, then publish the finalized pay run to the
-                          operator portal with versioned revision history.
+                          Preview Technician statements, then publish the finalized pay run to each
+                          Technician's portal with versioned revision history.
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -804,7 +804,7 @@ export default function AdminPayoutsPage() {
                               Draft Preview ({statementPreview.statementCount})
                             </p>
                             <p className="mt-1 text-sm text-muted-foreground">
-                              Preview rows are not operator-visible until issued.
+                              Preview rows are not visible to Technicians until issued.
                             </p>
                           </div>
                           <Badge variant="outline">{formatStatus(statementPreview.status)}</Badge>
@@ -842,7 +842,7 @@ export default function AdminPayoutsPage() {
                         <h2 className="font-semibold text-foreground">Manual Adjustment</h2>
                         <p className="mt-1 text-sm text-muted-foreground">
                           Add bonuses, reimbursements, corrections, or deductions with both an
-                          operator-visible description and manager audit reason.
+                          Technician-visible description and manager audit reason.
                         </p>
                       </div>
                       <Button
@@ -856,7 +856,7 @@ export default function AdminPayoutsPage() {
                     </div>
                     <div className="mt-4 grid gap-4 md:grid-cols-2">
                       <div>
-                        <Label htmlFor="adjustment-operator">Operator</Label>
+                        <Label htmlFor="adjustment-operator">Technician</Label>
                         <select
                           id="adjustment-operator"
                           value={adjustmentForm.operatorProfileId}
@@ -921,10 +921,10 @@ export default function AdminPayoutsPage() {
                             }))
                           }
                         />
-                        Show on operator statement
+                        Show on Technician statement
                       </label>
                       <div className="md:col-span-2">
-                        <Label htmlFor="adjustment-description">Operator-visible description</Label>
+                        <Label htmlFor="adjustment-description">Technician-visible description</Label>
                         <Input
                           id="adjustment-description"
                           value={adjustmentForm.description}
@@ -965,7 +965,7 @@ export default function AdminPayoutsPage() {
                   </div>
                 ) : (
                   <EmptyState title="No pay run yet">
-                    Generate a pay run after operators have submitted time for this period.
+                    Generate a pay run after Technicians have submitted time for this period.
                   </EmptyState>
                 )}
               </div>

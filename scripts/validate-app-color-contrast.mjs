@@ -345,7 +345,7 @@ assert(
   'The active mobile partnership step needs a full-strength primary border.',
 );
 for (const [source, label] of [
-  [time, 'Operator Time'],
+  [time, 'Technician Time'],
   [timeReview, 'Time Review'],
 ]) {
   assert(

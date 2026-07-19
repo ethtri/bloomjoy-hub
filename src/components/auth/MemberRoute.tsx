@@ -84,16 +84,16 @@ export function MemberRoute() {
   const lockedDescription = isTimeReviewRoute
     ? 'Ask Bloomjoy to grant manager review access for the machines this account oversees.'
     : isTimekeepingRoute
-      ? 'Ask Bloomjoy to create an active operator pay profile before using Time.'
+      ? 'Ask Bloomjoy to create an active Technician pay profile before using Time.'
       : lockedDestination.upsellCopy ?? 'This area is not available for the signed-in account.';
   const workflowDescription = isReportingRoute
     ? 'Sales reporting is granted by account, location, or specific machine. Ask Bloomjoy to add the machines or locations this account should be able to review.'
     : isTeamRoute
       ? 'Team management is for account owners and partner managers who add Technicians or manage assigned-machine reporting access.'
       : isTimekeepingRoute
-        ? 'Time opens after an operator profile is active. Assigned machines and pay-period details appear there once setup is complete.'
+        ? 'Time opens after a Technician pay profile is active. Assigned machines and pay-period details appear there once setup is complete.'
         : isTimeReviewRoute
-          ? 'Review Time is limited to approved reviewers and operations admins responsible for operator payouts.'
+          ? 'Review Time is limited to Machine Managers and operations admins responsible for Technician pay.'
           : lockedDestination.access === 'refunds'
             ? 'Refund cases appear only for assigned refund reviewers and operations admins.'
             : 'The dashboard only shows workflows that are available for this account right now.';
@@ -111,7 +111,7 @@ export function MemberRoute() {
                 { label: 'Not included with this account', tone: 'accent', icon: Lock },
                 {
                   label: isTimekeepingRoute
-                    ? 'Operator profile needed'
+                    ? 'Technician pay profile needed'
                     : isTimeReviewRoute
                       ? 'Reviewer permission needed'
                       : 'Ask Bloomjoy for access',

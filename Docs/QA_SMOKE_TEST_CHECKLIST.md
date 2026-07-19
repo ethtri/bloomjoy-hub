@@ -151,7 +151,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Login, authenticated portal, and Admin Console primary buttons, selected controls, links, and focus rings use the app-scoped interaction palette; normal text meets WCAG AA 4.5:1 contrast, focus indicators meet 3:1, and public-site colors remain unchanged
 - [ ] Run `npm run portal:validate-contrast` and confirm the bright authenticated action fill, foreground, hover, active, deeper link/selection ink, and focus ring pass in light and dark token states while public primary/action tokens remain unchanged
 - [ ] Reporting `Export polished PDF` and representative shared primary actions use bright Bloomjoy pink with dark readable text, a pink app hover shadow, and no burgundy/red or orange action treatment
-- [ ] Canonical operator login lives at `https://app.bloomjoyusa.com/login`
+- [ ] Canonical Bloomjoy Hub login lives at `https://app.bloomjoyusa.com/login`
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
 - [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights, the top app header stays compact without an extra context row pushing content below the fold, and visible auth/header/menu controls have touch-friendly hit areas
 - [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
@@ -197,12 +197,12 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Dashboard loading does not show a fallback action or premature zero/caught-up state while profile-derived timekeeping access is unresolved; an unavailable current-work query keeps known capability-based access usable, shows plain-language Retry, and recovers after a successful retry; completed setup/training renders an explicit caught-up state.
 - [ ] Device-local onboarding checklist progress is labeled as device-local; training completion is shown only when progress records exist, and fallback training content is not called a live recommendation.
 - [ ] Portal navigation does not require horizontal scrolling on common mobile viewports (`360x800`, `390x844`, `414x896`)
-- [ ] Operator Time (`/portal/time`) loads for an authenticated worker with an active timekeeping profile as a lightweight monthly hub, with one dominant Add completed shift action, month selection, actual/rounded totals, and manager-review states.
+- [ ] Technician Time (`/portal/time`) loads for an authenticated Technician with an active timekeeping profile as a lightweight monthly hub, with one dominant Add completed shift action, month selection, actual/rounded totals, and Machine Manager review states.
 - [ ] Focused Add Time (`/portal/time/new`) allows only assigned machines effective on the work date, shows actual and rounded time before save, rounds a short shift up to the next full hour, and submits without exposing tax, direct-deposit, or payment-execution controls.
-- [ ] Operator Time warns before save for end-before-start, work date outside the selected monthly period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
-- [ ] Operator Time shows Waiting for review, Approved, Correction requested, Included, and Paid states; a correction includes the manager reason, and editing approved/returned time resets review to pending.
-- [ ] Operator Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, pay-included, paid, or voided entries.
-- [ ] Operator Time empty state explains that an admin or machine manager must add a timekeeping profile and assigned machines before shifts can be submitted.
+- [ ] Technician Time warns before save for end-before-start, work date outside the selected monthly period, duplicate/exact shift, overlapping shift, and 10+ hour shifts.
+- [ ] Technician Time shows Waiting for review, Approved, Correction requested, Included, and Paid states; a correction includes the Machine Manager reason, and editing approved/returned time resets review to pending.
+- [ ] Technician Time edit/delete controls work for unlocked draft/submitted entries and are disabled or blocked for locked, pay-included, paid, or voided entries.
+- [ ] Technician Time empty state explains that an admin or Machine Manager must add a Technician pay profile and assigned machines before shifts can be submitted.
 - [ ] Review Time (`/portal/time-review`) appears only for users with existing machine-manager/payout-management authority and the server returns only shifts for machines they can manage.
 - [ ] Review Time defaults to the current month, supports reviewing another month, filters by managed machine and review state, and shows worker, machine, location, actual duration, and rounded time without worker email or unrelated account data.
 - [ ] A Machine Manager can approve an unlocked submitted shift with one action or request a correction with a required worker-visible reason; each action updates the queue and preserves review/audit history.
@@ -213,24 +213,24 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Timekeeping status badges for correction requested, approved, included in pay, paid, and locked meet WCAG AA normal-text contrast at 12px in light and dark themes.
 - [ ] Multi-profile timekeeping selects have associated visible labels; repeated Edit, Delete, Approve, and Request correction controls announce the shift context; successful manager actions move keyboard focus to the updated review-queue heading.
 
-### Admin Operator Pay Review
-- [ ] Admin or scoped Operator Pay manager can open `/admin/payouts`; users without Operator Pay admin access see the existing admin access-required state.
-- [ ] Pay periods list shows account, period dates, status, operator count, total operator pay, warnings, and revision count without horizontal overflow on desktop or mobile.
+### Admin Technician Pay Review
+- [ ] Admin or scoped Technician Pay manager can open `/admin/payouts`; users without Technician Pay admin access see the existing admin access-required state.
+- [ ] Pay periods list shows account, period dates, status, Technician count, total Technician pay, warnings, and revision count without horizontal overflow on desktop or mobile.
 - [ ] Generating or recalculating a pay run uses submitted/locked/included time, revenue snapshots, compensation rules, and adjustments; recalculation requires an audit reason.
 - [ ] Manager review shows operator totals, machine-level time/revenue/commission breakdown, adjustments, and warning details while respecting scoped machine visibility.
-- [ ] Adding an adjustment requires operator, non-zero amount, operator-visible description, and manager audit reason, then recalculates the run.
+- [ ] Adding an adjustment requires a Technician, non-zero amount, Technician-visible description, and manager audit reason, then recalculates the run.
 - [ ] Finalization blocks when critical pay warnings are present unless the manager records an explicit override reason.
 - [ ] Finalization blocks if issued/revised pay statements already exist for the run, preventing duplicate statements.
 - [ ] Mark reviewed, finalize, reopen, and void actions all require audit reasons and preserve review/revision snapshots.
 - [ ] Reopening or voiding an unissued run leaves the period ready for corrected calculation without unlocking unrelated admin surfaces.
 
-### Operator Pay Statements
-- [ ] Managers can preview pay statements before issuance from `/admin/payouts`; preview rows are not visible to operators and do not create statement records.
+### Technician Pay Statements
+- [ ] Managers can preview pay statements before issuance from `/admin/payouts`; preview rows are not visible to Technicians and do not create statement records.
 - [ ] Issuing pay statements requires a finalized pay run plus an audit reason; reissuing existing statements also requires a revision reason.
-- [ ] Issuance creates one versioned statement per payable operator, marks previous versions revised, publishes portal availability, marks included time paid, and records an audit entry without executing payroll provider payments.
-- [ ] Operators see only latest issued pay statements for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
-- [ ] Operators can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total operator pay, disclaimer, and revision status.
-- [ ] Direct artifact requests for drafts, missing statements, or another operator's statement fail with an access error.
+- [ ] Issuance creates one versioned statement per payable Technician, marks previous versions revised, publishes portal availability, marks included time paid, and records an audit entry without executing payroll provider payments.
+- [ ] Technicians see only latest issued pay statements for their own Technician pay profile on `/portal/time`; drafts, other Technicians' statements, and manager previews are not visible.
+- [ ] Technicians can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total Technician pay, disclaimer, and revision status.
+- [ ] Direct artifact requests for drafts, missing statements, or another Technician's statement fail with an access error.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
 - [ ] Portal section navigation labels `/portal/account` as Settings and does not show a separate Admin link for admin users
@@ -240,7 +240,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] If account preference sync fails, changing language still persists on the current device and Account Settings reports the non-blocking sync failure instead of claiming account sync succeeded
 - [ ] Training-only users retain their existing restricted route permissions; language recovery remains available by signing out and using the single selector on `/login`
 - [ ] At desktop widths, normal portal, normal admin, Scoped Admin, and permission-neutral loading shells align sidebar/content header dividers within `1` CSS px, use one divider color, and keep EN/ZH scoped context inside the fixed header row
-- [ ] Run `npm run portal-personas:uat -- --app-url http://127.0.0.1:8081`; confirm exact authenticated navigation sets, allowed and denied direct loads, one correct active destination, signed-out `next` preservation, legacy refund redirects, and dashboard CTA routes for Super Admin, Scoped Admin, Corporate Partner, reporting/training Technician, Operator Timekeeper, Generic Plus Member, and Baseline Customer.
+- [ ] Run `npm run portal-personas:uat -- --app-url http://127.0.0.1:8081`; confirm exact authenticated navigation sets, allowed and denied direct loads, one correct active destination, signed-out `next` preservation, legacy refund redirects, and dashboard CTA routes for Super Admin, Scoped Admin, Corporate Partner, reporting/training Technician, Technician Timekeeper, Generic Plus Member, and Baseline Customer.
 - [ ] Review the deterministic persona evidence in `output/playwright/issue-553`, including Super Admin, Scoped Admin, Corporate Partner, signed-out redirect, and admin/non-admin mobile drawer screenshots; the mobile drawer must focus its first destination, scroll to utilities, close on Escape and selection, restore trigger focus, and expose no hidden persona destinations.
 - [ ] `/portal/time-review` is hidden and direct-load blocked unless the session is Super Admin, has the `payouts`/global admin surface, or has `timekeeping.review`; an authorized reviewer sees exactly one active Review Time destination.
 - [ ] On mobile (`390x844`), Chinese app-shell and portal navigation labels fit without horizontal page overflow
@@ -481,11 +481,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Admin Console overview is an exception dashboard with Work queues, Customers and machines, and Access and audit sections, without a duplicate source-of-truth catalog
 - [ ] Admin Console sidebar uses Admin Console language and does not present Portal Dashboard as a competing top-level internal destination; portal switching is a utility action
 - [ ] Authenticated desktop routes show one grouped left sidebar; portal routes keep portal work/learning/settings groups while admin routes use the streamlined Admin Console groups
-- [ ] Desktop admin routes place Admin Console in Home; Refunds as the single shared Work entry; Orders, Support Queue, and Operator Pay in Operations; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
+- [ ] Desktop admin routes place Admin Console in Home; Refunds as the single shared Work entry; Orders, Support Queue, and Technician Pay in Operations; Accounts and Machines in Customers; People & Permissions plus Audit in Administration; and Partner Records, Partnerships, and Admin Reporting in Partners & Reporting
 - [ ] Admin routes show only one active sidebar item at a time; `/admin/orders`, `/admin/support`, `/admin/accounts`, `/admin/access`, `/admin/audit`, and `/admin/payouts` do not also mark Admin Console active
 - [ ] Admin Home treats Refunds as a shared core workflow rather than an Admin-owned destination, shows only live exception signals, and does not expose database/policy terms such as `admin_roles` or `is_super_admin`
 - [ ] Portal Dashboard useful links show only actions available to the signed-in account, exclude the primary/secondary task, cap at three, and do not render locked/upsell destinations or a duplicate navigation catalog.
-- [ ] `/portal/time` is hidden and route-blocked for accounts without an active operator timekeeping profile or explicit timekeeping capability
+- [ ] `/portal/time` is hidden and route-blocked for accounts without an active Technician pay profile or explicit timekeeping capability
 - [ ] Desktop admin routes do not show the old Portal/Admin workspace pills, horizontal `Admin tools` navigation row, or horizontal admin scroller
 - [ ] Mobile authenticated admin routes expose the same streamlined Admin Console groups in the drawer, keep Switch to Portal in utilities, focus the first destination when opened, and close after selecting a destination
 - [ ] Non-admin users see no admin destinations in the authenticated sidebar or mobile drawer

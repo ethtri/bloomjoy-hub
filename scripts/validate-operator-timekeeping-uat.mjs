@@ -56,7 +56,7 @@ const mockUser = {
   id: '66000000-0000-4000-8000-000000000001',
   aud: 'authenticated',
   role: 'authenticated',
-  email: 'operator-time@example.test',
+  email: 'technician-time@example.test',
   email_confirmed_at: isoHoursAgo(24),
   confirmed_at: isoHoursAgo(24),
   last_sign_in_at: now.toISOString(),
@@ -65,11 +65,11 @@ const mockUser = {
 };
 
 const mockSession = {
-  access_token: 'mock-operator-time-access-token',
+  access_token: 'mock-technician-time-access-token',
   token_type: 'bearer',
   expires_in: 3600,
   expires_at: Math.floor(Date.now() / 1000) + 3600,
-  refresh_token: 'mock-operator-time-refresh-token',
+  refresh_token: 'mock-technician-time-refresh-token',
   user: mockUser,
 };
 
@@ -151,12 +151,12 @@ const buildContext = (state, requestedWorkDate = workDate) => {
       id: profileId,
       accountId,
       accountName: 'Bloomjoy UAT',
-      displayName: 'Operator Time',
+      displayName: 'Technician Time',
       workerType: 'contractor_1099',
       status: 'active',
       policy: {
         id: policyId,
-        name: 'Monthly operator payouts',
+        name: 'Monthly Technician pay',
         frequency: 'monthly',
         roundingRule: 'round_up_60_minutes',
         reviewModel: 'final_review_only',
@@ -180,7 +180,7 @@ const buildContext = (state, requestedWorkDate = workDate) => {
         ...primaryProfile,
         id: secondaryProfileId,
         accountName: 'Bloomjoy UAT East',
-        displayName: 'East operator time',
+        displayName: 'East Technician time',
         currentEntries: [],
         recentEntries: [],
       },
@@ -308,7 +308,7 @@ const buildPayStatementArtifact = () => ({
     },
     operator: {
       operatorProfileId: profileId,
-      displayName: 'Operator Time',
+      displayName: 'Technician Time',
       workerType: 'contractor_1099',
     },
     period: {
@@ -568,7 +568,7 @@ const installMockSupabaseRoutes = async (context, state) => {
               id: profileId,
               accountId,
               accountName: 'Bloomjoy UAT',
-              displayName: 'Operator Time',
+              displayName: 'Technician Time',
               workerType: 'contractor_1099',
               statements: [
                 {
@@ -1089,7 +1089,7 @@ const run = async () => {
         (await page.getByRole('button', { name: /download pay statement/i }).isVisible())
     );
     recorder.assert(
-      'Operator-facing pay statement copy uses approved terminology',
+      'Technician-facing pay statement copy uses approved terminology',
       await page.getByText('May 2026 Pay Statement').isVisible()
     );
     const payStatementDownloadPromise = page.waitForEvent('download', { timeout: 10000 });
@@ -1115,8 +1115,10 @@ const run = async () => {
     recorder.assert(
       'Downloaded pay statement HTML uses approved terminology',
       downloadedPayStatementHtml.includes('May 2026 Pay Statement') &&
+        downloadedPayStatementHtml.includes('>Technician<') &&
+        downloadedPayStatementHtml.includes('>Total Technician pay<') &&
         downloadedPayStatementHtml.includes(
-          'This pay statement summarizes Bloomjoy operator payout inputs'
+          'This pay statement summarizes Bloomjoy Technician pay inputs'
         ) &&
         payStatementDownload.suggestedFilename() === 'may-2026-pay-statement.html'
     );
@@ -1226,7 +1228,7 @@ const run = async () => {
       await page.locator('h1').filter({ hasText: /^Edit Time$/ }).waitFor({ timeout: 10000 });
       recorder.assert(
         'Focused Edit Time associates the multi-profile select with its visible label',
-        await page.getByLabel('Operator profile').isVisible()
+        await page.getByLabel('Technician pay profile').isVisible()
       );
       if (expectedCorrectionReason) {
         recorder.assert(
@@ -1648,7 +1650,7 @@ const run = async () => {
       (message) => !/status of (500|503)/i.test(message)
     );
     recorder.assert(
-      'No unexpected browser console/page errors during mocked Operator Time QA pass',
+      'No unexpected browser console/page errors during mocked Technician Time QA pass',
       unexpectedConsoleErrors.length === 0,
       unexpectedConsoleErrors.slice(0, 3).join(' | ')
     );
@@ -1659,11 +1661,11 @@ const run = async () => {
 
   const failed = recorder.failed();
   if (failed.length > 0) {
-    console.error(`\nOperator Time UAT validation failed: ${failed.length} check(s).`);
+    console.error(`\nTechnician Time UAT validation failed: ${failed.length} check(s).`);
     process.exit(1);
   }
 
-  console.log('\nOperator Time UAT validation passed.');
+  console.log('\nTechnician Time UAT validation passed.');
   console.log(`Screenshots written to ${args.artifactDir}`);
 };
 

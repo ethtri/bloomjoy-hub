@@ -197,7 +197,7 @@ export function PlusToolsPreview({
                 }
               >
                 <LogIn className="mr-2 h-4 w-4" />
-                Operator Login
+                Bloomjoy Hub Login
               </a>
             </Button>
           )}

@@ -430,7 +430,7 @@ export const privateRoutes: PrivateRouteSeo[] = [
   {
     path: "/login",
     canonicalOrigin: APP_ORIGIN,
-    title: "Bloomjoy Operator App",
+    title: "Bloomjoy Hub",
     description: DEFAULT_DESCRIPTION,
     robots: PRIVATE_ROBOTS,
     surface: "app",
@@ -469,7 +469,7 @@ export const privateRoutes: PrivateRouteSeo[] = [
     path: "/login/operator",
     canonicalOrigin: APP_ORIGIN,
     canonicalPath: "/login",
-    title: "Bloomjoy Operator App",
+    title: "Bloomjoy Hub",
     description: DEFAULT_DESCRIPTION,
     robots: PRIVATE_ROBOTS,
     surface: "app",
@@ -503,7 +503,7 @@ export const privateRoutes: PrivateRouteSeo[] = [
     (path): PrivateRouteSeo => ({
       path,
       canonicalOrigin: APP_ORIGIN,
-      title: "Bloomjoy Operator App",
+      title: "Bloomjoy Hub",
       description: DEFAULT_DESCRIPTION,
       robots: PRIVATE_ROBOTS,
       surface: "app",

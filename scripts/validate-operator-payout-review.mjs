@@ -109,12 +109,12 @@ for (const snippet of [
 
 const page = readText(files.page);
 for (const snippet of [
-  'Operator Pay',
+  'Technician Pay',
   'Manual Adjustment',
   'Finalize',
   'Critical warnings block finalization',
   'issued statements already exist',
-  'Show on operator statement',
+  'Show on Technician statement',
   'Review access',
   'No pay run yet',
   'does not run payroll',
@@ -166,8 +166,8 @@ if (!packageJson.includes('operator-payouts:validate-review')) {
 }
 
 const smoke = readText(files.smoke);
-if (!smoke.includes('Admin Operator Pay Review')) {
-  fail('Smoke checklist missing Admin Operator Pay Review coverage.');
+if (!smoke.includes('Admin Technician Pay Review')) {
+  fail('Smoke checklist missing Admin Technician Pay Review coverage.');
 }
 
 const status = readText(files.status);

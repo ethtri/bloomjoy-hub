@@ -789,7 +789,7 @@ const assertSignedOutRedirect = async (page, route, label) => {
     `${label} must preserve the full protected destination in next; found ${currentUrl.searchParams.get('next')}.`,
   );
   await page
-    .getByRole('heading', { name: 'Sign in to the Bloomjoy operator app', level: 1 })
+    .getByRole('heading', { name: 'Sign in to Bloomjoy Hub', level: 1 })
     .waitFor();
   await assert(
     (await page.locator('[data-auth-primary-navigation]').count()) === 0,
@@ -823,7 +823,7 @@ const assertMobileDrawerBehavior = async (
   },
 ) => {
   await page.goto(`${appUrl}${initialRoute}`, { waitUntil: 'networkidle' });
-  const trigger = page.getByRole('button', { name: 'Open operator navigation menu' });
+  const trigger = page.getByRole('button', { name: 'Open Bloomjoy Hub navigation menu' });
   await trigger.click();
   const dialog = page.getByRole('dialog');
   await dialog.waitFor();
@@ -1029,7 +1029,7 @@ const assertDashboardPrimaryNavigation = async (page, { label, expectedPath }) =
         `${label} primary destination`,
       );
     } else {
-      const trigger = page.getByRole('button', { name: 'Open operator navigation menu' });
+      const trigger = page.getByRole('button', { name: 'Open Bloomjoy Hub navigation menu' });
       await trigger.click();
       const dialog = page.getByRole('dialog');
       await dialog.waitFor();
@@ -1163,7 +1163,7 @@ try {
   await assert(adminNavText.includes('Partners & Reporting'), 'Admin nav must include Partners & Reporting.');
   await assert(adminNavText.includes('Administration'), 'Admin nav must include Administration.');
   await assert(adminNavText.includes('Refunds'), 'Admin nav must include the shared Refunds item.');
-  await assert(adminNavText.includes('Operator Pay'), 'Admin nav must include Operator Pay.');
+  await assert(adminNavText.includes('Technician Pay'), 'Admin nav must include Technician Pay.');
   await assert(
     !adminNavText.includes('Portal Dashboard'),
     'Admin nav must not show Portal Dashboard as a competing top-level destination.',
@@ -1260,7 +1260,7 @@ try {
     (await visibleLanguageControls(mobileAdminPage).count()) === 0,
     'Authenticated mobile header must not render a language selector.',
   );
-  await mobileAdminPage.getByRole('button', { name: 'Open operator navigation menu' }).click();
+  await mobileAdminPage.getByRole('button', { name: 'Open Bloomjoy Hub navigation menu' }).click();
   await mobileAdminPage.waitForTimeout(150);
   const focusedText = await mobileAdminPage.evaluate(() => document.activeElement?.textContent ?? '');
   await assert(
@@ -1387,7 +1387,7 @@ try {
   await loginDesktopPage.goto(`${appUrl}/login`, { waitUntil: 'networkidle' });
   await waitForHeading(
     loginDesktopPage,
-    { name: 'Sign in to the Bloomjoy operator app', level: 1 },
+    { name: 'Sign in to Bloomjoy Hub', level: 1 },
     'portal-shell-login-desktop-debug-failed.png',
   );
   await assert(
@@ -1432,7 +1432,7 @@ try {
   await loginMobilePage.goto(`${appUrl}/login`, { waitUntil: 'networkidle' });
   await waitForHeading(
     loginMobilePage,
-    { name: 'Sign in to the Bloomjoy operator app', level: 1 },
+    { name: 'Sign in to Bloomjoy Hub', level: 1 },
     'portal-shell-login-mobile-debug-failed.png',
   );
   await assert(
@@ -1444,7 +1444,7 @@ try {
     path: path.join(outputDir, 'portal-shell-login-mobile.png'),
     fullPage: true,
   });
-  await loginMobilePage.getByRole('button', { name: 'Open operator navigation menu' }).click();
+  await loginMobilePage.getByRole('button', { name: 'Open Bloomjoy Hub navigation menu' }).click();
   await assert(
     (await visibleLanguageControls(loginMobilePage).count()) === 1,
     'Opening the login drawer must not create a second visible language selector.',
@@ -2290,11 +2290,11 @@ try {
     height: 768,
   });
   await timekeeperMatrixPage.goto(`${appUrl}/portal`, { waitUntil: 'networkidle' });
-  await assertExactNav(timekeeperMatrixPage, timekeeperPortalHrefs, 'Operator timekeeper');
+  await assertExactNav(timekeeperMatrixPage, timekeeperPortalHrefs, 'Technician timekeeper');
   for (const route of ['/portal/orders', '/portal/account', '/portal/time']) {
     await assertAllowedDirectLoad(timekeeperMatrixPage, {
       route,
-      label: `Operator timekeeper direct load ${route}`,
+      label: `Technician timekeeper direct load ${route}`,
     });
   }
   for (const [route, expectedHeading] of [
@@ -2309,7 +2309,7 @@ try {
     await assertBlockedDirectLoad(timekeeperMatrixPage, {
       route,
       expectedHeading,
-      label: `Operator timekeeper denied direct load ${route}`,
+      label: `Technician timekeeper denied direct load ${route}`,
     });
   }
   await timekeeperMatrixPage.close();

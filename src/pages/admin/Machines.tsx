@@ -1960,7 +1960,7 @@ function MachineDialog({
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   One Machine Manager is enough. Add up to 3 authenticated Machine Managers per
-                  machine. Invite new operators first, then add them after they sign in.
+                  machine. Invite new Machine Managers first, then add them after they sign in.
                 </p>
                 {managerSearchError && (
                   <p className="mt-2 text-sm text-destructive">Unable to search matching users.</p>

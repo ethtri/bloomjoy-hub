@@ -289,8 +289,8 @@ function run() {
     ...additionalRedirectUrls.map((value) => `Additional redirect URL: ${value}`),
   ]);
 
-  printList('Operator app / storefront host split (reference)', [
-    `Operator app host: ${productionAppOrigins[0]}`,
+  printList('Bloomjoy Hub / storefront host split (reference)', [
+    `Bloomjoy Hub host: ${productionAppOrigins[0]}`,
     `Marketing host: ${productionMarketingOrigins[0]}`,
   ]);
 

@@ -107,7 +107,7 @@ export function Navbar() {
           ) : (
             <a href={operatorLoginUrl}>
               <Button variant="outline" size="sm">
-                Operator Login
+                Bloomjoy Hub Login
               </Button>
             </a>
           )}
@@ -180,7 +180,7 @@ export function Navbar() {
                 ) : (
                   <a href={operatorLoginUrl} onClick={() => setMobileMenuOpen(false)}>
                     <Button variant="outline" className="w-full">
-                      Operator Login
+                      Bloomjoy Hub Login
                     </Button>
                   </a>
                 )}
