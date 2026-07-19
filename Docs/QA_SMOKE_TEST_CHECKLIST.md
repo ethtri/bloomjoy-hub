@@ -231,6 +231,17 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Operators see only latest issued pay statements for their own operator profile on `/portal/time`; drafts, other operators' statements, and manager previews are not visible.
 - [ ] Operators can download the generated pay statement artifact and it includes entity branding fields, period, issue date, machines, hours, revenue basis, commission, adjustments, total operator pay, disclaimer, and revision status.
 - [ ] Direct artifact requests for drafts, missing statements, or another operator's statement fail with an access error.
+
+### Operator Payouts Go-Live And Support
+- [ ] Review `Docs/OPERATOR_PAYOUTS_GO_LIVE_RUNBOOK.md` before first-cycle UAT and confirm issue `#507` has owner/accounting go-no-go for the V1 manual payroll/payment boundary.
+- [ ] First-cycle calendar is recorded for the pilot period: period dates, time due date, lock date, review window, target payout date, payroll/compliance owner, payout admin owner, and support owner.
+- [ ] Operator setup path is verified before live use: either PR `#560` is merged and Operator Setup invite/deactivation recovery is tested, or the owner accepts a controlled manual setup fallback for the pilot.
+- [ ] Payout register handoff is verified before live external payment: either PR `#559` is merged and `Export Register` is tested, or the owner accepts a manual pay-statement/register fallback for the pilot.
+- [ ] Operator go-live smoke covers sign-in, `/portal/time`, `/portal/time/new`, assigned-machine selection, save/edit/delete before lock, locked-period messaging, and latest issued statement download.
+- [ ] Admin go-live smoke covers `/admin/payouts`, run generation/recalculation, warning review, manual adjustment with audit reason, mark reviewed, finalize, statement preview, statement issuance, and revision reason on reissue.
+- [ ] Support smoke covers failed invite/email recovery, missing operator profile, missing machine assignment, failed time save, failed pay statement download, revoked/deactivated operator access, and out-of-scope access denial with redacted evidence only.
+- [ ] External payroll/payment handoff evidence is posted to the pilot issue with period, operator count, total payout amount, handoff source, executor, and confirmation that Bloomjoy Hub did not execute direct deposit, withholding, W-2 filing, or 1099 filing.
+- [ ] Rollback/fallback path is rehearsed: pause external payment, return to the prior manual process, stop new statement issuance, preserve audit/history, and open or update the blocking GitHub issue with no private pay data.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
 - [ ] Portal section navigation labels `/portal/account` as Settings and does not show a separate Admin link for admin users
