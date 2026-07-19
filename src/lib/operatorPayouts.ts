@@ -718,7 +718,7 @@ export const fetchMyOperatorPayoutContext = async (): Promise<OperatorPayoutCont
   const { data, error } = await supabaseClient.rpc('get_my_operator_payout_context');
 
   if (error) {
-    throw new Error(error.message || 'Unable to load operator pay.');
+    throw new Error(error.message || 'Unable to load Technician pay.');
   }
 
   return {
@@ -763,7 +763,7 @@ export const fetchMyOperatorTimekeepingContext = async (
   });
 
   if (error) {
-    throw new Error(error.message || 'Unable to load operator timekeeping.');
+    throw new Error(error.message || 'Unable to load Technician timekeeping.');
   }
 
   return {
@@ -1213,7 +1213,7 @@ export const upsertOperatorPayoutProfileAdmin = async ({
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Unable to save operator pay profile.');
+    throw new Error(error?.message || 'Unable to save Technician pay profile.');
   }
 
   return data as OperatorPayoutProfileRecord;
@@ -1244,6 +1244,11 @@ const escapeHtml = (value: unknown) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+
+const formatTechnicianPayDisclaimer = (disclaimer: string) =>
+  disclaimer
+    .replace(/Bloomjoy operator payout inputs/gi, 'Bloomjoy Technician pay inputs')
+    .replace(/Bloomjoy operator payouts/gi, 'Bloomjoy Technician pay');
 
 const formatStatementDate = (value: string | null | undefined) =>
   value
@@ -1339,10 +1344,10 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
         </header>
 
         <div class="grid">
-          <div class="metric"><p class="label">Operator</p><p class="value">${escapeHtml(statement.operator.displayName)}</p></div>
+          <div class="metric"><p class="label">Technician</p><p class="value">${escapeHtml(statement.operator.displayName)}</p></div>
           <div class="metric"><p class="label">Period</p><p class="value">${escapeHtml(formatStatementDate(statement.period.periodStartDate))} - ${escapeHtml(formatStatementDate(statement.period.periodEndDate))}</p></div>
           <div class="metric"><p class="label">Issued</p><p class="value">${escapeHtml(formatStatementDate(statement.issuedAt))}</p></div>
-          <div class="metric"><p class="label">Total operator pay</p><p class="value">${escapeHtml(formatStatementMoney(statement.totals.totalPayoutCents))}</p></div>
+          <div class="metric"><p class="label">Total Technician pay</p><p class="value">${escapeHtml(formatStatementMoney(statement.totals.totalPayoutCents))}</p></div>
         </div>
 
         <h2>Summary</h2>
@@ -1366,7 +1371,7 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
           <thead>
             <tr><th>Description</th><th>Type</th><th>Amount</th></tr>
           </thead>
-          <tbody>${adjustmentRows || '<tr><td colspan="3">No operator-visible adjustments.</td></tr>'}</tbody>
+          <tbody>${adjustmentRows || '<tr><td colspan="3">No Technician-visible adjustments.</td></tr>'}</tbody>
         </table>
 
         ${
@@ -1377,7 +1382,7 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
             : ''
         }
 
-        <footer>${escapeHtml(statement.disclaimer)}</footer>
+        <footer>${escapeHtml(formatTechnicianPayDisclaimer(statement.disclaimer))}</footer>
       </section>
     </main>
   </body>

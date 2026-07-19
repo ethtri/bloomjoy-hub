@@ -20,7 +20,7 @@ The command uses deterministic, intercepted sessions and API responses. It write
 | --- | --- |
 | Baseline Customer, Portal | `/portal`, `/portal/orders`, `/portal/account` |
 | Generic Plus Member, Portal | Baseline plus `/portal/training`, `/portal/onboarding`, `/portal/support` |
-| Operator Timekeeper, Portal | Baseline plus `/portal/time` |
+| Technician Timekeeper, Portal | Baseline plus `/portal/time` |
 | Training-only Technician, Portal | `/portal`, `/portal/training` |
 | Reporting Technician, Portal | `/portal`, `/portal/reports`, `/portal/training` |
 | Corporate Partner account manager, Portal | `/portal`, `/portal/orders`, `/portal/account`, `/portal/team`, `/portal/reports`, `/portal/training`, `/portal/support` |
@@ -35,12 +35,12 @@ The test compares complete href sets, rejects duplicates, and separately verifie
 | --- | --- | --- |
 | Baseline Customer | `/portal`, `/portal/orders`, `/portal/account` | Time, Review Time, Reporting, Training, Support, Team, refunds, Admin Access |
 | Generic Plus Member | Orders, Account, Training, Onboarding, Support | Time, Review Time, Reporting, Team, refunds, Admin Access |
-| Operator Timekeeper | Orders, Account, Time | Review Time, Reporting, Training, Support, Team, refunds, Admin Access |
+| Technician Timekeeper | Orders, Account, Time | Review Time, Reporting, Training, Support, Team, refunds, Admin Access |
 | Training-only Technician | Training | Orders, Account, Time, Review Time, Reporting, Support, Team, refunds, Admin Access |
 | Reporting Technician | Reporting, Training | Orders, Account, Time, Review Time, Support, Team, refunds, Admin Access |
 | Corporate Partner | Orders, Account, Team, Reporting, Training, Support | Time, Review Time, refunds, Admin Access |
-| Canonical Scoped Admin | Admin overview, Access, Partnerships, refunds, Portal Orders/Account | global Admin Reporting and Operator Pay |
-| Super Admin | all required Portal/Admin routes, Review Time, refunds | Operator Time is not implied without a worker profile/capability |
+| Canonical Scoped Admin | Admin overview, Access, Partnerships, refunds, Portal Orders/Account | global Admin Reporting and Technician Pay |
+| Super Admin | all required Portal/Admin routes, Review Time, refunds | Technician Time is not implied without a worker profile/capability |
 | Signed out | `/login` only | protected Portal, Admin, refunds, and Review Time routes redirect with the complete destination preserved in `next` |
 
 The refund compatibility routes `/portal/refunds` and `/admin/refunds` must resolve to canonical `/refunds` without dropping query parameters or hashes.

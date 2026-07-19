@@ -139,8 +139,8 @@ Owner UAT focus:
 - Technician cannot see Plus discounts, billing, account-owner tools, partner settlement, admin routes, or grant-management controls.
 - Reassigning or revoking a Technician changes access as expected after refresh or re-login.
 
-### Operator Timekeeper
-Use this persona for a worker with an active operator pay profile or explicit timekeeping capability.
+### Technician Timekeeper
+Use this persona for a Technician with an active Technician pay profile or explicit timekeeping capability.
 
 Key routes:
 
@@ -173,7 +173,7 @@ Key routes depend on the grant and may include:
 Owner UAT focus:
 
 - Only granted Admin Console destinations appear and direct loads fail closed for all others.
-- Global-only Admin Reporting, Partner Records, Operator Pay, and Super Admin role controls stay unavailable unless explicitly supported by policy.
+- Global-only Admin Reporting, Partner Records, Technician Pay, and Super Admin role controls stay unavailable unless explicitly supported by policy.
 - Portal Account and Orders remain available, while `/portal/team` still requires separate Plus-owner or Corporate Partner authority.
 
 ### Super Admin

@@ -97,7 +97,7 @@ for (const snippet of [
   'previewStatements',
   'issueStatements',
   'Revision reason',
-  'Preview rows are not operator-visible until issued.',
+  'Preview rows are not visible to Technicians until issued.',
   'Eligible now',
 ]) {
   if (!adminPage.includes(snippet)) {
@@ -131,8 +131,8 @@ if (!packageJson.includes('operator-payouts:validate-statements')) {
 
 const smoke = readText(files.smoke);
 for (const snippet of [
-  'Operator Pay Statements',
-  'Operators see only latest issued pay statements',
+  'Technician Pay Statements',
+  'Technicians see only latest issued pay statements',
   'Managers can preview pay statements before issuance',
 ]) {
   if (!smoke.includes(snippet)) {
@@ -146,5 +146,5 @@ if (!status.includes('Operator pay statements slice `#449`')) {
 }
 
 console.log(
-  'Operator pay statement checks passed: versioned statement payloads, manager preview/issuance, operator-only latest statements, artifact downloads, portal publication tracking, and smoke coverage are present.'
+  'Technician pay statement checks passed: versioned statement payloads, manager preview/issuance, Technician-only latest statements, artifact downloads, portal publication tracking, and smoke coverage are present.'
 );

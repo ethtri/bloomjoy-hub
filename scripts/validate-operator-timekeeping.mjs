@@ -182,7 +182,7 @@ expect(
   'queryFn: () => fetchMyOperatorTimekeepingContext()',
   'timekeeping access query'
 );
-expect(readText(files.smoke), 'Operator Time (`/portal/time`)', 'smoke checklist');
+expect(readText(files.smoke), 'Technician Time (`/portal/time`)', 'smoke checklist');
 expect(readText(files.smoke), 'Review Time (`/portal/time-review`)', 'review smoke checklist');
 
 console.log(

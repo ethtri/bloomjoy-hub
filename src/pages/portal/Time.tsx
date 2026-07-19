@@ -414,7 +414,7 @@ export default function PortalTimePage() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!selectedProfile) {
-        throw new Error('No operator profile is selected.');
+        throw new Error('No Technician pay profile is selected.');
       }
 
       if (editingEntryId) {
@@ -464,7 +464,7 @@ export default function PortalTimePage() {
     mutationFn: (timeEntryId: string) =>
       voidOperatorTimeEntry({
         timeEntryId,
-        reason: 'Operator deleted unlocked shift from Portal Time',
+        reason: 'Technician deleted unlocked shift from Portal Time',
       }),
     onSuccess: (nextContext) => {
       const nextMonth = nextContext.workDate.slice(0, 7);
@@ -657,8 +657,8 @@ export default function PortalTimePage() {
                 </h2>
                 <p className="mt-2 text-pretty text-sm text-muted-foreground">
                   {selectedProfile
-                    ? 'Ask a Bloomjoy admin or machine manager to assign at least one machine before entering shifts.'
-                    : 'Ask a Bloomjoy admin or machine manager to add your timekeeping profile and assigned machines before entering shifts.'}
+                    ? 'Ask a Bloomjoy admin or Machine Manager to assign at least one machine before entering shifts.'
+                    : 'Ask a Bloomjoy admin or Machine Manager to add your Technician pay profile and assigned machines before entering shifts.'}
                 </p>
                 <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
                   <Button
@@ -707,7 +707,7 @@ export default function PortalTimePage() {
                               htmlFor="operator-profile-select"
                               className="mb-1 block text-sm font-medium text-foreground"
                             >
-                              Operator profile
+                              Technician pay profile
                             </label>
                             <Select
                               value={selectedProfile.id}
@@ -928,7 +928,7 @@ export default function PortalTimePage() {
                           Record completed work
                         </h2>
                         <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                          Add each shift after you finish. Your machine manager will review submitted
+                          Add each shift after you finish. Your Machine Manager will review submitted
                           time here.
                         </p>
                       </div>
@@ -1221,7 +1221,7 @@ function ValidationPanel({
     hasInvalidTimes ? 'End time must be after start time.' : null,
     !isWorkDateInCurrentPeriod ? 'Work date must stay inside the current pay period.' : null,
     !hasSelectedMachine ? 'Select an assigned machine that is active for this work date.' : null,
-    !isPeriodEditable ? 'This pay period is locked for operator edits.' : null,
+    !isPeriodEditable ? 'This pay period is locked for Technician edits.' : null,
     exactDuplicate ? 'This looks like a duplicate of an existing shift.' : null,
     overlappingEntries.length > 0
       ? `This shift overlaps ${overlappingEntries.length} existing entr${
