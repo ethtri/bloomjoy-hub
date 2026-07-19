@@ -1,0 +1,80 @@
+{
+  "machines": [
+    {
+      "id": "machine-demo-printer",
+      "machineSn": "SN-DEMO-001",
+      "merchantId": "merchant-demo",
+      "merchantName": "Demo Merchant",
+      "type": 1,
+      "machineName": "Demo Snapcase",
+      "timezone": "America/Los_Angeles",
+      "currency": "USD",
+      "status": 1,
+      "onlineStatus": 1,
+      "groupName": "Demo Group",
+      "country": "US",
+      "city": "Los Angeles",
+      "languageConfig": {
+        "default": "en"
+      },
+      "deliveryAddress": "must never be copied",
+      "lastConnectIp": "must never be copied"
+    }
+  ],
+  "orders": [
+    {
+      "orderNo": "order-demo-001",
+      "machineId": "machine-demo-printer",
+      "merchantId": "merchant-demo",
+      "type": 1,
+      "status": 3,
+      "paymentStatus": 1,
+      "createTime": "2026-07-18T18:00:00Z",
+      "paymentTime": "2026-07-18T18:01:00Z",
+      "finishTime": "2026-07-18T18:03:00Z",
+      "currencyCode": "USD",
+      "orderAmount": 25,
+      "paymentAmount": 25,
+      "refundAmount": 0,
+      "taxRateAmount": 0,
+      "tipAmount": 0,
+      "goodsName": "Demo Phone Case",
+      "materialCount": 1,
+      "workImageUrl": "must never be copied",
+      "shippingAddress": "must never be copied"
+    }
+  ],
+  "payments": [
+    {
+      "outTradeNo": "payment-demo-001",
+      "orderNos": ["order-demo-001"],
+      "machineId": "machine-demo-printer",
+      "merchantId": "merchant-demo",
+      "paymentTime": "2026-07-18T18:01:00Z",
+      "currencyCode": "USD",
+      "paymentMethod": 0,
+      "paymentInstrument": "creditCard",
+      "status": 1,
+      "paymentAmount": 25,
+      "refundAmount": 0,
+      "tipAmount": 0,
+      "deliveryAddress": "must never be copied"
+    }
+  ],
+  "nayaxTransactions": [
+    {
+      "TransactionID": "nayax-demo-001",
+      "PaymentServiceTransactionID": "payment-demo-001",
+      "MachineID": "nayax-machine-demo",
+      "AuthorizationDateTimeGMT": "2026-07-18T18:01:00Z",
+      "SettlementDateTimeGMT": "2026-07-19T05:00:00Z",
+      "AuthorizationValue": 25,
+      "SettlementValue": 25,
+      "CurrencyCode": "USD",
+      "PaymentMethod": "CreditCard",
+      "ProductName": "Demo Phone Case",
+      "Quantity": 1,
+      "cardLast4": "must never be copied"
+    }
+  ]
+}

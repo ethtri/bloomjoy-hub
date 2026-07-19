@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-07-19 - Snapcase data is staged and reconciled before reporting or Operator Pay (`#604`)
+Bloomjoy will add Kexiazhan and Nayax as server-side Snapcase data sources without treating the mixed Kexiazhan tenant as a trusted reporting feed.
+
+**Canonical behavior**
+- `reporting_machines` remains the physical-machine registry; Snapcase is an explicit machine type, not a Sunze machine inferred from a location or manager roster.
+- Kexiazhan provides machine, merchant, order, product, print, cash, and payment-state context. Nayax remains the financial authority for Snapcase card transactions.
+- Provider accounts, merchants, and phone-case printers require explicit audited approval. Film applicators, unrelated merchants, test machines, undocumented statuses, ambiguous timestamps, and non-USD rows remain quarantined.
+- Kexiazhan orders/payments and Nayax transactions enter server-only staging tables. A staged row does not affect `machine_sales_facts`, `sales_adjustment_facts`, partner reporting, refunds, or Operator Pay.
+- Exact shared payment references can reconcile automatically. A unique same-machine, amount, currency, and ten-minute time-window candidate is proposed only; ambiguous or unmatched candidates require review.
+- The first foundation stores normalized operational fields plus salted source hashes. It does not retain customer artwork, delivery addresses, receipt links, merchant contacts, card digits, credentials, bearer tokens, raw payment/order identifiers, IP addresses, or full provider responses.
+- Production API access requires written Kexiazhan approval, rotated credentials, an approved provider account, and an explicit machine/merchant allowlist. The scheduled shadow workflow remains disabled until repository approval variables and encrypted secrets are configured.
+- Snapcase timekeeping may use an approved canonical machine before sales activation. Revenue-based reporting or pay requires a later forward-only activation migration after at least 30 days of accepted reconciliation evidence.
+
+**Why this choice**
+- The discovered Kexiazhan account contains multiple merchants, device types, currencies, and test-like records, so account visibility does not prove Bloomjoy ownership or financial eligibility.
+- Existing reporting and Operator Pay calculations consume canonical sales facts immediately. Keeping new sources outside those facts makes discovery and shadow validation reversible.
+- One provider-neutral identity map lets Kexiazhan and Nayax records point to the same physical Snapcase machine without rewriting current Sunze paths.
+
 ## 2026-07-16 - Timekeeping V1 is shift entry and machine-manager review (`#587`)
 Bloomjoy will replace the contractor Google Sheets/AppSheet workflow with a lightweight Hub timekeeping flow before expanding into payment execution.
 
