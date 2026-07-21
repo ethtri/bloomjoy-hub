@@ -15,6 +15,15 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -134,6 +143,13 @@ type CustomerMessageResult = {
   type: string;
   status: string;
 } | null;
+
+type RefundActionReceipt = {
+  tone: 'success' | 'warning';
+  title: string;
+  message: string;
+  reference?: string | null;
+};
 
 type PrimaryActionConfig = {
   label: string;
@@ -1097,6 +1113,8 @@ export default function AdminRefundsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
+  const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
+  const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
@@ -1184,9 +1202,23 @@ export default function AdminRefundsPage() {
     setNayaxCandidates([]);
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
+    setIsRefundConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
   }, [filteredCases, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      detailPanelRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      detailPanelRef.current?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedId]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
   const primaryAction = useMemo(
@@ -1222,17 +1254,14 @@ export default function AdminRefundsPage() {
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
+    setIsRefundConfirmationOpen(false);
+    setRefundActionReceipt(null);
     setNayaxLookupSummary(refundCase.nayaxLookupSummary ?? null);
     const draft = getCustomerMessageDraft(refundCase, 'status_update');
     setMessageType('status_update');
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
 
-    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
-      window.setTimeout(() => {
-        detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 0);
-    }
   };
 
   const handleSaveCase = async (
@@ -1344,6 +1373,7 @@ export default function AdminRefundsPage() {
 
     setIsRunningNayaxRefund(true);
     setNayaxExecutionNotice(null);
+    setRefundActionReceipt(null);
     try {
       const result = await executeNayaxCardRefund({
         caseId: selectedCase.id,
@@ -1354,6 +1384,11 @@ export default function AdminRefundsPage() {
           tone: 'warning',
           message: formatNayaxExecutionBlockedMessage(result),
         });
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Refund not sent',
+          message: `${formatNayaxExecutionBlockedMessage(result)} The case is still open and no customer completion email was sent.`,
+        });
         toast.error('Card refund was blocked by safety controls. The case was not completed.');
         return;
       }
@@ -1363,7 +1398,31 @@ export default function AdminRefundsPage() {
         manualRefundReference: getNayaxExecutionReference(result) ?? editor.manualRefundReference,
       };
       setEditor(completedEditor);
-      await handleSaveCase(completedEditor, 'completed');
+      const saveResult = await handleSaveCase(completedEditor, 'completed');
+      const reference = getNayaxExecutionReference(result);
+      if (!saveResult) {
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Refund sent; follow-up needs attention',
+          message:
+            'Nayax reported success, but Bloomjoy Hub could not finish the case or customer email. Do not retry the payment. Reconcile this case against Nayax and retry only the customer follow-up.',
+          reference,
+        });
+        return;
+      }
+
+      setRefundActionReceipt({
+        tone: 'success',
+        title: 'Refund completed',
+        message:
+          saveResult.status === 'failed'
+            ? 'Nayax reported success and the case was completed, but the customer email needs a retry.'
+            : saveResult.status === 'sent'
+              ? 'Nayax reported success, the case was completed, and the customer was notified.'
+              : 'Nayax reported success, the case was completed, and the customer email is queued for delivery.',
+        reference,
+      });
+      setIsRefundConfirmationOpen(false);
     } catch (executionError) {
       const response = isNayaxCardRefundExecutionError(executionError)
         ? executionError.data
@@ -1376,6 +1435,13 @@ export default function AdminRefundsPage() {
       setNayaxExecutionNotice({
         tone: 'warning',
         message,
+      });
+      setRefundActionReceipt({
+        tone: 'warning',
+        title: response ? 'Refund not sent' : 'Refund outcome needs verification',
+        message: response
+          ? `${message} The case remains open and the customer was not emailed.`
+          : `${message} Do not retry until the Nayax transaction is checked, because the provider outcome was not confirmed.`,
       });
       toast.error('Card refund was not completed. The customer was not contacted.');
     } finally {
@@ -1810,6 +1876,384 @@ export default function AdminRefundsPage() {
       ? getCardMatchAmountCents(selectedCase, editor, nayaxCandidates)
       : null;
 
+  const renderCardDecisionWorkbench = () => {
+    if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
+
+    const activeCandidate = activeNayaxCandidate(selectedCase, editor, nayaxCandidates);
+    const cardAmountCents = matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;
+    const cardLast4 =
+      activeCandidate?.cardLast4 ||
+      selectedCase.matchedNayaxCardLast4 ||
+      editor.matchedNayaxCardLast4 ||
+      selectedCase.cardLast4 ||
+      'n/a';
+    const transactionTime =
+      activeCandidate?.machineAuthorizationTime ||
+      selectedCase.matchedNayaxMachineAuthTime ||
+      editor.matchedNayaxMachineAuthTime ||
+      selectedCase.incidentAt;
+    const actionLabel = `Refund ${formatCurrency(cardAmountCents)} and notify customer`;
+    const hasReadyRefund = isCardCompletion && primaryAction?.disabled !== true;
+    const isActionDisabled =
+      isSaving ||
+      isRunningNayaxRefund ||
+      isUsingDemoData ||
+      !primaryAction ||
+      primaryAction.disabled === true ||
+      primaryActionIssues.length > 0;
+
+    const chooseCustomerFollowUp = () => {
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              status: 'waiting_on_customer',
+              decision: null,
+              decisionReason: '',
+            }
+          : current
+      );
+      handleMessageTypeChange('more_info');
+    };
+
+    const chooseDenial = () => {
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              status: 'denied',
+              decision: 'denied',
+            }
+          : current
+      );
+      handleMessageTypeChange('denied');
+    };
+
+    return (
+      <div data-testid="refund-card-workbench" className="space-y-4">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 text-white shadow-sm">
+          <div
+            data-testid="refund-primary-action"
+            className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200">
+                Manager decision
+              </p>
+              <h3 className="mt-1 text-xl font-semibold">
+                {hasReadyRefund ? 'Ready for final confirmation' : primaryAction?.label ?? 'Review this request'}
+              </h3>
+            </div>
+            <div className="flex flex-col gap-2 sm:items-end">
+              <div className="flex flex-wrap gap-2 sm:justify-end">
+                <Badge
+                  className={cn(
+                    'w-fit border-white/15 bg-white/10 text-white',
+                    hasReadyRefund && 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
+                  )}
+                >
+                  {matchResultLabel(selectedCase, editor, nayaxCandidates)}
+                </Badge>
+                <Badge
+                  className={cn(
+                    'w-fit border-white/15 bg-white/10 text-slate-100',
+                    getLatestCustomerMessage(selectedCase)?.status === 'failed' &&
+                      'border-rose-300/40 bg-rose-300/15 text-rose-100'
+                  )}
+                >
+                  {getCustomerCommunicationLabel(selectedCase)}
+                </Badge>
+              </div>
+              {hasReadyRefund && (
+                <Button
+                  data-testid="refund-run-nayax-refund"
+                  type="button"
+                  className="min-h-11 w-full px-4 font-semibold sm:w-auto"
+                  onClick={() => {
+                    setNayaxExecutionNotice(null);
+                    setRefundActionReceipt(null);
+                    setIsRefundConfirmationOpen(true);
+                  }}
+                  disabled={isActionDisabled}
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  {actionLabel}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-px bg-white/10 lg:grid-cols-2">
+            <article data-testid="refund-request-summary" className="bg-slate-950 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Customer request</p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-slate-400">Location</p>
+                  <p className="mt-1 font-medium text-white">{selectedCase.locationName}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Machine</p>
+                  <p className="mt-1 font-medium text-white">{selectedCase.machineLabel}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Reported time</p>
+                  <p className="mt-1 font-medium text-white">{formatDate(selectedCase.incidentAt)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Requested</p>
+                  <p className="mt-1 font-medium text-white">{formatCurrency(selectedCase.paymentAmountCents)}</p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge className="border-white/15 bg-white/10 text-slate-100">
+                  Card ending {selectedCase.cardLast4 || 'n/a'}
+                </Badge>
+                {selectedCase.cardWalletUsed && (
+                  <Badge className="border-amber-300/30 bg-amber-300/10 text-amber-100">Wallet payment</Badge>
+                )}
+              </div>
+              <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{selectedCase.issueSummary}</p>
+            </article>
+
+            <article data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-slate-900 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-sky-200">
+                    {hasSelectedCardEvidence(selectedCase, editor) ? 'Matched Nayax transaction' : 'Nayax recommendation'}
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {hasSelectedCardEvidence(selectedCase, editor)
+                      ? formatCurrency(cardAmountCents)
+                      : selectedNayaxSummary?.summary ?? 'Checking transactions'}
+                  </p>
+                </div>
+                {selectedNayaxSummary && (
+                  <Badge className={nayaxStatusClass(selectedNayaxSummary.lookupStatus, hasSelectedCardEvidence(selectedCase, editor))}>
+                    {nayaxDisplayStatusLabel(selectedNayaxSummary, selectedCase, editor)}
+                  </Badge>
+                )}
+              </div>
+
+              {hasSelectedCardEvidence(selectedCase, editor) ? (
+                <>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-slate-400">Transaction time</p>
+                      <p className="mt-1 font-medium text-white">{formatDate(transactionTime)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400">Card</p>
+                      <p className="mt-1 font-medium text-white">
+                        {activeCandidate?.cardBrand || 'Card'} ending {cardLast4}
+                      </p>
+                    </div>
+                  </div>
+                  {activeCandidate?.matchFactors && activeCandidate.matchFactors.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {activeCandidate.matchFactors.slice(0, 4).map((factor) => (
+                        <span
+                          key={factor.key}
+                          className="rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-1 text-[11px] font-medium text-sky-100"
+                        >
+                          {factor.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-3 text-xs leading-5 text-slate-400">
+                    Advisory match. Bloomjoy rechecks the safety rules when the refund is submitted.
+                  </p>
+                  <div className="mt-3 text-slate-950">{renderCardSaleCandidates()}</div>
+                </>
+              ) : (
+                <div className="mt-3 text-slate-950">{renderCardSaleCandidates()}</div>
+              )}
+            </article>
+          </div>
+        </section>
+
+        <section data-testid="refund-action-details" className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          {hasReadyRefund ? (
+            <div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Final action</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">{actionLabel}</p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  You will review the exact payment and customer email before anything is submitted.
+                </p>
+              </div>
+            </div>
+          ) : primaryAction ? (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">Next action</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">{primaryAction.label}</p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">{primaryAction.helper}</p>
+              </div>
+              <Button
+                data-testid="refund-save-case"
+                type="button"
+                size="lg"
+                className="min-h-12 w-full lg:w-auto"
+                onClick={() => void handlePrimaryAction()}
+                disabled={isActionDisabled}
+              >
+                {isSaving ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
+                {primaryAction.label}
+              </Button>
+            </div>
+          ) : null}
+
+          {(editor.decision === 'denied' || editor.status === 'denied') && (
+            <div className="mt-4 border-t border-border pt-4">
+              <Label htmlFor="card-denial-reason">Customer-facing denial reason</Label>
+              <Textarea
+                id="card-denial-reason"
+                value={editor.decisionReason}
+                disabled={isUsingDemoData}
+                onChange={(event) =>
+                  setEditor((current) =>
+                    current ? { ...current, decisionReason: event.target.value } : current
+                  )
+                }
+                rows={3}
+                className="mt-2"
+              />
+              <InfoHint>Required for denials. Keep this warm, specific, and customer-safe.</InfoHint>
+            </div>
+          )}
+
+          {primaryActionIssues.length > 0 && (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>{primaryActionIssues[0]}</p>
+              </div>
+            </div>
+          )}
+
+          {nayaxExecutionNotice && (
+            <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
+          )}
+
+          <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <details className="text-sm">
+              <summary className="cursor-pointer font-medium text-foreground">Preview customer email</summary>
+              {nextCustomerDraft ? (
+                <div className="mt-3 max-w-xl rounded-md bg-muted/40 p-3">
+                  <p className="font-medium text-foreground">{nextCustomerDraft.subject}</p>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-6 text-muted-foreground">{nextCustomerDraft.body}</p>
+                </div>
+              ) : (
+                <p className="mt-2 text-muted-foreground">No automatic email is queued for this state.</p>
+              )}
+            </details>
+            <details className="text-sm sm:text-right">
+              <summary className="cursor-pointer font-medium text-muted-foreground">Other decisions</summary>
+              <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
+                {primaryAction?.label !== 'Ask customer for details' && (
+                  <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseCustomerFollowUp}>
+                    Ask customer for details
+                  </Button>
+                )}
+                {primaryAction?.label !== 'Deny request' && (
+                  <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseDenial}>
+                    Deny request
+                  </Button>
+                )}
+              </div>
+            </details>
+          </div>
+        </section>
+
+        {selectedCase.attachments.length > 0 && (
+          <details className="rounded-lg border border-border bg-card p-3">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">
+              Customer photos ({selectedCase.attachments.length})
+            </summary>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {selectedCase.attachments.map((attachment) => (
+                <Button
+                  key={attachment.id}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleOpenAttachment(attachment.id)}
+                  className="max-w-full justify-start"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  <span className="truncate">{attachment.fileName}</span>
+                </Button>
+              ))}
+            </div>
+          </details>
+        )}
+
+        <AlertDialog
+          open={isRefundConfirmationOpen}
+          onOpenChange={(open) => {
+            if (!isRunningNayaxRefund) setIsRefundConfirmationOpen(open);
+          }}
+        >
+          <AlertDialogContent data-testid="refund-confirmation-dialog" className="max-w-xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm {formatCurrency(cardAmountCents)} card refund</AlertDialogTitle>
+              <AlertDialogDescription>
+                Check every detail. The customer email sends only after Nayax confirms success.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Machine</p>
+                <p className="mt-1 font-medium text-foreground">{selectedCase.machineLabel}</p>
+                <p className="mt-1 text-muted-foreground">{selectedCase.locationName}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transaction</p>
+                <p className="mt-1 font-medium text-foreground">{formatDate(transactionTime)}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {formatCurrency(cardAmountCents)} · card ending {cardLast4}
+                </p>
+              </div>
+            </div>
+
+            {nextCustomerDraft && (
+              <details className="rounded-lg border border-border p-3 text-sm">
+                <summary className="cursor-pointer font-medium text-foreground">Review completion email</summary>
+                <div className="mt-3 max-h-52 overflow-y-auto rounded-md bg-muted/30 p-3">
+                  <p className="font-medium text-foreground">{nextCustomerDraft.subject}</p>
+                  <p className="mt-2 whitespace-pre-line leading-6 text-muted-foreground">{nextCustomerDraft.body}</p>
+                </div>
+              </details>
+            )}
+
+            {nayaxExecutionNotice && (
+              <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
+            )}
+
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isRunningNayaxRefund}>Go back</AlertDialogCancel>
+              <Button
+                data-testid="refund-confirm-nayax-refund"
+                type="button"
+                onClick={() => void handleRunNayaxRefund()}
+                disabled={isActionDisabled}
+              >
+                {isRunningNayaxRefund ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                Confirm refund &amp; send email
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  };
+
   return (
     <AppLayout>
       <section className="section-padding">
@@ -1868,6 +2312,34 @@ export default function AdminRefundsPage() {
               DEMO DATA - visual review only. These synthetic cases do not save changes, run live
               Nayax lookup, or write reporting adjustments. Use seeded functional UAT for real state
               transitions.
+            </div>
+          )}
+
+          {refundActionReceipt && (
+            <div
+              data-testid="refund-action-receipt"
+              role={refundActionReceipt.tone === 'warning' ? 'alert' : 'status'}
+              className={cn(
+                'mt-4 rounded-lg border px-4 py-3 text-sm',
+                refundActionReceipt.tone === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                  : 'border-amber-200 bg-amber-50 text-amber-950'
+              )}
+            >
+              <div className="flex items-start gap-3">
+                {refundActionReceipt.tone === 'success' ? (
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+                ) : (
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                )}
+                <div>
+                  <p className="font-semibold">{refundActionReceipt.title}</p>
+                  <p className="mt-1 leading-6">{refundActionReceipt.message}</p>
+                  {refundActionReceipt.reference && (
+                    <p className="mt-1 text-xs">Confirmation: {refundActionReceipt.reference}</p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -2075,7 +2547,12 @@ export default function AdminRefundsPage() {
               </div>
             </div>
 
-            <div ref={detailPanelRef} className="scroll-mt-28 min-w-0 space-y-5 lg:scroll-mt-4">
+            <div
+              ref={detailPanelRef}
+              tabIndex={-1}
+              aria-label="Selected refund case"
+              className="scroll-mt-28 min-w-0 space-y-5 outline-none lg:scroll-mt-4"
+            >
               <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
                 {!selectedCase || !editor ? (
                   <div className="text-sm text-muted-foreground">
@@ -2096,6 +2573,10 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
 
+                    {selectedCase.paymentMethod === 'card' && renderCardDecisionWorkbench()}
+
+                    {selectedCase.paymentMethod !== 'card' && (
+                    <div className="contents">
                     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
@@ -2220,7 +2701,7 @@ export default function AdminRefundsPage() {
                       </StepHeader>
                       <div className="mt-3">
                         {selectedCase.paymentMethod === 'card' && selectedNayaxSummary && (
-                          <div data-testid="nayax-result-card" className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+                          <div data-testid="legacy-nayax-result-card" className="rounded-lg border border-sky-200 bg-sky-50 p-3">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                               <div>
                                 <p className="text-sm font-semibold text-sky-950">
@@ -2327,7 +2808,7 @@ export default function AdminRefundsPage() {
                             <div>
                               <Label>Refund amount</Label>
                               <Input
-                                data-testid="refund-amount-input"
+                                data-testid="legacy-refund-amount-input"
                                 value={editor.refundAmount}
                                 disabled={isUsingDemoData}
                                 onChange={(event) =>
@@ -2400,7 +2881,7 @@ export default function AdminRefundsPage() {
                             </div>
                           </div>
                           <Button
-                            data-testid="refund-save-case"
+                            data-testid={selectedCase.paymentMethod === 'card' ? 'legacy-refund-save-case' : 'refund-save-case'}
                             onClick={() => void handlePrimaryAction()}
                             disabled={
                               isSaving ||
@@ -2494,7 +2975,7 @@ export default function AdminRefundsPage() {
                             </div>
                           )}
                           <Button
-                            data-testid="refund-save-case"
+                            data-testid={selectedCase.paymentMethod === 'card' ? 'legacy-refund-save-case' : 'refund-save-case'}
                             className="mt-3"
                             onClick={() => void handlePrimaryAction()}
                             disabled={
@@ -2530,7 +3011,7 @@ export default function AdminRefundsPage() {
                                 </p>
                               </div>
                               <Button
-                                data-testid="refund-run-nayax-refund"
+                                data-testid="legacy-refund-run-nayax-refund"
                                 type="button"
                                 onClick={() => void handleRunNayaxRefund()}
                                 disabled={
@@ -2790,6 +3271,8 @@ export default function AdminRefundsPage() {
                     )}
 
                     </div>
+                    </div>
+                    )}
 
                     <div className="space-y-3 rounded-lg border border-border bg-background p-4">
                       <StepHeader step={historyStep} title="History">
