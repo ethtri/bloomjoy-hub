@@ -416,7 +416,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Refund release-tool tests: `npm run refunds:validate-release-tooling`
    - Approved local refund release check: `npm run refunds:release:check`
    - Read-only production drift check: `npm run refunds:release:check-production -- --project-ref <project-ref>`
-   - Production drift checks need Supabase Edge Function read access. They print only function names, versions, and short bundle-digest prefixes.
+   - Scheduled production drift checks use the dedicated `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN` GitHub secret. Grant only Edge Function read access. Checks print only function names, versions, and short bundle-digest prefixes.
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`

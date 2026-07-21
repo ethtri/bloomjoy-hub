@@ -85,6 +85,7 @@ Security rule:
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the six Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
+- [ ] `supabase db push --dry-run` confirms production has no pending approved migrations. Save the sanitized command result with the release evidence; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
@@ -225,6 +226,7 @@ After deploying the six Refund Operations functions:
 5. Run the refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 Supabase function version numbers are audit evidence, not rollback targets. A rollback redeploy creates a new version number.
+The manifest's `sourceGitCommit` is checked against every function's transitive source. Its `previousKnownGood` entry is the immutable restore anchor and must remain populated before deployment.
 
 Refund sync validation:
 - First run the `Refund Adjustment Sync` workflow manually with `dry_run=true`. The workflow should print aggregate counts only.

@@ -116,6 +116,61 @@ export const calculateFunctionSource = (rootDirectory, slug) => {
   };
 };
 
+const readGitFileAtCommit = (rootDirectory, commit, repositoryPath) => {
+  const result = spawnSync('git', ['show', `${commit}:${repositoryPath}`], {
+    cwd: rootDirectory,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  return result.status === 0 ? normalizeText(result.stdout) : null;
+};
+
+export const calculateFunctionSourceAtGitCommit = (rootDirectory, commit, slug) => {
+  assert(gitCommitPattern.test(commit), 'Source Git commit must be a full 40-character SHA');
+  const functionsRoot = 'supabase/functions';
+  const entrypoint = `${functionsRoot}/${slug}/index.ts`;
+  const pending = [entrypoint];
+  const visited = new Set();
+  const sourceByPath = new Map();
+
+  while (pending.length > 0) {
+    const currentFile = pending.pop();
+    if (visited.has(currentFile)) continue;
+    assert(
+      currentFile.startsWith(`${functionsRoot}/`) && !currentFile.includes('/../'),
+      `Relative import escapes supabase/functions for ${slug}`
+    );
+
+    const source = readGitFileAtCommit(rootDirectory, commit, currentFile);
+    assert(source !== null, `Missing Edge Function source at ${commit.slice(0, 12)}: ${currentFile}`);
+    visited.add(currentFile);
+    sourceByPath.set(currentFile, source);
+
+    for (const specifier of relativeImportSpecifiers(source)) {
+      const unresolved = path.posix.normalize(path.posix.join(path.posix.dirname(currentFile), specifier));
+      const candidates = path.posix.extname(unresolved)
+        ? [unresolved]
+        : [
+            unresolved,
+            `${unresolved}.ts`,
+            `${unresolved}.tsx`,
+            `${unresolved}.js`,
+            `${unresolved}.mjs`,
+            `${unresolved}/index.ts`,
+          ];
+      const dependency = candidates.find(
+        (candidate) => readGitFileAtCommit(rootDirectory, commit, candidate) !== null
+      );
+      assert(dependency, `Unresolved relative import ${specifier} at ${commit.slice(0, 12)} in ${currentFile}`);
+      pending.push(dependency);
+    }
+  }
+
+  const files = [...sourceByPath.keys()].sort();
+  const digestPayload = files.map((file) => `${file}\0${sourceByPath.get(file)}\0`).join('');
+  return { sourceSha256: sha256(digestPayload), files };
+};
+
 export const calculateMigrationDigest = (rootDirectory, requiredMigrations) => {
   const migrationsDirectory = path.join(rootDirectory, 'supabase', 'migrations');
   const records = requiredMigrations.map((fileName) => {
@@ -284,13 +339,39 @@ export const buildLocalReleaseState = (rootDirectory, manifest) => {
         verifyJwtConfig.get(entry.slug) === entry.verifyJwt,
         `Supabase verify_jwt does not match manifest for ${entry.slug}`
       );
+      const localSource = calculateFunctionSource(rootDirectory, entry.slug);
+      if (rootDirectory === repoRoot && manifest.sourceGitCommit !== 'pending') {
+        const committedSource = calculateFunctionSourceAtGitCommit(
+          rootDirectory,
+          manifest.sourceGitCommit,
+          entry.slug
+        );
+        assert(
+          committedSource.sourceSha256 === localSource.sourceSha256,
+          `sourceGitCommit does not contain the approved source for ${entry.slug}`
+        );
+      }
       return {
         slug: entry.slug,
         verifyJwt: entry.verifyJwt,
-        ...calculateFunctionSource(rootDirectory, entry.slug),
+        ...localSource,
       };
     }),
   };
+};
+
+export const validatePreviousKnownGoodSource = (rootDirectory, manifest) => {
+  for (const entry of manifest.previousKnownGood.functions) {
+    const committedSource = calculateFunctionSourceAtGitCommit(
+      rootDirectory,
+      manifest.previousKnownGood.sourceGitCommit,
+      entry.slug
+    );
+    assert(
+      committedSource.sourceSha256 === entry.sourceSha256,
+      `previousKnownGood source does not match ${entry.slug}`
+    );
+  }
 };
 
 export const compareLocalState = (manifest, localState) => {
@@ -523,6 +604,7 @@ const main = () => {
   }
 
   validateManifestShape(manifest);
+  validatePreviousKnownGoodSource(repoRoot, manifest);
   const localFailures = compareLocalState(manifest, localState);
   printFailures('Refund release local alignment failed:', localFailures);
   if (localFailures.length > 0) process.exit(1);
