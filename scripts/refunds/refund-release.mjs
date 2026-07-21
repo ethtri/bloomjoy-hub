@@ -301,22 +301,48 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
     'migrationVersionSetSha256 is invalid'
   );
 
-  const previousKnownGood = manifest.previousKnownGood;
-  assert(previousKnownGood && typeof previousKnownGood.releaseId === 'string', 'previousKnownGood is missing');
-  assert(gitCommitPattern.test(previousKnownGood.sourceGitCommit ?? ''), 'previousKnownGood sourceGitCommit is invalid');
-  assert(digestPattern.test(previousKnownGood.migrationFilesSha256 ?? ''), 'previousKnownGood migration digest is invalid');
+  const approvedRestoreSource = manifest.approvedRestoreSource;
+  assert(approvedRestoreSource && typeof approvedRestoreSource.releaseId === 'string', 'approvedRestoreSource is missing');
+  assert(gitCommitPattern.test(approvedRestoreSource.sourceGitCommit ?? ''), 'approvedRestoreSource sourceGitCommit is invalid');
+  assert(digestPattern.test(approvedRestoreSource.migrationFilesSha256 ?? ''), 'approvedRestoreSource migration digest is invalid');
   assert(
-    digestPattern.test(previousKnownGood.migrationVersionSetSha256 ?? ''),
-    'previousKnownGood migration version digest is invalid'
+    digestPattern.test(approvedRestoreSource.migrationVersionSetSha256 ?? ''),
+    'approvedRestoreSource migration version digest is invalid'
   );
-  assert(Array.isArray(previousKnownGood.functions), 'previousKnownGood functions are missing');
+  assert(Array.isArray(approvedRestoreSource.functions), 'approvedRestoreSource functions are missing');
   assert(
-    JSON.stringify(previousKnownGood.functions.map((entry) => entry.slug)) ===
+    JSON.stringify(approvedRestoreSource.functions.map((entry) => entry.slug)) ===
       JSON.stringify(requiredFunctionSlugs),
-    'previousKnownGood function allowlist is invalid'
+    'approvedRestoreSource function allowlist is invalid'
   );
-  for (const entry of previousKnownGood.functions) {
-    assert(digestPattern.test(entry.sourceSha256 ?? ''), `previousKnownGood source digest is invalid for ${entry.slug}`);
+  for (const entry of approvedRestoreSource.functions) {
+    assert(digestPattern.test(entry.sourceSha256 ?? ''), `approvedRestoreSource source digest is invalid for ${entry.slug}`);
+  }
+
+  if (manifest.preDeploymentProduction === null) {
+    assert(allowPending, 'preDeploymentProduction baseline is missing');
+  } else {
+    assert(
+      typeof manifest.preDeploymentCapturedAt === 'string' &&
+        Number.isFinite(Date.parse(manifest.preDeploymentCapturedAt)),
+      'preDeploymentCapturedAt is invalid'
+    );
+    assert(Array.isArray(manifest.preDeploymentProduction), 'preDeploymentProduction baseline is invalid');
+    assert(
+      JSON.stringify(manifest.preDeploymentProduction.map((entry) => entry.slug)) ===
+        JSON.stringify(requiredFunctionSlugs),
+      'preDeploymentProduction function allowlist is invalid'
+    );
+    for (const entry of manifest.preDeploymentProduction) {
+      assert(entry.status === 'ACTIVE' || entry.status === 'MISSING', `preDeploymentProduction status is invalid for ${entry.slug}`);
+      if (entry.status === 'ACTIVE') {
+        assert(Number.isInteger(entry.version) && entry.version > 0, `preDeploymentProduction version is invalid for ${entry.slug}`);
+        assert(typeof entry.verifyJwt === 'boolean', `preDeploymentProduction verifyJwt is invalid for ${entry.slug}`);
+        assert(typeof entry.importMap === 'boolean', `preDeploymentProduction importMap is invalid for ${entry.slug}`);
+        assert(digestPattern.test(entry.ezbrSha256 ?? ''), `preDeploymentProduction bundle digest is invalid for ${entry.slug}`);
+        assert(digestPattern.test(entry.sourceSha256 ?? ''), `preDeploymentProduction source digest is invalid for ${entry.slug}`);
+      }
+    }
   }
 };
 
@@ -360,16 +386,16 @@ export const buildLocalReleaseState = (rootDirectory, manifest) => {
   };
 };
 
-export const validatePreviousKnownGoodSource = (rootDirectory, manifest) => {
-  for (const entry of manifest.previousKnownGood.functions) {
+export const validateApprovedRestoreSource = (rootDirectory, manifest) => {
+  for (const entry of manifest.approvedRestoreSource.functions) {
     const committedSource = calculateFunctionSourceAtGitCommit(
       rootDirectory,
-      manifest.previousKnownGood.sourceGitCommit,
+      manifest.approvedRestoreSource.sourceGitCommit,
       entry.slug
     );
     assert(
       committedSource.sourceSha256 === entry.sourceSha256,
-      `previousKnownGood source does not match ${entry.slug}`
+      `approvedRestoreSource does not match ${entry.slug}`
     );
   }
 };
@@ -425,6 +451,12 @@ export const compareProductionState = (manifest, productionFunctions) => {
       continue;
     }
     if (actual.status !== 'ACTIVE') failures.push(`${expected.slug}: production status is not ACTIVE`);
+    if (!Number.isInteger(actual.version) || actual.version < 1) {
+      failures.push(`${expected.slug}: production version is invalid`);
+    }
+    if (!digestPattern.test(actual.ezbrSha256)) {
+      failures.push(`${expected.slug}: production bundle digest is invalid`);
+    }
     if (actual.verifyJwt !== expected.verifyJwt) {
       failures.push(`${expected.slug}: production verify_jwt differs from the manifest`);
     }
@@ -465,6 +497,12 @@ export const compareCaptureState = (manifest, productionFunctions, productionSou
       continue;
     }
     if (actual.status !== 'ACTIVE') failures.push(`${expected.slug}: production status is not ACTIVE`);
+    if (!Number.isInteger(actual.version) || actual.version < 1) {
+      failures.push(`${expected.slug}: production version is invalid`);
+    }
+    if (!digestPattern.test(actual.ezbrSha256)) {
+      failures.push(`${expected.slug}: production bundle digest is invalid`);
+    }
     if (actual.verifyJwt !== expected.verifyJwt) {
       failures.push(`${expected.slug}: production verify_jwt differs from the manifest`);
     }
@@ -475,6 +513,31 @@ export const compareCaptureState = (manifest, productionFunctions, productionSou
   }
 
   return failures;
+};
+
+export const buildPreDeploymentProductionBaseline = (productionFunctions, productionSources) => {
+  const productionBySlug = new Map(productionFunctions.map((entry) => [entry.slug, entry]));
+  const sourceBySlug = new Map(productionSources.map((entry) => [entry.slug, entry.sourceSha256]));
+  assert(productionBySlug.size === productionFunctions.length, 'Production metadata contains duplicate refund function slugs');
+  assert(sourceBySlug.size === productionSources.length, 'Downloaded production source contains duplicate refund function slugs');
+
+  return requiredFunctionSlugs.map((slug) => {
+    const actual = productionBySlug.get(slug);
+    if (!actual) return { slug, status: 'MISSING' };
+    assert(actual.status === 'ACTIVE', `${slug}: baseline production status is not ACTIVE`);
+    assert(Number.isInteger(actual.version) && actual.version > 0, `${slug}: baseline production version is invalid`);
+    assert(digestPattern.test(actual.ezbrSha256), `${slug}: baseline production bundle digest is invalid`);
+    assert(digestPattern.test(sourceBySlug.get(slug) ?? ''), `${slug}: baseline production source digest is invalid`);
+    return {
+      slug,
+      status: actual.status,
+      version: actual.version,
+      verifyJwt: actual.verifyJwt,
+      importMap: actual.importMap,
+      ezbrSha256: actual.ezbrSha256,
+      sourceSha256: sourceBySlug.get(slug),
+    };
+  });
 };
 
 const runSupabaseCommand = (args, cwd, failureMessage) => {
@@ -508,11 +571,11 @@ const runSupabaseFunctionsList = (projectRef) => {
   }
 };
 
-const readProductionSourceState = (projectRef) => {
+const readProductionSourceState = (projectRef, slugs = requiredFunctionSlugs) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-capture-'));
 
   try {
-    return requiredFunctionSlugs.map((slug) => {
+    return slugs.map((slug) => {
       const functionWorkdir = path.join(temporaryRoot, slug);
       fs.mkdirSync(functionWorkdir, { recursive: true });
       runSupabaseCommand(
@@ -582,6 +645,7 @@ const parseArguments = (argv) => {
     if (argument === '--local') options.mode = 'local';
     else if (argument === '--production') options.mode = 'production';
     else if (argument === '--capture-production') options.mode = 'capture';
+    else if (argument === '--capture-predeployment') options.mode = 'baseline';
     else if (argument === '--write-local') options.writeLocal = true;
     else if (argument === '--project-ref') options.projectRef = argv[++index] ?? '';
     else if (argument === '--confirm-project-ref') options.confirmProjectRef = argv[++index] ?? '';
@@ -595,6 +659,29 @@ const parseArguments = (argv) => {
 const main = () => {
   const options = parseArguments(process.argv.slice(2));
   let manifest = readJson(manifestPath);
+
+  if (options.mode === 'baseline') {
+    validateManifestShape(manifest, { allowPending: true });
+    const projectRef = options.projectRef || manifest.projectRef;
+    assert(projectRef === manifest.projectRef, 'Project ref does not match the production release manifest');
+    assert(options.confirmProjectRef === projectRef, 'Baseline capture requires an exact --confirm-project-ref');
+    assert(options.output, 'Baseline capture requires --output under the gitignored output directory');
+    const production = sanitizeProductionMetadata(runSupabaseFunctionsList(projectRef));
+    const productionSources = readProductionSourceState(projectRef, production.map((entry) => entry.slug));
+    const preDeploymentProduction = buildPreDeploymentProductionBaseline(production, productionSources);
+    const outputPath = path.resolve(repoRoot, options.output);
+    const allowedOutputRoot = path.resolve(repoRoot, 'output');
+    assert(outputPath.startsWith(`${allowedOutputRoot}${path.sep}`), 'Capture output must be under output/');
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(
+      outputPath,
+      `${JSON.stringify({ projectRef, capturedAt: new Date().toISOString(), preDeploymentProduction }, null, 2)}\n`,
+      'utf8'
+    );
+    console.log(`Captured the exact pre-deployment baseline for ${production.length} deployed refund functions.`);
+    return;
+  }
+
   const localState = buildLocalReleaseState(repoRoot, manifest);
 
   if (options.writeLocal) {
@@ -604,7 +691,7 @@ const main = () => {
   }
 
   validateManifestShape(manifest);
-  validatePreviousKnownGoodSource(repoRoot, manifest);
+  validateApprovedRestoreSource(repoRoot, manifest);
   const localFailures = compareLocalState(manifest, localState);
   printFailures('Refund release local alignment failed:', localFailures);
   if (localFailures.length > 0) process.exit(1);
@@ -639,7 +726,8 @@ const main = () => {
           sourceGitCommit: manifest.sourceGitCommit,
           migrationFilesSha256: manifest.migrationFilesSha256,
           migrationVersionSetSha256: manifest.migrationVersionSetSha256,
-          previousKnownGood: manifest.previousKnownGood,
+          preDeploymentProduction: manifest.preDeploymentProduction,
+          approvedRestoreSource: manifest.approvedRestoreSource,
           functions: production.map((entry) => ({
             slug: entry.slug,
             status: entry.status,

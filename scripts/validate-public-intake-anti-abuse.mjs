@@ -14,6 +14,7 @@ const files = {
   refundMigration: 'supabase/migrations/202605090001_refund_operations_mvp.sql',
   refundScopeHardeningMigration: 'supabase/migrations/202605130003_refund_scope_and_readiness_hardening.sql',
   refundPublicLocationGuardMigration: 'supabase/migrations/202607210001_refund_public_location_label_guard.sql',
+  refundManagerLocationGuardMigration: 'supabase/migrations/202607210002_refund_manager_location_label_guard.sql',
   refundRequestPage: 'src/pages/RefundRequest.tsx',
   productionRunbook: 'Docs/PRODUCTION_RUNBOOK.md',
   localDev: 'Docs/LOCAL_DEV.md',
@@ -34,6 +35,7 @@ const globalKeyMigration = read(files.globalKeyMigration);
 const refundMigration = read(files.refundMigration);
 const refundScopeHardeningMigration = read(files.refundScopeHardeningMigration);
 const refundPublicLocationGuardMigration = read(files.refundPublicLocationGuardMigration);
+const refundManagerLocationGuardMigration = read(files.refundManagerLocationGuardMigration);
 const refundRequestPage = read(files.refundRequestPage);
 const productionRunbook = read(files.productionRunbook);
 const localDev = read(files.localDev);
@@ -280,10 +282,17 @@ assert(
 );
 assert(
   refundIntakeFunction.includes('!machineRecord.refund_public_display_label?.trim()') &&
+    refundIntakeFunction.includes('locationRecord?.status !== "active"') &&
     refundIntakeFunction.includes('That location is not available for refund intake.') &&
     [refundIntakeFunction, refundAdminUpdate, refundMessageSend, refundAutomationSweep]
       .every((source) => source.includes('resolveRefundPublicLabels')),
   'Direct intake and every refund messaging path must fail closed or resolve customer-safe labels.'
+);
+assert(
+  refundManagerLocationGuardMigration.includes("'locationName', case") &&
+    refundManagerLocationGuardMigration.includes("'Bloomjoy location'") &&
+    refundManagerLocationGuardMigration.includes('refund_public_display_label'),
+  'The manager workbench overview must not expose internal placeholder locations.'
 );
 assert(
   refundRequestPage.includes('formatMachineOption') &&

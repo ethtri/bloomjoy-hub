@@ -85,7 +85,7 @@ Security rule:
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the six Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
-- [ ] `supabase db push --dry-run` confirms production has no pending approved migrations. Save the sanitized command result with the release evidence; the Edge Function drift check does not prove remote migration parity.
+- [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
 - [ ] Domain and HTTPS confirmed for both production frontend hosts:
@@ -189,6 +189,8 @@ Deploy all current checkout, submission, invite, and reporting functions:
 
 Before deploying reporting functions, confirm Step B has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
+After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
+
 Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the six explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
 
 ```bash
@@ -226,7 +228,7 @@ After deploying the six Refund Operations functions:
 5. Run the refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 Supabase function version numbers are audit evidence, not rollback targets. A rollback redeploy creates a new version number.
-The manifest's `sourceGitCommit` is checked against every function's transitive source. Its `previousKnownGood` entry is the immutable restore anchor and must remain populated before deployment.
+The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` is a separately validated, immutable six-function source set chosen for restoration because the old live baseline is incomplete.
 
 Refund sync validation:
 - First run the `Refund Adjustment Sync` workflow manually with `dry_run=true`. The workflow should print aggregate counts only.
@@ -331,7 +333,7 @@ Rollback order:
      - `refund-case-message-send`
      - `refund-case-automation-sweep`
      - `nayax-card-refund`
-   - Restore refund functions from a clean worktree at the previous known-good source commit recorded in the refund production release manifest.
+   - Restore refund functions from a clean worktree at the `approvedRestoreSource` commit recorded in the refund production release manifest. Use `preDeploymentProduction` only to compare against the exact old live state; do not recreate its missing message endpoint.
    - Reconfirm the four Nayax fail-closed values and the absence of sponsor go/no-go before redeploying.
    - Never delete `refund-case-message-send` as a rollback step. Restore a known-good implementation instead.
 3) Secrets:

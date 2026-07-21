@@ -655,7 +655,7 @@ serve(async (req) => {
 
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
-      .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone)")
+      .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
       .eq("id", machineId)
       .eq("status", "active")
       .in("machine_type", ["commercial", "mini"])
@@ -676,15 +676,22 @@ serve(async (req) => {
       location_id: string;
       refund_public_display_label: string | null;
       reporting_locations?:
-        | { id: string; name: string; timezone: string }
-        | { id: string; name: string; timezone: string }[]
+        | { id: string; name: string; timezone: string; status: string }
+        | { id: string; name: string; timezone: string; status: string }[]
         | null;
     };
     const locationRecord = Array.isArray(machineRecord.reporting_locations)
       ? machineRecord.reporting_locations[0] ?? null
       : machineRecord.reporting_locations ?? null;
+    if (locationRecord?.status !== "active") {
+      return new Response(JSON.stringify({ error: "That location is not available for refund intake." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (
-      (!locationRecord?.name || isPlaceholderRefundLocation(locationRecord.name)) &&
+      (!locationRecord.name || isPlaceholderRefundLocation(locationRecord.name)) &&
       !machineRecord.refund_public_display_label?.trim()
     ) {
       return new Response(JSON.stringify({ error: "That location is not available for refund intake." }), {

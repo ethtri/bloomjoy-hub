@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   assertSupportedFunctionDeploymentInputs,
+  buildPreDeploymentProductionBaseline,
   buildLocalReleaseState,
   calculateFunctionSource,
   calculateMigrationDigest,
@@ -92,7 +93,9 @@ try {
     migrationFilesSha256: calculateMigrationDigest(fixtureRoot, migrationFiles),
     migrationVersionSetSha256: calculateMigrationVersionSetDigest(migrationFiles),
     functions: localFunctions,
-    previousKnownGood: {
+    preDeploymentCapturedAt: '2026-01-01T00:00:00.000Z',
+    preDeploymentProduction: requiredFunctionSlugs.map((slug) => ({ slug, status: 'MISSING' })),
+    approvedRestoreSource: {
       releaseId: 'fixture-restore',
       sourceGitCommit: 'b'.repeat(40),
       migrationFilesSha256: calculateMigrationDigest(fixtureRoot, migrationFiles),
@@ -179,6 +182,19 @@ try {
     slug: entry.slug,
     sourceSha256: entry.sourceSha256,
   }));
+  assert.equal(
+    buildPreDeploymentProductionBaseline(sanitized.slice(1), productionSources.slice(1))[0].status,
+    'MISSING',
+    'An absent pre-deployment function must be recorded explicitly'
+  );
+  assert.throws(
+    () => buildPreDeploymentProductionBaseline(
+      sanitized.map((entry, index) => index === 0 ? { ...entry, version: 0 } : entry),
+      productionSources
+    ),
+    /baseline production version is invalid/,
+    'Invalid pre-deployment metadata must fail closed'
+  );
   assert.deepEqual(
     compareCaptureState(manifest, sanitized, productionSources),
     [],
@@ -194,6 +210,24 @@ try {
     ).join('\n'),
     /downloaded production source does not match/,
     'Capture must reject stale production source even when metadata is active'
+  );
+  assert.match(
+    compareCaptureState(
+      manifest,
+      sanitized.map((entry, index) => index === 0 ? { ...entry, version: 0 } : entry),
+      productionSources
+    ).join('\n'),
+    /production version is invalid/,
+    'Capture must reject invalid production versions'
+  );
+  assert.match(
+    compareCaptureState(
+      manifest,
+      sanitized.map((entry, index) => index === 0 ? { ...entry, ezbrSha256: '' } : entry),
+      productionSources
+    ).join('\n'),
+    /production bundle digest is invalid/,
+    'Capture must reject invalid production bundle digests'
   );
 
   assert.match(

@@ -48,6 +48,7 @@
     "refunds:release:check": "node scripts/refunds/refund-release.mjs --local",
     "refunds:release:check-production": "node scripts/refunds/refund-release.mjs --production",
     "refunds:release:capture-production": "node scripts/refunds/refund-release.mjs --capture-production",
+    "refunds:release:capture-predeployment": "node scripts/refunds/refund-release.mjs --capture-predeployment",
     "refunds:validate-release-tooling": "node scripts/refunds/validate-refund-release.mjs",
     "admin-access:validate-invite-uat": "node scripts/validate-admin-access-invite-uat.mjs",
     "partner-technicians:validate-uat": "node scripts/validate-partner-technician-access-uat.mjs",
