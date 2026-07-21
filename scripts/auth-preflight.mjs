@@ -195,6 +195,7 @@ function run() {
   const warnings = [];
 
   for (const templatePath of [
+    'supabase/templates/confirmation.html',
     'supabase/templates/invite.html',
     'supabase/templates/magic-link.html',
     'supabase/templates/recovery.html',
@@ -211,6 +212,39 @@ function run() {
     }
     if (template.includes('.ConfirmationURL') || template.includes('.TokenHash')) {
       errors.push(`${templatePath} contains a scanner-consumable auth credential.`);
+    }
+  }
+
+  const authConfigPath = path.join(repoRoot, 'supabase/config.toml');
+  if (!fs.existsSync(authConfigPath)) {
+    errors.push('supabase/config.toml is missing; production auth configuration cannot be guarded.');
+  } else {
+    const authConfig = fs.readFileSync(authConfigPath, 'utf8');
+    const productionAuthRequirements = [
+      ['site_url = "https://app.bloomjoyusa.com"', 'production Site URL'],
+      ['enable_confirmations = true', 'email confirmations'],
+      ['max_frequency = "1m0s"', 'one-minute email frequency'],
+      ['otp_length = 6', 'six-digit email OTPs'],
+      ['email_sent = 30', 'production auth-email hourly capacity'],
+      ['enroll_enabled = true', 'TOTP enrollment'],
+      ['verify_enabled = true', 'TOTP verification'],
+      ['host = "smtp.resend.com"', 'custom Resend SMTP host'],
+      ['port = 465', 'custom Resend SMTP TLS port'],
+      ['user = "resend"', 'custom Resend SMTP user'],
+      ['pass = "env(RESEND_API_KEY)"', 'environment-backed SMTP credential'],
+      ['admin_email = "info@bloomjoyusa.com"', 'approved Bloomjoy auth sender'],
+      ['[auth.email.template.confirmation]', 'signup-confirmation template'],
+    ];
+    for (const [requiredText, label] of productionAuthRequirements) {
+      if (!authConfig.includes(requiredText)) {
+        errors.push(`supabase/config.toml must preserve ${label} before an auth config push.`);
+      }
+    }
+    if (/^site_url\s*=\s*"https?:\/\/(?:127\.0\.0\.1|localhost)/m.test(authConfig)) {
+      errors.push('supabase/config.toml must not use a localhost Site URL; config push targets production.');
+    }
+    if (/^pass\s*=\s*"(?!env\()[^"]+"/m.test(authConfig)) {
+      errors.push('supabase/config.toml must not contain a literal SMTP password.');
     }
   }
 

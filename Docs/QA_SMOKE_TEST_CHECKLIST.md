@@ -384,7 +384,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth launch hardening (production-only)
 - [ ] Branded auth emails send from approved Bloomjoy sender domain (not default Supabase sender)
-- [ ] Supabase Invite User, Email Code, and password recovery emails use the versioned scanner-resistant branded templates; `npm run auth:templates:validate` passes
+- [ ] Supabase custom SMTP is enabled through the environment-backed Resend credential and the production Auth email limit is at least 30/hour
+- [ ] Supabase Signup Confirmation, Invite User, Email Code, and password recovery emails use the versioned scanner-resistant branded templates; `npm run auth:templates:validate` passes
 - [ ] Production auth smoke evidence is captured in `Docs/AUTH_PRODUCTION_SIGNOFF.md`
 
 ## Regression sanity
