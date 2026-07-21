@@ -78,6 +78,11 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Cross-workflow duplicate guard blocks likely duplicate settlement adjustments between a hosted refund case and legacy Google/AppSheet refund row.
 - [ ] Approved card path uses the matched transaction amount, requires explicit payment confirmation, calls guarded in-app `nayax-card-refund`, leaves the case open and customer uncontacted when execution is blocked, and completes only after a successful execution response without showing raw provider IDs in the UI.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.
+- [ ] A matched cash/Zelle case shows no Nayax or card-refund controls, exposes exactly one dominant next action, and keeps denial/missing-information alternatives behind `Other decisions` with the correct customer-email preview.
+- [ ] Cash completion requires a positive amount, payment-sent timestamp, short non-sensitive confirmation/reference, and an explicit `payment was sent` checkbox; it rejects card/bank/contact/credential-like input and never stores the manual reference in the audit-event payload.
+- [ ] Cash completion opens a final confirmation, disables while saving, and a repeated or double submission creates no second state transition, audit event, reporting adjustment, or customer email. The email sends only after the completion record is saved.
+- [ ] Cash completion history identifies the acting manager and event time, while desktop and `390x844` screenshots show the review, confirmation, and durable success/recovery states without horizontal overflow.
+- [ ] `npm run db:validate-migrations` passes `refund_cash_completion_safety.sql`, including browser-role denial, service-role authorization, required evidence, idempotent replay, one redacted audit event, and rejected-case fail-closed behavior.
 - [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.
 - [ ] Run manager-wide shadow-mode UAT with all current authenticated Machine Managers while the Google Form/AppSheet process remains available as fallback; do not cut over until pilot evidence is clean.
 

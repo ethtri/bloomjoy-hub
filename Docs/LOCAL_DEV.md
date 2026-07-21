@@ -58,6 +58,7 @@
    - Partner report weekly/monthly export metadata: `supabase/migrations/202604260019_partner_report_period_exports.sql`
    - Refund adjustment review/matching: `supabase/migrations/202604270001_refund_adjustment_review_matching.sql`
    - Live refund sheet ingestion source marker: `supabase/migrations/202604270002_live_refund_sheet_ingestion.sql`
+   - Audited, idempotent cash refund completion: `supabase/migrations/202607210004_refund_cash_completion_audit.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
    - Technician entitlement resolver production repair: `supabase/migrations/202604270006_restore_technician_entitlement_resolution_rpc.sql`
    - Scoped Admin reporting visibility repair: `supabase/migrations/202604280008_scoped_admin_reporting_visibility.sql`
@@ -268,7 +269,8 @@ Steps:
 5) Open `/refunds/request?demo=on` separately to review the public customer intake form against synthetic location/machine options without creating a real case.
 6) Run the mocked refund-only portal QA harness against the running app:
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081`
-   - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data.
+   - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data. Its `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.
+7) When cash-completion SQL changes, run `npm run db:validate-migrations`. The `refund_cash_completion_safety.sql` pgTAP suite proves service-role-only access, required evidence, idempotency, one redacted audit event, and no duplicate completion on a repeated request.
 
 Three validation modes:
 - `DEMO DATA - visual review only`: append `?demo=on` on localhost/127.0.0.1 for synthetic, browser-only visual review. Demo mode must not be used as evidence that saves, Nayax lookup, access scope, or reporting write-through work.

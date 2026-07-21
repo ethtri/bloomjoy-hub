@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -122,6 +123,8 @@ type EditorState = {
   decisionReason: string;
   refundAmount: string;
   manualRefundReference: string;
+  cashPayoutSentAt: string;
+  cashPaymentConfirmed: boolean;
   matchedNayaxCandidateToken: string;
   matchedNayaxMachineAuthTime: string;
   matchedNayaxAmount: string;
@@ -142,6 +145,11 @@ type QueueFilter = 'needs_action' | 'waiting_on_customer' | 'ready_to_pay' | 'bl
 type CustomerMessageResult = {
   type: string;
   status: string;
+} | null;
+
+type CaseSaveResult = {
+  customerMessage: CustomerMessageResult;
+  updateApplied: boolean;
 } | null;
 
 type RefundActionReceipt = {
@@ -173,6 +181,8 @@ const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
         ? (refundCase.paymentAmountCents / 100).toFixed(2)
         : '',
   manualRefundReference: refundCase.manualRefundReference ?? '',
+  cashPayoutSentAt: '',
+  cashPaymentConfirmed: refundCase.status === 'completed',
   matchedNayaxCandidateToken: '',
   matchedNayaxMachineAuthTime: refundCase.matchedNayaxMachineAuthTime ?? '',
   matchedNayaxAmount:
@@ -185,6 +195,26 @@ const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
   clearNayaxMatch: false,
   internalNote: '',
 });
+
+const toDateTimeLocalValue = (value: Date) => {
+  const offsetValue = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
+  return offsetValue.toISOString().slice(0, 16);
+};
+
+const getManualPaymentReferenceIssue = (value: string): string | null => {
+  const normalized = value.trim();
+  if (normalized.length < 3) return 'Enter a short payment confirmation or reference.';
+  if (normalized.length > 80) return 'Payment confirmation or reference must be 80 characters or fewer.';
+  const digitCount = normalized.replace(/[^0-9]/g, '').length;
+  if (
+    /(?:routing|account|card|bank|password|passcode|pin|cvv|security\s*code)/i.test(normalized) ||
+    normalized.includes('@') ||
+    digitCount >= 10
+  ) {
+    return 'Do not enter bank, card, contact, or other sensitive payment details.';
+  }
+  return null;
+};
 
 const formatDate = (value: string | null) => {
   if (!value) return 'n/a';
@@ -1085,9 +1115,27 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
     }
 
     if (selectedCase.paymentMethod !== 'card' && !editor.manualRefundReference.trim()) {
-      issues.push(
-        'Enter the Zelle confirmation/reference before saving the completed refund.'
-      );
+      issues.push('Enter a short payment confirmation or reference before completing the refund.');
+    }
+
+    if (selectedCase.paymentMethod !== 'card' && editor.manualRefundReference.trim()) {
+      const referenceIssue = getManualPaymentReferenceIssue(editor.manualRefundReference);
+      if (referenceIssue) issues.push(referenceIssue);
+    }
+
+    if (selectedCase.paymentMethod !== 'card') {
+      const payoutTimestamp = editor.cashPayoutSentAt ? new Date(editor.cashPayoutSentAt) : null;
+      if (!payoutTimestamp || !Number.isFinite(payoutTimestamp.getTime())) {
+        issues.push('Enter when the cash refund payment was sent.');
+      } else if (payoutTimestamp.getTime() > Date.now() + 5 * 60 * 1000) {
+        issues.push('Cash refund payment time cannot be in the future.');
+      } else if (payoutTimestamp.getTime() < new Date(selectedCase.incidentAt).getTime()) {
+        issues.push('Cash refund payment time cannot be before the reported incident.');
+      }
+
+      if (!editor.cashPaymentConfirmed) {
+        issues.push('Confirm that the cash refund payment was sent.');
+      }
     }
 
     if (selectedCase.paymentMethod === 'card' && !hasNayaxEvidence) {
@@ -1106,6 +1154,7 @@ export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const autoLookupAttemptedRef = useRef<Set<string>>(new Set());
+  const cashCompletionInFlightRef = useRef(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1114,6 +1163,8 @@ export default function AdminRefundsPage() {
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
+  const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
+  const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
@@ -1124,6 +1175,10 @@ export default function AdminRefundsPage() {
   const [messageSubject, setMessageSubject] = useState('');
   const [messageBody, setMessageBody] = useState('');
   const forceDemoData = isLocalUatDemoForced();
+  const showLegacyCashWorkbench =
+    import.meta.env.DEV &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('legacy-cash') === 'on';
 
   const {
     data: liveOverview = { cases: [], machines: [], managerAssignments: [] },
@@ -1203,6 +1258,7 @@ export default function AdminRefundsPage() {
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
     setIsRefundConfirmationOpen(false);
+    setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
   }, [filteredCases, selectedId]);
@@ -1255,6 +1311,7 @@ export default function AdminRefundsPage() {
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
     setIsRefundConfirmationOpen(false);
+    setIsCashConfirmationOpen(false);
     setRefundActionReceipt(null);
     setNayaxLookupSummary(refundCase.nayaxLookupSummary ?? null);
     const draft = getCustomerMessageDraft(refundCase, 'status_update');
@@ -1267,7 +1324,7 @@ export default function AdminRefundsPage() {
   const handleSaveCase = async (
     editorOverride?: EditorState,
     customerMessageType?: RefundCustomerPortalMessageType | null
-  ): Promise<CustomerMessageResult> => {
+  ): Promise<CaseSaveResult> => {
     if (!selectedCase || !editor) return null;
     const nextEditor = editorOverride ?? editor;
     if (isUsingDemoData) {
@@ -1309,6 +1366,10 @@ export default function AdminRefundsPage() {
         internalNote: nextEditor.internalNote.trim() || null,
         refundAmountCents,
         manualRefundReference: nextEditor.manualRefundReference.trim() || null,
+        cashPayoutSentAt: nextEditor.cashPayoutSentAt
+          ? new Date(nextEditor.cashPayoutSentAt).toISOString()
+          : null,
+        cashPaymentConfirmed: nextEditor.cashPaymentConfirmed,
         clearNayaxMatch,
         matchedNayaxCandidateToken: nextEditor.matchedNayaxCandidateToken.trim() || undefined,
         matchedNayaxMachineAuthTime: nextEditor.matchedNayaxMachineAuthTime.trim() || null,
@@ -1326,7 +1387,10 @@ export default function AdminRefundsPage() {
         toast.success('Refund case updated.');
       }
       await refresh();
-      return result.customerMessage ?? null;
+      return {
+        customerMessage: result.customerMessage ?? null,
+        updateApplied: result.updateApplied !== false,
+      };
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Unable to update refund case.';
       toast.error(message);
@@ -1415,9 +1479,9 @@ export default function AdminRefundsPage() {
         tone: 'success',
         title: 'Refund completed',
         message:
-          saveResult.status === 'failed'
+          saveResult.customerMessage?.status === 'failed'
             ? 'Nayax reported success and the case was completed, but the customer email needs a retry.'
-            : saveResult.status === 'sent'
+            : saveResult.customerMessage?.status === 'sent'
               ? 'Nayax reported success, the case was completed, and the customer was notified.'
               : 'Nayax reported success, the case was completed, and the customer email is queued for delivery.',
         reference,
@@ -1467,6 +1531,59 @@ export default function AdminRefundsPage() {
     }
     setEditor(primaryActionEditor);
     await handleSaveCase(primaryActionEditor, primaryAction.messageType ?? null);
+  };
+
+  const handleConfirmCashCompletion = async () => {
+    if (
+      cashCompletionInFlightRef.current ||
+      !selectedCase ||
+      selectedCase.paymentMethod === 'card' ||
+      !primaryActionEditor ||
+      primaryActionEditor.status !== 'completed'
+    ) {
+      return;
+    }
+
+    const issues = getCaseSaveIssues(selectedCase, primaryActionEditor);
+    if (issues.length > 0) {
+      toast.error(issues[0]);
+      return;
+    }
+
+    cashCompletionInFlightRef.current = true;
+    setIsCashCompletionSubmitting(true);
+    setRefundActionReceipt(null);
+    try {
+      setEditor(primaryActionEditor);
+      const saveResult = await handleSaveCase(primaryActionEditor, 'completed');
+      if (!saveResult) {
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Payment sent; case update needs attention',
+          message:
+            'Bloomjoy Hub could not confirm the completion record. Do not send another payment. Reconcile the case, then retry only the case update or customer follow-up.',
+          reference: primaryActionEditor.manualRefundReference,
+        });
+        return;
+      }
+
+      setRefundActionReceipt({
+        tone: saveResult.customerMessage?.status === 'failed' ? 'warning' : 'success',
+        title: saveResult.updateApplied ? 'Cash refund completed' : 'Cash refund was already complete',
+        message: !saveResult.updateApplied
+          ? 'The existing completion was kept. No duplicate completion email or audit action was created.'
+          : saveResult.customerMessage?.status === 'failed'
+            ? 'The payment and completion were recorded, but the customer email needs a retry.'
+            : saveResult.customerMessage?.status === 'sent'
+              ? 'The payment was recorded, the case was completed, and the customer was notified.'
+              : 'The payment was recorded and the case was completed. Customer delivery is queued.',
+        reference: primaryActionEditor.manualRefundReference,
+      });
+      setIsCashConfirmationOpen(false);
+    } finally {
+      cashCompletionInFlightRef.current = false;
+      setIsCashCompletionSubmitting(false);
+    }
   };
 
   const handleNayaxLookup = async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -2254,6 +2371,426 @@ export default function AdminRefundsPage() {
     );
   };
 
+  const renderCashDecisionWorkbench = () => {
+    if (!selectedCase || !editor || selectedCase.paymentMethod === 'card') return null;
+
+    const cashAmountCents = centsFromCurrency(editor.refundAmount) ?? selectedCase.paymentAmountCents;
+    const isCashCompletion = primaryAction?.targetStatus === 'completed';
+    const actionLabel = isCashCompletion
+      ? `Complete ${formatCurrency(cashAmountCents)} refund and notify customer`
+      : primaryAction?.label ?? 'Review cash refund';
+    const isActionDisabled =
+      isSaving ||
+      isCashCompletionSubmitting ||
+      isUsingDemoData ||
+      !primaryAction ||
+      primaryAction.disabled === true ||
+      primaryActionIssues.length > 0;
+    const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
+
+    const chooseCustomerFollowUp = () => {
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              status: 'waiting_on_customer',
+              decision: null,
+              decisionReason: '',
+              cashPaymentConfirmed: false,
+            }
+          : current
+      );
+      handleMessageTypeChange('more_info');
+    };
+
+    const chooseApproval = () => {
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              status: 'cash_zelle_pending',
+              decision: 'approved',
+              decisionReason: current.decisionReason || 'Confirmed the customer request and matched cash sale.',
+            }
+          : current
+      );
+      handleMessageTypeChange('approved');
+    };
+
+    const chooseDenial = () => {
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              status: 'denied',
+              decision: 'denied',
+              cashPaymentConfirmed: false,
+            }
+          : current
+      );
+      handleMessageTypeChange('denied');
+    };
+
+    return (
+      <div data-testid="refund-cash-workbench" className="space-y-4">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 text-white shadow-sm">
+          <div
+            data-testid="refund-cash-primary-action-panel"
+            className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
+                Manager decision
+              </p>
+              <h3 className="mt-1 text-xl font-semibold">
+                {isCashCompletion ? 'Ready to record payment' : primaryAction?.label ?? 'Review this request'}
+              </h3>
+            </div>
+            <div className="flex flex-col gap-2 sm:items-end">
+              <div className="flex flex-wrap gap-2 sm:justify-end">
+                <Badge
+                  className={cn(
+                    'w-fit border-white/15 bg-white/10 text-white',
+                    cashMatchReady && 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
+                  )}
+                >
+                  {cashMatchReady ? 'Cash sale matched' : 'Cash sale needs review'}
+                </Badge>
+                <Badge
+                  className={cn(
+                    'w-fit border-white/15 bg-white/10 text-slate-100',
+                    getLatestCustomerMessage(selectedCase)?.status === 'failed' &&
+                      'border-rose-300/40 bg-rose-300/15 text-rose-100'
+                  )}
+                >
+                  {getCustomerCommunicationLabel(selectedCase)}
+                </Badge>
+              </div>
+              <Button
+                data-testid="refund-cash-primary-action"
+                data-dominant-action="true"
+                type="button"
+                className="min-h-11 w-full px-4 font-semibold sm:w-auto"
+                onClick={() => {
+                  if (isCashCompletion) {
+                    setRefundActionReceipt(null);
+                    setIsCashConfirmationOpen(true);
+                    return;
+                  }
+                  void handlePrimaryAction();
+                }}
+                disabled={isActionDisabled}
+              >
+                {isSaving || isCashCompletionSubmitting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                {actionLabel}
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-px bg-white/10 lg:grid-cols-2">
+            <article data-testid="refund-cash-request-summary" className="bg-slate-950 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Customer request</p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-slate-400">Location</p>
+                  <p className="mt-1 font-medium text-white">{selectedCase.locationName}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Machine</p>
+                  <p className="mt-1 font-medium text-white">{selectedCase.machineLabel}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Reported time</p>
+                  <p className="mt-1 font-medium text-white">{formatDate(selectedCase.incidentAt)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Requested</p>
+                  <p className="mt-1 font-medium text-white">{formatCurrency(selectedCase.paymentAmountCents)}</p>
+                </div>
+              </div>
+              <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{selectedCase.issueSummary}</p>
+            </article>
+
+            <article data-testid="refund-cash-match-summary" className="bg-slate-900 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Cash review</p>
+                  <p className="mt-2 text-lg font-semibold text-white">
+                    {cashMatchReady ? 'Matched sale evidence is ready' : 'More information is needed'}
+                  </p>
+                </div>
+                <Badge
+                  className={cn(
+                    'border-white/15 bg-white/10 text-white',
+                    cashMatchReady && 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
+                  )}
+                >
+                  {matchResultLabel(selectedCase, editor, nayaxCandidates)}
+                </Badge>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-300">
+                {selectedCase.correlationSummary ||
+                  (cashMatchReady
+                    ? 'A conservative cash sale match is linked to this request.'
+                    : 'Ask the customer for the missing purchase details before approving a payout.')}
+              </p>
+              <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm">
+                <p className="text-xs text-slate-400">Manual payment destination</p>
+                <p className="mt-1 break-words font-medium text-white">
+                  {selectedCase.zellePaymentContact || 'Not provided'}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  Cash and Zelle payments stay outside Bloomjoy Hub. This screen records the manager confirmation only.
+                </p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        {isCashCompletion && (
+          <section data-testid="refund-cash-completion-panel" className="space-y-4 rounded-xl border border-border bg-background p-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Record payment</p>
+              <h3 className="mt-1 text-lg font-semibold text-foreground">Confirm what was sent</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                The customer completion email sends only after this record is saved successfully.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="cash-refund-amount">Refund amount</Label>
+                <Input
+                  id="cash-refund-amount"
+                  data-testid="refund-cash-amount-input"
+                  inputMode="decimal"
+                  value={editor.refundAmount}
+                  disabled={isUsingDemoData || isCashCompletionSubmitting}
+                  onChange={(event) =>
+                    setEditor((current) =>
+                      current ? { ...current, refundAmount: event.target.value, cashPaymentConfirmed: false } : current
+                    )
+                  }
+                  className="mt-2"
+                  placeholder="12.00"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="cash-payout-sent-at">Payment sent at</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={isUsingDemoData || isCashCompletionSubmitting}
+                    onClick={() =>
+                      setEditor((current) =>
+                        current
+                          ? {
+                              ...current,
+                              cashPayoutSentAt: toDateTimeLocalValue(new Date()),
+                              cashPaymentConfirmed: false,
+                            }
+                          : current
+                      )
+                    }
+                  >
+                    Use current time
+                  </Button>
+                </div>
+                <Input
+                  id="cash-payout-sent-at"
+                  data-testid="refund-cash-payout-time-input"
+                  type="datetime-local"
+                  value={editor.cashPayoutSentAt}
+                  max={toDateTimeLocalValue(new Date(Date.now() + 5 * 60 * 1000))}
+                  disabled={isUsingDemoData || isCashCompletionSubmitting}
+                  onChange={(event) =>
+                    setEditor((current) =>
+                      current
+                        ? { ...current, cashPayoutSentAt: event.target.value, cashPaymentConfirmed: false }
+                        : current
+                    )
+                  }
+                  className="mt-2"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="cash-refund-reference">Payment confirmation or reference</Label>
+              <Input
+                id="cash-refund-reference"
+                data-testid="refund-cash-reference-input"
+                value={editor.manualRefundReference}
+                maxLength={80}
+                disabled={isUsingDemoData || isCashCompletionSubmitting}
+                onChange={(event) =>
+                  setEditor((current) =>
+                    current
+                      ? { ...current, manualRefundReference: event.target.value, cashPaymentConfirmed: false }
+                      : current
+                  )
+                }
+                className="mt-2"
+                placeholder="Example: Zelle confirmation ZP-4821"
+              />
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+                Record only a short confirmation or reference. Never enter a bank or card number, routing number, PIN,
+                password, email address, phone number, or other payment credentials.
+              </div>
+            </div>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/20 p-3">
+              <Checkbox
+                data-testid="refund-cash-payment-confirmed"
+                checked={editor.cashPaymentConfirmed}
+                disabled={isUsingDemoData || isCashCompletionSubmitting}
+                onCheckedChange={(checked) =>
+                  setEditor((current) =>
+                    current ? { ...current, cashPaymentConfirmed: checked === true } : current
+                  )
+                }
+                className="mt-0.5"
+              />
+              <span className="text-sm leading-6 text-foreground">
+                I confirm the payment was sent for the amount and time shown above.
+              </span>
+            </label>
+
+            {primaryActionIssues.length > 0 && (
+              <div data-testid="refund-cash-action-blocker" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                {primaryActionIssues[0]}
+              </div>
+            )}
+          </section>
+        )}
+
+        {(editor.decision === 'denied' || editor.status === 'denied') && (
+          <section className="rounded-xl border border-border bg-background p-4">
+            <Label htmlFor="cash-denial-reason">Customer-facing denial reason</Label>
+            <Textarea
+              id="cash-denial-reason"
+              data-testid="refund-cash-denial-reason"
+              value={editor.decisionReason}
+              disabled={isUsingDemoData || isSaving}
+              onChange={(event) =>
+                setEditor((current) =>
+                  current ? { ...current, decisionReason: event.target.value } : current
+                )
+              }
+              rows={3}
+              className="mt-2"
+              placeholder="Explain the decision warmly and specifically."
+            />
+          </section>
+        )}
+
+        <section className="rounded-xl border border-border bg-background p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer update</p>
+              <p className="mt-1 text-sm font-medium text-foreground">{getCustomerCommunicationLabel(selectedCase)}</p>
+            </div>
+            {nextCustomerDraft && (
+              <details className="text-sm sm:max-w-md">
+                <summary className="cursor-pointer font-medium text-primary">Preview customer email</summary>
+                <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="font-medium text-foreground">{nextCustomerDraft.subject}</p>
+                  <p className="mt-2 whitespace-pre-line text-muted-foreground">{nextCustomerDraft.body}</p>
+                </div>
+              </details>
+            )}
+          </div>
+
+          {selectedCase.status !== 'completed' && editor.status !== 'completed' && (
+            <details className="mt-4 border-t border-border pt-3">
+              <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Other decisions</summary>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {cashMatchReady && primaryAction?.targetDecision !== 'approved' && (
+                  <Button type="button" variant="outline" size="sm" onClick={chooseApproval} disabled={isUsingDemoData}>
+                    Approve refund
+                  </Button>
+                )}
+                {primaryAction?.messageType !== 'more_info' && (
+                  <Button type="button" variant="outline" size="sm" onClick={chooseCustomerFollowUp} disabled={isUsingDemoData}>
+                    Ask customer for details
+                  </Button>
+                )}
+                {primaryAction?.targetDecision !== 'denied' && (
+                  <Button type="button" variant="outline" size="sm" onClick={chooseDenial} disabled={isUsingDemoData}>
+                    Deny request
+                  </Button>
+                )}
+              </div>
+            </details>
+          )}
+        </section>
+
+        <AlertDialog
+          open={isCashConfirmationOpen}
+          onOpenChange={(open) => {
+            if (!isCashCompletionSubmitting) setIsCashConfirmationOpen(open);
+          }}
+        >
+          <AlertDialogContent data-testid="refund-cash-confirmation-dialog" className="max-w-xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm {formatCurrency(cashAmountCents)} cash refund</AlertDialogTitle>
+              <AlertDialogDescription>
+                Confirm the payment was already sent. Bloomjoy Hub will record the audit event, complete the case, and then notify the customer.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment</p>
+                <p className="mt-1 font-medium text-foreground">{formatCurrency(cashAmountCents)}</p>
+                <p className="mt-1 text-muted-foreground">{formatDate(editor.cashPayoutSentAt)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Destination</p>
+                <p className="mt-1 break-words font-medium text-foreground">
+                  {selectedCase.zellePaymentContact || 'Not provided'}
+                </p>
+                <p className="mt-1 break-words text-muted-foreground">Reference: {editor.manualRefundReference}</p>
+              </div>
+            </div>
+
+            {nextCustomerDraft && (
+              <details className="rounded-lg border border-border p-3 text-sm">
+                <summary className="cursor-pointer font-medium text-foreground">Review completion email</summary>
+                <p className="mt-3 font-medium text-foreground">{nextCustomerDraft.subject}</p>
+                <p className="mt-2 whitespace-pre-line text-muted-foreground">{nextCustomerDraft.body}</p>
+              </details>
+            )}
+
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isCashCompletionSubmitting}>Go back</AlertDialogCancel>
+              <Button
+                data-testid="refund-confirm-cash-refund"
+                type="button"
+                onClick={() => void handleConfirmCashCompletion()}
+                disabled={isActionDisabled}
+              >
+                {isCashCompletionSubmitting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                Confirm payment &amp; send email
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  };
+
   return (
     <AppLayout>
       <section className="section-padding">
@@ -2575,7 +3112,10 @@ export default function AdminRefundsPage() {
 
                     {selectedCase.paymentMethod === 'card' && renderCardDecisionWorkbench()}
 
-                    {selectedCase.paymentMethod !== 'card' && (
+                    {selectedCase.paymentMethod !== 'card' && renderCashDecisionWorkbench()}
+
+                    {/* Local-only rollback reference while the cash workbench completes UAT. */}
+                    {showLegacyCashWorkbench && selectedCase.paymentMethod !== 'card' && (
                     <div className="contents">
                     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

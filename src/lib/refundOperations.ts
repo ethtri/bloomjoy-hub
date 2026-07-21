@@ -244,6 +244,8 @@ export type UpdateRefundCaseInput = {
   internalNote?: string | null;
   refundAmountCents?: number | null;
   manualRefundReference?: string | null;
+  cashPayoutSentAt?: string | null;
+  cashPaymentConfirmed?: boolean;
   clearNayaxMatch?: boolean;
   matchedNayaxCandidateToken?: string | null;
   matchedNayaxMachineAuthTime?: string | null;
@@ -748,6 +750,7 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     error?: string;
     refundCase?: Record<string, unknown>;
     customerMessage?: { type: string; status: string } | null;
+    updateApplied?: boolean;
   }>('refund-case-admin-update', input, {
     requireUserAuth: true,
     authErrorMessage: 'Log in to update refund cases.',
