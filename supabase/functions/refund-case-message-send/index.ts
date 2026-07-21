@@ -10,6 +10,7 @@ import {
   sanitizeRefundMessageType,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
+import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -45,7 +46,10 @@ type RefundCaseRow = {
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
   decision_reason: string | null;
-  reporting_machines?: OneOrMany<{ machine_label: string | null }>;
+  reporting_machines?: OneOrMany<{
+    machine_label: string | null;
+    refund_public_display_label: string | null;
+  }>;
   reporting_locations?: OneOrMany<{ name: string | null }>;
 };
 
@@ -69,7 +73,7 @@ const selectCaseQuery = `
   payment_amount_cents,
   refund_amount_cents,
   decision_reason,
-  reporting_machines(machine_label),
+  reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
 
@@ -172,13 +176,18 @@ serve(async (req) => {
 
     const machine = firstRelation(refundCase.reporting_machines);
     const location = firstRelation(refundCase.reporting_locations);
+    const publicLabels = resolveRefundPublicLabels({
+      locationName: location?.name,
+      publicMachineLabel: machine?.refund_public_display_label,
+      machineLabel: machine?.machine_label,
+    });
     const templateInput = {
       messageType,
       publicReference: refundCase.public_reference,
       customerName: refundCase.customer_name,
       customerEmail: refundCase.customer_email,
-      machineLabel: machine?.machine_label,
-      locationName: location?.name,
+      machineLabel: publicLabels.machineLabel,
+      locationName: publicLabels.locationName,
       refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
       decisionReason: refundCase.decision_reason,

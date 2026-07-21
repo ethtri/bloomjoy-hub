@@ -31,6 +31,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/machines` has no horizontal page overflow at `360x800`, `390x844`, or `414x896`; the buyer comparison uses readable mobile cards, and the public header switches to the mobile menu at `768x1024`
 
 ## Refund Operations MVP
+- [ ] Run `npm run refunds:validate-release-tooling`, `npm run refunds:release:check`, and `npm run refunds:release:check-production -- --project-ref <project-ref>`; all six approved Refund Operations functions are `ACTIVE`, match the reviewed production metadata, and use the approved `verify_jwt` setting.
+- [ ] Post-deploy route smoke proves `refund-case-intake`, `nayax-transaction-lookup`, `refund-case-admin-update`, `refund-case-message-send`, `refund-case-automation-sweep`, and `nayax-card-refund` respond with their expected safe success/auth/validation status; manual/retry messaging does not return `404`.
+- [ ] Public refund options contain no internal `Unmapped` or `Unknown` location label; Atlanta, DC, and Seattle options remain distinct and route to their distinct machine IDs. Duplicate location/machine text is rendered once.
+- [ ] A sanitized synthetic submission proves customer acknowledgement plus assigned-manager/fallback notification. Evidence records only case reference, event type, recipient count, and delivery state.
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` is merged, and Google Form/AppSheet remains live until the cutover gate passes.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.
 - [ ] Run `npm run refunds:validate-customer-comms` and confirm primary refund actions send/log customer emails, failures surface as retry work, and the normal path has no separate send-email step.
