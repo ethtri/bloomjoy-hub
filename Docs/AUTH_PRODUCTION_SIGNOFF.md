@@ -26,7 +26,7 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 | SPF record published for sender domain |  |  |  |
 | DKIM record published and verified |  |  |  |
 | DMARC policy published |  |  |  |
-| Supabase email templates updated (signup, magic link, recovery) |  |  |  |
+| Scanner-resistant Supabase templates published (invite, Email Code, recovery); repository validator passes |  |  |  |
 | Google OAuth branding updated (name/logo/support email) |  |  |  |
 | Google OAuth consent audience set for launch state |  |  |  |
 | Google OAuth redirect URIs include production callback |  |  |  |
@@ -45,8 +45,15 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 
 ### Password and account recovery
 - [ ] Password sign-in succeeds for existing user.
-- [ ] Password reset email is delivered and reset flow completes.
-- [ ] Temporary/expired link behavior shows actionable error messaging.
+- [ ] Password recovery code is delivered and reset flow completes.
+- [ ] Invalid, expired, consumed, and superseded code behavior shows actionable recovery messaging.
+
+### Coordinated Email Code cutover (`#609`)
+- [ ] Pause production auth-email sends and access-invite resends for the short cutover window; do not leave the new templates paired with the old UI or the new UI paired with the old token-link templates.
+- [ ] Deploy the frontend and `access-invite` copy, then immediately run the guarded hosted-template publication command with matching `--project-ref` and `--confirm-project-ref` values.
+- [ ] Confirm the publication helper read-back verifies all invite, Email Code, and recovery subjects and bodies.
+- [ ] Resend from Hub Access after both sides are active and tell the recipient to use only the newest Bloomjoy messages; do not rely on a pre-cutover one-click token.
+- [ ] Complete masked live-inbox prefetch, code entry, password creation, and portal-access UAT before closing `#609` or declaring the incident fixed.
 
 ### Session behavior (desktop + mobile)
 - [ ] New login persists across page refresh.
@@ -60,18 +67,18 @@ Capture evidence links for each required flow.
 | Flow | Result | Evidence |
 |---|---|---|
 | Password login (`/login` -> `/portal`) |  |  |
-| Magic link login (`/login` -> email -> `/portal`) |  |  |
+| Email Code login (`/login` -> email -> `/portal`) |  |  |
 | Google login (`/login` -> consent -> `/portal`) |  |  |
 | Vercel preview login returns to the same preview host at `/portal` |  |  |
 | Google callback host is `auth.bloomjoyusa.com` |  |  |
 | Logged-out redirect guard (`/portal` -> `/login`) |  |  |
 | Branded auth email (signup confirmation) |  |  |
-| Branded auth email (magic link) |  |  |
+| Branded auth email (Email Code) |  |  |
 | Branded auth email (password recovery) |  |  |
 
 ## 5.1) Evidence package minimum
 - [ ] One screenshot of Google consent branding (name/logo/support email).
-- [ ] One screenshot of branded auth email template for each flow (signup, magic link, recovery).
+- [ ] One screenshot of each scanner-resistant branded auth email template (invite, Email Code, recovery), showing the manual code and stable non-verifying button.
 - [ ] One network trace or screenshot proving callback host is `auth.bloomjoyusa.com`.
 - [ ] Link evidence in section 5 or launch ticket before Go/No-Go.
 
@@ -84,11 +91,11 @@ Automated API smoke checks were run against production config values:
 - `auth.resetPasswordForEmail(...)` returned success (`SMOKE_RESET_STATUS=OK`).
 
 Manual evidence still required before go/no-go:
-- Inbox-level confirmation and screenshots for branded auth templates (signup, magic link, recovery).
+- Inbox-level confirmation and screenshots for scanner-resistant invite, Email Code, and recovery templates.
 - Google OAuth consent/callback-host screenshot evidence from full browser flow.
 
 ## 6) Common auth incidents
-### 429 rate limit on magic link or OTP
+### 429 rate limit on Email Code or OTP
 - Confirm repeated attempts were the trigger.
 - Ask user to wait for cooldown window and retry once.
 - If broad impact is observed, check Supabase auth logs and rate-limit settings before changing policy.

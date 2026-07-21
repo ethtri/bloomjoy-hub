@@ -194,6 +194,26 @@ function run() {
   const errors = [];
   const warnings = [];
 
+  for (const templatePath of [
+    'supabase/templates/invite.html',
+    'supabase/templates/magic-link.html',
+    'supabase/templates/recovery.html',
+  ]) {
+    const absoluteTemplatePath = path.join(repoRoot, templatePath);
+    if (!fs.existsSync(absoluteTemplatePath)) {
+      errors.push(`${templatePath} is missing; scanner-resistant auth templates are required.`);
+      continue;
+    }
+
+    const template = fs.readFileSync(absoluteTemplatePath, 'utf8');
+    if (!template.includes('{{ .Token }}')) {
+      errors.push(`${templatePath} must display the manual one-time code.`);
+    }
+    if (template.includes('.ConfirmationURL') || template.includes('.TokenHash')) {
+      errors.push(`${templatePath} contains a scanner-consumable auth credential.`);
+    }
+  }
+
   for (const key of requiredKeys) {
     if (!resolvedEnv[key] || resolvedEnv[key].trim() === '') {
       errors.push(`${key} is missing. Add it to .env or .env.local.`);

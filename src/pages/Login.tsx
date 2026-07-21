@@ -15,16 +15,18 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/auth-context';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getCanonicalUrlForSurface, getSafeInternalAppPath } from '@/lib/appSurface';
 import type { TranslationKey } from '@/lib/i18n';
 import { toast } from 'sonner';
+import { REGEXP_ONLY_DIGITS } from 'input-otp';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 const EMAIL_REQUEST_COOLDOWN_STORAGE_PREFIX = 'bloomjoy-login-email-request-cooldown:';
-type AuthMethod = 'password' | 'magic_link';
+type AuthMethod = 'password' | 'email_code';
 type LoginInviteIntent = 'corporate_partner' | 'technician' | 'machine_manager';
 const GOOGLE_GSI_SCRIPT_ID = 'google-gsi-script';
 const GOOGLE_GSI_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
@@ -140,21 +142,21 @@ const getInviteIntentCopy = (intent: LoginInviteIntent) => {
       return {
         title: 'Corporate Partner invite',
         description:
-          'Sign in with this email to access partner reporting, training, support, and eligible machine reporting. Use Email Link if you have not set a password yet.',
+          'Sign in with this email to access partner reporting, training, support, and eligible machine reporting. Use Email Code if you have not set a password yet.',
         icon: BarChart3,
       };
     case 'technician':
       return {
         title: 'Technician invite',
         description:
-          'Sign in with this email to access training and assigned machine reporting. Use Email Link if you have not set a password yet.',
+          'Sign in with this email to access training and assigned machine reporting. Use Email Code if you have not set a password yet.',
         icon: GraduationCap,
       };
     case 'machine_manager':
       return {
         title: 'Machine Manager invite',
         description:
-          'Sign in with this email so Bloomjoy can assign you to the right machine for refund review and follow-up. Use Email Link if you have not set a password yet.',
+          'Sign in with this email so Bloomjoy can assign you to the right machine for refund review and follow-up. Use Email Code if you have not set a password yet.',
         icon: Wrench,
       };
   }
@@ -211,14 +213,34 @@ const getSendLinkErrorMessage = (error: { status?: number; code?: string; messag
   }
 
   if (error.code === 'otp_expired') {
-    return 'This sign-in link has expired. Please request a new one.';
+    return 'This sign-in code has expired. Please request a new one.';
   }
 
   if (error.message && error.message.trim().length > 0) {
     return `Unable to send sign-in email: ${error.message}`;
   }
 
-  return 'Failed to send magic link.';
+  return 'Failed to send sign-in code.';
+};
+
+const getEmailCodeVerificationErrorMessage = (error: {
+  status?: number;
+  code?: string;
+  message?: string;
+}) => {
+  if (error.status === 429) {
+    return 'Too many verification attempts. Please wait and request a fresh code.';
+  }
+
+  if (error.code === 'otp_expired' || error.code === 'otp_disabled') {
+    return 'This sign-in code is invalid or expired. Request a fresh code and try again.';
+  }
+
+  if (error.message && error.message.trim().length > 0) {
+    return `Unable to verify sign-in code: ${error.message}`;
+  }
+
+  return 'Unable to verify this sign-in code. Request a fresh code and try again.';
 };
 
 const getPasswordErrorMessage = (
@@ -314,6 +336,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [emailCode, setEmailCode] = useState('');
+  const [inviteActivationPending, setInviteActivationPending] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [googleButtonReady, setGoogleButtonReady] = useState(false);
   const [googleButtonFailed, setGoogleButtonFailed] = useState(false);
@@ -325,6 +349,9 @@ export default function LoginPage() {
   >(null);
   const {
     signIn,
+    verifyEmailOtp,
+    verifyInviteEmailOtp,
+    verifyAdminInviteOtp,
     signInWithPassword,
     signUpWithPassword,
     signInWithGoogle,
@@ -345,6 +372,11 @@ export default function LoginPage() {
     getSafeInternalAppPath(stateFromPath) ??
     '/portal';
   const inviteIntent = getLoginInviteIntent(inviteParams.get('intent'));
+  const activationMode = inviteParams.get('activation');
+  const isAdminInviteActivation = activationMode === 'admin-invite';
+  const requiresInvitePassword = Boolean(inviteIntent) ||
+    isAdminInviteActivation ||
+    activationMode === 'invite-email';
   const inviteEmail = inviteParams.get('email')?.trim().toLowerCase() ?? '';
   const inviteCopy = inviteIntent ? getInviteIntentCopy(inviteIntent) : null;
   const InviteIcon = inviteCopy?.icon;
@@ -352,10 +384,10 @@ export default function LoginPage() {
   const plusUrl = getCanonicalUrlForSurface('marketing', '/plus', '', '', window.location);
 
   useEffect(() => {
-    if (hasAuthenticatedSession) {
+    if (hasAuthenticatedSession && !inviteActivationPending) {
       navigate(fromPath, { replace: true });
     }
-  }, [fromPath, hasAuthenticatedSession, navigate]);
+  }, [fromPath, hasAuthenticatedSession, inviteActivationPending, navigate]);
 
   useEffect(() => {
     signInWithGoogleIdTokenRef.current = signInWithGoogleIdToken;
@@ -364,17 +396,22 @@ export default function LoginPage() {
   useEffect(() => {
     const queryParams = new URLSearchParams(location.search);
     const queryIntent = getLoginInviteIntent(queryParams.get('intent'));
+    const queryActivationMode = queryParams.get('activation');
+    const queryIsAdminInvite = queryActivationMode === 'admin-invite';
+    const queryRequiresInvitePassword =
+      Boolean(queryIntent) || queryIsAdminInvite || queryActivationMode === 'invite-email';
     const queryEmail = queryParams.get('email')?.trim().toLowerCase() ?? '';
 
     if (queryEmail && loginInviteEmailPattern.test(queryEmail)) {
       setEmail(queryEmail);
     }
 
-    if (queryIntent) {
-      setAuthMethod('magic_link');
+    if (queryRequiresInvitePassword) {
+      setAuthMethod('email_code');
       setCreateAccountMode(false);
       setPassword('');
-      setSent(false);
+      setEmailCode('');
+      setSent(queryIsAdminInvite);
     }
   }, [location.search]);
 
@@ -546,7 +583,57 @@ export default function LoginPage() {
     setSent(true);
     storeEmailRequestCooldown(normalizedEmail);
     setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
-    toast.success('Email sent. Use the newest Bloomjoy sign-in email to continue.');
+    toast.success('Email sent. Enter the newest Bloomjoy sign-in code to continue.');
+    setLoading(false);
+  };
+
+  const handleEmailCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedCode = emailCode.replace(/\D/g, '');
+    if (!normalizedEmail || normalizedCode.length !== 6) {
+      toast.error('Enter the complete 6-digit sign-in code from your newest Bloomjoy email.');
+      return;
+    }
+
+    const shouldCreateInvitePassword = requiresInvitePassword;
+    setInviteActivationPending(shouldCreateInvitePassword);
+    setLoading(true);
+
+    const { error } = isAdminInviteActivation
+      ? await verifyAdminInviteOtp(normalizedEmail, normalizedCode)
+      : shouldCreateInvitePassword
+        ? await verifyInviteEmailOtp(normalizedEmail, normalizedCode)
+        : await verifyEmailOtp(normalizedEmail, normalizedCode);
+    if (error) {
+      setInviteActivationPending(false);
+      setLoading(false);
+      toast.error(getEmailCodeVerificationErrorMessage(error));
+      return;
+    }
+
+    if (shouldCreateInvitePassword) {
+      const passwordSetupParams = new URLSearchParams({
+        mode: 'invite',
+        email: normalizedEmail,
+      });
+      if (inviteIntent) {
+        passwordSetupParams.set('intent', inviteIntent);
+      }
+      if (isAdminInviteActivation) {
+        passwordSetupParams.set('source', 'admin-invite');
+      }
+      if (fromPath !== '/portal') {
+        passwordSetupParams.set('next', fromPath);
+      }
+
+      toast.success('Email verified. Create your Bloomjoy password to finish activation.');
+      navigate(`/reset-password?${passwordSetupParams.toString()}`, { replace: true });
+      return;
+    }
+
+    toast.success('Email verified. Signing you in...');
     setLoading(false);
   };
 
@@ -626,13 +713,16 @@ export default function LoginPage() {
 
     storeEmailRequestCooldown(normalizedEmail);
     setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
-    toast.success('Password reset email sent. Use the newest email link to set a new password.');
+    toast.success('Password reset code sent. Enter the newest code to set a new password.');
     setLoading(false);
+    navigate(`/reset-password?email=${encodeURIComponent(normalizedEmail)}`);
   };
 
   const handleSwitchMethod = (method: AuthMethod) => {
     setAuthMethod(method);
     setSent(false);
+    setEmailCode('');
+    setInviteActivationPending(false);
   };
 
   return (
@@ -823,40 +913,126 @@ export default function LoginPage() {
                   </button>
                   <button
                     type="button"
-                    aria-pressed={authMethod === 'magic_link'}
+                    aria-pressed={authMethod === 'email_code'}
                     className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      authMethod === 'magic_link'
+                      authMethod === 'email_code'
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:bg-muted'
                     }`}
-                    onClick={() => handleSwitchMethod('magic_link')}
+                    onClick={() => handleSwitchMethod('email_code')}
                   >
                     {t('login.emailLink')}
                   </button>
                 </div>
               </div>
 
-              {authMethod === 'magic_link' ? (
+              {authMethod === 'email_code' ? (
                 sent ? (
-                  <div className="rounded-xl border border-sage bg-sage-light p-6 text-center">
+                  <form
+                    onSubmit={handleEmailCodeSubmit}
+                    className="space-y-4 rounded-xl border border-sage bg-sage-light p-5 sm:p-6"
+                  >
                     <h2 className="font-display text-lg font-semibold text-sage">
                       {t('login.checkEmail')}
                     </h2>
-                    <p className="mt-2 text-sm text-sage/80">
-                      {t('login.sentEmail', { email })}
+                    <p className="text-sm text-sage/80">
+                      {isAdminInviteActivation
+                        ? 'Enter the email address that received this invitation and the 6-digit code from the message.'
+                        : t('login.sentEmail', { email })}
                     </p>
-                    <p className="mt-2 text-xs text-sage/80">
+                    {isAdminInviteActivation && (
+                      <div>
+                        <label htmlFor="admin-invite-email" className="block text-sm font-medium text-sage">
+                          {t('login.emailAddress')}
+                        </label>
+                        <Input
+                          id="admin-invite-email"
+                          type="email"
+                          placeholder="you@example.com"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value)}
+                          required
+                          className="mt-1 h-11 bg-background"
+                          disabled={loading}
+                        />
+                      </div>
+                    )}
+                    <label htmlFor="email-code" className="sr-only">
+                      {t('login.verificationCode')}
+                    </label>
+                    <InputOTP
+                      id="email-code"
+                      maxLength={6}
+                      pattern={REGEXP_ONLY_DIGITS}
+                      value={emailCode}
+                      onChange={setEmailCode}
+                      autoComplete="one-time-code"
+                      containerClassName="justify-center"
+                      disabled={loading}
+                    >
+                      <InputOTPGroup>
+                        <InputOTPSlot index={0} />
+                        <InputOTPSlot index={1} />
+                        <InputOTPSlot index={2} />
+                        <InputOTPSlot index={3} />
+                        <InputOTPSlot index={4} />
+                        <InputOTPSlot index={5} />
+                      </InputOTPGroup>
+                    </InputOTP>
+                    <Button
+                      type="submit"
+                      variant="hero"
+                      size="lg"
+                      className="w-full"
+                      disabled={loading || emailCode.length !== 6}
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          {t('login.verifying')}
+                        </>
+                      ) : (
+                        t('login.verifyCode')
+                      )}
+                    </Button>
+                    <p className="text-center text-xs text-sage/80">
                       {t('login.firstTimeNote')}
                     </p>
-                  </div>
+                    {!isAdminInviteActivation && <div className="grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        className="min-h-11 rounded-lg px-3 text-sm font-medium text-primary hover:bg-background/70 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => {
+                          setEmailCode('');
+                          setSent(false);
+                        }}
+                        disabled={loading || cooldownSeconds > 0}
+                      >
+                        {cooldownSeconds > 0
+                          ? t('login.tryAgain', { seconds: cooldownSeconds })
+                          : t('login.resendCode')}
+                      </button>
+                      <button
+                        type="button"
+                        className="min-h-11 rounded-lg px-3 text-sm font-medium text-primary hover:bg-background/70 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => {
+                          setEmailCode('');
+                          setSent(false);
+                        }}
+                        disabled={loading}
+                      >
+                        {t('login.changeEmail')}
+                      </button>
+                    </div>}
+                  </form>
                 ) : (
                   <form onSubmit={handleMagicLinkSubmit} className="space-y-4">
                     <div>
-                      <label htmlFor="email-link" className="block text-sm font-medium text-foreground">
+                      <label htmlFor="email-code-address" className="block text-sm font-medium text-foreground">
                         {t('login.emailAddress')}
                       </label>
                       <Input
-                        id="email-link"
+                        id="email-code-address"
                         type="email"
                         placeholder="you@example.com"
                         value={email}
@@ -962,16 +1138,18 @@ export default function LoginPage() {
                       </>
                     )}
                   </Button>
-                  <button
-                    type="button"
-                    className="flex min-h-11 w-full items-center justify-center rounded-lg px-3 text-sm font-medium text-primary underline-offset-4 hover:bg-primary/5 hover:underline"
-                    onClick={() => setCreateAccountMode((current) => !current)}
-                    disabled={loading || oauthLoading}
-                  >
-                    {createAccountMode
-                      ? t('login.alreadyHaveAccount')
-                      : t('login.needAccount')}
-                  </button>
+                  {!requiresInvitePassword && (
+                    <button
+                      type="button"
+                      className="flex min-h-11 w-full items-center justify-center rounded-lg px-3 text-sm font-medium text-primary underline-offset-4 hover:bg-primary/5 hover:underline"
+                      onClick={() => setCreateAccountMode((current) => !current)}
+                      disabled={loading || oauthLoading}
+                    >
+                      {createAccountMode
+                        ? t('login.alreadyHaveAccount')
+                        : t('login.needAccount')}
+                    </button>
+                  )}
                   <p className="text-center text-xs text-muted-foreground">
                     {t('login.emailLinkOnly')}
                   </p>

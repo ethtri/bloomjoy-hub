@@ -48,11 +48,20 @@ interface AuthContextType {
   hasAuthenticatedSession: boolean;
   retryBootstrap: () => Promise<void>;
   signInWithMagicLink: (email: string) => Promise<{ error: AuthError | null }>;
+  verifyEmailOtp: (email: string, token: string) => Promise<{ error: AuthError | null }>;
+  verifyInviteEmailOtp: (email: string, token: string) => Promise<{ error: AuthError | null }>;
+  verifyAdminInviteOtp: (email: string, token: string) => Promise<{ error: AuthError | null }>;
   signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   signInWithGoogleIdToken: (idToken: string) => Promise<{ error: AuthError | null }>;
   requestPasswordReset: (email: string) => Promise<{ error: AuthError | null }>;
+  verifyPasswordRecoveryOtp: (
+    email: string,
+    token: string
+  ) => Promise<{ error: AuthError | null }>;
+  updateActivationPassword: (password: string) => Promise<{ error: AuthError | null }>;
+  clearActivationSession: () => Promise<void>;
   updatePassword: (password: string) => Promise<{ error: AuthError | null }>;
   signIn: (email: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;

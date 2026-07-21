@@ -54,7 +54,9 @@ Checklist:
 - [ ] Invite email explains training access and assigned-machine reporting when applicable.
 - [ ] Invite email does not imply broad partner reporting.
 - [ ] Copy login link points to `/login?intent=technician&email=...`.
-- [ ] Assigned-machine Technician signs in with the same email and reaches `/portal/training`.
+- [ ] Invite landing page sends a 6-digit Email Code; opening the stable email button does not consume the code.
+- [ ] Assigned-machine Technician enters the newest code, creates a password, and reaches `/portal/training` without a token appearing in the browser URL.
+- [ ] Invite activation cannot reach `/portal` before password creation succeeds; reload or abandonment fails closed and offers a fresh-code path.
 - [ ] Assigned-machine Technician reaches `/portal/reports` for only assigned machines.
 - [ ] Training-only Technician reaches `/portal/training` and does not receive machine reporting.
 - [ ] Technician users do not see partner dashboard controls.
@@ -72,6 +74,6 @@ Functional invite email tests require:
 - `INTERNAL_NOTIFICATION_FROM_EMAIL`
 - optional preview allowlist secret if sending preview login links
 
-For real rollout signoff, record the states separately: grant saved, `access-invite` attempted, provider accepted/delivered or failed, recipient inbox received, and recipient activated access with the invited email. Keep recipient emails masked in issue/PR comments.
+For real rollout signoff, record the states separately: grant saved, `access-invite` attempted, provider accepted/delivered or failed, recipient inbox received, stable email URL prefetched without verification, and recipient activated access with the invited email. Keep recipient emails masked in issue/PR comments.
 
 Never commit credentials or test-user passwords. Record test emails, source grant IDs, and cleanup status in the PR or local UAT notes only.

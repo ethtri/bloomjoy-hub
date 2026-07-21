@@ -142,7 +142,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/machines/mini` SEO/meta copy no longer references waitlist or upcoming launch language
 
 ## Auth / portal
-- [ ] Login flow works (magic link or configured method)
+- [ ] Login flow works (Email Code or configured method)
 - [ ] Run `npm run portal-bootstrap:uat -- --app-url <local-or-preview-url>` and confirm the permission-neutral shell appears within 2 seconds, useful dashboard content and its data-ready mark both appear within 3 seconds under the normal deterministic fixture, and screenshots are written to `output/playwright`.
 - [ ] With entitlement/access responses delayed, `/portal` and `/admin` render the branded structural shell without generic `Loading...`, baseline upsells, access-sensitive navigation, false zero states, or unauthorized content.
 - [ ] Initial session hydration calls Technician resolution and each access-context RPC once; repeated `SIGNED_IN` and `TOKEN_REFRESHED` events do not restart bootstrap or replace a ready page with loading UI.
@@ -154,16 +154,17 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Canonical Bloomjoy Hub login lives at `https://app.bloomjoyusa.com/login`
 - [ ] Temporary alias `https://app.bloomjoyusa.com/login/operator` resolves to `/login`
 - [ ] On mobile `/login`, the sign-in form appears before the operator-feature highlights, the top app header stays compact without an extra context row pushing content below the fold, and visible auth/header/menu controls have touch-friendly hit areas
-- [ ] Login errors show actionable copy (for example: expired link, send rate-limit)
+- [ ] Login errors show actionable copy (for example: invalid/expired code, send rate-limit)
 - [ ] Language selector on `/login` switches between English and Simplified Chinese and the selected language persists after refresh on desktop
 - [ ] `/login` renders exactly one visible language selector on desktop and `390x844`, including while the mobile navigation drawer is open; both language targets are at least `44x44` CSS px with a visible keyboard focus ring
-- [ ] Magic link email is received in the configured inbox and login completes via Supabase auth callback
-- [ ] First-time sign-in copy clearly explains signup-confirmation-first behavior when applicable
+- [ ] Email Code message is received in the configured inbox; its stable Bloomjoy button contains no token and automated prefetch causes no `/auth/v1/verify` request
+- [ ] User submits the newest 6-digit Email Code and login completes; invalid, expired, consumed, and superseded codes offer a fresh-code recovery path
+- [ ] Run `npm run auth:activation:uat -- --app-url http://127.0.0.1:8081` against `npm run dev:uat`; confirm invite, fail-closed reload, recovery, manual-admin-invite fallback, and temporary-session assertions all pass with synthetic data
 - [ ] Password sign-in works for an existing email/password user
-- [ ] Forgot-password flow sends reset email and `/reset-password` successfully updates password; on mobile, reset links and actions have touch-friendly hit areas with no horizontal overflow
+- [ ] Forgot-password flow sends a 6-digit recovery code and `/reset-password` verifies it before updating the password; no token appears in URL/history, and mobile controls have no horizontal overflow
 - [ ] Google sign-in works when Supabase Google provider is enabled
 - [ ] Google sign-in returns to the app host `/portal` route (for production: `https://app.bloomjoyusa.com/portal`, not `http://localhost:3000`)
-- [ ] On Vercel preview UAT, Google or magic-link sign-in returns to the same preview host at `/portal` instead of `https://app.bloomjoyusa.com/portal`; if it falls back to production, confirm Supabase Additional Redirect URLs include `https://*-snapcase.vercel.app/**`
+- [ ] On Vercel preview UAT, Google or Email Code sign-in returns to the same preview host at `/portal` instead of `https://app.bloomjoyusa.com/portal`; if it falls back to production, confirm Supabase Additional Redirect URLs include `https://*-snapcase.vercel.app/**`
 - [ ] Google sign-in button follows official GIS rendering when `VITE_GOOGLE_CLIENT_ID` is configured locally
 - [ ] For auth launch hardening, Google consent screen shows Bloomjoy branding (name/logo/support email)
 - [ ] For auth launch hardening, Google callback host uses `auth.bloomjoyusa.com` (not `<project-ref>.supabase.co`)
@@ -383,7 +384,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Auth launch hardening (production-only)
 - [ ] Branded auth emails send from approved Bloomjoy sender domain (not default Supabase sender)
-- [ ] Signup confirmation, magic link, and password recovery emails use final branded templates
+- [ ] Supabase Invite User, Email Code, and password recovery emails use the versioned scanner-resistant branded templates; `npm run auth:templates:validate` passes
 - [ ] Production auth smoke evidence is captured in `Docs/AUTH_PRODUCTION_SIGNOFF.md`
 
 ## Regression sanity
@@ -410,7 +411,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Partner Technician Access: training-only Technician invite copy says training library only, assigned-machine Technician invite copy says training plus assigned-machine reporting, and neither invite promises partner-wide reporting.
 - [ ] Partner Technician Access: run `npm run partner-technicians:validate-uat -- --app-url http://127.0.0.1:8081` against `npm run dev:uat` and attach desktop/mobile screenshots from `output/playwright` to the PR.
 - [ ] Access invite email copy stays source-specific without overstating access: Corporate Partner copy stays generic to available tools, Technician copy may mention training and assigned-machine reporting, and no invite promises broad partner-wide reporting unless the source grants it.
-- [ ] Login invite URLs `/login?intent=corporate_partner&email=...` and `/login?intent=technician&email=...` prefill the email, show the contextual invite banner, and keep password, Google, and email-link sign-in available.
+- [ ] Login invite URLs `/login?intent=corporate_partner&email=...` and `/login?intent=technician&email=...` prefill the email, show the contextual invite banner, and keep password, Google, and Email Code sign-in available.
+- [ ] Invite Email Code verification uses a temporary non-persisting session; portal access remains closed until password creation succeeds, then the user is signed in with the new password.
 - [ ] Scoped Admin, Super Admin, and Plus Customer presets require an existing auth user and route to the selected person workspace instead of creating pending admin/customer invites.
 - [ ] Non-admin and Scoped Admin sessions cannot call the `access-invite` Edge Function; invalid source IDs, mismatched target emails, revoked grants, and expired Technician grants are rejected.
 - [ ] Access invite email QA records five separate states before rollout signoff: grant saved, `access-invite` attempted, provider accepted/delivered or failed, recipient inbox received or controlled test inbox captured, and recipient activated access with the invited email.

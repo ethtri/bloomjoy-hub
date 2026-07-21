@@ -66,3 +66,15 @@ verify_jwt = false
 
 [functions.nayax-card-refund]
 verify_jwt = false
+
+[auth.email.template.invite]
+subject = "Your Bloomjoy Hub invitation code"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.magic_link]
+subject = "Your Bloomjoy Hub sign-in code"
+content_path = "./supabase/templates/magic-link.html"
+
+[auth.email.template.recovery]
+subject = "Your Bloomjoy Hub password recovery code"
+content_path = "./supabase/templates/recovery.html"

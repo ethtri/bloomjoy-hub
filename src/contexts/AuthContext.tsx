@@ -8,6 +8,7 @@ import {
   type User,
 } from '@/contexts/auth-context';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { authActivationClient } from '@/lib/authActivationClient';
 import { trackEvent, identifyUser } from '@/lib/analytics';
 import { getCanonicalUrlForSurface, getSafeInternalAppPath } from '@/lib/appSurface';
 import {
@@ -537,13 +538,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     typeof window !== 'undefined'
       ? getCanonicalUrlForSurface('app', getAuthRedirectPath(), '', '', window.location)
       : undefined;
+  const getEmailCodeEntryUrl = () =>
+    typeof window !== 'undefined'
+      ? getCanonicalUrlForSurface('app', '/login', window.location.search, '', window.location)
+      : undefined;
   const getRecoveryRedirectUrl = () =>
     typeof window !== 'undefined'
       ? getCanonicalUrlForSurface('app', '/reset-password', '', '', window.location)
       : undefined;
 
   const signInWithMagicLink = async (email: string): Promise<{ error: AuthError | null }> => {
-    const redirectTo = getAuthRedirectUrl();
+    const redirectTo = getEmailCodeEntryUrl();
 
     const { error } = await supabaseClient.auth.signInWithOtp({
       email,
@@ -553,6 +558,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!error) {
       trackEvent('login');
     }
+
+    return { error };
+  };
+
+  const verifyEmailOtp = async (
+    email: string,
+    token: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await supabaseClient.auth.verifyOtp({
+      email,
+      token,
+      type: 'email',
+    });
+
+    if (!error) {
+      trackEvent('login');
+    }
+
+    return { error };
+  };
+
+  const verifyInviteEmailOtp = async (
+    email: string,
+    token: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await authActivationClient.auth.verifyOtp({
+      email,
+      token,
+      type: 'email',
+    });
+
+    return { error };
+  };
+
+  const verifyAdminInviteOtp = async (
+    email: string,
+    token: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await authActivationClient.auth.verifyOtp({
+      email,
+      token,
+      type: 'invite',
+    });
 
     return { error };
   };
@@ -628,6 +676,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  const verifyPasswordRecoveryOtp = async (
+    email: string,
+    token: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await authActivationClient.auth.verifyOtp({
+      email,
+      token,
+      type: 'recovery',
+    });
+
+    return { error };
+  };
+
+  const updateActivationPassword = async (
+    password: string
+  ): Promise<{ error: AuthError | null }> => {
+    const { error } = await authActivationClient.auth.updateUser({ password });
+    return { error };
+  };
+
+  const clearActivationSession = async () => {
+    await authActivationClient.auth.signOut({ scope: 'local' });
+  };
+
   const updatePassword = async (password: string): Promise<{ error: AuthError | null }> => {
     const { error } = await supabaseClient.auth.updateUser({ password });
     return { error };
@@ -665,11 +737,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         hasAuthenticatedSession,
         retryBootstrap,
         signInWithMagicLink,
+        verifyEmailOtp,
+        verifyInviteEmailOtp,
+        verifyAdminInviteOtp,
         signInWithPassword,
         signUpWithPassword,
         signInWithGoogle,
         signInWithGoogleIdToken,
         requestPasswordReset,
+        verifyPasswordRecoveryOtp,
+        updateActivationPassword,
+        clearActivationSession,
         updatePassword,
         signIn,
         signOut,

@@ -217,7 +217,8 @@ const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: st
     "Open Bloomjoy Hub:",
     loginUrl,
     "",
-    "Use this same email address when you create an account or sign in.",
+    "Use this same email address, choose Email Code, and enter the newest code Bloomjoy sends you.",
+    "If this is your first sign-in, create a password to finish activation.",
   ].join("\n");
 
   const html = `
@@ -247,7 +248,8 @@ const buildInviteEmail = (source: InviteSource, loginUrl: string, actorEmail: st
                     Open Bloomjoy Hub
                   </a>
                   <p style="margin:24px 0 0 0;font-size:12px;line-height:18px;color:#6b7280;">
-                    Use this same email address when you create an account or sign in. If the button does not work, open this link:<br />
+                    Use this same email address, choose Email Code, and enter the newest code Bloomjoy sends you. If this is your first sign-in, create a password to finish activation.<br /><br />
+                    If the button does not work, open this link:<br />
                     <a href="${escapeHtml(loginUrl)}" style="color:#be5b7b;">${escapeHtml(loginUrl)}</a>
                   </p>
                 </td>
