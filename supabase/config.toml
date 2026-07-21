@@ -67,6 +67,51 @@ verify_jwt = false
 [functions.nayax-card-refund]
 verify_jwt = false
 
+[auth]
+site_url = "https://app.bloomjoyusa.com"
+additional_redirect_urls = [
+  "http://localhost:8080",
+  "http://localhost:8080/login",
+  "http://localhost:8080/login/operator",
+  "http://localhost:8080/portal",
+  "http://localhost:8080/reset-password",
+  "https://www.bloomjoyusa.com",
+  "https://www.bloomjoyusa.com/login",
+  "https://www.bloomjoyusa.com/portal",
+  "https://www.bloomjoyusa.com/reset-password",
+  "https://bloomjoyusa.com",
+  "https://app.bloomjoyusa.com",
+  "https://app.bloomjoyusa.com/login",
+  "https://app.bloomjoyusa.com/login/operator",
+  "https://app.bloomjoyusa.com/portal",
+  "https://app.bloomjoyusa.com/reset-password",
+  "https://*-snapcase.vercel.app/**",
+]
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.rate_limit]
+email_sent = 30
+
+[auth.email]
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 6
+
+[auth.email.smtp]
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+pass = "env(RESEND_API_KEY)"
+admin_email = "info@bloomjoyusa.com"
+sender_name = "Bloomjoy Hub"
+
+[auth.email.template.confirmation]
+subject = "Your Bloomjoy Hub sign-in code"
+content_path = "./supabase/templates/confirmation.html"
+
 [auth.email.template.invite]
 subject = "Your Bloomjoy Hub invitation code"
 content_path = "./supabase/templates/invite.html"

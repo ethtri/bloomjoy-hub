@@ -22,11 +22,11 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 
 | Item | Owner | Status | Evidence |
 |---|---|---|---|
-| Supabase custom SMTP configured (sender + host + auth) |  |  |  |
+| Supabase custom SMTP configured (`info@bloomjoyusa.com` through Resend; secret remains environment-backed) |  |  |  |
 | SPF record published for sender domain |  |  |  |
 | DKIM record published and verified |  |  |  |
 | DMARC policy published |  |  |  |
-| Scanner-resistant Supabase templates published (invite, Email Code, recovery); repository validator passes |  |  |  |
+| Scanner-resistant Supabase templates published (signup confirmation, invite, Email Code, recovery); repository validator passes |  |  |  |
 | Google OAuth branding updated (name/logo/support email) |  |  |  |
 | Google OAuth consent audience set for launch state |  |  |  |
 | Google OAuth redirect URIs include production callback |  |  |  |
@@ -51,7 +51,7 @@ Status values: `Not started`, `In progress`, `Done`, `Blocked`.
 ### Coordinated Email Code cutover (`#609`)
 - [ ] Pause production auth-email sends and access-invite resends for the short cutover window; do not leave the new templates paired with the old UI or the new UI paired with the old token-link templates.
 - [ ] Deploy the frontend and `access-invite` copy, then immediately run the guarded hosted-template publication command with matching `--project-ref` and `--confirm-project-ref` values.
-- [ ] Confirm the publication helper read-back verifies all invite, Email Code, and recovery subjects and bodies.
+- [ ] Confirm the publication helper read-back verifies all signup-confirmation, invite, Email Code, and recovery subjects and bodies.
 - [ ] Resend from Hub Access after both sides are active and tell the recipient to use only the newest Bloomjoy messages; do not rely on a pre-cutover one-click token.
 - [ ] Complete masked live-inbox prefetch, code entry, password creation, and portal-access UAT before closing `#609` or declaring the incident fixed.
 
@@ -78,7 +78,7 @@ Capture evidence links for each required flow.
 
 ## 5.1) Evidence package minimum
 - [ ] One screenshot of Google consent branding (name/logo/support email).
-- [ ] One screenshot of each scanner-resistant branded auth email template (invite, Email Code, recovery), showing the manual code and stable non-verifying button.
+- [ ] One screenshot of each scanner-resistant branded auth email template (signup confirmation, invite, Email Code, recovery), showing the manual code and stable non-verifying button.
 - [ ] One network trace or screenshot proving callback host is `auth.bloomjoyusa.com`.
 - [ ] Link evidence in section 5 or launch ticket before Go/No-Go.
 

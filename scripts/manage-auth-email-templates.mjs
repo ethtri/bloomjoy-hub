@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const templateDefinitions = [
   {
+    type: 'signup confirmation',
+    file: 'supabase/templates/confirmation.html',
+    subject: 'Your Bloomjoy Hub sign-in code',
+    contentKey: 'mailer_templates_confirmation_content',
+    subjectKey: 'mailer_subjects_confirmation',
+    stableDestination: '.RedirectTo',
+  },
+  {
     type: 'invite',
     file: 'supabase/templates/invite.html',
     subject: 'Your Bloomjoy Hub invitation code',
