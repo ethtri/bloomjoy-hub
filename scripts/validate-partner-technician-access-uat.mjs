@@ -807,8 +807,16 @@ const runTechnicianUat = async ({ args, browser, recorder }) => {
     });
 
     await page.goto(`${args.appUrl}/portal/team`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: /Team requires Team access/i }).waitFor({ timeout: 10000 });
-    recorder.assert('Technician cannot open Team management', pathname(page) === '/portal/team', page.url());
+    await page.waitForTimeout(1500);
+    const deniedTeamBody = await page.locator('body').innerText();
+    recorder.assert(
+      'Technician cannot open Team management',
+      pathname(page) === '/portal/team' &&
+        /Team management is (?:not included with this account|available only to Plus account owners)/i.test(
+          deniedTeamBody
+        ),
+      `${page.url()} - ${deniedTeamBody.slice(0, 240)}`
+    );
 
     await page.screenshot({
       path: path.join(args.artifactDir, 'technician-team-denied.png'),

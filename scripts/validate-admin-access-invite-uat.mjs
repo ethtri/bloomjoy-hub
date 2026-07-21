@@ -630,29 +630,29 @@ const run = async () => {
     );
     await page.getByText('Technician invite').waitFor({ timeout: 10000 });
     await page.screenshot({
-      path: path.join(args.artifactDir, 'technician-invite-login-email-link.png'),
+      path: path.join(args.artifactDir, 'technician-invite-login-email-code.png'),
       fullPage: true,
     });
 
     recorder.assert(
-      'Technician invite link opens Email Link sign-in by default',
-      (await page.getByRole('button', { name: 'Email Link', exact: true }).getAttribute('aria-pressed')) === 'true'
+      'Technician invite link opens Email Code sign-in by default',
+      (await page.getByRole('button', { name: 'Email Code', exact: true }).getAttribute('aria-pressed')) === 'true'
     );
     recorder.assert(
       'Technician invite link prefills the invited email',
-      (await page.locator('#email-link').inputValue()) === targetEmail
+      (await page.locator('#email-code-address').inputValue()) === targetEmail
     );
     recorder.assert(
-      'Technician invite link does not start in create-account mode',
-      !(await page.getByRole('button', { name: /Create Account with Password/i }).isVisible().catch(() => false))
+      'Technician invite link cannot enter the confirmation-link create-account path',
+      !(await page.getByRole('button', { name: /Create Account with Password|Need an account/i }).isVisible().catch(() => false))
     );
 
-    await page.getByRole('button', { name: /Continue with Email Link/i }).click();
+    await page.getByRole('button', { name: /Send Email Code/i }).click();
     await page.getByText('Check your email').waitFor({ timeout: 10000 });
 
     const inviteLoginBody = await page.locator('body').innerText();
     recorder.assert(
-      'Technician invite email-link confirmation does not mention signup confirmation',
+      'Technician invite email-code confirmation does not mention signup confirmation',
       !/signup confirmation/i.test(inviteLoginBody)
     );
 

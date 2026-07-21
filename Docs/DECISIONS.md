@@ -699,3 +699,18 @@ To improve training findability without introducing a full LMS, we will expand t
 - Document-first guides can ship immediately from curated in-app content while original PDFs are uploaded separately through the operations helper script.
 - Certificate issuance is validated server-side via Supabase RPC after all required track items are marked complete and the final acknowledgement is confirmed.
 - This is intentionally a lightweight completion credential, not a quiz-based certification system.
+
+## 2026-07-20 - Scanner-resistant partner activation and password recovery (`#609`)
+Bloomjoy Hub authentication emails for partner activation, passwordless sign-in, and password recovery use manual one-time codes with stable app links. Token-bearing one-click confirmation URLs are not allowed in these templates.
+
+**Canonical choices**
+- `access-invite` remains the official access-grant and resend workflow. Its durable `/login?intent=...&email=...` URL does not contain an auth credential.
+- Supabase Invite User, Magic Link/OTP, and Recovery templates show `{{ .Token }}` and link only to a stable Bloomjoy code-entry route. They must not contain `{{ .ConfirmationURL }}`, `{{ .TokenHash }}`, or any token in an `href`.
+- Email Code verification for an invitation and recovery-code verification use a non-persisting temporary Supabase client. Portal sign-in happens only after password creation succeeds.
+- A manual Supabase Invite User email is supported as a safe recovery path with `verifyOtp(..., type: 'invite')`, but administrators should use Hub Access so grants, delivery evidence, and scope remain auditable.
+- Hosted template publication is an explicit production configuration step using the guarded deployment helper and a matching project-reference confirmation.
+
+**Why this choice**
+- Corporate email-security products may prefetch links and consume one-time confirmation URLs before a recipient clicks them.
+- Manual code submission proves the human recipient initiated verification and keeps credentials out of URLs, browser history, logs, and analytics.
+- A temporary session makes abandoned or reloaded invitation setup fail closed instead of leaving authenticated portal access active before password creation.
