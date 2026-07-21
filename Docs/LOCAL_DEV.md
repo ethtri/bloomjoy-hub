@@ -147,6 +147,25 @@ For local-only endpoint testing, store the token in your own `.env` as `NAYAX_LY
 
 As of 2026-05-11, `GET https://lynx.nayax.com/operational/v1/machines` and `GET /machines/{MachineID}/lastSales` work. `GET /devices` and dashboard widget endpoints return `403`, so future agents should not block a first machine/sales sync on device access.
 
+## Snapcase Kexiazhan/Nayax shadow foundation
+Use `Docs/SNAPCASE_DATA_FOUNDATION.md` for the source contract, privacy boundary, mapping rules, and activation gate.
+
+Local fixture validation does not contact either provider or write to Supabase:
+
+- `npm run snapcase:validate-foundation`
+- `npm run snapcase:sync-shadow -- --fixture scripts/snapcase/sample-provider-records.json --dry-run`
+
+The private Kexiazhan API must not be contacted until written vendor approval is recorded and the current credential has been rotated. After approval:
+
+- Configure the provider account through the super-admin-only `admin_configure_reporting_provider_account` RPC.
+- Approve only confirmed Bloomjoy merchants and phone-case printers through the server-side mapping RPCs.
+- Store `KEXIAZHAN_REPORTING_USERNAME`, `KEXIAZHAN_REPORTING_PASSWORD`, `SNAPCASE_INGEST_URL`, and `SNAPCASE_INGEST_TOKEN` as encrypted GitHub secrets.
+- Store `SNAPCASE_INGEST_TOKEN` and the existing `REPORTING_ROW_HASH_SALT` as Supabase function secrets. Never prefix them with `VITE_`.
+- Set repository variables `KEXIAZHAN_API_APPROVED=true` and `SNAPCASE_SHADOW_SYNC_ENABLED=true` only after approval, credential rotation, and a fixture/dry-run review.
+- Manual workflow dispatch defaults to dry-run. Shadow-staging writes require `confirm_live=true`; they still cannot publish sales facts.
+
+`snapcase-data-ingest` accepts only normalized allowlisted fields. It stores salted order/payment/transaction hashes and rejects customer content, delivery/contact data, card digits, provider tokens, IP addresses, and full raw responses.
+
 ## Training document upload helper
 Use this after the training experience migration is applied and `training-documents` exists.
 

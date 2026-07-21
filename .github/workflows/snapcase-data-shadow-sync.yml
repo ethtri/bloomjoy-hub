@@ -1,0 +1,88 @@
+name: Snapcase Data Shadow Sync
+
+on:
+  schedule:
+    - cron: '15 14 * * *'
+    - cron: '15 18 * * *'
+  workflow_dispatch:
+    inputs:
+      date_start:
+        description: 'Optional start date, YYYY-MM-DD; defaults to a 35-day overlap'
+        required: false
+      date_end:
+        description: 'Optional end date, YYYY-MM-DD; defaults to today'
+        required: false
+      dry_run:
+        description: 'Validate provider and ingest contracts without database writes'
+        required: false
+        default: 'true'
+      confirm_live:
+        description: 'Required as true for manual shadow-staging writes'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapcase-data-shadow-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: ${{ vars.KEXIAZHAN_API_APPROVED == 'true' && vars.SNAPCASE_SHADOW_SYNC_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KEXIAZHAN_API_APPROVED: ${{ vars.KEXIAZHAN_API_APPROVED }}
+      KEXIAZHAN_ACCOUNT_KEY: ${{ vars.KEXIAZHAN_ACCOUNT_KEY }}
+      KEXIAZHAN_REPORTING_TIMEZONE: ${{ vars.KEXIAZHAN_REPORTING_TIMEZONE || 'UTC' }}
+      KEXIAZHAN_PAGE_SIZE: ${{ vars.KEXIAZHAN_PAGE_SIZE || '100' }}
+      KEXIAZHAN_REQUEST_DELAY_MS: ${{ vars.KEXIAZHAN_REQUEST_DELAY_MS || '500' }}
+      KEXIAZHAN_REPORTING_USERNAME: ${{ secrets.KEXIAZHAN_REPORTING_USERNAME }}
+      KEXIAZHAN_REPORTING_PASSWORD: ${{ secrets.KEXIAZHAN_REPORTING_PASSWORD }}
+      SNAPCASE_INGEST_URL: ${{ secrets.SNAPCASE_INGEST_URL }}
+      SNAPCASE_INGEST_TOKEN: ${{ secrets.SNAPCASE_INGEST_TOKEN }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      CONFIRM_LIVE: ${{ inputs.confirm_live || 'false' }}
+      GITHUB_EVENT_NAME: ${{ github.event_name }}
+      DATE_START: ${{ inputs.date_start || '' }}
+      DATE_END: ${{ inputs.date_end || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Snapcase contracts
+        run: npm run snapcase:validate-foundation
+
+      - name: Run read-only provider sync
+        shell: bash
+        run: |
+          args=()
+          if [[ -n "$DATE_START" || -n "$DATE_END" ]]; then
+            if [[ -z "$DATE_START" || -z "$DATE_END" ]]; then
+              echo "date_start and date_end must be provided together." >&2
+              exit 1
+            fi
+            args+=(--date-start "$DATE_START" --date-end "$DATE_END")
+          fi
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$CONFIRM_LIVE" != "true" ]]; then
+            echo "Manual shadow-staging writes require confirm_live=true." >&2
+            exit 1
+          else
+            args+=(--confirm-live)
+          fi
+          npm run snapcase:sync-shadow -- "${args[@]}"
