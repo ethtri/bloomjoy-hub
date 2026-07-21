@@ -44,6 +44,15 @@ const run = async () => {
     !portalPage.includes('Send customer email')
   );
   assert(
+    'Manager queue does not repeat identical location and machine labels',
+    includesAll(portalPage, [
+      'formatRefundMachineLocation',
+      'locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()',
+      'formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)',
+      'formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)',
+    ])
+  );
+  assert(
     'Focused UAT covers guarded completion, failure, and retry wiring',
     includesAll(portalUat, [
       'runCustomerCommsFailureChecks',
