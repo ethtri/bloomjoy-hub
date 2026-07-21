@@ -62,7 +62,17 @@ type NayaxLookupCandidateRow = {
   amount_cents: number | null;
   card_last4: string | null;
   currency_code: string | null;
+  evidence_summary: Record<string, unknown> | null;
 };
+
+const nayaxDisagreementReasons = new Set([
+  "closer_time",
+  "correct_amount",
+  "correct_card",
+  "customer_confirmation",
+  "provider_data_issue",
+  "other_review_reason",
+]);
 
 const selectCaseQuery = `
   id,
@@ -112,7 +122,7 @@ const getNayaxLookupCandidate = async (
   const { data, error } = await supabase
     .from("refund_nayax_lookup_candidates")
     .select(
-      "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code",
+      "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code, evidence_summary",
     )
     .eq("token", candidateToken)
     .eq("refund_case_id", caseId)
@@ -121,6 +131,22 @@ const getNayaxLookupCandidate = async (
 
   if (error) throw error;
   return data as NayaxLookupCandidateRow | null;
+};
+
+const nayaxTransactionIsLinkedElsewhere = async (
+  caseId: string,
+  providerTransactionId: string,
+): Promise<boolean> => {
+  if (!supabase || !providerTransactionId) return false;
+  const { data, error } = await supabase
+    .from("refund_cases")
+    .select("id")
+    .eq("matched_nayax_transaction_id", providerTransactionId)
+    .neq("id", caseId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data?.id);
 };
 
 const resolveMessageType = (
@@ -395,6 +421,34 @@ serve(async (req) => {
     if (!clearNayaxMatch && nayaxCandidateToken && !nayaxCandidate) {
       return jsonResponse({ error: "Nayax lookup evidence expired. Run lookup again." }, 400);
     }
+    if (
+      nayaxCandidate &&
+      await nayaxTransactionIsLinkedElsewhere(caseId, nayaxCandidate.provider_transaction_id)
+    ) {
+      return jsonResponse({ error: "This Nayax transaction is already linked to another refund case." }, 409);
+    }
+
+    const nayaxEvidence = nayaxCandidate?.evidence_summary ?? {};
+    const nayaxDisagreementReason = sanitizeText(body?.nayaxDisagreementReason, 80);
+    const selectionAllowed = nayaxCandidate ? nayaxEvidence.selection_allowed === true : false;
+    const isRecommended = nayaxCandidate ? nayaxEvidence.is_recommended === true : false;
+    if (nayaxCandidate && !selectionAllowed) {
+      return jsonResponse({ error: "This Nayax transaction has a safety block and cannot be selected." }, 400);
+    }
+    if (nayaxCandidate && !isRecommended && !nayaxDisagreementReasons.has(nayaxDisagreementReason)) {
+      return jsonResponse({ error: "Choose why this alternate Nayax transaction is the correct one." }, 400);
+    }
+    if (nayaxDisagreementReason && !nayaxDisagreementReasons.has(nayaxDisagreementReason)) {
+      return jsonResponse({ error: "Choose an approved Nayax review reason." }, 400);
+    }
+
+    if (nayaxCandidate || clearNayaxMatch) {
+      const { error: closeEligibilityError } = await supabase
+        .from("refund_cases")
+        .update({ nayax_match_execution_eligible: false })
+        .eq("id", caseId);
+      if (closeEligibilityError) throw closeEligibilityError;
+    }
 
     const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
     if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
@@ -424,11 +478,62 @@ serve(async (req) => {
     );
 
     if (updateError) {
+      if (updateError.code === "23505") {
+        return jsonResponse({ error: "This Nayax transaction is already linked to another refund case." }, 409);
+      }
       const safeMessage =
         typeof updateError.message === "string" && updateError.message.trim()
           ? updateError.message.slice(0, 240)
           : "Unable to update refund case.";
       return jsonResponse({ error: safeMessage }, 400);
+    }
+
+    if (nayaxCandidate) {
+      const recommendationState = sanitizeText(nayaxEvidence.recommendation_state, 80) || "manual_exception";
+      const policyVersion = sanitizeText(nayaxEvidence.policy_version, 80) || null;
+      const oneClickEligible =
+        recommendationState === "high_confidence" &&
+        isRecommended &&
+        nayaxEvidence.one_click_eligible === true;
+      const { error: eligibilityError } = await supabase
+        .from("refund_cases")
+        .update({
+          nayax_recommendation_state: recommendationState,
+          nayax_recommendation_policy_version: policyVersion,
+          nayax_recommendation_evaluated_at: new Date().toISOString(),
+          nayax_match_execution_eligible: oneClickEligible,
+          correlation_confidence: 0,
+          correlation_summary: oneClickEligible
+            ? "Manager confirmed the recommended Nayax transaction using versioned evidence."
+            : "Manager selected a Nayax transaction for manual review; one-click execution remains unavailable.",
+        })
+        .eq("id", caseId);
+      if (eligibilityError) throw eligibilityError;
+
+      const { error: evidenceEventError } = await supabase.from("refund_case_events").insert({
+        refund_case_id: caseId,
+        actor_user_id: user.id,
+        event_type: "nayax_match_selected",
+        message: isRecommended
+          ? "Manager confirmed the recommended Nayax transaction."
+          : "Manager selected an alternate Nayax transaction after review.",
+        metadata: {
+          policy_version: policyVersion,
+          recommendation_state: recommendationState,
+          selected_recommended: isRecommended,
+          selected_rank: Number(nayaxEvidence.recommendation_rank) || null,
+          disagreement_reason_code: isRecommended ? null : nayaxDisagreementReason,
+          execution_eligible: oneClickEligible,
+          payload_redacted: true,
+        },
+      });
+      if (evidenceEventError) {
+        await supabase
+          .from("refund_cases")
+          .update({ nayax_match_execution_eligible: false })
+          .eq("id", caseId);
+        throw evidenceEventError;
+      }
     }
 
     const afterRow = await getRefundCase(caseId);

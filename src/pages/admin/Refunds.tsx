@@ -33,6 +33,7 @@ import {
   isNayaxCardRefundExecutionError,
   type NayaxCardRefundExecutionResponse,
   type NayaxLookupCandidate,
+  type NayaxDisagreementReason,
   type RefundCaseRecord,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
@@ -117,6 +118,7 @@ type EditorState = {
   matchedNayaxAmount: string;
   matchedNayaxCardLast4: string;
   matchedNayaxCurrencyCode: string;
+  nayaxDisagreementReason: NayaxDisagreementReason | '';
   clearNayaxMatch: boolean;
   internalNote: string;
 };
@@ -163,6 +165,7 @@ const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
       : '',
   matchedNayaxCardLast4: refundCase.matchedNayaxCardLast4 ?? '',
   matchedNayaxCurrencyCode: refundCase.matchedNayaxCurrencyCode ?? '',
+  nayaxDisagreementReason: '',
   clearNayaxMatch: false,
   internalNote: '',
 });
@@ -378,25 +381,25 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   return signals.slice(0, 3);
 };
 
-const confidenceLabel = (confidence: number) => {
-  if (confidence >= 0.9) return 'strong match';
-  if (confidence >= 0.75) return 'good match';
-  return 'possible match';
-};
-
 const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
   `${formatCurrency(candidate.amountCents)} card sale, ${candidate.cardBrand || 'card'} ending ${
     candidate.cardLast4 || 'n/a'
-  }, ${formatDate(candidate.machineAuthorizationTime)}, ${confidenceLabel(candidate.matchConfidence)}`;
+  }, ${formatDate(candidate.machineAuthorizationTime)}${
+    typeof candidate.timeDeltaMinutes === 'number' ? `, ${candidate.timeDeltaMinutes} minutes from reported time` : ''
+  }${
+    typeof candidate.amountDeltaCents === 'number'
+      ? candidate.amountDeltaCents === 0
+        ? ', exact amount'
+        : `, amount differs by ${formatCurrency(candidate.amountDeltaCents)}`
+      : ''
+  }`;
 
 const formatCardSaleLine = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
   candidates: NayaxLookupCandidate[]
 ) => {
-  const candidate =
-    selectedNayaxCandidate(editor, candidates) ??
-    (refundCase.hasMatchedNayaxTransaction && candidates.length === 1 ? candidates[0] : null);
+  const candidate = activeNayaxCandidate(refundCase, editor, candidates);
   const amountCents =
     candidate?.amountCents ??
     refundCase.matchedNayaxAmountCents ??
@@ -637,6 +640,21 @@ const matchResultLabel = (
 const selectedNayaxCandidate = (editor: EditorState, candidates: NayaxLookupCandidate[]) =>
   candidates.find((candidate) => candidate.candidateToken === editor.matchedNayaxCandidateToken) ?? null;
 
+const activeNayaxCandidate = (
+  refundCase: RefundCaseRecord,
+  editor: EditorState,
+  candidates: NayaxLookupCandidate[]
+) =>
+  selectedNayaxCandidate(editor, candidates) ??
+  (refundCase.hasMatchedNayaxTransaction
+    ? candidates.find(
+        (candidate) =>
+          candidate.machineAuthorizationTime === refundCase.matchedNayaxMachineAuthTime &&
+          candidate.amountCents === refundCase.matchedNayaxAmountCents &&
+          candidate.cardLast4 === (refundCase.matchedNayaxCardLast4 ?? '')
+      ) ?? null
+    : null);
+
 const getCardMatchAmountCents = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
@@ -757,7 +775,17 @@ const primaryActionConfig = (
   }
 
   if (refundCase.paymentMethod === 'card') {
+    const selectedCandidate = activeNayaxCandidate(refundCase, editor, candidates);
+    const oneClickEligible =
+      refundCase.nayaxMatchExecutionEligible === true || selectedCandidate?.oneClickEligible === true;
     if (editor.decision === 'approved' || editor.status === 'card_refund_pending' || refundCase.status === 'card_refund_pending') {
+      if (!oneClickEligible) {
+        return {
+          label: 'Manual card review required',
+          helper: 'This transaction was not the uniquely recommended safe match, so the one-click Nayax refund stays unavailable.',
+          disabled: true,
+        };
+      }
       return {
         label: 'Refund card payment',
         helper: 'Confirm the refund amount, then attempt the card refund from this page. The customer is emailed only after a successful execution.',
@@ -871,9 +899,10 @@ const getCustomerMessageDraft = (
 
 const shouldAutoRunNayaxLookup = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) =>
   refundCase.paymentMethod === 'card' &&
-  !refundCase.hasMatchedNayaxTransaction &&
-  candidates.length === 0 &&
-  ['not_started', 'needs_nayax', 'nayax_not_configured', 'manual_review'].includes(refundCase.correlationStatus);
+  (candidates.some((candidate) => !candidate.policyVersion) ||
+    (!refundCase.hasMatchedNayaxTransaction &&
+      candidates.length === 0 &&
+      ['not_started', 'needs_nayax', 'nayax_not_configured', 'manual_review'].includes(refundCase.correlationStatus)));
 
 const messageStatusBadgeClass = (status: string) => {
   if (status === 'sent') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
@@ -1228,6 +1257,15 @@ export default function AdminRefundsPage() {
       toast.error(issues[0]);
       return null;
     }
+    const candidateBeingSelected = selectedNayaxCandidate(nextEditor, nayaxCandidates);
+    if (
+      candidateBeingSelected &&
+      candidateBeingSelected.isRecommended !== true &&
+      !nextEditor.nayaxDisagreementReason
+    ) {
+      toast.error('Choose why this alternate Nayax transaction is the correct one.');
+      return null;
+    }
 
     setIsSaving(true);
     try {
@@ -1248,6 +1286,7 @@ export default function AdminRefundsPage() {
         matchedNayaxAmountCents: nayaxAmountCents,
         matchedNayaxCardLast4: nextEditor.matchedNayaxCardLast4.trim() || null,
         matchedNayaxCurrencyCode: nextEditor.matchedNayaxCurrencyCode.trim().toUpperCase() || null,
+        nayaxDisagreementReason: nextEditor.nayaxDisagreementReason || null,
         customerMessageType,
       });
       if (result.customerMessage?.status === 'failed') {
@@ -1408,6 +1447,9 @@ export default function AdminRefundsPage() {
           ((result.candidates?.length ?? 0) > 0
             ? 'Confirm the correct card sale before completing the case.'
             : 'Ask the customer for one more detail before deciding this card case.'),
+        recommendationState: result.recommendationState,
+        policyVersion: result.policyVersion,
+        oneClickEligible: result.oneClickEligible,
       };
       setNayaxLookupSummary(nextSummary);
       if (!result.configured) {
@@ -1418,7 +1460,7 @@ export default function AdminRefundsPage() {
         if (!silent) {
           toast.info(result.message || 'Nayax lookup is waiting on configuration.');
         }
-      } else if (!result.candidates.length) {
+      } else if (result.recommendationState === 'no_safe_match' || !result.candidates.length) {
         const providerRecordCount = result.providerRecordCount ?? 0;
         const providerWindowRecordCount = result.providerWindowRecordCount ?? 0;
         const noMatchMessage =
@@ -1439,7 +1481,7 @@ export default function AdminRefundsPage() {
           result.windowHours ?? 6
         } hours. Confirm the right transaction before completing the case.`;
         setNayaxLookupNotice({
-          tone: 'success',
+          tone: result.recommendationState === 'high_confidence' ? 'success' : 'warning',
           message: foundMessage,
         });
         if (!silent) {
@@ -1566,63 +1608,117 @@ export default function AdminRefundsPage() {
   const renderCardSaleCandidates = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
     const hasSelectedMatch = hasSelectedCardEvidence(selectedCase, editor);
+    const recommendedCandidate = nayaxCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
+    const alternateCandidates = nayaxCandidates.filter((candidate) => candidate !== recommendedCandidate);
+    const selectedCandidate = selectedNayaxCandidate(editor, nayaxCandidates);
+    const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
+    const selectCandidate = (candidate: NayaxLookupCandidate) => {
+      if (candidate.selectionAllowed === false) return;
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              matchedNayaxCandidateToken: candidate.candidateToken,
+              matchedNayaxMachineAuthTime: candidate.machineAuthorizationTime,
+              matchedNayaxAmount:
+                typeof candidate.amountCents === 'number' ? (candidate.amountCents / 100).toFixed(2) : '',
+              matchedNayaxCardLast4: candidate.cardLast4,
+              matchedNayaxCurrencyCode: candidate.currencyCode,
+              nayaxDisagreementReason: candidate.isRecommended ? '' : current.nayaxDisagreementReason,
+            }
+          : current
+      );
+    };
+    const candidateOption = (candidate: NayaxLookupCandidate, label: string) => (
+      <button
+        key={candidate.candidateToken}
+        data-testid="nayax-candidate-option"
+        type="button"
+        disabled={isUsingDemoData || candidate.selectionAllowed === false}
+        onClick={() => selectCandidate(candidate)}
+        className={cn(
+          'w-full min-w-0 rounded-md border bg-sky-50 p-3 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60',
+          editor.matchedNayaxCandidateToken === candidate.candidateToken
+            ? 'border-sky-500 ring-2 ring-sky-200'
+            : 'border-sky-200'
+        )}
+      >
+        <span className="flex flex-wrap items-center gap-2 font-semibold">
+          <span>{label}</span>
+          {candidate.oneClickEligible && (
+            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">Strong evidence</Badge>
+          )}
+        </span>
+        <span className="mt-1 block text-sky-800">{formatCandidateSummary(candidate)}</span>
+        {candidate.matchFactors && candidate.matchFactors.length > 0 && (
+          <span className="mt-2 block text-sky-700">
+            {candidate.matchFactors.slice(0, 4).map((factor) => factor.label).join(' · ')}
+          </span>
+        )}
+        {candidate.selectionAllowed === false && (
+          <span className="mt-2 block font-medium text-amber-800">
+            Safety block: this transaction cannot be selected.
+          </span>
+        )}
+      </button>
+    );
 
     return (
       <div className="mt-3 space-y-3">
-        {!hasSelectedMatch && nayaxCandidates.length > 0 && (
+        {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
+          <div className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>{nayaxLookupNotice.message}</div>
+        )}
+        {!selectedCase.hasMatchedNayaxTransaction && nayaxCandidates.length > 0 && (
           <div className="rounded-md border border-sky-200 bg-white p-3">
-            <p className="text-sm font-medium text-sky-950">Choose the matching card sale</p>
+            <p className="text-sm font-medium text-sky-950">
+              {recommendedCandidate ? 'Recommended card sale' : 'Card sales need comparison'}
+            </p>
             <p className="mt-1 text-xs text-sky-800">
-              Select a sale only if it matches the customer request.
+              {recommendedCandidate
+                ? 'Confirm only if the details below match the request. This recommendation is advisory.'
+                : 'No transaction is safe to recommend automatically. One-click refund stays unavailable.'}
             </p>
             {isUsingDemoData && (
               <InfoHint>
                 Demo mode disables sale selection because static evidence cannot be saved to a refund case.
               </InfoHint>
             )}
-            <div className="mt-3 space-y-2">
-              {nayaxCandidates.map((candidate, index) => (
-                <button
-                  key={candidate.candidateToken}
-                  data-testid="nayax-candidate-option"
-                  type="button"
-                  disabled={isUsingDemoData}
-                  onClick={() =>
+            {recommendedCandidate && <div className="mt-3">{candidateOption(recommendedCandidate, 'Recommended sale')}</div>}
+            {alternateCandidates.length > 0 && (
+              <details className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
+                <summary className="cursor-pointer text-xs font-medium text-slate-800">
+                  Other possible transactions ({alternateCandidates.length})
+                </summary>
+                <div className="mt-2 space-y-2">
+                  {alternateCandidates.map((candidate) => candidateOption(candidate, 'Alternate sale'))}
+                </div>
+              </details>
+            )}
+            {needsDisagreementReason && (
+              <div className="mt-3 space-y-1.5">
+                <Label htmlFor="nayax-disagreement-reason">Why is this alternate the correct sale?</Label>
+                <select
+                  id="nayax-disagreement-reason"
+                  value={editor.nayaxDisagreementReason}
+                  onChange={(event) =>
                     setEditor((current) =>
                       current
-                        ? {
-                            ...current,
-                            matchedNayaxCandidateToken: candidate.candidateToken,
-                            matchedNayaxMachineAuthTime: candidate.machineAuthorizationTime,
-                            matchedNayaxAmount:
-                              typeof candidate.amountCents === 'number'
-                                ? (candidate.amountCents / 100).toFixed(2)
-                                : '',
-                            matchedNayaxCardLast4: candidate.cardLast4,
-                            matchedNayaxCurrencyCode: candidate.currencyCode,
-                          }
+                        ? { ...current, nayaxDisagreementReason: event.target.value as NayaxDisagreementReason | '' }
                         : current
                     )
                   }
-                  className={cn(
-                    'w-full min-w-0 rounded-md border bg-sky-50 p-3 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100',
-                    editor.matchedNayaxCandidateToken === candidate.candidateToken
-                      ? 'border-sky-500 ring-2 ring-sky-200'
-                      : 'border-sky-200'
-                  )}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
-                  <span className="flex flex-wrap items-center gap-2 font-semibold">
-                    <span>{index === 0 ? 'Recommended sale' : 'Alternate sale'}</span>
-                    <span className="font-normal text-sky-700">
-                      {formatDate(candidate.machineAuthorizationTime)}
-                    </span>
-                  </span>
-                  <span className="mt-1 block text-sky-700">
-                    {formatCandidateSummary(candidate)}
-                  </span>
-                </button>
-              ))}
-            </div>
+                  <option value="">Choose a reason</option>
+                  <option value="closer_time">Closer transaction time</option>
+                  <option value="correct_amount">Correct amount</option>
+                  <option value="correct_card">Correct card ending</option>
+                  <option value="customer_confirmation">Customer confirmed it</option>
+                  <option value="provider_data_issue">Nayax data issue</option>
+                  <option value="other_review_reason">Other reviewed evidence</option>
+                </select>
+              </div>
+            )}
           </div>
         )}
 
@@ -1631,7 +1727,7 @@ export default function AdminRefundsPage() {
             Advanced lookup tools (optional)
           </summary>
           <div className="mt-3 space-y-2">
-            {nayaxLookupNotice && (
+            {nayaxLookupNotice && hasSelectedMatch && (
               <div className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
                 {nayaxLookupNotice.message}
               </div>
@@ -1674,6 +1770,7 @@ export default function AdminRefundsPage() {
                             matchedNayaxAmount: '',
                             matchedNayaxCardLast4: '',
                             matchedNayaxCurrencyCode: '',
+                            nayaxDisagreementReason: '',
                           }
                         : current
                     )

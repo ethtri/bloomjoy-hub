@@ -20,6 +20,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
+- Refund Operations issue `#630` now has a deterministic, versioned Nayax recommendation slice with explicit high-confidence/ambiguous/no-safe-match/manual-exception states, canonical location-timezone resolution, manager alternate-selection evidence, and fail-closed execution eligibility. Merge and manager UAT remain pending; live Nayax execution is still disabled and sponsor-gated.
 - Refund operations and customer-refund pilot readiness remain high-sensitivity operational surfaces.
 - Access grants that create user-facing Corporate Partner or Technician access must prove both the saved grant and the invite-email attempt; rollout signoff also needs provider/inbox/activation evidence in the linked issue or PR.
 - Partner activation uses manual Email Codes and a temporary non-persisting auth session; password creation must succeed before portal sign-in. Hosted signup-confirmation, invite, Email Code, and recovery templates must pass `npm run auth:templates:validate` so email-security prefetch cannot consume credentials. Production Auth delivery uses Bloomjoy's Resend custom SMTP; Supabase's two-email/hour demonstration sender is not an acceptable production fallback.

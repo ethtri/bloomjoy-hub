@@ -43,10 +43,8 @@ const readFileAsBase64 = (file: File) =>
     reader.readAsDataURL(file);
   });
 
-const buildIncidentIso = (incidentDate: string, incidentTime: string) => {
-  const date = new Date(`${incidentDate}T${incidentTime}`);
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
-};
+const hasValidIncidentLocalTime = (incidentDate: string, incidentTime: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(incidentDate) && /^\d{2}:\d{2}$/.test(incidentTime);
 
 export default function RefundRequestPage() {
   const navigate = useNavigate();
@@ -118,8 +116,7 @@ export default function RefundRequestPage() {
       return;
     }
 
-    const incidentAt = buildIncidentIso(form.incidentDate, form.incidentTime);
-    if (!incidentAt) {
+    if (!hasValidIncidentLocalTime(form.incidentDate, form.incidentTime)) {
       toast.error('Enter the date and time when the issue happened.');
       return;
     }
@@ -160,7 +157,8 @@ export default function RefundRequestPage() {
         zellePaymentContact:
           form.paymentMethod === 'cash' ? form.zellePaymentContact.trim() : undefined,
         issueSummary: form.issueSummary.trim(),
-        incidentAt,
+        incidentDate: form.incidentDate,
+        incidentTime: form.incidentTime,
         paymentMethod: form.paymentMethod,
         paymentAmount: form.paymentAmount.trim(),
         cardLast4: form.paymentMethod === 'card' ? form.cardLast4.trim() : undefined,

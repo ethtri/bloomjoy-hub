@@ -31,6 +31,8 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/machines` has no horizontal page overflow at `360x800`, `390x844`, or `414x896`; the buyer comparison uses readable mobile cards, and the public header switches to the mobile menu at `768x1024`
 
 ## Refund Operations MVP
+
+- [ ] Run `npm run refunds:validate-nayax-matching`; exact and near-time matches rank correctly, while wrong amount/machine, collisions, wallet mismatch, duplicate/already-refunded, failed provider status, no-match, and DST fixtures keep unsafe one-click execution closed.
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` is merged, and Google Form/AppSheet remains live until the cutover gate passes.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.
 - [ ] Run `npm run refunds:validate-customer-comms` and confirm primary refund actions send/log customer emails, failures surface as retry work, and the normal path has no separate send-email step.
@@ -60,8 +62,10 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Super admins can send a tracked Machine Manager signup invite from Admin > Machines > Edit Machine for a not-yet-authenticated email; `access_invite_deliveries` records `invite_type=machine_manager` and `source_type=reporting_machine`, and the invite does not assign machine access until the signed-in user is added.
 - [ ] Super admins can configure selected pilot machines from Admin > Machines > Edit Machine: enable/disable public refund intake, set the customer-facing form label, save a Nayax machine ID/account key for read-only lookup through the single `Save machine changes` button, and confirm the UI says live card refund execution remains disabled/manual.
 - [ ] Server-side Nayax machine mapping state is visible to setup-capable users; card lookup stays blocked with a friendly setup message until the machine is mapped and the Edge Function secret exists.
-- [ ] Card lookup calls Nayax Last Sales for the mapped machine and returns only sanitized candidate evidence to authorized refund users: machine authorization time, amount, currency, card brand/last 4, and match reason; raw provider IDs stay hidden.
-- [ ] Card lookup runs automatically for pending card cases through the manager workbench/automation sweep with a +/- 6 hour window; suggested match plus alternates are tokenized and available long enough for manager review.
+- [ ] Card lookup calls Nayax Last Sales for the mapped machine and returns only an opaque candidate token, sanitized factor labels, and time/amount deltas to authorized refund users; raw provider IDs, internal ranking points, and uncalibrated percentage-like confidence stay hidden.
+- [ ] Card lookup runs automatically for pending card cases through the manager workbench/automation sweep with a +/- 6 hour window; only a uniquely high-confidence transaction is labeled recommended, while alternates stay behind progressive disclosure and are tokenized long enough for manager review.
+- [ ] Manager confirmation of the recommended high-confidence transaction can set execution eligibility; ambiguous, no-safe-match, manual-exception, hard-blocked, and alternate selections cannot set it. Alternate selection requires a structured disagreement reason in the audit event.
+- [ ] Submit the same local incident date/time from browsers in different timezones and confirm the stored UTC instant is identical because the selected location timezone is canonical; spring-forward gaps and fall-back folds stay manual-review only.
 - [ ] Manager denial path requires a friendly decision reason and does not write to `sales_adjustment_facts`; approval, completion, denial, and more-info state changes send/log the automated customer message through the refund admin Edge wrapper.
 - [ ] Manager status changes through `refund-case-admin-update` log/send appropriate customer messages for more-info, approved, denied, and completed states without exposing private payloads.
 - [ ] `refund-case-automation-sweep` sends reminder/escalation messages from synthetic stale cases and returns only redacted aggregate output.

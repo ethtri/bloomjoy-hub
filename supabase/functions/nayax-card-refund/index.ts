@@ -46,6 +46,8 @@ type RefundCaseForExecution = {
   card_wallet_used: boolean;
   correlation_status: string;
   correlation_source: string | null;
+  nayax_recommendation_state: string | null;
+  nayax_match_execution_eligible: boolean;
   matched_nayax_transaction_id: string | null;
   matched_nayax_site_id: number | null;
   matched_nayax_machine_auth_time: string | null;
@@ -80,6 +82,8 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseForExecution | n
       card_wallet_used,
       correlation_status,
       correlation_source,
+      nayax_recommendation_state,
+      nayax_match_execution_eligible,
       matched_nayax_transaction_id,
       matched_nayax_site_id,
       matched_nayax_machine_auth_time,
@@ -164,6 +168,8 @@ const getPreflightBlocks = ({
   if (refundCase.card_wallet_used) blocks.push("manual_review");
   if (refundCase.correlation_status !== "matched") blocks.push("validation_rejected");
   if (refundCase.correlation_source !== "nayax") blocks.push("validation_rejected");
+  if (refundCase.nayax_recommendation_state !== "high_confidence") blocks.push("manual_review");
+  if (!refundCase.nayax_match_execution_eligible) blocks.push("manual_review");
   if (!safeNayaxReference(refundCase.matched_nayax_transaction_id)) blocks.push("validation_rejected");
   if (refundCase.matched_nayax_site_id === null) blocks.push("validation_rejected");
   if (!refundCase.matched_nayax_machine_auth_time) blocks.push("validation_rejected");
@@ -219,6 +225,19 @@ const getDailyCapBlocks = async (amountCents: number) => {
   }
 
   return blocks;
+};
+
+const getDuplicateTransactionBlocks = async (refundCase: RefundCaseForExecution) => {
+  if (!supabase || !safeNayaxReference(refundCase.matched_nayax_transaction_id)) return [];
+  const { data, error } = await supabase
+    .from("refund_cases")
+    .select("id")
+    .eq("matched_nayax_transaction_id", refundCase.matched_nayax_transaction_id)
+    .neq("id", refundCase.id)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.id ? ["duplicate_transaction"] : [];
 };
 
 const recordAttempt = async ({
@@ -319,6 +338,7 @@ serve(async (req) => {
       actorCanManageCase: Boolean(actorCanManageCase),
     });
     const dailyCapBlocks = await getDailyCapBlocks(resolveRefundAmountCents(refundCase));
+    const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(refundCase);
 
     const killSwitchActive = !envFlag("NAYAX_REFUND_EXECUTION_KILL_SWITCH", "false");
     const executionEnabled = envFlag("NAYAX_REFUND_EXECUTION_ENABLED");
@@ -332,7 +352,9 @@ serve(async (req) => {
       dryRun ? "feature_disabled" : null,
     ].filter(Boolean) as string[];
 
-    const allBlocks = Array.from(new Set([...preflightBlocks, ...dailyCapBlocks, ...configBlocks]));
+    const allBlocks = Array.from(
+      new Set([...preflightBlocks, ...dailyCapBlocks, ...duplicateTransactionBlocks, ...configBlocks]),
+    );
     if (allBlocks.length > 0) {
       const preferredError =
         allBlocks.includes("kill_switch_active") ? "kill_switch_active" :
@@ -341,6 +363,7 @@ serve(async (req) => {
         allBlocks.includes("amount_cap_exceeded") ? "amount_cap_exceeded" :
         allBlocks.includes("daily_amount_cap_exceeded") ? "amount_cap_exceeded" :
         allBlocks.includes("daily_count_cap_exceeded") ? "amount_cap_exceeded" :
+        allBlocks.includes("duplicate_transaction") ? "manual_review" :
         allBlocks.includes("manual_review") ? "manual_review" :
         allBlocks.includes("configuration_missing") ? "configuration_missing" :
         allBlocks.includes("feature_disabled") ? "feature_disabled" :

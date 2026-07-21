@@ -22,6 +22,7 @@ const files = {
   refundOperationsLib: 'src/lib/refundOperations.ts',
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
+  nayaxRecommendationMigration: 'supabase/migrations/202607210003_refund_nayax_recommendation_state.sql',
 };
 
 const read = (relativePath) =>
@@ -47,6 +48,7 @@ const refundCaseMessageSend = read(files.refundCaseMessageSend);
 const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
+const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
 
 assert(
   migration.includes('refund_case_nayax_refund_attempts'),
@@ -149,7 +151,9 @@ assert(
   nayaxLookup.includes('lookupNayaxCandidatesForRefundCase') &&
     nayaxLookupShared.includes('refund_nayax_lookup_candidates') &&
     nayaxLookupShared.includes('candidateToken') &&
-    nayaxLookupShared.includes('Omit<NayaxProviderCandidate, "transactionId" | "siteId">') &&
+    nayaxLookupShared.includes('export type NayaxResponseCandidate = Omit<') &&
+    nayaxLookupShared.includes('"transactionId" | "siteId" | "providerMachineId"') &&
+    nayaxLookupShared.includes('toPublicNayaxCandidate(candidate, token)') &&
     nayaxLookupShared.includes('defaultLookupWindowHours = 6'),
   'Nayax lookup must return opaque candidate tokens, not raw provider transaction IDs.'
 );
@@ -180,6 +184,29 @@ assert(
   !refundOperationsUi.includes('candidate.transactionId') &&
     !refundOperationsUi.includes('matchedNayaxTransactionId'),
   'Browser refund UI must not store or submit raw Nayax transaction IDs.'
+);
+assert(
+  fn.includes('nayax_recommendation_state !== "high_confidence"') &&
+    fn.includes('!refundCase.nayax_match_execution_eligible') &&
+    fn.includes('refundCase.card_wallet_used') &&
+    fn.includes('duplicate_transaction') &&
+    nayaxRecommendationMigration.includes("refund_case.nayax_recommendation_state = 'high_confidence'") &&
+    nayaxRecommendationMigration.includes('refund_case.nayax_match_execution_eligible = true') &&
+    nayaxRecommendationMigration.includes('refund_cases_unique_matched_nayax_transaction_id_idx') &&
+    nayaxRecommendationMigration.includes("refund_case.card_wallet_used = false"),
+  'Nayax execution must require a manager-confirmed high-confidence recommendation in both the Edge Function and database predicate.'
+);
+assert(
+  refundAdminUpdate.includes('selection_allowed') &&
+    refundAdminUpdate.includes('nayaxDisagreementReason') &&
+    refundAdminUpdate.includes('nayax_match_execution_eligible: false'),
+  'Manager selection must reject safety-blocked candidates, record structured alternate reasons, and close eligibility before changing a match.'
+);
+assert(
+  nayaxRecommendationMigration.includes('nayaxLookupCandidates') &&
+    nayaxRecommendationMigration.includes("'oneClickEligible'") &&
+    nayaxRecommendationMigration.includes("'matchFactors'"),
+  'The live overview RPC must return the sanitized versioned recommendation contract after reload.'
 );
 
 console.log('Nayax refund execution guardrails validated.');

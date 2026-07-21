@@ -113,9 +113,11 @@ const buildMockRefundOverview = () => ({
       paymentMethod: 'card',
       paymentAmountCents: 700,
       cardLast4: '4242',
-      cardWalletUsed: true,
+      cardWalletUsed: false,
       hasMatchedSalesFact: false,
       hasMatchedNayaxTransaction: true,
+      nayaxMatchExecutionEligible: true,
+      nayaxRecommendationState: 'high_confidence',
       matchedNayaxMachineAuthTime: isoHoursAgo(5),
       matchedNayaxAmountCents: 700,
       matchedNayaxCardLast4: '4242',
@@ -130,9 +132,23 @@ const buildMockRefundOverview = () => ({
           cardLast4: '4242',
           cardBrand: 'Visa',
           recognitionMethod: 'tap',
-          paymentStatus: 'Card',
-          matchConfidence: 0.97,
-          matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches; last 4 matches',
+          paymentStatus: 'approved',
+          amountDeltaCents: 0,
+          timeDeltaMinutes: 3,
+          recommendationRank: 1,
+          isTopRanked: true,
+          isRecommended: true,
+          recommendationState: 'high_confidence',
+          oneClickEligible: true,
+          selectionAllowed: true,
+          matchStrength: 'strong',
+          policyVersion: '2026-07-21.v1',
+          matchFactors: [
+            { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+            { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+            { key: 'card', outcome: 'match', label: 'Card last four matches' },
+          ],
+          matchReason: 'Exact mapped machine and location; exact amount; card last four matches',
         },
       ],
       assignedManagerEmail: mockUser.email,
@@ -400,6 +416,9 @@ const installMockSupabaseRoutes = async (
         jsonResponse(nayaxLookupResponse ?? {
           configured: true,
           lookupStatus: 'match_found',
+          recommendationState: 'high_confidence',
+          policyVersion: '2026-07-21.v1',
+          oneClickEligible: true,
           lastCheckedAt: now.toISOString(),
           providerRecordCount: 2,
           providerParseableRecordCount: 2,
@@ -418,9 +437,23 @@ const installMockSupabaseRoutes = async (
               cardLast4: '4242',
               cardBrand: 'Visa',
               recognitionMethod: 'tap',
-              paymentStatus: 'Card',
-              matchConfidence: 0.97,
-              matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches; last 4 matches',
+              paymentStatus: 'approved',
+              amountDeltaCents: 0,
+              timeDeltaMinutes: 3,
+              recommendationRank: 1,
+              isTopRanked: true,
+              isRecommended: true,
+              recommendationState: 'high_confidence',
+              oneClickEligible: true,
+              selectionAllowed: true,
+              matchStrength: 'strong',
+              policyVersion: '2026-07-21.v1',
+              matchFactors: [
+                { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+                { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+                { key: 'card', outcome: 'match', label: 'Card last four matches' },
+              ],
+              matchReason: 'Exact mapped machine and location; exact amount; card last four matches',
             },
           ],
         })
@@ -948,6 +981,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, recorder }) =
       response: {
         configured: true,
         lookupStatus: 'no_match',
+        recommendationState: 'no_safe_match',
+        policyVersion: '2026-07-21.v1',
+        oneClickEligible: false,
         lastCheckedAt: now.toISOString(),
         providerRecordCount: 3,
         providerParseableRecordCount: 3,
@@ -966,6 +1002,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, recorder }) =
       response: {
         configured: true,
         lookupStatus: 'multiple_matches',
+        recommendationState: 'ambiguous',
+        policyVersion: '2026-07-21.v1',
+        oneClickEligible: false,
         lastCheckedAt: now.toISOString(),
         providerRecordCount: 4,
         providerParseableRecordCount: 4,
@@ -985,8 +1024,17 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, recorder }) =
             cardBrand: 'Visa',
             recognitionMethod: 'contactless',
             paymentStatus: 'approved',
-            matchConfidence: 0.88,
-            matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches',
+            amountDeltaCents: 0,
+            timeDeltaMinutes: 6,
+            recommendationRank: 1,
+            isTopRanked: true,
+            isRecommended: false,
+            recommendationState: 'ambiguous',
+            oneClickEligible: false,
+            selectionAllowed: true,
+            matchStrength: 'compare',
+            policyVersion: '2026-07-21.v1',
+            matchReason: 'Exact mapped machine and location; exact amount; close transaction time',
           },
           {
             candidateToken: '41000000-0000-4000-8000-000000000202',
@@ -998,8 +1046,17 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, recorder }) =
             cardBrand: 'Mastercard',
             recognitionMethod: 'contactless',
             paymentStatus: 'approved',
-            matchConfidence: 0.82,
-            matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches',
+            amountDeltaCents: 0,
+            timeDeltaMinutes: 7,
+            recommendationRank: 2,
+            isTopRanked: false,
+            isRecommended: false,
+            recommendationState: 'ambiguous',
+            oneClickEligible: false,
+            selectionAllowed: true,
+            matchStrength: 'compare',
+            policyVersion: '2026-07-21.v1',
+            matchReason: 'Exact mapped machine and location; exact amount; close transaction time',
           },
         ],
       },
@@ -1060,6 +1117,20 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, recorder }) =
         `Nayax ${scenario.name} renders candidate choices`,
         (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount
       );
+      if (scenario.name === 'multiple candidates') {
+        const alternateDisclosure = page.getByText('Other possible transactions (2)', { exact: true });
+        recorder.assert(
+          'Ambiguous candidates stay behind progressive disclosure',
+          await alternateDisclosure.isVisible() &&
+            !(await page.getByTestId('nayax-candidate-option').first().isVisible())
+        );
+        await alternateDisclosure.click();
+        await page.getByTestId('nayax-candidate-option').first().click();
+        recorder.assert(
+          'Selecting an alternate requires a structured disagreement reason',
+          await page.getByLabel('Why is this alternate the correct sale?').isVisible()
+        );
+      }
     }
     recorder.assert(
       `Nayax ${scenario.name} output hides raw provider IDs`,

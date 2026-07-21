@@ -291,6 +291,10 @@ const runCardNayaxLookupSweep = async () => {
             correlation_confidence: 0,
             correlation_summary: lookupResult.message || "Nayax lookup needs setup before card matching can run.",
             automation_state: "under_review",
+            nayax_recommendation_state: "manual_exception",
+            nayax_recommendation_policy_version: lookupResult.policyVersion,
+            nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
+            nayax_match_execution_eligible: false,
           })
           .eq("id", refundCase.id);
 
@@ -306,26 +310,36 @@ const runCardNayaxLookupSweep = async () => {
         continue;
       }
 
-      if (lookupResult.candidates.length > 0) {
+      if (lookupResult.recommendationState !== "no_safe_match") {
         nayaxCandidatesFound += lookupResult.candidates.length;
+        const correlationStatus = lookupResult.recommendationState === "ambiguous"
+          ? "multiple_candidates"
+          : "manual_review";
         await supabase.from("refund_cases")
           .update({
             status: "needs_review",
-            correlation_status: "manual_review",
+            correlation_status: correlationStatus,
             correlation_source: "nayax",
-            correlation_confidence: Math.max(0.01, lookupResult.candidates[0]?.matchConfidence ?? 0.01),
-            correlation_summary:
-              `Nayax lookup found ${lookupResult.candidates.length} candidate(s) inside +/- ${lookupResult.windowHours} hours. Manager must confirm the match.`,
+            correlation_confidence: 0,
+            correlation_summary: lookupResult.summary,
             automation_state: "under_review",
+            nayax_recommendation_state: lookupResult.recommendationState,
+            nayax_recommendation_policy_version: lookupResult.policyVersion,
+            nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
+            nayax_match_execution_eligible: false,
           })
           .eq("id", refundCase.id);
 
         await supabase.from("refund_case_events").insert({
           refund_case_id: refundCase.id,
-          event_type: "nayax_auto_lookup_candidates_found",
-          message: "Automated Nayax lookup found sanitized card-sale candidate evidence for manager review.",
+          event_type: "nayax_auto_recommendation_evaluated",
+          message: "Automated Nayax lookup evaluated sanitized card-sale evidence for manager review.",
           metadata: {
+            recommendation_state: lookupResult.recommendationState,
+            policy_version: lookupResult.policyVersion,
             candidate_count: lookupResult.candidates.length,
+            recommended_rank: lookupResult.recommendationState === "high_confidence" ? 1 : null,
+            one_click_base_eligible: lookupResult.oneClickEligible,
             window_hours: lookupResult.windowHours,
             provider_record_count: lookupResult.providerRecordCount ?? null,
             provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
@@ -352,8 +366,12 @@ const runCardNayaxLookupSweep = async () => {
             correlation_source: "nayax",
             correlation_confidence: 0,
             correlation_summary:
-              `No Nayax card sale candidate was found inside +/- ${lookupResult.windowHours} hours. More information requested from the customer.`,
+              `${lookupResult.summary} More information requested from the customer.`,
             automation_state: "more_info_needed",
+            nayax_recommendation_state: lookupResult.recommendationState,
+            nayax_recommendation_policy_version: lookupResult.policyVersion,
+            nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
+            nayax_match_execution_eligible: false,
             automation_follow_up_due_at: new Date(Date.now() + reminderDelayDays * 24 * 60 * 60 * 1000).toISOString(),
           })
           .eq("id", refundCase.id);
@@ -365,6 +383,9 @@ const runCardNayaxLookupSweep = async () => {
           message: "Automated Nayax lookup found no candidate, so the customer was asked for more information.",
           metadata: {
             window_hours: lookupResult.windowHours,
+            candidate_count: lookupResult.candidates.length,
+            recommendation_state: lookupResult.recommendationState,
+            policy_version: lookupResult.policyVersion,
             provider_record_count: lookupResult.providerRecordCount ?? null,
             provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
             payload_redacted: true,

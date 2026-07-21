@@ -57,7 +57,10 @@ export type SubmitRefundRequestInput = {
   customerPhone?: string;
   zellePaymentContact?: string;
   issueSummary: string;
-  incidentAt: string;
+  incidentDate: string;
+  incidentTime: string;
+  /** Compatibility only. New clients send location-local date and time separately. */
+  incidentAt?: string;
   paymentMethod: RefundPaymentMethod;
   paymentAmount?: string;
   cardLast4?: string;
@@ -118,6 +121,7 @@ export type RefundNayaxLookupStatus =
   | 'match_found'
   | 'multiple_matches'
   | 'no_match'
+  | 'manual_exception'
   | 'setup_needed'
   | 'lookup_failed';
 
@@ -129,6 +133,21 @@ export type RefundNayaxLookupSummary = {
   candidateCount: number;
   summary: string;
   recommendedAction: string;
+  recommendationState?: NayaxRecommendationState;
+  policyVersion?: string;
+  oneClickEligible?: boolean;
+};
+
+export type NayaxRecommendationState =
+  | 'high_confidence'
+  | 'ambiguous'
+  | 'no_safe_match'
+  | 'manual_exception';
+
+export type NayaxMatchFactor = {
+  key: string;
+  outcome: string;
+  label: string;
 };
 
 export type RefundCaseRecord = {
@@ -154,6 +173,9 @@ export type RefundCaseRecord = {
   cardWalletUsed: boolean;
   hasMatchedSalesFact: boolean;
   hasMatchedNayaxTransaction: boolean;
+  nayaxMatchExecutionEligible?: boolean;
+  nayaxRecommendationState?: NayaxRecommendationState | null;
+  nayaxRecommendationPolicyVersion?: string | null;
   matchedNayaxMachineAuthTime: string | null;
   matchedNayaxAmountCents: number | null;
   matchedNayaxCardLast4: string | null;
@@ -228,8 +250,17 @@ export type UpdateRefundCaseInput = {
   matchedNayaxAmountCents?: number | null;
   matchedNayaxCardLast4?: string | null;
   matchedNayaxCurrencyCode?: string | null;
+  nayaxDisagreementReason?: NayaxDisagreementReason | null;
   customerMessageType?: RefundCustomerPortalMessageType | null;
 };
+
+export type NayaxDisagreementReason =
+  | 'closer_time'
+  | 'correct_amount'
+  | 'correct_card'
+  | 'customer_confirmation'
+  | 'provider_data_issue'
+  | 'other_review_reason';
 
 export type NayaxLookupCandidate = {
   candidateToken: string;
@@ -241,7 +272,21 @@ export type NayaxLookupCandidate = {
   cardBrand: string;
   recognitionMethod: string;
   paymentStatus: string;
-  matchConfidence: number;
+  amountDeltaCents?: number | null;
+  timeDeltaMinutes?: number;
+  recommendationRank?: number;
+  isTopRanked?: boolean;
+  isRecommended?: boolean;
+  recommendationState?: NayaxRecommendationState;
+  oneClickEligible?: boolean;
+  selectionAllowed?: boolean;
+  matchStrength?: 'strong' | 'compare' | 'manual_review' | 'insufficient' | string;
+  matchFactors?: NayaxMatchFactor[];
+  manualReviewReasons?: string[];
+  hardExclusions?: string[];
+  policyVersion?: string;
+  /** @deprecated Uncalibrated legacy value; do not display as a probability. */
+  matchConfidence?: number;
   matchReason: string;
   expiresAt?: string;
   createdAt?: string;
@@ -251,6 +296,9 @@ export type NayaxLookupResponse = {
   error?: string;
   configured: boolean;
   lookupStatus?: RefundNayaxLookupStatus;
+  recommendationState?: NayaxRecommendationState;
+  policyVersion?: string;
+  oneClickEligible?: boolean;
   lastCheckedAt?: string;
   providerRecordCount?: number;
   providerParseableRecordCount?: number;
@@ -467,9 +515,11 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         paymentMethod: 'card',
         paymentAmountCents: 700,
         cardLast4: '4242',
-        cardWalletUsed: true,
+        cardWalletUsed: false,
         hasMatchedSalesFact: false,
         hasMatchedNayaxTransaction: true,
+        nayaxMatchExecutionEligible: true,
+        nayaxRecommendationState: 'high_confidence',
         matchedNayaxMachineAuthTime: demoIsoHoursAgo(5),
         matchedNayaxAmountCents: 700,
         matchedNayaxCardLast4: '4242',
@@ -484,9 +534,23 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
             currencyCode: 'USD',
             cardBrand: 'Visa',
             recognitionMethod: 'tap',
-            paymentStatus: 'Card',
-            matchConfidence: 0.97,
-            matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches; last 4 matches',
+            paymentStatus: 'approved',
+            amountDeltaCents: 0,
+            timeDeltaMinutes: 3,
+            recommendationRank: 1,
+            isTopRanked: true,
+            isRecommended: true,
+            recommendationState: 'high_confidence',
+            oneClickEligible: true,
+            selectionAllowed: true,
+            matchStrength: 'strong',
+            policyVersion: '2026-07-21.v1',
+            matchFactors: [
+              { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+              { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+              { key: 'card', outcome: 'match', label: 'Card last four matches' },
+            ],
+            matchReason: 'Exact mapped machine and location; exact amount; card last four matches',
             expiresAt: demoIsoHoursAgo(-18),
             createdAt: demoIsoHoursAgo(4.5),
           },
