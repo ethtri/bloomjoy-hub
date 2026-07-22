@@ -1323,14 +1323,16 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       selectedPanelTop: selectedPanel?.top ?? 0,
       scrollY: window.scrollY,
       scrollHeight: document.documentElement.scrollHeight,
+      innerHeight: window.innerHeight,
       mobileMediaMatches: window.matchMedia('(max-width: 1023px)').matches,
       activeElement: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim().slice(0, 40) ?? '',
     };
   });
   recorder.assert(
     'Mobile selected case is not hidden under sticky portal chrome',
-    mobileStacking.selectedHeadingTop >= mobileStacking.headerBottom &&
-      mobileStacking.selectedHeadingTop <= mobileStacking.headerBottom + 360,
+    mobileStacking.selectedPanelTop >= mobileStacking.headerBottom &&
+      mobileStacking.selectedHeadingTop >= mobileStacking.headerBottom &&
+      mobileStacking.selectedHeadingTop < mobileStacking.innerHeight,
     JSON.stringify(mobileStacking)
   );
 
