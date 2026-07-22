@@ -31,7 +31,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] `/machines` has no horizontal page overflow at `360x800`, `390x844`, or `414x896`; the buyer comparison uses readable mobile cards, and the public header switches to the mobile menu at `768x1024`
 
 ## Refund Operations MVP
-- [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` is merged, and Google Form/AppSheet remains live until the cutover gate passes.
+- [ ] Follow `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` and the shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; verify the final integrated `main` release rather than an individual PR head, and keep Google Form/Sheet/AppSheet live until sponsor approval in `#409`.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.
 - [ ] Run `npm run refunds:validate-customer-comms` and confirm primary refund actions send/log customer emails, failures surface as retry work, and the normal path has no separate send-email step.
 - [ ] Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for manager/operator shadow-pilot feedback collection.
@@ -70,7 +70,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Approved card path confirms the refund amount, calls guarded in-app `nayax-card-refund`, leaves the case open and customer uncontacted when execution is blocked, and completes only after a successful execution response without showing raw provider IDs in the UI.
 - [ ] Approved cash/Zelle path requires manager approval, conservative match, refund amount, and manual completion before reporting write-through.
 - [ ] Completed correlated cases create/update one `sales_adjustment_facts` row with `source='refund_case'`, linked `refund_case_id`, positive amount, applied match status, and no raw customer/payment/free-text payload.
-- [ ] Run manager-wide shadow-mode UAT with all current authenticated Machine Managers while the Google Form/AppSheet process remains available as fallback; do not cut over until pilot evidence is clean.
+- [ ] Run the current manager UAT script with a clean Machine Manager-only account from `#435`; a scoped-admin/super-admin account is not valid boundary evidence, and the approved pilot cohort remains narrow until `#427` and `#409` are signed off.
 
 ## Public site
 - [ ] Home loads and key CTAs navigate correctly
