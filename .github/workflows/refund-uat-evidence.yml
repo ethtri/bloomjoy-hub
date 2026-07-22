@@ -58,7 +58,7 @@ jobs:
       - name: Run Machine Manager synthetic UAT
         run: npm run refunds:validate-machine-manager-uat -- --artifact-dir output/refund-uat-evidence
       - name: Build evidence manifest
-        run: npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit "$GITHUB_SHA"
+        run: npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Upload sanitized evidence
         id: upload
         uses: actions/upload-artifact@v4
