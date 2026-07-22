@@ -356,6 +356,65 @@ const buildMockGmailContext = () => ({
       attachments: [],
     },
   ],
+  triageSuggestion: {
+    id: '79000000-0000-4000-8000-000000000001',
+    status: 'ready_for_review',
+    classification: 'refund',
+    confidenceBand: 'high',
+    language: 'en',
+    route: 'draft_reply',
+    summary: 'The customer provided card last four, but the machine location, purchase time, and amount are still missing.',
+    extractedFields: {
+      locationName: null,
+      machineLabel: null,
+      incidentDate: '2026-07-21',
+      incidentTime: null,
+      paymentMethod: 'card',
+      amountCents: null,
+      cardLast4: '4242',
+      walletUsed: false,
+    },
+    missingFields: ['location_or_machine', 'incident_time', 'amount'],
+    policyFlags: [],
+    draftSubject: 'A quick detail check for your Bloomjoy refund request RF-UAT-GMAIL',
+    draftBody: [
+      'Thank you for reaching out. We need a few details before we can look for the transaction:',
+      '',
+      '- the machine location or a description of the machine',
+      '- the approximate purchase time',
+      '- the amount paid',
+      '',
+      'Never send a full card number, expiration date, CVV, PIN, password, bank login, or account number.',
+      '',
+      'Once we have those details, a person on our team will continue the review.',
+    ].join('\n'),
+    promptVersion: 'refund_missing_info_v1',
+    modelName: 'gpt-triage-model',
+    modelSnapshot: 'gpt-triage-model-eval',
+    humanReviewRequired: true,
+    contentDeleted: false,
+    reviewerOutcome: null,
+    reviewReason: null,
+    draftWasEdited: null,
+    reviewedAt: null,
+    createdAt: isoHoursAgo(0.4),
+  },
+});
+
+const buildMockHumanReviewGptContext = () => ({
+  ...buildMockGmailContext(),
+  triageSuggestion: {
+    ...buildMockGmailContext().triageSuggestion,
+    id: '79000000-0000-4000-8000-000000000002',
+    status: 'human_review',
+    classification: 'uncertain',
+    confidenceBand: 'low',
+    route: 'human_review',
+    summary: 'The message includes chargeback language and untrusted instructions. A person must review it without a suggested reply.',
+    policyFlags: ['chargeback', 'prompt_injection'],
+    draftSubject: null,
+    draftBody: null,
+  },
 });
 
 const buildFailedCommsRefundOverview = () => {
@@ -546,6 +605,7 @@ const installMockSupabaseRoutes = async (
     gmailDraftCases = [],
     gmailHealth = null,
     gmailContext = null,
+    gptTriageSuggestion = undefined,
   } = {}
 ) => {
   await context.route('**/auth/v1/**', async (route) => {
@@ -825,6 +885,18 @@ const installMockSupabaseRoutes = async (
 
     if (url.includes('/admin_get_refund_gmail_case_context')) {
       return route.fulfill(jsonResponse(gmailContext ?? { connected: false, messages: [] }));
+    }
+
+    if (url.includes('/admin_get_refund_gpt_triage')) {
+      return route.fulfill(jsonResponse(
+        gptTriageSuggestion === undefined
+          ? gmailContext?.triageSuggestion ?? null
+          : gptTriageSuggestion
+      ));
+    }
+
+    if (url.includes('/admin_reject_refund_gpt_triage')) {
+      return route.fulfill(jsonResponse({ ok: true, triageId: '79000000-0000-4000-8000-000000000001', status: 'rejected' }));
     }
 
     if (url.includes('/admin_get_refund_operations_overview')) {
@@ -1178,6 +1250,11 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.locator('button', { hasText: 'RF-UAT-CARD' }).click();
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
   await page.waitForTimeout(100);
+  recorder.assert(
+    'Mobile queue collapses to the selected case with a clear return control',
+    await page.getByRole('button', { name: 'Show all', exact: true }).isVisible() &&
+      (await page.locator('button', { hasText: 'RF-UAT-WAIT' }).count()) === 0
+  );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-mobile.png'),
     fullPage: false,
@@ -1188,10 +1265,16 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     const selectedHeading = Array.from(document.querySelectorAll('h2')).find((element) =>
       element.textContent?.includes('RF-UAT-CARD')
     )?.getBoundingClientRect();
+    const selectedPanel = document.querySelector('[aria-label="Selected refund case"]')?.getBoundingClientRect();
 
     return {
       headerBottom: header?.bottom ?? 0,
       selectedHeadingTop: selectedHeading?.top ?? 0,
+      selectedPanelTop: selectedPanel?.top ?? 0,
+      scrollY: window.scrollY,
+      scrollHeight: document.documentElement.scrollHeight,
+      mobileMediaMatches: window.matchMedia('(max-width: 1023px)').matches,
+      activeElement: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim().slice(0, 40) ?? '',
     };
   });
   recorder.assert(
@@ -1269,7 +1352,25 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Incomplete Gmail draft presents one dominant reply action',
     (await page.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
-      await page.getByTestId('refund-gmail-ask-for-details').getByText('Reply in Gmail thread').isVisible()
+      await page.getByTestId('refund-gmail-ask-for-details').getByText('Approve and reply in Gmail').isVisible()
+  );
+  recorder.assert(
+    'GPT-assisted draft is visibly subordinate to human review',
+    await page.getByTestId('refund-gpt-triage-review').getByText('Draft assistance', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-gpt-triage-review').getByText('Human review required', { exact: true }).isVisible() &&
+      await page.getByText('Review the suggested reply', { exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Suggested reply requests only the three missing fields',
+    await page.getByText('Machine location or description', { exact: true }).isVisible() &&
+      await page.getByText('Approximate purchase time', { exact: true }).isVisible() &&
+      await page.getByText('Amount paid', { exact: true }).isVisible() &&
+      (await page.getByText('Card last 4 only', { exact: true }).count()) === 0
+  );
+  recorder.assert(
+    'Manager can edit the assisted subject and body before approval',
+    await page.getByTestId('refund-gpt-draft-subject').isEditable() &&
+      await page.getByTestId('refund-gpt-draft-body').isEditable()
   );
   recorder.assert(
     'Incomplete Gmail draft cannot expose payment execution controls',
@@ -1297,6 +1398,8 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     JSON.stringify(threadMessageBodies)
   );
 
+  const reviewedDraft = `${await page.getByTestId('refund-gpt-draft-body').inputValue()}\n\nThank you for helping us check this carefully.`;
+  await page.getByTestId('refund-gpt-draft-body').fill(reviewedDraft);
   await page.getByTestId('refund-gmail-ask-for-details').click();
   await page.waitForTimeout(250);
   const replyBody = functionBodies.find((entry) => entry.functionName === 'refund-case-message-send')?.body ?? {};
@@ -1304,7 +1407,9 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Manager Gmail reply uses the approved customer-message path exactly once',
     functionCalls.filter((name) => name === 'refund-case-message-send').length === 1 &&
       replyBody.caseId === 'case-gmail-draft-1' &&
-      replyBody.messageType === 'more_info',
+      replyBody.messageType === 'more_info' &&
+      replyBody.triageSuggestionId === '79000000-0000-4000-8000-000000000001' &&
+      replyBody.body === reviewedDraft,
     JSON.stringify({ functionCalls, replyBody })
   );
   recorder.assert(
@@ -1343,6 +1448,48 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
 
   await context.close();
+
+  const rejectionRpcCalls = [];
+  const rejectionContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await installMockSupabaseRoutes(rejectionContext, {
+    refundOverview: buildEmptyRefundOverview,
+    gmailDraftCases: buildMockGmailDraftCases(),
+    gmailContext: buildMockGmailContext(),
+    rpcCalls: rejectionRpcCalls,
+  });
+  const rejectionPage = await rejectionContext.newPage();
+  await signInRefundUser(rejectionPage, appUrl);
+  await rejectionPage.locator('tr', { hasText: 'RF-UAT-GMAIL' }).click();
+  await rejectionPage.getByTestId('refund-gpt-reject-draft').click();
+  await rejectionPage.getByTestId('refund-gpt-reject-reason').selectOption('wrong_missing_fields');
+  await rejectionPage.getByRole('button', { name: 'Reject suggestion', exact: true }).click();
+  await rejectionPage.waitForTimeout(200);
+  recorder.assert(
+    'Reviewer can reject the assisted draft without sending a customer message',
+    rejectionRpcCalls.includes('admin_reject_refund_gpt_triage') &&
+      await rejectionPage.getByText('Suggested reply rejected. No customer message was sent.', { exact: true }).isVisible()
+  );
+  await rejectionContext.close();
+
+  const humanReviewContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await installMockSupabaseRoutes(humanReviewContext, {
+    refundOverview: buildEmptyRefundOverview,
+    gmailDraftCases: buildMockGmailDraftCases(),
+    gmailContext: buildMockHumanReviewGptContext(),
+  });
+  const humanReviewPage = await humanReviewContext.newPage();
+  await signInRefundUser(humanReviewPage, appUrl);
+  await humanReviewPage.locator('tr', { hasText: 'RF-UAT-GMAIL' }).click();
+  await humanReviewPage.getByTestId('refund-gpt-triage-review').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Policy-sensitive GPT triage stops with no draft or send action',
+    await humanReviewPage.getByText('Needs a person before any reply', { exact: true }).isVisible() &&
+      await humanReviewPage.getByTestId('refund-gpt-policy-flags').getByText('Chargeback or bank dispute', { exact: true }).isVisible() &&
+      await humanReviewPage.getByTestId('refund-gpt-policy-flags').getByText('Untrusted instructions', { exact: true }).isVisible() &&
+      (await humanReviewPage.getByTestId('refund-gpt-editable-draft').count()) === 0 &&
+      (await humanReviewPage.locator('[data-dominant-action="true"]:visible').count()) === 0
+  );
+  await humanReviewContext.close();
 };
 
 const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder }) => {

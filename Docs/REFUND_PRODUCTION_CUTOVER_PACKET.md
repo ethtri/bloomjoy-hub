@@ -42,6 +42,7 @@ npm run refunds:validate-nayax-matching
 npm run refunds:validate-nayax-execution
 npm run refunds:validate-automation
 npm run refunds:validate-gmail
+npm run refunds:validate-gpt-triage
 npm run db:validate-migrations
 npm run build
 npm test --if-present
@@ -67,6 +68,7 @@ Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTI
 - Refund automation Edge switch: `false`
 - Gmail GitHub switch: `false`
 - Gmail Edge switch: `false`
+- GPT triage database switch: `false`
 
 Check switch values without printing secrets. A code deploy must not silently enable any lane.
 

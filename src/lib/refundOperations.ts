@@ -295,11 +295,45 @@ export type RefundGmailMessage = {
   attachments: RefundGmailAttachment[];
 };
 
+export type RefundGptTriageStatus =
+  | 'ready_for_review'
+  | 'human_review'
+  | 'approved'
+  | 'rejected'
+  | 'superseded'
+  | 'failed';
+
+export type RefundGptTriageSuggestion = {
+  id: string;
+  status: RefundGptTriageStatus;
+  classification: 'refund' | 'unrelated' | 'uncertain';
+  confidenceBand: 'high' | 'medium' | 'low';
+  language: string;
+  route: 'draft_reply' | 'human_review';
+  summary: string | null;
+  extractedFields: Record<string, unknown>;
+  missingFields: string[];
+  policyFlags: string[];
+  draftSubject: string | null;
+  draftBody: string | null;
+  promptVersion: string;
+  modelName: string;
+  modelSnapshot: string;
+  humanReviewRequired: true;
+  contentDeleted: boolean;
+  reviewerOutcome: string | null;
+  reviewReason: string | null;
+  draftWasEdited: boolean | null;
+  reviewedAt: string | null;
+  createdAt: string;
+};
+
 export type RefundGmailCaseContext = {
   connected: boolean;
   subject?: string;
   latestMessageAt?: string;
   messages: RefundGmailMessage[];
+  triageSuggestion: RefundGptTriageSuggestion | null;
 };
 
 export type RefundManagerSetupMachine = {
@@ -467,6 +501,7 @@ export type SendRefundCaseMessageInput = {
   messageType: RefundCustomerPortalMessageType;
   subject?: string;
   body?: string;
+  triageSuggestionId?: string;
 };
 
 export const fetchRefundMachineOptions = async (): Promise<RefundMachineOption[]> => {
@@ -914,20 +949,45 @@ export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
 export const fetchRefundGmailCaseContext = async (
   caseId: string
 ): Promise<RefundGmailCaseContext> => {
-  const { data, error } = await supabaseClient.rpc('admin_get_refund_gmail_case_context', {
-    p_refund_case_id: caseId,
-  });
-  if (error) {
-    throw new Error(error.message || 'Unable to load the Gmail conversation.');
+  const [contextResult, triageResult] = await Promise.all([
+    supabaseClient.rpc('admin_get_refund_gmail_case_context', {
+      p_refund_case_id: caseId,
+    }),
+    supabaseClient.rpc('admin_get_refund_gpt_triage', {
+      p_refund_case_id: caseId,
+    }),
+  ]);
+  if (contextResult.error) {
+    throw new Error(contextResult.error.message || 'Unable to load the Gmail conversation.');
   }
-  const context = (data ?? {}) as Partial<RefundGmailCaseContext>;
+  const context = (contextResult.data ?? {}) as Partial<RefundGmailCaseContext>;
+  const triageSuggestion = triageResult.error || !triageResult.data
+    ? null
+    : (triageResult.data as RefundGptTriageSuggestion);
   return {
     connected: context.connected === true,
     subject: typeof context.subject === 'string' ? context.subject : undefined,
     latestMessageAt:
       typeof context.latestMessageAt === 'string' ? context.latestMessageAt : undefined,
     messages: Array.isArray(context.messages) ? context.messages : [],
+    triageSuggestion,
   };
+};
+
+export const rejectRefundGptTriage = async (
+  triageId: string,
+  reasonCode: string,
+  reason?: string
+) => {
+  const { data, error } = await supabaseClient.rpc('admin_reject_refund_gpt_triage', {
+    p_triage_id: triageId,
+    p_reason_code: reasonCode,
+    p_reason: reason?.trim() || null,
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to reject the suggested reply.');
+  }
+  return data as { ok: boolean; triageId: string; status: 'rejected' };
 };
 
 export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => {

@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-07-21 - GPT refund triage is narrow, minimized, and always human-reviewed (`#635`)
+Bloomjoy may use GPT to reduce the time spent collecting missing refund details, but the assistance remains subordinate to the manager workflow and cannot make payment decisions.
+
+**Canonical behavior**
+- GPT may classify, summarize, extract only the allowed refund fields, identify missing information, and draft a reply that asks only for those fields. It may not match or select a Nayax transaction, approve or deny a request, promise or execute a refund, or create any payment action.
+- Model input is limited to recent inbound text, excludes customer identity, redacts prohibited payment and credential data, and treats all message text as untrusted. Raw model input and provider output are not stored; derived content expires after 30 days.
+- Strict schema validation plus deterministic missing-field and safety checks control routing. Legal, safety, threat, chargeback, abusive/escalated, prompt-injection, high-value, wallet, prohibited-payment-data, low-confidence, unrelated, uncertain, and non-English input receives no draft and requires a person.
+- Every allowed draft is editable and must be explicitly approved by an authorized manager. A database constraint prevents automatic sending. Broader autonomy requires a separate reviewed migration and explicit sponsor decision.
+- The provider lane remains disabled until a secure server-only credential destination, privacy controls, and sanitized live evaluation are approved in `#635`. Gmail and hosted-form workflows continue without GPT.
+
+**Why this choice**
+- Most inbox labor is missing-information triage, which can be assisted without delegating refund judgment or payment authority.
+- Minimization, strict validation, bounded retention, and reviewer outcome tracking make quality and safety measurable while preserving a simple manager experience.
+
 ## 2026-07-21 - Gmail refund intake is label-scoped, draft-first, and transport-only (`#634`)
 Bloomjoy will connect one designated support mailbox to Refund Operations as a narrowly scoped intake and reply transport. Gmail does not become the system of record, and the connection stays disabled until its production controls and owner approvals pass.
 

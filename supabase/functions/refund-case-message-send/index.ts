@@ -13,6 +13,7 @@ import {
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
+import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -53,6 +54,15 @@ type RefundCaseRow = {
     refund_public_display_label: string | null;
   }>;
   reporting_locations?: OneOrMany<{ name: string | null }>;
+};
+
+type RefundGptTriageRow = {
+  id: string;
+  refund_case_id: string;
+  status: string;
+  route: string;
+  policy_flags: string[];
+  missing_fields: string[];
 };
 
 const firstRelation = <T>(value: OneOrMany<T>) =>
@@ -157,6 +167,30 @@ serve(async (req) => {
       return jsonResponse({ error: "Choose an approved customer message template." }, 400);
     }
 
+    const triageSuggestionId = sanitizeText(body?.triageSuggestionId, 80);
+    let triageSuggestion: RefundGptTriageRow | null = null;
+    if (triageSuggestionId) {
+      if (!isUuid(triageSuggestionId) || messageType !== "more_info") {
+        return jsonResponse({ error: "Valid missing-information triage review required." }, 400);
+      }
+      const { data: triageData, error: triageError } = await supabase
+        .from("refund_gpt_triage_runs")
+        .select("id, refund_case_id, status, route, policy_flags, missing_fields")
+        .eq("id", triageSuggestionId)
+        .eq("refund_case_id", caseId)
+        .maybeSingle();
+      if (triageError) throw triageError;
+      triageSuggestion = triageData as RefundGptTriageRow | null;
+      if (
+        !triageSuggestion ||
+        triageSuggestion.status !== "ready_for_review" ||
+        triageSuggestion.route !== "draft_reply" ||
+        (triageSuggestion.policy_flags ?? []).length > 0
+      ) {
+        return jsonResponse({ error: "This suggested reply requires a new human review." }, 409);
+      }
+    }
+
     const { data: canManageCase, error: accessError } = await supabase.rpc(
       "can_manage_refund_case",
       { p_user_id: user.id, p_refund_case_id: caseId },
@@ -205,6 +239,17 @@ serve(async (req) => {
         })
       : defaultEmail;
 
+    if (triageSuggestion) {
+      const reviewedDraft = validateRefundGptReviewedDraft({
+        subject: email.subject,
+        body: email.text,
+        missingFields: triageSuggestion.missing_fields,
+      });
+      if (!reviewedDraft.ok) {
+        return jsonResponse({ error: "The reviewed reply includes wording that is not safe for missing-information triage." }, 400);
+      }
+    }
+
     const { data: messageRow, error: messageError } = await supabase
       .from("refund_case_messages")
       .insert({
@@ -251,6 +296,31 @@ serve(async (req) => {
 
       await syncAutomationFields(refundCase.id, messageType);
 
+      let triageReviewStatus: "not_applicable" | "recorded" | "record_failed" = "not_applicable";
+      if (triageSuggestion) {
+        const { error: triageReviewError } = await supabase.rpc(
+          "service_record_refund_gpt_triage_delivery",
+          {
+            p_triage_id: triageSuggestion.id,
+            p_refund_case_id: refundCase.id,
+            p_reviewer_user_id: user.id,
+            p_sent_message_id: messageRow.id,
+            p_subject: email.subject,
+            p_body: email.text,
+          },
+        );
+        if (triageReviewError) {
+          triageReviewStatus = "record_failed";
+          console.error("refund-case-message-send triage review record failed", {
+            errorType: triageReviewError.name ?? "database_error",
+            triageReview: true,
+            payloadRedacted: true,
+          });
+        } else {
+          triageReviewStatus = "recorded";
+        }
+      }
+
       await supabase.from("refund_case_events").insert({
         refund_case_id: refundCase.id,
         actor_user_id: user.id,
@@ -262,6 +332,7 @@ serve(async (req) => {
           message_type: messageType,
           message_id: messageRow.id,
           transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+          triage_review_status: triageReviewStatus,
           payload_redacted: true,
         },
       });
@@ -273,6 +344,7 @@ serve(async (req) => {
           status: "sent",
           subject: email.subject,
           transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+          triageReviewStatus,
         },
       });
     } catch (emailError) {

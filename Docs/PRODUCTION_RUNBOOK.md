@@ -102,6 +102,7 @@ Security rule:
   - [ ] `npm run lint --if-present`
 - [ ] `npm run db:validate-migrations` passes before any production Supabase migration push.
 - [ ] `npm run refunds:validate-gmail` passes, and Gmail retention/quarantine approval is recorded in `Docs/REFUND_GMAIL_DATA_HANDLING.md` before Gmail enablement.
+- [ ] `npm run refunds:validate-gpt-triage` passes. Confirm no provider runner or credential is configured and `refund_gpt_triage_settings.enabled=false` until the approvals and sanitized evaluation in `Docs/REFUND_GPT_TRIAGE.md` pass.
 - [ ] `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
@@ -287,6 +288,13 @@ Refund Gmail intake validation:
 - Revoke the test refresh token. Gmail health must show authorization failure while hosted-form cases, queue access, and manual non-Gmail replies continue to work. Reauthorize before any scheduled pilot.
 - Enable `REFUND_GMAIL_SYNC_ENABLED=true` only after every check above passes. Quick disable order is the GitHub variable first and Edge secret second; this must not disable form intake or existing case handling.
 
+Refund GPT triage validation:
+- Apply the GPT triage foundation migration and deploy the updated refund message function and frontend with `refund_gpt_triage_settings.enabled=false`. The release contains no provider runner and requires no OpenAI credential.
+- Run `npm run refunds:validate-gpt-triage`, the full migration test suite, and Refund portal UAT. Confirm a safe synthetic result is editable and requires explicit manager approval, rejection sends nothing, and policy-sensitive input exposes no GPT draft or send action.
+- Before adding or enabling a provider runner, record approval in `#635` for a secure server-only credential destination, privacy controls, model/version, and the sanitized evaluation plan. Never use a `VITE_` variable or repository file for the credential.
+- During the human-reviewed pilot, require the thresholds in `Docs/REFUND_GPT_TRIAGE.md`, retain reviewer outcomes, and stop immediately on any unsafe draft. Automatic sending remains structurally prohibited by the database.
+- Quick disable: set `refund_gpt_triage_settings.enabled=false` and stop the provider runner. Verify Gmail/form-created cases and deterministic missing-information replies still work; preserve audit rows and allow the bounded content purge to continue.
+
 ### Step D: Configure Stripe webhook endpoint
 Stripe endpoint URL:
 - `https://<project-ref>.functions.supabase.co/stripe-webhook`
@@ -395,6 +403,8 @@ Rollback order:
    - If a migration caused breakage, recover via pre-launch backup/snapshot and controlled restore.
 
 Gmail-only rollback: set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_ENABLED=false`, and revoke the Gmail refresh token if compromise is suspected. Do not delete Gmail linkage tables during an incident. Verify hosted-form refund intake and non-Gmail case work remain available.
+
+GPT-only rollback: set `refund_gpt_triage_settings.enabled=false` and stop the provider runner. The current release has no provider runner, so the setting remains false. Do not delete review/audit rows; verify the deterministic missing-information reply remains available.
 
 Post-rollback:
 - [ ] Confirm site/checkout baseline health.

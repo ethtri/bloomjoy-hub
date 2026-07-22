@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -41,6 +42,7 @@ import {
   fetchRefundOperationsOverview,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
+  rejectRefundGptTriage,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
   isNayaxCardRefundExecutionError,
@@ -122,6 +124,36 @@ const customerMessageOptions: Array<{
     helper: 'Use after Bloomjoy completes the card refund or Zelle refund.',
   },
 ];
+
+const gptMissingFieldLabels: Record<string, string> = {
+  location_or_machine: 'Machine location or description',
+  incident_date: 'Purchase date',
+  incident_time: 'Approximate purchase time',
+  payment_method: 'Card or cash',
+  amount: 'Amount paid',
+  card_last4: 'Card last 4 only',
+};
+
+const gptPolicyFlagLabels: Record<string, string> = {
+  legal: 'Legal concern',
+  safety: 'Safety concern',
+  threat: 'Threatening language',
+  chargeback: 'Chargeback or bank dispute',
+  abusive_or_escalated: 'Escalated complaint',
+  prompt_injection: 'Untrusted instructions',
+  high_value: 'High-value request',
+  wallet_payment: 'Wallet payment',
+  prohibited_payment_data: 'Sensitive payment data',
+};
+
+const gptRejectionReasons = [
+  { value: 'wrong_missing_fields', label: 'It asked for the wrong details' },
+  { value: 'wrong_classification', label: 'This is not classified correctly' },
+  { value: 'wrong_policy_route', label: 'This should have been routed differently' },
+  { value: 'unsafe_draft', label: 'The wording is unsafe or inappropriate' },
+  { value: 'rejected', label: 'I do not want to use this suggestion' },
+  { value: 'other', label: 'Other reason' },
+] as const;
 
 type EditorState = {
   status: RefundCaseStatus;
@@ -1346,6 +1378,8 @@ export default function AdminRefundsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectionRevision, setSelectionRevision] = useState(0);
+  const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
@@ -1362,6 +1396,11 @@ export default function AdminRefundsPage() {
   const [messageType, setMessageType] = useState<RefundCustomerPortalMessageType>('status_update');
   const [messageSubject, setMessageSubject] = useState('');
   const [messageBody, setMessageBody] = useState('');
+  const [appliedTriageSuggestionId, setAppliedTriageSuggestionId] = useState<string | null>(null);
+  const [isTriageRejectOpen, setIsTriageRejectOpen] = useState(false);
+  const [isRejectingTriage, setIsRejectingTriage] = useState(false);
+  const [triageRejectReason, setTriageRejectReason] = useState('wrong_missing_fields');
+  const [triageRejectNote, setTriageRejectNote] = useState('');
   const forceDemoData = isLocalUatDemoForced();
   const showLegacyCashWorkbench =
     import.meta.env.DEV &&
@@ -1478,14 +1517,21 @@ export default function AdminRefundsPage() {
     setMessageBody('');
   }, [filteredCases, selectedId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedId || typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches) {
       return;
     }
 
     let settleFrame = 0;
     const alignSelectedCase = () => {
-      detailPanelRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      const detailPanel = detailPanelRef.current;
+      if (!detailPanel) return;
+      const stickyHeaderBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+      const absolutePanelTop = detailPanel.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({
+        top: Math.max(0, absolutePanelTop - stickyHeaderBottom - 16),
+        behavior: 'auto',
+      });
     };
     const frame = window.requestAnimationFrame(() => {
       alignSelectedCase();
@@ -1493,15 +1539,24 @@ export default function AdminRefundsPage() {
       settleFrame = window.requestAnimationFrame(alignSelectedCase);
     });
     const settleTimer = window.setTimeout(alignSelectedCase, 60);
+    const resizeObserver = typeof window.ResizeObserver === 'function'
+      ? new window.ResizeObserver(alignSelectedCase)
+      : null;
+    if (detailPanelRef.current) resizeObserver?.observe(detailPanelRef.current);
+    resizeObserver?.observe(document.body);
+    const observerTimer = window.setTimeout(() => resizeObserver?.disconnect(), 750);
 
     return () => {
       window.cancelAnimationFrame(frame);
       window.cancelAnimationFrame(settleFrame);
       window.clearTimeout(settleTimer);
+      window.clearTimeout(observerTimer);
+      resizeObserver?.disconnect();
     };
-  }, [selectedId]);
+  }, [selectedId, selectionRevision]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
   const {
     data: gmailContext,
     isLoading: gmailContextIsLoading,
@@ -1512,6 +1567,25 @@ export default function AdminRefundsPage() {
     enabled: !forceDemoData && Boolean(selectedCase?.hasGmailThread && selectedCase?.id),
     staleTime: 1000 * 30,
   });
+  useEffect(() => {
+    const suggestion = gmailContext?.triageSuggestion;
+    if (
+      !suggestion ||
+      suggestion.id === appliedTriageSuggestionId ||
+      suggestion.status !== 'ready_for_review' ||
+      suggestion.route !== 'draft_reply' ||
+      !suggestion.draftSubject ||
+      !suggestion.draftBody ||
+      suggestion.contentDeleted
+    ) {
+      return;
+    }
+
+    setMessageType('more_info');
+    setMessageSubject(suggestion.draftSubject);
+    setMessageBody(suggestion.draftBody);
+    setAppliedTriageSuggestionId(suggestion.id);
+  }, [appliedTriageSuggestionId, gmailContext?.triageSuggestion]);
   const primaryAction = useMemo(
     () => (selectedCase && editor ? primaryActionConfig(selectedCase, editor, nayaxCandidates) : null),
     [editor, nayaxCandidates, selectedCase]
@@ -1541,6 +1615,8 @@ export default function AdminRefundsPage() {
 
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
     setSelectedId(refundCase.id);
+    setSelectionRevision((current) => current + 1);
+    setIsMobileQueueExpanded(false);
     setEditor(toEditorState(refundCase));
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
     setNayaxLookupNotice(null);
@@ -1556,6 +1632,10 @@ export default function AdminRefundsPage() {
     setMessageType(initialMessageType);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
+    setAppliedTriageSuggestionId(null);
+    setIsTriageRejectOpen(false);
+    setTriageRejectReason('wrong_missing_fields');
+    setTriageRejectNote('');
 
   };
 
@@ -1991,11 +2071,51 @@ export default function AdminRefundsPage() {
     setMessageBody(draft.body);
   };
 
+  const handleRejectTriageSuggestion = async () => {
+    const suggestion = gmailContext?.triageSuggestion;
+    if (!suggestion) return;
+    if (triageRejectReason === 'other' && triageRejectNote.trim().length < 5) {
+      toast.error('Add a short reason so the pilot can learn from this review.');
+      return;
+    }
+
+    setIsRejectingTriage(true);
+    try {
+      await rejectRefundGptTriage(suggestion.id, triageRejectReason, triageRejectNote);
+      toast.success('Suggested reply rejected. No customer message was sent.');
+      setIsTriageRejectOpen(false);
+      setAppliedTriageSuggestionId(null);
+      await refresh();
+    } catch (rejectError) {
+      const message = rejectError instanceof Error
+        ? rejectError.message
+        : 'Unable to reject the suggested reply.';
+      toast.error(message);
+    } finally {
+      setIsRejectingTriage(false);
+    }
+  };
+
   const renderGmailDraftWorkbench = () => {
     if (!selectedCase) return null;
     const latestInbound = [...(gmailContext?.messages ?? [])]
       .reverse()
       .find((message) => message.direction === 'inbound' && message.kind === 'message');
+    const triageSuggestion = gmailContext?.triageSuggestion ?? null;
+    const triageDraftReady =
+      triageSuggestion?.status === 'ready_for_review' &&
+      triageSuggestion.route === 'draft_reply' &&
+      !triageSuggestion.contentDeleted;
+    const triageNeedsHuman =
+      triageSuggestion?.route === 'human_review' &&
+      ['human_review', 'ready_for_review'].includes(triageSuggestion.status);
+    const missingDetails = triageDraftReady
+      ? triageSuggestion.missingFields.map((field) => gptMissingFieldLabels[field] ?? statusLabel(field))
+      : [
+          'Machine location',
+          'Purchase date and time',
+          'Payment method, amount, and card last 4 if applicable',
+        ];
 
     return (
       <div data-testid="refund-gmail-draft-workbench" className="space-y-4">
@@ -2006,40 +2126,143 @@ export default function AdminRefundsPage() {
                 <Badge className="border-sky-300/30 bg-sky-300/15 text-sky-100">Gmail intake</Badge>
                 <span className="text-xs text-slate-300">{selectedCase.publicReference}</span>
               </div>
-              <h3 className="mt-3 text-xl font-semibold">Ask for the missing purchase details</h3>
+              <h3 className="mt-3 text-xl font-semibold">
+                {triageDraftReady
+                  ? 'Review the suggested reply'
+                  : triageNeedsHuman
+                    ? 'Needs a person before any reply'
+                    : 'Ask for the missing purchase details'}
+              </h3>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
-                This request is safely linked to its Gmail conversation, but it is not ready for
-                transaction matching or a refund decision yet.
+                {triageDraftReady
+                  ? 'The assistant organized the missing details and prepared wording. Check every line before sending it in the original thread.'
+                  : triageNeedsHuman
+                    ? 'The assistant found a policy-sensitive or uncertain message and stopped without drafting or sending a reply.'
+                    : 'This request is safely linked to its Gmail conversation, but it is not ready for transaction matching or a refund decision yet.'}
               </p>
             </div>
-            <Button
-              type="button"
-              data-testid="refund-gmail-ask-for-details"
-              data-dominant-action="true"
-              onClick={() => void handleSendCustomerMessage('more_info')}
-              disabled={isSendingCustomerMessage || isUsingDemoData}
-              className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
-            >
-              {isSendingCustomerMessage ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="mr-2 h-4 w-4" />
-              )}
-              Reply in Gmail thread
-            </Button>
+            {!triageNeedsHuman && !triageDraftReady && (
+              <Button
+                type="button"
+                data-testid="refund-gmail-ask-for-details"
+                data-dominant-action="true"
+                onClick={() => void handleSendCustomerMessage('more_info')}
+                disabled={isSendingCustomerMessage || isUsingDemoData}
+                className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
+              >
+                {isSendingCustomerMessage ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                Reply in Gmail thread
+              </Button>
+            )}
           </div>
         </section>
 
+        {triageSuggestion && (
+          <section
+            data-testid="refund-gpt-triage-review"
+            className={cn(
+              'rounded-xl border p-4',
+              triageNeedsHuman
+                ? 'border-amber-200 bg-amber-50/70'
+                : 'border-sky-200 bg-sky-50/60'
+            )}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="border-sky-200 bg-white text-sky-900">
+                Draft assistance
+              </Badge>
+              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-900">
+                Human review required
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {statusLabel(triageSuggestion.confidenceBand)} confidence
+              </span>
+            </div>
+
+            <p className="mt-3 text-sm leading-6 text-foreground">
+              {triageSuggestion.summary || 'No assistant summary is available.'}
+            </p>
+
+            {triageNeedsHuman && (
+              <div className="mt-3 flex flex-wrap gap-2" data-testid="refund-gpt-policy-flags">
+                {(triageSuggestion.policyFlags.length > 0
+                  ? triageSuggestion.policyFlags
+                  : ['uncertain']).map((flag) => (
+                    <Badge key={flag} variant="outline" className="border-amber-300 bg-white text-amber-950">
+                      {gptPolicyFlagLabels[flag] ?? statusLabel(flag)}
+                    </Badge>
+                  ))}
+              </div>
+            )}
+
+            {triageDraftReady && (
+              <div className="mt-4 space-y-3" data-testid="refund-gpt-editable-draft">
+                <div className="space-y-1.5">
+                  <Label htmlFor="refund-gpt-draft-subject">Reply subject</Label>
+                  <Input
+                    id="refund-gpt-draft-subject"
+                    data-testid="refund-gpt-draft-subject"
+                    value={messageSubject}
+                    maxLength={180}
+                    onChange={(event) => setMessageSubject(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="refund-gpt-draft-body">Reply message</Label>
+                  <Textarea
+                    id="refund-gpt-draft-body"
+                    data-testid="refund-gpt-draft-body"
+                    value={messageBody}
+                    maxLength={4000}
+                    rows={8}
+                    onChange={(event) => setMessageBody(event.target.value)}
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    This is only a writing suggestion. Your click sends the reviewed text; it cannot approve or issue a refund.
+                  </p>
+                </div>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsTriageRejectOpen(true)}
+                    data-testid="refund-gpt-reject-draft"
+                  >
+                    Don&apos;t use this suggestion
+                  </Button>
+                  <Button
+                    type="button"
+                    data-testid="refund-gmail-ask-for-details"
+                    data-dominant-action="true"
+                    onClick={() => void handleSendCustomerMessage('more_info')}
+                    disabled={isSendingCustomerMessage || isUsingDemoData}
+                    className="min-h-11"
+                  >
+                    {isSendingCustomerMessage ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="mr-2 h-4 w-4" />
+                    )}
+                    Approve and reply in Gmail
+                  </Button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {!triageNeedsHuman && (
         <section className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Details still needed
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            {[
-              'Machine location',
-              'Purchase date and time',
-              'Payment method, amount, and card last 4 if applicable',
-            ].map((detail) => (
+            {missingDetails.map((detail) => (
               <div key={detail} className="rounded-lg border border-border bg-muted/25 px-3 py-3 text-sm text-foreground">
                 {detail}
               </div>
@@ -2049,6 +2272,7 @@ export default function AdminRefundsPage() {
             Never request a full card number, expiration date, CVV, PIN, bank login, or account number.
           </p>
         </section>
+        )}
 
         <section className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between gap-3">
@@ -2076,6 +2300,57 @@ export default function AdminRefundsPage() {
             </p>
           )}
         </section>
+
+        <AlertDialog open={isTriageRejectOpen} onOpenChange={setIsTriageRejectOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Don&apos;t use this suggested reply?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Nothing will be sent. Choose why so the shadow pilot can measure and improve draft quality.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-gpt-reject-reason">Reason</Label>
+                <select
+                  id="refund-gpt-reject-reason"
+                  data-testid="refund-gpt-reject-reason"
+                  value={triageRejectReason}
+                  onChange={(event) => setTriageRejectReason(event.target.value)}
+                  className="min-h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                >
+                  {gptRejectionReasons.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-gpt-reject-note">Note {triageRejectReason === 'other' ? '(required)' : '(optional)'}</Label>
+                <Textarea
+                  id="refund-gpt-reject-note"
+                  value={triageRejectNote}
+                  maxLength={500}
+                  rows={3}
+                  onChange={(event) => setTriageRejectNote(event.target.value)}
+                  placeholder="What should the assistant have done differently?"
+                />
+              </div>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isRejectingTriage}>Keep suggestion</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={isRejectingTriage}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void handleRejectTriageSuggestion();
+                }}
+              >
+                {isRejectingTriage && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Reject suggestion
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   };
@@ -2088,7 +2363,15 @@ export default function AdminRefundsPage() {
     }
 
     const nextMessageType = messageTypeOverride ?? messageType;
-    const draft = messageTypeOverride ? getCustomerMessageDraft(selectedCase, messageTypeOverride) : null;
+    const triageSuggestion = gmailContext?.triageSuggestion;
+    const usesReviewedTriageDraft =
+      nextMessageType === 'more_info' &&
+      triageSuggestion?.status === 'ready_for_review' &&
+      triageSuggestion.route === 'draft_reply' &&
+      triageSuggestion.contentDeleted !== true;
+    const draft = messageTypeOverride && !usesReviewedTriageDraft
+      ? getCustomerMessageDraft(selectedCase, messageTypeOverride)
+      : null;
     const subject = draft?.subject ?? messageSubject;
     const body = draft?.body ?? messageBody;
 
@@ -2104,6 +2387,7 @@ export default function AdminRefundsPage() {
         messageType: nextMessageType,
         subject: subject.trim(),
         body: body.trim(),
+        triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id : undefined,
       });
       toast.success(
         sentMessage.transport === 'gmail_thread'
@@ -3274,11 +3558,23 @@ export default function AdminRefundsPage() {
 
           <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(320px,0.82fr)_minmax(520px,1.18fr)]">
             <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
-              <div className="border-b border-border bg-muted/30 px-4 py-3">
-                <h2 className="text-sm font-semibold text-foreground">Queue</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {filteredCases.length} visible of {overview.cases.length} total cases
-                </p>
+              <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Queue</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {filteredCases.length} visible of {overview.cases.length} total cases
+                  </p>
+                </div>
+                {selectedCase && (
+                  <button
+                    type="button"
+                    aria-expanded={isMobileQueueExpanded}
+                    onClick={() => setIsMobileQueueExpanded((current) => !current)}
+                    className="rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
+                  >
+                    {isMobileQueueExpanded ? 'Show selected' : 'Show all'}
+                  </button>
+                )}
               </div>
               <div className="divide-y divide-border/70 lg:hidden">
                 {pageIsLoading && (
@@ -3295,7 +3591,7 @@ export default function AdminRefundsPage() {
                   </div>
                 )}
                 {!pageIsLoading &&
-                  filteredCases.map((refundCase) => (
+                  mobileQueueCases.map((refundCase) => (
                     <button
                       key={refundCase.id}
                       type="button"
