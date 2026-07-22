@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Check,
+  ExternalLink,
   X,
   History,
   Loader2,
@@ -13,7 +14,7 @@ import {
   Search,
   Send,
 } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -75,6 +76,7 @@ import {
   formatDate,
   getActiveMachineAssignments,
   getCurrentTaxRate,
+  getReportablePartnershipIds,
   getTaxStatus,
   getTaxStatusLabel,
   machineTypes,
@@ -192,6 +194,10 @@ const demoMachineManagerAccounts: AdminAccountSummary[] = [
   },
 ];
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const getPartnershipAssignmentHref = (
+  assignment: PartnershipReportingSetup['assignments'][number]
+) =>
+  `/admin/partnerships?partnershipId=${encodeURIComponent(assignment.partnership_id)}&step=machines`;
 
 const emptyMachineForm = {
   machineId: null as string | null,
@@ -383,6 +389,10 @@ export default function AdminMachinesPage() {
     () => new Map(refundManagerSetup.machines.map((machine) => [machine.id, machine])),
     [refundManagerSetup.machines]
   );
+  const reportablePartnershipIds = useMemo(
+    () => getReportablePartnershipIds(setup),
+    [setup]
+  );
 
   const selectedMachineForEditor =
     editingMachine ??
@@ -408,7 +418,12 @@ export default function AdminMachinesPage() {
       .map((machine) => {
         const taxRate = getCurrentTaxRate(setup.taxRates, machine.id, currentDate);
         const taxStatus = getTaxStatus(taxRate);
-        const activeAssignments = getActiveMachineAssignments(setup, machine.id, currentDate);
+        const activeAssignments = getActiveMachineAssignments(
+          setup,
+          machine.id,
+          currentDate,
+          reportablePartnershipIds
+        );
         const machineWarnings = setup.warnings.filter((warning) => warning.machineId === machine.id);
         const refundSetup = refundManagerSetupByMachineId.get(machine.id);
         const machineManagerEmails = uniqueEmails(
@@ -462,13 +477,27 @@ export default function AdminMachinesPage() {
         }
         return left.taxStatus.localeCompare(right.taxStatus);
       });
-  }, [assignmentFilter, refundManagerSetupByMachineId, search, setup, taxDrafts, taxFilter, sort]);
+  }, [
+    assignmentFilter,
+    refundManagerSetupByMachineId,
+    reportablePartnershipIds,
+    search,
+    setup,
+    taxDrafts,
+    taxFilter,
+    sort,
+  ]);
 
   const readinessCounts = useMemo(() => {
     const currentDate = today();
     const missingTax = setup.machines.filter(
       (machine) =>
-        getActiveMachineAssignments(setup, machine.id, currentDate).length > 0 &&
+        getActiveMachineAssignments(
+          setup,
+          machine.id,
+          currentDate,
+          reportablePartnershipIds
+        ).length > 0 &&
         getTaxStatus(getCurrentTaxRate(setup.taxRates, machine.id, currentDate)) === 'missing'
     ).length;
     const overlappingAssignments = setup.warnings.filter(
@@ -476,7 +505,7 @@ export default function AdminMachinesPage() {
     ).length;
 
     return { missingTax, overlappingAssignments };
-  }, [setup]);
+  }, [reportablePartnershipIds, setup]);
 
   const updateTaxFilter = (nextFilter: MachineTaxFilter) => {
     setTaxFilter(nextFilter);
@@ -871,6 +900,16 @@ export default function AdminMachinesPage() {
         isLocalDemoMode={isLocalDemoMode}
         canEditMachineIdentity={isMachineIdentityEditable}
         demoManagerAccounts={demoMachineManagerAccounts}
+        activeAssignments={
+          selectedMachineForEditor
+            ? getActiveMachineAssignments(
+                setup,
+                selectedMachineForEditor.id,
+                today(),
+                reportablePartnershipIds
+              )
+            : []
+        }
         onDemoMachineManagersSaved={saveDemoMachineManagers}
         onDemoRefundReadinessSaved={saveDemoRefundReadiness}
         onSaved={refresh}
@@ -1038,13 +1077,23 @@ function MachineSetupRow({
         ) : (
           <div className="grid gap-1.5">
             {activeAssignments.map((assignment) => (
-              <Badge
-                key={assignment.id}
-                variant="secondary"
-                className="w-fit max-w-full whitespace-normal text-left"
-              >
-                {assignment.partnership_name}
-              </Badge>
+              <div key={assignment.id} className="flex flex-wrap items-center gap-1.5">
+                <Badge
+                  variant="secondary"
+                  className="w-fit max-w-full whitespace-normal text-left"
+                >
+                  {assignment.partnership_name}
+                </Badge>
+                <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-xs">
+                  <Link
+                    to={getPartnershipAssignmentHref(assignment)}
+                    aria-label={`Manage ${assignment.partnership_name} machine assignment`}
+                  >
+                    <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                    Manage
+                  </Link>
+                </Button>
+              </div>
             ))}
           </div>
         )}
@@ -1254,6 +1303,7 @@ function MachineDialog({
   isLocalDemoMode,
   canEditMachineIdentity,
   demoManagerAccounts,
+  activeAssignments,
   onDemoMachineManagersSaved,
   onDemoRefundReadinessSaved,
   onSaved,
@@ -1267,6 +1317,7 @@ function MachineDialog({
   isLocalDemoMode: boolean;
   canEditMachineIdentity: boolean;
   demoManagerAccounts: AdminAccountSummary[];
+  activeAssignments: PartnershipReportingSetup['assignments'];
   onDemoMachineManagersSaved: (machineId: string, managerEmails: string[]) => Promise<unknown>;
   onDemoRefundReadinessSaved: (machineId: string, readiness: DemoRefundReadiness) => Promise<unknown>;
   onSaved: () => Promise<unknown>;
@@ -1766,7 +1817,62 @@ function MachineDialog({
               : 'Review machine identity and manage the setup controls available inside your scoped machine grant.'}
           </SheetDescription>
         </SheetHeader>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        {form.machineId && (
+          <div className="mt-6 rounded-lg border border-border bg-muted/15 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="font-semibold text-foreground">Partner Report Assignment</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Open the partnership's Machines step to add, remove, or move this machine's
+                  report membership.
+                </p>
+              </div>
+              <Badge variant={activeAssignments.length > 0 ? 'secondary' : 'outline'}>
+                {activeAssignments.length === 0
+                  ? 'Not in partner reports'
+                  : activeAssignments.length === 1
+                    ? '1 assignment'
+                    : `${activeAssignments.length} assignments`}
+              </Badge>
+            </div>
+            <div className="mt-4 grid gap-2">
+              {activeAssignments.length === 0 ? (
+                <div className="flex flex-col gap-3 rounded-md border border-dashed border-border bg-background px-3 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <span>This machine is not assigned to an active or draft partnership.</span>
+                  <Button asChild variant="outline" size="sm" className="min-h-10 shrink-0">
+                    <Link to="/admin/partnerships">
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      Open Partnerships
+                    </Link>
+                  </Button>
+                </div>
+              ) : (
+                activeAssignments.map((assignment) => (
+                  <div
+                    key={assignment.id}
+                    className="flex flex-col gap-3 rounded-md border border-border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {assignment.partnership_name}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Assigned since {formatDate(assignment.effective_start_date)}
+                      </p>
+                    </div>
+                    <Button asChild variant="outline" size="sm" className="min-h-10 shrink-0">
+                      <Link to={getPartnershipAssignmentHref(assignment)}>
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        Manage Assignment
+                      </Link>
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+        <div className={cn('grid gap-4 sm:grid-cols-2', form.machineId ? 'mt-4' : 'mt-6')}>
           <div>
             <Label htmlFor="machine-label">Machine label / alias</Label>
             <Input
