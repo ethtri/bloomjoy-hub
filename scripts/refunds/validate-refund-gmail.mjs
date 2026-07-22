@@ -55,6 +55,11 @@ assert(
   'Gmail copies must have an executable retention purge',
 );
 assert(
+  migration.includes("provider_attachment_id = case when normalized_status = 'deleted'") &&
+    migration.includes("thread_subject = '[Deleted after Gmail retention period]'"),
+  'Retention must redact residual attachment and thread metadata after content expiry',
+);
+assert(
   migration.includes('providerThreadId') && migration.includes("'providerThreadId', thread_row.provider_thread_id"),
   'Only the service reply claim may receive the provider thread ID',
 );
@@ -87,6 +92,10 @@ assert(
 assert(syncFunction.includes('collectAttachmentDescriptors'), 'Attachment type, extension, size, and count must be checked');
 assert(syncFunction.includes('refund-gmail-quarantine'), 'Permitted attachments must be quarantined privately');
 assert(syncFunction.includes('payloadRedacted: true'), 'Gmail logs and responses must be aggregate-only');
+assert(
+  syncFunction.indexOf('await runRetentionSweep();') < syncFunction.indexOf('verifyRefundGmailMailbox(config)'),
+  'Local retention cleanup must run before Google authorization can fail',
+);
 assert(
   !syncFunction.includes('console.log(message)') && !syncFunction.includes('console.error(error)'),
   'Raw messages and provider errors must not be logged',

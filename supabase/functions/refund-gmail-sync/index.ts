@@ -330,6 +330,8 @@ serve(async (request) => {
   let profileHistoryId: string | null = null;
   let fatalError: RefundGmailError | null = null;
   try {
+    // Retention is a local privacy obligation and must not depend on Google authorization remaining healthy.
+    await runRetentionSweep();
     const profile = await verifyRefundGmailMailbox(config);
     profileHistoryId = sanitizeText(profile.historyId, 255) || null;
     const maxThreads = Math.min(
@@ -423,10 +425,6 @@ serve(async (request) => {
       }
       nextPageToken = page.nextPageToken;
       if (!nextPageToken) break;
-    }
-
-    if (counters.messagesFailed === 0) {
-      await runRetentionSweep();
     }
   } catch (error) {
     fatalError = error instanceof RefundGmailError
