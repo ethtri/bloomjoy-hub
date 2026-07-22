@@ -25,11 +25,11 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 ## Merge and integrated-verification sequence
 
 1. Freeze unrelated Refund Operations changes for the release window.
-2. Merge `#636` first so release/drift tooling is available on `main`.
-3. Sync `#637` with current `main`, resolve overlap, commit the code/migration changes, run `npm run refunds:release:write-local`, review and commit the manifest update, run the full verification profile, then merge.
-4. Repeat that sync, manifest, verification, and merge cycle for `#638`, `#639`, `#640`, and `#641`.
-5. Before `#641` merges, confirm the integrated release-tool allowlist and manifest cover `refund-gmail-sync`; the six-function core manifest from `#636` does not by itself prove the Gmail function deployed correctly. Apply the same rule to any later GPT server function.
-6. Do not deploy from an individual PR head. Use the final integrated `main` commit only.
+2. Review the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` are superseded and must not be merged separately.
+3. If `main` changed after the final `#644` verification, sync the branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
+4. Confirm the reviewed manifest covers all seven approved refund functions and all 22 required migrations, including `refund-gmail-sync` and `202607210007_refund_gpt_triage_foundation.sql`.
+5. Merge only the approved `#644` head. Do not deploy from a superseded PR, an unreviewed branch head, or a local-only commit.
+6. Use the final integrated `main` commit for every deployment and evidence record.
 7. On that final commit, require:
 
 ```bash
@@ -51,10 +51,11 @@ git diff --check
 ```
 
 8. Review `supabase db push --dry-run`; it must list exactly the expected pending migrations and no surprise.
+   The 2026-07-22 read-only baseline lists exactly `202607210001` through `202607210007`.
 9. Capture the production pre-deployment baseline and confirm the approved restore source without including secrets or downloaded bundles in Git.
-10. Attach the final commit, manifest ID, aggregate test totals, migration list, and restore-source reference to `#629` and `#409`.
+10. Attach the final commit, manifest ID, aggregate test totals, migration list, and restore-source reference to `#629` and `#409`. The release-candidate baseline is 114 migrations and 186 database tests; reconcile any changed total before proceeding.
 
-If a downstream merge changes any in-scope migration or refund function after the manifest was generated, the manifest is stale and the release must repeat steps 7-10.
+If any merge changes an in-scope migration or refund function after the manifest was generated, the manifest is stale and the release must repeat steps 7-10.
 
 ## Deploy with all optional execution switches off
 

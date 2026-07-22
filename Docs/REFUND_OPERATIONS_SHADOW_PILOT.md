@@ -22,10 +22,10 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 
 ### Integrated release
 
-- [ ] Merge the approved PR train in dependency order, starting with production alignment `#636`, then `#637` through `#641`.
-- [ ] After each merge, sync the next branch with current `main` and rerun its full verification profile.
-- [ ] On the final integrated `main` commit, regenerate and review the Refund Operations release manifest. It must include every in-scope migration and the final transitive source digest for each approved refund function.
-- [ ] Run the repository verification suite, migration validation, release-tooling checks, and the relevant refund validators on that same final commit.
+- [ ] Review and approve the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` are superseded and must not be merged separately.
+- [ ] Sync `#644` with current `main` if shared foundations change, then rerun its full verification profile before merge.
+- [ ] On the final integrated `main` commit, regenerate and review the Refund Operations release manifest. It must include all seven approved refund functions, all 22 required migrations, and the final transitive source digest for each function.
+- [ ] Run the repository verification suite, migration validation, release-tooling checks, and the relevant refund validators on that same final commit. The release-candidate baseline is 114 migrations and 186 database tests; any lower total requires investigation.
 - [ ] Confirm production migrations and Edge Functions match the final reviewed release; a sanitized dry run must show no unexpected migration.
 - [ ] Confirm Bubble Planet and every other pilot option has a distinct customer-facing label and an unambiguous canonical machine/location mapping.
 - [ ] Capture a restore source and dry-run the documented rollback path before changing production.
