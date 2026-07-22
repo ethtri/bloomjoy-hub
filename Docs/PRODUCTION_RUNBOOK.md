@@ -66,6 +66,12 @@ Set the following values before launch.
 | `GMAIL_REFUND_MAX_THREADS_PER_RUN` | Server-only, optional | `refund-gmail-sync` | Default `100`, maximum `500`; bounds one sync run | Technical owner |
 | `REFUND_GMAIL_SYNC_SECRET` | Server-only | `refund-gmail-sync` | Dedicated scheduler secret; never a service-role key | Technical owner |
 | `REFUND_GMAIL_ENABLED` | Server-only | `refund-gmail-sync` | Default `false`; enable only for approved synthetic/shadow validation | Release owner |
+| `OPENAI_API_KEY` | Server-only | `refund-gpt-triage` | Production project-scoped OpenAI key; never supplied to the browser or GitHub Actions | Technical owner |
+| `OPENAI_REFUND_TRIAGE_SAFETY_SALT` | Server-only | `refund-gpt-triage` | Random 32+ character salt for one-way safety identifiers | Privacy/security owner |
+| `OPENAI_REFUND_TRIAGE_MODEL` | Server-only, optional | `refund-gpt-triage` | Approved `gpt-5.6-terra` default or explicitly reviewed family variant | Technical owner |
+| `REFUND_GPT_TRIAGE_SYNC_SECRET` | Server-only | `refund-gpt-triage` | Dedicated scheduler secret; never the OpenAI or service-role key | Technical owner |
+| `REFUND_GPT_TRIAGE_ENABLED` | Server-only | `refund-gpt-triage` | Default `false`; independent Edge kill switch | Release owner |
+| `REFUND_GPT_TRIAGE_MAX_JOBS_PER_RUN` | Server-only, optional | `refund-gpt-triage` | Bounded job count from `1` to `10`; default `5` | Technical owner |
 | `REPORT_SCHEDULER_SECRET` | Server-only | `sales-report-scheduler`, `refund-adjustment-sync` | Generated secret stored in function secrets | Technical owner |
 | `REPORTING_INGEST_TOKEN` | Server-only + GitHub Actions secret | `sunze-sales-ingest`, Sunze sync workflow | Generated ingest token | Technical owner |
 | `REPORTING_ROW_HASH_SALT` | Server-only | `sunze-sales-ingest` | Generated secret stored in function secrets | Technical owner |
@@ -82,6 +88,9 @@ Set the following values before launch.
 | `REFUND_GMAIL_SYNC_URL` | GitHub Actions secret | Refund Gmail Sync workflow | Supabase `refund-gmail-sync` function URL | Technical owner |
 | `REFUND_GMAIL_SYNC_TOKEN` | GitHub Actions secret | Refund Gmail Sync workflow | Same value as `REFUND_GMAIL_SYNC_SECRET`; never a service-role key | Technical owner |
 | `REFUND_GMAIL_SYNC_ENABLED` | GitHub Actions variable | Refund Gmail Sync workflow | Default `false`; controls scheduled workflow dispatch only | Release owner |
+| `REFUND_GPT_TRIAGE_SYNC_URL` | GitHub Actions secret | Refund GPT Triage workflow | Supabase `refund-gpt-triage` function URL | Technical owner |
+| `REFUND_GPT_TRIAGE_SYNC_TOKEN` | GitHub Actions secret | Refund GPT Triage workflow | Same value as `REFUND_GPT_TRIAGE_SYNC_SECRET`; never an OpenAI or service-role key | Technical owner |
+| `REFUND_GPT_TRIAGE_SYNC_ENABLED` | GitHub Actions variable | Refund GPT Triage workflow | Default `false`; controls scheduled dispatch only | Release owner |
 | `SUNZE_LOGIN_URL` | GitHub Actions secret | Sunze sync workflow | Sunze service-account login URL | Technical owner |
 | `SUNZE_REPORTING_EMAIL` | GitHub Actions secret | Sunze sync workflow | Sunze service-account email | Technical owner |
 | `SUNZE_REPORTING_PASSWORD` | GitHub Actions secret | Sunze sync workflow | Sunze service-account password | Technical owner |
@@ -102,11 +111,11 @@ Security rule:
   - [ ] `npm run lint --if-present`
 - [ ] `npm run db:validate-migrations` passes before any production Supabase migration push.
 - [ ] `npm run refunds:validate-gmail` passes, and Gmail retention/quarantine approval is recorded in `Docs/REFUND_GMAIL_DATA_HANDLING.md` before Gmail enablement.
-- [ ] `npm run refunds:validate-gpt-triage` passes. Confirm no provider runner or credential is configured and `refund_gpt_triage_settings.enabled=false` until the approvals and sanitized evaluation in `Docs/REFUND_GPT_TRIAGE.md` pass.
+- [ ] `npm run refunds:validate-gpt-triage` passes. Confirm the production OpenAI credential is not configured and the GitHub, Edge, and database GPT switches remain false until the approvals and sanitized evaluation in `Docs/REFUND_GPT_TRIAGE.md` pass.
 - [ ] `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
-- [ ] `npm run refunds:release:check` confirms that the seven Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
+- [ ] `npm run refunds:release:check` confirms that the eight Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
@@ -246,20 +255,21 @@ supabase functions deploy refund-case-admin-update --no-verify-jwt
 supabase functions deploy refund-case-message-send --no-verify-jwt
 supabase functions deploy refund-case-automation-sweep --no-verify-jwt
 supabase functions deploy refund-gmail-sync --no-verify-jwt
+supabase functions deploy refund-gpt-triage --no-verify-jwt
 supabase functions deploy nayax-card-refund --no-verify-jwt
 ```
 
-After deploying the seven Refund Operations functions:
+After deploying the eight Refund Operations functions:
 
 1. Capture only the sanitized production metadata under the gitignored `output/` directory. Capture downloads each deployed source bundle to an operating-system temporary directory, verifies its normalized transitive source digest against the reviewed manifest, and removes the temporary copy before succeeding:
    - `npm run refunds:release:capture-production -- --project-ref <project-ref> --confirm-project-ref <project-ref> --output output/refund-production-release.json`
 2. Review each function's `ACTIVE` status, version, `verify_jwt`, bundle digest, and approved source digest.
 3. Update `scripts/refunds/refund-production-release.json` through a reviewed PR. Do not treat the capture as automatic approval.
-4. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all seven functions to pass.
+4. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eight functions to pass.
 5. Run the refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 Supabase function version numbers are audit evidence, not rollback targets. A rollback redeploy creates a new version number.
-The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` validates the immutable known-good source for every existing core function; a newly introduced disable-only function such as `refund-gmail-sync` records `restoreAction=disable` and uses its documented switch-off procedure instead of pretending an older deployed source existed.
+The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` validates the immutable known-good source for every existing core function; newly introduced disable-only functions such as `refund-gmail-sync` and `refund-gpt-triage` record `restoreAction=disable` and use their documented switch-off procedures instead of pretending an older deployed source existed.
 
 Refund sync validation:
 - First run the `Refund Adjustment Sync` workflow manually with `dry_run=true`. The workflow should print aggregate counts only.
@@ -289,11 +299,12 @@ Refund Gmail intake validation:
 - Enable `REFUND_GMAIL_SYNC_ENABLED=true` only after every check above passes. Quick disable order is the GitHub variable first and Edge secret second; this must not disable form intake or existing case handling.
 
 Refund GPT triage validation:
-- Apply the GPT triage foundation migration and deploy the updated refund message function and frontend with `refund_gpt_triage_settings.enabled=false`. The release contains no provider runner and requires no OpenAI credential.
-- Run `npm run refunds:validate-gpt-triage`, the full migration test suite, and Refund portal UAT. Confirm a safe synthetic result is editable and requires explicit manager approval, rejection sends nothing, and policy-sensitive input exposes no GPT draft or send action.
-- Before adding or enabling a provider runner, record approval in `#635` for a secure server-only credential destination, privacy controls, model/version, and the sanitized evaluation plan. Never use a `VITE_` variable or repository file for the credential.
+- Apply both GPT triage migrations and deploy `refund-gpt-triage`, the updated refund message function, and the frontend while `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, `REFUND_GPT_TRIAGE_ENABLED=false`, and `refund_gpt_triage_settings.enabled=false`.
+- Configure the production OpenAI key only as a Supabase server secret after `#635` approves that destination. Do not copy the local developer `.env.local` into GitHub Actions or a tracked file. Run `npm run refunds:preflight-gpt-triage -- --project-ref <project-ref>` to verify required secret names without printing values.
+- Run `npm run refunds:validate-gpt-triage`, the full migration test suite, and Refund portal UAT. The provider suite is mocked and proves `store=false`, strict schema, no tools, key exclusion from request bodies, and fail-closed refusal/HTTP/timeout/schema/configuration paths without incurring an API call.
+- Manually dispatch `failure_test` while the Edge switch remains false and confirm aggregate-only failure output. Then, only with approved sanitized content, set the Edge and database switches true for a bounded manual evaluation. Confirm one latest-message job, no automatic retry, stale-suggestion superseding, editable manager review, rejection sends nothing, and policy-sensitive input exposes no GPT draft or send action.
 - During the human-reviewed pilot, require the thresholds in `Docs/REFUND_GPT_TRIAGE.md`, retain reviewer outcomes, and stop immediately on any unsafe draft. Automatic sending remains structurally prohibited by the database.
-- Quick disable: set `refund_gpt_triage_settings.enabled=false` and stop the provider runner. Verify Gmail/form-created cases and deterministic missing-information replies still work; preserve audit rows and allow the bounded content purge to continue.
+- Quick disable: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then `refund_gpt_triage_settings.enabled=false`. Verify Gmail/form-created cases and deterministic missing-information replies still work; preserve job/audit rows and allow the bounded content purges to continue.
 
 ### Step D: Configure Stripe webhook endpoint
 Stripe endpoint URL:
@@ -392,6 +403,7 @@ Rollback order:
      - `refund-case-message-send`
      - `refund-case-automation-sweep`
      - `refund-gmail-sync`
+     - `refund-gpt-triage`
      - `nayax-card-refund`
    - Restore refund functions from a clean worktree at the `approvedRestoreSource` commit recorded in the refund production release manifest. Use `preDeploymentProduction` only to compare against the exact old live state; do not recreate its missing message endpoint.
    - Reconfirm the four Nayax fail-closed values and the absence of sponsor go/no-go before redeploying.
@@ -404,12 +416,12 @@ Rollback order:
 
 Gmail-only rollback: set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_ENABLED=false`, and revoke the Gmail refresh token if compromise is suspected. Do not delete Gmail linkage tables during an incident. Verify hosted-form refund intake and non-Gmail case work remain available.
 
-GPT-only rollback: set `refund_gpt_triage_settings.enabled=false` and stop the provider runner. The current release has no provider runner, so the setting remains false. Do not delete review/audit rows; verify the deterministic missing-information reply remains available.
+GPT-only rollback: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then `refund_gpt_triage_settings.enabled=false`. The legacy restore source disables the newly introduced function rather than inventing an older deployment. Do not delete job/review/audit rows; verify the deterministic missing-information reply remains available.
 
 Post-rollback:
 - [ ] Confirm site/checkout baseline health.
 - [ ] Run `npm run refunds:release:capture-production` and update the approved manifest through review.
-- [ ] Confirm all seven refund routes respond and `nayax-card-refund` remains fail-closed.
+- [ ] Confirm all eight refund routes respond and both `refund-gpt-triage` and `nayax-card-refund` remain fail-closed.
 - [ ] Log incident summary and root cause.
 - [ ] Create follow-up issue before reattempting launch.
 

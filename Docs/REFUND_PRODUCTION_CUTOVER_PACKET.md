@@ -27,7 +27,7 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 1. Freeze unrelated Refund Operations changes for the release window.
 2. Review the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` are superseded and must not be merged separately.
 3. If `main` changed after the final `#644` verification, sync the branch with current `main`, resolve overlap, run `npm run refunds:release:write-local`, review and commit any valid manifest update, and rerun the full verification profile.
-4. Confirm the reviewed manifest covers all seven approved refund functions and all 22 required migrations, including `refund-gmail-sync` and `202607210007_refund_gpt_triage_foundation.sql`.
+4. Confirm the reviewed manifest covers all eight approved refund functions and all 23 required migrations, including `refund-gmail-sync`, `refund-gpt-triage`, and `202607220001_refund_gpt_triage_runner.sql`.
 5. Merge only the approved `#644` head. Do not deploy from a superseded PR, an unreviewed branch head, or a local-only commit.
 6. Use the final integrated `main` commit for every deployment and evidence record.
 7. On that final commit, require:
@@ -51,9 +51,9 @@ git diff --check
 ```
 
 8. Review `supabase db push --dry-run`; it must list exactly the expected pending migrations and no surprise.
-   The 2026-07-22 read-only baseline lists exactly `202607210001` through `202607210007`.
+   The 2026-07-22 read-only baseline lists exactly `202607210001` through `202607220001`.
 9. Capture the production pre-deployment baseline and confirm the approved restore source without including secrets or downloaded bundles in Git.
-10. Attach the final commit, manifest ID, aggregate test totals, migration list, and restore-source reference to `#629` and `#409`. The release-candidate baseline is 114 migrations and 186 database tests; reconcile any changed total before proceeding.
+10. Attach the final commit, manifest ID, aggregate test totals, migration list, and restore-source reference to `#629` and `#409`. The release-candidate baseline is 115 migrations and 209 database tests; reconcile any changed total before proceeding.
 
 If any merge changes an in-scope migration or refund function after the manifest was generated, the manifest is stale and the release must repeat steps 7-10.
 
@@ -69,6 +69,8 @@ Deploy the approved migrations, functions, and frontend following `Docs/PRODUCTI
 - Refund automation Edge switch: `false`
 - Gmail GitHub switch: `false`
 - Gmail Edge switch: `false`
+- GPT triage GitHub switch: `false`
+- GPT triage Edge switch: `false`
 - GPT triage database switch: `false`
 
 Check switch values without printing secrets. A code deploy must not silently enable any lane.
@@ -84,7 +86,7 @@ Check switch values without printing secrets. A code deploy must not silently en
 7. Prove one reporting write-through and the negative controls.
 8. Enable and test automation only after its manual-run evidence passes; keep the quick-disable sequence ready.
 9. Enable Gmail only after `#634` approvals and synthetic thread evidence pass.
-10. Start GPT human-review evaluation only after the server-side key destination and privacy controls in `#635` are approved.
+10. Start GPT human-review evaluation only after the production Supabase secret destination and privacy controls in `#635` are approved. The local developer key is not production approval.
 11. Start live Nayax execution only after the separate `#430` decision. Use the approved low-value case, cohort, allowlist, and caps.
 
 ## Rollback and stop order
@@ -94,7 +96,7 @@ For an incident, disable the affected optional lane first:
 1. live Nayax: activate kill switch and disable execution
 2. automation: disable the GitHub schedule, then the Edge switch
 3. Gmail: disable the GitHub schedule, then the Edge switch
-4. GPT: disable draft generation; Gmail/form-created cases remain available
+4. GPT: disable the GitHub schedule, then the Edge switch, then the database setting; Gmail/form-created cases remain available
 
 If the core release must be rolled back, redeploy the approved frontend and function restore source from the release manifest. Use forward-only database repair; do not delete audit evidence or run destructive rollback SQL during incident response. Keep the legacy workflow available until recovery is verified.
 

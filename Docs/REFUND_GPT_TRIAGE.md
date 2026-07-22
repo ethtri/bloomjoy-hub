@@ -1,12 +1,12 @@
 # Refund GPT Triage
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Purpose and current state
 
 GPT assistance is a narrow, human-reviewed aid for refund inbox triage. It may classify a message, extract a strict set of refund facts, identify missing information, summarize the request, and prepare a reply that asks only for those missing facts.
 
-The credential-independent policy, database ledger, manager review UI, and sanitized evaluation suite are implemented for issue `#635`. No model-provider request runner is included, no provider credential is configured, and triage processing is disabled by default. The existing deterministic missing-information reply remains available when no GPT suggestion exists.
+The policy, server-only OpenAI Responses API runner, content-free job ledger, manager review UI, and sanitized evaluation suite are implemented for issue `#635`. The production provider credential is not configured and all three production controls default off: the GitHub schedule, the Edge Function, and the database setting. The existing deterministic missing-information reply remains available when no GPT suggestion exists.
 
 ## Safety boundary
 
@@ -31,13 +31,15 @@ The database requires human review and has a check constraint that permanently r
 
 ## Data flow and minimization
 
-1. Only inbound Gmail text from the linked refund case is eligible. At most the latest eight inbound messages and 6,000 characters are prepared.
+1. Only the latest eligible inbound Gmail message for an open linked refund case can start a job. At most the latest eight inbound messages and 6,000 characters are prepared.
 2. Sender and recipient identities are excluded. Full card numbers, security codes, and credential-like text are redacted before model input.
 3. Customer text is marked as untrusted content. It cannot override the system policy or add actions.
-4. The model must return the exact `refund_gpt_triage_v1` schema. Extra fields, unexpected extracted fields, and inconsistent missing-field or safety-flag results are rejected.
-5. Deterministic checks recompute missing fields and policy flags. A flagged or low-confidence result is routed to a person with no draft.
-6. Only the derived result is written to the service-only ledger. Raw model input and raw provider output are not stored.
-7. An authorized manager may edit and approve a safe draft or reject it with a reason. Email is delivered before the review ledger records approval, preventing the system from claiming an unsent reply was sent.
+4. The server sends the request with `store=false`, no tools, no action capability, and a one-way hashed safety identifier. The OpenAI key never enters the browser or GitHub Actions.
+5. The model must return the exact strict `refund_gpt_triage_v1` JSON schema. Extra fields, unexpected extracted fields, and inconsistent missing-field or safety-flag results are rejected again in local code and in the database.
+6. Deterministic checks recompute missing fields and policy flags. A flagged or low-confidence result is routed to a person with no draft.
+7. Only the derived result is written to the service-only review ledger. The separate idempotency ledger contains source IDs, model/version metadata, fingerprints, and sanitized failure codes only. Raw model input and raw provider output are not stored.
+8. Failed jobs do not automatically retry. A newer customer message can create a new job and supersedes any older unreviewed suggestion after successful validation.
+9. An authorized manager may edit and approve a safe draft or reject it with a reason. Email is delivered before the review ledger records approval, preventing the system from claiming an unsent reply was sent.
 
 Derived summary and draft content is retained for 30 days and then cleared by `service_purge_refund_gpt_triage_expired_content`. The canonical refund case and redacted audit outcome remain governed by their existing retention rules.
 
@@ -57,7 +59,13 @@ npm run db:validate-migrations
 npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081
 ```
 
-Before enabling a real model, approve a secure server-only credential destination and the privacy controls in issue `#635`. Then run a sanitized, human-reviewed evaluation without automatic sending. Required pilot thresholds are:
+Before configuring any server environment, verify secret names without printing values:
+
+```bash
+npm run refunds:preflight-gpt-triage -- --env-file .env.local
+```
+
+The developer credential destination is a gitignored local `.env.local`; it is not a production secret store. Before enabling a real model in production, approve the Supabase server-secret destination and the privacy controls in issue `#635`. Then run a sanitized, human-reviewed evaluation without automatic sending. Required pilot thresholds are:
 
 - classification accuracy at least 95%;
 - missing-field accuracy at least 95%;
@@ -70,6 +78,8 @@ Reviewer outcomes must record approve-as-written, approve-after-edit, or reject,
 
 ## Enablement and rollback
 
-Provider execution remains off until the technical, support, privacy/security, and sponsor owners approve the server-only credential destination and the live evaluation in `#635`. Provider credentials must never be stored in a browser-exposed `VITE_` variable, a repository file, an issue, or a PR.
+Provider execution remains off until the technical, support, privacy/security, and sponsor owners approve the production server-secret destination and the live evaluation in `#635`. Provider credentials must never be stored in a browser-exposed `VITE_` variable, a tracked repository file, GitHub Actions, an issue, or a PR.
 
-Rollback is immediate and non-destructive: set the triage setting `enabled=false` and stop the provider runner. Gmail and hosted-form cases continue to work, and managers fall back to the deterministic missing-information reply. Do not delete triage or review rows during an incident; preserve the audit record and allow the 30-day content purge to run.
+Enablement requires all three explicit actions: keep `REFUND_GPT_TRIAGE_SYNC_ENABLED=false` while configuring, set the Edge secret `REFUND_GPT_TRIAGE_ENABLED=true` only for the approved evaluation, and set `refund_gpt_triage_settings.enabled=true` only for the same window. Automatic customer sending cannot be enabled.
+
+Rollback is immediate and non-destructive: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then set the database triage setting `enabled=false`. Gmail and hosted-form cases continue to work, and managers fall back to the deterministic missing-information reply. Do not delete job, triage, or review rows during an incident; preserve the audit record and allow the bounded 30-day content purges to run.

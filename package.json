@@ -55,6 +55,7 @@
     "refunds:validate-gmail": "node scripts/refunds/validate-refund-gmail.mjs",
     "refunds:validate-gpt-triage": "node scripts/refunds/validate-refund-gpt-triage.mjs",
     "refunds:preflight-gmail": "node scripts/refunds/refund-gmail-preflight.mjs",
+    "refunds:preflight-gpt-triage": "node scripts/refunds/refund-gpt-triage-preflight.mjs",
     "admin-access:validate-invite-uat": "node scripts/validate-admin-access-invite-uat.mjs",
     "partner-technicians:validate-uat": "node scripts/validate-partner-technician-access-uat.mjs",
     "scoped-admin-technicians:validate-uat": "node scripts/validate-scoped-admin-technician-uat.mjs",

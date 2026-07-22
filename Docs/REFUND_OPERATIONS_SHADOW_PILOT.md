@@ -1,6 +1,6 @@
 # Refund Operations Shadow Pilot Runbook
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Purpose
 
@@ -14,7 +14,7 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 - Use a clean Machine Manager-only account from `#435`. Broader scoped-admin or super-admin access is not valid evidence for the manager boundary.
 - Keep live Nayax execution fail-closed until the provider contract and sponsor gate in `#430` are approved. Shadow mode may exercise the complete UI and a blocked execution response without making a live provider call.
 - The manager, not GPT or the matching score, makes the final decision.
-- Gmail and GPT are separate human-reviewed pilot lanes. Keep both Gmail enable switches off until `#634` approvals pass, and send no GPT draft without human approval during the pilot.
+- Gmail and GPT are separate human-reviewed pilot lanes. Keep both Gmail switches and all three GPT switches off until `#634`/`#635` approvals pass, and send no GPT draft without human approval during the pilot.
 - Do not place customer names, email addresses, phone numbers, card digits, payout contacts, complaint text, raw provider identifiers/payloads, Gmail content, or secrets in GitHub, screenshots, logs, or this packet.
 - Demo mode proves layout only. It does not prove persistence, permissions, provider behavior, email delivery, automation, or reporting write-through.
 
@@ -24,8 +24,8 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 
 - [ ] Review and approve the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` are superseded and must not be merged separately.
 - [ ] Sync `#644` with current `main` if shared foundations change, then rerun its full verification profile before merge.
-- [ ] On the final integrated `main` commit, regenerate and review the Refund Operations release manifest. It must include all seven approved refund functions, all 22 required migrations, and the final transitive source digest for each function.
-- [ ] Run the repository verification suite, migration validation, release-tooling checks, and the relevant refund validators on that same final commit. The release-candidate baseline is 114 migrations and 186 database tests; any lower total requires investigation.
+- [ ] On the final integrated `main` commit, regenerate and review the Refund Operations release manifest. It must include all eight approved refund functions, all 23 required migrations, and the final transitive source digest for each function.
+- [ ] Run the repository verification suite, migration validation, release-tooling checks, and the relevant refund validators on that same final commit. The release-candidate baseline is 115 migrations and 209 database tests; any lower total requires investigation.
 - [ ] Confirm production migrations and Edge Functions match the final reviewed release; a sanitized dry run must show no unexpected migration.
 - [ ] Confirm Bubble Planet and every other pilot option has a distinct customer-facing label and an unambiguous canonical machine/location mapping.
 - [ ] Capture a restore source and dry-run the documented rollback path before changing production.
@@ -44,7 +44,7 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 - [ ] Manager notification reaches the assigned managers and operations fallback without customer PII in logs.
 - [ ] Automation is deployed with both controls off, then proves one synthetic action, duplicate suppression, PII-free failure alerting, visible health, and quick disable before scheduled enablement.
 - [ ] Gmail retention, attachment quarantine, OAuth scope, mailbox ownership, and security review are approved before either Gmail switch is enabled.
-- [ ] GPT evaluation uses only the approved schema and sanitized test set; it cannot match a transaction, decide a refund, send mail, or execute payment.
+- [ ] GPT evaluation uses only the approved schema and sanitized test set; the GitHub, Edge, and database switches are separately controlled; it cannot match a transaction, decide a refund, send mail, or execute payment.
 
 ## Proposed pilot cohort
 
@@ -111,7 +111,7 @@ Use the relevant quick-disable control first, preserve sanitized audit evidence,
 
 1. **Core shadow pilot:** form intake, matching, manager workbench, cash workflow, email, automation health, permissions, and reporting. Nayax execution stays off.
 2. **Controlled Nayax execution:** starts only after `#430` records the provider contract, caps, allowlist, kill-switch proof, and sponsor approval.
-3. **Gmail/GPT lane:** starts only after `#634` data/OAuth approvals and a secure server-side OpenAI key destination for `#635`. All drafts remain human-reviewed.
+3. **Gmail/GPT lane:** starts only after `#634` data/OAuth approvals and approval of the production Supabase OpenAI secret destination plus privacy controls for `#635`. The local developer key is not production approval. All drafts remain human-reviewed.
 4. **Cutover:** `#409` receives the complete packet and explicit sponsor approval. Only then may the legacy workflow be retired; rollback and a staffed support window must remain ready.
 
 ## Evidence template

@@ -10,6 +10,12 @@ import {
   validateRefundGptReviewedDraft,
   validateRefundGptTriageSuggestion,
 } from '../../supabase/functions/_shared/refund-gpt-triage-policy.mjs';
+import {
+  REFUND_GPT_TRIAGE_DEFAULT_MODEL,
+  RefundGptProviderError,
+  buildOpenAiRefundTriageRequest,
+  runOpenAiRefundTriage,
+} from '../../supabase/functions/_shared/refund-gpt-triage-provider.mjs';
 
 const baseExtracted = Object.freeze({
   locationName: 'Mall Atrium',
@@ -281,16 +287,161 @@ assert.equal(routingCorrect, total, 'All evaluation routes must match.');
 assert.equal(missingFieldCorrect, total, 'All evaluation missing-field sets must match.');
 assert.equal(unsafeActions, 0, 'Unsafe action rate must be zero.');
 
-const [migrationSource, messageFunctionSource, managerUiSource] = await Promise.all([
+const providerSourceText = 'My card was charged $7 on 2026-07-21 at 14:35 and ends in 4242.';
+const providerSuggestion = makeSuggestion({
+  sourceText: providerSourceText,
+  extracted: { locationName: null, machineLabel: null },
+});
+const providerInput = buildRefundGptTriageInput({
+  subject: 'Refund help',
+  messages: [{
+    direction: 'inbound',
+    kind: 'message',
+    body: providerSourceText,
+    receivedAt: '2026-07-21T21:35:00.000Z',
+  }],
+});
+const safetyIdentifier = 'a'.repeat(64);
+const requestShape = buildOpenAiRefundTriageRequest({
+  input: providerInput,
+  model: REFUND_GPT_TRIAGE_DEFAULT_MODEL,
+  safetyIdentifier,
+});
+assert.equal(requestShape.store, false, 'OpenAI response storage must be disabled.');
+assert.equal(requestShape.safety_identifier, safetyIdentifier, 'A privacy-preserving safety identifier is required.');
+assert.equal(requestShape.text.format.type, 'json_schema', 'Responses API must use structured output.');
+assert.equal(requestShape.text.format.strict, true, 'Provider JSON schema must be strict.');
+assert.equal(requestShape.text.format.schema.additionalProperties, false, 'Provider schema must reject extra actions.');
+assert.equal('tools' in requestShape, false, 'Triage must expose no tools or payment actions to the model.');
+
+const buildProviderResponse = (content, overrides = {}) => ({
+  status: 'completed',
+  model: 'gpt-5.6-terra-2026-07-01',
+  output: [{
+    type: 'message',
+    content: [{ type: 'output_text', text: JSON.stringify(content) }],
+  }],
+  ...overrides,
+});
+
+let capturedProviderRequest = null;
+const providerResult = await runOpenAiRefundTriage({
+  apiKey: 'sk-proj-synthetic-test-key-that-is-not-real',
+  input: providerInput,
+  model: REFUND_GPT_TRIAGE_DEFAULT_MODEL,
+  safetyIdentifier,
+  fetchImpl: async (url, init) => {
+    capturedProviderRequest = { url, init };
+    return new Response(JSON.stringify(buildProviderResponse(providerSuggestion)), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  },
+});
+assert.equal(capturedProviderRequest.url, 'https://api.openai.com/v1/responses', 'Runner must use the Responses API.');
+assert.equal(providerResult.modelSnapshot, 'gpt-5.6-terra-2026-07-01', 'Returned model snapshot is captured.');
+assert.deepEqual(providerResult.suggestion, providerSuggestion, 'Locally validated strict output is returned.');
+assert.equal(
+  capturedProviderRequest.init.body.includes('synthetic-test-key'),
+  false,
+  'The API key must never appear in the request body.',
+);
+
+await assert.rejects(
+  runOpenAiRefundTriage({
+    apiKey: 'sk-proj-synthetic-test-key-that-is-not-real',
+    input: providerInput,
+    safetyIdentifier,
+    fetchImpl: async () => new Response(JSON.stringify({
+      status: 'completed',
+      model: 'gpt-5.6-terra',
+      output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'Synthetic refusal.' }] }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  }),
+  (error) => error instanceof RefundGptProviderError && error.code === 'provider_refusal',
+  'Provider refusals must fail closed without a draft.',
+);
+
+await assert.rejects(
+  runOpenAiRefundTriage({
+    apiKey: 'sk-proj-synthetic-test-key-that-is-not-real',
+    input: providerInput,
+    safetyIdentifier,
+    fetchImpl: async () => new Response('{"error":"synthetic"}', { status: 429 }),
+  }),
+  (error) => error instanceof RefundGptProviderError && error.code === 'provider_http_429',
+  'Provider HTTP failures must collapse to a redacted status code.',
+);
+
+await assert.rejects(
+  runOpenAiRefundTriage({
+    apiKey: 'sk-proj-synthetic-test-key-that-is-not-real',
+    input: providerInput,
+    safetyIdentifier,
+    fetchImpl: async () => {
+      const error = new Error('synthetic timeout');
+      error.name = 'AbortError';
+      throw error;
+    },
+  }),
+  (error) => error instanceof RefundGptProviderError && error.code === 'provider_timeout',
+  'Provider timeouts must fail closed.',
+);
+
+const providerExtraField = { ...providerSuggestion, initiateRefund: true };
+await assert.rejects(
+  runOpenAiRefundTriage({
+    apiKey: 'sk-proj-synthetic-test-key-that-is-not-real',
+    input: providerInput,
+    safetyIdentifier,
+    fetchImpl: async () => new Response(JSON.stringify(buildProviderResponse(providerExtraField)), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  }),
+  (error) => error instanceof RefundGptProviderError && error.code === 'provider_schema_rejected',
+  'Model-invented payment actions must be rejected after provider parsing.',
+);
+
+await assert.rejects(
+  runOpenAiRefundTriage({
+    apiKey: '',
+    input: providerInput,
+    safetyIdentifier,
+    fetchImpl: async () => { throw new Error('fetch must not run'); },
+  }),
+  (error) => error instanceof RefundGptProviderError && error.code === 'provider_key_missing',
+  'Missing server credentials must stop before any provider call.',
+);
+
+const [migrationSource, runnerMigrationSource, messageFunctionSource, runnerFunctionSource, managerUiSource, workflowSource, preflightSource] = await Promise.all([
   readFile(new URL('../../supabase/migrations/202607210007_refund_gpt_triage_foundation.sql', import.meta.url), 'utf8'),
+  readFile(new URL('../../supabase/migrations/202607220001_refund_gpt_triage_runner.sql', import.meta.url), 'utf8'),
   readFile(new URL('../../supabase/functions/refund-case-message-send/index.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../supabase/functions/refund-gpt-triage/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../src/pages/admin/Refunds.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../../.github/workflows/refund-gpt-triage.yml', import.meta.url), 'utf8'),
+  readFile(new URL('./refund-gpt-triage-preflight.mjs', import.meta.url), 'utf8'),
 ]);
 
 assert.match(migrationSource, /enabled boolean not null default false/i, 'Provider processing must default off.');
 assert.match(migrationSource, /check \(not auto_send_enabled\)/i, 'Database must prevent GPT auto-send.');
 assert.match(migrationSource, /raw model input and provider payloads are not stored/i, 'Data-minimization contract must be explicit.');
 assert.match(migrationSource, /service_purge_refund_gpt_triage_expired_content/i, 'Derived content must have bounded retention cleanup.');
+assert.match(runnerMigrationSource, /refund_gpt_triage_jobs_source_version_unique/i, 'Provider jobs must be idempotent per source, prompt, and model.');
+assert.match(runnerMigrationSource, /stores no raw input or provider output/i, 'Runner job ledger must be content-free.');
+assert.match(runnerMigrationSource, /for update skip locked/i, 'Bounded job cleanup must not block concurrent workers.');
+assert.match(runnerMigrationSource, /status = 'superseded'/i, 'A new inbound reply must supersede stale unreviewed suggestions.');
+assert.match(runnerMigrationSource, /stale_source_message/i, 'An in-flight older source must be discarded when a newer reply arrives.');
+assert.match(runnerFunctionSource, /REFUND_GPT_TRIAGE_ENABLED/i, 'Server runner must have an independent default-off switch.');
+assert.match(runnerFunctionSource, /OPENAI_REFUND_TRIAGE_SAFETY_SALT/i, 'Runner must derive a privacy-preserving safety identifier.');
+assert.match(runnerFunctionSource, /service_claim_refund_gpt_triage_jobs/i, 'Runner must claim jobs before provider calls.');
+assert.match(runnerFunctionSource, /service_complete_refund_gpt_triage_job/i, 'Validated results must complete through the database guard.');
+assert.match(runnerFunctionSource, /payloadRedacted: true/i, 'Runner output and logs must be aggregate-only.');
+assert.match(workflowSource, /vars\.REFUND_GPT_TRIAGE_SYNC_ENABLED == 'true'/i, 'Scheduled GPT processing must default off in GitHub.');
+assert.match(workflowSource, /secrets\.REFUND_GPT_TRIAGE_SYNC_TOKEN/i, 'Scheduler token must be encrypted.');
+assert.match(preflightSource, /VITE_OPENAI_/i, 'Preflight must reject browser-exposed OpenAI secret names.');
+assert.match(preflightSource, /OPENAI_API_KEY/i, 'Preflight must require the server-side OpenAI credential.');
 assert.match(messageFunctionSource, /triageSuggestion\.status !== "ready_for_review"/i, 'Customer send must reject stale suggestions.');
 assert.match(messageFunctionSource, /triageSuggestion\.route !== "draft_reply"/i, 'Customer send must reject human-review routes.');
 assert.match(messageFunctionSource, /policy_flags \?\? \[\]\)\.length > 0/i, 'Customer send must reject policy-flagged suggestions.');
@@ -316,4 +467,7 @@ console.log(JSON.stringify({
   prohibitedDataRejection: true,
   promptInjectionFailClosed: true,
   duplicateInputDeterministic: true,
+  providerResponsesApi: true,
+  providerStoreDisabled: true,
+  providerFailurePaths: ['refusal', 'http', 'timeout', 'schema', 'configuration'],
 }));

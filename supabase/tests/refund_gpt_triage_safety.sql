@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(31);
+select plan(54);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -99,6 +99,129 @@ select ok(
     'execute'
   ),
   'Only the server-side worker can record validated model output'
+);
+select has_table('public', 'refund_gpt_triage_jobs', 'GPT runner has a service-only idempotency ledger');
+select hasnt_column('public', 'refund_gpt_triage_jobs', 'raw_input', 'GPT job ledger stores no raw model input');
+select hasnt_column('public', 'refund_gpt_triage_jobs', 'raw_response', 'GPT job ledger stores no raw provider response');
+select ok(
+  not has_table_privilege('authenticated', 'public.refund_gpt_triage_jobs', 'select'),
+  'Browser clients cannot read the GPT job ledger'
+);
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.service_claim_refund_gpt_triage_jobs(text,text,text,text,integer)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.service_complete_refund_gpt_triage_job(uuid,text,text,jsonb)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.service_fail_refund_gpt_triage_job(uuid,text,text)',
+    'execute'
+  ),
+  'Browser clients cannot claim, complete, or fail GPT jobs'
+);
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.service_claim_refund_gpt_triage_jobs(text,text,text,text,integer)',
+    'execute'
+  )
+  and has_function_privilege(
+    'service_role',
+    'public.service_complete_refund_gpt_triage_job(uuid,text,text,jsonb)',
+    'execute'
+  )
+  and has_function_privilege(
+    'service_role',
+    'public.service_fail_refund_gpt_triage_job(uuid,text,text)',
+    'execute'
+  ),
+  'Only the server-side worker can operate GPT jobs'
+);
+
+create temporary table failed_runner_claim as
+select public.service_claim_refund_gpt_triage_jobs(
+  'gpt-runner-failure-test',
+  'gpt-5.6-terra',
+  'refund_missing_info_v1',
+  'refund_gpt_triage_v1',
+  1
+) as result;
+
+select is(
+  (select (result ->> 'enabled')::boolean from failed_runner_claim),
+  true,
+  'GPT runner claim respects the independently enabled database switch'
+);
+select is(
+  (select jsonb_array_length(result -> 'jobs') from failed_runner_claim),
+  1,
+  'GPT runner claims one latest eligible message when bounded to one'
+);
+select is(
+  (select result #>> '{jobs,0,sourceMessageId}' from failed_runner_claim),
+  (select id::text from public.refund_gmail_messages where provider_message_id = 'gpt-triage-message-1'),
+  'Claimed GPT job is tied to the expected latest source message'
+);
+select ok(
+  (select result::text from failed_runner_claim) not like '%gpt-refund-customer@example.test%'
+  and (select result::text from failed_runner_claim) not like '%support@example.test%'
+  and (select result::text from failed_runner_claim) not like '%senderEmail%'
+  and (select result::text from failed_runner_claim) not like '%recipientEmail%',
+  'Claim payload omits sender and recipient identity'
+);
+select is(
+  jsonb_array_length(
+    public.service_claim_refund_gpt_triage_jobs(
+      'gpt-runner-duplicate-test',
+      'gpt-5.6-terra',
+      'refund_missing_info_v1',
+      'refund_gpt_triage_v1',
+      1
+    ) -> 'jobs'
+  ),
+  0,
+  'A claimed source/prompt/model combination is not submitted twice'
+);
+select is(
+  public.service_fail_refund_gpt_triage_job(
+    (select (result #>> '{jobs,0,jobId}')::uuid from failed_runner_claim),
+    'provider_timeout',
+    'provider_timeout'
+  ) ->> 'status',
+  'failed',
+  'A provider failure closes the claimed job without storing provider content'
+);
+select ok(
+  exists (
+    select 1
+    from public.refund_gpt_triage_jobs
+    where id = (select (result #>> '{jobs,0,jobId}')::uuid from failed_runner_claim)
+      and status = 'failed'
+      and failure_category = 'provider_timeout'
+      and error_code = 'provider_timeout'
+      and input_fingerprint is null
+      and model_snapshot is null
+  ),
+  'Failed GPT job retains only a sanitized failure category and code'
+);
+select is(
+  jsonb_array_length(
+    public.service_claim_refund_gpt_triage_jobs(
+      'gpt-runner-no-retry-test',
+      'gpt-5.6-terra',
+      'refund_missing_info_v1',
+      'refund_gpt_triage_v1',
+      1
+    ) -> 'jobs'
+  ),
+  0,
+  'Failed GPT jobs are not automatically retried'
 );
 
 create temporary table ready_result as
@@ -348,9 +471,207 @@ select is(
   'approved',
   'Successful customer delivery completes the human approval record'
 );
+
+create temporary table stale_runner_result as
+select public.service_record_refund_gpt_triage(
+  (select refund_case_id from public.refund_gmail_messages where provider_message_id = 'gpt-triage-message-1'),
+  (select id from public.refund_gmail_messages where provider_message_id = 'gpt-triage-message-1'),
+  'gpt-triage-stale-ready',
+  repeat('f', 64),
+  'gpt-triage-stale-model',
+  'gpt-triage-stale-model-2026-07-22',
+  'refund_missing_info_v1',
+  'refund_gpt_triage_v1',
+  jsonb_build_object(
+    'schemaVersion', 'refund_gpt_triage_v1',
+    'classification', 'refund',
+    'confidenceBand', 'high',
+    'language', 'en',
+    'route', 'draft_reply',
+    'summary', 'Older suggestion awaiting review before a newer inbound message is processed.',
+    'extracted', jsonb_build_object(
+      'locationName', null,
+      'machineLabel', null,
+      'incidentDate', null,
+      'incidentTime', null,
+      'paymentMethod', 'card',
+      'amountCents', null,
+      'cardLast4', '4242',
+      'walletUsed', false
+    ),
+    'missingFields', jsonb_build_array('location_or_machine', 'incident_date', 'incident_time', 'amount'),
+    'policyFlags', '[]'::jsonb,
+    'draft', jsonb_build_object(
+      'subject', 'A quick detail check',
+      'body', 'Please reply with the machine location, purchase date, approximate time, and amount paid.'
+    )
+  )
+) as result;
+
+select is(
+  (select result ->> 'status' from stale_runner_result),
+  'ready_for_review',
+  'An older unreviewed suggestion exists for stale-suggestion protection testing'
+);
+
+create temporary table successful_runner_claim as
+select public.service_claim_refund_gpt_triage_jobs(
+  'gpt-runner-success-test',
+  'gpt-5.6-terra',
+  'refund_missing_info_v1',
+  'refund_gpt_triage_v1',
+  1
+) as result;
+
+select is(
+  (select jsonb_array_length(result -> 'jobs') from successful_runner_claim),
+  1,
+  'GPT runner claims the newer unprocessed source message'
+);
+select is(
+  (select result #>> '{jobs,0,sourceMessageId}' from successful_runner_claim),
+  (select id::text from public.refund_gmail_messages where provider_message_id = 'gpt-triage-message-2'),
+  'GPT runner selects only the latest inbound message for the open case'
+);
+
+create temporary table successful_runner_result as
+select public.service_complete_refund_gpt_triage_job(
+  (select (result #>> '{jobs,0,jobId}')::uuid from successful_runner_claim),
+  repeat('1', 64),
+  'gpt-5.6-terra-2026-07-22',
+  jsonb_build_object(
+    'schemaVersion', 'refund_gpt_triage_v1',
+    'classification', 'refund',
+    'confidenceBand', 'high',
+    'language', 'en',
+    'route', 'draft_reply',
+    'summary', 'Customer supplied the location, time, amount, and card last four but not the purchase date.',
+    'extracted', jsonb_build_object(
+      'locationName', 'Mall Atrium',
+      'machineLabel', null,
+      'incidentDate', null,
+      'incidentTime', '14:35',
+      'paymentMethod', 'card',
+      'amountCents', 700,
+      'cardLast4', '4242',
+      'walletUsed', false
+    ),
+    'missingFields', jsonb_build_array('incident_date'),
+    'policyFlags', '[]'::jsonb,
+    'draft', jsonb_build_object(
+      'subject', 'A quick date check',
+      'body', 'Please reply with the purchase date. Never send a full card number, CVV, PIN, password, or bank login.'
+    )
+  )
+) as result;
+
+select is(
+  (select result ->> 'status' from successful_runner_result),
+  'ready_for_review',
+  'A strict provider result becomes a human-reviewable suggestion'
+);
+select ok(
+  exists (
+    select 1
+    from public.refund_gpt_triage_jobs
+    where id = (select (result #>> '{jobs,0,jobId}')::uuid from successful_runner_claim)
+      and status = 'succeeded'
+      and input_fingerprint = repeat('1', 64)
+      and model_snapshot = 'gpt-5.6-terra-2026-07-22'
+      and failure_category is null
+      and error_code is null
+  ),
+  'Successful GPT job stores only integrity and model metadata'
+);
+select is(
+  (select status from public.refund_gpt_triage_runs where run_key = 'gpt-triage-stale-ready'),
+  'superseded',
+  'A newer inbound suggestion supersedes the older unreviewed suggestion'
+);
+select is(
+  (public.service_complete_refund_gpt_triage_job(
+    (select (result #>> '{jobs,0,jobId}')::uuid from successful_runner_claim),
+    repeat('1', 64),
+    'gpt-5.6-terra-2026-07-22',
+    '{}'::jsonb
+  ) ->> 'created')::boolean,
+  false,
+  'Successful GPT job completion is idempotent before replayed output is parsed'
+);
+
+select public.service_ingest_refund_gmail_message(
+  repeat('b', 64),
+  'gpt-triage-thread-1',
+  'gpt-triage-message-3',
+  '<gpt-triage-message-3@example.test>',
+  '<gpt-triage-message-2@example.test>',
+  'inbound',
+  false,
+  'gpt-refund-customer@example.test',
+  'GPT Refund Customer',
+  'support@example.test',
+  'Re: Refund help',
+  'The purchase date was July 21.',
+  false,
+  now() - interval '2 minutes',
+  null,
+  '[]'::jsonb
+);
+
+create temporary table stale_processing_claim as
+select public.service_claim_refund_gpt_triage_jobs(
+  'gpt-runner-stale-processing-test',
+  'gpt-5.6-terra',
+  'refund_missing_info_v1',
+  'refund_gpt_triage_v1',
+  1
+) as result;
+
+select public.service_ingest_refund_gmail_message(
+  repeat('b', 64),
+  'gpt-triage-thread-1',
+  'gpt-triage-message-4',
+  '<gpt-triage-message-4@example.test>',
+  '<gpt-triage-message-3@example.test>',
+  'inbound',
+  false,
+  'gpt-refund-customer@example.test',
+  'GPT Refund Customer',
+  'support@example.test',
+  'Re: Refund help',
+  'Correction: the purchase date was July 20.',
+  false,
+  now() - interval '1 minute',
+  null,
+  '[]'::jsonb
+);
+
+select is(
+  public.service_complete_refund_gpt_triage_job(
+    (select (result #>> '{jobs,0,jobId}')::uuid from stale_processing_claim),
+    repeat('2', 64),
+    'gpt-5.6-terra-2026-07-22',
+    '{}'::jsonb
+  ) ->> 'status',
+  'stale',
+  'A customer reply arriving during provider work invalidates the older completion'
+);
+select ok(
+  exists (
+    select 1
+    from public.refund_gpt_triage_jobs
+    where id = (select (result #>> '{jobs,0,jobId}')::uuid from stale_processing_claim)
+      and status = 'failed'
+      and failure_category = 'database_validation'
+      and error_code = 'stale_source_message'
+      and input_fingerprint is null
+      and model_snapshot is null
+  ),
+  'Stale in-flight output is discarded with a content-free audit code'
+);
 select is(
   (public.admin_get_refund_gpt_triage_metrics() ->> 'totalRuns')::integer,
-  2,
+  4,
   'Pilot metrics aggregate reviewed triage runs without raw customer content'
 );
 select is(
@@ -364,7 +685,7 @@ set retention_expires_at = now() - interval '1 minute';
 
 select is(
   public.service_purge_refund_gpt_triage_expired_content(200),
-  2,
+  4,
   'Expired GPT-derived content is purged in a bounded pass'
 );
 select ok(

@@ -255,6 +255,9 @@ Prereqs:
 - For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.
 - Nayax card refund execution defaults to disabled/dry-run/kill-switch-on. Use `npm run refunds:validate-nayax-execution` to verify the fail-closed foundation; do not run real provider execution without sponsor go/no-go.
 - Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/refunds` for case processing and do not see setup controls.
+- For mocked GPT triage validation, no provider call is required. Run `npm run refunds:validate-gpt-triage` and `npm run db:validate-migrations`.
+- For local server-runner preflight, keep `OPENAI_API_KEY` only in the worktree's gitignored `.env.local`; also set local-only `OPENAI_REFUND_TRIAGE_SAFETY_SALT`, `REFUND_GPT_TRIAGE_SYNC_SECRET`, and `REFUND_GPT_TRIAGE_ENABLED=false`, then run `npm run refunds:preflight-gpt-triage -- --env-file .env.local`. Never use a `VITE_` name.
+- A real sanitized OpenAI evaluation is a paid external action and requires explicit approval. Do not point it at production Gmail or customer content from local development.
 
 Steps:
 1) Start the agent UAT server from the worktree:
@@ -274,6 +277,7 @@ Steps:
    - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data. Its `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.
 7) When cash-completion SQL changes, run `npm run db:validate-migrations`. The `refund_cash_completion_safety.sql` pgTAP suite proves service-role-only access, required evidence, idempotency, one redacted audit event, and no duplicate completion on a repeated request.
 8) When scheduler/health code changes, run `npm run refunds:validate-automation`, `npm run agent:validate-workflow`, and `npm run db:validate-migrations`. The database suite proves same-window and same-action replay suppression; the portal UAT harness proves the concise manager health signal. Do not point a local scheduler test at production customer data.
+9) When GPT runner code changes, run `npm run refunds:validate-gpt-triage`, `deno check supabase/functions/refund-gpt-triage/index.ts`, `npm run db:validate-migrations`, and the Refund portal UAT harness. These checks use mocks/synthetic data and must pass without a live provider call.
 
 Three validation modes:
 - `DEMO DATA - visual review only`: append `?demo=on` on localhost/127.0.0.1 for synthetic, browser-only visual review. Demo mode must not be used as evidence that saves, Nayax lookup, access scope, or reporting write-through work.
