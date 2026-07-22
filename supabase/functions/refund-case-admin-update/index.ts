@@ -8,6 +8,8 @@ import {
   sendRefundCustomerEmail,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -53,7 +55,7 @@ type RefundCaseRow = {
   decision_reason: string | null;
   customer_email: string;
   customer_name: string | null;
-  payment_method: string;
+  payment_method: string | null;
   refund_amount_cents: number | null;
   payment_amount_cents: number | null;
   reporting_machine_id: string;
@@ -297,7 +299,7 @@ const sendAndLogCustomerMessage = async (
   });
 
   try {
-    await sendRefundCustomerEmail({
+    const emailInput = {
       messageType,
       publicReference: refundCase.public_reference,
       customerName: refundCase.customer_name,
@@ -307,12 +309,29 @@ const sendAndLogCustomerMessage = async (
       refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
       decisionReason: refundCase.decision_reason,
-    });
+    };
+    const email = buildRefundCustomerEmail(emailInput);
+    const gmailDelivery = messageId
+      ? await dispatchRefundCaseGmailReply({
+        supabase,
+        refundCaseId: refundCase.id,
+        refundCaseMessageId: messageId,
+        recipientEmail: refundCase.customer_email,
+        email,
+      })
+      : { usedGmail: false as const };
+    if (!gmailDelivery.usedGmail) {
+      await sendRefundCustomerEmail(emailInput);
+    }
 
     if (messageId) {
       const { error: sentUpdateError } = await supabase
         .from("refund_case_messages")
-        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+        })
         .eq("id", messageId);
       if (sentUpdateError) throw sentUpdateError;
     }
@@ -322,10 +341,13 @@ const sendAndLogCustomerMessage = async (
     const { error: eventError } = await supabase.from("refund_case_events").insert({
       refund_case_id: refundCase.id,
       event_type: "customer_message_sent",
-      message: `Automated ${messageType.replaceAll("_", " ")} email sent.`,
+      message: gmailDelivery.usedGmail
+        ? `Manager-approved ${messageType.replaceAll("_", " ")} reply sent in the linked Gmail thread.`
+        : `Automated ${messageType.replaceAll("_", " ")} email sent.`,
       metadata: {
         message_type: messageType,
         message_id: messageId,
+        transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
         payload_redacted: true,
       },
     });
@@ -333,9 +355,13 @@ const sendAndLogCustomerMessage = async (
 
     return { type: messageType, status: "sent" };
   } catch (emailError) {
+    const safeErrorCode = emailError instanceof RefundGmailError
+      ? emailError.code
+      : "customer_email_delivery_failed";
     console.error("refund-case-admin-update customer email failed", {
       errorType: emailError instanceof Error ? emailError.name : typeof emailError,
       messageType,
+      errorCode: safeErrorCode,
     });
 
     if (messageId) {
@@ -343,7 +369,7 @@ const sendAndLogCustomerMessage = async (
         .from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: "customer_email_delivery_failed",
+          error_message: safeErrorCode,
         })
         .eq("id", messageId);
       if (failedUpdateError) {

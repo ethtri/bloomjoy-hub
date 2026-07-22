@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-07-21 - Gmail refund intake is label-scoped, draft-first, and transport-only (`#634`)
+Bloomjoy will connect one designated support mailbox to Refund Operations as a narrowly scoped intake and reply transport. Gmail does not become the system of record, and the connection stays disabled until its production controls and owner approvals pass.
+
+**Canonical behavior**
+- OAuth grants only `gmail.readonly` and `gmail.send` for the exact configured support mailbox. The integration does not modify labels, archive mail, delete mail, or change read state.
+- Only threads carrying the explicitly configured refund label are ingested. Both the Edge Function switch and scheduled GitHub workflow are off by default.
+- A first eligible customer message creates one incomplete `draft` refund case. Re-delivery is idempotent, later replies append chronologically to the same case, and a new thread may relink by public case reference only when the sender email also matches.
+- Provider message/thread IDs remain service-only. While location is unknown, only Super Admins and Scoped Admins may view or reply to an unassigned draft; location-only Machine Managers cannot see it. The manager UI receives sanitized plain text, redacts Luhn-valid full card numbers to last four, and never exposes raw attachment paths or provider payloads. Logs and workflow output remain aggregate-only.
+- Attachments are limited to PDF, JPEG, or PNG, at most three per message and 5 MB each. Accepted bytes enter a private quarantine bucket and are not manager-downloadable until a separate malware scanner explicitly marks them clean. Until that scanner exists, attachments remain quarantined.
+- Customer replies are manager-approved only and use one prominent action in the existing refund workbench. Gmail-linked replies stay in the original Gmail thread. An uncertain provider outcome is never retried automatically; the manager must reconcile Gmail first.
+- The Gmail message copy is scheduled for deletion after 180 days while the canonical refund case continues under Bloomjoy's governed business-record retention. Production enablement requires recorded Operations and privacy/security approval of this period and the quarantine-until-scanned behavior.
+- Authorization revocation or a Gmail outage is visible in manager health and fails only the Gmail path. Hosted-form refund intake, the refund queue, and manual manager work remain available.
+
+**Why this choice**
+- Most support effort is spent collecting missing details, so a draft-first queue can organize incomplete requests without inventing transaction facts or making an automatic refund decision.
+- Label scoping, minimal permissions, redaction, private quarantine, and default-off rollout materially reduce mailbox and customer-data exposure.
+- Keeping Gmail as transport preserves the Hub as the auditable case system and lets the team disable the integration without reverting the refund workflow.
+
 ## 2026-07-16 - Timekeeping V1 is shift entry and machine-manager review (`#587`)
 Bloomjoy will replace the contractor Google Sheets/AppSheet workflow with a lightweight Hub timekeeping flow before expanding into payment execution.
 

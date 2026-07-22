@@ -36,6 +36,8 @@ import {
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
   fetchRefundAutomationHealth,
+  fetchRefundGmailCaseContext,
+  fetchRefundGmailHealth,
   fetchRefundOperationsOverview,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
@@ -47,6 +49,7 @@ import {
   type NayaxDisagreementReason,
   type RefundCaseRecord,
   type RefundAutomationHealth,
+  type RefundGmailHealth,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
   type RefundCaseStatus,
@@ -64,6 +67,7 @@ const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision
 };
 
 const noDecisionStatuses = new Set<RefundCaseStatus>([
+  'draft',
   'submitted',
   'needs_review',
   'waiting_on_customer',
@@ -71,12 +75,13 @@ const noDecisionStatuses = new Set<RefundCaseStatus>([
 ]);
 
 const statusesByDecision: Record<'none' | 'approved' | 'denied', RefundCaseStatus[]> = {
-  none: ['submitted', 'needs_review', 'waiting_on_customer', 'correlated'],
+  none: ['draft', 'submitted', 'needs_review', 'waiting_on_customer', 'correlated'],
   approved: ['approved', 'card_refund_pending', 'cash_zelle_pending', 'completed'],
   denied: ['denied'],
 };
 
 const openStatuses = new Set<RefundCaseStatus>([
+  'draft',
   'submitted',
   'needs_review',
   'waiting_on_customer',
@@ -277,6 +282,61 @@ const automationHealthPresentation = (
   };
 };
 
+const gmailHealthPresentation = (
+  health: RefundGmailHealth | undefined,
+  unavailable: boolean
+) => {
+  if (unavailable) {
+    return {
+      title: 'Gmail intake status unavailable',
+      description: 'Form-created refund cases still work. Check the Gmail sync before relying on inbox intake.',
+      tone: 'warning' as const,
+    };
+  }
+  if (!health || health.status === 'waiting') {
+    return {
+      title: 'Gmail intake is waiting for its first test',
+      description: 'Only the hosted form is creating cases until a successful Gmail shadow sync is recorded.',
+      tone: 'neutral' as const,
+    };
+  }
+  if (health.status === 'paused') {
+    return {
+      title: 'Gmail intake is paused',
+      description: 'The refund queue and hosted form remain available; inbox messages are not being imported.',
+      tone: 'neutral' as const,
+    };
+  }
+  if (health.status === 'revoked') {
+    return {
+      title: 'Gmail authorization was revoked',
+      description: 'Reconnect the designated mailbox. Existing and form-created cases are unaffected.',
+      tone: 'warning' as const,
+    };
+  }
+  if (health.status === 'stale') {
+    return {
+      title: 'Gmail intake is overdue',
+      description: 'No successful inbox sync has been recorded in the last 30 minutes.',
+      tone: 'warning' as const,
+    };
+  }
+  if (health.status === 'failing') {
+    return {
+      title: 'Gmail intake needs attention',
+      description: `${health.consecutiveFailures || 1} recent sync run${health.consecutiveFailures === 1 ? '' : 's'} failed. Form intake is still available.`,
+      tone: 'warning' as const,
+    };
+  }
+  return {
+    title: 'Gmail intake is healthy',
+    description: health.lastSuccessAt
+      ? `Last successful inbox sync: ${formatDate(health.lastSuccessAt)}.`
+      : 'The latest inbox sync completed successfully.',
+    tone: 'success' as const,
+  };
+};
+
 const formatAge = (value: string | null) => {
   if (!value) return 'n/a';
   const timestamp = new Date(value).getTime();
@@ -350,6 +410,9 @@ const nayaxLookupNoticeClass = (tone: NayaxLookupNotice['tone']) =>
 const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'Zelle refund confirmation/reference';
 
 const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) => {
+  if (refundCase.status === 'draft') {
+    return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
+  }
   if (refundCase.status === 'waiting_on_customer') {
     return 'Waiting on customer details. Send a quick note if the customer needs another nudge.';
   }
@@ -384,6 +447,7 @@ const taskLabel = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'completed') return 'Done';
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'Closed';
   if (refundCase.status === 'waiting_on_customer') return 'Needs customer info';
+  if (refundCase.status === 'draft') return 'Inbox triage';
   if (refundCase.status === 'card_refund_pending') return 'Card refund';
   if (refundCase.status === 'cash_zelle_pending') return 'Zelle refund';
   if (refundCase.status === 'approved') {
@@ -397,6 +461,7 @@ const taskBadgeClass = (refundCase: RefundCaseRecord) => {
   if (refundCase.status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'border-slate-200 bg-slate-50 text-slate-700';
   if (refundCase.status === 'waiting_on_customer') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (refundCase.status === 'draft') return 'border-sky-200 bg-sky-50 text-sky-800';
   if (refundCase.status === 'approved' || refundCase.status.endsWith('_pending')) return 'border-sky-200 bg-sky-50 text-sky-700';
   return 'border-primary/20 bg-primary/10 text-primary';
 };
@@ -437,20 +502,24 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
 const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 0;
   if (isReadyToPayCase(refundCase)) return 1;
-  if (isBlockedCase(refundCase)) return 2;
+  if (refundCase.status === 'draft') return 2;
+  if (isBlockedCase(refundCase)) return 3;
   if (refundCase.status === 'submitted' || refundCase.status === 'needs_review' || refundCase.status === 'correlated') {
-    return 3;
+    return 4;
   }
-  if (refundCase.status === 'waiting_on_customer') return 4;
-  if (refundCase.status === 'completed') return 6;
-  if (refundCase.status === 'denied' || refundCase.status === 'closed') return 7;
-  return 5;
+  if (refundCase.status === 'waiting_on_customer') return 5;
+  if (refundCase.status === 'completed') return 7;
+  if (refundCase.status === 'denied' || refundCase.status === 'closed') return 8;
+  return 6;
 };
 
 const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   const signals: Array<{ label: string; className: string }> = [];
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') {
     signals.push({ label: 'Email failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
+  }
+  if (refundCase.status === 'draft' && refundCase.hasGmailThread) {
+    signals.push({ label: 'Gmail intake', className: 'border-sky-200 bg-sky-50 text-sky-800' });
   }
   if (refundCase.paymentMethod === 'card' && refundCase.correlationStatus === 'no_match') {
     signals.push({ label: 'No card match', className: 'border-amber-200 bg-amber-50 text-amber-800' });
@@ -820,6 +889,15 @@ const primaryActionConfig = (
       label: 'Retry customer email',
       helper: `The last ${statusLabel(latestMessage.messageType)} email failed. Retry it before treating the customer as contacted.`,
       messageType: latestMessage.messageType as RefundCustomerPortalMessageType,
+      mode: 'retry_message',
+    };
+  }
+
+  if (refundCase.status === 'draft') {
+    return {
+      label: 'Ask for missing purchase details',
+      helper: 'Send one friendly reply in the original Gmail thread. The case stays a draft until the transaction details are complete.',
+      messageType: 'more_info',
       mode: 'retry_message',
     };
   }
@@ -1253,10 +1331,23 @@ export default function AdminRefundsPage() {
     staleTime: 1000 * 30,
   });
 
+  const {
+    data: gmailHealth,
+    isFetching: gmailHealthIsFetching,
+    error: gmailHealthError,
+  } = useQuery({
+    queryKey: ['refund-gmail-health'],
+    queryFn: fetchRefundGmailHealth,
+    enabled: !forceDemoData,
+    staleTime: 1000 * 30,
+  });
+
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-automation-health'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
@@ -1310,6 +1401,10 @@ export default function AdminRefundsPage() {
     automationHealth,
     Boolean(automationHealthError) && !isUsingDemoData
   );
+  const gmailPresentation = gmailHealthPresentation(
+    gmailHealth,
+    Boolean(gmailHealthError) && !isUsingDemoData
+  );
   const hasAnyCases = overview.cases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = hasAnyCases
@@ -1347,6 +1442,16 @@ export default function AdminRefundsPage() {
   }, [selectedId]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const {
+    data: gmailContext,
+    isLoading: gmailContextIsLoading,
+    error: gmailContextError,
+  } = useQuery({
+    queryKey: ['refund-gmail-case-context', selectedCase?.id],
+    queryFn: () => fetchRefundGmailCaseContext(selectedCase?.id ?? ''),
+    enabled: !forceDemoData && Boolean(selectedCase?.hasGmailThread && selectedCase?.id),
+    staleTime: 1000 * 30,
+  });
   const primaryAction = useMemo(
     () => (selectedCase && editor ? primaryActionConfig(selectedCase, editor, nayaxCandidates) : null),
     [editor, nayaxCandidates, selectedCase]
@@ -1384,8 +1489,11 @@ export default function AdminRefundsPage() {
     setIsCashConfirmationOpen(false);
     setRefundActionReceipt(null);
     setNayaxLookupSummary(refundCase.nayaxLookupSummary ?? null);
-    const draft = getCustomerMessageDraft(refundCase, 'status_update');
-    setMessageType('status_update');
+    const initialMessageType: RefundCustomerPortalMessageType = refundCase.status === 'draft'
+      ? 'more_info'
+      : 'status_update';
+    const draft = getCustomerMessageDraft(refundCase, initialMessageType);
+    setMessageType(initialMessageType);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
 
@@ -1823,6 +1931,95 @@ export default function AdminRefundsPage() {
     setMessageBody(draft.body);
   };
 
+  const renderGmailDraftWorkbench = () => {
+    if (!selectedCase) return null;
+    const latestInbound = [...(gmailContext?.messages ?? [])]
+      .reverse()
+      .find((message) => message.direction === 'inbound' && message.kind === 'message');
+
+    return (
+      <div data-testid="refund-gmail-draft-workbench" className="space-y-4">
+        <section className="overflow-hidden rounded-xl border border-sky-200 bg-slate-950 text-white shadow-sm">
+          <div className="flex flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="border-sky-300/30 bg-sky-300/15 text-sky-100">Gmail intake</Badge>
+                <span className="text-xs text-slate-300">{selectedCase.publicReference}</span>
+              </div>
+              <h3 className="mt-3 text-xl font-semibold">Ask for the missing purchase details</h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                This request is safely linked to its Gmail conversation, but it is not ready for
+                transaction matching or a refund decision yet.
+              </p>
+            </div>
+            <Button
+              type="button"
+              data-testid="refund-gmail-ask-for-details"
+              data-dominant-action="true"
+              onClick={() => void handleSendCustomerMessage('more_info')}
+              disabled={isSendingCustomerMessage || isUsingDemoData}
+              className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
+            >
+              {isSendingCustomerMessage ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 h-4 w-4" />
+              )}
+              Reply in Gmail thread
+            </Button>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Details still needed
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {[
+              'Machine location',
+              'Purchase date and time',
+              'Payment method, amount, and card last 4 if applicable',
+            ].map((detail) => (
+              <div key={detail} className="rounded-lg border border-border bg-muted/25 px-3 py-3 text-sm text-foreground">
+                {detail}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            Never request a full card number, expiration date, CVV, PIN, bank login, or account number.
+          </p>
+        </section>
+
+        <section className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Latest customer note</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {latestInbound ? formatDate(latestInbound.receivedAt) : formatDate(selectedCase.createdAt)}
+              </p>
+            </div>
+            {latestInbound?.sensitiveDataRedacted && (
+              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                Full card number redacted
+              </Badge>
+            )}
+          </div>
+          <p className="mt-3 whitespace-pre-line break-words rounded-lg bg-muted/35 p-3 text-sm leading-6 text-foreground">
+            {latestInbound?.body || selectedCase.issueSummary}
+          </p>
+          {gmailContextIsLoading && (
+            <p className="mt-2 text-xs text-muted-foreground">Loading the linked Gmail conversation…</p>
+          )}
+          {gmailContextError && (
+            <p className="mt-2 text-xs text-destructive">
+              The Gmail conversation could not be loaded. The refund case is still available.
+            </p>
+          )}
+        </section>
+      </div>
+    );
+  };
+
   const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null) => {
     if (!selectedCase) return;
     if (isUsingDemoData) {
@@ -1842,13 +2039,17 @@ export default function AdminRefundsPage() {
 
     setIsSendingCustomerMessage(true);
     try {
-      await sendRefundCaseMessage({
+      const sentMessage = await sendRefundCaseMessage({
         caseId: selectedCase.id,
         messageType: nextMessageType,
         subject: subject.trim(),
         body: body.trim(),
       });
-      toast.success('Customer email sent from Bloomjoy.');
+      toast.success(
+        sentMessage.transport === 'gmail_thread'
+          ? 'Reply sent in the Gmail thread.'
+          : 'Customer email sent from Bloomjoy.'
+      );
       await refresh();
     } catch (sendError) {
       const message = sendError instanceof Error ? sendError.message : 'Unable to send customer email.';
@@ -2877,8 +3078,8 @@ export default function AdminRefundsPage() {
                 Review assigned refund requests, confirm the transaction, and complete the refund workflow.
               </p>
             </div>
-            <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || automationHealthIsFetching || isUsingDemoData}>
-              {pageIsFetching || automationHealthIsFetching ? (
+            <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || automationHealthIsFetching || gmailHealthIsFetching || isUsingDemoData}>
+              {pageIsFetching || automationHealthIsFetching || gmailHealthIsFetching ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -2931,6 +3132,33 @@ export default function AdminRefundsPage() {
               <div>
                 <p className="font-semibold">{automationPresentation.title}</p>
                 <p className="mt-1 leading-6">{automationPresentation.description}</p>
+              </div>
+            </div>
+          )}
+
+          {!isUsingDemoData && (
+            <div
+              data-testid="refund-gmail-health"
+              role={gmailPresentation.tone === 'warning' ? 'alert' : 'status'}
+              className={cn(
+                'mt-3 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
+                gmailPresentation.tone === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                  : gmailPresentation.tone === 'warning'
+                    ? 'border-amber-200 bg-amber-50 text-amber-950'
+                    : 'border-border bg-muted/20 text-foreground'
+              )}
+            >
+              {gmailPresentation.tone === 'success' ? (
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+              ) : gmailPresentation.tone === 'warning' ? (
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              ) : (
+                <Mail className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+              )}
+              <div>
+                <p className="font-semibold">{gmailPresentation.title}</p>
+                <p className="mt-1 leading-6">{gmailPresentation.description}</p>
               </div>
             </div>
           )}
@@ -3207,12 +3435,14 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
 
-                    {selectedCase.paymentMethod === 'card' && renderCardDecisionWorkbench()}
-
-                    {selectedCase.paymentMethod !== 'card' && renderCashDecisionWorkbench()}
+                    {selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
+                      ? renderGmailDraftWorkbench()
+                      : selectedCase.paymentMethod === 'card'
+                        ? renderCardDecisionWorkbench()
+                        : renderCashDecisionWorkbench()}
 
                     {/* Local-only rollback reference while the cash workbench completes UAT. */}
-                    {showLegacyCashWorkbench && selectedCase.paymentMethod !== 'card' && (
+                    {showLegacyCashWorkbench && selectedCase.paymentMethod === 'cash' && (
                     <div className="contents">
                     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3915,6 +4145,73 @@ export default function AdminRefundsPage() {
                       <StepHeader step={historyStep} title="History">
                         Audit trail and customer message records stay collapsed unless you need detail.
                       </StepHeader>
+                    {selectedCase.hasGmailThread && (
+                      <details
+                        data-testid="refund-gmail-thread"
+                        open={selectedCase.status === 'draft'}
+                        className="rounded-lg border border-sky-200 bg-sky-50/50 p-3"
+                      >
+                        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-sky-950">
+                          <Mail className="h-4 w-4 text-sky-700" />
+                          Gmail conversation ({gmailContext?.messages.length ?? 0})
+                        </summary>
+                        <div className="mt-3 space-y-3">
+                          {gmailContextIsLoading && (
+                            <p className="text-sm text-muted-foreground">Loading the linked conversation…</p>
+                          )}
+                          {gmailContextError && (
+                            <p className="text-sm text-destructive">
+                              Conversation details are unavailable. The core case remains usable.
+                            </p>
+                          )}
+                          {!gmailContextIsLoading && !gmailContextError && (gmailContext?.messages.length ?? 0) === 0 && (
+                            <p className="text-sm text-muted-foreground">No Gmail messages have been recorded yet.</p>
+                          )}
+                          {gmailContext?.messages.map((message) => (
+                            <article
+                              key={message.id}
+                              className={cn(
+                                'rounded-lg border p-3',
+                                message.direction === 'outbound'
+                                  ? 'ml-0 border-emerald-200 bg-emerald-50 sm:ml-8'
+                                  : message.kind === 'bounce'
+                                    ? 'border-amber-200 bg-amber-50'
+                                    : 'mr-0 border-sky-200 bg-white sm:mr-8'
+                              )}
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline" className="capitalize">
+                                  {message.kind === 'bounce' ? 'Delivery notice' : message.direction}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatDate(message.sentAt ?? message.receivedAt)}
+                                </span>
+                                {message.sensitiveDataRedacted && (
+                                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                                    Card number redacted
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="mt-2 break-words text-sm font-medium text-foreground">{message.subject}</p>
+                              <p className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-muted-foreground">
+                                {message.body}
+                              </p>
+                              {message.attachments.length > 0 && (
+                                <div className="mt-3 space-y-1 border-t border-border/60 pt-2">
+                                  {message.attachments.map((attachment) => (
+                                    <p key={attachment.id} className="break-words text-xs text-muted-foreground">
+                                      {attachment.fileName} · {attachment.status === 'quarantined'
+                                        ? 'held for security review'
+                                        : statusLabel(attachment.status)}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                            </article>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                     <div className="grid gap-3 lg:grid-cols-2">
                       <details className="rounded-lg border border-border bg-background p-3">
                         <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-foreground">

@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-05-13
+Last updated: 2026-07-21
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -57,6 +57,15 @@ Set the following values before launch.
 | `REFUND_AUTOMATION_TIMEZONE` | Server-only | `refund-case-automation-sweep` | Customer-contact policy timezone; default `America/Los_Angeles` | Release owner |
 | `REFUND_AUTOMATION_START_HOUR` | Server-only | `refund-case-automation-sweep` | Local inclusive start hour; default `8` | Release owner |
 | `REFUND_AUTOMATION_END_HOUR` | Server-only | `refund-case-automation-sweep` | Local exclusive end hour; default `20` | Release owner |
+| `GMAIL_SUPPORT_CLIENT_ID` | Server-only | `refund-gmail-sync`, Gmail reply transport | Google OAuth client ID for the designated support mailbox | Technical owner |
+| `GMAIL_SUPPORT_CLIENT_SECRET` | Server-only | `refund-gmail-sync`, Gmail reply transport | Google OAuth client secret | Technical owner |
+| `GMAIL_SUPPORT_REFRESH_TOKEN` | Server-only | `refund-gmail-sync`, Gmail reply transport | Refresh token with only Gmail read-only and send grants | Auth owner |
+| `GMAIL_SUPPORT_MAILBOX` | Server-only | `refund-gmail-sync`, Gmail reply transport | Exact designated support mailbox address | Operations owner |
+| `GMAIL_REFUND_LABEL_ID` | Server-only | `refund-gmail-sync` | Gmail label ID used only for refund intake | Operations owner |
+| `GMAIL_REFUND_START_AT` | Server-only, optional | `refund-gmail-sync` | ISO timestamp limiting initial historical import | Operations owner |
+| `GMAIL_REFUND_MAX_THREADS_PER_RUN` | Server-only, optional | `refund-gmail-sync` | Default `100`, maximum `500`; bounds one sync run | Technical owner |
+| `REFUND_GMAIL_SYNC_SECRET` | Server-only | `refund-gmail-sync` | Dedicated scheduler secret; never a service-role key | Technical owner |
+| `REFUND_GMAIL_ENABLED` | Server-only | `refund-gmail-sync` | Default `false`; enable only for approved synthetic/shadow validation | Release owner |
 | `REPORT_SCHEDULER_SECRET` | Server-only | `sales-report-scheduler`, `refund-adjustment-sync` | Generated secret stored in function secrets | Technical owner |
 | `REPORTING_INGEST_TOKEN` | Server-only + GitHub Actions secret | `sunze-sales-ingest`, Sunze sync workflow | Generated ingest token | Technical owner |
 | `REPORTING_ROW_HASH_SALT` | Server-only | `sunze-sales-ingest` | Generated secret stored in function secrets | Technical owner |
@@ -70,6 +79,9 @@ Set the following values before launch.
 | `REFUND_AUTOMATION_SWEEP_URL` | GitHub Actions secret | Refund Automation Sweep/Health workflows | Supabase `refund-case-automation-sweep` function URL | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_TOKEN` | GitHub Actions secret | Refund Automation Sweep/Health workflows | Same value as `REFUND_AUTOMATION_SWEEP_SECRET`; never a service-role key | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_ENABLED` | GitHub Actions variable | Refund Automation Sweep/Health workflows | Default `false`; controls scheduled workflow dispatch only | Release owner |
+| `REFUND_GMAIL_SYNC_URL` | GitHub Actions secret | Refund Gmail Sync workflow | Supabase `refund-gmail-sync` function URL | Technical owner |
+| `REFUND_GMAIL_SYNC_TOKEN` | GitHub Actions secret | Refund Gmail Sync workflow | Same value as `REFUND_GMAIL_SYNC_SECRET`; never a service-role key | Technical owner |
+| `REFUND_GMAIL_SYNC_ENABLED` | GitHub Actions variable | Refund Gmail Sync workflow | Default `false`; controls scheduled workflow dispatch only | Release owner |
 | `SUNZE_LOGIN_URL` | GitHub Actions secret | Sunze sync workflow | Sunze service-account login URL | Technical owner |
 | `SUNZE_REPORTING_EMAIL` | GitHub Actions secret | Sunze sync workflow | Sunze service-account email | Technical owner |
 | `SUNZE_REPORTING_PASSWORD` | GitHub Actions secret | Sunze sync workflow | Sunze service-account password | Technical owner |
@@ -89,6 +101,8 @@ Security rule:
   - [ ] `npm test --if-present`
   - [ ] `npm run lint --if-present`
 - [ ] `npm run db:validate-migrations` passes before any production Supabase migration push.
+- [ ] `npm run refunds:validate-gmail` passes, and Gmail retention/quarantine approval is recorded in `Docs/REFUND_GMAIL_DATA_HANDLING.md` before Gmail enablement.
+- [ ] `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
@@ -144,6 +158,13 @@ supabase secrets set NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS=5000
 supabase secrets set NAYAX_REFUND_DAILY_COUNT_CAP=10
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
+supabase secrets set GMAIL_SUPPORT_CLIENT_ID=...
+supabase secrets set GMAIL_SUPPORT_CLIENT_SECRET=...
+supabase secrets set GMAIL_SUPPORT_REFRESH_TOKEN=...
+supabase secrets set GMAIL_SUPPORT_MAILBOX=...
+supabase secrets set GMAIL_REFUND_LABEL_ID=...
+supabase secrets set REFUND_GMAIL_SYNC_SECRET=...
+supabase secrets set REFUND_GMAIL_ENABLED=false
 ```
 
 Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved.
@@ -152,6 +173,7 @@ Before continuing, run:
 
 ```bash
 npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
+npm run refunds:preflight-gmail -- --project-ref <project-ref>
 ```
 
 Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, and `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`.
@@ -215,6 +237,7 @@ supabase functions deploy nayax-transaction-lookup --no-verify-jwt
 supabase functions deploy refund-case-admin-update --no-verify-jwt
 supabase functions deploy refund-case-message-send --no-verify-jwt
 supabase functions deploy refund-case-automation-sweep --no-verify-jwt
+supabase functions deploy refund-gmail-sync --no-verify-jwt
 supabase functions deploy nayax-card-refund --no-verify-jwt
 ```
 
@@ -232,6 +255,18 @@ Refund automation scheduler validation:
 - Manually run **Refund Automation Health** and confirm `/refunds` shows the same healthy/last-success state for an authorized Machine Manager.
 - Set GitHub variable `REFUND_AUTOMATION_SWEEP_ENABLED=true` only after those checks pass. The sweep runs at minutes 7/22/37/52; the independent health check runs hourly at minute 43.
 - Quick disable without taking down the refund workflow: first set `REFUND_AUTOMATION_SWEEP_ENABLED=false`, then set Edge secret `REFUND_AUTOMATION_ENABLED=false`. Manually dispatch one `run` to record/confirm `disabled`; verify `/refunds` intake and manager actions still work. Re-enable only after the linked incident is resolved and synthetic proof passes again.
+
+Refund Gmail intake validation:
+- Create an OAuth client for the exact designated support mailbox and grant only `gmail.readonly` and `gmail.send`. Record any required Google verification or security review before production use.
+- Apply the Gmail migration; deploy `refund-gmail-sync`, the updated refund message/admin functions, and the frontend. Set `REFUND_GMAIL_SYNC_URL` and `REFUND_GMAIL_SYNC_TOKEN`, but keep both `REFUND_GMAIL_SYNC_ENABLED=false` and `REFUND_GMAIL_ENABLED=false` during setup.
+- Approve and record the 180-day Gmail-copy retention and quarantine-until-malware-cleared behavior in `Docs/REFUND_GMAIL_DATA_HANDLING.md`. Do not enable the schedule while either approval is pending.
+- Run the workflow manually with `failure_test` while real Gmail access remains disabled; confirm central-admin health shows a safe failure signal and the workflow output contains aggregate fields only.
+- With synthetic messages only, set `REFUND_GMAIL_ENABLED=true` and manually run the workflow. An explicitly labeled test email must create one draft visible to a Super Admin or Scoped Admin, but not to a location-only Machine Manager. Re-running the same delivery must not create a second case, message, or event.
+- Reply to the test thread and run sync again. The reply must append chronologically to the same case. A manager-approved response must appear in that original Gmail thread exactly once.
+- Confirm unrelated and unlabeled messages remain untouched, including label, archive, deletion, and read state. Confirm an incoming Luhn-valid test card number is stored/displayed only as redacted last four and does not appear in logs or workflow output.
+- Send allowed and rejected synthetic attachments. PDF/JPEG/PNG files at or below 5 MB and within the three-file limit must remain private and quarantined; unsupported, oversized, or excess files must be rejected without exposing content or paths.
+- Revoke the test refresh token. Gmail health must show authorization failure while hosted-form cases, queue access, and manual non-Gmail replies continue to work. Reauthorize before any scheduled pilot.
+- Enable `REFUND_GMAIL_SYNC_ENABLED=true` only after every check above passes. Quick disable order is the GitHub variable first and Edge secret second; this must not disable form intake or existing case handling.
 
 ### Step D: Configure Stripe webhook endpoint
 Stripe endpoint URL:
@@ -324,11 +359,16 @@ Rollback order:
      - `stripe-webhook`
      - `support-request-intake`
      - `access-invite`
+     - `refund-case-admin-update`
+     - `refund-case-message-send`
+     - `refund-gmail-sync`
 3) Secrets:
    - Restore prior secrets only if rotation caused failure.
 4) Database:
    - Do not run destructive rollback SQL during incident response.
    - If a migration caused breakage, recover via pre-launch backup/snapshot and controlled restore.
+
+Gmail-only rollback: set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_ENABLED=false`, and revoke the Gmail refresh token if compromise is suspected. Do not delete Gmail linkage tables during an incident. Verify hosted-form refund intake and non-Gmail case work remain available.
 
 Post-rollback:
 - [ ] Confirm site/checkout baseline health.

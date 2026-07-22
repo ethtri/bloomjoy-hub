@@ -32,6 +32,14 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 
 ## Refund Operations MVP
 
+- [ ] Run `npm run refunds:validate-gmail`; the designated-mailbox check, label-only intake, minimal Gmail endpoints, idempotency, redaction, private quarantine, retention, aggregate health, default-off schedule, and original-thread reply guards pass.
+- [ ] An explicitly labeled synthetic email creates exactly one incomplete Gmail draft; replaying the delivery creates no duplicate case/message/event, and an additional customer reply appends chronologically to that same case.
+- [ ] A Super Admin or Scoped Admin sees one concise Gmail health signal and one dominant `Reply in Gmail thread` action for an incomplete draft; a location-only Machine Manager cannot see the unassigned draft, and no Nayax, card-refund, or cash-completion action is available until required transaction details are complete.
+- [ ] The manager-approved response appears once in the original Gmail thread. A simulated uncertain send tells the manager to reconcile Gmail and does not automatically retry.
+- [ ] Unrelated/unlabeled inbox mail remains untouched, including labels, archive/delete state, and read state. Revoking Gmail authorization surfaces a scoped health error while hosted-form cases and non-Gmail manager work continue.
+- [ ] A synthetic Luhn-valid full card number is reduced to redacted last four before persistence/UI display and never appears in Edge, workflow, issue, PR, or screenshot evidence.
+- [ ] PDF/JPEG/PNG attachments at or below 5 MB, up to three per message, remain private and quarantined; unsupported, oversized, or excess attachments are safely rejected, and managers receive no download path until malware clearance exists.
+- [ ] Operations and privacy/security owners approve the 180-day Gmail-copy retention and quarantine-until-malware-cleared behavior in `Docs/REFUND_GMAIL_DATA_HANDLING.md` before either Gmail enable switch is turned on.
 - [ ] Run `npm run refunds:validate-nayax-matching`; exact and near-time matches rank correctly, while wrong amount/machine, collisions, wallet mismatch, duplicate/already-refunded, failed provider status, no-match, and DST fixtures keep unsafe one-click execution closed.
 - [ ] Follow the PM/PO shadow-pilot runbook in `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`; PR `#410` is merged, and Google Form/AppSheet remains live until the cutover gate passes.
 - [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` and confirm it passes with desktop/mobile screenshots written to `output/playwright`.

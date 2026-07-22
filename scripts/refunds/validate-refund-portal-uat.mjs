@@ -264,6 +264,100 @@ const buildEmptyRefundOverview = () => ({
   cases: [],
 });
 
+const buildMockGmailDraftCases = () => ([
+  {
+    id: 'case-gmail-draft-1',
+    publicReference: 'RF-UAT-GMAIL',
+    status: 'draft',
+    priority: 'normal',
+    correlationStatus: 'unmatched',
+    correlationSource: null,
+    correlationConfidence: 0,
+    correlationSummary: 'Waiting for the customer to provide purchase details.',
+    machineLabel: 'Not provided yet',
+    locationName: 'Not provided yet',
+    customerEmail: 'customer-gmail@example.test',
+    customerName: null,
+    customerPhone: null,
+    zellePaymentContact: null,
+    issueSummary: 'My card was charged and ends in 4242. Please help.',
+    incidentAt: isoHoursAgo(1),
+    paymentMethod: 'unknown',
+    paymentAmountCents: null,
+    cardLast4: '4242',
+    cardWalletUsed: false,
+    hasMatchedSalesFact: false,
+    hasMatchedNayaxTransaction: false,
+    matchedNayaxMachineAuthTime: null,
+    matchedNayaxAmountCents: null,
+    matchedNayaxCardLast4: null,
+    matchedNayaxCurrencyCode: null,
+    nayaxLookupCandidates: [],
+    assignedManagerEmail: null,
+    decision: null,
+    decisionReason: null,
+    decidedAt: null,
+    refundAmountCents: null,
+    manualRefundReference: null,
+    hasReportingAdjustment: false,
+    createdAt: isoHoursAgo(1),
+    updatedAt: isoHoursAgo(0.5),
+    attachments: [],
+    events: [],
+    messages: [],
+    intakeSource: 'gmail',
+    intakeComplete: false,
+    hasGmailThread: true,
+  },
+]);
+
+const buildMockGmailContext = () => ({
+  connected: true,
+  subject: 'Refund help',
+  latestMessageAt: isoHoursAgo(0.5),
+  messages: [
+    {
+      id: 'gmail-message-inbound-1',
+      direction: 'inbound',
+      kind: 'message',
+      status: 'received',
+      senderEmail: 'customer-gmail@example.test',
+      recipientEmail: 'support@example.test',
+      subject: 'Refund help',
+      body: 'My card was charged and ends in 4242. Please help.',
+      receivedAt: isoHoursAgo(1),
+      sentAt: null,
+      sensitiveDataRedacted: true,
+      contentDeleted: false,
+      attachments: [
+        {
+          id: 'gmail-attachment-1',
+          fileName: 'receipt.pdf',
+          contentType: 'application/pdf',
+          byteSize: 1024,
+          status: 'quarantined',
+          rejectionCode: null,
+        },
+      ],
+    },
+    {
+      id: 'gmail-message-inbound-2',
+      direction: 'inbound',
+      kind: 'message',
+      status: 'received',
+      senderEmail: 'customer-gmail@example.test',
+      recipientEmail: 'support@example.test',
+      subject: 'Re: Refund help',
+      body: 'Following up with the last four only: 4242.',
+      receivedAt: isoHoursAgo(0.5),
+      sentAt: null,
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+  ],
+});
+
 const buildFailedCommsRefundOverview = () => {
   const overview = buildMockRefundOverview();
   overview.cases[0] = {
@@ -449,6 +543,9 @@ const installMockSupabaseRoutes = async (
     nayaxCardRefundDelayMs = 0,
     adminUpdateDelayMs = 0,
     adminUpdateResponse = null,
+    gmailDraftCases = [],
+    gmailHealth = null,
+    gmailContext = null,
   } = {}
 ) => {
   await context.route('**/auth/v1/**', async (route) => {
@@ -549,6 +646,9 @@ const installMockSupabaseRoutes = async (
             type: 'status_update',
             status: 'sent',
             subject: 'We are still reviewing your Bloomjoy refund request RF-UAT-CARD',
+            transport: requestBody?.caseId === 'case-gmail-draft-1'
+              ? 'gmail_thread'
+              : 'transactional_email',
           },
         })
       );
@@ -697,6 +797,34 @@ const installMockSupabaseRoutes = async (
           payloadRedacted: true,
         })
       );
+    }
+
+    if (url.includes('/get_refund_gmail_health')) {
+      return route.fulfill(
+        jsonResponse(gmailHealth ?? {
+          status: 'waiting',
+          lastRunAt: null,
+          lastSuccessAt: null,
+          lastRunStatus: null,
+          consecutiveFailures: 0,
+          threadsScanned: 0,
+          messagesSeen: 0,
+          messagesCreated: 0,
+          messagesDeduplicated: 0,
+          attachmentsQuarantined: 0,
+          messagesFailed: 0,
+          errorCode: null,
+          payloadRedacted: true,
+        })
+      );
+    }
+
+    if (url.includes('/admin_get_refund_gmail_draft_cases')) {
+      return route.fulfill(jsonResponse(gmailDraftCases));
+    }
+
+    if (url.includes('/admin_get_refund_gmail_case_context')) {
+      return route.fulfill(jsonResponse(gmailContext ?? { connected: false, messages: [] }));
     }
 
     if (url.includes('/admin_get_refund_operations_overview')) {
@@ -1068,6 +1196,130 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'No browser console/page errors during mocked QA pass',
+    consoleErrors.length === 0,
+    consoleErrors.slice(0, 3).join(' | ')
+  );
+
+  await context.close();
+};
+
+const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const functionCalls = [];
+  const functionBodies = [];
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildEmptyRefundOverview,
+    functionCalls,
+    functionBodies,
+    gmailDraftCases: buildMockGmailDraftCases(),
+    gmailHealth: {
+      status: 'healthy',
+      lastRunAt: isoHoursAgo(0.1),
+      lastSuccessAt: isoHoursAgo(0.1),
+      lastRunStatus: 'succeeded',
+      consecutiveFailures: 0,
+      threadsScanned: 1,
+      messagesSeen: 2,
+      messagesCreated: 2,
+      messagesDeduplicated: 0,
+      attachmentsQuarantined: 1,
+      messagesFailed: 0,
+      errorCode: null,
+      payloadRedacted: true,
+    },
+    gmailContext: buildMockGmailContext(),
+  });
+
+  const page = await context.newPage();
+  const consoleErrors = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => consoleErrors.push(error.message));
+
+  await signInRefundUser(page, appUrl);
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.locator('tr', { hasText: 'RF-UAT-GMAIL' }).click();
+  await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
+
+  recorder.assert(
+    'Gmail intake health is concise and visible to the manager',
+    await page.getByText('Gmail intake is healthy', { exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Incomplete Gmail draft presents one dominant reply action',
+    (await page.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
+      await page.getByTestId('refund-gmail-ask-for-details').getByText('Reply in Gmail thread').isVisible()
+  );
+  recorder.assert(
+    'Incomplete Gmail draft cannot expose payment execution controls',
+    (await page.getByTestId('refund-card-workbench').count()) === 0 &&
+      (await page.getByTestId('refund-cash-workbench').count()) === 0 &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0
+  );
+  recorder.assert(
+    'Gmail conversation is chronological, redacted, and quarantine-only',
+    await page.getByTestId('refund-gmail-thread').getByText('Card number redacted').isVisible() &&
+      await page.getByTestId('refund-gmail-thread').getByText('receipt.pdf').isVisible() &&
+      await page.getByTestId('refund-gmail-thread').getByText('held for security review').isVisible() &&
+      (await page.getByTestId('refund-gmail-thread').locator('a').count()) === 0
+  );
+
+  const threadMessageBodies = await page
+    .getByTestId('refund-gmail-thread')
+    .locator('article p.whitespace-pre-line')
+    .allTextContents();
+  recorder.assert(
+    'Gmail replies render oldest to newest',
+    threadMessageBodies.length === 2 &&
+      threadMessageBodies[0].includes('My card was charged') &&
+      threadMessageBodies[1].includes('Following up'),
+    JSON.stringify(threadMessageBodies)
+  );
+
+  await page.getByTestId('refund-gmail-ask-for-details').click();
+  await page.waitForTimeout(250);
+  const replyBody = functionBodies.find((entry) => entry.functionName === 'refund-case-message-send')?.body ?? {};
+  recorder.assert(
+    'Manager Gmail reply uses the approved customer-message path exactly once',
+    functionCalls.filter((name) => name === 'refund-case-message-send').length === 1 &&
+      replyBody.caseId === 'case-gmail-draft-1' &&
+      replyBody.messageType === 'more_info',
+    JSON.stringify({ functionCalls, replyBody })
+  );
+  recorder.assert(
+    'Successful Gmail reply confirmation names the original thread',
+    await page.getByText('Reply sent in the Gmail thread.', { exact: true }).isVisible()
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-gmail-draft-desktop.png'),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${appUrl}/refunds`, { waitUntil: 'networkidle' });
+  await page.locator('button', { hasText: 'RF-UAT-GMAIL' }).click();
+  await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    bodyScrollWidth: document.body.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  recorder.assert(
+    'Gmail draft workbench has no mobile document overflow',
+    overflow.scrollWidth <= overflow.innerWidth + 1 &&
+      overflow.bodyScrollWidth <= overflow.innerWidth + 1,
+    JSON.stringify(overflow)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-gmail-draft-mobile.png'),
+    fullPage: false,
+  });
+  recorder.assert(
+    'No browser console/page errors during Gmail draft QA pass',
     consoleErrors.length === 0,
     consoleErrors.slice(0, 3).join(' | ')
   );
@@ -1785,6 +2037,12 @@ const run = async () => {
   try {
     await runUnauthenticatedChecks({ browser, appUrl: args.appUrl, recorder });
     await runRefundOnlyChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runGmailDraftChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

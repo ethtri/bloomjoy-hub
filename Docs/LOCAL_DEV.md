@@ -60,6 +60,7 @@
    - Live refund sheet ingestion source marker: `supabase/migrations/202604270002_live_refund_sheet_ingestion.sql`
    - Audited, idempotent cash refund completion: `supabase/migrations/202607210004_refund_cash_completion_audit.sql`
    - Refund automation run/action ledger and manager health: `supabase/migrations/202607210005_refund_automation_scheduler_health.sql`
+   - Gmail refund draft/thread linkage, quarantine metadata, health, and retention: `supabase/migrations/202607210006_refund_gmail_thread_linkage.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
    - Technician entitlement resolver production repair: `supabase/migrations/202604270006_restore_technician_entitlement_resolution_rpc.sql`
    - Scoped Admin reporting visibility repair: `supabase/migrations/202604280008_scoped_admin_reporting_visibility.sql`
@@ -417,6 +418,8 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Local env check: `npm run commerce:preflight`
    - Refund operations local env check: `npm run commerce:preflight -- --include-refunds`
    - Remote secret presence check: `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds`
+   - Gmail intake static safety check: `npm run refunds:validate-gmail`
+   - Gmail server-secret presence/format check: `npm run refunds:preflight-gmail`
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
@@ -437,9 +440,15 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve refund-case-admin-update --no-verify-jwt`
    - `supabase functions serve refund-case-message-send --no-verify-jwt`
    - `supabase functions serve refund-case-automation-sweep --no-verify-jwt`
+   - `supabase functions serve refund-gmail-sync --no-verify-jwt`
    - `supabase functions serve nayax-card-refund --no-verify-jwt`
    - `supabase functions serve nayax-transaction-lookup --no-verify-jwt`
 5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
+
+### Refund Gmail local configuration
+Keep Gmail credentials server-only; never use a `VITE_` variable. The Gmail functions require `GMAIL_SUPPORT_CLIENT_ID`, `GMAIL_SUPPORT_CLIENT_SECRET`, `GMAIL_SUPPORT_REFRESH_TOKEN`, `GMAIL_SUPPORT_MAILBOX`, `GMAIL_REFUND_LABEL_ID`, and a dedicated `REFUND_GMAIL_SYNC_SECRET`. `REFUND_GMAIL_ENABLED` defaults to `false`. Optional `GMAIL_REFUND_START_AT` limits the first import to messages received on or after an ISO timestamp.
+
+Use a test mailbox and synthetic messages only. The connected account must exactly match `GMAIL_SUPPORT_MAILBOX`, and its OAuth grant must contain only Gmail read-only and send permissions. Run `npm run refunds:validate-gmail` and the database validation before serving or deploying the sync function. The attachment path is quarantine-only until a malware scanner marks an object clean.
 
 ## Stripe order backfill helper
 Use this when a paid Stripe checkout must be imported into `public.orders` because webhook replay is unavailable or the webhook failed before persistence.
