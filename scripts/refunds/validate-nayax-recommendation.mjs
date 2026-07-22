@@ -18,10 +18,12 @@ const sale = ({
   currency = "USD",
   status = "Approved",
   recognitionMethod = "Chip",
+  siteId = 501,
   extra = {},
 }) => ({
   TransactionID: id,
   MachineID: machineId,
+  SiteID: siteId,
   AuthorizationDateTimeGMT: at,
   AuthorizationValue: amount,
   CurrencyCode: currency,
@@ -103,6 +105,35 @@ assert.equal(missingProviderLast4.recommendationState, "manual_exception");
 const failedProviderStatus = recommend([sale({ id: "failed", status: "Declined" })]);
 assert.equal(failedProviderStatus.recommendationState, "manual_exception");
 assert.equal(failedProviderStatus.candidates[0].selectionAllowed, false);
+
+const negatedApprovedProviderStatus = recommend([sale({ id: "not-approved", status: "Not Approved" })]);
+assert.equal(negatedApprovedProviderStatus.recommendationState, "manual_exception");
+assert.equal(negatedApprovedProviderStatus.candidates[0].selectionAllowed, false);
+
+const mixedReversalProviderStatus = recommend([
+  sale({ id: "successful-reversal", status: "Successful Reversal" }),
+]);
+assert.equal(mixedReversalProviderStatus.recommendationState, "manual_exception");
+assert.equal(mixedReversalProviderStatus.candidates[0].selectionAllowed, false);
+
+const unsuccessfulProviderStatus = recommend([sale({ id: "unsuccessful", status: "Unsuccessful" })]);
+assert.equal(unsuccessfulProviderStatus.recommendationState, "manual_exception");
+assert.equal(unsuccessfulProviderStatus.candidates[0].selectionAllowed, false);
+
+const unconfirmedProviderStatus = recommend([sale({ id: "unconfirmed", status: "" })]);
+assert.equal(unconfirmedProviderStatus.recommendationState, "manual_exception");
+assert.equal(unconfirmedProviderStatus.oneClickEligible, false);
+
+const missingProviderSite = recommend([sale({ id: "missing-site", siteId: null })]);
+assert.equal(missingProviderSite.recommendationState, "manual_exception");
+assert.equal(missingProviderSite.oneClickEligible, false);
+
+const duplicateProviderRecord = recommend([
+  sale({ id: "provider-duplicate" }),
+  sale({ id: "provider-duplicate" }),
+]);
+assert.equal(duplicateProviderRecord.recommendationState, "manual_exception");
+assert.equal(duplicateProviderRecord.oneClickEligible, false);
 
 const duplicate = recommend([sale({ id: "duplicate" })], {
   transactionStates: { duplicate: "duplicate" },
@@ -196,4 +227,4 @@ assert.equal(publicJson.includes("providerMachineId"), false);
 assert.equal(publicCandidate.matchStrength, "strong");
 assert.equal(publicCandidate.candidateToken, "opaque-token");
 
-console.log("Nayax deterministic recommendation fixtures passed (17 safety scenarios).");
+console.log("Nayax deterministic recommendation fixtures passed (23 safety scenarios).");
