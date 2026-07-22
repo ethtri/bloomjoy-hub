@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   assertSupportedFunctionDeploymentInputs,
+  buildUpdatedLocalManifest,
   buildPreDeploymentProductionBaseline,
   buildLocalReleaseState,
   calculateFunctionSource,
@@ -104,7 +105,19 @@ try {
     },
   };
   validateManifestShape(shapeManifest);
-  assert.equal(buildLocalReleaseState(fixtureRoot, shapeManifest).functions.length, requiredFunctionSlugs.length);
+  const fixtureLocalState = buildLocalReleaseState(fixtureRoot, shapeManifest);
+  assert.equal(fixtureLocalState.functions.length, requiredFunctionSlugs.length);
+  const updatedLocalManifest = buildUpdatedLocalManifest(
+    { ...shapeManifest, sourceGitCommit: 'pending' },
+    fixtureLocalState,
+    'c'.repeat(40)
+  );
+  assert.equal(
+    updatedLocalManifest.sourceGitCommit,
+    'c'.repeat(40),
+    'Local manifest refresh must bind the approved source to the current immutable commit'
+  );
+  validateManifestShape(updatedLocalManifest);
 
   const disableOnlySlug = 'refund-gmail-sync';
   const disableOnlyIndex = requiredFunctionSlugs.indexOf(disableOnlySlug);

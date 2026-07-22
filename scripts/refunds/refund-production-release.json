@@ -27,49 +27,49 @@
     "202607210005_refund_automation_scheduler_health.sql",
     "202607210006_refund_gmail_thread_linkage.sql"
   ],
-  "migrationFilesSha256": "pending",
-  "migrationVersionSetSha256": "pending",
+  "migrationFilesSha256": "0a6e60de916178a2df29ab0970b9d8e63209e5c5230c5b4457230cb55a4d743f",
+  "migrationVersionSetSha256": "f40b73e3c534bffc2f48a8d8476bb637da7b2abf317cdf2e034d31678bdf3473",
   "functions": [
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "20228d599307a9c76f39cd9cbc276df8a25247f8a544829bb839c657a92e6eea",
+      "sourceSha256": "b4914d2a2e515de808298adc2775a23b2b769f730801eed522d82de877d36668",
       "production": null
     },
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "a406e51d09f92c56057326afaf9cdd286932938131e95c0d189d11f90ab33c94",
+      "sourceSha256": "0534c1e5352426ea90e36dec9e48daadebdd869ce5e0ec6b547381c768f3b67b",
       "production": null
     },
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "d5533fb3f4256dc4dece250f1d930e79f963fe2e5feb2f77d7045a048ca5843d",
+      "sourceSha256": "9f7ab7da65c19225cf4fec10a656c291b07c88e8436cee52625a311d860c5cfa",
       "production": null
     },
     {
       "slug": "refund-case-message-send",
       "verifyJwt": false,
-      "sourceSha256": "1ebbc8f1e2b0c2473f6c5da962d4dd83054b1779bf3fda6c7ec6cc886b7cd9e4",
+      "sourceSha256": "8e963d6eb1edf95f573651817330b55c3273562fe5f58de91523529bf148f72b",
       "production": null
     },
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "a663579c6175ba8776bc9e0d50c81c221f9647a5faffdb9b48845d64df95f585",
+      "sourceSha256": "39a693373c4a00169da5d5744ce46862382a6bf27a564b428a9f93cf6e5271e6",
       "production": null
     },
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "pending",
+      "sourceSha256": "19697ba2c49915c4d0167f4e16aa0948a0a7845d2ffa9e0f0a32c653e4eacaf9",
       "production": null
     },
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "93684a718ead89e0a14c83eb719efe447478d27e0d26161f02eb9b01dbb0162b",
+      "sourceSha256": "22fd4e70c28e196761f82dc11ea9f9aa17c175cbbf49d7e3eec4681f1eb428b9",
       "production": null
     }
   ],

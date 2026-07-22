@@ -629,10 +629,12 @@ const printFailures = (heading, failures) => {
   for (const failure of failures) console.error(`- ${failure}`);
 };
 
-const writeLocalManifest = (manifest, localState) => {
+export const buildUpdatedLocalManifest = (manifest, localState, sourceGitCommit) => {
+  assert(gitCommitPattern.test(sourceGitCommit), 'Current source Git commit is invalid');
   const localBySlug = new Map(localState.functions.map((entry) => [entry.slug, entry]));
-  const updated = {
+  return {
     ...manifest,
+    sourceGitCommit,
     migrationFilesSha256: localState.migrationFilesSha256,
     migrationVersionSetSha256: localState.migrationVersionSetSha256,
     functions: manifest.functions.map((entry) => ({
@@ -640,6 +642,22 @@ const writeLocalManifest = (manifest, localState) => {
       sourceSha256: localBySlug.get(entry.slug).sourceSha256,
     })),
   };
+};
+
+const readCurrentGitCommit = () => {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  assert(result.status === 0, 'Unable to resolve the current Git commit for the release manifest');
+  const sourceGitCommit = result.stdout.trim();
+  assert(gitCommitPattern.test(sourceGitCommit), 'Current source Git commit is invalid');
+  return sourceGitCommit;
+};
+
+const writeLocalManifest = (manifest, localState) => {
+  const updated = buildUpdatedLocalManifest(manifest, localState, readCurrentGitCommit());
   fs.writeFileSync(manifestPath, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
   return updated;
 };
