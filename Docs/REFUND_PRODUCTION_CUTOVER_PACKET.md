@@ -79,15 +79,16 @@ Check switch values without printing secrets. A code deploy must not silently en
 
 1. Verify the production drift check against the final manifest.
 2. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.
-3. Submit one sanitized hosted-form card case and one cash case; verify acknowledgement and assigned-manager notification.
-4. Run the aggregate-only manager readiness command with the exact project ref and approved pilot machine IDs, then use the privately selected eligible account to prove assigned-only queue access and Admin denial.
-5. Prove high-confidence, ambiguous, no-match, wallet/manual, failed/unknown, and duplicate card states with live execution still off.
-6. Prove cash approve/deny/missing-info/completion and idempotency with a sponsor-approved test payout or a non-paying shadow fixture.
-7. Prove one reporting write-through and the negative controls.
-8. Enable and test automation only after its manual-run evidence passes; keep the quick-disable sequence ready.
-9. Enable Gmail only after `#634` approvals and synthetic thread evidence pass.
-10. Start GPT human-review evaluation only after the production Supabase secret destination and the exact OpenAI project retention/data-control mode in `#635` are approved. Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists, then set it only for the approved evaluation window. `store=false` is not zero-retention approval, and the local developer key is not production approval.
-11. Start live Nayax execution only after the separate `#430` decision. Use the approved low-value case, cohort, allowlist, and caps.
+3. Run `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; require zero internal labels/duplicates and at least one Atlanta, DC, and Seattle option before sharing the form.
+4. Submit one sanitized hosted-form card case and one cash case; verify acknowledgement and assigned-manager notification.
+5. Run the aggregate-only manager readiness command with the exact project ref and approved pilot machine IDs, then use the privately selected eligible account to prove assigned-only queue access and Admin denial.
+6. Prove high-confidence, ambiguous, no-match, wallet/manual, failed/unknown, and duplicate card states with live execution still off.
+7. Prove cash approve/deny/missing-info/completion and idempotency with a sponsor-approved test payout or a non-paying shadow fixture.
+8. Prove one reporting write-through and the negative controls.
+9. Enable and test automation only after its manual-run evidence passes; keep the quick-disable sequence ready.
+10. Enable Gmail only after `#634` approvals and synthetic thread evidence pass.
+11. Start GPT human-review evaluation only after the production Supabase secret destination and the exact OpenAI project retention/data-control mode in `#635` are approved. Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists, then set it only for the approved evaluation window. `store=false` is not zero-retention approval, and the local developer key is not production approval.
+12. Start live Nayax execution only after the separate `#430` decision. Use the approved low-value case, cohort, allowlist, and caps.
 
 ## Rollback and stop order
 

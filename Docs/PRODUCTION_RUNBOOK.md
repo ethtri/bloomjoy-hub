@@ -260,12 +260,14 @@ After deploying the eight Refund Operations functions:
 
 1. Run the no-auth, no-body route smoke. It sends only `OPTIONS`, creates no case, sends no email, and makes no Nayax/OpenAI/Gmail provider request:
    - `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`
-2. Capture only the sanitized production metadata under the gitignored `output/` directory. Capture downloads each deployed source bundle to an operating-system temporary directory, verifies its normalized transitive source digest against the reviewed manifest, and removes the temporary copy before succeeding:
+2. Run the aggregate-only public-options smoke. It fails when an internal `Unmapped`/`Unknown` label, duplicate machine/display row, or missing Atlanta/DC/Seattle option remains and never prints machine/location identifiers:
+   - `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`
+3. Capture only the sanitized production metadata under the gitignored `output/` directory. Capture downloads each deployed source bundle to an operating-system temporary directory, verifies its normalized transitive source digest against the reviewed manifest, and removes the temporary copy before succeeding:
    - `npm run refunds:release:capture-production -- --project-ref <project-ref> --confirm-project-ref <project-ref> --output output/refund-production-release.json`
-3. Review each function's `ACTIVE` status, version, `verify_jwt`, bundle digest, and approved source digest.
-4. Update `scripts/refunds/refund-production-release.json` through a reviewed PR. Do not treat the capture as automatic approval.
-5. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eight functions to pass.
-6. Run the remaining refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
+4. Review each function's `ACTIVE` status, version, `verify_jwt`, bundle digest, and approved source digest.
+5. Update `scripts/refunds/refund-production-release.json` through a reviewed PR. Do not treat the capture as automatic approval.
+6. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eight functions to pass.
+7. Run the remaining refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 Before clean-manager UAT, run the read-only role audit with exact project confirmation. It queries only aggregate counts and refuses unexpected result columns:
 
