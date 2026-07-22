@@ -15,7 +15,7 @@ on:
           - run
           - failure_test
       run_key:
-        description: 'Safe non-sensitive retry key (8-120 letters, numbers, _ or -); reuse it to prove duplicate suppression'
+        description: 'Synthetic retry UUID; reuse the exact UUID to prove duplicate suppression'
         required: true
         type: string
 
@@ -56,8 +56,8 @@ jobs:
           const mode = process.env.SWEEP_MODE === 'failure_test' ? 'failure_test' : 'run';
           const triggerSource = process.env.GITHUB_EVENT_NAME === 'schedule' ? 'scheduled' : 'manual';
           const manualRunKey = (process.env.SWEEP_RUN_KEY || '').trim();
-          if (triggerSource === 'manual' && !/^[A-Za-z0-9_-]{8,120}$/.test(manualRunKey)) {
-            console.error('Manual refund automation requires a safe non-sensitive run key with 8-120 letters, numbers, underscores, or hyphens.');
+          if (triggerSource === 'manual' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(manualRunKey)) {
+            console.error('Manual refund automation requires a synthetic UUID run key.');
             process.exit(1);
           }
           const runKey = triggerSource === 'scheduled'

@@ -83,7 +83,7 @@ check(
   /run_key:\r?\n\s+description:[^\n]+\r?\n\s+required: true\r?\n\s+type: string/.test(schedulerWorkflow) &&
     schedulerWorkflow.includes("SWEEP_RUN_KEY: ${{ inputs.run_key || '' }}") &&
     schedulerWorkflow.includes("const manualRunKey = (process.env.SWEEP_RUN_KEY || '').trim()") &&
-    schedulerWorkflow.includes("/^[A-Za-z0-9_-]{8,120}$/") &&
+    schedulerWorkflow.includes("/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i") &&
     schedulerWorkflow.includes("triggerSource === 'scheduled'") &&
     schedulerWorkflow.includes('`scheduled:${process.env.GITHUB_RUN_ID}`') &&
     schedulerWorkflow.includes("`${mode === 'failure_test' ? 'failure_test' : 'manual'}:${manualRunKey}`") &&
