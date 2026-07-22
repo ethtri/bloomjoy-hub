@@ -1161,11 +1161,26 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
       await page.getByTestId('refund-cash-action-blocker').isVisible()
   );
 
+  await page.getByTestId('refund-cash-amount-input').fill('8.01');
+  recorder.assert(
+    'Cash completion rejects an amount above the recorded customer payment',
+    await page.getByText('Cash refund amount cannot exceed the recorded customer payment.', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-cash-primary-action').isDisabled()
+  );
+  await page.getByTestId('refund-cash-amount-input').fill('8.00');
+
   await page.getByRole('button', { name: 'Use current time' }).click();
   await page.getByTestId('refund-cash-reference-input').fill('card 4111 1111 1111 1111');
   await page.getByTestId('refund-cash-payment-confirmed').click();
   recorder.assert(
     'Cash reference field rejects card, bank, contact, and credential-like content',
+    await page.getByText('Do not enter bank, card, contact, or other sensitive payment details.', { exact: true }).last().isVisible() &&
+      await page.getByTestId('refund-cash-primary-action').isDisabled()
+  );
+
+  await page.getByTestId('refund-cash-reference-input').fill('123456789');
+  recorder.assert(
+    'Cash reference field rejects a bare routing or account number',
     await page.getByText('Do not enter bank, card, contact, or other sensitive payment details.', { exact: true }).last().isVisible() &&
       await page.getByTestId('refund-cash-primary-action').isDisabled()
   );

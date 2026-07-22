@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(11);
+select plan(13);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -294,6 +294,38 @@ select ok(
     )
   $sql$) like '%Enter when the cash refund payment was sent%',
   'Cash completion rejects a missing payout time'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_complete_cash_refund_as_actor(
+      '75000000-0000-4000-8000-000000000001',
+      '75600000-0000-4000-8000-000000000002',
+      901,
+      'Zelle confirmation ZP-4822',
+      now() - interval '5 minutes',
+      'Cash sale matched for safety test.',
+      null,
+      'cash-refund-manager@example.test'
+    )
+  $sql$) like '%Cash refund amount cannot exceed the recorded customer payment%',
+  'Cash completion rejects an over-refund'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_complete_cash_refund_as_actor(
+      '75000000-0000-4000-8000-000000000001',
+      '75600000-0000-4000-8000-000000000002',
+      900,
+      '123456789',
+      now() - interval '5 minutes',
+      'Cash sale matched for safety test.',
+      null,
+      'cash-refund-manager@example.test'
+    )
+  $sql$) like '%Do not enter bank, card, contact, or other sensitive payment details%',
+  'Cash completion rejects a bare routing or account number'
 );
 
 select ok(

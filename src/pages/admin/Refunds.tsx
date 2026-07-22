@@ -209,7 +209,7 @@ const getManualPaymentReferenceIssue = (value: string): string | null => {
   if (
     /(?:routing|account|card|bank|password|passcode|pin|cvv|security\s*code)/i.test(normalized) ||
     normalized.includes('@') ||
-    digitCount >= 10
+    digitCount >= 8
   ) {
     return 'Do not enter bank, card, contact, or other sensitive payment details.';
   }
@@ -1140,6 +1140,21 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
 
     if (!editor.refundAmount || refundAmountCents === null || refundAmountCents <= 0) {
       issues.push('Completion requires a positive refund amount.');
+    }
+
+    if (
+      selectedCase.paymentMethod !== 'card' &&
+      typeof refundAmountCents === 'number' &&
+      (typeof selectedCase.paymentAmountCents !== 'number' || selectedCase.paymentAmountCents <= 0)
+    ) {
+      issues.push('Confirm the customer payment amount before completing the cash refund.');
+    } else if (
+      selectedCase.paymentMethod !== 'card' &&
+      typeof refundAmountCents === 'number' &&
+      typeof selectedCase.paymentAmountCents === 'number' &&
+      refundAmountCents > selectedCase.paymentAmountCents
+    ) {
+      issues.push('Cash refund amount cannot exceed the recorded customer payment.');
     }
 
     if (
