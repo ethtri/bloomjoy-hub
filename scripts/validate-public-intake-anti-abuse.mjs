@@ -296,9 +296,12 @@ assert(
 );
 assert(
   refundRequestPage.includes('formatMachineOption') &&
-    refundRequestPage.includes('locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()') &&
+    refundRequestPage.includes('isPlaceholderRefundLocationLabel(normalizedLocationName)') &&
+    refundRequestPage.includes('normalizedLocationName.toLocaleLowerCase() === normalizedMachineLabel.toLocaleLowerCase()') &&
+    (refundRequestPage.match(/const formatMachineOption/g) ?? []).length === 1 &&
+    (refundRequestPage.match(/const isPlaceholderRefundLocationLabel/g) ?? []).length === 1 &&
     refundRequestPage.includes('Selected: ${formatMachineOption('),
-  'The public refund form must not repeat identical location and machine labels.'
+  'The public refund form must use one placeholder-safe formatter and must not repeat identical location and machine labels.'
 );
 
 console.log('Public intake anti-abuse validation passed.');

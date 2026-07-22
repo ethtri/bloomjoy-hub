@@ -70,30 +70,6 @@ const formatMachineOption = (locationName: string, machineLabel: string) => {
   return `${normalizedLocationName} - ${normalizedMachineLabel}`;
 };
 
-const isPlaceholderRefundLocationLabel = (value: string) => {
-  const normalized = value.trim().toLocaleLowerCase();
-
-  return normalized === 'unmapped'
-    || normalized === 'unknown'
-    || normalized.startsWith('unmapped ')
-    || normalized.startsWith('unknown ');
-};
-
-const formatMachineOption = (locationName: string, machineLabel: string) => {
-  const normalizedLocationName = locationName.trim();
-  const normalizedMachineLabel = machineLabel.trim();
-
-  if (
-    !normalizedLocationName
-    || isPlaceholderRefundLocationLabel(normalizedLocationName)
-    || normalizedLocationName.toLocaleLowerCase() === normalizedMachineLabel.toLocaleLowerCase()
-  ) {
-    return normalizedMachineLabel;
-  }
-
-  return `${normalizedLocationName} - ${normalizedMachineLabel}`;
-};
-
 export default function RefundRequestPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState(emptyForm);
