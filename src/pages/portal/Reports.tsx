@@ -1947,7 +1947,7 @@ function PartnerDashboardView() {
       <div className="flex flex-col gap-6 print:hidden">
         <Card>
           <CardContent className="grid gap-4 p-4">
-            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(300px,0.95fr)_minmax(220px,0.8fr)_minmax(220px,0.85fr)_auto] xl:items-end">
+            <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[minmax(220px,1fr)_minmax(300px,0.95fr)_minmax(220px,0.8fr)_minmax(220px,0.85fr)_auto] 2xl:items-end">
               <LabeledControl label="Partnership" htmlFor="partner-dashboard-partnership">
                 <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
                   <SelectTrigger id="partner-dashboard-partnership">
@@ -2029,7 +2029,7 @@ function PartnerDashboardView() {
                 />
               </LabeledControl>
 
-              <div className="flex flex-col gap-2 sm:flex-row lg:col-span-2 lg:justify-end xl:col-span-1">
+              <div className="flex flex-col gap-2 sm:flex-row lg:col-span-2 lg:justify-end 2xl:col-span-1">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
