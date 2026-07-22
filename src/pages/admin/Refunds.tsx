@@ -606,6 +606,7 @@ const nayaxStatusClass = (status: RefundNayaxLookupStatus, hasSelectedMatch = fa
 
 const hasSelectedCardEvidence = (refundCase: RefundCaseRecord, editor: EditorState) =>
   refundCase.paymentMethod === 'card' &&
+  !editor.clearNayaxMatch &&
   (refundCase.hasMatchedNayaxTransaction || Boolean(editor.matchedNayaxCandidateToken.trim()));
 
 const nayaxDisplayStatusLabel = (
@@ -680,15 +681,17 @@ const activeNayaxCandidate = (
   editor: EditorState,
   candidates: NayaxLookupCandidate[]
 ) =>
-  selectedNayaxCandidate(editor, candidates) ??
-  (refundCase.hasMatchedNayaxTransaction
-    ? candidates.find(
-        (candidate) =>
-          candidate.machineAuthorizationTime === refundCase.matchedNayaxMachineAuthTime &&
-          candidate.amountCents === refundCase.matchedNayaxAmountCents &&
-          candidate.cardLast4 === (refundCase.matchedNayaxCardLast4 ?? '')
-      ) ?? null
-    : null);
+  editor.clearNayaxMatch
+    ? null
+    : selectedNayaxCandidate(editor, candidates) ??
+      (refundCase.hasMatchedNayaxTransaction
+        ? candidates.find(
+            (candidate) =>
+              candidate.machineAuthorizationTime === refundCase.matchedNayaxMachineAuthTime &&
+              candidate.amountCents === refundCase.matchedNayaxAmountCents &&
+              candidate.cardLast4 === (refundCase.matchedNayaxCardLast4 ?? '')
+          ) ?? null
+        : null);
 
 const getCardMatchAmountCents = (
   refundCase: RefundCaseRecord,
@@ -811,8 +814,31 @@ const primaryActionConfig = (
 
   if (refundCase.paymentMethod === 'card') {
     const selectedCandidate = activeNayaxCandidate(refundCase, editor, candidates);
-    const oneClickEligible =
-      refundCase.nayaxMatchExecutionEligible === true || selectedCandidate?.oneClickEligible === true;
+    if (editor.clearNayaxMatch) {
+      return {
+        label: 'Save and recheck card sale',
+        helper: 'Remove the saved match and run a fresh safety check before any refund action is available.',
+        targetStatus: 'needs_review',
+        targetDecision: null,
+        mode: 'case_update',
+      };
+    }
+
+    const hasUnsavedCandidate = Boolean(editor.matchedNayaxCandidateToken.trim());
+    if (hasUnsavedCandidate && selectedCandidate) {
+      return {
+        label: 'Confirm this card sale',
+        helper: selectedCandidate.oneClickEligible
+          ? 'Save the manager-confirmed sale before the guarded card refund becomes available.'
+          : 'Save this reviewed sale. One-click refund stays unavailable unless every server-side safety rule passes.',
+        targetStatus: 'card_refund_pending',
+        targetDecision: 'approved',
+        messageType: 'approved',
+        mode: 'case_update',
+      };
+    }
+
+    const oneClickEligible = refundCase.nayaxMatchExecutionEligible === true;
     if (editor.decision === 'approved' || editor.status === 'card_refund_pending' || refundCase.status === 'card_refund_pending') {
       if (!oneClickEligible) {
         return {
@@ -1194,16 +1220,6 @@ export default function AdminRefundsPage() {
     });
   }, [overview.cases, search, statusFilter]);
 
-  const queueMetrics = useMemo(() => {
-    const open = overview.cases.filter((refundCase) => openStatuses.has(refundCase.status));
-    return {
-      needsAction: open.length,
-      waiting: overview.cases.filter((refundCase) => refundCase.status === 'waiting_on_customer').length,
-      readyToPay: overview.cases.filter(isReadyToPayCase).length,
-      blocked: overview.cases.filter(isBlockedCase).length,
-      completed: overview.cases.filter((refundCase) => refundCase.status === 'completed').length,
-    };
-  }, [overview.cases]);
   const hasAnyCases = overview.cases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = hasAnyCases
@@ -1722,7 +1738,7 @@ export default function AdminRefundsPage() {
         disabled={isUsingDemoData || candidate.selectionAllowed === false}
         onClick={() => selectCandidate(candidate)}
         className={cn(
-          'w-full min-w-0 rounded-md border bg-sky-50 p-3 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60',
+          'w-full min-w-0 rounded-md border bg-sky-50 p-3 text-left text-xs text-sky-950 transition-colors hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60',
           editor.matchedNayaxCandidateToken === candidate.candidateToken
             ? 'border-sky-500 ring-2 ring-sky-200'
             : 'border-sky-200'
@@ -1753,7 +1769,7 @@ export default function AdminRefundsPage() {
         {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
           <div className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>{nayaxLookupNotice.message}</div>
         )}
-        {!selectedCase.hasMatchedNayaxTransaction && nayaxCandidates.length > 0 && (
+        {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && nayaxCandidates.length > 0 && (
           <div className="rounded-md border border-sky-200 bg-white p-3">
             <p className="text-sm font-medium text-sky-950">
               {recommendedCandidate ? 'Recommended card sale' : 'Card sales need comparison'}
@@ -2299,27 +2315,6 @@ export default function AdminRefundsPage() {
             </Button>
           </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Needs action</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.needsAction}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Ready to refund</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.readyToPay}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Waiting on customer
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.waiting}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Blocked / failed</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.blocked}</p>
-            </div>
-          </div>
-
           {error && !isUsingDemoData && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               Failed to load refund operations.
@@ -2366,6 +2361,8 @@ export default function AdminRefundsPage() {
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
+                id="refund-case-search"
+                aria-label="Search refund cases"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search cases"
@@ -2373,9 +2370,11 @@ export default function AdminRefundsPage() {
               />
             </div>
             <select
+              id="refund-status-filter"
+              aria-label="Filter refund cases by status"
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as QueueFilter)}
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-11 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <option value="needs_action">Needs action</option>
               <option value="waiting_on_customer">Waiting on customer</option>

@@ -740,6 +740,11 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Refund queue count renders',
     await page.getByText('2 visible of 2 total cases').isVisible()
   );
+  recorder.assert(
+    'Queue search and status filter have programmatic labels',
+    await page.getByLabel('Search refund cases').isVisible() &&
+      await page.getByLabel('Filter refund cases by status').isVisible()
+  );
 
   await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
   recorder.assert(
@@ -820,6 +825,19 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       (await page.getByRole('button', { name: /send.*email/i }).count()) === 0,
     functionCalls.join(', ')
   );
+
+  await page.getByText('Advanced lookup tools (optional)').click();
+  await page.getByRole('button', { name: 'Clear selected card sale' }).click();
+  recorder.assert(
+    'Clearing a selected sale closes the old payment action immediately',
+    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByRole('button', { name: 'Save and recheck card sale' }).isVisible() &&
+      !functionCalls.includes('nayax-card-refund')
+  );
+
+  await page.locator('tr', { hasText: 'RF-UAT-WAIT' }).click();
+  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+  await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible' });
 
   await page.getByTestId('refund-run-nayax-refund').click();
   const confirmationDialog = page.getByTestId('refund-confirmation-dialog');
