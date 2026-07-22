@@ -34,7 +34,7 @@ Internal ranking points order otherwise-safe candidates. Never show the point to
 
 ## Safety rules
 
-The scorer hard-blocks selection for a different provider machine, non-USD currency, a declined/failed/voided sale, a transaction already linked to another case, or existing refund evidence. Missing provider machine identity cannot earn mapped-machine points and requires manual review. A non-wallet card-last-four mismatch is not eligible. All wallet transactions, missing provider last four, unconfirmed provider status, missing currency, and non-exact incident/provider time resolution require manual review during this pilot.
+The scorer hard-blocks selection for a different provider machine, non-USD currency, a declined/failed/voided sale, a transaction already linked to another case, or existing refund evidence. Negative provider status always overrides positive words in the same status (for example, `not approved` and `successful reversal` are blocked). Missing provider machine identity cannot earn mapped-machine points and requires manual review. A non-wallet card-last-four mismatch is not eligible. All wallet transactions, missing provider site identity, duplicate provider records, missing provider last four, unconfirmed provider status, missing currency, and non-exact incident/provider time resolution require manual review during this pilot.
 
 Exact amount is mandatory for one-click eligibility. An amount mismatch may remain visible as review evidence but cannot be recommended for one-click execution.
 
