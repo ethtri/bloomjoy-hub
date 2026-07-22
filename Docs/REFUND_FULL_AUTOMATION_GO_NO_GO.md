@@ -2,6 +2,8 @@
 
 Last updated: 2026-05-13
 
+> **Historical record only.** This packet describes PR `#432` and the May 2026 production baseline. It is superseded by `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` and must not be used to review, merge, deploy, test, enable, or retire the current Refund Operations release in PR `#644`. Historical counts and completed checkboxes below are not evidence of current production readiness.
+
 ## Purpose
 Use this packet to separate PR `#432` code-merge readiness from production shadow-pilot and cutover readiness. Merging the PR is not cutover approval; Google Form/AppSheet remains the fallback until the shadow pilot is clean.
 

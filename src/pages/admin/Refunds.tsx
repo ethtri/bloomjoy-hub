@@ -1494,6 +1494,24 @@ export default function AdminRefundsPage() {
     gmailHealth,
     Boolean(gmailHealthError) && !isUsingDemoData
   );
+  const systemHealthItems = [
+    {
+      key: 'automation',
+      testId: 'refund-automation-health',
+      presentation: automationPresentation,
+    },
+    {
+      key: 'gmail',
+      testId: 'refund-gmail-health',
+      presentation: gmailPresentation,
+    },
+  ] as const;
+  const systemHealthWarnings = systemHealthItems.filter(
+    (item) => item.presentation.tone === 'warning'
+  );
+  const systemHealthSummary = systemHealthItems.filter(
+    (item) => item.presentation.tone !== 'warning'
+  );
   const hasAnyCases = overview.cases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = hasAnyCases
@@ -2700,7 +2718,7 @@ export default function AdminRefundsPage() {
                 <Button
                   data-testid="refund-run-nayax-refund"
                   type="button"
-                  className="min-h-11 w-full px-4 font-semibold sm:w-auto"
+                  className="h-auto min-h-11 w-full whitespace-normal px-4 py-2 text-center font-semibold leading-5 sm:w-auto"
                   onClick={() => {
                     setNayaxExecutionNotice(null);
                     setRefundActionReceipt(null);
@@ -2708,7 +2726,7 @@ export default function AdminRefundsPage() {
                   }}
                   disabled={isActionDisabled}
                 >
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  <CheckCircle2 className="mr-2 h-4 w-4 shrink-0" />
                   {actionLabel}
                 </Button>
               )}
@@ -3085,7 +3103,7 @@ export default function AdminRefundsPage() {
                 data-testid="refund-cash-primary-action"
                 data-dominant-action="true"
                 type="button"
-                className="min-h-11 w-full px-4 font-semibold sm:w-auto"
+                className="h-auto min-h-11 w-full whitespace-normal px-4 py-2 text-center font-semibold leading-5 sm:w-auto"
                 onClick={() => {
                   if (isCashCompletion) {
                     setRefundActionReceipt(null);
@@ -3097,9 +3115,9 @@ export default function AdminRefundsPage() {
                 disabled={isActionDisabled}
               >
                 {isSaving || isCashCompletionSubmitting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
                 ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  <CheckCircle2 className="mr-2 h-4 w-4 shrink-0" />
                 )}
                 {actionLabel}
               </Button>
@@ -3201,7 +3219,7 @@ export default function AdminRefundsPage() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 px-2 text-xs"
+                    className="h-auto min-h-11 shrink-0 px-3 py-2 text-xs"
                     disabled={isUsingDemoData || isCashCompletionSubmitting}
                     onClick={() =>
                       setEditor((current) =>
@@ -3432,57 +3450,64 @@ export default function AdminRefundsPage() {
             </Button>
           </div>
 
-          {!isUsingDemoData && (
-            <div
-              data-testid="refund-automation-health"
-              role={automationPresentation.tone === 'warning' ? 'alert' : 'status'}
-              className={cn(
-                'mt-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
-                automationPresentation.tone === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
-                  : automationPresentation.tone === 'warning'
-                    ? 'border-amber-200 bg-amber-50 text-amber-950'
-                    : 'border-border bg-muted/20 text-foreground'
-              )}
-            >
-              {automationPresentation.tone === 'success' ? (
-                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-              ) : automationPresentation.tone === 'warning' ? (
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-              ) : (
-                <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-              )}
-              <div>
-                <p className="font-semibold">{automationPresentation.title}</p>
-                <p className="mt-1 leading-6">{automationPresentation.description}</p>
-              </div>
+          {!isUsingDemoData && systemHealthWarnings.length > 0 && (
+            <div className="mt-4 space-y-3">
+              {systemHealthWarnings.map((item) => (
+                <div
+                  key={item.key}
+                  data-testid={item.testId}
+                  role="alert"
+                  className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+                >
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                  <div>
+                    <p className="font-semibold">{item.presentation.title}</p>
+                    <p className="mt-1 leading-6">{item.presentation.description}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
-          {!isUsingDemoData && (
+          {!isUsingDemoData && systemHealthSummary.length > 0 && (
             <div
-              data-testid="refund-gmail-health"
-              role={gmailPresentation.tone === 'warning' ? 'alert' : 'status'}
+              data-testid="refund-system-health-summary"
               className={cn(
-                'mt-3 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
-                gmailPresentation.tone === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
-                  : gmailPresentation.tone === 'warning'
-                    ? 'border-amber-200 bg-amber-50 text-amber-950'
-                    : 'border-border bg-muted/20 text-foreground'
+                'grid gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 md:grid-cols-2',
+                systemHealthWarnings.length > 0 ? 'mt-3' : 'mt-4'
               )}
             >
-              {gmailPresentation.tone === 'success' ? (
-                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-              ) : gmailPresentation.tone === 'warning' ? (
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-              ) : (
-                <Mail className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-              )}
-              <div>
-                <p className="font-semibold">{gmailPresentation.title}</p>
-                <p className="mt-1 leading-6">{gmailPresentation.description}</p>
-              </div>
+              {systemHealthSummary.map((item) => {
+                const HealthIcon = item.presentation.tone === 'success'
+                  ? CheckCircle2
+                  : item.key === 'gmail'
+                    ? Mail
+                    : Clock3;
+
+                return (
+                  <div
+                    key={item.key}
+                    data-testid={item.testId}
+                    role="status"
+                    className="flex min-w-0 items-center gap-2 px-1 py-1.5 text-sm text-foreground"
+                  >
+                    <HealthIcon
+                      className={cn(
+                        'h-4 w-4 shrink-0',
+                        item.presentation.tone === 'success'
+                          ? 'text-emerald-700'
+                          : 'text-muted-foreground'
+                      )}
+                    />
+                    <div className="min-w-0">
+                      <p className="font-medium leading-5">{item.presentation.title}</p>
+                      <p className="sr-only text-xs text-muted-foreground md:not-sr-only md:truncate">
+                        {item.presentation.description}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 

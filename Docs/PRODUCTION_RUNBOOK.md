@@ -182,7 +182,7 @@ npm run refunds:preflight-gmail -- --project-ref <project-ref>
 
 Remote preflight validates secret presence by name. Before deploying, separately verify the fail-closed values are set as intended: `NAYAX_REFUND_EXECUTION_ENABLED=false`, `NAYAX_REFUND_EXECUTION_DRY_RUN=true`, `NAYAX_REFUND_EXECUTION_KILL_SWITCH=true`, and `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false`.
 
-For Refund Full Automation PR `#432`, use `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` as the merge-readiness checklist before moving the PR out of draft.
+For the current Refund Operations release candidate in PR `#644`, use `Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md` as the authoritative merge, deployment, smoke, rollback, pilot, and sponsor-decision sequence. `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` is a historical May 2026 packet and must not be used to deploy the current release.
 
 ### Step B: Deploy database migrations
 Apply all `supabase/migrations/*.sql` not already applied, oldest to newest.

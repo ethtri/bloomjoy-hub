@@ -1646,6 +1646,35 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
       cashOverflow.bodyScrollWidth <= cashOverflow.innerWidth + 1,
     JSON.stringify(cashOverflow)
   );
+  const cashPrimaryActionLayout = await page.getByTestId('refund-cash-primary-action').evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      whiteSpace: style.whiteSpace,
+    };
+  });
+  recorder.assert(
+    'Cash primary action wraps without clipping on a narrow screen',
+    cashPrimaryActionLayout.whiteSpace === 'normal' &&
+      cashPrimaryActionLayout.scrollWidth <= cashPrimaryActionLayout.clientWidth + 1 &&
+      cashPrimaryActionLayout.scrollHeight <= cashPrimaryActionLayout.clientHeight + 1,
+    JSON.stringify(cashPrimaryActionLayout)
+  );
+  const currentTimeButtonBox = await page.getByRole('button', { name: 'Use current time' }).boundingBox();
+  recorder.assert(
+    'Cash current-time shortcut keeps a touch-friendly target',
+    Boolean(currentTimeButtonBox) && currentTimeButtonBox.height >= 44,
+    JSON.stringify(currentTimeButtonBox)
+  );
+  const systemHealthSummaryBox = await page.getByTestId('refund-system-health-summary').boundingBox();
+  recorder.assert(
+    'Healthy and waiting system status stays compact on mobile',
+    Boolean(systemHealthSummaryBox) && systemHealthSummaryBox.height <= 112,
+    JSON.stringify(systemHealthSummaryBox)
+  );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-cash-mobile.png'),
     fullPage: true,
