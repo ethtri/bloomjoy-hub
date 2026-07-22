@@ -40,12 +40,12 @@ const personas = {
   operator: {
     id: '00000000-0000-4000-9000-000000000647',
     email: 'operator-report-uat@bloomjoy.localhost',
-    isSuperAdmin: true,
+    isSuperAdmin: false,
     isScopedAdmin: false,
     isCorporatePartner: false,
     hasReportingAccess: true,
     portalAccessTier: 'plus',
-    capabilities: ['reports.partner.view'],
+    capabilities: [],
   },
   corporatePartner: {
     id: '00000000-0000-4000-9000-000000000648',
@@ -72,6 +72,16 @@ const personas = {
     hasReportingAccess: false,
     portalAccessTier: 'baseline',
     capabilities: [],
+  },
+  superAdmin: {
+    id: '00000000-0000-4000-9000-000000000650',
+    email: 'super-admin-report-uat@bloomjoy.localhost',
+    isSuperAdmin: true,
+    isScopedAdmin: false,
+    isCorporatePartner: false,
+    hasReportingAccess: true,
+    portalAccessTier: 'plus',
+    capabilities: ['reports.partner.view'],
   },
 };
 
@@ -791,6 +801,21 @@ const assertOperatorDesktop = async (browser) => {
   try {
     await page.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
     await waitForReport(page);
+    await check('Operator-only reporting user cannot see partner controls or revenue-share data', async () => {
+      assert(
+        (await page.getByRole('radio', { name: /partner dashboard/i }).count()) === 0,
+        'Operator-only reporting must not expose the partner dashboard toggle.',
+      );
+      assert(
+        (await page.locator(selectors.partnerMachineRow).count()) === 0,
+        'Operator-only reporting must not expose partner machine rows.',
+      );
+      const bodyText = await textOf(page.locator('body'));
+      assert(
+        !/Partner Revenue Share/i.test(bodyText),
+        'Operator-only reporting must not expose partner revenue-share data.',
+      );
+    });
     await check('Operator exposes Today, Last 7 days, and visible Daily/Weekly/Monthly controls', async () => {
       await chooseLastSevenDaily(page);
       const breakdown = page.locator(selectors.operatorBreakdown);
@@ -1076,6 +1101,44 @@ const assertPartnerMobile = async (browser) => {
   }
 };
 
+const assertSuperAdminPartnerDrilldown = async (browser) => {
+  const { page, context } = await createPageForPersona(
+    browser,
+    personas.superAdmin,
+    { width: 1366, height: 900 },
+  );
+  try {
+    await page.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
+    await waitForReport(page);
+    await check('Super Admin can open and leave a scoped partner machine drilldown', async () => {
+      const partnerToggle = await visibleLocator(
+        page.getByRole('radio', { name: /partner dashboard/i }),
+        'Super Admin partner dashboard toggle',
+      );
+      await partnerToggle.click();
+      await page.getByRole('heading', { name: 'Partner performance summary' }).waitFor();
+      await assertPartnerAllMachines(page);
+      const action = await visibleMachineLocator(
+        page,
+        selectors.partnerMachineAction,
+        'partner-machine-harbor',
+        'Super Admin Harbor machine action',
+      );
+      await action.click();
+      await assertSelectedPartnerMachine(page, partnerMachines[0]);
+      await page.locator(selectors.partnerBackAll).click();
+      await visibleMachineLocator(
+        page,
+        selectors.partnerMachineAction,
+        'partner-machine-harbor',
+        'Super Admin returned all-machines action',
+      );
+    });
+  } finally {
+    await context.close();
+  }
+};
+
 const assertResponsiveBoundaryWidths = async (browser) => {
   for (const width of [360, 414]) {
     const { page, context } = await createPageForPersona(
@@ -1207,6 +1270,7 @@ try {
   await assertOperatorFreshnessVariants(browser);
   await assertPartnerDesktop(browser);
   await assertPartnerMobile(browser);
+  await assertSuperAdminPartnerDrilldown(browser);
   await assertResponsiveBoundaryWidths(browser);
   await assertPermissionBoundaries(browser);
   await check('No unexpected browser errors occurred', async () => {

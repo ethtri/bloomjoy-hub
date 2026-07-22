@@ -2,11 +2,15 @@
   "issue": 647,
   "appUrl": "http://127.0.0.1:8081",
   "fixedNow": "2026-07-22T16:00:00.000Z",
-  "startedAt": "2026-07-22T20:50:09.970Z",
-  "completedAt": "2026-07-22T20:50:59.355Z",
+  "startedAt": "2026-07-22T21:43:30.839Z",
+  "completedAt": "2026-07-22T21:44:17.619Z",
   "status": "pass",
   "sanitizedFixtures": true,
   "checks": [
+    {
+      "name": "Operator-only reporting user cannot see partner controls or revenue-share data",
+      "status": "pass"
+    },
     {
       "name": "Operator exposes Today, Last 7 days, and visible Daily/Weekly/Monthly controls",
       "status": "pass"
@@ -77,6 +81,10 @@
     },
     {
       "name": "Partner mobile selected zero-sales machine keeps scope, history, back action, and no overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Super Admin can open and leave a scoped partner machine drilldown",
       "status": "pass"
     },
     {

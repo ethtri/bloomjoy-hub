@@ -7,6 +7,7 @@
 
 ## Checks
 
+- PASS - Operator-only reporting user cannot see partner controls or revenue-share data
 - PASS - Operator exposes Today, Last 7 days, and visible Daily/Weekly/Monthly controls
 - PASS - Operator KPIs, daily totals, and detail rows reconcile exactly
 - PASS - Operator fresh status is separate from a loaded zero-sales date
@@ -25,6 +26,7 @@
 - PASS - Partner desktop has no horizontal overflow
 - PASS - Partner mobile all-machines view preserves location and action context
 - PASS - Partner mobile selected zero-sales machine keeps scope, history, back action, and no overflow
+- PASS - Super Admin can open and leave a scoped partner machine drilldown
 - PASS - Operator responsive boundary 360px has no horizontal overflow
 - PASS - Operator responsive boundary 414px has no horizontal overflow
 - PASS - Partner responsive boundary 414px keeps all-machine and selected-machine scopes in bounds
