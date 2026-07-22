@@ -35,6 +35,7 @@ import {
   canUseLocalRefundDemoData,
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
+  fetchRefundAutomationHealth,
   fetchRefundOperationsOverview,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
@@ -45,6 +46,7 @@ import {
   type NayaxLookupCandidate,
   type NayaxDisagreementReason,
   type RefundCaseRecord,
+  type RefundAutomationHealth,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
   type RefundCaseStatus,
@@ -225,6 +227,54 @@ const formatDate = (value: string | null) => {
     hour: 'numeric',
     minute: '2-digit',
   });
+};
+
+const automationHealthPresentation = (
+  health: RefundAutomationHealth | undefined,
+  unavailable: boolean
+) => {
+  if (unavailable) {
+    return {
+      title: 'Automation status unavailable',
+      description: 'The core refund queue still works. Operations should check the scheduled workflow.',
+      tone: 'warning' as const,
+    };
+  }
+  if (!health || health.status === 'waiting') {
+    return {
+      title: 'Automation is waiting for its first run',
+      description: 'Customer reminders stay manual until a successful scheduled run is recorded.',
+      tone: 'neutral' as const,
+    };
+  }
+  if (health.status === 'paused') {
+    return {
+      title: 'Automation is paused',
+      description: 'The core refund queue is available; scheduled reminders and escalations are disabled.',
+      tone: 'neutral' as const,
+    };
+  }
+  if (health.status === 'stale') {
+    return {
+      title: 'Automation is overdue',
+      description: `No successful sweep has been recorded within ${health.staleAfterMinutes} minutes.`,
+      tone: 'warning' as const,
+    };
+  }
+  if (health.status === 'failing') {
+    return {
+      title: 'Automation needs attention',
+      description: `${health.consecutiveFailures || 1} recent scheduled run${health.consecutiveFailures === 1 ? '' : 's'} failed. The core refund queue is still available.`,
+      tone: 'warning' as const,
+    };
+  }
+  return {
+    title: 'Automation is healthy',
+    description: health.lastSuccessAt
+      ? `Last successful sweep: ${formatDate(health.lastSuccessAt)}.`
+      : 'The latest scheduled sweep completed successfully.',
+    tone: 'success' as const,
+  };
 };
 
 const formatAge = (value: string | null) => {
@@ -1192,7 +1242,23 @@ export default function AdminRefundsPage() {
     staleTime: 1000 * 30,
   });
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+  const {
+    data: automationHealth,
+    isFetching: automationHealthIsFetching,
+    error: automationHealthError,
+  } = useQuery({
+    queryKey: ['refund-automation-health'],
+    queryFn: fetchRefundAutomationHealth,
+    enabled: !forceDemoData,
+    staleTime: 1000 * 30,
+  });
+
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-automation-health'] }),
+    ]);
+  };
   const isUsingDemoData = canUseLocalRefundDemoData();
   const pageIsLoading = isUsingDemoData ? false : liveIsLoading;
   const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
@@ -1240,6 +1306,10 @@ export default function AdminRefundsPage() {
       completed: overview.cases.filter((refundCase) => refundCase.status === 'completed').length,
     };
   }, [overview.cases]);
+  const automationPresentation = automationHealthPresentation(
+    automationHealth,
+    Boolean(automationHealthError) && !isUsingDemoData
+  );
   const hasAnyCases = overview.cases.length > 0;
   const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = hasAnyCases
@@ -2807,8 +2877,8 @@ export default function AdminRefundsPage() {
                 Review assigned refund requests, confirm the transaction, and complete the refund workflow.
               </p>
             </div>
-            <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || isUsingDemoData}>
-              {pageIsFetching ? (
+            <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || automationHealthIsFetching || isUsingDemoData}>
+              {pageIsFetching || automationHealthIsFetching ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -2837,6 +2907,33 @@ export default function AdminRefundsPage() {
               <p className="mt-1 text-2xl font-semibold text-foreground">{queueMetrics.blocked}</p>
             </div>
           </div>
+
+          {!isUsingDemoData && (
+            <div
+              data-testid="refund-automation-health"
+              role={automationPresentation.tone === 'warning' ? 'alert' : 'status'}
+              className={cn(
+                'mt-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
+                automationPresentation.tone === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                  : automationPresentation.tone === 'warning'
+                    ? 'border-amber-200 bg-amber-50 text-amber-950'
+                    : 'border-border bg-muted/20 text-foreground'
+              )}
+            >
+              {automationPresentation.tone === 'success' ? (
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+              ) : automationPresentation.tone === 'warning' ? (
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              ) : (
+                <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+              )}
+              <div>
+                <p className="font-semibold">{automationPresentation.title}</p>
+                <p className="mt-1 leading-6">{automationPresentation.description}</p>
+              </div>
+            </div>
+          )}
 
           {error && !isUsingDemoData && (
             <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

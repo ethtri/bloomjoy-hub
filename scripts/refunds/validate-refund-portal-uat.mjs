@@ -678,6 +678,27 @@ const installMockSupabaseRoutes = async (
       );
     }
 
+    if (url.includes('/get_refund_automation_health')) {
+      return route.fulfill(
+        jsonResponse({
+          status: 'healthy',
+          lastRunAt: isoHoursAgo(0.1),
+          lastSuccessAt: isoHoursAgo(0.1),
+          lastRunStatus: 'succeeded',
+          consecutiveFailures: 0,
+          staleAfterMinutes: 60,
+          casesEvaluated: 2,
+          actionsAttempted: 1,
+          actionsSucceeded: 1,
+          actionsFailed: 0,
+          actionsSuppressed: 0,
+          failureCategory: null,
+          alertStatus: 'not_needed',
+          payloadRedacted: true,
+        })
+      );
+    }
+
     if (url.includes('/admin_get_refund_operations_overview')) {
       return route.fulfill(jsonResponse(refundOverview()));
     }
@@ -811,6 +832,11 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Refund Review Queue heading is visible',
     await page.getByRole('heading', { name: /^Refund Review Queue$/i }).isVisible()
+  );
+  recorder.assert(
+    'Authorized manager sees concise refund automation health',
+    await page.getByTestId('refund-automation-health').getByText('Automation is healthy', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-automation-health').getByText(/Last successful sweep:/).isVisible()
   );
   recorder.assert(
     'Core Refunds navigation link is visible',

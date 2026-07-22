@@ -128,6 +128,22 @@ Refund operations must distinguish Bloomjoy Commercial/Mini machines from Snapca
 - The refund MVP relies on source-specific correlation: Nayax for card lookup and Sunze sales facts for cash matching.
 - Mixing Snapcase locations into Sunze-backed machine readiness would create false confidence for transaction matching and reporting write-through.
 
+## 2026-07-21 - Refund automation scheduling, idempotency, and health
+Refund reminders, Nayax preparation, and stale-case escalation use a versioned GitHub Actions schedule backed by a database run/action ledger.
+
+**Canonical rule**
+- The sweep runs four times per hour and an independent hourly health check detects missed/stale or repeatedly failing runs.
+- Scheduled execution is disabled by default at both the GitHub repository-variable layer and the Edge Function layer. Turning automation off must not disable intake or the manager refund queue.
+- Customer-touching work runs only inside the configured local policy window (default 8:00 AM-8:00 PM `America/Los_Angeles`).
+- Each scheduled window has one run key. Each reminder, lookup, escalation, or alert has one deterministic action key, so concurrency and workflow reruns cannot repeat the same action.
+- After an external send is attempted, an uncertain/failed result stays failed for manager review rather than being retried automatically and risking a duplicate customer message.
+- Run/health output contains aggregate counts and reason categories only. Manager health shows healthy, stale, failing, paused, or waiting without exposing customer or provider payloads.
+- Stale/repeated-failure alerts go to the internal operations email recipients, with the GitHub workflow failure as a separate operational signal.
+
+**Why this choice**
+- It makes the existing automation sweep observable and safe to retry while keeping customer communication conservative.
+- Two independent schedules cover both processing and freshness monitoring without putting the core case workflow behind scheduler availability.
+
 ## 2026-05-12 - Refund operations full-automation goal and gated Nayax execution
 Bloomjoy will continue toward a fully automated refund operations system, but payment execution is gated separately from manager approval and transaction correlation.
 

@@ -218,6 +218,30 @@ export type RefundOperationsOverview = {
   managerAssignments: RefundManagerAssignment[];
 };
 
+export type RefundAutomationHealthStatus =
+  | 'healthy'
+  | 'stale'
+  | 'failing'
+  | 'paused'
+  | 'waiting';
+
+export type RefundAutomationHealth = {
+  status: RefundAutomationHealthStatus;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastRunStatus: 'running' | 'succeeded' | 'failed' | 'suppressed' | null;
+  consecutiveFailures: number;
+  staleAfterMinutes: number;
+  casesEvaluated: number;
+  actionsAttempted: number;
+  actionsSucceeded: number;
+  actionsFailed: number;
+  actionsSuppressed: number;
+  failureCategory: string | null;
+  alertStatus: 'not_needed' | 'pending' | 'sent' | 'failed' | 'suppressed';
+  payloadRedacted: boolean;
+};
+
 export type RefundManagerSetupMachine = {
   id: string;
   machineLabel: string;
@@ -729,6 +753,47 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   return {
     ...emptyOverview,
     ...((data as Partial<RefundOperationsOverview> | null) ?? {}),
+  };
+};
+
+export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHealth> => {
+  const { data, error } = await supabaseClient.rpc('get_refund_automation_health');
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load refund automation health.');
+  }
+
+  const health = (data ?? {}) as Partial<RefundAutomationHealth>;
+  const validStatuses: RefundAutomationHealthStatus[] = ['healthy', 'stale', 'failing', 'paused', 'waiting'];
+  return {
+    status: validStatuses.includes(health.status as RefundAutomationHealthStatus)
+      ? (health.status as RefundAutomationHealthStatus)
+      : 'waiting',
+    lastRunAt: typeof health.lastRunAt === 'string' ? health.lastRunAt : null,
+    lastSuccessAt: typeof health.lastSuccessAt === 'string' ? health.lastSuccessAt : null,
+    lastRunStatus:
+      health.lastRunStatus === 'running' ||
+      health.lastRunStatus === 'succeeded' ||
+      health.lastRunStatus === 'failed' ||
+      health.lastRunStatus === 'suppressed'
+        ? health.lastRunStatus
+        : null,
+    consecutiveFailures: Number(health.consecutiveFailures ?? 0),
+    staleAfterMinutes: Number(health.staleAfterMinutes ?? 60),
+    casesEvaluated: Number(health.casesEvaluated ?? 0),
+    actionsAttempted: Number(health.actionsAttempted ?? 0),
+    actionsSucceeded: Number(health.actionsSucceeded ?? 0),
+    actionsFailed: Number(health.actionsFailed ?? 0),
+    actionsSuppressed: Number(health.actionsSuppressed ?? 0),
+    failureCategory: typeof health.failureCategory === 'string' ? health.failureCategory : null,
+    alertStatus:
+      health.alertStatus === 'pending' ||
+      health.alertStatus === 'sent' ||
+      health.alertStatus === 'failed' ||
+      health.alertStatus === 'suppressed'
+        ? health.alertStatus
+        : 'not_needed',
+    payloadRedacted: health.payloadRedacted === true,
   };
 };
 
