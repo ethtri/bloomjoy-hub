@@ -8,6 +8,10 @@ import {
 import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
 import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
+  isPlaceholderRefundLocation,
+  resolveRefundPublicLabels,
+} from "../_shared/refund-location.ts";
+import {
   buildPublicIntakeDedupeKey,
   buildPublicIntakeKeyHashes,
   checkPublicIntakeRateLimits,
@@ -655,7 +659,7 @@ serve(async (req) => {
 
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
-      .select("id, machine_label, machine_type, location_id, reporting_locations(id, name, timezone)")
+      .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
       .eq("id", machineId)
       .eq("status", "active")
       .in("machine_type", ["commercial", "mini"])
@@ -674,15 +678,38 @@ serve(async (req) => {
       machine_label: string;
       machine_type: string;
       location_id: string;
+      refund_public_display_label: string | null;
       reporting_locations?:
-        | { id: string; name: string; timezone: string }
-        | { id: string; name: string; timezone: string }[]
+        | { id: string; name: string; timezone: string; status: string }
+        | { id: string; name: string; timezone: string; status: string }[]
         | null;
     };
     const locationRecord = Array.isArray(machineRecord.reporting_locations)
       ? machineRecord.reporting_locations[0] ?? null
       : machineRecord.reporting_locations ?? null;
-    const locationName = locationRecord?.name ?? "Bloomjoy location";
+    if (locationRecord?.status !== "active") {
+      return new Response(JSON.stringify({ error: "That location is not available for refund intake." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      (!locationRecord.name || isPlaceholderRefundLocation(locationRecord.name)) &&
+      !machineRecord.refund_public_display_label?.trim()
+    ) {
+      return new Response(JSON.stringify({ error: "That location is not available for refund intake." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const publicLabels = resolveRefundPublicLabels({
+      locationName: locationRecord?.name,
+      publicMachineLabel: machineRecord.refund_public_display_label,
+      machineLabel: machineRecord.machine_label,
+    });
+
     const incidentResolution = hasLocalIncidentInput
       ? resolveLocalDateTimeInZone({
           localDate: incidentDate,
@@ -877,8 +904,8 @@ serve(async (req) => {
       refundCaseId: refundCase.id,
       publicReference: refundCase.public_reference,
       machineId: machineRecord.id,
-      machineLabel: machineRecord.machine_label,
-      locationName,
+      machineLabel: publicLabels.machineLabel,
+      locationName: publicLabels.locationName,
       amountCents,
       paymentMethod,
       incidentAt,
@@ -889,8 +916,8 @@ serve(async (req) => {
     const email = buildCustomerEmail({
       publicReference: refundCase.public_reference,
       customerName,
-      machineLabel: machineRecord.machine_label,
-      locationName,
+      machineLabel: publicLabels.machineLabel,
+      locationName: publicLabels.locationName,
       amountCents,
       paymentMethod,
       needsMoreInfo,

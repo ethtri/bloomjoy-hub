@@ -8,6 +8,7 @@ import {
   sendRefundCustomerEmail,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
+import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
 
@@ -60,7 +61,10 @@ type RefundCaseRow = {
   payment_amount_cents: number | null;
   reporting_machine_id: string;
   reporting_location_id: string;
-  reporting_machines?: { machine_label: string | null } | null;
+  reporting_machines?: {
+    machine_label: string | null;
+    refund_public_display_label: string | null;
+  } | null;
   reporting_locations?: { name: string | null } | null;
 };
 
@@ -96,7 +100,7 @@ const selectCaseQuery = `
   payment_amount_cents,
   reporting_machine_id,
   reporting_location_id,
-  reporting_machines(machine_label),
+  reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
 
@@ -229,13 +233,19 @@ const logCustomerMessage = async ({
 }) => {
   if (!supabase) return null;
 
+  const publicLabels = resolveRefundPublicLabels({
+    locationName: refundCase.reporting_locations?.name,
+    publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
+    machineLabel: refundCase.reporting_machines?.machine_label,
+  });
+
   const email = buildRefundCustomerEmail({
     messageType,
     publicReference: refundCase.public_reference,
     customerName: refundCase.customer_name,
     customerEmail: refundCase.customer_email,
-    machineLabel: refundCase.reporting_machines?.machine_label,
-    locationName: refundCase.reporting_locations?.name,
+    machineLabel: publicLabels.machineLabel,
+    locationName: publicLabels.locationName,
     refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
     paymentMethod: refundCase.payment_method,
     decisionReason: refundCase.decision_reason,

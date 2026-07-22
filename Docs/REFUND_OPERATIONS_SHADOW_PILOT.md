@@ -1,119 +1,135 @@
 # Refund Operations Shadow Pilot Runbook
 
-Last updated: 2026-05-12
+Last updated: 2026-07-21
 
 ## Purpose
-Run the merged Refund Operations MVP through production rollout readiness checks and a selected Commercial/Mini shadow pilot before cutting over from the Google Form/AppSheet fallback.
 
-This runbook is the PM/PO control artifact for issues `#402`-`#409`.
-Use `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` for the manager-facing shadow pilot script.
-Use `Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md` for PR `#432` production setup and merge-readiness gates.
+Prove the Refund Operations workflow in a narrow production shadow pilot before Bloomjoy enables live Nayax execution or retires the Google Form, Google Sheet, and AppSheet fallback.
 
-## Operating Rules
-- Codex acts as Bloomjoy PM/PO using the `bloomjoy-sprint-orchestrator` workflow.
-- No human planning session is required. Use this runbook, PR comments, issue comments, and owner go/no-go checkpoints.
-- Executive sponsor review is proof review, not first-pass UAT. Agents must validate seeded functional UAT or post-production shadow-mode flows and produce a pass/fail evidence packet before asking the sponsor to touch the feature.
-- Pilot scope is selected authenticated Machine Managers assigned to configured Bloomjoy Commercial/Mini pilot machines, still in shadow mode. Broader manager-wide rollout follows only after this selected pilot produces clean evidence.
-- Keep the Google Form/AppSheet process live until cutover criteria pass.
-- PR `#410` is merged. Merge is not cutover; production rollout, manager feedback, customer communication review, and shadow-pilot results remain cutover gates.
-- Do not paste secrets, customer PII, raw refund exports, card digits, raw Nayax payloads, or complaint free text into docs, issues, PRs, screenshots, or chat.
-- Nayax refund execution remains fail-closed until the separate full-automation gates pass. The manager workbench should still use the guarded in-app `nayax-card-refund` action for card cases, then show a clear blocker if execution is disabled; Google/AppSheet and manual Nayax remain the operational fallback during shadow mode.
+Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evidence, issue `#409` owns the final cutover decision, and `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` is the manager-facing test script.
 
-## Lane Checklist
-Use one GitHub issue or PR comment per checkpoint. Defects become PR-sized GitHub issues under epic `#402`.
+## Non-negotiable rules
 
-### PM/PO Control Lane
-- [x] Confirm PR `#410` merged with green GitHub CI, Vercel, and Supabase migration checks.
-- [x] Confirm issues `#402`-`#409` have current PM status comments through the merge checkpoint.
-- [ ] Track one go/no-go summary covering Nayax lookup, manager access, customer communications, reporting write-through, and shadow-pilot results.
-- [ ] Confirm Google Form/AppSheet fallback remains live during pilot.
-- [ ] Run `npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>` before manager shadow UAT when the app is reachable.
-- [ ] Confirm demo mode is labeled `DEMO DATA - visual review only` and is never used as evidence that saves, access boundaries, Nayax lookup, or reporting write-through work.
-- [ ] Prepare an executive proof packet only after agent QA has passed or documented blockers.
-- [ ] Confirm production migrations, Edge Functions, and server-only secret names are deployed through the production runbook before public QR/direct-link promotion.
+- Keep the legacy Google Form/Sheet/AppSheet workflow live until the sponsor explicitly approves retirement in `#409`.
+- Use a clean Machine Manager-only account from `#435`. Broader scoped-admin or super-admin access is not valid evidence for the manager boundary.
+- Keep live Nayax execution fail-closed until the provider contract and sponsor gate in `#430` are approved. Shadow mode may exercise the complete UI and a blocked execution response without making a live provider call.
+- The manager, not GPT or the matching score, makes the final decision.
+- Gmail and GPT are separate human-reviewed pilot lanes. Keep both Gmail enable switches off until `#634` approvals pass, and send no GPT draft without human approval during the pilot.
+- Do not place customer names, email addresses, phone numbers, card digits, payout contacts, complaint text, raw provider identifiers/payloads, Gmail content, or secrets in GitHub, screenshots, logs, or this packet.
+- Demo mode proves layout only. It does not prove persistence, permissions, provider behavior, email delivery, automation, or reporting write-through.
 
-### Nayax Validation Lane
-- [ ] Verify target environment has server-only `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`.
-- [ ] Verify target environment has server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or fallback `NAYAX_LYNX_API_TOKEN` by name only, never by value.
-- [ ] Confirm refund-ready machines are mapped to server-side Nayax machine IDs before managers use `/refunds` for card lookup.
-- [ ] Validate at least one real card case against `GET /machines/{MachineID}/lastSales`.
-- [ ] Confirm manager workbench and automation sweep use the approved +/- 6 hour Nayax lookup window and only expose tokenized candidate evidence.
-- [ ] Validate Apple Pay/wallet last-four mismatch behavior with real or owner-approved test evidence.
-- [ ] Confirm lookup responses show only sanitized candidate evidence in Bloomjoy Hub.
+## Release gates before the pilot
 
-### Manager Workflow Lane
-- [ ] Enable selected authenticated Machine Managers through assigned-machine access for configured Commercial/Mini pilot machines.
-- [ ] Confirm each manager sees only assigned-machine cases.
-- [ ] Confirm super-admins see all refund cases.
-- [ ] Validate approve, deny, waiting-on-customer, card-refund-pending, cash/Zelle-pending, and completed states.
-- [ ] Validate the guided manager workbench sections: case summary, suggested transaction match, next action, customer message, guarded card execution or Zelle completion, and collapsed timeline/history.
-- [ ] Capture manager friction as GitHub issues, not private notes.
+### Integrated release
 
-### Customer Communication Lane
-- [ ] Review confirmation email tone.
-- [ ] Review more-info email tone.
-- [ ] Confirm approval, denial, completion, reminder, and escalation automation sends only after agent QA validates message rows and redacted logs.
-- [ ] Review denial decision reasons before managers send manual replies.
-- [ ] Confirm automated messages and manual-reply reasons are empathetic, clear, and do not overpromise timing or approval.
-- [ ] Confirm portal-sent customer messages use editable Bloomjoy-approved templates, include the case reference, and reply to `info@bloomjoysweets.com` during pilot.
+- [ ] Merge the approved PR train in dependency order, starting with production alignment `#636`, then `#637` through `#641`.
+- [ ] After each merge, sync the next branch with current `main` and rerun its full verification profile.
+- [ ] On the final integrated `main` commit, regenerate and review the Refund Operations release manifest. It must include every in-scope migration and the final transitive source digest for each approved refund function.
+- [ ] Run the repository verification suite, migration validation, release-tooling checks, and the relevant refund validators on that same final commit.
+- [ ] Confirm production migrations and Edge Functions match the final reviewed release; a sanitized dry run must show no unexpected migration.
+- [ ] Confirm Bubble Planet and every other pilot option has a distinct customer-facing label and an unambiguous canonical machine/location mapping.
+- [ ] Capture a restore source and dry-run the documented rollback path before changing production.
 
-### Full Automation Lane
-- [ ] Confirm `refund-case-admin-update` wraps manager updates and logs customer messages.
-- [ ] Confirm `refund-case-automation-sweep` sends reminders/escalations with redacted evidence only.
-- [ ] Confirm `nayax-card-refund` fails closed with default env and records only sanitized attempt metadata.
-- [ ] Confirm cross-workflow duplicate fingerprints block likely duplicate settlement write-through between hosted cases and Google/AppSheet rows.
-- [ ] Do not enable live Nayax refund execution until sponsor go/no-go, provider-contract validation, amount caps, per-machine allowlist, and kill-switch tests pass.
+### Safety and access
 
-### Reporting And Settlement Lane
-- [ ] Confirm only manager-approved, fully correlated, completed cases write through with `source='refund_case'`.
-- [ ] Confirm denied, waiting-on-customer, uncorrelated, and review-only cases do not write settlement adjustments.
-- [ ] Confirm partner-facing reporting excludes customer PII, card digits, raw complaint text, and raw Nayax payloads.
+- [ ] `#430` records the approved Nayax provider fields and semantics for a stable machine/site identity and a confirmed successful sale, or explicitly approves a safe substitute contract.
+- [ ] The global kill switch, execution-enabled flag, dry-run flag, sponsor flag, caps, machine allowlist, and idempotency controls are checked by name and expected state without printing values.
+- [ ] A clean authenticated manager from `#435` sees only assigned machines/cases and cannot reach Admin setup, unrelated cases, provider secrets, or raw payloads.
+- [ ] The selected machines and named managers are recorded in `#427`; broader fleet access remains off.
+- [ ] Google Form/Sheet/AppSheet fallback ownership and the same-day stop/go contact are named in `#409`.
 
-## Required UAT Scenarios
-- [ ] Card exact match.
-- [ ] Apple Pay/wallet last-four mismatch.
-- [ ] Cash single match.
-- [ ] No match sends more-info workflow.
-- [ ] Multiple candidates require manager decision.
-- [ ] Denied request.
-- [ ] Approved card refund with guarded in-app Nayax execution attempt.
-- [ ] Approved Zelle refund.
-- [ ] Photo upload.
-- [ ] Manager access boundary.
-- [ ] Super-admin access.
-- [ ] Reporting write-through.
-- [ ] Automated approval/denial/completion customer messages.
-- [ ] Reminder/escalation sweep.
-- [ ] Nayax execution preflight blocked by default flags.
-- [ ] Legacy Google/AppSheet duplicate reconciliation.
+### Communications and automation
 
-## Merged PR `#410` Evidence
-PR `#410` merged on 2026-05-12 after these gates passed:
-- GitHub CI, Vercel, and Supabase migration checks were green.
-- A real Nayax Edge lookup succeeded for a mapped UAT machine with sanitized evidence only.
-- Assigned-machine access boundaries and max-3 Machine Manager enforcement were validated with synthetic authenticated users.
-- Customer communication copy was approved for MVP scope.
-- Reporting write-through was validated with no private data leakage.
+- [ ] Customer acknowledgement, missing-information, approval, denial, completion, and retry paths pass with synthetic evidence.
+- [ ] Manager notification reaches the assigned managers and operations fallback without customer PII in logs.
+- [ ] Automation is deployed with both controls off, then proves one synthetic action, duplicate suppression, PII-free failure alerting, visible health, and quick disable before scheduled enablement.
+- [ ] Gmail retention, attachment quarantine, OAuth scope, mailbox ownership, and security review are approved before either Gmail switch is enabled.
+- [ ] GPT evaluation uses only the approved schema and sanitized test set; it cannot match a transaction, decide a refund, send mail, or execute payment.
 
-## Cutover Gate
-Cut over from the Google Form/AppSheet fallback only when all are true:
-- Shadow-mode cases complete end to end with fewer manual steps than the old process.
-- Managers can process cases without PM intervention.
-- Nayax lookup is reliable enough for ordinary card correlation.
-- Google Form/AppSheet remains available as fallback until pilot evidence is clean.
+## Proposed pilot cohort
 
-## Evidence Template
-Use this template in issue `#409` or follow-up issues after each checkpoint.
+The previously reviewed six-machine cohort is a proposal, not standing approval:
+
+- Bubble Planet - Atlanta
+- Bubble Planet DC
+- Bubble Planet Seattle
+- Merlin Chicago
+- Merlin Dallas / Grapevine Mills
+- Merlin Minneapolis / Mall of America
+
+Before the pilot starts, the sponsor must confirm the exact machines, the named manager for each machine, fallback ownership, and the stop/go contact. Do not add PREIT, Snapcase, or the broader fleet by inference.
+
+## Minimum evidence set
+
+This is a release-safety sample, not a statistical accuracy claim.
+
+| Lane | Minimum proof | Pass condition |
+|---|---|---|
+| Ordinary card | Five high-confidence cases across at least two approved locations | Intended sale ranks first; manager agrees or records a structured disagreement; one primary action is shown; no manual status editing is required |
+| Card safety | One each for ambiguous, no-safe-match, wallet/manual, provider anomaly, duplicate/already-refunded, and provider-outcome-unknown | No unsafe case exposes an enabled refund action or sends a completion email |
+| Controlled Nayax execution | One approved low-value test only after `#430` sponsor approval | Exactly one provider attempt; provider-confirmed success precedes completion and customer email; retry/double-click creates no second attempt |
+| Cash/manual payout | Two matched cases plus one missing-information or denied case | One primary next action; amount cannot exceed recorded payment; non-sensitive reference only; double-submit creates no duplicate event/email/adjustment |
+| Customer email | Acknowledgement, more-info, approval/denial, completion, and one simulated failure/retry | Correct thread/reference, empathetic copy, no premature success message, and no duplicate send |
+| Automation | One due action, replay of the same window, one forced failure, and quick disable | One action only, duplicate suppressed, PII-free alert delivered, and core manual workflow remains available when disabled |
+| Access | Clean manager-only account plus super-admin comparison | Manager sees assigned scope only; super-admin sees authorized global scope; Admin controls remain hidden from the manager |
+| Reporting | One completed correlated case plus denied/waiting/duplicate controls | Exactly one safe adjustment for the completed case and none for the controls |
+| Gmail | One labeled synthetic thread, replay, customer reply, approved reply, attachment controls, and revoked authorization | One linked case/thread; unrelated mail untouched; no duplicate; safe health failure; form cases still work |
+| GPT | Approved sanitized evaluation set from `#635` | No unsafe action; strict schema only; sensitive/uncertain cases route to a person; every outbound draft is reviewed |
+
+## Manager-experience measurements
+
+Record these in aggregate only:
+
+- time from opening a normal card case to a final manager decision
+- number of manager decisions/clicks on the normal card path
+- whether the recommended transaction was accepted
+- structured reason when it was not accepted
+- match state and sanitized factor labels
+- email sent, failed, uncertain, or retried
+- whether the manager needed PM/backchannel help
+- manager feedback on what was slower or clearer than the legacy process
+
+The core experience passes only when a manager who did not build the feature completes three consecutive ordinary cases without coaching and with fewer manual decisions than the legacy workflow.
+
+## Stop conditions
+
+Pause the affected lane immediately if any of these occur:
+
+- an unauthorized machine, case, Admin control, or inbox thread is visible
+- customer PII, card data, payout details, raw Gmail content, raw Nayax identifiers/payloads, or secrets appear in evidence or logs
+- an ambiguous/manual/duplicate/failed case becomes one-click eligible
+- a customer completion email sends before confirmed payment success
+- a duplicate provider attempt, customer message, audit event, or reporting adjustment is created
+- a cash payout can exceed the recorded customer payment or store account/routing/card-like data
+- an unknown provider outcome is presented as success or encourages an immediate retry
+- a manager cannot finish the workflow without PM/manual backchannel help
+- the legacy fallback becomes unavailable before cutover approval
+
+Use the relevant quick-disable control first, preserve sanitized audit evidence, and open a P0 issue for any payment, access, privacy, or duplicate-settlement failure.
+
+## Go/no-go sequence
+
+1. **Core shadow pilot:** form intake, matching, manager workbench, cash workflow, email, automation health, permissions, and reporting. Nayax execution stays off.
+2. **Controlled Nayax execution:** starts only after `#430` records the provider contract, caps, allowlist, kill-switch proof, and sponsor approval.
+3. **Gmail/GPT lane:** starts only after `#634` data/OAuth approvals and a secure server-side OpenAI key destination for `#635`. All drafts remain human-reviewed.
+4. **Cutover:** `#409` receives the complete packet and explicit sponsor approval. Only then may the legacy workflow be retired; rollback and a staffed support window must remain ready.
+
+## Evidence template
+
+Post one sanitized checkpoint in `#427` for each lane and one final summary in `#409`.
 
 ```markdown
-## Refund shadow pilot checkpoint
-- Date:
-- Lane:
-- Environment:
-- Machines/managers covered:
-- Scenarios tested:
-- Result: PASS / PARTIAL / BLOCKED
-- Evidence summary:
+## Refund pilot checkpoint
+- Date/time and environment:
+- Release commit / manifest ID:
+- Lane and scenarios:
+- Approved machines/managers covered (aggregate only):
+- Sample count:
+- Result: PASS / PARTIAL / FAIL
+- Timing and interaction summary:
+- Safety/duplicate summary:
+- Manager feedback summary:
 - Defects opened:
+- Stop condition triggered: yes/no
 - Go/no-go impact:
 ```

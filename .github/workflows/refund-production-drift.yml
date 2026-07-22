@@ -1,0 +1,72 @@
+name: Refund Production Drift
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/refund-case-*/**'
+      - 'supabase/functions/nayax-*/**'
+      - 'supabase/functions/_shared/**'
+      - 'supabase/migrations/**refund**'
+      - 'supabase/migrations/**nayax**'
+      - 'supabase/config.toml'
+      - 'scripts/refunds/refund-release.mjs'
+      - 'scripts/refunds/refund-production-release.json'
+      - 'scripts/refunds/validate-refund-release.mjs'
+      - 'package.json'
+      - '.github/workflows/refund-production-drift.yml'
+  schedule:
+    - cron: '17 16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-production-drift-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  local-manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Validate release tooling
+        run: npm run refunds:validate-release-tooling
+      - name: Validate local release manifest
+        run: npm run refunds:release:check
+
+  production-drift:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    needs: local-manifest
+    runs-on: ubuntu-latest
+    environment: production-readonly
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_EDGE_FUNCTIONS_READ_TOKEN }}
+      SUPABASE_PROJECT_REF: ygbzkgxktzqsiygjlqyg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 2.95.4
+      - name: Check production drift
+        run: npm run refunds:release:check-production -- --project-ref "$SUPABASE_PROJECT_REF"

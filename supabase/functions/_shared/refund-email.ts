@@ -1,4 +1,5 @@
 import { sendTransactionalEmail } from "./internal-email.ts";
+import { resolveRefundPublicLabels } from "./refund-location.ts";
 
 export type RefundCustomerMessageType =
   | "confirmation"
@@ -166,8 +167,10 @@ const getBodyParagraphs = ({
 export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
   const publicReference = sanitizeText(input.publicReference, 80);
   const customerName = sanitizeText(input.customerName, 160);
-  const machineLabel = sanitizeText(input.machineLabel, 180);
-  const locationName = sanitizeText(input.locationName, 180);
+  const { machineLabel, locationName } = resolveRefundPublicLabels({
+    machineLabel: input.machineLabel,
+    locationName: input.locationName,
+  });
   const decisionReason = sanitizeText(input.decisionReason, 500);
   const subject = getSubject(input.messageType, publicReference);
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
@@ -254,8 +257,10 @@ export const buildEditableRefundCustomerEmail = ({
 }) => {
   const publicReference = sanitizeText(input.publicReference, 80);
   const customerName = sanitizeText(input.customerName, 160);
-  const machineLabel = sanitizeText(input.machineLabel, 180);
-  const locationName = sanitizeText(input.locationName, 180);
+  const { machineLabel, locationName } = resolveRefundPublicLabels({
+    machineLabel: input.machineLabel,
+    locationName: input.locationName,
+  });
   const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
   const safeSubjectBase = sanitizeText(subject, 180) || getSubject(input.messageType, publicReference);
   const finalSubject = safeSubjectBase.toLowerCase().includes(publicReference.toLowerCase())
