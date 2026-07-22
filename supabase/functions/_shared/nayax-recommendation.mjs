@@ -73,11 +73,27 @@ const normalizePaymentStatus = (record) => {
     .replace(/\s+/g, " ")
     .trim();
   if (!normalized) return "recorded";
-  if (["approved", "paid", "success", "successful", "completed", "settled", "sale"].some((token) => normalized.includes(token))) {
-    return "approved";
-  }
-  if (["declined", "denied", "failed", "cancel", "void", "reversed"].some((token) => normalized.includes(token))) {
+  const statusTokens = new Set(normalized.split(" "));
+  // Denial/reversal evidence must win over positive substrings. For example,
+  // "not approved" contains "approved" and "successful reversal" contains
+  // "successful"; checking positive tokens first would make both unsafe sales
+  // eligible. Unknown or mixed status text remains fail-closed as "recorded".
+  if (
+    [
+      "not approved",
+      "not paid",
+      "not successful",
+      "not completed",
+      "not settled",
+    ].some((token) => normalized.includes(token))
+    || ["unapproved", "unpaid", "unsuccessful", "incomplete", "unsettled", "declined", "denied", "failed", "reversal", "reversed"]
+      .some((token) => statusTokens.has(token))
+    || [...statusTokens].some((token) => token.startsWith("cancel") || token.startsWith("void"))
+  ) {
     return "not approved";
+  }
+  if (["approved", "paid", "success", "successful", "completed", "settled", "sale"].some((token) => statusTokens.has(token))) {
+    return "approved";
   }
   return "recorded";
 };
@@ -145,6 +161,9 @@ const moneyToCents = (value) => {
 };
 
 const integerValue = (value) => {
+  if (value === null || typeof value === "undefined" || (typeof value === "string" && !value.trim())) {
+    return null;
+  }
   const numeric = Number(value);
   return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
 };
@@ -189,6 +208,16 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   const manualReviewReasons = [];
   const hardExclusions = [];
   let rankingPoints = 0;
+
+  if (candidate.siteId === null) {
+    addReason(manualReviewReasons, "missing_provider_site_id");
+    matchFactors.push(factor("provider_site", "missing", "Nayax did not return the site identity required for guarded execution"));
+  }
+
+  if (candidate.duplicateProviderRecord) {
+    addReason(manualReviewReasons, "duplicate_provider_record");
+    matchFactors.push(factor("provider_record", "manual", "Nayax returned duplicate records for this transaction"));
+  }
 
   if (request.incidentTimeResolution !== "exact") {
     addReason(manualReviewReasons, `incident_time_${request.incidentTimeResolution}`);
@@ -385,7 +414,13 @@ export const buildNayaxRecommendation = ({
     if (authorizationDate.getTime() < windowStartMs || authorizationDate.getTime() > windowEndMs) continue;
     windowRecordCount += 1;
 
-    if (normalizedByTransaction.has(transactionId)) continue;
+    if (normalizedByTransaction.has(transactionId)) {
+      // A duplicated provider ID is an anomaly even when the visible fields
+      // appear identical. Keep one candidate for manager review, but never let
+      // that provider ambiguity become a one-click recommendation.
+      normalizedByTransaction.get(transactionId).duplicateProviderRecord = true;
+      continue;
+    }
     const machineAuthorizationDate = authorizationDate;
     normalizedByTransaction.set(transactionId, {
       transactionId,
@@ -404,6 +439,7 @@ export const buildNayaxRecommendation = ({
       recognitionMethod: normalizeRecognitionMethod(record.RecognitionMethod ?? record.recognitionMethod),
       paymentStatus: normalizePaymentStatus(record),
       providerRefundState: normalizeProviderRefundState(record),
+      duplicateProviderRecord: false,
     });
   }
 
