@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(38);
+select plan(42);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -439,6 +439,66 @@ select is(
   public.get_refund_gmail_health() ->> 'payloadRedacted',
   'true',
   'Gmail health output is explicitly aggregate-only and redacted'
+);
+
+update public.refund_gmail_attachments
+set
+  status = 'quarantined',
+  storage_bucket = 'refund-gmail-quarantine',
+  storage_path = 'synthetic/expired-receipt.pdf',
+  retention_expires_at = now() - interval '1 minute';
+
+select is(
+  public.service_mark_refund_gmail_attachment(
+    (select id from public.refund_gmail_attachments limit 1),
+    'deleted',
+    null,
+    null,
+    'retention_expired'
+  ),
+  true,
+  'Retention cleanup can mark a quarantined attachment deleted'
+);
+select ok(
+  (
+    select provider_attachment_id like 'deleted-%'
+      and file_name = '[Deleted after Gmail retention period]'
+      and content_type = 'application/octet-stream'
+      and byte_size = 0
+      and storage_bucket is null
+      and storage_path is null
+    from public.refund_gmail_attachments
+    limit 1
+  ),
+  'Deleted Gmail attachment metadata no longer retains provider IDs, filenames, types, sizes, or storage paths'
+);
+
+update public.refund_gmail_messages
+set retention_expires_at = now() - interval '1 minute';
+update public.refund_gmail_threads
+set retention_expires_at = now() - interval '1 minute';
+
+select is(
+  public.service_purge_refund_gmail_expired_message_content(200),
+  4,
+  'Expired Gmail message content is purged in a bounded retention pass'
+);
+select ok(
+  not exists (
+    select 1
+    from public.refund_gmail_messages
+    where content_deleted_at is null
+      or subject <> '[Deleted after Gmail retention period]'
+      or plain_body <> '[Deleted after Gmail retention period]'
+      or sender_email is not null
+      or recipient_email is not null
+  )
+  and not exists (
+    select 1
+    from public.refund_gmail_threads
+    where thread_subject <> '[Deleted after Gmail retention period]'
+  ),
+  'Expired Gmail messages and thread subjects no longer retain copied customer content'
 );
 
 select set_config('request.jwt.claim.sub', '', true);

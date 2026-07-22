@@ -10,7 +10,7 @@ This document is the production-enable gate for Refund Operations Gmail intake (
 - Unassigned drafts with no known location are visible only to Super Admins and Scoped Admins. A location-only Machine Manager cannot read them; normal machine scope resumes once a complete case is assigned to a machine.
 - Logs, scheduled-workflow output, GitHub evidence, and health responses contain aggregates and safe error codes only.
 - Accepted attachments are PDF, JPEG, or PNG, no more than three per message and 5 MB each. They remain in private quarantine and are not manager-downloadable until a separate malware scanner explicitly marks them clean. With no scanner configured, they remain quarantined.
-- Gmail message copies are eligible for automated deletion 180 days after receipt. The canonical refund case and its audit history continue under Bloomjoy's separately governed business-record retention.
+- Gmail message copies are eligible for automated deletion 180 days after receipt. Cleanup also redacts copied thread subjects and attachment filenames/provider metadata after quarantined bytes are removed. The canonical refund case and its audit history continue under Bloomjoy's separately governed business-record retention.
 - Authorization revocation or disablement affects only Gmail intake/replies. Hosted-form intake and manual refund work remain available.
 
 ## Required approvals before production enablement
@@ -25,6 +25,6 @@ Both `REFUND_GMAIL_ENABLED` and `REFUND_GMAIL_SYNC_ENABLED` must remain `false` 
 
 ## Deletion and incident procedure
 
-- Normal deletion removes expired quarantined objects first, then purges the retained Gmail message body on the next successful sync maintenance pass. Case audit metadata remains.
+- Normal deletion removes expired quarantined objects first, then redacts attachment metadata, message sender/recipient/subject/body copies, and the copied thread subject. This local cleanup runs before Google mailbox access, so revoked authorization does not prevent cleanup when the scheduled job still runs. Case audit metadata remains.
 - For a suspected credential compromise, disable the GitHub schedule, disable the Edge Function, and revoke the Google refresh token. Do not destructively delete linkage or audit tables during incident response.
 - For a privacy deletion request or legal hold, the Operations and privacy/security owners must identify the exact case in the production admin system and authorize a controlled service-role procedure. Do not place customer identifiers or message content in GitHub.

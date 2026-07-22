@@ -841,12 +841,24 @@ begin
   update public.refund_gmail_attachments
   set
     status = normalized_status,
-    storage_bucket = case when normalized_status in ('quarantined', 'clean') then nullif(btrim(p_storage_bucket), '') else storage_bucket end,
-    storage_path = case when normalized_status in ('quarantined', 'clean') then nullif(btrim(p_storage_path), '') else storage_path end,
+    provider_attachment_id = case when normalized_status = 'deleted' then 'deleted-' || id::text else provider_attachment_id end,
+    file_name = case when normalized_status = 'deleted' then '[Deleted after Gmail retention period]' else file_name end,
+    content_type = case when normalized_status = 'deleted' then 'application/octet-stream' else content_type end,
+    byte_size = case when normalized_status = 'deleted' then 0 else byte_size end,
+    storage_bucket = case
+      when normalized_status = 'deleted' then null
+      when normalized_status in ('quarantined', 'clean') then nullif(btrim(p_storage_bucket), '')
+      else storage_bucket
+    end,
+    storage_path = case
+      when normalized_status = 'deleted' then null
+      when normalized_status in ('quarantined', 'clean') then nullif(btrim(p_storage_path), '')
+      else storage_path
+    end,
     rejection_code = nullif(left(btrim(coalesce(p_rejection_code, '')), 120), ''),
     deleted_at = case when normalized_status = 'deleted' then now() else deleted_at end
   where id = p_attachment_id
-    and status in ('pending', 'quarantined', 'clean', 'error');
+    and status in ('pending', 'rejected', 'quarantined', 'clean', 'error');
 
   return found;
 end;
@@ -1091,6 +1103,12 @@ begin
   where message.id = expired.id;
 
   get diagnostics purged_count = row_count;
+
+  update public.refund_gmail_threads thread
+  set thread_subject = '[Deleted after Gmail retention period]'
+  where thread.retention_expires_at <= now()
+    and thread.thread_subject <> '[Deleted after Gmail retention period]';
+
   return purged_count;
 end;
 $$;
