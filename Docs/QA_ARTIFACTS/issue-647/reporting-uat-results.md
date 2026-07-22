@@ -41,4 +41,3 @@
 - `partner-all-machines-mobile-390.png`
 - `partner-selected-machine-desktop.png`
 - `partner-selected-zero-machine-mobile-390.png`
-

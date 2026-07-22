@@ -1190,7 +1190,7 @@ const writeResults = () => {
     '',
     ...(browserErrors.length ? ['## Browser errors', '', ...browserErrors.map((error) => `- ${error}`), ''] : []),
     ...(runError ? ['## Failure', '', runError, ''] : []),
-  ].join('\n');
+  ].join('\n').trimEnd();
   fs.writeFileSync(path.join(outputDir, 'reporting-uat-results.md'), `${markdown}\n`);
 };
 
