@@ -79,6 +79,17 @@ check(
     schedulerWorkflow.includes('REFUND_AUTOMATION_SWEEP_TOKEN')
 );
 check(
+  'Manual runs require a safe reusable key for executable duplicate-suppression proof',
+  /run_key:\r?\n\s+description:[^\n]+\r?\n\s+required: true\r?\n\s+type: string/.test(schedulerWorkflow) &&
+    schedulerWorkflow.includes("SWEEP_RUN_KEY: ${{ inputs.run_key || '' }}") &&
+    schedulerWorkflow.includes("const manualRunKey = (process.env.SWEEP_RUN_KEY || '').trim()") &&
+    schedulerWorkflow.includes("/^[A-Za-z0-9_-]{8,120}$/") &&
+    schedulerWorkflow.includes("triggerSource === 'scheduled'") &&
+    schedulerWorkflow.includes('`scheduled:${process.env.GITHUB_RUN_ID}`') &&
+    schedulerWorkflow.includes("`${mode === 'failure_test' ? 'failure_test' : 'manual'}:${manualRunKey}`") &&
+    !schedulerWorkflow.includes("`${mode === 'failure_test' ? 'failure_test' : triggerSource}:${process.env.GITHUB_RUN_ID}`")
+);
+check(
   'An independent hourly health workflow checks freshness and alerts stale runs',
   healthWorkflow.includes("cron: '43 * * * *'") &&
     healthWorkflow.includes("mode: 'health_check'") &&

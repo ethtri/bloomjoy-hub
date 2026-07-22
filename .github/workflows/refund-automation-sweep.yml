@@ -14,6 +14,10 @@ on:
         options:
           - run
           - failure_test
+      run_key:
+        description: 'Safe non-sensitive retry key (8-120 letters, numbers, _ or -); reuse it to prove duplicate suppression'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -31,6 +35,7 @@ jobs:
       REFUND_AUTOMATION_SWEEP_TOKEN: ${{ secrets.REFUND_AUTOMATION_SWEEP_TOKEN }}
       REFUND_AUTOMATION_SWEEP_ENABLED: ${{ vars.REFUND_AUTOMATION_SWEEP_ENABLED || 'false' }}
       SWEEP_MODE: ${{ inputs.mode || 'run' }}
+      SWEEP_RUN_KEY: ${{ inputs.run_key || '' }}
     steps:
       - name: Run refund automation
         shell: bash
@@ -50,7 +55,14 @@ jobs:
           const token = process.env.REFUND_AUTOMATION_SWEEP_TOKEN;
           const mode = process.env.SWEEP_MODE === 'failure_test' ? 'failure_test' : 'run';
           const triggerSource = process.env.GITHUB_EVENT_NAME === 'schedule' ? 'scheduled' : 'manual';
-          const runKey = `${mode === 'failure_test' ? 'failure_test' : triggerSource}:${process.env.GITHUB_RUN_ID}`;
+          const manualRunKey = (process.env.SWEEP_RUN_KEY || '').trim();
+          if (triggerSource === 'manual' && !/^[A-Za-z0-9_-]{8,120}$/.test(manualRunKey)) {
+            console.error('Manual refund automation requires a safe non-sensitive run key with 8-120 letters, numbers, underscores, or hyphens.');
+            process.exit(1);
+          }
+          const runKey = triggerSource === 'scheduled'
+            ? `scheduled:${process.env.GITHUB_RUN_ID}`
+            : `${mode === 'failure_test' ? 'failure_test' : 'manual'}:${manualRunKey}`;
           const response = await fetch(url, {
             method: 'POST',
             headers: {
