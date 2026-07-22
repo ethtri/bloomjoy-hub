@@ -2,7 +2,7 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## 1) Roles and ownership
 - Release owner: coordinates launch window and final go/no-go call.
@@ -113,7 +113,7 @@ Security rule:
 - [ ] `npm run db:validate-migrations` passes before any production Supabase migration push.
 - [ ] `npm run refunds:validate-gmail` passes, and Gmail retention/quarantine approval is recorded in `Docs/REFUND_GMAIL_DATA_HANDLING.md` before Gmail enablement.
 - [ ] `npm run refunds:validate-gpt-triage` passes. Confirm the production OpenAI credential is not configured, `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false`, and the GitHub, Edge, and database GPT switches remain false until the approvals and sanitized evaluation in `Docs/REFUND_GPT_TRIAGE.md` pass.
-- [ ] `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values.
+- [ ] If Gmail enablement is approved for this release, `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values. If Gmail is deferred, record that the OAuth/mailbox secrets are intentionally absent and keep both Gmail switches off; missing optional Gmail credentials do not block the all-switches-off core deployment.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
 - [ ] `npm run refunds:release:check` confirms that the eight Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
@@ -172,21 +172,17 @@ supabase secrets set NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS=5000
 supabase secrets set NAYAX_REFUND_DAILY_COUNT_CAP=10
 supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
-supabase secrets set GMAIL_SUPPORT_CLIENT_ID=...
-supabase secrets set GMAIL_SUPPORT_CLIENT_SECRET=...
-supabase secrets set GMAIL_SUPPORT_REFRESH_TOKEN=...
-supabase secrets set GMAIL_SUPPORT_MAILBOX=...
-supabase secrets set GMAIL_REFUND_LABEL_ID=...
-supabase secrets set REFUND_GMAIL_SYNC_SECRET=...
-supabase secrets set REFUND_GMAIL_ENABLED=false
 ```
 
 Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved.
+
+Gmail and GPT credentials are enablement-time secrets, not prerequisites for the initial all-switches-off core deployment. Do not configure Gmail OAuth/mailbox secrets before the approvals in `#634`, and do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions deploy safely without provider credentials and remain inaccessible/disabled until their dedicated scheduler secret and enablement gates are configured.
 
 Before continuing, run:
 
 ```bash
 npm run commerce:preflight -- --project-ref <project-ref> --include-refunds
+# Run only when the Gmail lane is approved/configured:
 npm run refunds:preflight-gmail -- --project-ref <project-ref>
 ```
 
@@ -231,7 +227,7 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the seven explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the eight explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt
@@ -262,12 +258,14 @@ supabase functions deploy nayax-card-refund --no-verify-jwt
 
 After deploying the eight Refund Operations functions:
 
-1. Capture only the sanitized production metadata under the gitignored `output/` directory. Capture downloads each deployed source bundle to an operating-system temporary directory, verifies its normalized transitive source digest against the reviewed manifest, and removes the temporary copy before succeeding:
+1. Run the no-auth, no-body route smoke. It sends only `OPTIONS`, creates no case, sends no email, and makes no Nayax/OpenAI/Gmail provider request:
+   - `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`
+2. Capture only the sanitized production metadata under the gitignored `output/` directory. Capture downloads each deployed source bundle to an operating-system temporary directory, verifies its normalized transitive source digest against the reviewed manifest, and removes the temporary copy before succeeding:
    - `npm run refunds:release:capture-production -- --project-ref <project-ref> --confirm-project-ref <project-ref> --output output/refund-production-release.json`
-2. Review each function's `ACTIVE` status, version, `verify_jwt`, bundle digest, and approved source digest.
-3. Update `scripts/refunds/refund-production-release.json` through a reviewed PR. Do not treat the capture as automatic approval.
-4. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eight functions to pass.
-5. Run the refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
+3. Review each function's `ACTIVE` status, version, `verify_jwt`, bundle digest, and approved source digest.
+4. Update `scripts/refunds/refund-production-release.json` through a reviewed PR. Do not treat the capture as automatic approval.
+5. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eight functions to pass.
+6. Run the remaining refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 Supabase function version numbers are audit evidence, not rollback targets. A rollback redeploy creates a new version number.
 The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` validates the immutable known-good source for every existing core function; newly introduced disable-only functions such as `refund-gmail-sync` and `refund-gpt-triage` record `restoreAction=disable` and use their documented switch-off procedures instead of pretending an older deployed source existed.

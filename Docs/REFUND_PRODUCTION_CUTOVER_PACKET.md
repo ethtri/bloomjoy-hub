@@ -1,6 +1,6 @@
 # Refund Operations Production Cutover Packet
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Outcome
 
@@ -78,7 +78,7 @@ Check switch values without printing secrets. A code deploy must not silently en
 ## Production smoke order
 
 1. Verify the production drift check against the final manifest.
-2. Verify every expected refund function route responds and the manual/retry email route no longer returns `404`.
+2. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.
 3. Submit one sanitized hosted-form card case and one cash case; verify acknowledgement and assigned-manager notification.
 4. Use the clean manager account to prove assigned-only queue access and Admin denial.
 5. Prove high-confidence, ambiguous, no-match, wallet/manual, failed/unknown, and duplicate card states with live execution still off.
