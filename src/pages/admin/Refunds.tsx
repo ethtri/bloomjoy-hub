@@ -453,7 +453,7 @@ const nayaxLookupNoticeClass = (tone: NayaxLookupNotice['tone']) =>
   cn(
     'mt-3 rounded-md border p-2 text-xs',
     tone === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    tone === 'warning' && 'border-amber-200 bg-amber-50 text-amber-900',
+    tone === 'warning' && 'border-orange-200 bg-orange-50 text-orange-950',
     tone === 'error' && 'border-destructive/30 bg-destructive/10 text-destructive',
     tone === 'info' && 'border-sky-200 bg-white/80 text-sky-800'
   );
@@ -511,7 +511,7 @@ const taskBadgeClass = (refundCase: RefundCaseRecord) => {
   if (getLatestCustomerMessage(refundCase)?.status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
   if (refundCase.status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (refundCase.status === 'denied' || refundCase.status === 'closed') return 'border-slate-200 bg-slate-50 text-slate-700';
-  if (refundCase.status === 'waiting_on_customer') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (refundCase.status === 'waiting_on_customer') return 'border-orange-200 bg-orange-50 text-orange-800';
   if (refundCase.status === 'draft') return 'border-sky-200 bg-sky-50 text-sky-800';
   if (refundCase.status === 'approved' || refundCase.status.endsWith('_pending')) return 'border-sky-200 bg-sky-50 text-sky-700';
   return 'border-primary/20 bg-primary/10 text-primary';
@@ -573,14 +573,14 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
     signals.push({ label: 'Gmail intake', className: 'border-sky-200 bg-sky-50 text-sky-800' });
   }
   if (refundCase.paymentMethod === 'card' && refundCase.correlationStatus === 'no_match') {
-    signals.push({ label: 'No card match', className: 'border-amber-200 bg-amber-50 text-amber-800' });
+    signals.push({ label: 'No card match', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (
     refundCase.correlationStatus === 'nayax_not_configured' ||
     refundCase.correlationStatus === 'needs_nayax' ||
     refundCase.nayaxLookupSummary?.lookupStatus === 'setup_needed'
   ) {
-    signals.push({ label: 'Nayax setup needed', className: 'border-amber-200 bg-amber-50 text-amber-800' });
+    signals.push({ label: 'Nayax setup needed', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (refundCase.nayaxLookupSummary?.lookupStatus === 'lookup_failed') {
     signals.push({ label: 'Lookup failed', className: 'border-destructive/30 bg-destructive/10 text-destructive' });
@@ -589,7 +589,7 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
     signals.push({ label: 'Wallet payment', className: 'border-sky-200 bg-sky-50 text-sky-700' });
   }
   if (refundCase.status === 'waiting_on_customer') {
-    signals.push({ label: 'Waiting on customer', className: 'border-amber-200 bg-amber-50 text-amber-800' });
+    signals.push({ label: 'Waiting on customer', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (isReadyToPayCase(refundCase)) {
     signals.push({ label: 'Ready to refund', className: 'border-sky-200 bg-sky-50 text-sky-700' });
@@ -778,8 +778,8 @@ const nayaxStatusClass = (status: RefundNayaxLookupStatus, hasSelectedMatch = fa
     status === 'match_found' &&
       (hasSelectedMatch ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-sky-200 bg-sky-50 text-sky-700'),
     status === 'multiple_matches' && 'border-sky-200 bg-sky-50 text-sky-700',
-    status === 'no_match' && 'border-amber-200 bg-amber-50 text-amber-800',
-    status === 'setup_needed' && 'border-amber-200 bg-amber-50 text-amber-800',
+    status === 'no_match' && 'border-orange-200 bg-orange-50 text-orange-900',
+    status === 'setup_needed' && 'border-orange-200 bg-orange-50 text-orange-900',
     status === 'lookup_failed' && 'border-destructive/30 bg-destructive/10 text-destructive',
     (status === 'checking' || status === 'not_started' || status === 'not_applicable') &&
       'border-slate-200 bg-slate-50 text-slate-700'
@@ -1159,7 +1159,7 @@ const messageStatusBadgeClass = (status: string) => {
   if (status === 'sent') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
   if (status === 'skipped') return 'border-slate-200 bg-slate-50 text-slate-700';
-  return 'border-amber-200 bg-amber-50 text-amber-700';
+  return 'border-orange-200 bg-orange-50 text-orange-800';
 };
 
 const nayaxExecutionBlockLabel = (block: string) => {
@@ -2185,7 +2185,7 @@ export default function AdminRefundsPage() {
             className={cn(
               'rounded-xl border p-4',
               triageNeedsHuman
-                ? 'border-amber-200 bg-amber-50/70'
+                ? 'border-orange-200 bg-orange-50/70'
                 : 'border-sky-200 bg-sky-50/60'
             )}
           >
@@ -2193,7 +2193,7 @@ export default function AdminRefundsPage() {
               <Badge variant="outline" className="border-sky-200 bg-white text-sky-900">
                 Draft assistance
               </Badge>
-              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-900">
+              <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-950">
                 Human review required
               </Badge>
               <span className="text-xs text-muted-foreground">
@@ -2210,7 +2210,7 @@ export default function AdminRefundsPage() {
                 {(triageSuggestion.policyFlags.length > 0
                   ? triageSuggestion.policyFlags
                   : ['uncertain']).map((flag) => (
-                    <Badge key={flag} variant="outline" className="border-amber-300 bg-white text-amber-950">
+                    <Badge key={flag} variant="outline" className="border-orange-300 bg-white text-orange-950">
                       {gptPolicyFlagLabels[flag] ?? statusLabel(flag)}
                     </Badge>
                   ))}
@@ -2301,7 +2301,7 @@ export default function AdminRefundsPage() {
               </p>
             </div>
             {latestInbound?.sensitiveDataRedacted && (
-              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+              <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-900">
                 Full card number redacted
               </Badge>
             )}
@@ -2472,7 +2472,7 @@ export default function AdminRefundsPage() {
           </span>
         )}
         {candidate.selectionAllowed === false && (
-          <span className="mt-2 block font-medium text-amber-800">
+          <span className="mt-2 block font-medium text-orange-900">
             Safety block: this transaction cannot be selected.
           </span>
         )}
@@ -2482,7 +2482,9 @@ export default function AdminRefundsPage() {
     return (
       <div className="mt-3 space-y-3">
         {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
-          <div className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>{nayaxLookupNotice.message}</div>
+          <div data-testid="nayax-lookup-notice" className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
+            {nayaxLookupNotice.message}
+          </div>
         )}
         {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && nayaxCandidates.length > 0 && (
           <div className="rounded-md border border-sky-200 bg-white p-3">
@@ -2544,7 +2546,7 @@ export default function AdminRefundsPage() {
           </summary>
           <div className="mt-3 space-y-2">
             {nayaxLookupNotice && hasSelectedMatch && (
-              <div className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
+              <div data-testid="nayax-lookup-notice" className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
                 {nayaxLookupNotice.message}
               </div>
             )}
@@ -2759,7 +2761,7 @@ export default function AdminRefundsPage() {
                   Card ending {selectedCase.cardLast4 || 'n/a'}
                 </Badge>
                 {selectedCase.cardWalletUsed && (
-                  <Badge className="border-amber-300/30 bg-amber-300/10 text-amber-100">Wallet payment</Badge>
+                  <Badge className="border-orange-300/30 bg-orange-300/10 text-orange-100">Wallet payment</Badge>
                 )}
               </div>
               <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">{selectedCase.issueSummary}</p>
@@ -2874,7 +2876,7 @@ export default function AdminRefundsPage() {
           )}
 
           {primaryActionIssues.length > 0 && (
-            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="mt-4 rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <p>{primaryActionIssues[0]}</p>
@@ -3273,7 +3275,7 @@ export default function AdminRefundsPage() {
                 className="mt-2"
                 placeholder="Example: Zelle confirmation ZP-4821"
               />
-              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+              <div className="mt-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs leading-5 text-orange-950">
                 Record only a short confirmation or reference. Never enter a bank or card number, routing number, PIN,
                 password, email address, phone number, or other payment credentials.
               </div>
@@ -3297,7 +3299,7 @@ export default function AdminRefundsPage() {
             </label>
 
             {primaryActionIssues.length > 0 && (
-              <div data-testid="refund-cash-action-blocker" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <div data-testid="refund-cash-action-blocker" className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
                 {primaryActionIssues[0]}
               </div>
             )}
@@ -3457,9 +3459,9 @@ export default function AdminRefundsPage() {
                   key={item.key}
                   data-testid={item.testId}
                   role="alert"
-                  className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+                  className="flex items-start gap-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950"
                 >
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-800" />
                   <div>
                     <p className="font-semibold">{item.presentation.title}</p>
                     <p className="mt-1 leading-6">{item.presentation.description}</p>
@@ -3533,14 +3535,14 @@ export default function AdminRefundsPage() {
                 'mt-4 rounded-lg border px-4 py-3 text-sm',
                 refundActionReceipt.tone === 'success'
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
-                  : 'border-amber-200 bg-amber-50 text-amber-950'
+                  : 'border-orange-200 bg-orange-50 text-orange-950'
               )}
             >
               <div className="flex items-start gap-3">
                 {refundActionReceipt.tone === 'success' ? (
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
                 ) : (
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-800" />
                 )}
                 <div>
                   <p className="font-semibold">{refundActionReceipt.title}</p>
@@ -4268,7 +4270,7 @@ export default function AdminRefundsPage() {
                               </InfoHint>
                             )}
                             {primaryActionIssues.length > 0 && (
-                              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                              <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 p-2 text-xs text-orange-950">
                                 {primaryActionIssues[0]}
                               </div>
                             )}
@@ -4480,7 +4482,7 @@ export default function AdminRefundsPage() {
                     </details>
 
                     {primaryActionIssues.length > 0 && (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                           <div>
@@ -4539,7 +4541,7 @@ export default function AdminRefundsPage() {
                                 message.direction === 'outbound'
                                   ? 'ml-0 border-emerald-200 bg-emerald-50 sm:ml-8'
                                   : message.kind === 'bounce'
-                                    ? 'border-amber-200 bg-amber-50'
+                                    ? 'border-orange-200 bg-orange-50'
                                     : 'mr-0 border-sky-200 bg-white sm:mr-8'
                               )}
                             >
@@ -4551,7 +4553,7 @@ export default function AdminRefundsPage() {
                                   {formatDate(message.sentAt ?? message.receivedAt)}
                                 </span>
                                 {message.sensitiveDataRedacted && (
-                                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                                  <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-900">
                                     Card number redacted
                                   </Badge>
                                 )}

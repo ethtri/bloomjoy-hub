@@ -976,6 +976,56 @@ const createRecorder = () => {
   };
 };
 
+const computedContrastRatio = async (locator) => locator.evaluate((element) => {
+  const parseColor = (value) => {
+    const channels = value.match(/[\d.]+/g)?.map(Number) ?? [];
+    if (channels.length < 3) return null;
+    return {
+      red: channels[0],
+      green: channels[1],
+      blue: channels[2],
+      alpha: channels[3] ?? 1,
+    };
+  };
+  const composite = (foreground, background) => {
+    const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha);
+    if (alpha === 0) return { red: 255, green: 255, blue: 255, alpha: 1 };
+    return {
+      red: (foreground.red * foreground.alpha + background.red * background.alpha * (1 - foreground.alpha)) / alpha,
+      green: (foreground.green * foreground.alpha + background.green * background.alpha * (1 - foreground.alpha)) / alpha,
+      blue: (foreground.blue * foreground.alpha + background.blue * background.alpha * (1 - foreground.alpha)) / alpha,
+      alpha,
+    };
+  };
+  const luminance = ({ red, green, blue }) => {
+    const channel = (value) => {
+      const normalized = value / 255;
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : ((normalized + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue);
+  };
+
+  const foreground = parseColor(getComputedStyle(element).color);
+  if (!foreground) return 0;
+
+  const layers = [];
+  let current = element;
+  while (current instanceof HTMLElement) {
+    const layer = parseColor(getComputedStyle(current).backgroundColor);
+    if (layer && layer.alpha > 0) layers.push(layer);
+    current = current.parentElement;
+  }
+
+  let background = { red: 255, green: 255, blue: 255, alpha: 1 };
+  for (const layer of layers.reverse()) background = composite(layer, background);
+  const visibleForeground = composite(foreground, background);
+  const lighter = Math.max(luminance(visibleForeground), luminance(background));
+  const darker = Math.min(luminance(visibleForeground), luminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+});
+
 const pathname = (page) => new URL(page.url()).pathname;
 
 const countLinksByName = async (page, name) =>
@@ -1344,6 +1394,12 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
   await page.locator('tr', { hasText: 'RF-UAT-GMAIL' }).click();
   await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
+  await page.getByTestId('refund-gpt-triage-review').waitFor({ timeout: 10000 });
+  await page
+    .getByTestId('refund-gmail-ask-for-details')
+    .getByText('Approve and reply in Gmail')
+    .waitFor({ timeout: 10000 });
+  await page.getByText('Machine location or description', { exact: true }).waitFor({ timeout: 10000 });
 
   recorder.assert(
     'Gmail intake health is concise and visible to the manager',
@@ -1992,6 +2048,13 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     recorder.assert(
       `Nayax ${scenario.name} gives the right next action`,
       (await page.getByText(scenario.expectedAction).count()) >= 1
+    );
+    const lookupNotice = page.getByTestId('nayax-lookup-notice').filter({ hasText: scenario.response.summary }).first();
+    const lookupNoticeContrast = await computedContrastRatio(lookupNotice);
+    recorder.assert(
+      `Nayax ${scenario.name} notice meets text contrast`,
+      lookupNoticeContrast >= 4.5,
+      `${lookupNoticeContrast.toFixed(2)}:1`
     );
     if (scenario.expectedCandidateCount) {
       recorder.assert(
