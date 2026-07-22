@@ -105,6 +105,17 @@ export class RefundGptProviderError extends Error {
   }
 }
 
+export const isOpenAiRefundTriageConfigured = ({
+  apiKey,
+  safetySalt,
+  model,
+  dataControlsApproved,
+}) =>
+  typeof apiKey === 'string' && apiKey.trim().length >= 20 &&
+  typeof safetySalt === 'string' && safetySalt.trim().length >= 32 &&
+  dataControlsApproved === true &&
+  /^gpt-5\.6-(?:sol|terra|luna)$/.test(String(model ?? '').trim());
+
 export const buildOpenAiRefundTriageRequest = ({ input, model, safetyIdentifier }) => ({
   model,
   store: false,

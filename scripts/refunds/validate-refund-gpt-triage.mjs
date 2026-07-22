@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import {
   REFUND_GPT_TRIAGE_SCHEMA_VERSION,
   buildRefundGptTriageInput,
@@ -14,6 +16,7 @@ import {
   REFUND_GPT_TRIAGE_DEFAULT_MODEL,
   RefundGptProviderError,
   buildOpenAiRefundTriageRequest,
+  isOpenAiRefundTriageConfigured,
   runOpenAiRefundTriage,
 } from '../../supabase/functions/_shared/refund-gpt-triage-provider.mjs';
 
@@ -313,6 +316,26 @@ assert.equal(requestShape.text.format.type, 'json_schema', 'Responses API must u
 assert.equal(requestShape.text.format.strict, true, 'Provider JSON schema must be strict.');
 assert.equal(requestShape.text.format.schema.additionalProperties, false, 'Provider schema must reject extra actions.');
 assert.equal('tools' in requestShape, false, 'Triage must expose no tools or payment actions to the model.');
+assert.equal(
+  isOpenAiRefundTriageConfigured({
+    apiKey: 'sk-proj-synthetic-test-key-that-is-not-real',
+    safetySalt: 's'.repeat(32),
+    model: REFUND_GPT_TRIAGE_DEFAULT_MODEL,
+    dataControlsApproved: false,
+  }),
+  false,
+  'Provider configuration must fail closed before OpenAI project data controls are approved.',
+);
+assert.equal(
+  isOpenAiRefundTriageConfigured({
+    apiKey: 'sk-proj-synthetic-test-key-that-is-not-real',
+    safetySalt: 's'.repeat(32),
+    model: REFUND_GPT_TRIAGE_DEFAULT_MODEL,
+    dataControlsApproved: true,
+  }),
+  true,
+  'Provider configuration may pass only after the explicit data-control approval flag is true.',
+);
 
 const buildProviderResponse = (content, overrides = {}) => ({
   status: 'completed',
@@ -435,6 +458,11 @@ assert.match(runnerMigrationSource, /status = 'superseded'/i, 'A new inbound rep
 assert.match(runnerMigrationSource, /stale_source_message/i, 'An in-flight older source must be discarded when a newer reply arrives.');
 assert.match(runnerFunctionSource, /REFUND_GPT_TRIAGE_ENABLED/i, 'Server runner must have an independent default-off switch.');
 assert.match(runnerFunctionSource, /OPENAI_REFUND_TRIAGE_SAFETY_SALT/i, 'Runner must derive a privacy-preserving safety identifier.');
+assert.match(
+  runnerFunctionSource,
+  /OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED/i,
+  'Runner must fail closed until OpenAI project data controls are explicitly approved.',
+);
 assert.match(runnerFunctionSource, /service_claim_refund_gpt_triage_jobs/i, 'Runner must claim jobs before provider calls.');
 assert.match(runnerFunctionSource, /service_complete_refund_gpt_triage_job/i, 'Validated results must complete through the database guard.');
 assert.match(runnerFunctionSource, /payloadRedacted: true/i, 'Runner output and logs must be aggregate-only.');
@@ -442,6 +470,42 @@ assert.match(workflowSource, /vars\.REFUND_GPT_TRIAGE_SYNC_ENABLED == 'true'/i, 
 assert.match(workflowSource, /secrets\.REFUND_GPT_TRIAGE_SYNC_TOKEN/i, 'Scheduler token must be encrypted.');
 assert.match(preflightSource, /VITE_OPENAI_/i, 'Preflight must reject browser-exposed OpenAI secret names.');
 assert.match(preflightSource, /OPENAI_API_KEY/i, 'Preflight must require the server-side OpenAI credential.');
+assert.match(
+  preflightSource,
+  /OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED/i,
+  'Preflight must require the explicit OpenAI project data-control approval flag.',
+);
+
+const preflightPath = fileURLToPath(new URL('./refund-gpt-triage-preflight.mjs', import.meta.url));
+const preflightEnv = {
+  SUPABASE_URL: 'https://synthetic.supabase.test',
+  SUPABASE_SERVICE_ROLE_KEY: 'synthetic-service-role-key',
+  OPENAI_API_KEY: 'sk-proj-synthetic-test-key-that-is-not-real',
+  OPENAI_REFUND_TRIAGE_SAFETY_SALT: 's'.repeat(32),
+  OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED: 'false',
+  REFUND_GPT_TRIAGE_SYNC_SECRET: 'synthetic-sync-secret',
+  REFUND_GPT_TRIAGE_ENABLED: 'true',
+};
+const unapprovedPreflight = spawnSync(
+  process.execPath,
+  [preflightPath],
+  { encoding: 'utf8', env: preflightEnv },
+);
+assert.notEqual(unapprovedPreflight.status, 0, 'Preflight must reject enabled provider execution without data-control approval.');
+assert.match(
+  `${unapprovedPreflight.stdout}\n${unapprovedPreflight.stderr}`,
+  /DATA_CONTROLS_APPROVED must be true before provider execution/i,
+  'Preflight must explain the fail-closed data-control gate.',
+);
+const disabledPreflight = spawnSync(
+  process.execPath,
+  [preflightPath],
+  {
+    encoding: 'utf8',
+    env: { ...preflightEnv, REFUND_GPT_TRIAGE_ENABLED: 'false' },
+  },
+);
+assert.equal(disabledPreflight.status, 0, 'Preflight must allow an explicitly unapproved configuration while provider execution stays off.');
 assert.match(messageFunctionSource, /triageSuggestion\.status !== "ready_for_review"/i, 'Customer send must reject stale suggestions.');
 assert.match(messageFunctionSource, /triageSuggestion\.route !== "draft_reply"/i, 'Customer send must reject human-review routes.');
 assert.match(messageFunctionSource, /policy_flags \?\? \[\]\)\.length > 0/i, 'Customer send must reject policy-flagged suggestions.');

@@ -8,6 +8,7 @@ import {
 import {
   REFUND_GPT_TRIAGE_DEFAULT_MODEL,
   RefundGptProviderError,
+  isOpenAiRefundTriageConfigured,
   runOpenAiRefundTriage,
 } from "../_shared/refund-gpt-triage-provider.mjs";
 
@@ -17,6 +18,9 @@ const syncSecret = (Deno.env.get("REFUND_GPT_TRIAGE_SYNC_SECRET") ?? "").trim();
 const openAiApiKey = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
 const safetySalt = (Deno.env.get("OPENAI_REFUND_TRIAGE_SAFETY_SALT") ?? "").trim();
 const configuredModel = (Deno.env.get("OPENAI_REFUND_TRIAGE_MODEL") ?? REFUND_GPT_TRIAGE_DEFAULT_MODEL).trim();
+const dataControlsApproved = ["1", "true", "yes", "on"].includes(
+  (Deno.env.get("OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED") ?? "").trim().toLowerCase(),
+);
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, { auth: { persistSession: false } })
@@ -121,7 +125,12 @@ serve(async (request) => {
   if (!isEnabled()) {
     return jsonResponse({ status: "disabled", claimed: 0, completed: 0, failed: 0, payloadRedacted: true });
   }
-  if (!openAiApiKey || safetySalt.length < 32 || !/^gpt-5\.6-(?:sol|terra|luna)$/.test(configuredModel)) {
+  if (!isOpenAiRefundTriageConfigured({
+    apiKey: openAiApiKey,
+    safetySalt,
+    model: configuredModel,
+    dataControlsApproved,
+  })) {
     return jsonResponse({
       status: "configuration_error",
       errorCode: "provider_configuration_missing",

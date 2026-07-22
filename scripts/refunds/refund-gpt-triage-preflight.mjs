@@ -100,6 +100,7 @@ const run = () => {
     'SUPABASE_SERVICE_ROLE_KEY',
     'OPENAI_API_KEY',
     'OPENAI_REFUND_TRIAGE_SAFETY_SALT',
+    'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED',
     'REFUND_GPT_TRIAGE_SYNC_SECRET',
     'REFUND_GPT_TRIAGE_ENABLED',
   ];
@@ -117,10 +118,20 @@ const run = () => {
 
   if (!remote) {
     const enabled = String(env.REFUND_GPT_TRIAGE_ENABLED ?? '').trim().toLowerCase();
+    const dataControlsApproved = String(env.OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED ?? '').trim().toLowerCase();
     if (enabled && !['true', 'false'].includes(enabled)) {
       errors.push('REFUND_GPT_TRIAGE_ENABLED must be true or false.');
     } else if (enabled === 'true') {
       warnings.push('REFUND_GPT_TRIAGE_ENABLED is true; confirm privacy approval and sanitized evaluation before continuing.');
+    }
+    if (dataControlsApproved && !['true', 'false'].includes(dataControlsApproved)) {
+      errors.push('OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED must be true or false.');
+    }
+    if (enabled === 'true' && dataControlsApproved !== 'true') {
+      errors.push('OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED must be true before provider execution can be enabled.');
+    }
+    if (dataControlsApproved === 'true') {
+      warnings.push('OpenAI data controls are marked approved; confirm the #635 evidence records the project retention mode and approver.');
     }
     const model = String(env.OPENAI_REFUND_TRIAGE_MODEL ?? 'gpt-5.6-terra').trim();
     if (!/^gpt-5\.6-(?:sol|terra|luna)$/.test(model)) {
@@ -143,10 +154,11 @@ const run = () => {
   if (loaded.length > 0) console.log(`INFO: Loaded env files: ${loaded.join(', ')}`);
   printList('Required GPT triage controls', [
     'OpenAI credential and safety-identifier salt stay server-only',
+    'OpenAI project data-control mode is explicitly reviewed and acknowledged',
     'Dedicated scheduler secret configured',
     'Supabase service credentials available to the Edge Function',
     'Edge and database enable switches remain independently fail-closed',
-    'Strict schema, human review, no auto-send, and store:false remain enforced',
+    'Strict schema, human review, no auto-send, and store:false remain enforced without claiming zero retention',
   ]);
   if (warnings.length > 0) printList('Warnings', warnings);
   if (errors.length > 0) {

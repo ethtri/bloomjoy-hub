@@ -68,6 +68,7 @@ Set the following values before launch.
 | `REFUND_GMAIL_ENABLED` | Server-only | `refund-gmail-sync` | Default `false`; enable only for approved synthetic/shadow validation | Release owner |
 | `OPENAI_API_KEY` | Server-only | `refund-gpt-triage` | Production project-scoped OpenAI key; never supplied to the browser or GitHub Actions | Technical owner |
 | `OPENAI_REFUND_TRIAGE_SAFETY_SALT` | Server-only | `refund-gpt-triage` | Random 32+ character salt for one-way safety identifiers | Privacy/security owner |
+| `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED` | Server-only | `refund-gpt-triage` | Default `false`; set `true` only after `#635` records the exact OpenAI project retention mode and privacy/security approval | Privacy/security owner |
 | `OPENAI_REFUND_TRIAGE_MODEL` | Server-only, optional | `refund-gpt-triage` | Approved `gpt-5.6-terra` default or explicitly reviewed family variant | Technical owner |
 | `REFUND_GPT_TRIAGE_SYNC_SECRET` | Server-only | `refund-gpt-triage` | Dedicated scheduler secret; never the OpenAI or service-role key | Technical owner |
 | `REFUND_GPT_TRIAGE_ENABLED` | Server-only | `refund-gpt-triage` | Default `false`; independent Edge kill switch | Release owner |
@@ -111,7 +112,7 @@ Security rule:
   - [ ] `npm run lint --if-present`
 - [ ] `npm run db:validate-migrations` passes before any production Supabase migration push.
 - [ ] `npm run refunds:validate-gmail` passes, and Gmail retention/quarantine approval is recorded in `Docs/REFUND_GMAIL_DATA_HANDLING.md` before Gmail enablement.
-- [ ] `npm run refunds:validate-gpt-triage` passes. Confirm the production OpenAI credential is not configured and the GitHub, Edge, and database GPT switches remain false until the approvals and sanitized evaluation in `Docs/REFUND_GPT_TRIAGE.md` pass.
+- [ ] `npm run refunds:validate-gpt-triage` passes. Confirm the production OpenAI credential is not configured, `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false`, and the GitHub, Edge, and database GPT switches remain false until the approvals and sanitized evaluation in `Docs/REFUND_GPT_TRIAGE.md` pass.
 - [ ] `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
@@ -300,11 +301,11 @@ Refund Gmail intake validation:
 
 Refund GPT triage validation:
 - Apply both GPT triage migrations and deploy `refund-gpt-triage`, the updated refund message function, and the frontend while `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, `REFUND_GPT_TRIAGE_ENABLED=false`, and `refund_gpt_triage_settings.enabled=false`.
-- Configure the production OpenAI key only as a Supabase server secret after `#635` approves that destination. Do not copy the local developer `.env.local` into GitHub Actions or a tracked file. Run `npm run refunds:preflight-gpt-triage -- --project-ref <project-ref>` to verify required secret names without printing values.
+- Configure the production OpenAI key only as a Supabase server secret after `#635` approves that destination. The same issue must record the exact OpenAI project data-control mode and privacy/security approval; `store=false` prevents response application-state storage but does not by itself eliminate the provider's default abuse-monitoring retention. Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists. Do not copy the local developer `.env.local` into GitHub Actions or a tracked file. Run `npm run refunds:preflight-gpt-triage -- --project-ref <project-ref>` to verify required secret names without printing values.
 - Run `npm run refunds:validate-gpt-triage`, the full migration test suite, and Refund portal UAT. The provider suite is mocked and proves `store=false`, strict schema, no tools, key exclusion from request bodies, and fail-closed refusal/HTTP/timeout/schema/configuration paths without incurring an API call.
-- Manually dispatch `failure_test` while the Edge switch remains false and confirm aggregate-only failure output. Then, only with approved sanitized content, set the Edge and database switches true for a bounded manual evaluation. Confirm one latest-message job, no automatic retry, stale-suggestion superseding, editable manager review, rejection sends nothing, and policy-sensitive input exposes no GPT draft or send action.
+- Manually dispatch `failure_test` while the acknowledgement and Edge switch remain false and confirm aggregate-only failure output. Then, only with approved sanitized content and a recorded OpenAI project retention decision, set `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=true` plus the Edge and database switches true for a bounded manual evaluation. Confirm one latest-message job, no automatic retry, stale-suggestion superseding, editable manager review, rejection sends nothing, and policy-sensitive input exposes no GPT draft or send action.
 - During the human-reviewed pilot, require the thresholds in `Docs/REFUND_GPT_TRIAGE.md`, retain reviewer outcomes, and stop immediately on any unsafe draft. Automatic sending remains structurally prohibited by the database.
-- Quick disable: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then `refund_gpt_triage_settings.enabled=false`. Verify Gmail/form-created cases and deterministic missing-information replies still work; preserve job/audit rows and allow the bounded content purges to continue.
+- Quick disable: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then `refund_gpt_triage_settings.enabled=false`, and reset `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` when the approval window ends. Verify Gmail/form-created cases and deterministic missing-information replies still work; preserve job/audit rows and allow the bounded content purges to continue.
 
 ### Step D: Configure Stripe webhook endpoint
 Stripe endpoint URL:

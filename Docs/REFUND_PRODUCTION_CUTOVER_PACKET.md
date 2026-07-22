@@ -86,7 +86,7 @@ Check switch values without printing secrets. A code deploy must not silently en
 7. Prove one reporting write-through and the negative controls.
 8. Enable and test automation only after its manual-run evidence passes; keep the quick-disable sequence ready.
 9. Enable Gmail only after `#634` approvals and synthetic thread evidence pass.
-10. Start GPT human-review evaluation only after the production Supabase secret destination and privacy controls in `#635` are approved. The local developer key is not production approval.
+10. Start GPT human-review evaluation only after the production Supabase secret destination and the exact OpenAI project retention/data-control mode in `#635` are approved. Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists, then set it only for the approved evaluation window. `store=false` is not zero-retention approval, and the local developer key is not production approval.
 11. Start live Nayax execution only after the separate `#430` decision. Use the approved low-value case, cohort, allowlist, and caps.
 
 ## Rollback and stop order

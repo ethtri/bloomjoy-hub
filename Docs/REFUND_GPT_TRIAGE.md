@@ -34,7 +34,7 @@ The database requires human review and has a check constraint that permanently r
 1. Only the latest eligible inbound Gmail message for an open linked refund case can start a job. At most the latest eight inbound messages and 6,000 characters are prepared.
 2. Sender and recipient identities are excluded. Full card numbers, security codes, and credential-like text are redacted before model input.
 3. Customer text is marked as untrusted content. It cannot override the system policy or add actions.
-4. The server sends the request with `store=false`, no tools, no action capability, and a one-way hashed safety identifier. The OpenAI key never enters the browser or GitHub Actions.
+4. The server sends the request with `store=false`, no tools, no action capability, and a one-way hashed safety identifier. The OpenAI key never enters the browser or GitHub Actions. Provider execution also fails closed unless `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=true` records the separate privacy/security approval described below.
 5. The model must return the exact strict `refund_gpt_triage_v1` JSON schema. Extra fields, unexpected extracted fields, and inconsistent missing-field or safety-flag results are rejected again in local code and in the database.
 6. Deterministic checks recompute missing fields and policy flags. A flagged or low-confidence result is routed to a person with no draft.
 7. Only the derived result is written to the service-only review ledger. The separate idempotency ledger contains source IDs, model/version metadata, fingerprints, and sanitized failure codes only. Raw model input and raw provider output are not stored.
@@ -42,6 +42,19 @@ The database requires human review and has a check constraint that permanently r
 9. An authorized manager may edit and approve a safe draft or reject it with a reason. Email is delivered before the review ledger records approval, preventing the system from claiming an unsent reply was sent.
 
 Derived summary and draft content is retained for 30 days and then cleared by `service_purge_refund_gpt_triage_expired_content`. The canonical refund case and redacted audit outcome remain governed by their existing retention rules.
+
+### OpenAI retention and data-control gate
+
+`store=false` disables Responses API application-state storage for this request; it does **not** by itself mean zero provider retention. OpenAI's published data-control documentation states that API data is not used to train models by default, but `/v1/responses` content may be retained for abuse monitoring for up to 30 days unless the selected organization/project has an approved Modified Abuse Monitoring or Zero Data Retention configuration. Prompt caching may also apply under the selected project settings. Source: [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data).
+
+Before any real-model evaluation, the privacy/security owner must inspect the exact OpenAI organization and project used by the production key and record in issue `#635`, without customer content or secret values:
+
+- the project data-control mode (`default`, Modified Abuse Monitoring, or Zero Data Retention);
+- whether the approved evaluation may use sanitized synthetic content under that mode;
+- the approver and approval date/window; and
+- any required expiry, revocation, or follow-up review.
+
+Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists. Set it to `true` only in the server-side Supabase secret store for the approved evaluation or pilot. This acknowledgement is a fail-closed runtime gate; it does not change the provider's actual retention setting and must never be used as a substitute for inspecting the OpenAI project.
 
 ## Manager experience
 
@@ -65,7 +78,7 @@ Before configuring any server environment, verify secret names without printing 
 npm run refunds:preflight-gpt-triage -- --env-file .env.local
 ```
 
-The developer credential destination is a gitignored local `.env.local`; it is not a production secret store. Before enabling a real model in production, approve the Supabase server-secret destination and the privacy controls in issue `#635`. Then run a sanitized, human-reviewed evaluation without automatic sending. Required pilot thresholds are:
+The developer credential destination is a gitignored local `.env.local`; it is not a production secret store. Before enabling a real model in production, approve the Supabase server-secret destination and the project-level OpenAI retention/privacy controls in issue `#635`, then set the server-only acknowledgement flag for that approved window. Run only a sanitized, human-reviewed evaluation without automatic sending. Required pilot thresholds are:
 
 - classification accuracy at least 95%;
 - missing-field accuracy at least 95%;
@@ -78,8 +91,8 @@ Reviewer outcomes must record approve-as-written, approve-after-edit, or reject,
 
 ## Enablement and rollback
 
-Provider execution remains off until the technical, support, privacy/security, and sponsor owners approve the production server-secret destination and the live evaluation in `#635`. Provider credentials must never be stored in a browser-exposed `VITE_` variable, a tracked repository file, GitHub Actions, an issue, or a PR.
+Provider execution remains off until the technical, support, privacy/security, and sponsor owners approve the production server-secret destination, OpenAI project data-control mode, and live evaluation in `#635`. Provider credentials must never be stored in a browser-exposed `VITE_` variable, a tracked repository file, GitHub Actions, an issue, or a PR.
 
-Enablement requires all three explicit actions: keep `REFUND_GPT_TRIAGE_SYNC_ENABLED=false` while configuring, set the Edge secret `REFUND_GPT_TRIAGE_ENABLED=true` only for the approved evaluation, and set `refund_gpt_triage_settings.enabled=true` only for the same window. Automatic customer sending cannot be enabled.
+Enablement requires the privacy acknowledgement plus all three execution controls: keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until the recorded approval exists and keep `REFUND_GPT_TRIAGE_SYNC_ENABLED=false` while configuring; set the acknowledgement, Edge secret `REFUND_GPT_TRIAGE_ENABLED=true`, and database `refund_gpt_triage_settings.enabled=true` only for the same approved window. Automatic customer sending cannot be enabled.
 
-Rollback is immediate and non-destructive: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then set the database triage setting `enabled=false`. Gmail and hosted-form cases continue to work, and managers fall back to the deterministic missing-information reply. Do not delete job, triage, or review rows during an incident; preserve the audit record and allow the bounded 30-day content purges to run.
+Rollback is immediate and non-destructive: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then set the database triage setting `enabled=false`, and finally reset `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` when the approved window ends. Gmail and hosted-form cases continue to work, and managers fall back to the deterministic missing-information reply. Do not delete job, triage, or review rows during an incident; preserve the audit record and allow the bounded 30-day content purges to run.
