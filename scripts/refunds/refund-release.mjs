@@ -19,6 +19,7 @@ export const requiredFunctionSlugs = [
   'refund-case-admin-update',
   'refund-case-message-send',
   'refund-case-automation-sweep',
+  'refund-gmail-sync',
   'nayax-card-refund',
 ];
 
@@ -316,6 +317,17 @@ export const validateManifestShape = (manifest, { allowPending = false } = {}) =
     'approvedRestoreSource function allowlist is invalid'
   );
   for (const entry of approvedRestoreSource.functions) {
+    if (entry.restoreAction === 'disable') {
+      assert(
+        entry.sourceSha256 === undefined,
+        `approvedRestoreSource disable-only entry must not include a source digest for ${entry.slug}`
+      );
+      continue;
+    }
+    assert(
+      entry.restoreAction === undefined || entry.restoreAction === 'redeploy',
+      `approvedRestoreSource restore action is invalid for ${entry.slug}`
+    );
     assert(digestPattern.test(entry.sourceSha256 ?? ''), `approvedRestoreSource source digest is invalid for ${entry.slug}`);
   }
 
@@ -388,6 +400,7 @@ export const buildLocalReleaseState = (rootDirectory, manifest) => {
 
 export const validateApprovedRestoreSource = (rootDirectory, manifest) => {
   for (const entry of manifest.approvedRestoreSource.functions) {
+    if (entry.restoreAction === 'disable') continue;
     const committedSource = calculateFunctionSourceAtGitCommit(
       rootDirectory,
       manifest.approvedRestoreSource.sourceGitCommit,

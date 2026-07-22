@@ -105,7 +105,7 @@ Security rule:
 - [ ] `npm run refunds:preflight-gmail -- --project-ref <project-ref>` passes secret-name presence checks without printing values.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
-- [ ] `npm run refunds:release:check` confirms that the six Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
+- [ ] `npm run refunds:release:check` confirms that the seven Refund Operations functions, required migrations, and `verify_jwt` settings match the approved release manifest.
 - [ ] Before deployment, `supabase db push --dry-run` reports exactly the reviewed pending migration set and no unexpected migration. Save the sanitized command result; the Edge Function drift check does not prove remote migration parity.
 - [ ] Supabase production backup/snapshot confirmed before applying new migrations.
 - [ ] Stripe products/prices verified (`STRIPE_SUGAR_MEMBER_PRICE_ID`, `STRIPE_SUGAR_NON_MEMBER_PRICE_ID`, `STRIPE_STICKS_PRICE_ID`, `STRIPE_STICKS_MEMBER_PRICE_ID`, `STRIPE_PLUS_PRICE_ID`).
@@ -220,7 +220,7 @@ Before deploying reporting functions, confirm Step B has completed and `supabase
 
 After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the six explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
+Before deploying Refund Operations functions, run `npm run refunds:release:check`. Deploy only the seven explicitly listed refund functions from the reviewed release worktree. Keep Nayax execution fail-closed and keep `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` unset unless issue `#430` contains the explicit sponsor approval.
 
 ```bash
 supabase functions deploy stripe-sugar-checkout --no-verify-jwt
@@ -248,17 +248,17 @@ supabase functions deploy refund-gmail-sync --no-verify-jwt
 supabase functions deploy nayax-card-refund --no-verify-jwt
 ```
 
-After deploying the six Refund Operations functions:
+After deploying the seven Refund Operations functions:
 
 1. Capture only the sanitized production metadata under the gitignored `output/` directory. Capture downloads each deployed source bundle to an operating-system temporary directory, verifies its normalized transitive source digest against the reviewed manifest, and removes the temporary copy before succeeding:
    - `npm run refunds:release:capture-production -- --project-ref <project-ref> --confirm-project-ref <project-ref> --output output/refund-production-release.json`
 2. Review each function's `ACTIVE` status, version, `verify_jwt`, bundle digest, and approved source digest.
 3. Update `scripts/refunds/refund-production-release.json` through a reviewed PR. Do not treat the capture as automatic approval.
-4. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all six functions to pass.
+4. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all seven functions to pass.
 5. Run the refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 Supabase function version numbers are audit evidence, not rollback targets. A rollback redeploy creates a new version number.
-The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` is a separately validated, immutable six-function source set chosen for restoration because the old live baseline is incomplete.
+The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` validates the immutable known-good source for every existing core function; a newly introduced disable-only function such as `refund-gmail-sync` records `restoreAction=disable` and uses its documented switch-off procedure instead of pretending an older deployed source existed.
 
 Refund sync validation:
 - First run the `Refund Adjustment Sync` workflow manually with `dry_run=true`. The workflow should print aggregate counts only.

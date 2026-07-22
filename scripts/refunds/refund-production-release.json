@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-07-21",
-  "sourceGitCommit": "d73fd219d41184ee15e9ae77508e91f2baaca4b6",
+  "releaseId": "refund-ops-2026-07-21-integrated",
+  "sourceGitCommit": "pending",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -21,10 +21,14 @@
     "20260515195500_refund_manager_rescue_overview.sql",
     "202605160001_refund_nayax_execution_manager_authorization.sql",
     "202607210001_refund_public_location_label_guard.sql",
-    "202607210002_refund_manager_location_label_guard.sql"
+    "202607210002_refund_manager_location_label_guard.sql",
+    "202607210003_refund_nayax_recommendation_state.sql",
+    "202607210004_refund_cash_completion_audit.sql",
+    "202607210005_refund_automation_scheduler_health.sql",
+    "202607210006_refund_gmail_thread_linkage.sql"
   ],
-  "migrationFilesSha256": "138bac61a3d98864739cbfee5521c07ce65f759332128619eb2074ace8209039",
-  "migrationVersionSetSha256": "d98e7d892941319117ea83ec5dfd0b582ff68f82268073719b8b472891db5caf",
+  "migrationFilesSha256": "pending",
+  "migrationVersionSetSha256": "pending",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -54,6 +58,12 @@
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
       "sourceSha256": "a663579c6175ba8776bc9e0d50c81c221f9647a5faffdb9b48845d64df95f585",
+      "production": null
+    },
+    {
+      "slug": "refund-gmail-sync",
+      "verifyJwt": false,
+      "sourceSha256": "pending",
       "production": null
     },
     {
@@ -106,6 +116,10 @@
       "sourceSha256": "6fd596df0eb24cbd06a5a82fa492c34c9f1775e13c7053299f091aa42d72e2fb"
     },
     {
+      "slug": "refund-gmail-sync",
+      "status": "MISSING"
+    },
+    {
       "slug": "nayax-card-refund",
       "status": "ACTIVE",
       "version": 1,
@@ -140,6 +154,10 @@
       {
         "slug": "refund-case-automation-sweep",
         "sourceSha256": "679f22c2ca46465bb698335272e5e679d12dc77d400eadd034db012bd88f2806"
+      },
+      {
+        "slug": "refund-gmail-sync",
+        "restoreAction": "disable"
       },
       {
         "slug": "nayax-card-refund",

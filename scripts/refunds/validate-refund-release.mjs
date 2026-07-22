@@ -106,6 +106,25 @@ try {
   validateManifestShape(shapeManifest);
   assert.equal(buildLocalReleaseState(fixtureRoot, shapeManifest).functions.length, requiredFunctionSlugs.length);
 
+  const disableOnlySlug = 'refund-gmail-sync';
+  const disableOnlyIndex = requiredFunctionSlugs.indexOf(disableOnlySlug);
+  assert.notEqual(disableOnlyIndex, -1, 'Gmail sync must be covered by the refund release allowlist');
+  const disableOnlyRestoreManifest = structuredClone(shapeManifest);
+  disableOnlyRestoreManifest.approvedRestoreSource.functions[disableOnlyIndex] = {
+    slug: disableOnlySlug,
+    restoreAction: 'disable',
+  };
+  validateManifestShape(disableOnlyRestoreManifest);
+
+  const invalidDisableRestoreManifest = structuredClone(disableOnlyRestoreManifest);
+  invalidDisableRestoreManifest.approvedRestoreSource.functions[disableOnlyIndex].sourceSha256 =
+    'a'.repeat(64);
+  assert.throws(
+    () => validateManifestShape(invalidDisableRestoreManifest),
+    /disable-only entry must not include a source digest/,
+    'Disable-only restore entries must not pretend a previous function source existed'
+  );
+
   fs.writeFileSync(path.join(migrationsRoot, '202601010004_refund_unlisted.sql'), 'select true;\n', 'utf8');
   assert.throws(
     () => buildLocalReleaseState(fixtureRoot, shapeManifest),

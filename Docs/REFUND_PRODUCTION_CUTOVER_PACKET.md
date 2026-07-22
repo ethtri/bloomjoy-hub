@@ -28,7 +28,7 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 2. Merge `#636` first so release/drift tooling is available on `main`.
 3. Sync `#637` with current `main`, resolve overlap, commit the code/migration changes, run `npm run refunds:release:write-local`, review and commit the manifest update, run the full verification profile, then merge.
 4. Repeat that sync, manifest, verification, and merge cycle for `#638`, `#639`, `#640`, and `#641`.
-5. Before `#641` merges, extend the release-tool function allowlist and manifest to cover `refund-gmail-sync`; the six-function core manifest from `#636` does not by itself prove the Gmail function deployed correctly. Apply the same rule to any later GPT server function.
+5. Before `#641` merges, confirm the integrated release-tool allowlist and manifest cover `refund-gmail-sync`; the six-function core manifest from `#636` does not by itself prove the Gmail function deployed correctly. Apply the same rule to any later GPT server function.
 6. Do not deploy from an individual PR head. Use the final integrated `main` commit only.
 7. On that final commit, require:
 
