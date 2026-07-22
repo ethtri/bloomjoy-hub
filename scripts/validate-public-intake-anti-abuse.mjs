@@ -4,10 +4,18 @@ const files = {
   helper: 'supabase/functions/_shared/public-intake-abuse-controls.ts',
   intakeFunction: 'supabase/functions/lead-submission-intake/index.ts',
   refundIntakeFunction: 'supabase/functions/refund-case-intake/index.ts',
+  refundLocationHelper: 'supabase/functions/_shared/refund-location.ts',
+  refundEmailHelper: 'supabase/functions/_shared/refund-email.ts',
+  refundAdminUpdate: 'supabase/functions/refund-case-admin-update/index.ts',
+  refundMessageSend: 'supabase/functions/refund-case-message-send/index.ts',
+  refundAutomationSweep: 'supabase/functions/refund-case-automation-sweep/index.ts',
   migration: 'supabase/migrations/202604290003_public_intake_anti_abuse.sql',
   globalKeyMigration: 'supabase/migrations/202604290004_public_intake_global_key_type.sql',
   refundMigration: 'supabase/migrations/202605090001_refund_operations_mvp.sql',
   refundScopeHardeningMigration: 'supabase/migrations/202605130003_refund_scope_and_readiness_hardening.sql',
+  refundPublicLocationGuardMigration: 'supabase/migrations/202607210001_refund_public_location_label_guard.sql',
+  refundManagerLocationGuardMigration: 'supabase/migrations/202607210002_refund_manager_location_label_guard.sql',
+  refundRequestPage: 'src/pages/RefundRequest.tsx',
   productionRunbook: 'Docs/PRODUCTION_RUNBOOK.md',
   localDev: 'Docs/LOCAL_DEV.md',
 };
@@ -17,10 +25,18 @@ const read = (path) => readFileSync(path, 'utf8');
 const helper = read(files.helper);
 const intakeFunction = read(files.intakeFunction);
 const refundIntakeFunction = read(files.refundIntakeFunction);
+const refundLocationHelper = read(files.refundLocationHelper);
+const refundEmailHelper = read(files.refundEmailHelper);
+const refundAdminUpdate = read(files.refundAdminUpdate);
+const refundMessageSend = read(files.refundMessageSend);
+const refundAutomationSweep = read(files.refundAutomationSweep);
 const migration = read(files.migration);
 const globalKeyMigration = read(files.globalKeyMigration);
 const refundMigration = read(files.refundMigration);
 const refundScopeHardeningMigration = read(files.refundScopeHardeningMigration);
+const refundPublicLocationGuardMigration = read(files.refundPublicLocationGuardMigration);
+const refundManagerLocationGuardMigration = read(files.refundManagerLocationGuardMigration);
+const refundRequestPage = read(files.refundRequestPage);
 const productionRunbook = read(files.productionRunbook);
 const localDev = read(files.localDev);
 
@@ -250,6 +266,39 @@ assert(
   refundScopeHardeningMigration.includes('Assign at least one Machine Manager') &&
     refundScopeHardeningMigration.includes('Nayax machine ID is required'),
   'Refund intake enablement must require Machine Manager and Nayax readiness.'
+);
+assert(
+  refundPublicLocationGuardMigration.includes("lower(trim(location.name)) like 'unmapped %'") &&
+    refundPublicLocationGuardMigration.includes("lower(trim(location.name)) like 'unknown %'") &&
+    refundPublicLocationGuardMigration.includes("or nullif(trim(machine.refund_public_display_label), '') is not null") &&
+    refundPublicLocationGuardMigration.includes('then trim(machine.refund_public_display_label)'),
+  'Placeholder refund locations must require an explicit customer-facing label.'
+);
+assert(
+  refundLocationHelper.includes('isPlaceholderRefundLocation') &&
+    refundLocationHelper.includes('explicitPublicLabel || "Bloomjoy location"') &&
+    refundEmailHelper.includes('resolveRefundPublicLabels'),
+  'Refund email builders must replace placeholder location names with customer-safe text.'
+);
+assert(
+  refundIntakeFunction.includes('!machineRecord.refund_public_display_label?.trim()') &&
+    refundIntakeFunction.includes('locationRecord?.status !== "active"') &&
+    refundIntakeFunction.includes('That location is not available for refund intake.') &&
+    [refundIntakeFunction, refundAdminUpdate, refundMessageSend, refundAutomationSweep]
+      .every((source) => source.includes('resolveRefundPublicLabels')),
+  'Direct intake and every refund messaging path must fail closed or resolve customer-safe labels.'
+);
+assert(
+  refundManagerLocationGuardMigration.includes("'locationName', case") &&
+    refundManagerLocationGuardMigration.includes("'Bloomjoy location'") &&
+    refundManagerLocationGuardMigration.includes('refund_public_display_label'),
+  'The manager workbench overview must not expose internal placeholder locations.'
+);
+assert(
+  refundRequestPage.includes('formatMachineOption') &&
+    refundRequestPage.includes('locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()') &&
+    refundRequestPage.includes('Selected: ${formatMachineOption('),
+  'The public refund form must not repeat identical location and machine labels.'
 );
 
 console.log('Public intake anti-abuse validation passed.');

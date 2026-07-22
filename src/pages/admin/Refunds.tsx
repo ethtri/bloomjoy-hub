@@ -197,6 +197,11 @@ const formatCurrency = (cents: number | null) => {
   }).format(cents / 100);
 };
 
+const formatRefundMachineLocation = (locationName: string, machineLabel: string) =>
+  locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()
+    ? machineLabel
+    : `${locationName} - ${machineLabel}`;
+
 const formatMessageAmount = (refundCase: RefundCaseRecord) =>
   formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents);
 
@@ -1842,7 +1847,7 @@ export default function AdminRefundsPage() {
                         </Badge>
                       </div>
                       <div className="mt-2 text-xs text-muted-foreground">
-                        {refundCase.locationName} - {refundCase.machineLabel}
+                        {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
                       </div>
                       <div className="mt-3 grid gap-2 text-xs text-muted-foreground min-[380px]:grid-cols-2">
                         <div>
@@ -1944,7 +1949,7 @@ export default function AdminRefundsPage() {
                             {refundCase.customerEmail}
                           </div>
                           <div className="mt-1 truncate text-xs text-muted-foreground">
-                            {refundCase.locationName} - {refundCase.machineLabel}
+                            {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
                           </div>
                           <div className="mt-1 text-xs font-medium text-foreground">
                             {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
@@ -2103,7 +2108,7 @@ export default function AdminRefundsPage() {
                       </div>
                       <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
                         <p className="font-medium text-foreground">
-                          {selectedCase.locationName} - {selectedCase.machineLabel}
+                          {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)}
                         </p>
                         <p className="mt-1 text-muted-foreground">
                           Incident: {formatDate(selectedCase.incidentAt)}

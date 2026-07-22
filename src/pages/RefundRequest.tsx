@@ -48,6 +48,30 @@ const buildIncidentIso = (incidentDate: string, incidentTime: string) => {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString();
 };
 
+const isPlaceholderRefundLocationLabel = (value: string) => {
+  const normalized = value.trim().toLocaleLowerCase();
+
+  return normalized === 'unmapped'
+    || normalized === 'unknown'
+    || normalized.startsWith('unmapped ')
+    || normalized.startsWith('unknown ');
+};
+
+const formatMachineOption = (locationName: string, machineLabel: string) => {
+  const normalizedLocationName = locationName.trim();
+  const normalizedMachineLabel = machineLabel.trim();
+
+  if (
+    !normalizedLocationName
+    || isPlaceholderRefundLocationLabel(normalizedLocationName)
+    || normalizedLocationName.toLocaleLowerCase() === normalizedMachineLabel.toLocaleLowerCase()
+  ) {
+    return normalizedMachineLabel;
+  }
+
+  return `${normalizedLocationName} - ${normalizedMachineLabel}`;
+};
+
 export default function RefundRequestPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState(emptyForm);
@@ -241,7 +265,7 @@ export default function RefundRequestPage() {
                     </option>
                     {machines.map((machine) => (
                       <option key={machine.machineId} value={machine.machineId}>
-                        {machine.locationName} - {machine.machineLabel}
+                        {formatMachineOption(machine.locationName, machine.machineLabel)}
                       </option>
                     ))}
                   </select>
@@ -448,7 +472,7 @@ export default function RefundRequestPage() {
                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     <span>
                       {selectedMachine
-                        ? `Selected: ${selectedMachine.locationName} - ${selectedMachine.machineLabel}`
+                        ? `Selected: ${formatMachineOption(selectedMachine.locationName, selectedMachine.machineLabel)}`
                         : 'Your request goes to the Bloomjoy operations team.'}
                     </span>
                   </div>

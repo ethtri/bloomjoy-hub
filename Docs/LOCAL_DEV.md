@@ -413,6 +413,10 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Local env check: `npm run commerce:preflight`
    - Refund operations local env check: `npm run commerce:preflight -- --include-refunds`
    - Remote secret presence check: `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds`
+   - Refund release-tool tests: `npm run refunds:validate-release-tooling`
+   - Approved local refund release check: `npm run refunds:release:check`
+   - Read-only production drift check: `npm run refunds:release:check-production -- --project-ref <project-ref>`
+   - Scheduled production drift checks use the dedicated `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN` GitHub secret. Grant only Edge Function read access. Checks print only function names, versions, and short bundle-digest prefixes.
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
