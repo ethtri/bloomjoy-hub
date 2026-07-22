@@ -63,6 +63,14 @@ begin
     raise exception 'Cash refund completion requires a positive refund amount';
   end if;
 
+  if coalesce(before_row.payment_amount_cents, 0) <= 0 then
+    raise exception 'Confirm the customer payment amount before completing the cash refund';
+  end if;
+
+  if p_refund_amount_cents > before_row.payment_amount_cents then
+    raise exception 'Cash refund amount cannot exceed the recorded customer payment';
+  end if;
+
   if p_cash_payout_sent_at is null then
     raise exception 'Enter when the cash refund payment was sent';
   end if;
@@ -86,7 +94,7 @@ begin
 
   if normalized_reference ~* '(routing|account|card|bank|password|passcode|pin|cvv|security[[:space:]]*code)'
     or normalized_reference like '%@%'
-    or length(regexp_replace(normalized_reference, '[^0-9]', '', 'g')) >= 10 then
+    or length(regexp_replace(normalized_reference, '[^0-9]', '', 'g')) >= 8 then
     raise exception 'Do not enter bank, card, contact, or other sensitive payment details';
   end if;
 
