@@ -96,7 +96,23 @@ import {
 import { cn } from '@/lib/utils';
 
 type ReportingView = 'operator' | 'partner';
-type OperatorPeriodPreset = 'this_week' | 'last_week' | 'last_30_days' | 'month_to_date' | 'custom';
+type OperatorPeriodPreset =
+  | 'today'
+  | 'last_7_days'
+  | 'this_week'
+  | 'last_week'
+  | 'last_30_days'
+  | 'month_to_date'
+  | 'custom';
+type OperatorDailySalesRow = {
+  key: string;
+  label: string;
+  netSalesCents: number;
+  grossSalesCents: number;
+  refundAmountCents: number;
+  transactionCount: number;
+};
+type OperatorFreshnessState = 'fresh' | 'stale' | 'unavailable';
 type PartnerPeriodMode = PartnerDashboardPeriodMode;
 type PartnerPeriodOption = {
   key: string;
@@ -203,6 +219,18 @@ const startOfOperatorWeek = (date: Date) => {
 const getOperatorPresetRange = (preset: OperatorPeriodPreset) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  if (preset === 'today') {
+    return { dateFrom: toDateInput(today), dateTo: toDateInput(today), grain: 'day' as ReportGrain };
+  }
+
+  if (preset === 'last_7_days') {
+    return {
+      dateFrom: toDateInput(addDays(today, -6)),
+      dateTo: toDateInput(today),
+      grain: 'day' as ReportGrain,
+    };
+  }
 
   if (preset === 'this_week') {
     return { dateFrom: toDateInput(startOfOperatorWeek(today)), dateTo: toDateInput(today), grain: 'day' as ReportGrain };
@@ -582,6 +610,52 @@ const groupRows = <TKey extends string>(
   return [...groups.values()].sort((left, right) => right.netSalesCents - left.netSalesCents);
 };
 
+const buildOperatorDailyRows = (
+  rows: SalesReportRow[],
+  dateFrom: string,
+  dateTo: string
+): OperatorDailySalesRow[] => {
+  const startDate = parseDateInput(dateFrom);
+  const endDate = parseDateInput(dateTo);
+
+  if (
+    Number.isNaN(startDate.getTime()) ||
+    Number.isNaN(endDate.getTime()) ||
+    startDate.getTime() > endDate.getTime()
+  ) {
+    return [];
+  }
+
+  const totalsByDate = new Map(
+    groupRows(rows, (row) => row.periodStart, (row) => formatShortDate(row.periodStart)).map((row) => [
+      row.key,
+      row,
+    ])
+  );
+  const dailyRows: OperatorDailySalesRow[] = [];
+
+  for (let date = startDate; date.getTime() <= endDate.getTime(); date = addDays(date, 1)) {
+    const key = toDateInput(date);
+    const totals = totalsByDate.get(key);
+    dailyRows.push({
+      key,
+      label: formatDate(key),
+      netSalesCents: totals?.netSalesCents ?? 0,
+      grossSalesCents: totals?.grossSalesCents ?? 0,
+      refundAmountCents: totals?.refundAmountCents ?? 0,
+      transactionCount: totals?.transactionCount ?? 0,
+    });
+  }
+
+  return dailyRows;
+};
+
+const isOperatorDailyRowZero = (row: OperatorDailySalesRow) =>
+  row.netSalesCents === 0 &&
+  row.grossSalesCents === 0 &&
+  row.refundAmountCents === 0 &&
+  row.transactionCount === 0;
+
 export default function ReportsPage() {
   const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
   const { t } = useLanguage();
@@ -680,7 +754,10 @@ export default function ReportsPage() {
             {activeView === 'partner' && canUsePartnerDashboard ? (
               <PartnerDashboardView />
             ) : (
-              <OperatorReportingView accessContext={accessContext} />
+              <OperatorReportingView
+                accessContext={accessContext}
+                accessContextFetching={accessFetching}
+              />
             )}
           </div>
         </div>
@@ -689,7 +766,13 @@ export default function ReportsPage() {
   );
 }
 
-function OperatorReportingView({ accessContext }: { accessContext: ReportingAccessContext }) {
+function OperatorReportingView({
+  accessContext,
+  accessContextFetching,
+}: {
+  accessContext: ReportingAccessContext;
+  accessContextFetching: boolean;
+}) {
   const { t } = useLanguage();
   const operatorChartConfig = useMemo(
     () =>
@@ -752,15 +835,32 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
   const averageOrderCents =
     summary.transactionCount > 0 ? Math.round(summary.netSalesCents / summary.transactionCount) : 0;
 
+  const dailyRows = useMemo(
+    () => buildOperatorDailyRows(reportRows, dateFrom, dateTo),
+    [dateFrom, dateTo, reportRows]
+  );
+
+  const operatorFreshnessState = useMemo<OperatorFreshnessState>(() => {
+    if (!accessContext.latestImportCompletedAt) return 'unavailable';
+    const latestImport = new Date(accessContext.latestImportCompletedAt);
+    if (Number.isNaN(latestImport.getTime())) return 'unavailable';
+    return toDateInput(latestImport) < dateTo ? 'stale' : 'fresh';
+  }, [accessContext.latestImportCompletedAt, dateTo]);
+
   const chartRows = useMemo(
     () =>
-      groupRows(reportRows, (row) => row.periodStart, (row) => formatShortDate(row.periodStart))
-        .sort((left, right) => left.key.localeCompare(right.key))
-        .map((row) => ({
-          period: row.label,
-          netSales: row.netSalesCents / 100,
-        })),
-    [reportRows]
+      (grain === 'day'
+        ? dailyRows
+        : groupRows(
+            reportRows,
+            (row) => row.periodStart,
+            (row) => formatShortDate(row.periodStart)
+          ).sort((left, right) => left.key.localeCompare(right.key))
+      ).map((row) => ({
+        period: grain === 'day' ? formatShortDate(row.key) : row.label,
+        netSales: row.netSalesCents / 100,
+      })),
+    [dailyRows, grain, reportRows]
   );
 
   const machineRows = useMemo(
@@ -822,6 +922,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               <Button
                 onClick={exportPdf}
                 disabled={isExporting || reportRows.length === 0}
+                className="min-h-11"
                 data-portal-report-export="operator-pdf"
               >
                 {isExporting ? (
@@ -835,39 +936,47 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label>{t('reports.period')}</Label>
+              <Label id="operator-period-label">{t('reports.period')}</Label>
               <ToggleGroup
                 type="single"
                 value={periodPreset}
                 onValueChange={(value) => {
                   if (value) applyPeriodPreset(value as OperatorPeriodPreset);
                 }}
-                className="grid grid-cols-2 items-stretch rounded-lg border border-border bg-background p-1 sm:grid-cols-5"
+                aria-labelledby="operator-period-label"
+                className="grid grid-cols-2 items-stretch rounded-lg border border-border bg-background p-1 sm:grid-cols-4 xl:grid-cols-7"
               >
-                <ToggleGroupItem value="this_week" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="today" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
+                  {t('reports.today')}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="last_7_days" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
+                  {t('reports.last7Days')}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="this_week" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.thisWeek')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="last_week" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="last_week" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.lastWeek')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="last_30_days" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="last_30_days" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.last30Days')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="month_to_date" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="month_to_date" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.monthToDate')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="custom" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="custom" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.custom')}
                 </ToggleGroupItem>
               </ToggleGroup>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,1.5fr)]">
               <LabeledControl label={t('reports.from')}>
                 <Input
                   type="date"
+                  className="h-11 min-w-0"
                   value={dateFrom}
                   onChange={(event) => {
                     setDateFrom(event.target.value);
@@ -878,6 +987,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               <LabeledControl label={t('reports.to')}>
                 <Input
                   type="date"
+                  className="h-11 min-w-0"
                   value={dateTo}
                   onChange={(event) => {
                     setDateTo(event.target.value);
@@ -885,27 +995,36 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                   }}
                 />
               </LabeledControl>
-              <LabeledControl label={t('reports.view')}>
-                <Select value={grain} onValueChange={(value) => setGrain(value as ReportGrain)}>
-                  <SelectTrigger className="min-w-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="day">{t('reports.daily')}</SelectItem>
-                      <SelectItem value="week">{t('reports.weekly')}</SelectItem>
-                      <SelectItem value="month">{t('reports.monthly')}</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </LabeledControl>
+              <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-1">
+                <Label id="operator-breakdown-label">{t('reports.breakdown')}</Label>
+                <ToggleGroup
+                  type="single"
+                  value={grain}
+                  onValueChange={(value) => {
+                    if (value) setGrain(value as ReportGrain);
+                  }}
+                  aria-labelledby="operator-breakdown-label"
+                  data-reporting-operator-breakdown
+                  className="grid grid-cols-3 rounded-lg border border-border bg-background p-1"
+                >
+                  <ToggleGroupItem value="day" className="min-h-11 rounded-md px-2 text-sm">
+                    {t('reports.daily')}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="week" className="min-h-11 rounded-md px-2 text-sm">
+                    {t('reports.weekly')}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="month" className="min-h-11 rounded-md px-2 text-sm">
+                    {t('reports.monthly')}
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
             </div>
           </div>
 
           <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
             <LabeledControl label={t('reports.machine')}>
               <Select value={machineId} onValueChange={setMachineId}>
-                <SelectTrigger className="min-w-0">
+                <SelectTrigger className="h-11 min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -922,18 +1041,19 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
             </LabeledControl>
 
             <div className="flex flex-col gap-2">
-              <Label>{t('reports.payment')}</Label>
+              <Label id="operator-payment-label">{t('reports.payment')}</Label>
               <ToggleGroup
                 type="multiple"
                 value={selectedPayments}
                 onValueChange={(value) => setSelectedPayments(value as PaymentMethod[])}
+                aria-labelledby="operator-payment-label"
                 className="grid grid-cols-2 rounded-lg border border-border bg-background p-1 sm:grid-cols-4"
               >
                 {paymentMethods.map((paymentMethod) => (
                   <ToggleGroupItem
                     key={paymentMethod}
                     value={paymentMethod}
-                    className="h-9 rounded-md text-sm"
+                    className="min-h-11 rounded-md text-sm"
                   >
                     {t(paymentMethodLabelKeys[paymentMethod])}
                   </ToggleGroupItem>
@@ -944,7 +1064,10 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div
+        className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+        data-reporting-operator-metrics
+      >
         {isLoading ? (
           <>
             <MetricSkeleton />
@@ -956,17 +1079,17 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           <>
             <MetricCard
               label={t('reports.netSales')}
-              value={formatCurrency(summary.netSalesCents)}
-              context={t('reports.averageOrder', { value: formatCurrency(averageOrderCents) })}
+              value={formatCurrency(summary.netSalesCents, true)}
+              context={t('reports.averageOrder', { value: formatCurrency(averageOrderCents, true) })}
             />
             <MetricCard
               label={t('reports.grossSales')}
-              value={formatCurrency(summary.grossSalesCents)}
+              value={formatCurrency(summary.grossSalesCents, true)}
               context={t('reports.netPlusRefunds')}
             />
             <MetricCard
               label={t('reports.refundImpact')}
-              value={formatCurrency(summary.refundAmountCents)}
+              value={formatCurrency(summary.refundAmountCents, true)}
               context={t('reports.addedBackGross')}
             />
             <MetricCard
@@ -977,6 +1100,121 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           </>
         )}
       </div>
+
+      {grain === 'day' && (
+        <Card className="min-w-0" data-reporting-operator-daily-sales>
+          <CardHeader className="gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="text-xl">{t('reports.dailySales')}</CardTitle>
+                <CardDescription>{t('reports.dailySalesDescription')}</CardDescription>
+              </div>
+              <Badge
+                variant="outline"
+                className="max-w-full whitespace-normal text-left font-normal leading-snug sm:w-fit sm:shrink-0"
+                data-reporting-operator-freshness-state={operatorFreshnessState}
+              >
+                {accessContextFetching
+                  ? t('reports.checkingImportFreshness')
+                  : operatorFreshnessState === 'unavailable'
+                    ? t('reports.importFreshnessUnavailable')
+                    : t('reports.lastImport', {
+                        date: formatDateTime(accessContext.latestImportCompletedAt),
+                      })}
+              </Badge>
+            </div>
+            {isFetching && !isLoading && (
+              <div className="text-sm text-muted-foreground" role="status">
+                {t('reports.updatingDailyTotals')}
+              </div>
+            )}
+          </CardHeader>
+          <CardContent>
+            {isLoading || accessContextFetching ? (
+              <div className="space-y-3" aria-label="Loading daily sales">
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-20 w-full" />
+              </div>
+            ) : hasLoadError ? (
+              <EmptyPanel
+                title={t('reports.dailySalesUnavailable')}
+                description={t('reports.dailySalesUnavailableDescription')}
+              />
+            ) : dailyRows.length === 0 ? (
+              <EmptyPanel
+                title={t('reports.chooseValidDateRange')}
+                description={t('reports.chooseValidDateRangeDescription')}
+              />
+            ) : (
+              <>
+                {operatorFreshnessState !== 'fresh' && (
+                  <Alert className="mb-4 border-amber/40 bg-amber/5">
+                    <Info className="h-4 w-4 text-amber" />
+                    <AlertTitle>
+                      {operatorFreshnessState === 'stale'
+                        ? t('reports.selectedRangeBeyondImport')
+                        : t('reports.importFreshnessUnavailable')}
+                    </AlertTitle>
+                    <AlertDescription>
+                      {t('reports.loadedTotalsIncomplete')}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <div className="flex flex-col gap-3 md:hidden">
+                  {dailyRows.map((row) => (
+                    <OperatorDailySalesMobileCard key={row.key} row={row} />
+                  ))}
+                </div>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table className="min-w-[760px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('reports.date')}</TableHead>
+                        <TableHead>{t('reports.status')}</TableHead>
+                        <TableHead className="text-right">{t('reports.netSales')}</TableHead>
+                        <TableHead className="text-right">{t('reports.grossSales')}</TableHead>
+                        <TableHead className="text-right">{t('reports.refundImpact')}</TableHead>
+                        <TableHead className="text-right">{t('reports.transactions')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dailyRows.map((row) => (
+                        <TableRow
+                          key={row.key}
+                          data-reporting-daily-row
+                          data-date={row.key}
+                        >
+                          <TableCell className="font-medium">{row.label}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="whitespace-nowrap font-normal">
+                              {isOperatorDailyRowZero(row)
+                                ? t('reports.noSalesLoaded')
+                                : t('reports.salesRecorded')}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatCurrency(row.netSalesCents, true)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatCurrency(row.grossSalesCents, true)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatCurrency(row.refundAmountCents, true)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {numberFormatter.format(row.transactionCount)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <Card>
@@ -1030,8 +1268,8 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                     key={row.key}
                     label={row.label}
                     context={`${row.transactionCount.toLocaleString()} ${t('reports.transactions').toLowerCase()}`}
-                    primary={formatCurrency(row.netSalesCents)}
-                    secondary={`${t('reports.grossSales')} ${formatCurrency(row.grossSalesCents)}`}
+                    primary={formatCurrency(row.netSalesCents, true)}
+                    secondary={`${t('reports.grossSales')} ${formatCurrency(row.grossSalesCents, true)}`}
                   />
                 ))}
               </div>
@@ -1061,7 +1299,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                 ))}
               </div>
               <div className="hidden overflow-x-auto md:block">
-                <Table className="min-w-[600px]">
+                <Table className="min-w-[820px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('reports.period')}</TableHead>
@@ -1069,6 +1307,8 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                       <TableHead>{t('reports.payment')}</TableHead>
                       <TableHead className="text-right">{t('reports.netSales')}</TableHead>
                       <TableHead className="text-right">{t('reports.grossSales')}</TableHead>
+                      <TableHead className="text-right">{t('reports.refundImpact')}</TableHead>
+                      <TableHead className="text-right">{t('reports.transactions')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1079,8 +1319,18 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                         <TableCell className="text-muted-foreground">
                           {t(paymentMethodLabelKeys[row.paymentMethod])}
                         </TableCell>
-                        <TableCell className="text-right">{formatCurrency(row.netSalesCents)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(row.grossSalesCents)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(row.netSalesCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(row.grossSalesCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(row.refundAmountCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {numberFormatter.format(row.transactionCount)}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -2777,6 +3027,49 @@ function MachineSummaryRow({
   );
 }
 
+function OperatorDailySalesMobileCard({ row }: { row: OperatorDailySalesRow }) {
+  const { t } = useLanguage();
+  const isZeroSales = isOperatorDailyRowZero(row);
+
+  return (
+    <div
+      className="rounded-lg border border-border bg-background p-4"
+      aria-label={`${t('reports.dailySales')}: ${row.label}`}
+      data-reporting-daily-row
+      data-date={row.key}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="font-medium text-foreground">{row.label}</div>
+        <Badge variant="outline" className="max-w-full whitespace-normal text-left font-normal leading-snug">
+          {isZeroSales ? t('reports.noSalesLoaded') : t('reports.salesRecorded')}
+        </Badge>
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm min-[390px]:grid-cols-2">
+        <MobileProofItem
+          label={t('reports.netSales')}
+          value={formatCurrency(row.netSalesCents, true)}
+          detail={t('reports.afterRefundAdjustments')}
+        />
+        <MobileProofItem
+          label={t('reports.grossSales')}
+          value={formatCurrency(row.grossSalesCents, true)}
+          detail={t('reports.beforeRefundAdjustments')}
+        />
+        <MobileProofItem
+          label={t('reports.refundImpact')}
+          value={formatCurrency(row.refundAmountCents, true)}
+          detail={t('reports.appliedToDate')}
+        />
+        <MobileProofItem
+          label={t('reports.transactions')}
+          value={numberFormatter.format(row.transactionCount)}
+          detail={t('reports.ordersCounted')}
+        />
+      </div>
+    </div>
+  );
+}
+
 function OperatorReportRowMobileCard({ row }: { row: SalesReportRow }) {
   const { t } = useLanguage();
 
@@ -2796,12 +3089,12 @@ function OperatorReportRowMobileCard({ row }: { row: SalesReportRow }) {
       <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
           label={t('reports.netSales')}
-          value={formatCurrency(row.netSalesCents)}
+          value={formatCurrency(row.netSalesCents, true)}
           detail={`${numberFormatter.format(row.transactionCount)} ${t('reports.transactions').toLowerCase()}`}
         />
         <MobileProofItem
           label={t('reports.grossSales')}
-          value={formatCurrency(row.grossSalesCents)}
+          value={formatCurrency(row.grossSalesCents, true)}
           detail={`${t('reports.refundImpact')} ${formatCurrency(row.refundAmountCents, true)}`}
         />
       </div>
