@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import {
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
@@ -10,6 +12,8 @@ import {
   sanitizeRefundMessageType,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
+import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
+import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -41,12 +45,24 @@ type RefundCaseRow = {
   public_reference: string;
   customer_email: string;
   customer_name: string | null;
-  payment_method: string;
+  payment_method: string | null;
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
   decision_reason: string | null;
-  reporting_machines?: OneOrMany<{ machine_label: string | null }>;
+  reporting_machines?: OneOrMany<{
+    machine_label: string | null;
+    refund_public_display_label: string | null;
+  }>;
   reporting_locations?: OneOrMany<{ name: string | null }>;
+};
+
+type RefundGptTriageRow = {
+  id: string;
+  refund_case_id: string;
+  status: string;
+  route: string;
+  policy_flags: string[];
+  missing_fields: string[];
 };
 
 const firstRelation = <T>(value: OneOrMany<T>) =>
@@ -69,7 +85,7 @@ const selectCaseQuery = `
   payment_amount_cents,
   refund_amount_cents,
   decision_reason,
-  reporting_machines(machine_label),
+  reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
 
@@ -151,6 +167,30 @@ serve(async (req) => {
       return jsonResponse({ error: "Choose an approved customer message template." }, 400);
     }
 
+    const triageSuggestionId = sanitizeText(body?.triageSuggestionId, 80);
+    let triageSuggestion: RefundGptTriageRow | null = null;
+    if (triageSuggestionId) {
+      if (!isUuid(triageSuggestionId) || messageType !== "more_info") {
+        return jsonResponse({ error: "Valid missing-information triage review required." }, 400);
+      }
+      const { data: triageData, error: triageError } = await supabase
+        .from("refund_gpt_triage_runs")
+        .select("id, refund_case_id, status, route, policy_flags, missing_fields")
+        .eq("id", triageSuggestionId)
+        .eq("refund_case_id", caseId)
+        .maybeSingle();
+      if (triageError) throw triageError;
+      triageSuggestion = triageData as RefundGptTriageRow | null;
+      if (
+        !triageSuggestion ||
+        triageSuggestion.status !== "ready_for_review" ||
+        triageSuggestion.route !== "draft_reply" ||
+        (triageSuggestion.policy_flags ?? []).length > 0
+      ) {
+        return jsonResponse({ error: "This suggested reply requires a new human review." }, 409);
+      }
+    }
+
     const { data: canManageCase, error: accessError } = await supabase.rpc(
       "can_manage_refund_case",
       { p_user_id: user.id, p_refund_case_id: caseId },
@@ -172,13 +212,18 @@ serve(async (req) => {
 
     const machine = firstRelation(refundCase.reporting_machines);
     const location = firstRelation(refundCase.reporting_locations);
+    const publicLabels = resolveRefundPublicLabels({
+      locationName: location?.name,
+      publicMachineLabel: machine?.refund_public_display_label,
+      machineLabel: machine?.machine_label,
+    });
     const templateInput = {
       messageType,
       publicReference: refundCase.public_reference,
       customerName: refundCase.customer_name,
       customerEmail: refundCase.customer_email,
-      machineLabel: machine?.machine_label,
-      locationName: location?.name,
+      machineLabel: publicLabels.machineLabel,
+      locationName: publicLabels.locationName,
       refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
       decisionReason: refundCase.decision_reason,
@@ -193,6 +238,17 @@ serve(async (req) => {
           body: requestedBody || defaultEmail.text,
         })
       : defaultEmail;
+
+    if (triageSuggestion) {
+      const reviewedDraft = validateRefundGptReviewedDraft({
+        subject: email.subject,
+        body: email.text,
+        missingFields: triageSuggestion.missing_fields,
+      });
+      if (!reviewedDraft.ok) {
+        return jsonResponse({ error: "The reviewed reply includes wording that is not safe for missing-information triage." }, 400);
+      }
+    }
 
     const { data: messageRow, error: messageError } = await supabase
       .from("refund_case_messages")
@@ -212,30 +268,71 @@ serve(async (req) => {
     if (messageError) throw messageError;
 
     try {
-      await sendTransactionalEmail({
-        to: [refundCase.customer_email],
-        subject: email.subject,
-        text: email.text,
-        html: email.html,
-        replyTo: getRefundReplyToEmail(),
+      const gmailDelivery = await dispatchRefundCaseGmailReply({
+        supabase,
+        refundCaseId: refundCase.id,
+        refundCaseMessageId: messageRow.id,
+        recipientEmail: refundCase.customer_email,
+        email,
       });
+      if (!gmailDelivery.usedGmail) {
+        await sendTransactionalEmail({
+          to: [refundCase.customer_email],
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
+          replyTo: getRefundReplyToEmail(),
+        });
+      }
 
       await supabase
         .from("refund_case_messages")
-        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+        })
         .eq("id", messageRow.id);
 
       await syncAutomationFields(refundCase.id, messageType);
+
+      let triageReviewStatus: "not_applicable" | "recorded" | "record_failed" = "not_applicable";
+      if (triageSuggestion) {
+        const { error: triageReviewError } = await supabase.rpc(
+          "service_record_refund_gpt_triage_delivery",
+          {
+            p_triage_id: triageSuggestion.id,
+            p_refund_case_id: refundCase.id,
+            p_reviewer_user_id: user.id,
+            p_sent_message_id: messageRow.id,
+            p_subject: email.subject,
+            p_body: email.text,
+          },
+        );
+        if (triageReviewError) {
+          triageReviewStatus = "record_failed";
+          console.error("refund-case-message-send triage review record failed", {
+            errorType: triageReviewError.name ?? "database_error",
+            triageReview: true,
+            payloadRedacted: true,
+          });
+        } else {
+          triageReviewStatus = "recorded";
+        }
+      }
 
       await supabase.from("refund_case_events").insert({
         refund_case_id: refundCase.id,
         actor_user_id: user.id,
         event_type: "customer_message_sent",
-        message: `Manager sent ${messageType.replaceAll("_", " ")} email from the portal.`,
+        message: gmailDelivery.usedGmail
+          ? `Manager sent ${messageType.replaceAll("_", " ")} reply in the linked Gmail thread.`
+          : `Manager sent ${messageType.replaceAll("_", " ")} email from the portal.`,
         metadata: {
           message_type: messageType,
           message_id: messageRow.id,
-          reply_to: getRefundReplyToEmail(),
+          transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+          triage_review_status: triageReviewStatus,
           payload_redacted: true,
         },
       });
@@ -246,19 +343,25 @@ serve(async (req) => {
           type: messageType,
           status: "sent",
           subject: email.subject,
+          transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+          triageReviewStatus,
         },
       });
     } catch (emailError) {
+      const safeErrorCode = emailError instanceof RefundGmailError
+        ? emailError.code
+        : "customer_email_delivery_failed";
       console.error("refund-case-message-send customer email failed", {
         errorType: emailError instanceof Error ? emailError.name : typeof emailError,
         messageType,
+        errorCode: safeErrorCode,
       });
 
       await supabase
         .from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: "customer_email_delivery_failed",
+          error_message: safeErrorCode,
         })
         .eq("id", messageRow.id);
 
@@ -274,7 +377,12 @@ serve(async (req) => {
         },
       });
 
-      return jsonResponse({ error: "Unable to send customer email." }, 502);
+      return jsonResponse({
+        error: safeErrorCode === "gmail_network_unknown" || safeErrorCode === "gmail_delivery_record_failed"
+          ? "Gmail delivery could not be confirmed. Check the original thread before retrying."
+          : "Unable to send customer email.",
+        errorCode: safeErrorCode,
+      }, 502);
     }
   } catch (error) {
     console.error("refund-case-message-send error", {

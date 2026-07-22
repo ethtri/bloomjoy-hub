@@ -6,6 +6,11 @@ import {
   sendTransactionalEmail,
 } from "../_shared/internal-email.ts";
 import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
+import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
+import {
+  isPlaceholderRefundLocation,
+  resolveRefundPublicLabels,
+} from "../_shared/refund-location.ts";
 import {
   buildPublicIntakeDedupeKey,
   buildPublicIntakeKeyHashes,
@@ -550,7 +555,10 @@ serve(async (req) => {
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
     const cardWalletUsed = Boolean(body?.cardWalletUsed);
-    const incidentAt = parseIncidentAt(body?.incidentAt);
+    const incidentDate = sanitizeText(body?.incidentDate, 10);
+    const incidentTime = sanitizeText(body?.incidentTime, 8);
+    const legacyIncidentAt = parseIncidentAt(body?.incidentAt);
+    const hasLocalIncidentInput = Boolean(incidentDate && incidentTime);
     if (body?.attachments !== undefined && !Array.isArray(body.attachments)) {
       throw new RequestValidationError("Attachments must be uploaded as a list.");
     }
@@ -580,7 +588,7 @@ serve(async (req) => {
       });
     }
 
-    if (!incidentAt) {
+    if (!hasLocalIncidentInput && !legacyIncidentAt) {
       return new Response(JSON.stringify({ error: "Please enter the incident date and time." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -651,7 +659,7 @@ serve(async (req) => {
 
     const { data: machine, error: machineError } = await supabase
       .from("reporting_machines")
-      .select("id, machine_label, machine_type, location_id, reporting_locations(id, name, timezone)")
+      .select("id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)")
       .eq("id", machineId)
       .eq("status", "active")
       .in("machine_type", ["commercial", "mini"])
@@ -670,15 +678,56 @@ serve(async (req) => {
       machine_label: string;
       machine_type: string;
       location_id: string;
+      refund_public_display_label: string | null;
       reporting_locations?:
-        | { id: string; name: string; timezone: string }
-        | { id: string; name: string; timezone: string }[]
+        | { id: string; name: string; timezone: string; status: string }
+        | { id: string; name: string; timezone: string; status: string }[]
         | null;
     };
     const locationRecord = Array.isArray(machineRecord.reporting_locations)
       ? machineRecord.reporting_locations[0] ?? null
       : machineRecord.reporting_locations ?? null;
-    const locationName = locationRecord?.name ?? "Bloomjoy location";
+    if (locationRecord?.status !== "active") {
+      return new Response(JSON.stringify({ error: "That location is not available for refund intake." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      (!locationRecord.name || isPlaceholderRefundLocation(locationRecord.name)) &&
+      !machineRecord.refund_public_display_label?.trim()
+    ) {
+      return new Response(JSON.stringify({ error: "That location is not available for refund intake." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const publicLabels = resolveRefundPublicLabels({
+      locationName: locationRecord?.name,
+      publicMachineLabel: machineRecord.refund_public_display_label,
+      machineLabel: machineRecord.machine_label,
+    });
+
+    const incidentResolution = hasLocalIncidentInput
+      ? resolveLocalDateTimeInZone({
+          localDate: incidentDate,
+          localTime: incidentTime,
+          timeZone: locationRecord?.timezone ?? "",
+        })
+      : {
+          instant: legacyIncidentAt?.toISOString() ?? null,
+          resolution: "legacy_absolute",
+          possibleInstantCount: legacyIncidentAt ? 1 : 0,
+        };
+    const incidentAt = parseIncidentAt(incidentResolution.instant);
+    if (!incidentAt) {
+      return new Response(JSON.stringify({ error: "Please enter a valid incident date and time." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     let status = "submitted";
     let correlationStatus = "not_started";
@@ -774,6 +823,9 @@ serve(async (req) => {
         zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
         issue_summary: issueSummary,
         incident_at: incidentAt.toISOString(),
+        incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
+        incident_timezone: locationRecord?.timezone ?? null,
+        incident_time_resolution: incidentResolution.resolution,
         payment_method: paymentMethod,
         payment_amount_cents: amountCents,
         card_last4: paymentMethod === "card" ? cardLast4 : null,
@@ -787,6 +839,8 @@ serve(async (req) => {
         refund_amount_cents: amountCents,
         intake_meta: {
           source: "hosted_refund_intake",
+          incident_time_resolution: incidentResolution.resolution,
+          incident_possible_instant_count: incidentResolution.possibleInstantCount,
           candidate_sales_fact_ids: candidateIds,
           user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
         },
@@ -850,8 +904,8 @@ serve(async (req) => {
       refundCaseId: refundCase.id,
       publicReference: refundCase.public_reference,
       machineId: machineRecord.id,
-      machineLabel: machineRecord.machine_label,
-      locationName,
+      machineLabel: publicLabels.machineLabel,
+      locationName: publicLabels.locationName,
       amountCents,
       paymentMethod,
       incidentAt,
@@ -862,8 +916,8 @@ serve(async (req) => {
     const email = buildCustomerEmail({
       publicReference: refundCase.public_reference,
       customerName,
-      machineLabel: machineRecord.machine_label,
-      locationName,
+      machineLabel: publicLabels.machineLabel,
+      locationName: publicLabels.locationName,
       amountCents,
       paymentMethod,
       needsMoreInfo,

@@ -1,6 +1,6 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-05-11
+Last updated: 2026-07-22
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
@@ -130,6 +130,8 @@ Recommended first slice:
 Do not build browser-side Nayax calls, and do not expose Nayax raw responses in public or customer-facing pages without a privacy review.
 
 ## Refund Execution Guardrails
+
+The versioned matching weights, states, timezone rules, privacy-safe evidence, fixtures, and rollback procedure are documented in [REFUND_NAYAX_MATCHING_RUNBOOK.md](./REFUND_NAYAX_MATCHING_RUNBOOK.md).
 Refund execution is separate from read-only Last Sales lookup.
 
 The current full-automation foundation adds `nayax-card-refund` as a backend-only, fail-closed execution surface. It does not call live Nayax refund endpoints until all of these are true:
@@ -142,6 +144,35 @@ The current full-automation foundation adds `nayax-card-refund` as a backend-onl
 - The case is card-only, manager-approved, `card_refund_pending`, matched to sanitized Nayax evidence, and has no prior settlement adjustment.
 
 First automated execution remains full-refund only, USD only, and super-admin initiated. Apple Pay or wallet last-four mismatches remain manual-review until a later decision changes that rule.
+
+## Official Refund Contract Audit (2026-07-22)
+
+Nayax's public Lynx documentation now confirms that a card refund is a two-step operation, even if Bloomjoy presents it as one manager action:
+
+1. `POST /operational/v1/payment/refund-request` creates a pending refund request.
+2. `POST /operational/v1/payment/refund-approve` approves that request; the documented decline path is `POST /operational/v1/payment/refund-decline`.
+
+The request body uses `RefundAmount`, optional `RefundEmailList`, optional `RefundReason`, `TransactionId`, `SiteId`, and `MachineAuTime`. The approve request must repeat the same transaction, site, and machine-authorization-time identifiers and includes `IsRefundedExternally` plus an optional `RefundDocumentUrl`. Nayax documents `TransactionID` and `SiteID` as fields returned by Last Sales, although `SiteID` was not present in Bloomjoy's previously captured production field inventory.
+
+Primary references:
+- [Refund flow overview](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/payments)
+- [Request a refund](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/request-refunds)
+- [Approve or decline a refund](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/approve-or-decline-a-refund)
+- [Last Sales response](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/machines/getting-a-machines-last-sales)
+- [Security and token handling](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/security)
+
+This public documentation is enough to define the expected request shape, but not enough to enable production execution safely. It uses QA host examples and does not establish all of the following for Bloomjoy's account:
+- the production refund hostname/path and whether the existing reporting token has refund request and approval permissions;
+- whether `RefundAmount` is expressed in major currency units and how rounding is handled;
+- the exact `Result` and `Status` values for accepted, rejected, already-refunded, duplicate, pending, and unknown outcomes;
+- whether either step supports a provider idempotency key, how duplicate retries behave, and how to query or reconcile a timeout between request and approval;
+- which production response supplies `SiteID` when Last Sales omits it, and what field/value proves that the original sale is approved and refundable;
+- whether `RefundEmailList` can remain empty so Bloomjoy sends the single customer confirmation only after final confirmed success;
+- the required `IsRefundedExternally` value for an ordinary Nayax-processed refund.
+
+A read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closes these gaps. The only internal token request located was explicitly for sales reporting, and the signed commercial agreement covers commercial/clearing terms rather than refund API semantics. Do not infer write authority from that token or agreement.
+
+Before implementation, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. The backend orchestrator must treat a successful request followed by a failed, timed-out, or unknown approval as unresolved: keep the case open, suppress Bloomjoy's success email and settlement adjustment, and route it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
 
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.

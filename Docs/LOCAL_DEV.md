@@ -58,6 +58,9 @@
    - Partner report weekly/monthly export metadata: `supabase/migrations/202604260019_partner_report_period_exports.sql`
    - Refund adjustment review/matching: `supabase/migrations/202604270001_refund_adjustment_review_matching.sql`
    - Live refund sheet ingestion source marker: `supabase/migrations/202604270002_live_refund_sheet_ingestion.sql`
+   - Audited, idempotent cash refund completion: `supabase/migrations/202607210004_refund_cash_completion_audit.sql`
+   - Refund automation run/action ledger and manager health: `supabase/migrations/202607210005_refund_automation_scheduler_health.sql`
+   - Gmail refund draft/thread linkage, quarantine metadata, health, and retention: `supabase/migrations/202607210006_refund_gmail_thread_linkage.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
    - Technician entitlement resolver production repair: `supabase/migrations/202604270006_restore_technician_entitlement_resolution_rpc.sql`
    - Scoped Admin reporting visibility repair: `supabase/migrations/202604280008_scoped_admin_reporting_visibility.sql`
@@ -252,6 +255,9 @@ Prereqs:
 - For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.
 - Nayax card refund execution defaults to disabled/dry-run/kill-switch-on. Use `npm run refunds:validate-nayax-execution` to verify the fail-closed foundation; do not run real provider execution without sponsor go/no-go.
 - Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/refunds` for case processing and do not see setup controls.
+- For mocked GPT triage validation, no provider call is required. Run `npm run refunds:validate-gpt-triage` and `npm run db:validate-migrations`.
+- For local server-runner preflight, keep `OPENAI_API_KEY` only in the worktree's gitignored `.env.local`; also set local-only `OPENAI_REFUND_TRIAGE_SAFETY_SALT`, `REFUND_GPT_TRIAGE_SYNC_SECRET`, and `REFUND_GPT_TRIAGE_ENABLED=false`, then run `npm run refunds:preflight-gpt-triage -- --env-file .env.local`. Never use a `VITE_` name.
+- A real sanitized OpenAI evaluation is a paid external action and requires explicit approval. Do not point it at production Gmail or customer content from local development.
 
 Steps:
 1) Start the agent UAT server from the worktree:
@@ -268,7 +274,10 @@ Steps:
 5) Open `/refunds/request?demo=on` separately to review the public customer intake form against synthetic location/machine options without creating a real case.
 6) Run the mocked refund-only portal QA harness against the running app:
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081`
-   - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data.
+   - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data. Its `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.
+7) When cash-completion SQL changes, run `npm run db:validate-migrations`. The `refund_cash_completion_safety.sql` pgTAP suite proves service-role-only access, required evidence, idempotency, one redacted audit event, and no duplicate completion on a repeated request.
+8) When scheduler/health code changes, run `npm run refunds:validate-automation`, `npm run agent:validate-workflow`, and `npm run db:validate-migrations`. The database suite proves same-window and same-action replay suppression; the portal UAT harness proves the concise manager health signal. Do not point a local scheduler test at production customer data.
+9) When GPT runner code changes, run `npm run refunds:validate-gpt-triage`, `deno check supabase/functions/refund-gpt-triage/index.ts`, `npm run db:validate-migrations`, and the Refund portal UAT harness. These checks use mocks/synthetic data and must pass without a live provider call.
 
 Three validation modes:
 - `DEMO DATA - visual review only`: append `?demo=on` on localhost/127.0.0.1 for synthetic, browser-only visual review. Demo mode must not be used as evidence that saves, Nayax lookup, access scope, or reporting write-through work.
@@ -413,6 +422,12 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Local env check: `npm run commerce:preflight`
    - Refund operations local env check: `npm run commerce:preflight -- --include-refunds`
    - Remote secret presence check: `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds`
+   - Refund release-tool tests: `npm run refunds:validate-release-tooling`
+   - Approved local refund release check: `npm run refunds:release:check`
+   - Read-only production drift check: `npm run refunds:release:check-production -- --project-ref <project-ref>`
+   - Scheduled production drift checks use the dedicated `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN` GitHub secret. Grant only Edge Function read access. Checks print only function names, versions, and short bundle-digest prefixes.
+   - Gmail intake static safety check: `npm run refunds:validate-gmail`
+   - Gmail server-secret presence/format check: `npm run refunds:preflight-gmail`
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`
@@ -433,9 +448,15 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - `supabase functions serve refund-case-admin-update --no-verify-jwt`
    - `supabase functions serve refund-case-message-send --no-verify-jwt`
    - `supabase functions serve refund-case-automation-sweep --no-verify-jwt`
+   - `supabase functions serve refund-gmail-sync --no-verify-jwt`
    - `supabase functions serve nayax-card-refund --no-verify-jwt`
    - `supabase functions serve nayax-transaction-lookup --no-verify-jwt`
 5) Ensure `.env` has `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` for the SPA.
+
+### Refund Gmail local configuration
+Keep Gmail credentials server-only; never use a `VITE_` variable. The Gmail functions require `GMAIL_SUPPORT_CLIENT_ID`, `GMAIL_SUPPORT_CLIENT_SECRET`, `GMAIL_SUPPORT_REFRESH_TOKEN`, `GMAIL_SUPPORT_MAILBOX`, `GMAIL_REFUND_LABEL_ID`, and a dedicated `REFUND_GMAIL_SYNC_SECRET`. `REFUND_GMAIL_ENABLED` defaults to `false`. Optional `GMAIL_REFUND_START_AT` limits the first import to messages received on or after an ISO timestamp.
+
+Use a test mailbox and synthetic messages only. The connected account must exactly match `GMAIL_SUPPORT_MAILBOX`, and its OAuth grant must contain only Gmail read-only and send permissions. Run `npm run refunds:validate-gmail` and the database validation before serving or deploying the sync function. The attachment path is quarantine-only until a malware scanner marks an object clean.
 
 ## Stripe order backfill helper
 Use this when a paid Stripe checkout must be imported into `public.orders` because webhook replay is unavailable or the webhook failed before persistence.

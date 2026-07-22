@@ -1,0 +1,80 @@
+name: Refund Automation Health
+
+on:
+  schedule:
+    # Independent hourly freshness check for a missed or repeatedly failing sweep.
+    - cron: '43 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-automation-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      REFUND_AUTOMATION_SWEEP_URL: ${{ secrets.REFUND_AUTOMATION_SWEEP_URL }}
+      REFUND_AUTOMATION_SWEEP_TOKEN: ${{ secrets.REFUND_AUTOMATION_SWEEP_TOKEN }}
+      REFUND_AUTOMATION_SWEEP_ENABLED: ${{ vars.REFUND_AUTOMATION_SWEEP_ENABLED || 'false' }}
+    steps:
+      - name: Check refund automation freshness
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$REFUND_AUTOMATION_SWEEP_ENABLED" != "true" ]]; then
+            echo "Skipping scheduled refund automation health check because REFUND_AUTOMATION_SWEEP_ENABLED is not true."
+            exit 0
+          fi
+
+          if [[ -z "$REFUND_AUTOMATION_SWEEP_URL" || -z "$REFUND_AUTOMATION_SWEEP_TOKEN" ]]; then
+            echo "Missing REFUND_AUTOMATION_SWEEP_URL or REFUND_AUTOMATION_SWEEP_TOKEN."
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          const url = process.env.REFUND_AUTOMATION_SWEEP_URL;
+          const token = process.env.REFUND_AUTOMATION_SWEEP_TOKEN;
+          const runKey = `health_check:${process.env.GITHUB_RUN_ID}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              mode: 'health_check',
+              runKey,
+              scheduledAt: new Date().toISOString(),
+            }),
+          });
+          const raw = await response.text();
+          let body = {};
+          try {
+            body = raw ? JSON.parse(raw) : {};
+          } catch {
+            body = { error: 'Refund automation health check returned a non-JSON response.' };
+          }
+
+          console.log(JSON.stringify({
+            httpStatus: response.status,
+            status: body.status ?? null,
+            runKey: body.runKey ?? runKey,
+            healthStatus: body.healthStatus ?? null,
+            lastSuccessAt: body.lastSuccessAt ?? null,
+            alertStatus: body.alertStatus ?? null,
+            actionsAttempted: body.actionsAttempted ?? 0,
+            actionsSucceeded: body.actionsSucceeded ?? 0,
+            actionsFailed: body.actionsFailed ?? 0,
+            actionsSuppressed: body.actionsSuppressed ?? 0,
+            payloadRedacted: body.payloadRedacted === true,
+          }, null, 2));
+
+          if (!response.ok || body.error || body.status === 'failed') {
+            console.error(body.error || 'Refund automation health check failed.');
+            process.exit(1);
+          }
+          NODE

@@ -64,6 +64,12 @@ verify_jwt = false
 [functions.refund-case-automation-sweep]
 verify_jwt = false
 
+[functions.refund-gmail-sync]
+verify_jwt = false
+
+[functions.refund-gpt-triage]
+verify_jwt = false
+
 [functions.nayax-card-refund]
 verify_jwt = false
 

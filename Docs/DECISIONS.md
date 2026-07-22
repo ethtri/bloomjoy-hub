@@ -1,5 +1,37 @@
 # Decisions
 
+## 2026-07-21 - GPT refund triage is narrow, minimized, and always human-reviewed (`#635`)
+Bloomjoy may use GPT to reduce the time spent collecting missing refund details, but the assistance remains subordinate to the manager workflow and cannot make payment decisions.
+
+**Canonical behavior**
+- GPT may classify, summarize, extract only the allowed refund fields, identify missing information, and draft a reply that asks only for those fields. It may not match or select a Nayax transaction, approve or deny a request, promise or execute a refund, or create any payment action.
+- Model input is limited to recent inbound text, excludes customer identity, redacts prohibited payment and credential data, and treats all message text as untrusted. Raw model input and provider output are not stored; derived content expires after 30 days.
+- Strict schema validation plus deterministic missing-field and safety checks control routing. Legal, safety, threat, chargeback, abusive/escalated, prompt-injection, high-value, wallet, prohibited-payment-data, low-confidence, unrelated, uncertain, and non-English input receives no draft and requires a person.
+- Every allowed draft is editable and must be explicitly approved by an authorized manager. A database constraint prevents automatic sending. Broader autonomy requires a separate reviewed migration and explicit sponsor decision.
+- The provider lane remains disabled until a secure server-only credential destination, privacy controls, and sanitized live evaluation are approved in `#635`. Gmail and hosted-form workflows continue without GPT.
+
+**Why this choice**
+- Most inbox labor is missing-information triage, which can be assisted without delegating refund judgment or payment authority.
+- Minimization, strict validation, bounded retention, and reviewer outcome tracking make quality and safety measurable while preserving a simple manager experience.
+
+## 2026-07-21 - Gmail refund intake is label-scoped, draft-first, and transport-only (`#634`)
+Bloomjoy will connect one designated support mailbox to Refund Operations as a narrowly scoped intake and reply transport. Gmail does not become the system of record, and the connection stays disabled until its production controls and owner approvals pass.
+
+**Canonical behavior**
+- OAuth grants only `gmail.readonly` and `gmail.send` for the exact configured support mailbox. The integration does not modify labels, archive mail, delete mail, or change read state.
+- Only threads carrying the explicitly configured refund label are ingested. Both the Edge Function switch and scheduled GitHub workflow are off by default.
+- A first eligible customer message creates one incomplete `draft` refund case. Re-delivery is idempotent, later replies append chronologically to the same case, and a new thread may relink by public case reference only when the sender email also matches.
+- Provider message/thread IDs remain service-only. While location is unknown, only Super Admins and Scoped Admins may view or reply to an unassigned draft; location-only Machine Managers cannot see it. The manager UI receives sanitized plain text, redacts Luhn-valid full card numbers to last four, and never exposes raw attachment paths or provider payloads. Logs and workflow output remain aggregate-only.
+- Attachments are limited to PDF, JPEG, or PNG, at most three per message and 5 MB each. Accepted bytes enter a private quarantine bucket and are not manager-downloadable until a separate malware scanner explicitly marks them clean. Until that scanner exists, attachments remain quarantined.
+- Customer replies are manager-approved only and use one prominent action in the existing refund workbench. Gmail-linked replies stay in the original Gmail thread. An uncertain provider outcome is never retried automatically; the manager must reconcile Gmail first.
+- The Gmail message copy is scheduled for deletion after 180 days while the canonical refund case continues under Bloomjoy's governed business-record retention. Production enablement requires recorded Operations and privacy/security approval of this period and the quarantine-until-scanned behavior.
+- Authorization revocation or a Gmail outage is visible in manager health and fails only the Gmail path. Hosted-form refund intake, the refund queue, and manual manager work remain available.
+
+**Why this choice**
+- Most support effort is spent collecting missing details, so a draft-first queue can organize incomplete requests without inventing transaction facts or making an automatic refund decision.
+- Label scoping, minimal permissions, redaction, private quarantine, and default-off rollout materially reduce mailbox and customer-data exposure.
+- Keeping Gmail as transport preserves the Hub as the auditable case system and lets the team disable the integration without reverting the refund workflow.
+
 ## 2026-07-16 - Timekeeping V1 is shift entry and machine-manager review (`#587`)
 Bloomjoy will replace the contractor Google Sheets/AppSheet workflow with a lightweight Hub timekeeping flow before expanding into payment execution.
 
@@ -127,6 +159,22 @@ Refund operations must distinguish Bloomjoy Commercial/Mini machines from Snapca
 **Why this choice**
 - The refund MVP relies on source-specific correlation: Nayax for card lookup and Sunze sales facts for cash matching.
 - Mixing Snapcase locations into Sunze-backed machine readiness would create false confidence for transaction matching and reporting write-through.
+
+## 2026-07-21 - Refund automation scheduling, idempotency, and health
+Refund reminders, Nayax preparation, and stale-case escalation use a versioned GitHub Actions schedule backed by a database run/action ledger.
+
+**Canonical rule**
+- The sweep runs four times per hour and an independent hourly health check detects missed/stale or repeatedly failing runs.
+- Scheduled execution is disabled by default at both the GitHub repository-variable layer and the Edge Function layer. Turning automation off must not disable intake or the manager refund queue.
+- Customer-touching work runs only inside the configured local policy window (default 8:00 AM-8:00 PM `America/Los_Angeles`).
+- Each scheduled window has one run key. Each reminder, lookup, escalation, or alert has one deterministic action key, so concurrency and workflow reruns cannot repeat the same action.
+- After an external send is attempted, an uncertain/failed result stays failed for manager review rather than being retried automatically and risking a duplicate customer message.
+- Run/health output contains aggregate counts and reason categories only. Manager health shows healthy, stale, failing, paused, or waiting without exposing customer or provider payloads.
+- Stale/repeated-failure alerts go to the internal operations email recipients, with the GitHub workflow failure as a separate operational signal.
+
+**Why this choice**
+- It makes the existing automation sweep observable and safe to retry while keeping customer communication conservative.
+- Two independent schedules cover both processing and freshness monitoring without putting the core case workflow behind scheduler availability.
 
 ## 2026-05-12 - Refund operations full-automation goal and gated Nayax execution
 Bloomjoy will continue toward a fully automated refund operations system, but payment execution is gated separately from manager approval and transaction correlation.

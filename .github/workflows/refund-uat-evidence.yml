@@ -1,0 +1,82 @@
+name: Refund UAT Evidence
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/refunds/validate-refund-portal-uat.mjs'
+      - 'scripts/refunds/validate-machine-manager-uat.mjs'
+      - 'scripts/refunds/refund-uat-evidence.mjs'
+      - 'scripts/refunds/validate-refund-uat-evidence.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/refund-uat-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-uat-evidence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Start synthetic UAT app
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiJ9.synthetic-signature
+        run: |
+          npm run dev:uat > /tmp/refund-uat-server.log 2>&1 &
+          echo $! > /tmp/refund-uat-server.pid
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8081/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          sed -n '1,120p' /tmp/refund-uat-server.log
+          exit 1
+      - name: Run Refund portal synthetic UAT
+        run: npm run refunds:validate-portal-uat -- --artifact-dir output/refund-uat-evidence
+      - name: Run Machine Manager synthetic UAT
+        run: npm run refunds:validate-machine-manager-uat -- --artifact-dir output/refund-uat-evidence
+      - name: Build evidence manifest
+        run: npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Upload sanitized evidence
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: refund-uat-evidence-${{ github.run_id }}
+          path: output/refund-uat-evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Link evidence in job summary
+        run: |
+          echo "### Refund Operations synthetic UAT evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: ${{ steps.upload.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Digest: ${{ steps.upload.outputs.artifact-digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Screenshots: 18 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
+      - name: Stop synthetic UAT app
+        if: always()
+        run: |
+          if test -f /tmp/refund-uat-server.pid; then
+            kill "$(cat /tmp/refund-uat-server.pid)" 2>/dev/null || true
+          fi

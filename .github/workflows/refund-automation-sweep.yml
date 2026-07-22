@@ -1,0 +1,106 @@
+name: Refund Automation Sweep
+
+on:
+  schedule:
+    # Four times per hour; the Edge Function enforces the configured local customer-contact window.
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run the sweep or send a PII-free failure-test alert'
+        required: true
+        default: 'run'
+        type: choice
+        options:
+          - run
+          - failure_test
+      run_key:
+        description: 'Synthetic retry UUID; reuse the exact UUID to prove duplicate suppression'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-automation-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REFUND_AUTOMATION_SWEEP_URL: ${{ secrets.REFUND_AUTOMATION_SWEEP_URL }}
+      REFUND_AUTOMATION_SWEEP_TOKEN: ${{ secrets.REFUND_AUTOMATION_SWEEP_TOKEN }}
+      REFUND_AUTOMATION_SWEEP_ENABLED: ${{ vars.REFUND_AUTOMATION_SWEEP_ENABLED || 'false' }}
+      SWEEP_MODE: ${{ inputs.mode || 'run' }}
+      SWEEP_RUN_KEY: ${{ inputs.run_key || '' }}
+    steps:
+      - name: Run refund automation
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$REFUND_AUTOMATION_SWEEP_ENABLED" != "true" ]]; then
+            echo "Skipping scheduled refund automation because REFUND_AUTOMATION_SWEEP_ENABLED is not true."
+            exit 0
+          fi
+
+          if [[ -z "$REFUND_AUTOMATION_SWEEP_URL" || -z "$REFUND_AUTOMATION_SWEEP_TOKEN" ]]; then
+            echo "Missing REFUND_AUTOMATION_SWEEP_URL or REFUND_AUTOMATION_SWEEP_TOKEN."
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          const url = process.env.REFUND_AUTOMATION_SWEEP_URL;
+          const token = process.env.REFUND_AUTOMATION_SWEEP_TOKEN;
+          const mode = process.env.SWEEP_MODE === 'failure_test' ? 'failure_test' : 'run';
+          const triggerSource = process.env.GITHUB_EVENT_NAME === 'schedule' ? 'scheduled' : 'manual';
+          const manualRunKey = (process.env.SWEEP_RUN_KEY || '').trim();
+          if (triggerSource === 'manual' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(manualRunKey)) {
+            console.error('Manual refund automation requires a synthetic UUID run key.');
+            process.exit(1);
+          }
+          const runKey = triggerSource === 'scheduled'
+            ? `scheduled:${process.env.GITHUB_RUN_ID}`
+            : `${mode === 'failure_test' ? 'failure_test' : 'manual'}:${manualRunKey}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              mode,
+              triggerSource,
+              runKey,
+              scheduledAt: new Date().toISOString(),
+            }),
+          });
+          const raw = await response.text();
+          let body = {};
+          try {
+            body = raw ? JSON.parse(raw) : {};
+          } catch {
+            body = { error: 'Refund automation returned a non-JSON response.' };
+          }
+
+          console.log(JSON.stringify({
+            httpStatus: response.status,
+            status: body.status ?? null,
+            runKey: body.runKey ?? runKey,
+            healthStatus: body.healthStatus ?? null,
+            alertStatus: body.alertStatus ?? null,
+            casesEvaluated: body.casesEvaluated ?? 0,
+            actionsAttempted: body.actionsAttempted ?? 0,
+            actionsSucceeded: body.actionsSucceeded ?? 0,
+            actionsFailed: body.actionsFailed ?? 0,
+            actionsSuppressed: body.actionsSuppressed ?? 0,
+            reasonCounts: body.reasonCounts ?? {},
+            payloadRedacted: body.payloadRedacted === true,
+          }, null, 2));
+
+          if (!response.ok || body.error || body.status === 'failed' || body.status === 'failure_test_alert_failed') {
+            console.error(body.error || 'Refund automation did not complete safely.');
+            process.exit(1);
+          }
+          NODE

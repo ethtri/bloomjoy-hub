@@ -1,102 +1,135 @@
 # Machine Manager Shadow UAT Script
 
-Last updated: 2026-05-12
+Last updated: 2026-07-22
 
 ## Purpose
-Use this script when Bloomjoy invites managers, operators, or partner operators into the new refund workflow during shadow mode. The goal is to confirm the workflow is easy to use before replacing the Google Form/AppSheet fallback.
 
-Keep the current Google Form/AppSheet flow live. Managers should not use the new workflow as the only operational source until the shadow-pilot go/no-go checklist passes.
+Use this script with a clean Machine Manager-only account to prove that Refund Operations is simple, safe, and correctly scoped before cutover. Keep the Google Form/Sheet/AppSheet fallback live throughout UAT.
 
-## Before The Session
-- Use synthetic or owner-approved shadow-mode cases only.
-- Do not paste real customer names, emails, phone numbers, card digits, Zelle contacts, complaint text, screenshots, or raw provider data into GitHub, docs, chat, or feedback notes.
-- Confirm the tester has the right persona:
-  - Machine Manager/operator: sees only assigned-machine refund cases at `/refunds`.
-  - Scoped admin: sees only scoped-machine refund cases.
-  - Super admin: sees all refund cases and manages Machine Managers from Admin > Machines.
-- Confirm the tester knows refunds are still completed manually in Nayax or Zelle for MVP.
-- For agent visual QA, start the app with `npm run dev:uat` and use `http://127.0.0.1:8081`. Append `?demo=on` for clearly labeled demo-only review on `/refunds/request`, `/refunds`, and `/admin/machines`. Demo mode is not evidence that saves, access scope, Nayax lookup, automation emails, or reporting write-through work.
-- For functional QA, use seeded synthetic users/cases or post-production shadow-mode data with authenticated Machine Managers. The executive sponsor does not need to run this script before agents prove it works.
+This is a manager-experience test, not an Admin setup test. Use synthetic or sponsor-approved pilot cases and record sanitized aggregate evidence only.
 
-## Manager Script
-1. Sign in to the Bloomjoy operator app.
-2. Open `/refunds`.
-3. Confirm `Refunds` appears inside the Portal navigation, not as a top-level workspace tab.
-4. Confirm the queue only shows refund cases for machines you manage.
-5. Search for a known test case or select the first visible case.
-6. Review the case summary:
-   - customer contact
-   - refund path
-   - location and machine
-   - issue summary
-   - correlation evidence
-7. Confirm the `Decision and next action` section is easy to find before event history.
-8. Expand `Event timeline`.
-9. Expand `Customer messages`.
-10. For a card case, review the card lookup evidence and confirm no raw provider IDs are shown.
-11. For a cash case, confirm the refund path says cash refund by Zelle and the Zelle contact is available only in the authorized workflow.
-12. Try a decision path appropriate for the test case:
-    - keep in review
-    - waiting on customer
-    - approve
-    - deny
-    - mark card refund pending
-    - mark cash/Zelle pending
-    - completed
-13. If saving is blocked, confirm the error message tells you what is missing.
-14. On a phone-sized screen, confirm the queue and detail are readable without sideways scrolling.
+## Before the session
 
-## Expected Results
-- Machine Managers can open `/refunds`.
-- Machine Managers do not see the Admin workspace, Admin tools, Machine Manager setup, Nayax setup controls, machine setup identifiers, or raw provider payloads.
-- `/admin` and `/admin/refunds` redirect refund-only users back to `/refunds`.
-- The queue is understandable at a glance.
-- The selected case shows the decision area before timeline and message history.
-- Timeline and customer messages are available but not crowding the default view.
-- Denied cases require a friendly reason.
-- Completed cases require the correct manual refund reference and correlation evidence.
-- Nothing in the workflow suggests Bloomjoy automatically sends final approval, denial, or completion replies in MVP.
+- Run the aggregate-only account audit against the exact linked production project. It prints and writes no names, emails, user IDs, machine IDs, or case data:
 
-## Super Admin Machine Setup Check
-Use this only for super-admin/admin UAT, not for ordinary Machine Manager testers.
+  ```bash
+  npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-project-ref <project-ref>
+  ```
 
-1. Open `/admin/machines`.
-2. Edit a machine.
-3. In `Machine Managers`, search for an authenticated user by name or email.
-4. Add the user and confirm the status changes from saving to `Saved`.
-5. Confirm there is no separate `Save Machine Managers` button.
-6. Close the edit sheet and confirm the machine row shows the assigned manager email.
-7. Reopen the same machine and confirm the assigned manager is still shown.
-8. Confirm no machine can have more than 3 Machine Managers.
-9. In `Customer Refund Setup`, turn on `Show on refund request form` only for pilot machines.
-10. Optionally set a customer-facing refund form label.
-11. Enter the Nayax machine ID/account key only when read-only card lookup should work for that machine.
-12. Save machine changes and confirm the row shows `Intake enabled` and `Card lookup ready` when both are configured.
-13. Confirm the setup copy says live card refund execution remains disabled/manual.
+- If the owner has selected the pilot cohort, repeat `--pilot-machine-id <uuid>` for each approved machine. The stricter result must report at least one exact-pilot eligible identity; otherwise account or assignment setup is still required.
+- Confirm the privately selected tester has Machine Manager assignments only and no scoped-admin, super-admin, corporate-partner, or unrelated access. Record aggregate counts only in `#435`.
+- Confirm the selected machines and manager are approved in `#427`.
+- Confirm the tested release commit and Refund Operations release manifest match the deployed environment.
+- Confirm live Nayax execution state:
+  - **Shadow mode:** execution disabled, dry run on, kill switch on, and sponsor flag unset.
+  - **Controlled execution:** only after the explicit `#430` sponsor gate; use the approved low-value case, allowlist, and caps.
+- Confirm customer-email and automation tests use synthetic addresses unless the sponsor approved a real pilot case.
+- Do not capture customer names, contact details, card digits, payout contacts, complaint text, raw provider identifiers/payloads, Gmail content, or secrets in screenshots or notes.
+- Do not use `?demo=on` as functional evidence. Demo mode is for visual review only.
 
-Functional UAT note: a Machine Manager email must belong to a user who has signed in to Bloomjoy at least once. If a non-authenticated email is entered, the UI should explain that the person needs to sign in once before assignment.
+## A. Access boundary
 
-## Feedback Prompts
-Capture manager feedback in GitHub issues or PR comments using this format.
+1. Sign in with the clean manager-only account.
+2. Open `/refunds` directly.
+3. Confirm the queue contains only cases for assigned pilot machines.
+4. Confirm unrelated machines and cases are absent from search, filters, counts, and direct links.
+5. Confirm `/admin`, `/admin/refunds`, and machine setup controls are unavailable or redirect safely.
+6. Confirm the manager cannot see machine mapping identifiers, provider secrets, raw Nayax payloads, Gmail provider identifiers, or internal policy tables.
 
-```md
-## Machine Manager shadow feedback
-- Tester persona:
-- Machine/location scope:
+Pass only if every boundary holds. Any access leak stops the pilot.
+
+## B. Ordinary matched card case
+
+1. Open a prepared high-confidence card case.
+2. Without coaching, ask the manager what they believe the next action is.
+3. Confirm the screen shows the customer request beside the **Recommended card sale** on a typical laptop viewport.
+4. Confirm the explanation includes the mapped location/machine, amount, local time difference, card-last-four evidence when available, and any wallet warning without exposing raw provider IDs or internal score points.
+5. Confirm alternate candidates, timeline, internal notes, and retry tools are not competing with the normal path.
+6. Confirm exactly one dominant action is visible: **Refund $X and notify customer**. No manual status or decision selector should be required on this path.
+7. Clear the selected sale. Confirm the old refund action disappears immediately and an unsaved candidate cannot expose final refund execution.
+8. Re-select the recommended sale and use **Confirm this card sale**. Confirm execution eligibility appears only after the server saves the manager confirmation.
+9. Open the refund confirmation. Confirm it restates location, machine, transaction time, amount, card last four, and the completion-email preview.
+10. Choose **Go back**. Confirm no provider call, case completion, or email occurs.
+11. Reopen the confirmation and submit once:
+    - In shadow mode, confirm the safe blocked result keeps the case open and sends no completion email.
+    - In an approved `#430` execution pilot, confirm the button disables while processing and provider-confirmed success produces one receipt, one completed case, and one customer email.
+12. Refresh the page and confirm the durable state is correct.
+
+Record time-to-decision, click/decision count, recommendation accepted yes/no, structured disagreement reason if no, and whether coaching was needed.
+
+## C. Card exception cases
+
+Run one prepared case for each state:
+
+- ambiguous candidates
+- no safe match
+- wallet/manual exception
+- setup or lookup failure
+- duplicate or already-refunded transaction
+- provider outcome unknown
+
+For each case, confirm there is one plain-language recovery action, alternate evidence stays secondary, and no enabled refund action or completion email is available. An unknown outcome must tell the manager to reconcile Nayax before retrying.
+
+## D. Cash/manual payout case
+
+1. Open a matched cash/Zelle case.
+2. Confirm no Nayax or card-refund action appears in the primary workflow.
+3. Confirm the current state has one dominant next action and denial/missing-information choices are behind **Other decisions**.
+4. Approve the cash refund. Confirm the approval email and next step are clear; Bloomjoy Hub must not claim it sent the external payout.
+5. After the approved manual payout is actually sent, enter:
+   - refund amount no greater than the recorded customer payment
+   - payment sent date/time
+   - a short non-sensitive confirmation/reference
+   - the explicit **payment was sent** confirmation
+6. Confirm account/routing/card/contact/credential-like values are rejected.
+7. Open the final confirmation and verify the amount, time, reference summary, and customer-email preview.
+8. Submit once and confirm one completion, one redacted audit event, one reporting adjustment when eligible, and one customer email.
+9. Repeat/double-submit and confirm no duplicate state change, audit event, adjustment, or email.
+10. Run one denied or missing-information cash case and confirm no reporting adjustment is created.
+
+## E. Communications and recovery
+
+1. Verify acknowledgement and more-information message state from the case.
+2. Preview approval, denial, and completion copy. Confirm it is empathetic, includes the case reference, and does not overpromise timing or approval.
+3. Simulate a failed send and confirm the case remains accurate with one clear retry path.
+4. Simulate an uncertain send and confirm the manager is told to reconcile the mailbox before retrying.
+5. Confirm a retry produces no duplicate customer message.
+6. Confirm automation health is understandable to the manager without exposing run ledgers or customer data.
+
+## F. Mobile and keyboard check
+
+1. Repeat queue selection and one card or cash action at `390x844`.
+2. Confirm there is no horizontal page overflow, clipped action, hidden confirmation detail, or unreadable table.
+3. Navigate the primary action and confirmation using the keyboard.
+4. Confirm focus is visible, the dialog traps focus, **Go back** works, and loading disables repeat submission.
+
+## Expected result
+
+- The manager immediately understands the case and next action.
+- A normal card case needs one transaction confirmation and one refund confirmation, not manual status editing.
+- Unsafe card states fail closed.
+- Cash completion records a manual payout without storing sensitive payment data.
+- Provider success is required before case completion and customer success email.
+- Access, emails, audit history, reporting, and duplicate controls behave consistently after refresh.
+- The manager completes three consecutive ordinary cases without PM/backchannel help and with fewer manual decisions than the legacy workflow.
+
+## Feedback template
+
+```markdown
+## Machine Manager UAT checkpoint
+- Date/environment/release commit:
+- Tester role (no name/email):
+- Assigned machine count:
 - Device: Desktop / Mobile
-- Case reference:
-- Result: PASS / PARTIAL / BLOCKED
+- Scenarios and sample count:
+- Result: PASS / PARTIAL / FAIL
+- Median time to decision:
+- Median manager decisions/clicks:
+- Recommendation accepted count:
+- Coaching needed: yes/no
 - What was confusing:
-- What felt slower than the old process:
-- What felt faster than the old process:
-- Missing information:
-- Suggested change:
+- What was faster/slower than the legacy process:
+- Safety or access concern:
+- Defects opened:
 - Go/no-go impact:
 ```
-
-## PM/PO Go/No-Go Notes
-- Any access-boundary failure is a P0 blocker.
-- Any private-data leakage is a P0 blocker.
-- Any decision path that can write settlement adjustments without approved, completed, correlated evidence is a P0 blocker.
-- Minor wording, spacing, or filter improvements can be parked as follow-up issues if managers can still complete the workflow without PM help.
-- Cutover is not approved until shadow-mode cases complete end to end with fewer manual steps than the Google Form/AppSheet fallback.

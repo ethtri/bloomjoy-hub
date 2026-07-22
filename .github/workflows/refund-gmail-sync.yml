@@ -1,0 +1,59 @@
+name: Refund Gmail Sync
+
+on:
+  schedule:
+    - cron: "3,13,23,33,43,53 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run a safe Gmail sync or a PII-free failure-path test"
+        required: true
+        default: run
+        type: choice
+        options:
+          - run
+          - failure_test
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-gmail-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.event_name == 'workflow_dispatch' || vars.REFUND_GMAIL_SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate encrypted connection settings
+        env:
+          SYNC_URL: ${{ secrets.REFUND_GMAIL_SYNC_URL }}
+          SYNC_TOKEN: ${{ secrets.REFUND_GMAIL_SYNC_TOKEN }}
+        run: |
+          if [ -z "$SYNC_URL" ] || [ -z "$SYNC_TOKEN" ]; then
+            echo "Refund Gmail sync secrets are not configured."
+            exit 1
+          fi
+
+      - name: Run redacted Gmail refund sync
+        env:
+          SYNC_URL: ${{ secrets.REFUND_GMAIL_SYNC_URL }}
+          SYNC_TOKEN: ${{ secrets.REFUND_GMAIL_SYNC_TOKEN }}
+          REQUESTED_MODE: ${{ inputs.mode || 'run' }}
+          RUN_KEY: github:${{ github.run_id }}
+        run: |
+          TRIGGER="scheduled"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TRIGGER="manual"
+          fi
+          if [ "$REQUESTED_MODE" = "failure_test" ]; then
+            TRIGGER="failure_test"
+          fi
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $SYNC_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"runKey\":\"$RUN_KEY\",\"trigger\":\"$TRIGGER\"}" \
+            "$SYNC_URL"
