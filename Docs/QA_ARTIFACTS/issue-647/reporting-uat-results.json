@@ -1,0 +1,118 @@
+{
+  "issue": 647,
+  "appUrl": "http://127.0.0.1:8081",
+  "fixedNow": "2026-07-22T16:00:00.000Z",
+  "startedAt": "2026-07-22T20:41:11.213Z",
+  "completedAt": "2026-07-22T20:41:50.260Z",
+  "status": "pass",
+  "sanitizedFixtures": true,
+  "checks": [
+    {
+      "name": "Operator exposes Today, Last 7 days, and visible Daily/Weekly/Monthly controls",
+      "status": "pass"
+    },
+    {
+      "name": "Operator KPIs, daily totals, and detail rows reconcile exactly",
+      "status": "pass"
+    },
+    {
+      "name": "Operator fresh status is separate from a loaded zero-sales date",
+      "status": "pass"
+    },
+    {
+      "name": "Operator breakdown control supports keyboard focus movement",
+      "status": "pass"
+    },
+    {
+      "name": "Operator machine and payment filters scope every total and export",
+      "status": "pass"
+    },
+    {
+      "name": "Operator desktop has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator mobile preserves exact daily reconciliation",
+      "status": "pass"
+    },
+    {
+      "name": "Operator mobile is usable at 390px without horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator stale import state remains distinct from loaded zero sales",
+      "status": "pass"
+    },
+    {
+      "name": "Operator unavailable import state remains distinct from loaded zero sales",
+      "status": "pass"
+    },
+    {
+      "name": "Partner all-machines view shows six actions, locations, duplicate-name context, and zero sales",
+      "status": "pass"
+    },
+    {
+      "name": "Partner machine picker becomes searchable at the six-machine threshold",
+      "status": "pass"
+    },
+    {
+      "name": "Partner row action supports keyboard selection and a persistent selected scope",
+      "status": "pass"
+    },
+    {
+      "name": "Corporate Partner sees scoped warnings without internal-only leakage",
+      "status": "pass"
+    },
+    {
+      "name": "Partner selected-machine KPIs, history, warnings, and export retain machine scope",
+      "status": "pass"
+    },
+    {
+      "name": "Partner desktop has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Partner mobile all-machines view preserves location and action context",
+      "status": "pass"
+    },
+    {
+      "name": "Partner mobile selected zero-sales machine keeps scope, history, back action, and no overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator responsive boundary 360px has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator responsive boundary 414px has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Partner responsive boundary 414px keeps all-machine and selected-machine scopes in bounds",
+      "status": "pass"
+    },
+    {
+      "name": "Baseline account remains blocked from reporting",
+      "status": "pass"
+    },
+    {
+      "name": "Signed-out reporting route still redirects to login",
+      "status": "pass"
+    },
+    {
+      "name": "No unexpected browser errors occurred",
+      "status": "pass"
+    }
+  ],
+  "browserErrors": [],
+  "error": null,
+  "screenshots": [
+    "operator-daily-desktop.png",
+    "operator-daily-mobile-390.png",
+    "operator-zero-sales-stale-desktop.png",
+    "partner-all-machines-desktop.png",
+    "partner-all-machines-mobile-390.png",
+    "partner-selected-machine-desktop.png",
+    "partner-selected-zero-machine-mobile-390.png"
+  ]
+}

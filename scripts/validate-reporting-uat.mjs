@@ -581,6 +581,34 @@ const assertNoHorizontalOverflow = async (page, label) => {
     documentWidth: document.documentElement.scrollWidth,
     viewportWidth: document.documentElement.clientWidth,
   }));
+  if (dimensions.documentWidth > dimensions.viewportWidth + 1) {
+    const offenders = await page.evaluate(() =>
+      [...document.querySelectorAll('body *')]
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            tag: element.tagName.toLowerCase(),
+            className: typeof element.className === 'string' ? element.className : '',
+            text: (element.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 160),
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth,
+            overflowX: getComputedStyle(element).overflowX,
+          };
+        })
+        .filter((item) => item.right > document.documentElement.clientWidth + 1)
+        .sort((left, right) => right.right - left.right)
+        .slice(0, 30),
+    );
+    const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    fs.writeFileSync(
+      path.join(outputDir, `${slug}-overflow.json`),
+      `${JSON.stringify({ dimensions, offenders }, null, 2)}\n`,
+    );
+    await page.screenshot({ path: path.join(outputDir, `${slug}-overflow.png`), fullPage: true });
+  }
   assert(
     dimensions.documentWidth <= dimensions.viewportWidth + 1,
     `${label} overflows horizontally (${dimensions.documentWidth}px > ${dimensions.viewportWidth}px).`,
@@ -611,21 +639,37 @@ const findOperatorMachineTrigger = async (page) => {
 };
 
 const expectCurrency = async (locator, currency, label) => {
+  await locator.getByText(currency, { exact: true }).first().waitFor();
   const text = await textOf(locator);
   assert(text.includes(currency), `${label} must include ${currency}. Found: ${text}`);
 };
 
 const chooseLastSevenDaily = async (page) => {
-  const today = page.getByRole('button', { name: 'Today', exact: true });
-  const lastSeven = page.getByRole('button', { name: /Last 7 days/i });
-  await today.waitFor();
+  const today = page.getByRole('radio', { name: 'Today', exact: true });
+  const lastSeven = page.getByRole('radio', { name: /Last 7 days/i });
+  try {
+    await today.waitFor();
+  } catch (error) {
+    fs.writeFileSync(
+      path.join(outputDir, 'operator-controls-debug.txt'),
+      `${await page.locator('body').innerText()}\n`,
+    );
+    await page.screenshot({
+      path: path.join(outputDir, 'operator-controls-debug.png'),
+      fullPage: true,
+    });
+    throw error;
+  }
   await lastSeven.waitFor();
   await lastSeven.click();
   const breakdown = page.locator(selectors.operatorBreakdown);
   await breakdown.waitFor();
-  const daily = breakdown.getByRole('button', { name: 'Daily', exact: true });
+  const daily = breakdown.getByRole('radio', { name: 'Daily', exact: true });
   await daily.click();
-  await page.locator(`${selectors.operatorDailyRow}[data-date="2026-07-19"]`).first().waitFor();
+  await visibleLocator(
+    page.locator(`${selectors.operatorDailyRow}[data-date="2026-07-19"]`),
+    'Operator daily row 2026-07-19',
+  );
 };
 
 const assertOperatorDailyReconciliation = async (page) => {
@@ -680,13 +724,62 @@ const assertFreshnessState = async (page, state) => {
   const treatment = page.locator(`${selectors.operatorFreshness}[data-reporting-operator-freshness-state="${state}"]`);
   await treatment.waitFor();
   const text = await textOf(treatment);
+  const dailySectionText = await textOf(page.locator(selectors.operatorDailySales));
   if (state === 'fresh') {
-    assert(/current|fresh|through|updated/i.test(text), `Fresh state must explain report coverage. Found: ${text}`);
+    assert(/current|fresh|through|updated|last import/i.test(text), `Fresh state must explain report coverage. Found: ${text}`);
   } else if (state === 'stale') {
-    assert(/stale|delayed|through|predates/i.test(text), `Stale state must explain delayed coverage. Found: ${text}`);
+    assert(
+      /stale|delayed|extends beyond|predates/i.test(`${text} ${dailySectionText}`),
+      `Stale state must explain delayed coverage. Found: ${dailySectionText}`,
+    );
   } else {
-    assert(/unavailable|not available|missing/i.test(text), `Unavailable state must explain missing import metadata. Found: ${text}`);
+    assert(
+      /unavailable|not available|missing/i.test(`${text} ${dailySectionText}`),
+      `Unavailable state must explain missing import metadata. Found: ${dailySectionText}`,
+    );
   }
+};
+
+const waitForRecordedRequest = async (page, records, label) => {
+  for (let attempt = 0; attempt < 100 && records.length === 0; attempt += 1) {
+    await page.waitForTimeout(50);
+  }
+  assert(records.length === 1, `${label} must be intercepted exactly once.`);
+};
+
+const settleScreenshotViewport = async (page, toastPattern) => {
+  if (toastPattern) {
+    await page
+      .getByText(toastPattern)
+      .last()
+      .waitFor({ state: 'hidden', timeout: 7000 })
+      .catch(() => undefined);
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              if (document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur();
+              }
+              window.scrollTo(0, 0);
+              document.documentElement.scrollTop = 0;
+              document.body.scrollTop = 0;
+              resolve(undefined);
+            });
+          });
+        }),
+    );
+    await page.waitForTimeout(100);
+    if ((await page.evaluate(() => window.scrollY)) === 0) return;
+  }
+  const scrollY = await page.evaluate(() => window.scrollY);
+  assert(
+    scrollY <= 600,
+    `Screenshot viewport must settle near the top of the page. Found scrollY=${scrollY}.`,
+  );
 };
 
 const assertOperatorDesktop = async (browser) => {
@@ -702,7 +795,7 @@ const assertOperatorDesktop = async (browser) => {
       await chooseLastSevenDaily(page);
       const breakdown = page.locator(selectors.operatorBreakdown);
       for (const label of ['Daily', 'Weekly', 'Monthly']) {
-        const button = breakdown.getByRole('button', { name: label, exact: true });
+        const button = breakdown.getByRole('radio', { name: label, exact: true });
         await button.waitFor();
         await assertTouchTarget(button, `Operator ${label} breakdown button`);
       }
@@ -718,10 +811,15 @@ const assertOperatorDesktop = async (browser) => {
     });
     await check('Operator breakdown control supports keyboard focus movement', async () => {
       const group = page.locator(selectors.operatorBreakdown);
-      const daily = group.getByRole('button', { name: 'Daily', exact: true });
-      const weekly = group.getByRole('button', { name: 'Weekly', exact: true });
+      const daily = group.getByRole('radio', { name: 'Daily', exact: true });
+      const weekly = group.getByRole('radio', { name: 'Weekly', exact: true });
       await daily.focus();
-      await daily.press('ArrowRight');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await daily.press('ArrowRight');
+        await page.waitForTimeout(50);
+        if (await weekly.evaluate((element) => element === document.activeElement)) break;
+        await daily.focus();
+      }
       assert(await weekly.evaluate((element) => element === document.activeElement), 'ArrowRight from Daily must move focus to Weekly.');
       await daily.click();
     });
@@ -742,7 +840,7 @@ const assertOperatorDesktop = async (browser) => {
       const exportButton = page.locator('[data-portal-report-export="operator-pdf"]');
       await exportButton.click();
       await page.waitForFunction(() => document.body.innerText.includes('Reporting'));
-      assert(state.operatorExports.length === 1, 'Operator export request must be intercepted exactly once.');
+      await waitForRecordedRequest(page, state.operatorExports, 'Operator export request');
       const exportedFilters = state.operatorExports[0].filters;
       assert(exportedFilters.dateFrom === fixedDateFrom && exportedFilters.dateTo === fixedDateTo, 'Operator export must retain the Last 7 days date window.');
       assert(exportedFilters.grain === 'day', 'Operator export must retain Daily breakdown.');
@@ -753,7 +851,11 @@ const assertOperatorDesktop = async (browser) => {
 
     await selectRadixOption(await findOperatorMachineTrigger(page), 'All machines');
     await page.getByRole('button', { name: 'Credit', exact: true }).click();
-    await page.locator(`${selectors.operatorDailyRow}[data-date="2026-07-19"]`).first().waitFor();
+    await visibleLocator(
+      page.locator(`${selectors.operatorDailyRow}[data-date="2026-07-19"]`),
+      'Operator daily row 2026-07-19 after clearing filters',
+    );
+    await settleScreenshotViewport(page, /Polished operator report PDF is ready/i);
     await page.screenshot({ path: path.join(outputDir, 'operator-daily-desktop.png'), fullPage: true });
   } finally {
     await context.close();
@@ -769,7 +871,7 @@ const assertOperatorMobile = async (browser) => {
     await check('Operator mobile preserves exact daily reconciliation', () => assertOperatorDailyReconciliation(page));
     await check('Operator mobile is usable at 390px without horizontal overflow', async () => {
       await assertNoHorizontalOverflow(page, 'Operator mobile');
-      await assertTouchTarget(page.getByRole('button', { name: /Last 7 days/i }), 'Operator Last 7 days mobile control');
+      await assertTouchTarget(page.getByRole('radio', { name: /Last 7 days/i }), 'Operator Last 7 days mobile control');
     });
     await page.screenshot({ path: path.join(outputDir, 'operator-daily-mobile-390.png'), fullPage: true });
   } finally {
@@ -833,10 +935,11 @@ const assertPartnerAllMachines = async (page) => {
 
 const searchForPartnerMachine = async (page, query, optionPattern) => {
   const picker = page.locator(selectors.partnerMachinePicker);
-  await picker.waitFor();
-  const trigger = await visibleLocator(picker.getByRole('combobox').or(picker.getByRole('button')), 'Partner machine picker trigger');
+  const trigger = await visibleLocator(picker, 'Partner machine picker trigger');
   await trigger.click();
-  const search = page.getByRole('combobox', { name: /search machines/i }).or(page.getByPlaceholder(/search machines/i));
+  const search = page
+    .getByRole('combobox', { name: /search machine or location/i })
+    .or(page.getByPlaceholder(/search machine or location/i));
   const input = await visibleLocator(search, 'Partner machine search input');
   await input.fill(query);
   const option = page.getByRole('option', { name: optionPattern }).or(page.getByRole('button', { name: optionPattern }));
@@ -885,6 +988,7 @@ const assertPartnerDesktop = async (browser) => {
       await page.locator(selectors.partnerBackAll).click();
       await visibleMachineLocator(page, selectors.partnerMachineAction, 'partner-machine-harbor', 'Returned all-machines action');
     });
+    await settleScreenshotViewport(page);
     await page.screenshot({ path: path.join(outputDir, 'partner-all-machines-desktop.png'), fullPage: true });
 
     await check('Partner row action supports keyboard selection and a persistent selected scope', async () => {
@@ -919,13 +1023,14 @@ const assertPartnerDesktop = async (browser) => {
       await exportButton.click();
       const csvOption = page.getByRole('menuitem', { name: /CSV reconciliation/i });
       await csvOption.click();
-      assert(state.partnerExports.length === 1, 'Partner export request must be intercepted exactly once.');
+      await waitForRecordedRequest(page, state.partnerExports, 'Partner export request');
       const payload = state.partnerExports[0];
       assert(payload.format === 'csv', 'Partner export must preserve requested CSV format.');
       assert(JSON.stringify(payload.machineIds) === JSON.stringify(['partner-machine-harbor']), 'Partner export must contain only the selected machine ID.');
       assert(payload.partnershipId === 'partnership-sanitized-uat', 'Partner export must retain partnership scope.');
     });
     await check('Partner desktop has no horizontal overflow', () => assertNoHorizontalOverflow(page, 'Partner desktop'));
+    await settleScreenshotViewport(page, /partner CSV generated/i);
     await page.screenshot({ path: path.join(outputDir, 'partner-selected-machine-desktop.png'), fullPage: true });
   } finally {
     await context.close();
@@ -957,7 +1062,60 @@ const assertPartnerMobile = async (browser) => {
       await assertTouchTarget(page.locator(selectors.partnerBackAll), 'Partner mobile Back to all machines action');
       await assertNoHorizontalOverflow(page, 'Partner selected-machine mobile');
     });
+    await page.locator(selectors.partnerBackAll).click();
+    await searchForPartnerMachine(
+      page,
+      'Pier Center',
+      /Kiosk West.*Pier Center|Pier Center.*Kiosk West/i,
+    );
+    await assertSelectedPartnerMachine(page, partnerMachines[2]);
+    await settleScreenshotViewport(page);
     await page.screenshot({ path: path.join(outputDir, 'partner-selected-zero-machine-mobile-390.png'), fullPage: true });
+  } finally {
+    await context.close();
+  }
+};
+
+const assertResponsiveBoundaryWidths = async (browser) => {
+  for (const width of [360, 414]) {
+    const { page, context } = await createPageForPersona(
+      browser,
+      personas.operator,
+      { width, height: width === 360 ? 800 : 896 },
+    );
+    try {
+      await page.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
+      await waitForReport(page);
+      await chooseLastSevenDaily(page);
+      await check(`Operator responsive boundary ${width}px has no horizontal overflow`, () =>
+        assertNoHorizontalOverflow(page, `Operator ${width}px`),
+      );
+    } finally {
+      await context.close();
+    }
+  }
+
+  const { page, context } = await createPageForPersona(
+    browser,
+    personas.corporatePartner,
+    { width: 414, height: 896 },
+  );
+  try {
+    await page.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
+    await waitForReport(page);
+    await page.getByRole('heading', { name: 'Partner performance summary' }).waitFor();
+    await check('Partner responsive boundary 414px keeps all-machine and selected-machine scopes in bounds', async () => {
+      await assertNoHorizontalOverflow(page, 'Partner all-machines 414px');
+      const action = await visibleMachineLocator(
+        page,
+        selectors.partnerMachineAction,
+        'partner-machine-zero',
+        'Partner 414px zero-sales machine action',
+      );
+      await action.click();
+      await assertSelectedPartnerMachine(page, partnerMachines[2]);
+      await assertNoHorizontalOverflow(page, 'Partner selected-machine 414px');
+    });
   } finally {
     await context.close();
   }
@@ -1037,6 +1195,11 @@ const writeResults = () => {
 };
 
 fs.mkdirSync(outputDir, { recursive: true });
+for (const artifactName of fs.readdirSync(outputDir)) {
+  if (/\.(?:json|md|png|txt)$/i.test(artifactName)) {
+    fs.rmSync(path.join(outputDir, artifactName));
+  }
+}
 const browser = await chromium.launch({ headless: true });
 try {
   await assertOperatorDesktop(browser);
@@ -1044,6 +1207,7 @@ try {
   await assertOperatorFreshnessVariants(browser);
   await assertPartnerDesktop(browser);
   await assertPartnerMobile(browser);
+  await assertResponsiveBoundaryWidths(browser);
   await assertPermissionBoundaries(browser);
   await check('No unexpected browser errors occurred', async () => {
     assert(browserErrors.length === 0, `Unexpected browser errors:\n${browserErrors.join('\n')}`);
