@@ -1,14 +1,29 @@
-import { lazy, Suspense, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
+  ArrowLeft,
   AlertTriangle,
+  Check,
   ChevronDown,
+  ChevronRight,
+  ChevronsUpDown,
   Download,
+  Eye,
   FileSpreadsheet,
   FileText,
   Info,
   Loader2,
+  MapPin,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
@@ -25,6 +40,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -38,6 +61,7 @@ import {
 } from '@/components/ui/chart';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -132,12 +156,19 @@ type PartnerMachineHistoryRow = {
   previous?: PartnerDashboardPeriod;
   isCurrent: boolean;
 };
+type PartnerMachineOption = {
+  id: string;
+  label: string;
+  locationName: string | null;
+  displayLabel: string;
+};
 
 const PartnerPrintableReport = lazy(
   () => import('@/components/portal/reports/PartnerPrintableReport')
 );
 
 const ALL_PARTNER_MACHINES = 'all';
+const PARTNER_MACHINE_SEARCH_THRESHOLD = 6;
 const PARTNER_REVENUE_SHARE_LABEL = 'Partner Revenue Share';
 const PARTNER_BLOOMJOY_REVIEW_TITLE = 'Bloomjoy review in progress';
 const PARTNER_BLOOMJOY_REVIEW_DESCRIPTION =
@@ -559,6 +590,53 @@ const formatTaxDeductionsDetail = (period: PartnerDashboardTotals) =>
   hasAdditionalCosts(period)
     ? `Additional costs ${formatCurrency(period.costCents, true)}`
     : 'Tax and configured deductions';
+
+const buildPartnerMachineOptions = (
+  machinePeriods: PartnerDashboardMachinePeriod[]
+): PartnerMachineOption[] => {
+  const machinesById = new Map<
+    string,
+    Pick<PartnerMachineOption, 'id' | 'label' | 'locationName'>
+  >();
+
+  machinePeriods.forEach((machine) => {
+    if (!machine.reportingMachineId) return;
+
+    const existing = machinesById.get(machine.reportingMachineId);
+    machinesById.set(machine.reportingMachineId, {
+      id: machine.reportingMachineId,
+      label: machine.machineLabel,
+      locationName: existing?.locationName ?? machine.locationName,
+    });
+  });
+
+  const machines = [...machinesById.values()].sort((left, right) =>
+    left.label.localeCompare(right.label) ||
+    (left.locationName ?? '').localeCompare(right.locationName ?? '') ||
+    left.id.localeCompare(right.id)
+  );
+
+  return machines.map((machine) => {
+    const duplicates = machines.filter((candidate) => candidate.label === machine.label);
+    if (duplicates.length === 1) {
+      return { ...machine, displayLabel: machine.label };
+    }
+
+    const sameLocationCount = duplicates.filter(
+      (candidate) => candidate.locationName === machine.locationName
+    ).length;
+    if (machine.locationName && sameLocationCount === 1) {
+      return { ...machine, displayLabel: `${machine.label} · ${machine.locationName}` };
+    }
+
+    const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === machine.id) + 1;
+    const locationPrefix = machine.locationName ? `${machine.locationName} · ` : '';
+    return {
+      ...machine,
+      displayLabel: `${machine.label} · ${locationPrefix}Machine ${duplicateIndex}`,
+    };
+  });
+};
 
 const getChangeTone = (current: number, previous: number) => {
   if (current === previous) return 'text-muted-foreground';
@@ -1397,6 +1475,9 @@ function PartnerDashboardView() {
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
   const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
   const [selectedMachineId, setSelectedMachineId] = useState(ALL_PARTNER_MACHINES);
+  const machinePickerRef = useRef<HTMLButtonElement>(null);
+  const machineScopeRef = useRef<HTMLElement>(null);
+  const shouldFocusMachineScopeRef = useRef(false);
   const [exportingPartnerFormat, setExportingPartnerFormat] =
     useState<PartnerDashboardExportFormat | null>(null);
 
@@ -1523,17 +1604,13 @@ function PartnerDashboardView() {
   );
 
   const machineOptions = useMemo(() => {
-    const optionsById = new Map<string, string>();
-    (preview?.machinePeriods ?? []).forEach((machine) => {
-      if (machine.reportingMachineId) {
-        optionsById.set(machine.reportingMachineId, machine.machineLabel);
-      }
-    });
-
-    return [...optionsById.entries()]
-      .map(([id, label]) => ({ id, label }))
-      .sort((left, right) => left.label.localeCompare(right.label));
+    return buildPartnerMachineOptions(preview?.machinePeriods ?? []);
   }, [preview?.machinePeriods]);
+
+  const machineOptionsById = useMemo(
+    () => new Map(machineOptions.map((machine) => [machine.id, machine])),
+    [machineOptions]
+  );
 
   useEffect(() => {
     if (previewLoading || selectedPreviewFetching || !preview) return;
@@ -1553,9 +1630,35 @@ function PartnerDashboardView() {
   ]);
 
   const selectedMachine = machineOptions.find((machine) => machine.id === selectedMachineId);
-  const selectedMachineLabel = selectedMachine?.label;
+  const selectedMachineLabel = selectedMachine?.displayLabel;
   const scopedMachineIds =
     selectedMachineId === ALL_PARTNER_MACHINES ? [] : [selectedMachineId];
+
+  useEffect(() => {
+    if (!selectedMachine || !shouldFocusMachineScopeRef.current) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const scope = machineScopeRef.current;
+      if (!scope) return;
+
+      scope.focus({ preventScroll: true });
+      scope.scrollIntoView({ behavior: 'instant', block: 'start' });
+      shouldFocusMachineScopeRef.current = false;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedMachine]);
+
+  const selectMachineScope = (machineId: string) => {
+    shouldFocusMachineScopeRef.current = machineId !== ALL_PARTNER_MACHINES;
+    setSelectedMachineId(machineId);
+  };
+
+  const clearMachineScope = () => {
+    shouldFocusMachineScopeRef.current = false;
+    setSelectedMachineId(ALL_PARTNER_MACHINES);
+    window.requestAnimationFrame(() => machinePickerRef.current?.focus());
+  };
 
   const currentPeriod = useMemo(() => {
     if (!selectedPeriod) return selectedPreviewPeriod;
@@ -1916,25 +2019,14 @@ function PartnerDashboardView() {
               </LabeledControl>
 
               <LabeledControl label="Machine" htmlFor="partner-dashboard-machine">
-                <Select
+                <PartnerMachineSelector
+                  id="partner-dashboard-machine"
+                  triggerRef={machinePickerRef}
+                  options={machineOptions}
                   value={selectedMachineId}
-                  onValueChange={setSelectedMachineId}
+                  onValueChange={selectMachineScope}
                   disabled={machineOptions.length === 0}
-                >
-                  <SelectTrigger id="partner-dashboard-machine">
-                    <SelectValue placeholder="All machines" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value={ALL_PARTNER_MACHINES}>All machines</SelectItem>
-                      {machineOptions.map((machine) => (
-                        <SelectItem key={machine.id} value={machine.id}>
-                          {machine.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                />
               </LabeledControl>
 
               <div className="flex flex-col gap-2 sm:flex-row lg:col-span-2 lg:justify-end xl:col-span-1">
@@ -2015,6 +2107,15 @@ function PartnerDashboardView() {
             )}
           </CardContent>
         </Card>
+
+        {selectedMachine && selectedPartnership && (
+          <PartnerMachineScopeBar
+            scopeRef={machineScopeRef}
+            partnershipName={selectedPartnership.name}
+            machine={selectedMachine}
+            onBack={clearMachineScope}
+          />
+        )}
 
       {previewError && (
         <Alert variant="destructive">
@@ -2149,7 +2250,7 @@ function PartnerDashboardView() {
               data={netSalesTrendData}
               config={partnerNetSalesChartConfig}
               dataKey="netSales"
-              value={formatCurrency(currentPeriod?.netSalesCents ?? 0)}
+              value={formatCurrency(currentPeriod?.netSalesCents ?? 0, true)}
               change={formatPercentChange(
                 currentPeriod?.netSalesCents ?? 0,
                 previousPeriod?.netSalesCents ?? 0
@@ -2180,7 +2281,11 @@ function PartnerDashboardView() {
                           <PartnerMachineMobileCard
                             key={row.current.reportingMachineId}
                             row={row}
+                            machine={machineOptionsById.get(row.current.reportingMachineId)}
                             isSelected={row.current.reportingMachineId === selectedMachineId}
+                            onViewMachine={() =>
+                              selectMachineScope(row.current.reportingMachineId)
+                            }
                           />
                         ))}
                       </div>
@@ -2199,23 +2304,37 @@ function PartnerDashboardView() {
                               )}
                               <TableHead className="text-right">{PARTNER_REVENUE_SHARE_LABEL}</TableHead>
                               <TableHead className="text-right">Change</TableHead>
+                              <TableHead className="text-right">
+                                <span className="sr-only">Machine details</span>
+                              </TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {machineRows.map((row) => {
                               const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
+                              const machineOption = machineOptionsById.get(
+                                row.current.reportingMachineId
+                              );
                               return (
                                 <TableRow
                                   key={row.current.reportingMachineId}
+                                  data-reporting-partner-machine-row="desktop"
+                                  data-machine-id={row.current.reportingMachineId}
                                   className={cn(
                                     row.current.reportingMachineId === selectedMachineId && 'bg-muted/40'
                                   )}
                                 >
                                   <TableCell>
-                                    <div className="font-medium">{row.current.machineLabel}</div>
+                                    <div className="font-medium">
+                                      {machineOption?.displayLabel ?? row.current.machineLabel}
+                                    </div>
+                                    <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                                      <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                      <span>{row.current.locationName ?? 'Location not provided'}</span>
+                                    </div>
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    {formatCurrency(row.current.grossSalesCents)}
+                                    {formatCurrency(row.current.grossSalesCents, true)}
                                   </TableCell>
                                   <TableCell className="text-right">
                                     -{formatCurrency(row.current.refundAmountCents, true)}
@@ -2269,6 +2388,23 @@ function PartnerDashboardView() {
                                     >
                                       Volume {formatPercentChange(periodVolume(row.current), periodVolume(row.previous))}
                                     </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="min-h-9 whitespace-nowrap"
+                                      onClick={() =>
+                                        selectMachineScope(row.current.reportingMachineId)
+                                      }
+                                      data-reporting-partner-machine-action
+                                      data-machine-id={row.current.reportingMachineId}
+                                      aria-label={`View details for ${machineOption?.displayLabel ?? row.current.machineLabel}`}
+                                    >
+                                      <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+                                      View machine
+                                    </Button>
                                   </TableCell>
                                 </TableRow>
                               );
@@ -2502,7 +2638,7 @@ function PartnerMachineHistoryCard({
   showPayoutBasisColumn: boolean;
 }) {
   return (
-    <Card className="min-w-0">
+    <Card className="min-w-0" data-reporting-partner-machine-history>
       <CardHeader>
         <CardTitle className="text-xl">Machine history</CardTitle>
         <CardDescription>
@@ -2564,7 +2700,7 @@ function PartnerMachineHistoryCard({
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          {formatCurrency(row.period.grossSalesCents)}
+                          {formatCurrency(row.period.grossSalesCents, true)}
                         </TableCell>
                         <TableCell className="text-right">
                           -{formatCurrency(row.period.refundAmountCents, true)}
@@ -2670,7 +2806,7 @@ function PartnerMachineHistoryMobileCard({
         </div>
         <div className="shrink-0 text-left min-[390px]:text-right">
           <div className="font-semibold text-foreground">
-            {formatCurrency(row.period.grossSalesCents)}
+            {formatCurrency(row.period.grossSalesCents, true)}
           </div>
           {row.previous ? (
             <div
@@ -2732,15 +2868,21 @@ function PartnerMachineHistoryMobileCard({
 
 function PartnerMachineMobileCard({
   row,
+  machine,
   isSelected = false,
+  onViewMachine,
 }: {
   row: PartnerMachineComparisonRow;
+  machine?: PartnerMachineOption;
   isSelected?: boolean;
+  onViewMachine: () => void;
 }) {
   const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
 
   return (
     <div
+      data-reporting-partner-machine-row="mobile"
+      data-machine-id={row.current.reportingMachineId}
       className={cn(
         'rounded-lg border border-border bg-background p-4',
         isSelected && 'bg-muted/40'
@@ -2748,11 +2890,17 @@ function PartnerMachineMobileCard({
     >
       <div className="flex flex-col gap-3 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
         <div className="min-w-0">
-          <div className="font-medium text-foreground">{row.current.machineLabel}</div>
+          <div className="font-medium text-foreground">
+            {machine?.displayLabel ?? row.current.machineLabel}
+          </div>
+          <div className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+            <MapPin className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+            <span>{row.current.locationName ?? 'Location not provided'}</span>
+          </div>
         </div>
         <div className="shrink-0 text-left min-[390px]:text-right">
           <div className="font-semibold text-foreground">
-            {formatCurrency(row.current.grossSalesCents)}
+            {formatCurrency(row.current.grossSalesCents, true)}
           </div>
           <div
             className={cn(
@@ -2788,6 +2936,19 @@ function PartnerMachineMobileCard({
           detail={formatTaxDeductionsDetail(row.current)}
         />
       </div>
+
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-4 min-h-11 w-full"
+        onClick={onViewMachine}
+        data-reporting-partner-machine-action
+        data-machine-id={row.current.reportingMachineId}
+        aria-label={`View details for ${machine?.displayLabel ?? row.current.machineLabel}`}
+      >
+        <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+        View machine details
+      </Button>
     </div>
   );
 }
@@ -2893,6 +3054,173 @@ function buildPartnerMachineRows(
       previous: previousByMachine.get(current.reportingMachineId),
     }))
     .sort((left, right) => right.current.grossSalesCents - left.current.grossSalesCents);
+}
+
+function PartnerMachineSelector({
+  id,
+  triggerRef,
+  options,
+  value,
+  onValueChange,
+  disabled,
+}: {
+  id: string;
+  triggerRef: Ref<HTMLButtonElement>;
+  options: PartnerMachineOption[];
+  value: string;
+  onValueChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedMachine = options.find((machine) => machine.id === value);
+  const selectedLabel = selectedMachine?.displayLabel ?? 'All machines';
+
+  if (options.length < PARTNER_MACHINE_SEARCH_THRESHOLD) {
+    return (
+      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+        <SelectTrigger
+          ref={triggerRef}
+          id={id}
+          data-reporting-partner-machine-picker
+        >
+          <SelectValue placeholder="All machines" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value={ALL_PARTNER_MACHINES}>All machines</SelectItem>
+            {options.map((machine) => (
+              <SelectItem key={machine.id} value={machine.id}>
+                {machine.displayLabel}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          ref={triggerRef}
+          id={id}
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label={`Machine scope: ${selectedLabel}`}
+          disabled={disabled}
+          data-reporting-partner-machine-picker
+          className="min-h-10 w-full justify-between gap-2 px-3 font-normal"
+        >
+          <span className="truncate text-left">{selectedLabel}</span>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-trigger-width)] min-w-[18rem] p-0"
+      >
+        <Command>
+          <CommandInput placeholder="Search machine or location..." />
+          <CommandList>
+            <CommandEmpty>No machine found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value="All machines"
+                onSelect={() => {
+                  onValueChange(ALL_PARTNER_MACHINES);
+                  setOpen(false);
+                }}
+                className="min-h-11"
+              >
+                <Check
+                  className={cn(
+                    'mr-2 h-4 w-4 shrink-0',
+                    value === ALL_PARTNER_MACHINES ? 'opacity-100' : 'opacity-0'
+                  )}
+                  aria-hidden="true"
+                />
+                All machines
+              </CommandItem>
+              {options.map((machine) => (
+                <CommandItem
+                  key={machine.id}
+                  value={`${machine.displayLabel} ${machine.locationName ?? ''}`}
+                  onSelect={() => {
+                    onValueChange(machine.id);
+                    setOpen(false);
+                  }}
+                  className="min-h-11 items-start"
+                >
+                  <Check
+                    className={cn(
+                      'mr-2 mt-0.5 h-4 w-4 shrink-0',
+                      value === machine.id ? 'opacity-100' : 'opacity-0'
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate">{machine.displayLabel}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {machine.locationName ?? 'Location not provided'}
+                    </span>
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PartnerMachineScopeBar({
+  scopeRef,
+  partnershipName,
+  machine,
+  onBack,
+}: {
+  scopeRef: Ref<HTMLElement>;
+  partnershipName: string;
+  machine: PartnerMachineOption;
+  onBack: () => void;
+}) {
+  return (
+    <section
+      ref={scopeRef}
+      tabIndex={-1}
+      aria-label="Current machine scope"
+      aria-live="polite"
+      data-reporting-partner-machine-scope
+      className="sticky top-[4.75rem] z-30 flex scroll-mt-[5.5rem] flex-col gap-3 rounded-xl border border-primary/20 bg-background/95 p-3 shadow-sm outline-none backdrop-blur focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 supports-[backdrop-filter]:bg-background/90 min-[390px]:flex-row min-[390px]:items-center min-[390px]:justify-between lg:top-3 lg:scroll-mt-4"
+    >
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm">
+          <span className="truncate text-muted-foreground">{partnershipName}</span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate font-semibold text-foreground">{machine.displayLabel}</span>
+        </div>
+        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+          <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+          <span className="truncate">{machine.locationName ?? 'Location not provided'}</span>
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="min-h-11 shrink-0 min-[390px]:min-h-9"
+        onClick={onBack}
+        data-reporting-partner-back-all
+      >
+        <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
+        Back to all machines
+      </Button>
+    </section>
+  );
 }
 
 function LabeledControl({
