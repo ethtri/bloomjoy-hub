@@ -130,6 +130,8 @@ Recommended first slice:
 Do not build browser-side Nayax calls, and do not expose Nayax raw responses in public or customer-facing pages without a privacy review.
 
 ## Refund Execution Guardrails
+
+The versioned matching weights, states, timezone rules, privacy-safe evidence, fixtures, and rollback procedure are documented in [REFUND_NAYAX_MATCHING_RUNBOOK.md](./REFUND_NAYAX_MATCHING_RUNBOOK.md).
 Refund execution is separate from read-only Last Sales lookup.
 
 The current full-automation foundation adds `nayax-card-refund` as a backend-only, fail-closed execution surface. It does not call live Nayax refund endpoints until all of these are true:

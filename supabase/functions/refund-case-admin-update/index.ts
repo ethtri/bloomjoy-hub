@@ -9,6 +9,8 @@ import {
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -39,6 +41,13 @@ const centsFromInput = (value: unknown): number | null => {
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
 };
 
+const timestampFromInput = (value: unknown): string | null => {
+  const normalized = sanitizeText(value, 80);
+  if (!normalized) return null;
+  const timestamp = new Date(normalized);
+  return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : null;
+};
+
 type RefundCaseRow = {
   id: string;
   public_reference: string;
@@ -47,7 +56,7 @@ type RefundCaseRow = {
   decision_reason: string | null;
   customer_email: string;
   customer_name: string | null;
-  payment_method: string;
+  payment_method: string | null;
   refund_amount_cents: number | null;
   payment_amount_cents: number | null;
   reporting_machine_id: string;
@@ -66,7 +75,17 @@ type NayaxLookupCandidateRow = {
   amount_cents: number | null;
   card_last4: string | null;
   currency_code: string | null;
+  evidence_summary: Record<string, unknown> | null;
 };
+
+const nayaxDisagreementReasons = new Set([
+  "closer_time",
+  "correct_amount",
+  "correct_card",
+  "customer_confirmation",
+  "provider_data_issue",
+  "other_review_reason",
+]);
 
 const selectCaseQuery = `
   id,
@@ -116,7 +135,7 @@ const getNayaxLookupCandidate = async (
   const { data, error } = await supabase
     .from("refund_nayax_lookup_candidates")
     .select(
-      "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code",
+      "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code, evidence_summary",
     )
     .eq("token", candidateToken)
     .eq("refund_case_id", caseId)
@@ -125,6 +144,22 @@ const getNayaxLookupCandidate = async (
 
   if (error) throw error;
   return data as NayaxLookupCandidateRow | null;
+};
+
+const nayaxTransactionIsLinkedElsewhere = async (
+  caseId: string,
+  providerTransactionId: string,
+): Promise<boolean> => {
+  if (!supabase || !providerTransactionId) return false;
+  const { data, error } = await supabase
+    .from("refund_cases")
+    .select("id")
+    .eq("matched_nayax_transaction_id", providerTransactionId)
+    .neq("id", caseId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data?.id);
 };
 
 const resolveMessageType = (
@@ -274,7 +309,7 @@ const sendAndLogCustomerMessage = async (
   });
 
   try {
-    await sendRefundCustomerEmail({
+    const emailInput = {
       messageType,
       publicReference: refundCase.public_reference,
       customerName: refundCase.customer_name,
@@ -284,12 +319,29 @@ const sendAndLogCustomerMessage = async (
       refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
       decisionReason: refundCase.decision_reason,
-    });
+    };
+    const email = buildRefundCustomerEmail(emailInput);
+    const gmailDelivery = messageId
+      ? await dispatchRefundCaseGmailReply({
+        supabase,
+        refundCaseId: refundCase.id,
+        refundCaseMessageId: messageId,
+        recipientEmail: refundCase.customer_email,
+        email,
+      })
+      : { usedGmail: false as const };
+    if (!gmailDelivery.usedGmail) {
+      await sendRefundCustomerEmail(emailInput);
+    }
 
     if (messageId) {
       const { error: sentUpdateError } = await supabase
         .from("refund_case_messages")
-        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+        })
         .eq("id", messageId);
       if (sentUpdateError) throw sentUpdateError;
     }
@@ -299,10 +351,13 @@ const sendAndLogCustomerMessage = async (
     const { error: eventError } = await supabase.from("refund_case_events").insert({
       refund_case_id: refundCase.id,
       event_type: "customer_message_sent",
-      message: `Automated ${messageType.replaceAll("_", " ")} email sent.`,
+      message: gmailDelivery.usedGmail
+        ? `Manager-approved ${messageType.replaceAll("_", " ")} reply sent in the linked Gmail thread.`
+        : `Automated ${messageType.replaceAll("_", " ")} email sent.`,
       metadata: {
         message_type: messageType,
         message_id: messageId,
+        transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
         payload_redacted: true,
       },
     });
@@ -310,9 +365,13 @@ const sendAndLogCustomerMessage = async (
 
     return { type: messageType, status: "sent" };
   } catch (emailError) {
+    const safeErrorCode = emailError instanceof RefundGmailError
+      ? emailError.code
+      : "customer_email_delivery_failed";
     console.error("refund-case-admin-update customer email failed", {
       errorType: emailError instanceof Error ? emailError.name : typeof emailError,
       messageType,
+      errorCode: safeErrorCode,
     });
 
     if (messageId) {
@@ -320,7 +379,7 @@ const sendAndLogCustomerMessage = async (
         .from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: "customer_email_delivery_failed",
+          error_message: safeErrorCode,
         })
         .eq("id", messageId);
       if (failedUpdateError) {
@@ -405,35 +464,86 @@ serve(async (req) => {
     if (!clearNayaxMatch && nayaxCandidateToken && !nayaxCandidate) {
       return jsonResponse({ error: "Nayax lookup evidence expired. Run lookup again." }, 400);
     }
+    if (
+      nayaxCandidate &&
+      await nayaxTransactionIsLinkedElsewhere(caseId, nayaxCandidate.provider_transaction_id)
+    ) {
+      return jsonResponse({ error: "This Nayax transaction is already linked to another refund case." }, 409);
+    }
 
+    const nayaxEvidence = nayaxCandidate?.evidence_summary ?? {};
+    const nayaxDisagreementReason = sanitizeText(body?.nayaxDisagreementReason, 80);
+    const selectionAllowed = nayaxCandidate ? nayaxEvidence.selection_allowed === true : false;
+    const isRecommended = nayaxCandidate ? nayaxEvidence.is_recommended === true : false;
+    if (nayaxCandidate && !selectionAllowed) {
+      return jsonResponse({ error: "This Nayax transaction has a safety block and cannot be selected." }, 400);
+    }
+    if (nayaxCandidate && !isRecommended && !nayaxDisagreementReasons.has(nayaxDisagreementReason)) {
+      return jsonResponse({ error: "Choose why this alternate Nayax transaction is the correct one." }, 400);
+    }
+    if (nayaxDisagreementReason && !nayaxDisagreementReasons.has(nayaxDisagreementReason)) {
+      return jsonResponse({ error: "Choose an approved Nayax review reason." }, 400);
+    }
+
+    if (nayaxCandidate || clearNayaxMatch) {
+      const { error: closeEligibilityError } = await supabase
+        .from("refund_cases")
+        .update({ nayax_match_execution_eligible: false })
+        .eq("id", caseId);
+      if (closeEligibilityError) throw closeEligibilityError;
+    }
+
+    const requestedStatus = sanitizeText(body?.status, 80) || null;
     const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
     if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
       return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
     }
 
-    const { data: updatedCase, error: updateError } = await supabase.rpc(
-      "service_update_refund_case_as_actor",
-      {
-        p_actor_user_id: user.id,
-        p_case_id: caseId,
-        p_status: sanitizeText(body?.status, 80) || null,
-        p_assigned_manager_email: sanitizeText(body?.assignedManagerEmail, 320) || null,
-        p_decision: sanitizeText(body?.decision, 80) || null,
-        p_decision_reason: sanitizeText(body?.decisionReason, 900) || null,
-        p_internal_note: sanitizeText(body?.internalNote, 1200) || null,
-        p_refund_amount_cents: centsFromInput(body?.refundAmountCents),
-        p_manual_refund_reference: sanitizeText(body?.manualRefundReference, 160) || null,
-        p_clear_nayax_match: clearNayaxMatch,
-        p_matched_nayax_transaction_id: nayaxCandidate?.provider_transaction_id ?? null,
-        p_matched_nayax_site_id: nayaxCandidate?.site_id ?? null,
-        p_matched_nayax_machine_auth_time: nayaxCandidate?.machine_authorization_time ?? null,
-        p_matched_nayax_amount_cents: nayaxCandidate?.amount_cents ?? null,
-        p_matched_nayax_card_last4: nayaxCandidate?.card_last4 ?? null,
-        p_matched_nayax_currency_code: nayaxCandidate?.currency_code ?? null,
-      },
-    );
+    const isCashCompletion = beforeRow.payment_method === "cash" && requestedStatus === "completed";
+    const cashPayoutSentAt = timestampFromInput(body?.cashPayoutSentAt);
+    if (isCashCompletion && body?.cashPaymentConfirmed !== true) {
+      return jsonResponse({ error: "Confirm that the cash refund payment was sent." }, 400);
+    }
+    if (isCashCompletion && !cashPayoutSentAt) {
+      return jsonResponse({ error: "Enter a valid date and time for the cash refund payment." }, 400);
+    }
+
+    const updateRpc = isCashCompletion
+      ? await supabase.rpc("service_complete_cash_refund_as_actor", {
+          p_actor_user_id: user.id,
+          p_case_id: caseId,
+          p_refund_amount_cents: centsFromInput(body?.refundAmountCents),
+          p_manual_refund_reference: sanitizeText(body?.manualRefundReference, 160) || null,
+          p_cash_payout_sent_at: cashPayoutSentAt,
+          p_decision_reason: sanitizeText(body?.decisionReason, 900) || null,
+          p_internal_note: sanitizeText(body?.internalNote, 1200) || null,
+          p_assigned_manager_email: sanitizeText(body?.assignedManagerEmail, 320) || null,
+        })
+      : await supabase.rpc("service_update_refund_case_as_actor", {
+          p_actor_user_id: user.id,
+          p_case_id: caseId,
+          p_status: requestedStatus,
+          p_assigned_manager_email: sanitizeText(body?.assignedManagerEmail, 320) || null,
+          p_decision: sanitizeText(body?.decision, 80) || null,
+          p_decision_reason: sanitizeText(body?.decisionReason, 900) || null,
+          p_internal_note: sanitizeText(body?.internalNote, 1200) || null,
+          p_refund_amount_cents: centsFromInput(body?.refundAmountCents),
+          p_manual_refund_reference: sanitizeText(body?.manualRefundReference, 160) || null,
+          p_clear_nayax_match: clearNayaxMatch,
+          p_matched_nayax_transaction_id: nayaxCandidate?.provider_transaction_id ?? null,
+          p_matched_nayax_site_id: nayaxCandidate?.site_id ?? null,
+          p_matched_nayax_machine_auth_time: nayaxCandidate?.machine_authorization_time ?? null,
+          p_matched_nayax_amount_cents: nayaxCandidate?.amount_cents ?? null,
+          p_matched_nayax_card_last4: nayaxCandidate?.card_last4 ?? null,
+          p_matched_nayax_currency_code: nayaxCandidate?.currency_code ?? null,
+        });
+
+    const { data: updatedCase, error: updateError } = updateRpc;
 
     if (updateError) {
+      if (updateError.code === "23505") {
+        return jsonResponse({ error: "This Nayax transaction is already linked to another refund case." }, 409);
+      }
       const safeMessage =
         typeof updateError.message === "string" && updateError.message.trim()
           ? updateError.message.slice(0, 240)
@@ -441,12 +551,66 @@ serve(async (req) => {
       return jsonResponse({ error: safeMessage }, 400);
     }
 
+    if (nayaxCandidate) {
+      const recommendationState = sanitizeText(nayaxEvidence.recommendation_state, 80) || "manual_exception";
+      const policyVersion = sanitizeText(nayaxEvidence.policy_version, 80) || null;
+      const oneClickEligible =
+        recommendationState === "high_confidence" &&
+        isRecommended &&
+        nayaxEvidence.one_click_eligible === true;
+      const { error: eligibilityError } = await supabase
+        .from("refund_cases")
+        .update({
+          nayax_recommendation_state: recommendationState,
+          nayax_recommendation_policy_version: policyVersion,
+          nayax_recommendation_evaluated_at: new Date().toISOString(),
+          nayax_match_execution_eligible: oneClickEligible,
+          correlation_confidence: 0,
+          correlation_summary: oneClickEligible
+            ? "Manager confirmed the recommended Nayax transaction using versioned evidence."
+            : "Manager selected a Nayax transaction for manual review; one-click execution remains unavailable.",
+        })
+        .eq("id", caseId);
+      if (eligibilityError) throw eligibilityError;
+
+      const { error: evidenceEventError } = await supabase.from("refund_case_events").insert({
+        refund_case_id: caseId,
+        actor_user_id: user.id,
+        event_type: "nayax_match_selected",
+        message: isRecommended
+          ? "Manager confirmed the recommended Nayax transaction."
+          : "Manager selected an alternate Nayax transaction after review.",
+        metadata: {
+          policy_version: policyVersion,
+          recommendation_state: recommendationState,
+          selected_recommended: isRecommended,
+          selected_rank: Number(nayaxEvidence.recommendation_rank) || null,
+          disagreement_reason_code: isRecommended ? null : nayaxDisagreementReason,
+          execution_eligible: oneClickEligible,
+          payload_redacted: true,
+        },
+      });
+      if (evidenceEventError) {
+        await supabase
+          .from("refund_cases")
+          .update({ nayax_match_execution_eligible: false })
+          .eq("id", caseId);
+        throw evidenceEventError;
+      }
+    }
+
+    const cashUpdateResult = isCashCompletion && updatedCase && typeof updatedCase === "object"
+      ? updatedCase as { updateApplied?: boolean }
+      : null;
+    const updateApplied = isCashCompletion ? cashUpdateResult?.updateApplied === true : Boolean(updatedCase);
     const afterRow = await getRefundCase(caseId);
     if (!afterRow) {
       return jsonResponse({ error: "Refund case was updated but could not be reloaded." }, 500);
     }
 
-    const messageType = requestedMessageType ?? resolveMessageType(beforeRow, afterRow);
+    const messageType = updateApplied
+      ? requestedMessageType ?? resolveMessageType(beforeRow, afterRow)
+      : null;
     const customerMessage = messageType
       ? await sendAndLogCustomerMessage(afterRow, messageType)
       : null;
@@ -459,7 +623,7 @@ serve(async (req) => {
         decision: afterRow.decision,
       },
       customerMessage,
-      updateApplied: Boolean(updatedCase),
+      updateApplied,
     });
   } catch (error) {
     console.error("refund-case-admin-update error", {

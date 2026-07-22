@@ -6,6 +6,7 @@ import {
   sendTransactionalEmail,
 } from "../_shared/internal-email.ts";
 import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
+import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   isPlaceholderRefundLocation,
   resolveRefundPublicLabels,
@@ -554,7 +555,10 @@ serve(async (req) => {
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
     const cardWalletUsed = Boolean(body?.cardWalletUsed);
-    const incidentAt = parseIncidentAt(body?.incidentAt);
+    const incidentDate = sanitizeText(body?.incidentDate, 10);
+    const incidentTime = sanitizeText(body?.incidentTime, 8);
+    const legacyIncidentAt = parseIncidentAt(body?.incidentAt);
+    const hasLocalIncidentInput = Boolean(incidentDate && incidentTime);
     if (body?.attachments !== undefined && !Array.isArray(body.attachments)) {
       throw new RequestValidationError("Attachments must be uploaded as a list.");
     }
@@ -584,7 +588,7 @@ serve(async (req) => {
       });
     }
 
-    if (!incidentAt) {
+    if (!hasLocalIncidentInput && !legacyIncidentAt) {
       return new Response(JSON.stringify({ error: "Please enter the incident date and time." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -706,6 +710,25 @@ serve(async (req) => {
       machineLabel: machineRecord.machine_label,
     });
 
+    const incidentResolution = hasLocalIncidentInput
+      ? resolveLocalDateTimeInZone({
+          localDate: incidentDate,
+          localTime: incidentTime,
+          timeZone: locationRecord?.timezone ?? "",
+        })
+      : {
+          instant: legacyIncidentAt?.toISOString() ?? null,
+          resolution: "legacy_absolute",
+          possibleInstantCount: legacyIncidentAt ? 1 : 0,
+        };
+    const incidentAt = parseIncidentAt(incidentResolution.instant);
+    if (!incidentAt) {
+      return new Response(JSON.stringify({ error: "Please enter a valid incident date and time." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let status = "submitted";
     let correlationStatus = "not_started";
     let correlationSource: string | null = null;
@@ -800,6 +823,9 @@ serve(async (req) => {
         zelle_payment_contact: paymentMethod === "cash" ? zellePaymentContact : null,
         issue_summary: issueSummary,
         incident_at: incidentAt.toISOString(),
+        incident_local_datetime: hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
+        incident_timezone: locationRecord?.timezone ?? null,
+        incident_time_resolution: incidentResolution.resolution,
         payment_method: paymentMethod,
         payment_amount_cents: amountCents,
         card_last4: paymentMethod === "card" ? cardLast4 : null,
@@ -813,6 +839,8 @@ serve(async (req) => {
         refund_amount_cents: amountCents,
         intake_meta: {
           source: "hosted_refund_intake",
+          incident_time_resolution: incidentResolution.resolution,
+          incident_possible_instant_count: incidentResolution.possibleInstantCount,
           candidate_sales_fact_ids: candidateIds,
           user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
         },

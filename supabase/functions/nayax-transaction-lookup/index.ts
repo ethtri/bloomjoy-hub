@@ -86,53 +86,39 @@ serve(async (req) => {
       actorUserId: user.id,
     });
 
-    if (result.configured && result.candidates.length > 0) {
+    if (result.configured) {
+      const correlationStatus = result.recommendationState === "ambiguous"
+        ? "multiple_candidates"
+        : result.recommendationState === "no_safe_match"
+        ? "no_match"
+        : "manual_review";
       await supabase.from("refund_cases")
         .update({
           status: "needs_review",
-          correlation_status: "manual_review",
-          correlation_source: "nayax",
-          correlation_confidence: Math.max(0.01, result.candidates[0]?.matchConfidence ?? 0.01),
-          correlation_summary:
-            `Nayax lookup found ${result.candidates.length} candidate(s) inside +/- ${result.windowHours} hours. Manager must confirm the match.`,
-          automation_state: "under_review",
-        })
-        .eq("id", caseId);
-
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: caseId,
-        actor_user_id: user.id,
-        event_type: "nayax_lookup_candidates_found",
-        message: "Nayax lookup found sanitized card-sale candidate evidence for manager review.",
-        metadata: {
-          lookup_status: result.lookupStatus,
-          candidate_count: result.candidates.length,
-          window_hours: result.windowHours,
-          provider_record_count: result.providerRecordCount ?? null,
-          provider_window_record_count: result.providerWindowRecordCount ?? null,
-          payload_redacted: true,
-        },
-      });
-    }
-
-    if (result.configured && result.candidates.length === 0) {
-      await supabase.from("refund_cases")
-        .update({
-          correlation_status: "no_match",
+          correlation_status: correlationStatus,
           correlation_source: "nayax",
           correlation_confidence: 0,
           correlation_summary: result.summary,
-          automation_state: "more_info_needed",
+          automation_state: result.recommendationState === "no_safe_match" ? "more_info_needed" : "under_review",
+          nayax_recommendation_state: result.recommendationState,
+          nayax_recommendation_policy_version: result.policyVersion,
+          nayax_recommendation_evaluated_at: result.lastCheckedAt,
+          nayax_match_execution_eligible: false,
         })
         .eq("id", caseId);
 
       await supabase.from("refund_case_events").insert({
         refund_case_id: caseId,
         actor_user_id: user.id,
-        event_type: "nayax_lookup_no_candidates",
-        message: "Nayax lookup found no card-sale candidate for the submitted details.",
+        event_type: "nayax_recommendation_evaluated",
+        message: "Nayax evaluated sanitized card-sale evidence for manager review.",
         metadata: {
           lookup_status: result.lookupStatus,
+          recommendation_state: result.recommendationState,
+          policy_version: result.policyVersion,
+          candidate_count: result.candidates.length,
+          recommended_rank: result.recommendationState === "high_confidence" ? 1 : null,
+          one_click_base_eligible: result.oneClickEligible,
           window_hours: result.windowHours,
           provider_record_count: result.providerRecordCount ?? null,
           provider_window_record_count: result.providerWindowRecordCount ?? null,
@@ -159,6 +145,9 @@ serve(async (req) => {
     return jsonResponse({
       configured: result.configured,
       lookupStatus: result.lookupStatus,
+      recommendationState: result.recommendationState,
+      policyVersion: result.policyVersion,
+      oneClickEligible: result.oneClickEligible,
       message: result.message,
       lastCheckedAt: result.lastCheckedAt,
       providerRecordCount: result.providerRecordCount,

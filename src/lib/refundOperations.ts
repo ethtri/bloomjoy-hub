@@ -7,6 +7,7 @@ import { supabaseClient } from '@/lib/supabaseClient';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
 export type RefundCaseStatus =
+  | 'draft'
   | 'submitted'
   | 'needs_review'
   | 'waiting_on_customer'
@@ -57,7 +58,10 @@ export type SubmitRefundRequestInput = {
   customerPhone?: string;
   zellePaymentContact?: string;
   issueSummary: string;
-  incidentAt: string;
+  incidentDate: string;
+  incidentTime: string;
+  /** Compatibility only. New clients send location-local date and time separately. */
+  incidentAt?: string;
   paymentMethod: RefundPaymentMethod;
   paymentAmount?: string;
   cardLast4?: string;
@@ -118,6 +122,7 @@ export type RefundNayaxLookupStatus =
   | 'match_found'
   | 'multiple_matches'
   | 'no_match'
+  | 'manual_exception'
   | 'setup_needed'
   | 'lookup_failed';
 
@@ -129,6 +134,21 @@ export type RefundNayaxLookupSummary = {
   candidateCount: number;
   summary: string;
   recommendedAction: string;
+  recommendationState?: NayaxRecommendationState;
+  policyVersion?: string;
+  oneClickEligible?: boolean;
+};
+
+export type NayaxRecommendationState =
+  | 'high_confidence'
+  | 'ambiguous'
+  | 'no_safe_match'
+  | 'manual_exception';
+
+export type NayaxMatchFactor = {
+  key: string;
+  outcome: string;
+  label: string;
 };
 
 export type RefundCaseRecord = {
@@ -154,6 +174,9 @@ export type RefundCaseRecord = {
   cardWalletUsed: boolean;
   hasMatchedSalesFact: boolean;
   hasMatchedNayaxTransaction: boolean;
+  nayaxMatchExecutionEligible?: boolean;
+  nayaxRecommendationState?: NayaxRecommendationState | null;
+  nayaxRecommendationPolicyVersion?: string | null;
   matchedNayaxMachineAuthTime: string | null;
   matchedNayaxAmountCents: number | null;
   matchedNayaxCardLast4: string | null;
@@ -171,6 +194,9 @@ export type RefundCaseRecord = {
   attachments: RefundCaseAttachment[];
   events: RefundCaseEvent[];
   messages: RefundCaseMessage[];
+  intakeSource?: 'form' | 'gmail';
+  intakeComplete?: boolean;
+  hasGmailThread?: boolean;
   customerCommunicationStatus?: RefundCustomerCommunicationStatus;
   latestCustomerMessageStatus?: string | null;
   latestCustomerMessageType?: string | null;
@@ -194,6 +220,86 @@ export type RefundOperationsOverview = {
   cases: RefundCaseRecord[];
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
+};
+
+export type RefundAutomationHealthStatus =
+  | 'healthy'
+  | 'stale'
+  | 'failing'
+  | 'paused'
+  | 'waiting';
+
+export type RefundAutomationHealth = {
+  status: RefundAutomationHealthStatus;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastRunStatus: 'running' | 'succeeded' | 'failed' | 'suppressed' | null;
+  consecutiveFailures: number;
+  staleAfterMinutes: number;
+  casesEvaluated: number;
+  actionsAttempted: number;
+  actionsSucceeded: number;
+  actionsFailed: number;
+  actionsSuppressed: number;
+  failureCategory: string | null;
+  alertStatus: 'not_needed' | 'pending' | 'sent' | 'failed' | 'suppressed';
+  payloadRedacted: boolean;
+};
+
+export type RefundGmailHealthStatus =
+  | 'healthy'
+  | 'stale'
+  | 'failing'
+  | 'paused'
+  | 'revoked'
+  | 'waiting';
+
+export type RefundGmailHealth = {
+  status: RefundGmailHealthStatus;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastRunStatus: 'running' | 'succeeded' | 'failed' | 'suppressed' | null;
+  consecutiveFailures: number;
+  threadsScanned: number;
+  messagesSeen: number;
+  messagesCreated: number;
+  messagesDeduplicated: number;
+  attachmentsQuarantined: number;
+  messagesFailed: number;
+  errorCode: string | null;
+  payloadRedacted: boolean;
+};
+
+export type RefundGmailAttachment = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  status: 'pending' | 'rejected' | 'quarantined' | 'clean' | 'error' | 'deleted';
+  rejectionCode: string | null;
+};
+
+export type RefundGmailMessage = {
+  id: string;
+  direction: 'inbound' | 'outbound' | 'system';
+  kind: 'message' | 'bounce';
+  status: 'received' | 'pending_send' | 'sent' | 'failed' | 'delivery_unknown';
+  senderEmail: string | null;
+  recipientEmail: string | null;
+  subject: string;
+  body: string;
+  receivedAt: string;
+  sentAt: string | null;
+  sensitiveDataRedacted: boolean;
+  contentDeleted: boolean;
+  attachments: RefundGmailAttachment[];
+};
+
+export type RefundGmailCaseContext = {
+  connected: boolean;
+  subject?: string;
+  latestMessageAt?: string;
+  messages: RefundGmailMessage[];
 };
 
 export type RefundManagerSetupMachine = {
@@ -222,14 +328,25 @@ export type UpdateRefundCaseInput = {
   internalNote?: string | null;
   refundAmountCents?: number | null;
   manualRefundReference?: string | null;
+  cashPayoutSentAt?: string | null;
+  cashPaymentConfirmed?: boolean;
   clearNayaxMatch?: boolean;
   matchedNayaxCandidateToken?: string | null;
   matchedNayaxMachineAuthTime?: string | null;
   matchedNayaxAmountCents?: number | null;
   matchedNayaxCardLast4?: string | null;
   matchedNayaxCurrencyCode?: string | null;
+  nayaxDisagreementReason?: NayaxDisagreementReason | null;
   customerMessageType?: RefundCustomerPortalMessageType | null;
 };
+
+export type NayaxDisagreementReason =
+  | 'closer_time'
+  | 'correct_amount'
+  | 'correct_card'
+  | 'customer_confirmation'
+  | 'provider_data_issue'
+  | 'other_review_reason';
 
 export type NayaxLookupCandidate = {
   candidateToken: string;
@@ -241,7 +358,21 @@ export type NayaxLookupCandidate = {
   cardBrand: string;
   recognitionMethod: string;
   paymentStatus: string;
-  matchConfidence: number;
+  amountDeltaCents?: number | null;
+  timeDeltaMinutes?: number;
+  recommendationRank?: number;
+  isTopRanked?: boolean;
+  isRecommended?: boolean;
+  recommendationState?: NayaxRecommendationState;
+  oneClickEligible?: boolean;
+  selectionAllowed?: boolean;
+  matchStrength?: 'strong' | 'compare' | 'manual_review' | 'insufficient' | string;
+  matchFactors?: NayaxMatchFactor[];
+  manualReviewReasons?: string[];
+  hardExclusions?: string[];
+  policyVersion?: string;
+  /** @deprecated Uncalibrated legacy value; do not display as a probability. */
+  matchConfidence?: number;
   matchReason: string;
   expiresAt?: string;
   createdAt?: string;
@@ -251,6 +382,9 @@ export type NayaxLookupResponse = {
   error?: string;
   configured: boolean;
   lookupStatus?: RefundNayaxLookupStatus;
+  recommendationState?: NayaxRecommendationState;
+  policyVersion?: string;
+  oneClickEligible?: boolean;
   lastCheckedAt?: string;
   providerRecordCount?: number;
   providerParseableRecordCount?: number;
@@ -467,9 +601,11 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         paymentMethod: 'card',
         paymentAmountCents: 700,
         cardLast4: '4242',
-        cardWalletUsed: true,
+        cardWalletUsed: false,
         hasMatchedSalesFact: false,
         hasMatchedNayaxTransaction: true,
+        nayaxMatchExecutionEligible: true,
+        nayaxRecommendationState: 'high_confidence',
         matchedNayaxMachineAuthTime: demoIsoHoursAgo(5),
         matchedNayaxAmountCents: 700,
         matchedNayaxCardLast4: '4242',
@@ -484,9 +620,23 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
             currencyCode: 'USD',
             cardBrand: 'Visa',
             recognitionMethod: 'tap',
-            paymentStatus: 'Card',
-            matchConfidence: 0.97,
-            matchReason: 'same Nayax machine; +/- 6 hour incident window; amount matches; last 4 matches',
+            paymentStatus: 'approved',
+            amountDeltaCents: 0,
+            timeDeltaMinutes: 3,
+            recommendationRank: 1,
+            isTopRanked: true,
+            isRecommended: true,
+            recommendationState: 'high_confidence',
+            oneClickEligible: true,
+            selectionAllowed: true,
+            matchStrength: 'strong',
+            policyVersion: '2026-07-21.v1',
+            matchFactors: [
+              { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+              { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+              { key: 'card', outcome: 'match', label: 'Card last four matches' },
+            ],
+            matchReason: 'Exact mapped machine and location; exact amount; card last four matches',
             expiresAt: demoIsoHoursAgo(-18),
             createdAt: demoIsoHoursAgo(4.5),
           },
@@ -654,15 +804,129 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 };
 
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const { data, error } = await supabaseClient.rpc('admin_get_refund_operations_overview');
+  const [overviewResult, gmailDraftResult] = await Promise.all([
+    supabaseClient.rpc('admin_get_refund_operations_overview'),
+    supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
+  ]);
 
-  if (error) {
-    throw new Error(error.message || 'Unable to load refund operations.');
+  if (overviewResult.error) {
+    throw new Error(overviewResult.error.message || 'Unable to load refund operations.');
+  }
+  if (gmailDraftResult.error) {
+    throw new Error(gmailDraftResult.error.message || 'Unable to load Gmail refund drafts.');
   }
 
-  return {
+  const overview = {
     ...emptyOverview,
-    ...((data as Partial<RefundOperationsOverview> | null) ?? {}),
+    ...((overviewResult.data as Partial<RefundOperationsOverview> | null) ?? {}),
+  };
+  const gmailDrafts = Array.isArray(gmailDraftResult.data)
+    ? (gmailDraftResult.data as RefundCaseRecord[])
+    : [];
+
+  return {
+    ...overview,
+    cases: [...gmailDrafts, ...overview.cases],
+  };
+};
+
+export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHealth> => {
+  const { data, error } = await supabaseClient.rpc('get_refund_automation_health');
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load refund automation health.');
+  }
+
+  const health = (data ?? {}) as Partial<RefundAutomationHealth>;
+  const validStatuses: RefundAutomationHealthStatus[] = ['healthy', 'stale', 'failing', 'paused', 'waiting'];
+  return {
+    status: validStatuses.includes(health.status as RefundAutomationHealthStatus)
+      ? (health.status as RefundAutomationHealthStatus)
+      : 'waiting',
+    lastRunAt: typeof health.lastRunAt === 'string' ? health.lastRunAt : null,
+    lastSuccessAt: typeof health.lastSuccessAt === 'string' ? health.lastSuccessAt : null,
+    lastRunStatus:
+      health.lastRunStatus === 'running' ||
+      health.lastRunStatus === 'succeeded' ||
+      health.lastRunStatus === 'failed' ||
+      health.lastRunStatus === 'suppressed'
+        ? health.lastRunStatus
+        : null,
+    consecutiveFailures: Number(health.consecutiveFailures ?? 0),
+    staleAfterMinutes: Number(health.staleAfterMinutes ?? 60),
+    casesEvaluated: Number(health.casesEvaluated ?? 0),
+    actionsAttempted: Number(health.actionsAttempted ?? 0),
+    actionsSucceeded: Number(health.actionsSucceeded ?? 0),
+    actionsFailed: Number(health.actionsFailed ?? 0),
+    actionsSuppressed: Number(health.actionsSuppressed ?? 0),
+    failureCategory: typeof health.failureCategory === 'string' ? health.failureCategory : null,
+    alertStatus:
+      health.alertStatus === 'pending' ||
+      health.alertStatus === 'sent' ||
+      health.alertStatus === 'failed' ||
+      health.alertStatus === 'suppressed'
+        ? health.alertStatus
+        : 'not_needed',
+    payloadRedacted: health.payloadRedacted === true,
+  };
+};
+
+export const fetchRefundGmailHealth = async (): Promise<RefundGmailHealth> => {
+  const { data, error } = await supabaseClient.rpc('get_refund_gmail_health');
+  if (error) {
+    throw new Error(error.message || 'Unable to load Gmail intake health.');
+  }
+
+  const health = (data ?? {}) as Partial<RefundGmailHealth>;
+  const validStatuses: RefundGmailHealthStatus[] = [
+    'healthy',
+    'stale',
+    'failing',
+    'paused',
+    'revoked',
+    'waiting',
+  ];
+  return {
+    status: validStatuses.includes(health.status as RefundGmailHealthStatus)
+      ? (health.status as RefundGmailHealthStatus)
+      : 'waiting',
+    lastRunAt: typeof health.lastRunAt === 'string' ? health.lastRunAt : null,
+    lastSuccessAt: typeof health.lastSuccessAt === 'string' ? health.lastSuccessAt : null,
+    lastRunStatus:
+      health.lastRunStatus === 'running' ||
+      health.lastRunStatus === 'succeeded' ||
+      health.lastRunStatus === 'failed' ||
+      health.lastRunStatus === 'suppressed'
+        ? health.lastRunStatus
+        : null,
+    consecutiveFailures: Number(health.consecutiveFailures ?? 0),
+    threadsScanned: Number(health.threadsScanned ?? 0),
+    messagesSeen: Number(health.messagesSeen ?? 0),
+    messagesCreated: Number(health.messagesCreated ?? 0),
+    messagesDeduplicated: Number(health.messagesDeduplicated ?? 0),
+    attachmentsQuarantined: Number(health.attachmentsQuarantined ?? 0),
+    messagesFailed: Number(health.messagesFailed ?? 0),
+    errorCode: typeof health.errorCode === 'string' ? health.errorCode : null,
+    payloadRedacted: health.payloadRedacted === true,
+  };
+};
+
+export const fetchRefundGmailCaseContext = async (
+  caseId: string
+): Promise<RefundGmailCaseContext> => {
+  const { data, error } = await supabaseClient.rpc('admin_get_refund_gmail_case_context', {
+    p_refund_case_id: caseId,
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to load the Gmail conversation.');
+  }
+  const context = (data ?? {}) as Partial<RefundGmailCaseContext>;
+  return {
+    connected: context.connected === true,
+    subject: typeof context.subject === 'string' ? context.subject : undefined,
+    latestMessageAt:
+      typeof context.latestMessageAt === 'string' ? context.latestMessageAt : undefined,
+    messages: Array.isArray(context.messages) ? context.messages : [],
   };
 };
 
@@ -684,6 +948,7 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     error?: string;
     refundCase?: Record<string, unknown>;
     customerMessage?: { type: string; status: string } | null;
+    updateApplied?: boolean;
   }>('refund-case-admin-update', input, {
     requireUserAuth: true,
     authErrorMessage: 'Log in to update refund cases.',
@@ -699,7 +964,13 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
 export const sendRefundCaseMessage = async (input: SendRefundCaseMessageInput) => {
   const data = await invokeEdgeFunction<{
     error?: string;
-    message?: { id: string; type: string; status: string; subject: string };
+    message?: {
+      id: string;
+      type: string;
+      status: string;
+      subject: string;
+      transport?: 'gmail_thread' | 'transactional_email';
+    };
   }>('refund-case-message-send', input, {
     requireUserAuth: true,
     authErrorMessage: 'Log in to message refund customers.',

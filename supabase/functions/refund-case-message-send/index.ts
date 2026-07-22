@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import {
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
@@ -42,7 +44,7 @@ type RefundCaseRow = {
   public_reference: string;
   customer_email: string;
   customer_name: string | null;
-  payment_method: string;
+  payment_method: string | null;
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
   decision_reason: string | null;
@@ -221,17 +223,30 @@ serve(async (req) => {
     if (messageError) throw messageError;
 
     try {
-      await sendTransactionalEmail({
-        to: [refundCase.customer_email],
-        subject: email.subject,
-        text: email.text,
-        html: email.html,
-        replyTo: getRefundReplyToEmail(),
+      const gmailDelivery = await dispatchRefundCaseGmailReply({
+        supabase,
+        refundCaseId: refundCase.id,
+        refundCaseMessageId: messageRow.id,
+        recipientEmail: refundCase.customer_email,
+        email,
       });
+      if (!gmailDelivery.usedGmail) {
+        await sendTransactionalEmail({
+          to: [refundCase.customer_email],
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
+          replyTo: getRefundReplyToEmail(),
+        });
+      }
 
       await supabase
         .from("refund_case_messages")
-        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+        })
         .eq("id", messageRow.id);
 
       await syncAutomationFields(refundCase.id, messageType);
@@ -240,11 +255,13 @@ serve(async (req) => {
         refund_case_id: refundCase.id,
         actor_user_id: user.id,
         event_type: "customer_message_sent",
-        message: `Manager sent ${messageType.replaceAll("_", " ")} email from the portal.`,
+        message: gmailDelivery.usedGmail
+          ? `Manager sent ${messageType.replaceAll("_", " ")} reply in the linked Gmail thread.`
+          : `Manager sent ${messageType.replaceAll("_", " ")} email from the portal.`,
         metadata: {
           message_type: messageType,
           message_id: messageRow.id,
-          reply_to: getRefundReplyToEmail(),
+          transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
           payload_redacted: true,
         },
       });
@@ -255,19 +272,24 @@ serve(async (req) => {
           type: messageType,
           status: "sent",
           subject: email.subject,
+          transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
         },
       });
     } catch (emailError) {
+      const safeErrorCode = emailError instanceof RefundGmailError
+        ? emailError.code
+        : "customer_email_delivery_failed";
       console.error("refund-case-message-send customer email failed", {
         errorType: emailError instanceof Error ? emailError.name : typeof emailError,
         messageType,
+        errorCode: safeErrorCode,
       });
 
       await supabase
         .from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: "customer_email_delivery_failed",
+          error_message: safeErrorCode,
         })
         .eq("id", messageRow.id);
 
@@ -283,7 +305,12 @@ serve(async (req) => {
         },
       });
 
-      return jsonResponse({ error: "Unable to send customer email." }, 502);
+      return jsonResponse({
+        error: safeErrorCode === "gmail_network_unknown" || safeErrorCode === "gmail_delivery_record_failed"
+          ? "Gmail delivery could not be confirmed. Check the original thread before retrying."
+          : "Unable to send customer email.",
+        errorCode: safeErrorCode,
+      }, 502);
     }
   } catch (error) {
     console.error("refund-case-message-send error", {

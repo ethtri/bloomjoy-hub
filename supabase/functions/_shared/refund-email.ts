@@ -178,11 +178,9 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
     ...input,
     decisionReason,
   });
-  const details = [
-    `Reference: ${publicReference}`,
-    `Machine: ${machineLabel}`,
-    `Location: ${locationName}`,
-  ];
+  const details = [`Reference: ${publicReference}`];
+  if (machineLabel) details.push(`Machine: ${machineLabel}`);
+  if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
     details.push(`Refund amount: ${refundAmount}`);
@@ -273,11 +271,9 @@ export const buildEditableRefundCustomerEmail = ({
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
-  const details = [
-    `Reference: ${publicReference}`,
-    `Machine: ${machineLabel}`,
-    `Location: ${locationName}`,
-  ];
+  const details = [`Reference: ${publicReference}`];
+  if (machineLabel) details.push(`Machine: ${machineLabel}`);
+  if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
     details.push(`Refund amount: ${refundAmount}`);
