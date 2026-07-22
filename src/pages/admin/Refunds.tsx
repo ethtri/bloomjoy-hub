@@ -1483,12 +1483,22 @@ export default function AdminRefundsPage() {
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => {
+    let settleFrame = 0;
+    const alignSelectedCase = () => {
       detailPanelRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    };
+    const frame = window.requestAnimationFrame(() => {
+      alignSelectedCase();
       detailPanelRef.current?.focus({ preventScroll: true });
+      settleFrame = window.requestAnimationFrame(alignSelectedCase);
     });
+    const settleTimer = window.setTimeout(alignSelectedCase, 60);
 
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(settleFrame);
+      window.clearTimeout(settleTimer);
+    };
   }, [selectedId]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
