@@ -1,6 +1,6 @@
 # Machine Manager Shadow UAT Script
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Purpose
 
@@ -10,7 +10,14 @@ This is a manager-experience test, not an Admin setup test. Use synthetic or spo
 
 ## Before the session
 
-- Confirm the tester has Machine Manager assignments only and no scoped-admin, super-admin, corporate-partner, or unrelated machine access. Record this setup in `#435`.
+- Run the aggregate-only account audit against the exact linked production project. It prints and writes no names, emails, user IDs, machine IDs, or case data:
+
+  ```bash
+  npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-project-ref <project-ref>
+  ```
+
+- If the owner has selected the pilot cohort, repeat `--pilot-machine-id <uuid>` for each approved machine. The stricter result must report at least one exact-pilot eligible identity; otherwise account or assignment setup is still required.
+- Confirm the privately selected tester has Machine Manager assignments only and no scoped-admin, super-admin, corporate-partner, or unrelated access. Record aggregate counts only in `#435`.
 - Confirm the selected machines and manager are approved in `#427`.
 - Confirm the tested release commit and Refund Operations release manifest match the deployed environment.
 - Confirm live Nayax execution state:

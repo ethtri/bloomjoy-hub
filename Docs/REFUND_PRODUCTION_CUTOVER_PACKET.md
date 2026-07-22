@@ -16,7 +16,7 @@ Use this packet to move epic `#628` from individually verified PRs to one tested
 | `#633` cash workflow | Amount cap, sensitive-reference rejection, idempotent completion, customer email ordering, reporting proof | QA and operations owners |
 | `#632` automation | One due action, replay suppression, PII-free alert, visible health, and quick disable | Operations and release owners |
 | `#430` live Nayax execution | Provider contract, machine allowlist, caps, kill switch, idempotency, success/failure/unknown proof | Executive sponsor and technical owner |
-| `#435` clean manager account | Assigned-only visibility and Admin denial using an account with no broader role | Access owner and QA owner |
+| `#435` clean manager account | Aggregate-only role audit, privately selected manager-only identity, assigned-only visibility, and Admin denial using an account with no broader role | Access owner and QA owner |
 | `#634` Gmail | Approved OAuth/mailbox/retention/quarantine policy plus synthetic thread, replay, reply, attachment, revocation evidence | Operations, auth, and privacy/security owners |
 | `#635` GPT triage | Secure server-side key destination, sanitized evaluation metrics, strict schema, human-review proof, rollback control | Technical, support, privacy/security, and sponsor owners |
 | `#427` shadow pilot | Complete lane evidence, manager friction, timing/decision comparison, defects, and recommendation | Pilot owner and QA owner |
@@ -80,7 +80,7 @@ Check switch values without printing secrets. A code deploy must not silently en
 1. Verify the production drift check against the final manifest.
 2. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.
 3. Submit one sanitized hosted-form card case and one cash case; verify acknowledgement and assigned-manager notification.
-4. Use the clean manager account to prove assigned-only queue access and Admin denial.
+4. Run the aggregate-only manager readiness command with the exact project ref and approved pilot machine IDs, then use the privately selected eligible account to prove assigned-only queue access and Admin denial.
 5. Prove high-confidence, ambiguous, no-match, wallet/manual, failed/unknown, and duplicate card states with live execution still off.
 6. Prove cash approve/deny/missing-info/completion and idempotency with a sponsor-approved test payout or a non-paying shadow fixture.
 7. Prove one reporting write-through and the negative controls.

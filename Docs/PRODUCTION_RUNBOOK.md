@@ -267,6 +267,16 @@ After deploying the eight Refund Operations functions:
 5. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eight functions to pass.
 6. Run the remaining refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
+Before clean-manager UAT, run the read-only role audit with exact project confirmation. It queries only aggregate counts and refuses unexpected result columns:
+
+```bash
+npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-project-ref <project-ref>
+# After the owner approves a cohort, repeat once per approved machine:
+npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-project-ref <project-ref> --pilot-machine-id <uuid>
+```
+
+The discovery audit passes only when a manager-only identity has at least one shadow-ready assignment. The cohort audit passes only when an identity has no broader access or assignments outside the supplied pilot set and every assigned pilot machine is shadow-ready. Keep identity selection private and post counts only in `#435`.
+
 Supabase function version numbers are audit evidence, not rollback targets. A rollback redeploy creates a new version number.
 The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` validates the immutable known-good source for every existing core function; newly introduced disable-only functions such as `refund-gmail-sync` and `refund-gpt-triage` record `restoreAction=disable` and use their documented switch-off procedures instead of pretending an older deployed source existed.
 
