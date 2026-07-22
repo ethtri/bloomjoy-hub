@@ -80,7 +80,7 @@ Check switch values without printing secrets. A code deploy must not silently en
 1. Verify the production drift check against the final manifest.
 2. Run `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; all eight no-auth, no-body `OPTIONS` probes must return their exact safe status and the manual/retry email route must not return `404`.
 3. Run `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`; require zero internal labels/duplicates and at least one Atlanta, DC, and Seattle option before sharing the form.
-4. Submit one sanitized hosted-form card case and one cash case; verify acknowledgement and assigned-manager notification.
+4. Run `npm run refunds:smoke-intake-email` first in read-only preflight mode for the privately approved machine, then—with explicit production-email authorization and an owner-controlled test inbox—run its guarded synthetic card submission. Require sanitized PASS rows for the customer acknowledgement and assigned-manager/operations-fallback notification. Submit the separate cash case through the hosted form and verify its acknowledgement; do not reuse the card smoke as cash-correlation evidence.
 5. Run the aggregate-only manager readiness command with the exact project ref and approved pilot machine IDs, then use the privately selected eligible account to prove assigned-only queue access and Admin denial.
 6. Prove high-confidence, ambiguous, no-match, wallet/manual, failed/unknown, and duplicate card states with live execution still off.
 7. Prove cash approve/deny/missing-info/completion and idempotency with a sponsor-approved test payout or a non-paying shadow fixture.
