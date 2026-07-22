@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-07-22-integrated-gpt-runner",
-  "sourceGitCommit": "5b03d1c3f37c705d6a83148e62e51f2d638ce975",
+  "sourceGitCommit": "9f145ed3bed70e12abe0f6be8fd486d8bf9301ac",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -71,7 +71,7 @@
     {
       "slug": "refund-gpt-triage",
       "verifyJwt": false,
-      "sourceSha256": "f51c4878cb178de1349085b8e9c0e376d261cdc13403c7b60c956ecb6ede01f0",
+      "sourceSha256": "75a9775568676551005f0ad7509dd4c51f450b8c9e8e9b4c18f521a95a5d8947",
       "production": null
     },
     {
