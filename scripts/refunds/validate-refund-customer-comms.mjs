@@ -17,9 +17,10 @@ const assert = (name, passed, detail = '') => {
 const includesAll = (text, needles) => needles.every((needle) => text.includes(needle));
 
 const run = async () => {
-  const [adminUpdate, portalPage, portalUat] = await Promise.all([
+  const [adminUpdate, portalPage, publicRequestPage, portalUat] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
+    readText('src/pages/RefundRequest.tsx'),
     readText('scripts/refunds/validate-refund-portal-uat.mjs'),
   ]);
 
@@ -42,6 +43,24 @@ const run = async () => {
   assert(
     'Normal path no longer has a standalone Send customer email button',
     !portalPage.includes('Send customer email')
+  );
+  assert(
+    'Manager queue does not repeat identical location and machine labels',
+    includesAll(portalPage, [
+      'formatRefundMachineLocation',
+      'locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()',
+      'formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)',
+      'formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)',
+    ])
+  );
+  assert(
+    'Public refund selector hides placeholder location names even before the database migration is deployed',
+    includesAll(publicRequestPage, [
+      'isPlaceholderRefundLocationLabel',
+      "normalized.startsWith('unmapped ')",
+      "normalized.startsWith('unknown ')",
+      'return normalizedMachineLabel',
+    ])
   );
   assert(
     'Focused UAT covers guarded completion, failure, and retry wiring',
