@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-07-21-integrated",
-  "sourceGitCommit": "e4bbf605e26bcefdfbc83dd77a838b565cbdb7a0",
+  "releaseId": "refund-ops-2026-07-22-integrated-gpt-runner",
+  "sourceGitCommit": "5b03d1c3f37c705d6a83148e62e51f2d638ce975",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -26,10 +26,11 @@
     "202607210004_refund_cash_completion_audit.sql",
     "202607210005_refund_automation_scheduler_health.sql",
     "202607210006_refund_gmail_thread_linkage.sql",
-    "202607210007_refund_gpt_triage_foundation.sql"
+    "202607210007_refund_gpt_triage_foundation.sql",
+    "202607220001_refund_gpt_triage_runner.sql"
   ],
-  "migrationFilesSha256": "1eb6ad8b3518989b252287700b3066841e4e67041bf78cf4a4a73e112a1cb69a",
-  "migrationVersionSetSha256": "4596d52e221db275ee2d2bd741314cc3ba1a1f960a7be8a54a5ac40f960c3791",
+  "migrationFilesSha256": "3e5289d6fd5bb32e1e5148c59f80762a7af6a2caef1ca7e817416e82c4ac15cc",
+  "migrationVersionSetSha256": "0c5494450c451a72aa69f44aec0c78607c05ef08691db46e5ac1fa4f7590e75b",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -65,6 +66,12 @@
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
       "sourceSha256": "19697ba2c49915c4d0167f4e16aa0948a0a7845d2ffa9e0f0a32c653e4eacaf9",
+      "production": null
+    },
+    {
+      "slug": "refund-gpt-triage",
+      "verifyJwt": false,
+      "sourceSha256": "f51c4878cb178de1349085b8e9c0e376d261cdc13403c7b60c956ecb6ede01f0",
       "production": null
     },
     {
@@ -121,6 +128,10 @@
       "status": "MISSING"
     },
     {
+      "slug": "refund-gpt-triage",
+      "status": "MISSING"
+    },
+    {
       "slug": "nayax-card-refund",
       "status": "ACTIVE",
       "version": 1,
@@ -158,6 +169,10 @@
       },
       {
         "slug": "refund-gmail-sync",
+        "restoreAction": "disable"
+      },
+      {
+        "slug": "refund-gpt-triage",
         "restoreAction": "disable"
       },
       {
