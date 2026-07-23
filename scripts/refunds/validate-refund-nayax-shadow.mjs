@@ -9,6 +9,7 @@ import {
   buildShadowEvidence,
   buildTimingDiagnostics,
   buildTransactionStates,
+  ensureSafeNayaxBaseUrl,
   ensureSafeReadConfiguration,
   parseArgs,
   parseEnvFile,
@@ -110,6 +111,22 @@ assert.equal(parseArgs(['--project-ref', 'project', '--window-hours', '12']).win
 assert.throws(() => parseArgs(['--window-hours', '25']), /1 to 24/);
 assert.throws(() => parseArgs(['--project-ref']), /Unknown or incomplete argument/);
 assert.throws(() => parseArgs(['--surprise']), /Unknown or incomplete argument/);
+assert.equal(
+  ensureSafeNayaxBaseUrl('https://lynx.nayax.com/operational/v1/'),
+  'https://lynx.nayax.com/operational/v1',
+);
+assert.throws(
+  () => ensureSafeNayaxBaseUrl('http://lynx.nayax.com/operational/v1'),
+  /exact approved/,
+);
+assert.throws(
+  () => ensureSafeNayaxBaseUrl('https://lynx.nayax.com.example.test/operational/v1'),
+  /exact approved/,
+);
+assert.throws(
+  () => ensureSafeNayaxBaseUrl('https://lynx.nayax.com/operational/v1?redirect=evil'),
+  /exact approved/,
+);
 assert.throws(
   () =>
     ensureSafeReadConfiguration(
@@ -140,6 +157,7 @@ assert.equal(source.includes(".upsert("), false);
 assert.equal(source.includes(".delete("), false);
 assert.equal(source.includes('/refund-request'), false);
 assert.equal(source.includes('/refund-approve'), false);
+assert.match(source, /redirect: 'error'/);
 assert.match(source, /lastSales/);
 assert.match(source, /rawIdentifiersEmitted: false/);
 assert.match(source, /customerDataEmitted: false/);
