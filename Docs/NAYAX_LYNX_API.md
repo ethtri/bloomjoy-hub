@@ -154,10 +154,15 @@ Nayax's public Lynx documentation now confirms that a card refund is a two-step 
 
 The request body uses `RefundAmount`, optional `RefundEmailList`, optional `RefundReason`, `TransactionId`, `SiteId`, and `MachineAuTime`. The approve request must repeat the same transaction, site, and machine-authorization-time identifiers and includes `IsRefundedExternally` plus an optional `RefundDocumentUrl`. Nayax documents `TransactionID` and `SiteID` as fields returned by Last Sales, although `SiteID` was not present in Bloomjoy's previously captured production field inventory.
 
+Nayax defines `IsRefundedExternally=true` only for a refund the customer's billing provider already handled; that path requires the provider's refund document URL. Therefore, for an ordinary refund that Nayax itself should process, Bloomjoy's expected approval value is `IsRefundedExternally=false` and no external-refund document URL. This is now the documented default, but it must still be confirmed in Bloomjoy's Nayax QA/account before a production write call is enabled.
+
+Nayax also documents a manual reconciliation path: a successfully requested refund remains `Pending` and appears in **Reports > Online Reports > Dynamic Transactions Monitor** under the `Refund Requested` status; approval or decline updates that status. This gives Bloomjoy a fail-safe manual check after a timeout or uncertain response, but the public Lynx documentation still does not identify a read-only API endpoint for programmatic refund-status reconciliation.
+
 Primary references:
 - [Refund flow overview](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/payments)
 - [Request a refund](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/request-refunds)
 - [Approve or decline a refund](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/approve-or-decline-a-refund)
+- [Upload refund documentation](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/upload-refund-document)
 - [Last Sales response](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/machines/getting-a-machines-last-sales)
 - [Security and token handling](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/security)
 
@@ -165,10 +170,9 @@ This public documentation is enough to define the expected request shape, but no
 - the production refund hostname/path and whether the existing reporting token has refund request and approval permissions;
 - whether `RefundAmount` is expressed in major currency units and how rounding is handled;
 - the exact `Result` and `Status` values for accepted, rejected, already-refunded, duplicate, pending, and unknown outcomes;
-- whether either step supports a provider idempotency key, how duplicate retries behave, and how to query or reconcile a timeout between request and approval;
+- whether either step supports a provider idempotency key, how duplicate retries behave, and whether an API status/reconciliation endpoint exists after a timeout; the documented Dynamic Transactions Monitor remains the manual fallback;
 - which production response supplies `SiteID` when Last Sales omits it, and what field/value proves that the original sale is approved and refundable;
-- whether `RefundEmailList` can remain empty so Bloomjoy sends the single customer confirmation only after final confirmed success;
-- the required `IsRefundedExternally` value for an ordinary Nayax-processed refund.
+- whether `RefundEmailList` can remain empty so Bloomjoy sends the single customer confirmation only after final confirmed success.
 
 A read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closes these gaps. The only internal token request located was explicitly for sales reporting, and the signed commercial agreement covers commercial/clearing terms rather than refund API semantics. Do not infer write authority from that token or agreement.
 
