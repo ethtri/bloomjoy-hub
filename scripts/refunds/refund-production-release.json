@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-07-22-gmail-retention-guard",
-  "sourceGitCommit": "pending",
+  "sourceGitCommit": "f8507bfcd42765012d213e73d2f9792736744eee",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -85,7 +85,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "pending",
+      "sourceSha256": "e0f3f71aeba80c3e00371da80d84163c185cfe494ce79b73ad4595701e7f1990",
       "production": {
         "version": 1,
         "ezbrSha256": "83a3f0a745e8433d4a700259de047eb8e0304e73dc40264313679a63a9561d87",
