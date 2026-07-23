@@ -2,8 +2,8 @@
   "issue": 647,
   "appUrl": "http://127.0.0.1:8081",
   "fixedNow": "2026-07-22T16:00:00.000Z",
-  "startedAt": "2026-07-22T21:43:30.839Z",
-  "completedAt": "2026-07-22T21:44:17.619Z",
+  "startedAt": "2026-07-22T23:58:23.326Z",
+  "completedAt": "2026-07-22T23:58:56.769Z",
   "status": "pass",
   "sanitizedFixtures": true,
   "checks": [
@@ -64,11 +64,11 @@
       "status": "pass"
     },
     {
-      "name": "Corporate Partner sees scoped warnings without internal-only leakage",
+      "name": "Corporate Partner hides non-blocking internal notes without false review messaging",
       "status": "pass"
     },
     {
-      "name": "Partner selected-machine KPIs, history, warnings, and export retain machine scope",
+      "name": "Partner selected-machine KPIs, history, and export retain machine scope",
       "status": "pass"
     },
     {

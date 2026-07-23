@@ -21,8 +21,8 @@
 - PASS - Partner all-machines view shows six actions, locations, duplicate-name context, and zero sales
 - PASS - Partner machine picker becomes searchable at the six-machine threshold
 - PASS - Partner row action supports keyboard selection and a persistent selected scope
-- PASS - Corporate Partner sees scoped warnings without internal-only leakage
-- PASS - Partner selected-machine KPIs, history, warnings, and export retain machine scope
+- PASS - Corporate Partner hides non-blocking internal notes without false review messaging
+- PASS - Partner selected-machine KPIs, history, and export retain machine scope
 - PASS - Partner desktop has no horizontal overflow
 - PASS - Partner mobile all-machines view preserves location and action context
 - PASS - Partner mobile selected zero-sales machine keeps scope, history, back action, and no overflow

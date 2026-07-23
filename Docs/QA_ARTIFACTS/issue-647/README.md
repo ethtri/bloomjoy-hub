@@ -6,8 +6,8 @@ All evidence below uses deterministic, intercepted authentication and RPC respon
 
 - Operator Last 7 days: **$680.00 net**, **$700.00 gross**, **$20.00 refunds**, and **68 transactions**. The seven daily rows reconcile to those KPIs, including July 19 as an explicit `$0.00` `No sales in loaded data` date.
 - Partner all machines: **$890.00 gross**, **$813.25 net**, and **$406.63 Partner Revenue Share** across six assigned machines. The fixture includes two `Atrium Unit` machines at different locations and one assigned zero-sales machine.
-- Selected `Atrium Unit · Harbor Mall`: **$400.00 gross**, **$360.00 net**, and **$180.00 Partner Revenue Share**. The machine scope is retained across summary, trend, history, calculation, warning, and export assertions.
-- Role boundaries: an operator-only reporting user sees no partner controls, machine rows, or revenue-share data; a Corporate Partner sees neutral scoped warnings without internal-only details; a Super Admin can enter and leave a selected-machine drilldown; baseline and signed-out users remain blocked.
+- Selected `Atrium Unit · Harbor Mall`: **$400.00 gross**, **$360.00 net**, and **$180.00 Partner Revenue Share**. The machine scope is retained across summary, trend, history, calculation, and export assertions.
+- Role boundaries: an operator-only reporting user sees no partner controls, machine rows, or revenue-share data; a Corporate Partner sees neither non-blocking internal notes nor a fictional review-in-progress state; a Super Admin can enter and leave a selected-machine drilldown; baseline and signed-out users remain blocked.
 
 The full 26-check browser result is in [reporting-uat-results.md](reporting-uat-results.md). Run it with:
 

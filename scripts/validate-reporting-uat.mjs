@@ -1030,14 +1030,22 @@ const assertPartnerDesktop = async (browser) => {
       assert(box && box.y >= 0 && box.y < 900, 'Selected-machine scope must remain visible while scrolling.');
       await page.evaluate(() => window.scrollTo(0, 0));
     });
-    await check('Corporate Partner sees scoped warnings without internal-only leakage', async () => {
+    await check('Corporate Partner hides non-blocking internal notes without false review messaging', async () => {
       const bodyText = await textOf(page.locator('body'));
-      assert(/Bloomjoy is reviewing/i.test(bodyText), 'Corporate Partner must receive neutral review language for a scoped warning.');
-      for (const forbidden of ['INTERNAL-ONLY', 'UAT-647', 'Open admin setup', 'Report setup needs attention']) {
+      for (const forbidden of [
+        'Bloomjoy review in progress',
+        'Bloomjoy is reviewing',
+        'Report data incomplete',
+        'Export is unavailable because required report data is incomplete',
+        'INTERNAL-ONLY',
+        'UAT-647',
+        'Open admin setup',
+        'Report setup needs attention',
+      ]) {
         assert(!bodyText.includes(forbidden), `Corporate Partner view must not expose internal-only text: ${forbidden}`);
       }
     });
-    await check('Partner selected-machine KPIs, history, warnings, and export retain machine scope', async () => {
+    await check('Partner selected-machine KPIs, history, and export retain machine scope', async () => {
       const current = makePartnerTotals(partnerMachines[0], '2026-07-13');
       const bodyText = await textOf(page.locator('body'));
       for (const cents of [current.gross_sales_cents, current.net_sales_cents, current.amount_owed_cents]) {

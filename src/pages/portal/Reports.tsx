@@ -170,17 +170,16 @@ const PartnerPrintableReport = lazy(
 const ALL_PARTNER_MACHINES = 'all';
 const PARTNER_MACHINE_SEARCH_THRESHOLD = 6;
 const PARTNER_REVENUE_SHARE_LABEL = 'Partner Revenue Share';
-const PARTNER_BLOOMJOY_REVIEW_TITLE = 'Bloomjoy review in progress';
-const PARTNER_BLOOMJOY_REVIEW_DESCRIPTION =
-  'Bloomjoy is reviewing this partner dashboard and will update this view when review is complete.';
-const PARTNER_BLOOMJOY_REVIEW_REASONS = [
-  'Some dashboard details may stay unavailable until Bloomjoy finishes review.',
+const PARTNER_REPORT_UNAVAILABLE_TITLE = 'Partner report unavailable';
+const PARTNER_REPORT_UNAVAILABLE_DESCRIPTION =
+  'We could not load partner reporting for this account right now.';
+const PARTNER_REPORT_UNAVAILABLE_REASONS = [
+  'Refresh the page or try again later.',
   'If access was just updated, sign out and sign back in before retrying.',
 ];
-const PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE =
-  'Bloomjoy is reviewing this partner report. Export will be available when review is complete.';
-const PARTNER_BLOOMJOY_REVIEW_PERIOD_MESSAGE =
-  'Bloomjoy is reviewing this reporting period. Some details may update when review is complete.';
+const PARTNER_REPORT_DATA_INCOMPLETE_TITLE = 'Report data incomplete';
+const PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE =
+  'Export is unavailable because required report data is incomplete. Try again later.';
 
 const isReportingTabWarning = (warning: PartnerDashboardWarning) =>
   warning.severity === 'blocking';
@@ -1797,9 +1796,9 @@ function PartnerDashboardView() {
     [preview?.warnings, selectedMachineId]
   );
   const hasBlockingWarnings = blockingWarnings.length > 0;
-  const partnerReviewWarningMessage = hasBlockingWarnings
-    ? PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE
-    : PARTNER_BLOOMJOY_REVIEW_PERIOD_MESSAGE;
+  const showPartnerWarnings = canSeeInternalPartnerWarnings
+    ? blockingWarnings.length > 0 || nonBlockingWarnings.length > 0
+    : hasBlockingWarnings;
   const previewFetching = selectedPreviewFetching || trendPreviewFetching;
   const trendLabel = getPartnerModeLabel(periodMode);
   const inProgressPeriodLabel = selectedPeriod?.isInProgress
@@ -1836,7 +1835,7 @@ function PartnerDashboardView() {
       toast.error(
         canSeeInternalPartnerWarnings
           ? 'Resolve blocking admin review items before exporting the partner report.'
-          : PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE
+          : PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE
       );
       return;
     }
@@ -1882,12 +1881,12 @@ function PartnerDashboardView() {
         title={
           canSeeInternalPartnerWarnings
             ? 'Partner Dashboard unavailable'
-            : PARTNER_BLOOMJOY_REVIEW_TITLE
+            : PARTNER_REPORT_UNAVAILABLE_TITLE
         }
         description={
           canSeeInternalPartnerWarnings
             ? 'Bloomjoy could not confirm the partner dashboard scope for this session.'
-            : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+            : PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
         }
         reasons={
           canSeeInternalPartnerWarnings
@@ -1899,7 +1898,7 @@ function PartnerDashboardView() {
                 'Machines: confirm the partnership has assigned reporting machines.',
                 'Session: if access was just granted or updated, sign out and sign back in before retrying.',
               ]
-            : PARTNER_BLOOMJOY_REVIEW_REASONS
+            : PARTNER_REPORT_UNAVAILABLE_REASONS
         }
         tone={canSeeInternalPartnerWarnings ? 'destructive' : 'default'}
       />
@@ -1912,14 +1911,14 @@ function PartnerDashboardView() {
         title={
           canSeeInternalPartnerWarnings
             ? 'Partner Dashboard unavailable'
-            : PARTNER_BLOOMJOY_REVIEW_TITLE
+            : PARTNER_REPORT_UNAVAILABLE_TITLE
         }
         description={
           canSeeInternalPartnerWarnings
             ? isCorporatePartner
               ? 'This Corporate Partner login is recognized, but no dashboard-ready partnership is visible yet.'
               : 'No active partner dashboard scope is visible for this role.'
-            : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+            : PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
         }
         reasons={
           canSeeInternalPartnerWarnings
@@ -1929,7 +1928,7 @@ function PartnerDashboardView() {
                 'Machines: confirm at least one reporting machine is assigned to that partnership.',
                 'Session: if Bloomjoy just changed access, sign out and sign back in to refresh the portal session.',
               ]
-            : PARTNER_BLOOMJOY_REVIEW_REASONS
+            : PARTNER_REPORT_UNAVAILABLE_REASONS
         }
         action={
           isSuperAdmin ? (
@@ -2123,7 +2122,7 @@ function PartnerDashboardView() {
           <AlertTitle>
             {canSeeInternalPartnerWarnings
               ? 'Unable to load partner preview'
-              : PARTNER_BLOOMJOY_REVIEW_TITLE}
+              : PARTNER_REPORT_UNAVAILABLE_TITLE}
           </AlertTitle>
           <AlertDescription>
             {canSeeInternalPartnerWarnings ? (
@@ -2135,7 +2134,7 @@ function PartnerDashboardView() {
                 and sign out and back in if access changed recently.
               </>
             ) : (
-              PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+              PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
             )}
           </AlertDescription>
         </Alert>
@@ -2160,12 +2159,12 @@ function PartnerDashboardView() {
               title={
                 canSeeInternalPartnerWarnings
                   ? 'No partner machines visible'
-                  : PARTNER_BLOOMJOY_REVIEW_TITLE
+                  : PARTNER_REPORT_UNAVAILABLE_TITLE
               }
               description={
                 canSeeInternalPartnerWarnings
                   ? 'The Partner Dashboard opened, but this partnership has no machines visible for the selected reporting period.'
-                  : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+                  : PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
               }
               reasons={
                 canSeeInternalPartnerWarnings
@@ -2175,7 +2174,7 @@ function PartnerDashboardView() {
                       'Portal-enabled partnership: confirm the partnership is active and enabled for portal reporting.',
                       'Session: if machine access was just changed, sign out and sign back in before retrying.',
                     ]
-                  : PARTNER_BLOOMJOY_REVIEW_REASONS
+                  : PARTNER_REPORT_UNAVAILABLE_REASONS
               }
             />
           )}
@@ -2190,15 +2189,15 @@ function PartnerDashboardView() {
             isInProgressPeriod={Boolean(selectedPeriod?.isInProgress)}
           />
 
-          {(blockingWarnings.length > 0 || nonBlockingWarnings.length > 0) && (
+          {showPartnerWarnings && (
             <Alert className="border-amber/20 bg-amber/10 text-foreground">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>
                 {canSeeInternalPartnerWarnings
                   ? blockingWarnings.length > 0
                     ? 'Report setup needs attention'
-                    : 'Period review notes'
-                  : PARTNER_BLOOMJOY_REVIEW_TITLE}
+                    : 'Report notes'
+                  : PARTNER_REPORT_DATA_INCOMPLETE_TITLE}
               </AlertTitle>
               <AlertDescription>
                 <div className="mt-2 flex flex-col gap-2">
@@ -2236,7 +2235,7 @@ function PartnerDashboardView() {
                       )}
                     </>
                   ) : (
-                    <div className="font-medium">{partnerReviewWarningMessage}</div>
+                    <div className="font-medium">{PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE}</div>
                   )}
                 </div>
               </AlertDescription>

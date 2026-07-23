@@ -380,6 +380,7 @@ Run these checks on localhost for each PR that adds a user-facing feature.
 - [ ] Corporate Partner can access `/portal/reports` partner dashboard for active portal-enabled partnerships only
 - [ ] Corporate Partner sees machine reporting only for machines derived from current partnership assignments
 - [ ] Corporate Partner cannot access `/admin`, tax/rule editing, machine metadata editing, imports, schedules, global reporting, or internal warning ledgers
+- [ ] Corporate Partner reports hide non-blocking internal notes without showing a fictional review-in-progress state; genuinely blocking data issues use plain report-incomplete copy and keep export disabled
 - [ ] Inactive partnership status stops Corporate Partner live reporting access
 - [ ] Partner Dashboard preview/export respects the partnership effective window: `effective_end_date = null` is open-ended, fully outside weeks/months generate no settlement amounts, and partial weeks/months show a trimming warning while including only active-window dates
 - [ ] Revoked Corporate Partner membership removes portal reporting access after refresh/re-login
