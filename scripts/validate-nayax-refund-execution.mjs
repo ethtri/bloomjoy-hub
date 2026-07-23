@@ -261,6 +261,12 @@ assert(
   'Browser refund UI must not store or submit raw Nayax transaction IDs.'
 );
 assert(
+  !fn.includes('providerReference') &&
+    !refundOperationsLib.includes('providerReference') &&
+    !refundOperationsUi.includes('providerReference'),
+  'Provider refund references must remain server-only and must not appear in Edge responses or browser contracts.'
+);
+assert(
   fn.includes('nayax_recommendation_state !== "high_confidence"') &&
     fn.includes('!refundCase.nayax_match_execution_eligible') &&
     fn.includes('refundCase.card_wallet_used') &&

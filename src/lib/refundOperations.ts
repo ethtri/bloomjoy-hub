@@ -489,7 +489,6 @@ export type NayaxCardRefundExecutionResponse = {
   dryRun?: boolean;
   killSwitchActive?: boolean;
   refundReference?: string | null;
-  providerReference?: string | null;
   manualRefundReference?: string | null;
 };
 

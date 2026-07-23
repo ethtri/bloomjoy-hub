@@ -86,7 +86,6 @@ type ClaimResult = {
   attemptId?: string | null;
   status?: string | null;
   errorCode?: string | null;
-  providerReference?: string | null;
   executionEvidence?: ExecutionEvidence | null;
 };
 
@@ -546,7 +545,6 @@ const existingClaimResponse = (claim: ClaimResult) => {
     return jsonResponse({
       executed: true,
       status: "succeeded",
-      providerReference: claim.providerReference ?? null,
       message: "This approved Nayax refund was already completed.",
     });
   }

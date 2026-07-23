@@ -1214,11 +1214,9 @@ const getNayaxExecutionReference = (result: NayaxCardRefundExecutionResponse) =>
 
   return typeof executionRecord.refundReference === 'string'
     ? executionRecord.refundReference
-    : typeof executionRecord.providerReference === 'string'
-      ? executionRecord.providerReference
-      : typeof executionRecord.manualRefundReference === 'string'
-        ? executionRecord.manualRefundReference
-        : null;
+    : typeof executionRecord.manualRefundReference === 'string'
+      ? executionRecord.manualRefundReference
+      : null;
 };
 
 const alignDecisionForStatus = (status: RefundCaseStatus, currentDecision: RefundDecision): RefundDecision => {
