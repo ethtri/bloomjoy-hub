@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-07-22-nayax-adapter-disabled",
-  "sourceGitCommit": "0de569d985244b3c3598aa2fc5ba0fb880d3a4d4",
+  "sourceGitCommit": "d5ff5ecdafc22e164404c0922e3adebdaab2c81c",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -106,7 +106,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "3ed175cf6940315b3b3ba125b64eeb94af6488bef56a7eb065a1f3499d11a1a8",
+      "sourceSha256": "edfd72ffd2ea8b61d261c82bc21c9addddb45ecac3db24cef667bbeba467654f",
       "production": {
         "version": 2,
         "ezbrSha256": "94a9f0132e43d048c2de1f39f7fbc6f9f7651d1e62e812c992ac53db356a076d",
