@@ -89,6 +89,7 @@ Set the following values before launch.
 | `REFUND_GMAIL_SYNC_URL` | GitHub Actions secret | Refund Gmail Sync workflow | Supabase `refund-gmail-sync` function URL | Technical owner |
 | `REFUND_GMAIL_SYNC_TOKEN` | GitHub Actions secret | Refund Gmail Sync workflow | Same value as `REFUND_GMAIL_SYNC_SECRET`; never a service-role key | Technical owner |
 | `REFUND_GMAIL_SYNC_ENABLED` | GitHub Actions variable | Refund Gmail Sync workflow | Default `false`; controls scheduled workflow dispatch only | Release owner |
+| `REFUND_GMAIL_RETENTION_ENABLED` | GitHub Actions variable | Refund Gmail retention-only workflow job | Default `false`; set before the first copied Gmail record and keep enabled through the final 180-day expiry | Privacy owner |
 | `REFUND_GPT_TRIAGE_SYNC_URL` | GitHub Actions secret | Refund GPT Triage workflow | Supabase `refund-gpt-triage` function URL | Technical owner |
 | `REFUND_GPT_TRIAGE_SYNC_TOKEN` | GitHub Actions secret | Refund GPT Triage workflow | Same value as `REFUND_GPT_TRIAGE_SYNC_SECRET`; never an OpenAI or service-role key | Technical owner |
 | `REFUND_GPT_TRIAGE_SYNC_ENABLED` | GitHub Actions variable | Refund GPT Triage workflow | Default `false`; controls scheduled dispatch only | Release owner |
@@ -304,15 +305,16 @@ Refund automation scheduler validation:
 
 Refund Gmail intake validation:
 - Create an OAuth client for the exact designated support mailbox and grant only `gmail.readonly` and `gmail.send`. Record any required Google verification or security review before production use.
-- Apply the Gmail migration; deploy `refund-gmail-sync`, the updated refund message/admin functions, and the frontend. Set `REFUND_GMAIL_SYNC_URL` and `REFUND_GMAIL_SYNC_TOKEN`, but keep both `REFUND_GMAIL_SYNC_ENABLED=false` and `REFUND_GMAIL_ENABLED=false` during setup.
+- Apply the Gmail migration; deploy `refund-gmail-sync`, the updated refund message/admin functions, and the frontend. Set `REFUND_GMAIL_SYNC_URL` and `REFUND_GMAIL_SYNC_TOKEN`, but keep `REFUND_GMAIL_SYNC_ENABLED=false`, `REFUND_GMAIL_RETENTION_ENABLED=false`, and `REFUND_GMAIL_ENABLED=false` during setup.
 - Approve and record the 180-day Gmail-copy retention and quarantine-until-malware-cleared behavior in `Docs/REFUND_GMAIL_DATA_HANDLING.md`. Do not enable the schedule while either approval is pending.
 - Run the workflow manually with `failure_test` while real Gmail access remains disabled; confirm central-admin health shows a safe failure signal and the workflow output contains aggregate fields only.
+- Before the first synthetic message is copied, set `REFUND_GMAIL_RETENTION_ENABLED=true`. Manually run the workflow in `retention` mode and require an aggregate-only successful response without a Google authorization or mailbox request.
 - With synthetic messages only, set `REFUND_GMAIL_ENABLED=true` and manually run the workflow. An explicitly labeled test email must create one draft visible to a Super Admin or Scoped Admin, but not to a location-only Machine Manager. Re-running the same delivery must not create a second case, message, or event.
 - Reply to the test thread and run sync again. The reply must append chronologically to the same case. A manager-approved response must appear in that original Gmail thread exactly once.
 - Confirm unrelated and unlabeled messages remain untouched, including label, archive, deletion, and read state. Confirm an incoming Luhn-valid test card number is stored/displayed only as redacted last four and does not appear in logs or workflow output.
 - Send allowed and rejected synthetic attachments. PDF/JPEG/PNG files at or below 5 MB and within the three-file limit must remain private and quarantined; unsupported, oversized, or excess files must be rejected without exposing content or paths.
 - Revoke the test refresh token. Gmail health must show authorization failure while hosted-form cases, queue access, and manual non-Gmail replies continue to work. Reauthorize before any scheduled pilot.
-- Enable `REFUND_GMAIL_SYNC_ENABLED=true` only after every check above passes. Quick disable order is the GitHub variable first and Edge secret second; this must not disable form intake or existing case handling.
+- Enable `REFUND_GMAIL_SYNC_ENABLED=true` only after every check above passes. For a quick provider disable, set `REFUND_GMAIL_SYNC_ENABLED=false` first and `REFUND_GMAIL_ENABLED=false` second, while leaving `REFUND_GMAIL_RETENTION_ENABLED=true`. The retention-only scheduled job must continue purging expired local copies without Gmail access. Turn retention off only after the final copied record has passed the approved 180-day period and a successful cleanup run finds nothing remaining.
 
 Refund GPT triage validation:
 - Apply both GPT triage migrations and deploy `refund-gpt-triage`, the updated refund message function, and the frontend while `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, `REFUND_GPT_TRIAGE_ENABLED=false`, and `refund_gpt_triage_settings.enabled=false`.
@@ -430,7 +432,7 @@ Rollback order:
    - Do not run destructive rollback SQL during incident response.
    - If a migration caused breakage, recover via pre-launch backup/snapshot and controlled restore.
 
-Gmail-only rollback: set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_ENABLED=false`, and revoke the Gmail refresh token if compromise is suspected. Do not delete Gmail linkage tables during an incident. Verify hosted-form refund intake and non-Gmail case work remain available.
+Gmail-only rollback: set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_ENABLED=false`, and revoke the Gmail refresh token if compromise is suspected. Keep `REFUND_GMAIL_RETENTION_ENABLED=true` so expired local copies continue to purge without Gmail access. Do not delete Gmail linkage tables during an incident. Verify hosted-form refund intake and non-Gmail case work remain available.
 
 GPT-only rollback: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then `refund_gpt_triage_settings.enabled=false`. The legacy restore source disables the newly introduced function rather than inventing an older deployment. Do not delete job/review/audit rows; verify the deterministic missing-information reply remains available.
 
