@@ -10,7 +10,8 @@ create or replace function public.service_claim_nayax_refund_execution(
   p_daily_amount_cap_cents integer,
   p_daily_count_cap integer,
   p_request_fingerprint text,
-  p_provider_contract_version text
+  p_provider_contract_version text,
+  p_expected_execution_evidence jsonb
 )
 returns jsonb
 language plpgsql
@@ -40,6 +41,29 @@ begin
 
   if p_provider_contract_version !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$' then
     raise exception 'Nayax refund provider contract version is invalid';
+  end if;
+
+  if p_expected_execution_evidence is null
+    or jsonb_typeof(p_expected_execution_evidence) <> 'object'
+    or (
+      select count(*)
+      from jsonb_object_keys(p_expected_execution_evidence)
+    ) <> 8
+    or exists (
+      select 1
+      from jsonb_object_keys(p_expected_execution_evidence) key_name
+      where key_name not in (
+        'reportingMachineId',
+        'transactionId',
+        'siteId',
+        'machineAuthorizationTime',
+        'amountCents',
+        'currencyCode',
+        'nayaxAccountKey',
+        'nayaxMachineId'
+      )
+    ) then
+    raise exception 'Nayax refund expected execution evidence is invalid';
   end if;
 
   if coalesce(p_daily_amount_cap_cents, 0) < 0
@@ -144,6 +168,46 @@ begin
     );
   end if;
 
+  if nullif(btrim(refund_machine.nayax_account_key), '') is null then
+    return jsonb_build_object(
+      'claimed', false,
+      'status', 'preflight_blocked',
+      'errorCode', 'configuration_missing'
+    );
+  end if;
+
+  begin
+    if refund_case.reporting_machine_id is distinct from
+        (p_expected_execution_evidence ->> 'reportingMachineId')::uuid
+      or refund_case.matched_nayax_transaction_id is distinct from
+        (p_expected_execution_evidence ->> 'transactionId')
+      or refund_case.matched_nayax_site_id is distinct from
+        (p_expected_execution_evidence ->> 'siteId')::integer
+      or refund_case.matched_nayax_machine_auth_time is distinct from
+        (p_expected_execution_evidence ->> 'machineAuthorizationTime')::timestamptz
+      or refund_case.refund_amount_cents is distinct from
+        (p_expected_execution_evidence ->> 'amountCents')::integer
+      or refund_case.matched_nayax_currency_code is distinct from
+        (p_expected_execution_evidence ->> 'currencyCode')
+      or btrim(refund_machine.nayax_account_key) is distinct from
+        btrim(p_expected_execution_evidence ->> 'nayaxAccountKey')
+      or btrim(refund_machine.nayax_machine_id) is distinct from
+        btrim(p_expected_execution_evidence ->> 'nayaxMachineId') then
+      return jsonb_build_object(
+        'claimed', false,
+        'status', 'preflight_blocked',
+        'errorCode', 'execution_evidence_changed'
+      );
+    end if;
+  exception
+    when others then
+      return jsonb_build_object(
+        'claimed', false,
+        'status', 'preflight_blocked',
+        'errorCode', 'execution_evidence_changed'
+      );
+  end;
+
   amount_cents := refund_case.refund_amount_cents;
   if amount_cents is null or amount_cents <= 0 then
     return jsonb_build_object(
@@ -232,18 +296,28 @@ begin
     'attemptId', new_attempt.id,
     'status', new_attempt.status,
     'errorCode', null,
-    'providerReference', null
+    'providerReference', null,
+    'executionEvidence', jsonb_build_object(
+      'reportingMachineId', refund_case.reporting_machine_id,
+      'transactionId', refund_case.matched_nayax_transaction_id,
+      'siteId', refund_case.matched_nayax_site_id,
+      'machineAuthorizationTime', refund_case.matched_nayax_machine_auth_time,
+      'amountCents', amount_cents,
+      'currencyCode', refund_case.matched_nayax_currency_code,
+      'nayaxAccountKey', btrim(refund_machine.nayax_account_key),
+      'nayaxMachineId', btrim(refund_machine.nayax_machine_id)
+    )
   );
 end;
 $$;
 
-comment on function public.service_claim_nayax_refund_execution(uuid, uuid, text, integer, integer, text, text) is
+comment on function public.service_claim_nayax_refund_execution(uuid, uuid, text, integer, integer, text, text, jsonb) is
   'Service-role-only atomic claim for one capped Nayax provider refund attempt.';
 
-revoke execute on function public.service_claim_nayax_refund_execution(uuid, uuid, text, integer, integer, text, text)
+revoke execute on function public.service_claim_nayax_refund_execution(uuid, uuid, text, integer, integer, text, text, jsonb)
 from public, anon, authenticated;
 
-grant execute on function public.service_claim_nayax_refund_execution(uuid, uuid, text, integer, integer, text, text)
+grant execute on function public.service_claim_nayax_refund_execution(uuid, uuid, text, integer, integer, text, text, jsonb)
 to service_role;
 
 create or replace function public.guard_claimed_nayax_refund_evidence()

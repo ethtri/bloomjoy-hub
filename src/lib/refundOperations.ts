@@ -455,6 +455,7 @@ export type NayaxCardRefundExecutionErrorCode =
   | 'amount_cap_exceeded'
   | 'provider_contract_unconfirmed'
   | 'provider_configuration_invalid'
+  | 'execution_evidence_changed'
   | 'provider_outcome_unconfirmed'
   | 'provider_request_rejected'
   | 'provider_approval_rejected'

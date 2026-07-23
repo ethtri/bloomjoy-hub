@@ -1174,6 +1174,8 @@ const nayaxExecutionBlockLabel = (block: string) => {
       return 'Bloomjoy has not confirmed the live card-refund contract yet.';
     case 'provider_configuration_invalid':
       return 'The Nayax refund connection is incomplete or does not match the approved settings.';
+    case 'execution_evidence_changed':
+      return 'The matched transaction changed before the refund could start. Refresh the case and review it again.';
     case 'provider_outcome_unconfirmed':
       return 'Nayax did not confirm the outcome. Do not retry this refund until it is reconciled in Nayax.';
     case 'provider_request_rejected':

@@ -14,6 +14,7 @@ const baseContract = {
   schemaVersion: 1,
   contractVersion: 'nayax-qa-confirmed-v1',
   baseUrl: 'https://qa-lynx.nayax.com/operational/v1',
+  authorizationMode: 'bearer',
   amountUnit: 'major',
   refundEmailListMode: 'omit',
   requestResponses: [
@@ -42,6 +43,11 @@ assert.throws(
   () => parseNayaxRefundProviderContract({ ...baseContract, schemaVersion: 2 }),
   /schemaVersion/,
   'Unknown contract schema versions must fail closed.',
+);
+assert.throws(
+  () => parseNayaxRefundProviderContract({ ...baseContract, authorizationMode: 'guess' }),
+  /authorizationMode/,
+  'The account-confirmed authorization header format must be explicit.',
 );
 assert.throws(
   () => parseNayaxRefundProviderContract({
@@ -242,6 +248,27 @@ assert.equal(
   false,
 );
 assert.equal(JSON.stringify(successfulStages).includes('discard-me'), false);
+
+let rawAuthorizationHeader = null;
+await postNayaxRefundStep({
+  stage: 'request',
+  contract: parseNayaxRefundProviderContract({
+    ...baseContract,
+    contractVersion: 'nayax-qa-raw-auth-v1',
+    authorizationMode: 'raw',
+  }),
+  token: 'raw-test-token',
+  body: majorBody,
+  fetchImpl: async (_url, options) => {
+    rawAuthorizationHeader = options.headers.Authorization;
+    return response({ Result: 'True', Status: 'Pending Approval' });
+  },
+});
+assert.equal(
+  rawAuthorizationHeader,
+  'raw-test-token',
+  'Raw API-key authorization is available only when the confirmed contract selects it.',
+);
 
 for (const requestFixture of [
   { Result: 'False', Status: 'Rejected' },

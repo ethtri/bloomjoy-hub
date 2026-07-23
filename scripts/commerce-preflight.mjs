@@ -295,7 +295,17 @@ function run() {
       String(env.NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED || '')
         .trim()
         .toLowerCase() === 'true';
+    const refundWriteTokenKeys = Object.keys(env).filter(
+      (key) =>
+        /^NAYAX_REFUND_API_TOKEN_[A-Z0-9_]+$/.test(key) &&
+        String(env[key] || '').trim() !== ''
+    );
     const providerContractJson = String(env.NAYAX_REFUND_PROVIDER_CONTRACT_JSON || '').trim();
+    if ((executionEnabled || providerContractConfirmed) && refundWriteTokenKeys.length === 0) {
+      errors.push(
+        'An account-scoped NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY> write credential is required before Nayax refund execution or provider-contract confirmation can be enabled.'
+      );
+    }
     if ((executionEnabled || providerContractConfirmed) && !providerContractJson) {
       errors.push(
         'NAYAX_REFUND_PROVIDER_CONTRACT_JSON is required before Nayax refund execution or provider-contract confirmation can be enabled.'

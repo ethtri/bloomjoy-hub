@@ -9,7 +9,8 @@ Do not call Nayax directly from the browser. Any implementation should run throu
 
 ## Current Production Credential Status
 - Production Supabase project: `ygbzkgxktzqsiygjlqyg`
-- Server-only Supabase secret name: `NAYAX_LYNX_API_TOKEN`
+- Read-only/reporting Supabase secret name: `NAYAX_LYNX_API_TOKEN`
+- No refund-write credential is currently approved or configured.
 - Local development may use `.env` only on the agent machine. Never commit token values.
 - Never prefix this token with `VITE_`; Vite exposes `VITE_` values to the browser.
 
@@ -25,7 +26,7 @@ Edge Functions should read the token with:
 const nayaxToken = Deno.env.get("NAYAX_LYNX_API_TOKEN");
 ```
 
-Refund operations may use an account-scoped secret first, such as `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB`, then fall back to `NAYAX_LYNX_API_TOKEN`. Keep both server-only.
+Read-only lookup may use an account-scoped secret such as `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB`, then fall back to `NAYAX_LYNX_API_TOKEN`. Refund execution deliberately does not reuse or fall back to either reporting token. It requires an exact account-scoped `NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY>` secret whose write authority has been separately confirmed.
 
 ## Verified Endpoint Status
 Base path that works in production:
@@ -140,13 +141,14 @@ The current refund adapter implements Nayax's two-step request-and-approve flow 
 - `NAYAX_REFUND_EXECUTION_DRY_RUN=false`
 - `NAYAX_REFUND_EXECUTION_KILL_SWITCH=false`
 - `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=true`
-- `NAYAX_REFUND_PROVIDER_CONTRACT_JSON` contains the account-approved amount unit, refund-email behavior, and exact `Result`/`Status` pairs for every recognized outcome.
+- An exact account-scoped `NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY>` write credential exists; reporting-token fallback is prohibited.
+- `NAYAX_REFUND_PROVIDER_CONTRACT_JSON` contains the account-approved authorization header mode, amount unit, refund-email behavior, and exact `Result`/`Status` pairs for every recognized outcome.
 - The machine is explicitly allowlisted for Nayax refunds and the refund is below configured caps.
 - The case is card-only, manager-approved, `card_refund_pending`, matched to sanitized Nayax evidence, and has no prior settlement adjustment.
 
 First automated execution remains full-refund only, USD only, and manager initiated for a case that manager is authorized to handle. Apple Pay or wallet last-four mismatches remain manual-review until a later decision changes that rule.
 
-The adapter obtains a database-atomic single-use claim before contacting Nayax. That claim serializes daily cap checks and prevents double clicks, parallel servers, timeouts, and alternate idempotency keys from creating a second provider attempt for the same case. An unfamiliar response, non-success HTTP status, timeout, network error, pending approval, duplicate signal, or failure to record the result never produces a customer success email or reporting adjustment. The manager is told not to retry and must reconcile the attempt in Nayax.
+The adapter obtains a database-atomic single-use claim before contacting Nayax. The claim rejects any case, transaction, amount, machine, or account-key change between the initial read and the database lock, then returns the exact frozen server-only evidence used for both provider calls. It serializes daily cap checks and prevents double clicks, parallel servers, timeouts, and alternate idempotency keys from creating a second provider attempt for the same case. An unfamiliar response, non-success HTTP status, timeout, network error, pending approval, duplicate signal, or failure to record the result never produces a customer success email or reporting adjustment. The manager is told not to retry and must reconcile the attempt in Nayax.
 
 ## Official Refund Contract Audit (2026-07-22)
 
@@ -179,7 +181,7 @@ This public documentation is enough to define the expected request shape, but no
 
 A read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closes these gaps. The only internal token request located was explicitly for sales reporting, and the signed commercial agreement covers commercial/clearing terms rather than refund API semantics. Do not infer write authority from that token or agreement.
 
-Before enabling the implemented adapter, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. Encode only the approved exact response pairs in the server-only provider contract. The backend orchestrator treats a successful request followed by a failed, timed-out, pending, or unknown approval as unresolved: it keeps the case open, suppresses Bloomjoy's success email and settlement adjustment, and routes it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
+Before enabling the implemented adapter, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. Encode the confirmed raw-key or bearer authorization mode and only the approved exact response pairs in the server-only provider contract. The backend orchestrator treats a successful request followed by a failed, timed-out, pending, or unknown approval as unresolved: it keeps the case open, suppresses Bloomjoy's success email and settlement adjustment, and routes it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
 
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.

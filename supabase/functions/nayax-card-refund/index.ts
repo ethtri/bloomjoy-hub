@@ -87,6 +87,18 @@ type ClaimResult = {
   status?: string | null;
   errorCode?: string | null;
   providerReference?: string | null;
+  executionEvidence?: ExecutionEvidence | null;
+};
+
+type ExecutionEvidence = {
+  reportingMachineId: string | null;
+  transactionId: string | null;
+  siteId: number | null;
+  machineAuthorizationTime: string | null;
+  amountCents: number;
+  currencyCode: string | null;
+  nayaxAccountKey: string | null;
+  nayaxMachineId: string | null;
 };
 
 const getRefundCase = async (caseId: string): Promise<RefundCaseForExecution | null> => {
@@ -158,39 +170,51 @@ const hmacSha256Hex = async (secret: string, value: string) => {
     .join("");
 };
 
-const buildExecutionFingerprint = (refundCase: RefundCaseForExecution) => [
-  refundCase.id,
-  refundCase.matched_nayax_transaction_id ?? "",
-  refundCase.matched_nayax_site_id ?? "",
-  refundCase.matched_nayax_machine_auth_time ?? "",
-  resolveRefundAmountCents(refundCase),
-  refundCase.matched_nayax_currency_code ?? "",
+const snapshotExecutionEvidence = (
+  refundCase: RefundCaseForExecution,
+): ExecutionEvidence => ({
+  reportingMachineId: refundCase.reporting_machines?.id ?? null,
+  transactionId: refundCase.matched_nayax_transaction_id,
+  siteId: refundCase.matched_nayax_site_id,
+  machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time,
+  amountCents: resolveRefundAmountCents(refundCase),
+  currencyCode: refundCase.matched_nayax_currency_code,
+  nayaxAccountKey: refundCase.reporting_machines?.nayax_account_key ?? null,
+  nayaxMachineId: refundCase.reporting_machines?.nayax_machine_id ?? null,
+});
+
+const buildExecutionFingerprint = (refundCaseId: string, evidence: ExecutionEvidence) => [
+  refundCaseId,
+  evidence.reportingMachineId ?? "",
+  evidence.transactionId ?? "",
+  evidence.siteId ?? "",
+  evidence.machineAuthorizationTime ?? "",
+  evidence.amountCents,
+  evidence.currencyCode ?? "",
+  evidence.nayaxAccountKey ?? "",
+  evidence.nayaxMachineId ?? "",
 ].join("|");
 
 const buildIdempotencyKeys = async (refundCase: RefundCaseForExecution) => {
   const secret = Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET") ||
     supabaseServiceRoleKey ||
     "local-dev";
-  const digest = await hmacSha256Hex(secret, buildExecutionFingerprint(refundCase));
+  const digest = await hmacSha256Hex(
+    secret,
+    buildExecutionFingerprint(refundCase.id, snapshotExecutionEvidence(refundCase)),
+  );
   return {
     execution: `nayax-refund-execute-${digest}`,
     preflight: `nayax-refund-preflight-${digest}`,
   };
 };
 
-const getPreflightBlocks = ({
-  refundCase,
-  actorCanManageCase,
-}: {
-  refundCase: RefundCaseForExecution;
-  actorCanManageCase: boolean;
-}) => {
+const getPreflightBlocks = (refundCase: RefundCaseForExecution) => {
   const blocks: string[] = [];
   const machine = refundCase.reporting_machines;
   const amountCents = resolveRefundAmountCents(refundCase);
   const globalMax = envInt("NAYAX_REFUND_MAX_AMOUNT_CENTS", 1000);
 
-  if (!actorCanManageCase) blocks.push("authorization_failed");
   if (refundCase.status !== "card_refund_pending") blocks.push("validation_rejected");
   if (refundCase.decision !== "approved") blocks.push("validation_rejected");
   if (refundCase.payment_method !== "card") blocks.push("validation_rejected");
@@ -212,6 +236,7 @@ const getPreflightBlocks = ({
   if (refundCase.reporting_adjustment_id) blocks.push("already_refunded");
   if (!machine || machine.status !== "active") blocks.push("configuration_missing");
   if (!machine?.nayax_machine_id) blocks.push("configuration_missing");
+  if (!machine?.nayax_account_key) blocks.push("configuration_missing");
   if (!machine?.nayax_refunds_enabled) blocks.push("feature_disabled");
   if (
     machine?.nayax_refund_max_amount_cents &&
@@ -253,7 +278,9 @@ const recordPreflightAttempt = async ({
 
   const amountCents = resolveRefundAmountCents(refundCase);
   const machine = refundCase.reporting_machines;
-  const requestFingerprint = await sha256Hex(buildExecutionFingerprint(refundCase));
+  const requestFingerprint = await sha256Hex(
+    buildExecutionFingerprint(refundCase.id, snapshotExecutionEvidence(refundCase)),
+  );
   const { data, error } = await supabase
     .from("refund_case_nayax_refund_attempts")
     .upsert({
@@ -288,42 +315,63 @@ const recordPreflightAttempt = async ({
 const normalizeAccountKey = (value: string | null | undefined) =>
   sanitizeText(value, 100).toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 
-const resolveNayaxToken = (accountKey: string | null | undefined) => {
+const resolveNayaxRefundWriteToken = (accountKey: string | null | undefined) => {
   const normalizedAccountKey = normalizeAccountKey(accountKey);
-  return (
-    (normalizedAccountKey
-      ? Deno.env.get(`NAYAX_LYNX_API_TOKEN_${normalizedAccountKey}`)
-      : null) ||
-    Deno.env.get("NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB") ||
-    Deno.env.get("NAYAX_LYNX_API_TOKEN") ||
-    ""
-  );
+  if (!normalizedAccountKey) return "";
+  return Deno.env.get(`NAYAX_REFUND_API_TOKEN_${normalizedAccountKey}`) || "";
 };
 
-const resolveProviderConfiguration = (refundCase: RefundCaseForExecution) => {
+const resolveProviderConfiguration = (
+  evidence: ExecutionEvidence,
+  approvedContract?: ReturnType<typeof parseNayaxRefundProviderContract>,
+) => {
   const rawContract = Deno.env.get("NAYAX_REFUND_PROVIDER_CONTRACT_JSON");
-  const token = resolveNayaxToken(refundCase.reporting_machines?.nayax_account_key);
-  if (!rawContract || !token) {
+  const token = resolveNayaxRefundWriteToken(evidence.nayaxAccountKey);
+  if ((!rawContract && !approvedContract) || !token) {
     throw new Error("Nayax refund provider configuration is incomplete.");
   }
-  const contract = parseNayaxRefundProviderContract(rawContract);
+  const contract = approvedContract ?? parseNayaxRefundProviderContract(rawContract);
   buildNayaxRefundRequestBody({
     contract,
-    amountCents: resolveRefundAmountCents(refundCase),
-    transactionId: refundCase.matched_nayax_transaction_id,
-    siteId: refundCase.matched_nayax_site_id,
-    machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time,
+    amountCents: evidence.amountCents,
+    transactionId: evidence.transactionId,
+    siteId: evidence.siteId,
+    machineAuthorizationTime: evidence.machineAuthorizationTime,
   });
   buildNayaxRefundApprovalBody({
-    transactionId: refundCase.matched_nayax_transaction_id,
-    siteId: refundCase.matched_nayax_site_id,
-    machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time,
+    transactionId: evidence.transactionId,
+    siteId: evidence.siteId,
+    machineAuthorizationTime: evidence.machineAuthorizationTime,
   });
   return {
     contract,
     token,
     timeoutMs: envInt("NAYAX_REFUND_PROVIDER_TIMEOUT_MS", 10_000),
   };
+};
+
+const requireClaimedExecutionEvidence = (
+  value: ExecutionEvidence | null | undefined,
+): ExecutionEvidence => {
+  if (!value || typeof value !== "object") {
+    throw new Error("The Nayax execution claim did not return frozen evidence.");
+  }
+  const evidence = value as ExecutionEvidence;
+  if (
+    !isUuid(sanitizeText(evidence.reportingMachineId, 80)) ||
+    !safeNayaxReference(evidence.transactionId) ||
+    !Number.isInteger(evidence.siteId) ||
+    (evidence.siteId ?? 0) <= 0 ||
+    !sanitizeText(evidence.machineAuthorizationTime, 80) ||
+    !Number.isInteger(evidence.amountCents) ||
+    evidence.amountCents <= 0 ||
+    evidence.currencyCode !== "USD" ||
+    !normalizeAccountKey(evidence.nayaxAccountKey) ||
+    !sanitizeText(evidence.nayaxMachineId, 100)
+  ) {
+    throw new Error("The Nayax execution claim returned invalid frozen evidence.");
+  }
+  return evidence;
 };
 
 const updateAttemptAndCase = async ({
@@ -469,12 +517,14 @@ const claimProviderExecution = async ({
   idempotencyKey,
   requestFingerprint,
   contractVersion,
+  expectedExecutionEvidence,
 }: {
   refundCase: RefundCaseForExecution;
   actorUserId: string;
   idempotencyKey: string;
   requestFingerprint: string;
   contractVersion: string;
+  expectedExecutionEvidence: ExecutionEvidence;
 }): Promise<ClaimResult> => {
   if (!supabase) throw new Error("Nayax refund database client is unavailable.");
   const { data, error } = await supabase.rpc("service_claim_nayax_refund_execution", {
@@ -485,6 +535,7 @@ const claimProviderExecution = async ({
     p_daily_count_cap: envInt("NAYAX_REFUND_DAILY_COUNT_CAP", 0),
     p_request_fingerprint: requestFingerprint,
     p_provider_contract_version: contractVersion,
+    p_expected_execution_evidence: expectedExecutionEvidence,
   });
   if (error) throw error;
   return (data ?? {}) as ClaimResult;
@@ -554,12 +605,13 @@ serve(async (req) => {
       { p_user_id: user.id, p_refund_case_id: refundCase.id },
     );
     if (accessError) throw accessError;
+    if (!actorCanManageCase) {
+      return jsonResponse({ error: "Forbidden." }, 403);
+    }
 
     const idempotencyKeys = await buildIdempotencyKeys(refundCase);
-    const preflightBlocks = getPreflightBlocks({
-      refundCase,
-      actorCanManageCase: Boolean(actorCanManageCase),
-    });
+    const expectedExecutionEvidence = snapshotExecutionEvidence(refundCase);
+    const preflightBlocks = getPreflightBlocks(refundCase);
     const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(refundCase);
 
     const killSwitchActive = !envFlag("NAYAX_REFUND_EXECUTION_KILL_SWITCH", "false");
@@ -582,7 +634,6 @@ serve(async (req) => {
     if (allBlocks.length > 0) {
       const preferredError =
         allBlocks.includes("kill_switch_active") ? "kill_switch_active" :
-        allBlocks.includes("authorization_failed") ? "authorization_failed" :
         allBlocks.includes("already_refunded") ? "already_refunded" :
         allBlocks.includes("amount_cap_exceeded") ? "amount_cap_exceeded" :
         allBlocks.includes("duplicate_transaction") ? "manual_review" :
@@ -627,7 +678,7 @@ serve(async (req) => {
 
     let providerConfiguration;
     try {
-      providerConfiguration = resolveProviderConfiguration(refundCase);
+      providerConfiguration = resolveProviderConfiguration(expectedExecutionEvidence);
     } catch {
       const attempt = await recordPreflightAttempt({
         refundCase,
@@ -644,28 +695,36 @@ serve(async (req) => {
       }, 409);
     }
 
-    const requestFingerprint = await sha256Hex(buildExecutionFingerprint(refundCase));
+    const requestFingerprint = await sha256Hex(
+      buildExecutionFingerprint(refundCase.id, expectedExecutionEvidence),
+    );
     const claim = await claimProviderExecution({
       refundCase,
       actorUserId: user.id,
       idempotencyKey: idempotencyKeys.execution,
       requestFingerprint,
       contractVersion: providerConfiguration.contract.contractVersion,
+      expectedExecutionEvidence,
     });
     if (!claim.claimed || !claim.attemptId) {
       return existingClaimResponse(claim);
     }
 
     try {
+      const claimedExecutionEvidence = requireClaimedExecutionEvidence(claim.executionEvidence);
+      const claimedProviderConfiguration = resolveProviderConfiguration(
+        claimedExecutionEvidence,
+        providerConfiguration.contract,
+      );
       let requestStageResult: ProviderStageResult | null = null;
       const result = await executeNayaxRefundProvider({
-        contract: providerConfiguration.contract,
-        token: providerConfiguration.token,
-        amountCents: resolveRefundAmountCents(refundCase),
-        transactionId: refundCase.matched_nayax_transaction_id,
-        siteId: refundCase.matched_nayax_site_id,
-        machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time,
-        timeoutMs: providerConfiguration.timeoutMs,
+        contract: claimedProviderConfiguration.contract,
+        token: claimedProviderConfiguration.token,
+        amountCents: claimedExecutionEvidence.amountCents,
+        transactionId: claimedExecutionEvidence.transactionId,
+        siteId: claimedExecutionEvidence.siteId,
+        machineAuthorizationTime: claimedExecutionEvidence.machineAuthorizationTime,
+        timeoutMs: claimedProviderConfiguration.timeoutMs,
         onStage: async (stageResult: ProviderStageResult) => {
           const priorStageResult = requestStageResult;
           if (stageResult.stage === "request") {

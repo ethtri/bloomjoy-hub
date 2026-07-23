@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(12);
+select plan(14);
 
 insert into auth.users (
   instance_id,
@@ -116,7 +116,7 @@ values
     '76200000-0000-4000-8000-000000000001',
     'nayax-claim-one@example.test',
     'Synthetic Nayax execution claim fixture one',
-    now() - interval '1 hour',
+    '2026-07-22T17:30:00Z'::timestamptz,
     'card',
     700,
     '4242',
@@ -125,7 +125,7 @@ values
     'nayax',
     'nayax-claim-transaction-1',
     42,
-    now() - interval '1 hour',
+    '2026-07-22T17:31:00Z'::timestamptz,
     700,
     'USD',
     'high_confidence',
@@ -145,7 +145,7 @@ values
     '76200000-0000-4000-8000-000000000001',
     'nayax-claim-two@example.test',
     'Synthetic Nayax execution claim fixture two',
-    now() - interval '1 hour',
+    '2026-07-22T17:32:00Z'::timestamptz,
     'card',
     600,
     '4242',
@@ -154,7 +154,7 @@ values
     'nayax',
     'nayax-claim-transaction-2',
     42,
-    now() - interval '1 hour',
+    '2026-07-22T17:32:00Z'::timestamptz,
     600,
     'USD',
     'high_confidence',
@@ -170,7 +170,7 @@ values
 
 select ok(
   to_regprocedure(
-    'public.service_claim_nayax_refund_execution(uuid,uuid,text,integer,integer,text,text)'
+    'public.service_claim_nayax_refund_execution(uuid,uuid,text,integer,integer,text,text,jsonb)'
   ) is not null,
   'The atomic Nayax execution claim function exists'
 );
@@ -178,7 +178,7 @@ select ok(
 select ok(
   not has_function_privilege(
     'authenticated',
-    'public.service_claim_nayax_refund_execution(uuid,uuid,text,integer,integer,text,text)',
+    'public.service_claim_nayax_refund_execution(uuid,uuid,text,integer,integer,text,text,jsonb)',
     'execute'
   ),
   'Authenticated browser clients cannot claim a provider refund'
@@ -187,26 +187,48 @@ select ok(
 select ok(
   has_function_privilege(
     'service_role',
-    'public.service_claim_nayax_refund_execution(uuid,uuid,text,integer,integer,text,text)',
+    'public.service_claim_nayax_refund_execution(uuid,uuid,text,integer,integer,text,text,jsonb)',
     'execute'
   ),
   'The service role can claim a provider refund'
 );
 
-select is(
-  (
-    public.service_claim_nayax_refund_execution(
+select set_config(
+  'refund_test.first_claim',
+  public.service_claim_nayax_refund_execution(
       '76000000-0000-4000-8000-000000000001',
       '76500000-0000-4000-8000-000000000001',
       'nayax-refund-execute-' || repeat('a', 64),
       2000,
       2,
       repeat('b', 64),
-      'nayax-qa-confirmed-v1'
-    ) ->> 'claimed'
-  )::boolean,
+      'nayax-qa-confirmed-v1',
+      jsonb_build_object(
+        'reportingMachineId', '76300000-0000-4000-8000-000000000001',
+        'transactionId', 'nayax-claim-transaction-1',
+        'siteId', 42,
+        'machineAuthorizationTime', '2026-07-22T17:31:00Z',
+        'amountCents', 700,
+        'currencyCode', 'USD',
+        'nayaxAccountKey', 'TGPACI_USA_DB',
+        'nayaxMachineId', '9001'
+      )
+    )::text,
+  true
+);
+
+select is(
+  (current_setting('refund_test.first_claim')::jsonb ->> 'claimed')::boolean,
   true,
   'The first eligible execution obtains the provider claim'
+);
+
+select is(
+  current_setting('refund_test.first_claim')::jsonb
+    -> 'executionEvidence'
+    ->> 'transactionId',
+  'nayax-claim-transaction-1',
+  'The claim returns the exact locked provider evidence for server-side execution'
 );
 
 select is(
@@ -218,7 +240,17 @@ select is(
       2000,
       2,
       repeat('b', 64),
-      'nayax-qa-confirmed-v1'
+      'nayax-qa-confirmed-v1',
+      jsonb_build_object(
+        'reportingMachineId', '76300000-0000-4000-8000-000000000001',
+        'transactionId', 'nayax-claim-transaction-1',
+        'siteId', 42,
+        'machineAuthorizationTime', '2026-07-22T17:31:00Z',
+        'amountCents', 700,
+        'currencyCode', 'USD',
+        'nayaxAccountKey', 'TGPACI_USA_DB',
+        'nayaxMachineId', '9001'
+      )
     ) ->> 'claimed'
   )::boolean,
   false,
@@ -283,9 +315,45 @@ select is(
       '76500000-0000-4000-8000-000000000002',
       'nayax-refund-execute-' || repeat('c', 64),
       2000,
+      2,
+      repeat('d', 64),
+      'nayax-qa-confirmed-v1',
+      jsonb_build_object(
+        'reportingMachineId', '76300000-0000-4000-8000-000000000001',
+        'transactionId', 'nayax-claim-transaction-2',
+        'siteId', 42,
+        'machineAuthorizationTime', '2026-07-22T17:32:00Z',
+        'amountCents', 601,
+        'currencyCode', 'USD',
+        'nayaxAccountKey', 'TGPACI_USA_DB',
+        'nayaxMachineId', '9001'
+      )
+    ) ->> 'errorCode'
+  ),
+  'execution_evidence_changed',
+  'Changed transaction evidence is rejected before any provider claim'
+);
+
+select is(
+  (
+    public.service_claim_nayax_refund_execution(
+      '76000000-0000-4000-8000-000000000001',
+      '76500000-0000-4000-8000-000000000002',
+      'nayax-refund-execute-' || repeat('c', 64),
+      2000,
       1,
       repeat('d', 64),
-      'nayax-qa-confirmed-v1'
+      'nayax-qa-confirmed-v1',
+      jsonb_build_object(
+        'reportingMachineId', '76300000-0000-4000-8000-000000000001',
+        'transactionId', 'nayax-claim-transaction-2',
+        'siteId', 42,
+        'machineAuthorizationTime', '2026-07-22T17:32:00Z',
+        'amountCents', 600,
+        'currencyCode', 'USD',
+        'nayaxAccountKey', 'TGPACI_USA_DB',
+        'nayaxMachineId', '9001'
+      )
     ) ->> 'errorCode'
   ),
   'daily_count_cap_exceeded',
@@ -301,7 +369,17 @@ select is(
       1200,
       2,
       repeat('d', 64),
-      'nayax-qa-confirmed-v1'
+      'nayax-qa-confirmed-v1',
+      jsonb_build_object(
+        'reportingMachineId', '76300000-0000-4000-8000-000000000001',
+        'transactionId', 'nayax-claim-transaction-2',
+        'siteId', 42,
+        'machineAuthorizationTime', '2026-07-22T17:32:00Z',
+        'amountCents', 600,
+        'currencyCode', 'USD',
+        'nayaxAccountKey', 'TGPACI_USA_DB',
+        'nayaxMachineId', '9001'
+      )
     ) ->> 'errorCode'
   ),
   'daily_amount_cap_exceeded',

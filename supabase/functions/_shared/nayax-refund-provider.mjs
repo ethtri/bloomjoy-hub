@@ -127,6 +127,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "schemaVersion",
       "contractVersion",
       "baseUrl",
+      "authorizationMode",
       "amountUnit",
       "refundEmailListMode",
       "requestResponses",
@@ -149,6 +150,13 @@ export function parseNayaxRefundProviderContract(rawValue) {
     throw new Error("Nayax refund provider amountUnit must be major or minor.");
   }
 
+  const authorizationMode = text(contract.authorizationMode, 40).toLowerCase();
+  if (!["bearer", "raw"].includes(authorizationMode)) {
+    throw new Error(
+      "Nayax refund provider authorizationMode must be bearer or raw.",
+    );
+  }
+
   const refundEmailListMode = text(contract.refundEmailListMode, 40).toLowerCase();
   if (!["omit", "empty_string"].includes(refundEmailListMode)) {
     throw new Error(
@@ -169,6 +177,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
     schemaVersion: 1,
     contractVersion,
     baseUrl: parseBaseUrl(contract.baseUrl),
+    authorizationMode,
     amountUnit,
     refundEmailListMode,
     requestResponses,
@@ -317,7 +326,9 @@ export async function postNayaxRefundStep({
     const response = await fetchImpl(`${contract.baseUrl}/payment/${path}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: contract.authorizationMode === "bearer"
+          ? `Bearer ${token}`
+          : token,
         Accept: "application/json",
         "Content-Type": "application/json",
       },

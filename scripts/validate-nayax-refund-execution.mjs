@@ -101,7 +101,12 @@ assert(
     nayaxExecutionClaimMigration.includes('for update') &&
     nayaxExecutionClaimMigration.includes('for share') &&
     nayaxExecutionClaimMigration.includes('guard_claimed_nayax_refund_evidence') &&
+    nayaxExecutionClaimMigration.includes('p_expected_execution_evidence jsonb') &&
+    nayaxExecutionClaimMigration.includes("'execution_evidence_changed'") &&
+    nayaxExecutionClaimMigration.includes("'executionEvidence'") &&
     nayaxExecutionClaimTest.includes('Provider transaction and amount evidence is immutable after a claim') &&
+    nayaxExecutionClaimTest.includes('Changed transaction evidence is rejected before any provider claim') &&
+    nayaxExecutionClaimTest.includes('exact locked provider evidence') &&
     nayaxExecutionClaimMigration.includes('daily_count_cap_exceeded') &&
     nayaxExecutionClaimMigration.includes('daily_amount_cap_exceeded'),
   'Nayax attempts must atomically prevent repeat provider calls and enforce caps across confirmed and uncertain outcomes.'
@@ -137,8 +142,11 @@ assert(
 );
 assert(
   fn.includes('can_manage_refund_case') &&
+    fn.includes('if (!actorCanManageCase)') &&
+    fn.indexOf('if (!actorCanManageCase)') < fn.indexOf('buildIdempotencyKeys(refundCase)') &&
+    !fn.includes('allBlocks.includes("authorization_failed")') &&
     !fn.includes('actorIsSuperAdmin'),
-  'Nayax execution function must authorize assigned Machine Managers through refund case access, not a super-admin-only UI path.'
+  'Nayax execution must reject unauthorized callers before revealing case state or execution configuration.'
 );
 assert(
   fn.includes('refundCase.refund_amount_cents ?? 0') &&
@@ -162,12 +170,18 @@ assert(
 );
 assert(
   nayaxProvider.includes('exact Result and Status pair') &&
+    nayaxProvider.includes('authorizationMode must be bearer or raw') &&
     nayaxProvider.includes('outcome = "unknown"') &&
     nayaxProvider.includes('payloadRedacted: true') &&
     fn.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON') &&
     fn.includes('NAYAX_REFUND_PROVIDER_TIMEOUT_MS') &&
+    fn.includes('NAYAX_REFUND_API_TOKEN_${normalizedAccountKey}') &&
+    !fn.includes('NAYAX_LYNX_API_TOKEN_') &&
+    !fn.includes('Deno.env.get("NAYAX_LYNX_API_TOKEN")') &&
+    fn.includes('requireClaimedExecutionEvidence') &&
+    fn.includes('expectedExecutionEvidence') &&
     fn.includes('provider_configuration_invalid'),
-  'Nayax success must be defined by an explicit account contract, with unfamiliar responses redacted and treated as unknown.'
+  'Nayax success must use an explicit account contract, a dedicated write credential, and exact database-claimed evidence.'
 );
 assert(
   fn.includes('card_wallet_used') &&
@@ -185,6 +199,7 @@ assert(
   envExample.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH=true') &&
     envExample.includes('NAYAX_REFUND_EXECUTION_DRY_RUN=true') &&
     envExample.includes('NAYAX_REFUND_EXECUTION_ENABLED=false') &&
+    envExample.includes('NAYAX_REFUND_API_TOKEN_TGPACI_USA_DB=') &&
     envExample.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON=') &&
     envExample.includes('NAYAX_REFUND_PROVIDER_TIMEOUT_MS=10000'),
   '.env.example must document fail-closed Nayax refund defaults.'
@@ -192,6 +207,7 @@ assert(
 assert(
   preflight.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
     preflight.includes('parseNayaxRefundProviderContract') &&
+    preflight.includes('NAYAX_REFUND_API_TOKEN_') &&
     preflight.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON') &&
     preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET'),
   'Commerce preflight must validate refund automation configuration.'
