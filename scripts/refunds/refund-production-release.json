@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-07-22-integrated-gpt-runner",
-  "sourceGitCommit": "9f145ed3bed70e12abe0f6be8fd486d8bf9301ac",
+  "sourceGitCommit": "30c790b3aa85b22d5588e1bdd0b2992eb76c408c",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",

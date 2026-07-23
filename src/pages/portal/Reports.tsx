@@ -1,14 +1,29 @@
-import { lazy, Suspense, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
+  ArrowLeft,
   AlertTriangle,
+  Check,
   ChevronDown,
+  ChevronRight,
+  ChevronsUpDown,
   Download,
+  Eye,
   FileSpreadsheet,
   FileText,
   Info,
   Loader2,
+  MapPin,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
@@ -25,6 +40,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -38,6 +61,7 @@ import {
 } from '@/components/ui/chart';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -96,7 +120,23 @@ import {
 import { cn } from '@/lib/utils';
 
 type ReportingView = 'operator' | 'partner';
-type OperatorPeriodPreset = 'this_week' | 'last_week' | 'last_30_days' | 'month_to_date' | 'custom';
+type OperatorPeriodPreset =
+  | 'today'
+  | 'last_7_days'
+  | 'this_week'
+  | 'last_week'
+  | 'last_30_days'
+  | 'month_to_date'
+  | 'custom';
+type OperatorDailySalesRow = {
+  key: string;
+  label: string;
+  netSalesCents: number;
+  grossSalesCents: number;
+  refundAmountCents: number;
+  transactionCount: number;
+};
+type OperatorFreshnessState = 'fresh' | 'stale' | 'unavailable';
 type PartnerPeriodMode = PartnerDashboardPeriodMode;
 type PartnerPeriodOption = {
   key: string;
@@ -116,24 +156,30 @@ type PartnerMachineHistoryRow = {
   previous?: PartnerDashboardPeriod;
   isCurrent: boolean;
 };
+type PartnerMachineOption = {
+  id: string;
+  label: string;
+  locationName: string | null;
+  displayLabel: string;
+};
 
 const PartnerPrintableReport = lazy(
   () => import('@/components/portal/reports/PartnerPrintableReport')
 );
 
 const ALL_PARTNER_MACHINES = 'all';
+const PARTNER_MACHINE_SEARCH_THRESHOLD = 6;
 const PARTNER_REVENUE_SHARE_LABEL = 'Partner Revenue Share';
-const PARTNER_BLOOMJOY_REVIEW_TITLE = 'Bloomjoy review in progress';
-const PARTNER_BLOOMJOY_REVIEW_DESCRIPTION =
-  'Bloomjoy is reviewing this partner dashboard and will update this view when review is complete.';
-const PARTNER_BLOOMJOY_REVIEW_REASONS = [
-  'Some dashboard details may stay unavailable until Bloomjoy finishes review.',
+const PARTNER_REPORT_UNAVAILABLE_TITLE = 'Partner report unavailable';
+const PARTNER_REPORT_UNAVAILABLE_DESCRIPTION =
+  'We could not load partner reporting for this account right now.';
+const PARTNER_REPORT_UNAVAILABLE_REASONS = [
+  'Refresh the page or try again later.',
   'If access was just updated, sign out and sign back in before retrying.',
 ];
-const PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE =
-  'Bloomjoy is reviewing this partner report. Export will be available when review is complete.';
-const PARTNER_BLOOMJOY_REVIEW_PERIOD_MESSAGE =
-  'Bloomjoy is reviewing this reporting period. Some details may update when review is complete.';
+const PARTNER_REPORT_DATA_INCOMPLETE_TITLE = 'Report data incomplete';
+const PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE =
+  'Export is unavailable because required report data is incomplete. Try again later.';
 
 const isReportingTabWarning = (warning: PartnerDashboardWarning) =>
   warning.severity === 'blocking';
@@ -203,6 +249,18 @@ const startOfOperatorWeek = (date: Date) => {
 const getOperatorPresetRange = (preset: OperatorPeriodPreset) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  if (preset === 'today') {
+    return { dateFrom: toDateInput(today), dateTo: toDateInput(today), grain: 'day' as ReportGrain };
+  }
+
+  if (preset === 'last_7_days') {
+    return {
+      dateFrom: toDateInput(addDays(today, -6)),
+      dateTo: toDateInput(today),
+      grain: 'day' as ReportGrain,
+    };
+  }
 
   if (preset === 'this_week') {
     return { dateFrom: toDateInput(startOfOperatorWeek(today)), dateTo: toDateInput(today), grain: 'day' as ReportGrain };
@@ -532,6 +590,53 @@ const formatTaxDeductionsDetail = (period: PartnerDashboardTotals) =>
     ? `Additional costs ${formatCurrency(period.costCents, true)}`
     : 'Tax and configured deductions';
 
+const buildPartnerMachineOptions = (
+  machinePeriods: PartnerDashboardMachinePeriod[]
+): PartnerMachineOption[] => {
+  const machinesById = new Map<
+    string,
+    Pick<PartnerMachineOption, 'id' | 'label' | 'locationName'>
+  >();
+
+  machinePeriods.forEach((machine) => {
+    if (!machine.reportingMachineId) return;
+
+    const existing = machinesById.get(machine.reportingMachineId);
+    machinesById.set(machine.reportingMachineId, {
+      id: machine.reportingMachineId,
+      label: machine.machineLabel,
+      locationName: existing?.locationName ?? machine.locationName,
+    });
+  });
+
+  const machines = [...machinesById.values()].sort((left, right) =>
+    left.label.localeCompare(right.label) ||
+    (left.locationName ?? '').localeCompare(right.locationName ?? '') ||
+    left.id.localeCompare(right.id)
+  );
+
+  return machines.map((machine) => {
+    const duplicates = machines.filter((candidate) => candidate.label === machine.label);
+    if (duplicates.length === 1) {
+      return { ...machine, displayLabel: machine.label };
+    }
+
+    const sameLocationCount = duplicates.filter(
+      (candidate) => candidate.locationName === machine.locationName
+    ).length;
+    if (machine.locationName && sameLocationCount === 1) {
+      return { ...machine, displayLabel: `${machine.label} · ${machine.locationName}` };
+    }
+
+    const duplicateIndex = duplicates.findIndex((candidate) => candidate.id === machine.id) + 1;
+    const locationPrefix = machine.locationName ? `${machine.locationName} · ` : '';
+    return {
+      ...machine,
+      displayLabel: `${machine.label} · ${locationPrefix}Machine ${duplicateIndex}`,
+    };
+  });
+};
+
 const getChangeTone = (current: number, previous: number) => {
   if (current === previous) return 'text-muted-foreground';
   return current > previous ? 'text-sage' : 'text-amber';
@@ -581,6 +686,52 @@ const groupRows = <TKey extends string>(
 
   return [...groups.values()].sort((left, right) => right.netSalesCents - left.netSalesCents);
 };
+
+const buildOperatorDailyRows = (
+  rows: SalesReportRow[],
+  dateFrom: string,
+  dateTo: string
+): OperatorDailySalesRow[] => {
+  const startDate = parseDateInput(dateFrom);
+  const endDate = parseDateInput(dateTo);
+
+  if (
+    Number.isNaN(startDate.getTime()) ||
+    Number.isNaN(endDate.getTime()) ||
+    startDate.getTime() > endDate.getTime()
+  ) {
+    return [];
+  }
+
+  const totalsByDate = new Map(
+    groupRows(rows, (row) => row.periodStart, (row) => formatShortDate(row.periodStart)).map((row) => [
+      row.key,
+      row,
+    ])
+  );
+  const dailyRows: OperatorDailySalesRow[] = [];
+
+  for (let date = startDate; date.getTime() <= endDate.getTime(); date = addDays(date, 1)) {
+    const key = toDateInput(date);
+    const totals = totalsByDate.get(key);
+    dailyRows.push({
+      key,
+      label: formatDate(key),
+      netSalesCents: totals?.netSalesCents ?? 0,
+      grossSalesCents: totals?.grossSalesCents ?? 0,
+      refundAmountCents: totals?.refundAmountCents ?? 0,
+      transactionCount: totals?.transactionCount ?? 0,
+    });
+  }
+
+  return dailyRows;
+};
+
+const isOperatorDailyRowZero = (row: OperatorDailySalesRow) =>
+  row.netSalesCents === 0 &&
+  row.grossSalesCents === 0 &&
+  row.refundAmountCents === 0 &&
+  row.transactionCount === 0;
 
 export default function ReportsPage() {
   const { isCorporatePartner, isScopedAdmin, isSuperAdmin } = useAuth();
@@ -680,7 +831,10 @@ export default function ReportsPage() {
             {activeView === 'partner' && canUsePartnerDashboard ? (
               <PartnerDashboardView />
             ) : (
-              <OperatorReportingView accessContext={accessContext} />
+              <OperatorReportingView
+                accessContext={accessContext}
+                accessContextFetching={accessFetching}
+              />
             )}
           </div>
         </div>
@@ -689,7 +843,13 @@ export default function ReportsPage() {
   );
 }
 
-function OperatorReportingView({ accessContext }: { accessContext: ReportingAccessContext }) {
+function OperatorReportingView({
+  accessContext,
+  accessContextFetching,
+}: {
+  accessContext: ReportingAccessContext;
+  accessContextFetching: boolean;
+}) {
   const { t } = useLanguage();
   const operatorChartConfig = useMemo(
     () =>
@@ -752,15 +912,32 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
   const averageOrderCents =
     summary.transactionCount > 0 ? Math.round(summary.netSalesCents / summary.transactionCount) : 0;
 
+  const dailyRows = useMemo(
+    () => buildOperatorDailyRows(reportRows, dateFrom, dateTo),
+    [dateFrom, dateTo, reportRows]
+  );
+
+  const operatorFreshnessState = useMemo<OperatorFreshnessState>(() => {
+    if (!accessContext.latestImportCompletedAt) return 'unavailable';
+    const latestImport = new Date(accessContext.latestImportCompletedAt);
+    if (Number.isNaN(latestImport.getTime())) return 'unavailable';
+    return toDateInput(latestImport) < dateTo ? 'stale' : 'fresh';
+  }, [accessContext.latestImportCompletedAt, dateTo]);
+
   const chartRows = useMemo(
     () =>
-      groupRows(reportRows, (row) => row.periodStart, (row) => formatShortDate(row.periodStart))
-        .sort((left, right) => left.key.localeCompare(right.key))
-        .map((row) => ({
-          period: row.label,
-          netSales: row.netSalesCents / 100,
-        })),
-    [reportRows]
+      (grain === 'day'
+        ? dailyRows
+        : groupRows(
+            reportRows,
+            (row) => row.periodStart,
+            (row) => formatShortDate(row.periodStart)
+          ).sort((left, right) => left.key.localeCompare(right.key))
+      ).map((row) => ({
+        period: grain === 'day' ? formatShortDate(row.key) : row.label,
+        netSales: row.netSalesCents / 100,
+      })),
+    [dailyRows, grain, reportRows]
   );
 
   const machineRows = useMemo(
@@ -822,6 +999,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               <Button
                 onClick={exportPdf}
                 disabled={isExporting || reportRows.length === 0}
+                className="min-h-11"
                 data-portal-report-export="operator-pdf"
               >
                 {isExporting ? (
@@ -835,39 +1013,47 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label>{t('reports.period')}</Label>
+              <Label id="operator-period-label">{t('reports.period')}</Label>
               <ToggleGroup
                 type="single"
                 value={periodPreset}
                 onValueChange={(value) => {
                   if (value) applyPeriodPreset(value as OperatorPeriodPreset);
                 }}
-                className="grid grid-cols-2 items-stretch rounded-lg border border-border bg-background p-1 sm:grid-cols-5"
+                aria-labelledby="operator-period-label"
+                className="grid grid-cols-2 items-stretch rounded-lg border border-border bg-background p-1 sm:grid-cols-4 xl:grid-cols-7"
               >
-                <ToggleGroupItem value="this_week" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="today" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
+                  {t('reports.today')}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="last_7_days" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
+                  {t('reports.last7Days')}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="this_week" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.thisWeek')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="last_week" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="last_week" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.lastWeek')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="last_30_days" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="last_30_days" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.last30Days')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="month_to_date" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="month_to_date" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.monthToDate')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="custom" className="h-9 rounded-md text-xs sm:text-sm">
+                <ToggleGroupItem value="custom" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
                   {t('reports.custom')}
                 </ToggleGroupItem>
               </ToggleGroup>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,1.5fr)]">
               <LabeledControl label={t('reports.from')}>
                 <Input
                   type="date"
+                  className="h-11 min-w-0"
                   value={dateFrom}
                   onChange={(event) => {
                     setDateFrom(event.target.value);
@@ -878,6 +1064,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
               <LabeledControl label={t('reports.to')}>
                 <Input
                   type="date"
+                  className="h-11 min-w-0"
                   value={dateTo}
                   onChange={(event) => {
                     setDateTo(event.target.value);
@@ -885,27 +1072,36 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                   }}
                 />
               </LabeledControl>
-              <LabeledControl label={t('reports.view')}>
-                <Select value={grain} onValueChange={(value) => setGrain(value as ReportGrain)}>
-                  <SelectTrigger className="min-w-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="day">{t('reports.daily')}</SelectItem>
-                      <SelectItem value="week">{t('reports.weekly')}</SelectItem>
-                      <SelectItem value="month">{t('reports.monthly')}</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </LabeledControl>
+              <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-1">
+                <Label id="operator-breakdown-label">{t('reports.breakdown')}</Label>
+                <ToggleGroup
+                  type="single"
+                  value={grain}
+                  onValueChange={(value) => {
+                    if (value) setGrain(value as ReportGrain);
+                  }}
+                  aria-labelledby="operator-breakdown-label"
+                  data-reporting-operator-breakdown
+                  className="grid grid-cols-3 rounded-lg border border-border bg-background p-1"
+                >
+                  <ToggleGroupItem value="day" className="min-h-11 rounded-md px-2 text-sm">
+                    {t('reports.daily')}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="week" className="min-h-11 rounded-md px-2 text-sm">
+                    {t('reports.weekly')}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="month" className="min-h-11 rounded-md px-2 text-sm">
+                    {t('reports.monthly')}
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
             </div>
           </div>
 
           <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
             <LabeledControl label={t('reports.machine')}>
               <Select value={machineId} onValueChange={setMachineId}>
-                <SelectTrigger className="min-w-0">
+                <SelectTrigger className="h-11 min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -922,18 +1118,19 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
             </LabeledControl>
 
             <div className="flex flex-col gap-2">
-              <Label>{t('reports.payment')}</Label>
+              <Label id="operator-payment-label">{t('reports.payment')}</Label>
               <ToggleGroup
                 type="multiple"
                 value={selectedPayments}
                 onValueChange={(value) => setSelectedPayments(value as PaymentMethod[])}
+                aria-labelledby="operator-payment-label"
                 className="grid grid-cols-2 rounded-lg border border-border bg-background p-1 sm:grid-cols-4"
               >
                 {paymentMethods.map((paymentMethod) => (
                   <ToggleGroupItem
                     key={paymentMethod}
                     value={paymentMethod}
-                    className="h-9 rounded-md text-sm"
+                    className="min-h-11 rounded-md text-sm"
                   >
                     {t(paymentMethodLabelKeys[paymentMethod])}
                   </ToggleGroupItem>
@@ -944,7 +1141,10 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div
+        className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+        data-reporting-operator-metrics
+      >
         {isLoading ? (
           <>
             <MetricSkeleton />
@@ -956,17 +1156,17 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           <>
             <MetricCard
               label={t('reports.netSales')}
-              value={formatCurrency(summary.netSalesCents)}
-              context={t('reports.averageOrder', { value: formatCurrency(averageOrderCents) })}
+              value={formatCurrency(summary.netSalesCents, true)}
+              context={t('reports.averageOrder', { value: formatCurrency(averageOrderCents, true) })}
             />
             <MetricCard
               label={t('reports.grossSales')}
-              value={formatCurrency(summary.grossSalesCents)}
+              value={formatCurrency(summary.grossSalesCents, true)}
               context={t('reports.netPlusRefunds')}
             />
             <MetricCard
               label={t('reports.refundImpact')}
-              value={formatCurrency(summary.refundAmountCents)}
+              value={formatCurrency(summary.refundAmountCents, true)}
               context={t('reports.addedBackGross')}
             />
             <MetricCard
@@ -977,6 +1177,121 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
           </>
         )}
       </div>
+
+      {grain === 'day' && (
+        <Card className="min-w-0" data-reporting-operator-daily-sales>
+          <CardHeader className="gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="text-xl">{t('reports.dailySales')}</CardTitle>
+                <CardDescription>{t('reports.dailySalesDescription')}</CardDescription>
+              </div>
+              <Badge
+                variant="outline"
+                className="max-w-full whitespace-normal text-left font-normal leading-snug sm:w-fit sm:shrink-0"
+                data-reporting-operator-freshness-state={operatorFreshnessState}
+              >
+                {accessContextFetching
+                  ? t('reports.checkingImportFreshness')
+                  : operatorFreshnessState === 'unavailable'
+                    ? t('reports.importFreshnessUnavailable')
+                    : t('reports.lastImport', {
+                        date: formatDateTime(accessContext.latestImportCompletedAt),
+                      })}
+              </Badge>
+            </div>
+            {isFetching && !isLoading && (
+              <div className="text-sm text-muted-foreground" role="status">
+                {t('reports.updatingDailyTotals')}
+              </div>
+            )}
+          </CardHeader>
+          <CardContent>
+            {isLoading || accessContextFetching ? (
+              <div className="space-y-3" aria-label="Loading daily sales">
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-20 w-full" />
+              </div>
+            ) : hasLoadError ? (
+              <EmptyPanel
+                title={t('reports.dailySalesUnavailable')}
+                description={t('reports.dailySalesUnavailableDescription')}
+              />
+            ) : dailyRows.length === 0 ? (
+              <EmptyPanel
+                title={t('reports.chooseValidDateRange')}
+                description={t('reports.chooseValidDateRangeDescription')}
+              />
+            ) : (
+              <>
+                {operatorFreshnessState !== 'fresh' && (
+                  <Alert className="mb-4 border-amber/40 bg-amber/5">
+                    <Info className="h-4 w-4 text-amber" />
+                    <AlertTitle>
+                      {operatorFreshnessState === 'stale'
+                        ? t('reports.selectedRangeBeyondImport')
+                        : t('reports.importFreshnessUnavailable')}
+                    </AlertTitle>
+                    <AlertDescription>
+                      {t('reports.loadedTotalsIncomplete')}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <div className="flex flex-col gap-3 md:hidden">
+                  {dailyRows.map((row) => (
+                    <OperatorDailySalesMobileCard key={row.key} row={row} />
+                  ))}
+                </div>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table className="min-w-[760px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('reports.date')}</TableHead>
+                        <TableHead>{t('reports.status')}</TableHead>
+                        <TableHead className="text-right">{t('reports.netSales')}</TableHead>
+                        <TableHead className="text-right">{t('reports.grossSales')}</TableHead>
+                        <TableHead className="text-right">{t('reports.refundImpact')}</TableHead>
+                        <TableHead className="text-right">{t('reports.transactions')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dailyRows.map((row) => (
+                        <TableRow
+                          key={row.key}
+                          data-reporting-daily-row
+                          data-date={row.key}
+                        >
+                          <TableCell className="font-medium">{row.label}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="whitespace-nowrap font-normal">
+                              {isOperatorDailyRowZero(row)
+                                ? t('reports.noSalesLoaded')
+                                : t('reports.salesRecorded')}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatCurrency(row.netSalesCents, true)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatCurrency(row.grossSalesCents, true)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatCurrency(row.refundAmountCents, true)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {numberFormatter.format(row.transactionCount)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <Card>
@@ -1030,8 +1345,8 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                     key={row.key}
                     label={row.label}
                     context={`${row.transactionCount.toLocaleString()} ${t('reports.transactions').toLowerCase()}`}
-                    primary={formatCurrency(row.netSalesCents)}
-                    secondary={`${t('reports.grossSales')} ${formatCurrency(row.grossSalesCents)}`}
+                    primary={formatCurrency(row.netSalesCents, true)}
+                    secondary={`${t('reports.grossSales')} ${formatCurrency(row.grossSalesCents, true)}`}
                   />
                 ))}
               </div>
@@ -1061,7 +1376,7 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                 ))}
               </div>
               <div className="hidden overflow-x-auto md:block">
-                <Table className="min-w-[600px]">
+                <Table className="min-w-[820px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('reports.period')}</TableHead>
@@ -1069,6 +1384,8 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                       <TableHead>{t('reports.payment')}</TableHead>
                       <TableHead className="text-right">{t('reports.netSales')}</TableHead>
                       <TableHead className="text-right">{t('reports.grossSales')}</TableHead>
+                      <TableHead className="text-right">{t('reports.refundImpact')}</TableHead>
+                      <TableHead className="text-right">{t('reports.transactions')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1079,8 +1396,18 @@ function OperatorReportingView({ accessContext }: { accessContext: ReportingAcce
                         <TableCell className="text-muted-foreground">
                           {t(paymentMethodLabelKeys[row.paymentMethod])}
                         </TableCell>
-                        <TableCell className="text-right">{formatCurrency(row.netSalesCents)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(row.grossSalesCents)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(row.netSalesCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(row.grossSalesCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(row.refundAmountCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {numberFormatter.format(row.transactionCount)}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1147,6 +1474,9 @@ function PartnerDashboardView() {
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('');
   const [selectedPartnershipId, setSelectedPartnershipId] = useState('');
   const [selectedMachineId, setSelectedMachineId] = useState(ALL_PARTNER_MACHINES);
+  const machinePickerRef = useRef<HTMLButtonElement>(null);
+  const machineScopeRef = useRef<HTMLElement>(null);
+  const shouldFocusMachineScopeRef = useRef(false);
   const [exportingPartnerFormat, setExportingPartnerFormat] =
     useState<PartnerDashboardExportFormat | null>(null);
 
@@ -1273,17 +1603,13 @@ function PartnerDashboardView() {
   );
 
   const machineOptions = useMemo(() => {
-    const optionsById = new Map<string, string>();
-    (preview?.machinePeriods ?? []).forEach((machine) => {
-      if (machine.reportingMachineId) {
-        optionsById.set(machine.reportingMachineId, machine.machineLabel);
-      }
-    });
-
-    return [...optionsById.entries()]
-      .map(([id, label]) => ({ id, label }))
-      .sort((left, right) => left.label.localeCompare(right.label));
+    return buildPartnerMachineOptions(preview?.machinePeriods ?? []);
   }, [preview?.machinePeriods]);
+
+  const machineOptionsById = useMemo(
+    () => new Map(machineOptions.map((machine) => [machine.id, machine])),
+    [machineOptions]
+  );
 
   useEffect(() => {
     if (previewLoading || selectedPreviewFetching || !preview) return;
@@ -1303,9 +1629,35 @@ function PartnerDashboardView() {
   ]);
 
   const selectedMachine = machineOptions.find((machine) => machine.id === selectedMachineId);
-  const selectedMachineLabel = selectedMachine?.label;
+  const selectedMachineLabel = selectedMachine?.displayLabel;
   const scopedMachineIds =
     selectedMachineId === ALL_PARTNER_MACHINES ? [] : [selectedMachineId];
+
+  useEffect(() => {
+    if (!selectedMachine || !shouldFocusMachineScopeRef.current) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const scope = machineScopeRef.current;
+      if (!scope) return;
+
+      scope.focus({ preventScroll: true });
+      scope.scrollIntoView({ behavior: 'instant', block: 'start' });
+      shouldFocusMachineScopeRef.current = false;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedMachine]);
+
+  const selectMachineScope = (machineId: string) => {
+    shouldFocusMachineScopeRef.current = machineId !== ALL_PARTNER_MACHINES;
+    setSelectedMachineId(machineId);
+  };
+
+  const clearMachineScope = () => {
+    shouldFocusMachineScopeRef.current = false;
+    setSelectedMachineId(ALL_PARTNER_MACHINES);
+    window.requestAnimationFrame(() => machinePickerRef.current?.focus());
+  };
 
   const currentPeriod = useMemo(() => {
     if (!selectedPeriod) return selectedPreviewPeriod;
@@ -1444,9 +1796,9 @@ function PartnerDashboardView() {
     [preview?.warnings, selectedMachineId]
   );
   const hasBlockingWarnings = blockingWarnings.length > 0;
-  const partnerReviewWarningMessage = hasBlockingWarnings
-    ? PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE
-    : PARTNER_BLOOMJOY_REVIEW_PERIOD_MESSAGE;
+  const showPartnerWarnings = canSeeInternalPartnerWarnings
+    ? blockingWarnings.length > 0 || nonBlockingWarnings.length > 0
+    : hasBlockingWarnings;
   const previewFetching = selectedPreviewFetching || trendPreviewFetching;
   const trendLabel = getPartnerModeLabel(periodMode);
   const inProgressPeriodLabel = selectedPeriod?.isInProgress
@@ -1483,7 +1835,7 @@ function PartnerDashboardView() {
       toast.error(
         canSeeInternalPartnerWarnings
           ? 'Resolve blocking admin review items before exporting the partner report.'
-          : PARTNER_BLOOMJOY_REVIEW_EXPORT_MESSAGE
+          : PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE
       );
       return;
     }
@@ -1529,12 +1881,12 @@ function PartnerDashboardView() {
         title={
           canSeeInternalPartnerWarnings
             ? 'Partner Dashboard unavailable'
-            : PARTNER_BLOOMJOY_REVIEW_TITLE
+            : PARTNER_REPORT_UNAVAILABLE_TITLE
         }
         description={
           canSeeInternalPartnerWarnings
             ? 'Bloomjoy could not confirm the partner dashboard scope for this session.'
-            : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+            : PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
         }
         reasons={
           canSeeInternalPartnerWarnings
@@ -1546,7 +1898,7 @@ function PartnerDashboardView() {
                 'Machines: confirm the partnership has assigned reporting machines.',
                 'Session: if access was just granted or updated, sign out and sign back in before retrying.',
               ]
-            : PARTNER_BLOOMJOY_REVIEW_REASONS
+            : PARTNER_REPORT_UNAVAILABLE_REASONS
         }
         tone={canSeeInternalPartnerWarnings ? 'destructive' : 'default'}
       />
@@ -1559,14 +1911,14 @@ function PartnerDashboardView() {
         title={
           canSeeInternalPartnerWarnings
             ? 'Partner Dashboard unavailable'
-            : PARTNER_BLOOMJOY_REVIEW_TITLE
+            : PARTNER_REPORT_UNAVAILABLE_TITLE
         }
         description={
           canSeeInternalPartnerWarnings
             ? isCorporatePartner
               ? 'This Corporate Partner login is recognized, but no dashboard-ready partnership is visible yet.'
               : 'No active partner dashboard scope is visible for this role.'
-            : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+            : PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
         }
         reasons={
           canSeeInternalPartnerWarnings
@@ -1576,7 +1928,7 @@ function PartnerDashboardView() {
                 'Machines: confirm at least one reporting machine is assigned to that partnership.',
                 'Session: if Bloomjoy just changed access, sign out and sign back in to refresh the portal session.',
               ]
-            : PARTNER_BLOOMJOY_REVIEW_REASONS
+            : PARTNER_REPORT_UNAVAILABLE_REASONS
         }
         action={
           isSuperAdmin ? (
@@ -1594,7 +1946,7 @@ function PartnerDashboardView() {
       <div className="flex flex-col gap-6 print:hidden">
         <Card>
           <CardContent className="grid gap-4 p-4">
-            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(300px,0.95fr)_minmax(220px,0.8fr)_minmax(220px,0.85fr)_auto] xl:items-end">
+            <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[minmax(220px,1fr)_minmax(300px,0.95fr)_minmax(220px,0.8fr)_minmax(220px,0.85fr)_auto] 2xl:items-end">
               <LabeledControl label="Partnership" htmlFor="partner-dashboard-partnership">
                 <Select value={selectedPartnershipId} onValueChange={setSelectedPartnershipId}>
                   <SelectTrigger id="partner-dashboard-partnership">
@@ -1666,28 +2018,17 @@ function PartnerDashboardView() {
               </LabeledControl>
 
               <LabeledControl label="Machine" htmlFor="partner-dashboard-machine">
-                <Select
+                <PartnerMachineSelector
+                  id="partner-dashboard-machine"
+                  triggerRef={machinePickerRef}
+                  options={machineOptions}
                   value={selectedMachineId}
-                  onValueChange={setSelectedMachineId}
+                  onValueChange={selectMachineScope}
                   disabled={machineOptions.length === 0}
-                >
-                  <SelectTrigger id="partner-dashboard-machine">
-                    <SelectValue placeholder="All machines" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value={ALL_PARTNER_MACHINES}>All machines</SelectItem>
-                      {machineOptions.map((machine) => (
-                        <SelectItem key={machine.id} value={machine.id}>
-                          {machine.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                />
               </LabeledControl>
 
-              <div className="flex flex-col gap-2 sm:flex-row lg:col-span-2 lg:justify-end xl:col-span-1">
+              <div className="flex flex-col gap-2 sm:flex-row lg:col-span-2 lg:justify-end 2xl:col-span-1">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1766,13 +2107,22 @@ function PartnerDashboardView() {
           </CardContent>
         </Card>
 
+        {selectedMachine && selectedPartnership && (
+          <PartnerMachineScopeBar
+            scopeRef={machineScopeRef}
+            partnershipName={selectedPartnership.name}
+            machine={selectedMachine}
+            onBack={clearMachineScope}
+          />
+        )}
+
       {previewError && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>
             {canSeeInternalPartnerWarnings
               ? 'Unable to load partner preview'
-              : PARTNER_BLOOMJOY_REVIEW_TITLE}
+              : PARTNER_REPORT_UNAVAILABLE_TITLE}
           </AlertTitle>
           <AlertDescription>
             {canSeeInternalPartnerWarnings ? (
@@ -1784,7 +2134,7 @@ function PartnerDashboardView() {
                 and sign out and back in if access changed recently.
               </>
             ) : (
-              PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+              PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
             )}
           </AlertDescription>
         </Alert>
@@ -1809,12 +2159,12 @@ function PartnerDashboardView() {
               title={
                 canSeeInternalPartnerWarnings
                   ? 'No partner machines visible'
-                  : PARTNER_BLOOMJOY_REVIEW_TITLE
+                  : PARTNER_REPORT_UNAVAILABLE_TITLE
               }
               description={
                 canSeeInternalPartnerWarnings
                   ? 'The Partner Dashboard opened, but this partnership has no machines visible for the selected reporting period.'
-                  : PARTNER_BLOOMJOY_REVIEW_DESCRIPTION
+                  : PARTNER_REPORT_UNAVAILABLE_DESCRIPTION
               }
               reasons={
                 canSeeInternalPartnerWarnings
@@ -1824,7 +2174,7 @@ function PartnerDashboardView() {
                       'Portal-enabled partnership: confirm the partnership is active and enabled for portal reporting.',
                       'Session: if machine access was just changed, sign out and sign back in before retrying.',
                     ]
-                  : PARTNER_BLOOMJOY_REVIEW_REASONS
+                  : PARTNER_REPORT_UNAVAILABLE_REASONS
               }
             />
           )}
@@ -1839,15 +2189,15 @@ function PartnerDashboardView() {
             isInProgressPeriod={Boolean(selectedPeriod?.isInProgress)}
           />
 
-          {(blockingWarnings.length > 0 || nonBlockingWarnings.length > 0) && (
+          {showPartnerWarnings && (
             <Alert className="border-amber/20 bg-amber/10 text-foreground">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>
                 {canSeeInternalPartnerWarnings
                   ? blockingWarnings.length > 0
                     ? 'Report setup needs attention'
-                    : 'Period review notes'
-                  : PARTNER_BLOOMJOY_REVIEW_TITLE}
+                    : 'Report notes'
+                  : PARTNER_REPORT_DATA_INCOMPLETE_TITLE}
               </AlertTitle>
               <AlertDescription>
                 <div className="mt-2 flex flex-col gap-2">
@@ -1885,7 +2235,7 @@ function PartnerDashboardView() {
                       )}
                     </>
                   ) : (
-                    <div className="font-medium">{partnerReviewWarningMessage}</div>
+                    <div className="font-medium">{PARTNER_REPORT_EXPORT_BLOCKED_MESSAGE}</div>
                   )}
                 </div>
               </AlertDescription>
@@ -1899,7 +2249,7 @@ function PartnerDashboardView() {
               data={netSalesTrendData}
               config={partnerNetSalesChartConfig}
               dataKey="netSales"
-              value={formatCurrency(currentPeriod?.netSalesCents ?? 0)}
+              value={formatCurrency(currentPeriod?.netSalesCents ?? 0, true)}
               change={formatPercentChange(
                 currentPeriod?.netSalesCents ?? 0,
                 previousPeriod?.netSalesCents ?? 0
@@ -1930,7 +2280,11 @@ function PartnerDashboardView() {
                           <PartnerMachineMobileCard
                             key={row.current.reportingMachineId}
                             row={row}
+                            machine={machineOptionsById.get(row.current.reportingMachineId)}
                             isSelected={row.current.reportingMachineId === selectedMachineId}
+                            onViewMachine={() =>
+                              selectMachineScope(row.current.reportingMachineId)
+                            }
                           />
                         ))}
                       </div>
@@ -1949,23 +2303,37 @@ function PartnerDashboardView() {
                               )}
                               <TableHead className="text-right">{PARTNER_REVENUE_SHARE_LABEL}</TableHead>
                               <TableHead className="text-right">Change</TableHead>
+                              <TableHead className="text-right">
+                                <span className="sr-only">Machine details</span>
+                              </TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {machineRows.map((row) => {
                               const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
+                              const machineOption = machineOptionsById.get(
+                                row.current.reportingMachineId
+                              );
                               return (
                                 <TableRow
                                   key={row.current.reportingMachineId}
+                                  data-reporting-partner-machine-row="desktop"
+                                  data-machine-id={row.current.reportingMachineId}
                                   className={cn(
                                     row.current.reportingMachineId === selectedMachineId && 'bg-muted/40'
                                   )}
                                 >
                                   <TableCell>
-                                    <div className="font-medium">{row.current.machineLabel}</div>
+                                    <div className="font-medium">
+                                      {machineOption?.displayLabel ?? row.current.machineLabel}
+                                    </div>
+                                    <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                                      <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                      <span>{row.current.locationName ?? 'Location not provided'}</span>
+                                    </div>
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    {formatCurrency(row.current.grossSalesCents)}
+                                    {formatCurrency(row.current.grossSalesCents, true)}
                                   </TableCell>
                                   <TableCell className="text-right">
                                     -{formatCurrency(row.current.refundAmountCents, true)}
@@ -2019,6 +2387,23 @@ function PartnerDashboardView() {
                                     >
                                       Volume {formatPercentChange(periodVolume(row.current), periodVolume(row.previous))}
                                     </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="min-h-9 whitespace-nowrap"
+                                      onClick={() =>
+                                        selectMachineScope(row.current.reportingMachineId)
+                                      }
+                                      data-reporting-partner-machine-action
+                                      data-machine-id={row.current.reportingMachineId}
+                                      aria-label={`View details for ${machineOption?.displayLabel ?? row.current.machineLabel}`}
+                                    >
+                                      <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+                                      View machine
+                                    </Button>
                                   </TableCell>
                                 </TableRow>
                               );
@@ -2252,7 +2637,7 @@ function PartnerMachineHistoryCard({
   showPayoutBasisColumn: boolean;
 }) {
   return (
-    <Card className="min-w-0">
+    <Card className="min-w-0" data-reporting-partner-machine-history>
       <CardHeader>
         <CardTitle className="text-xl">Machine history</CardTitle>
         <CardDescription>
@@ -2314,7 +2699,7 @@ function PartnerMachineHistoryCard({
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          {formatCurrency(row.period.grossSalesCents)}
+                          {formatCurrency(row.period.grossSalesCents, true)}
                         </TableCell>
                         <TableCell className="text-right">
                           -{formatCurrency(row.period.refundAmountCents, true)}
@@ -2420,7 +2805,7 @@ function PartnerMachineHistoryMobileCard({
         </div>
         <div className="shrink-0 text-left min-[390px]:text-right">
           <div className="font-semibold text-foreground">
-            {formatCurrency(row.period.grossSalesCents)}
+            {formatCurrency(row.period.grossSalesCents, true)}
           </div>
           {row.previous ? (
             <div
@@ -2482,15 +2867,21 @@ function PartnerMachineHistoryMobileCard({
 
 function PartnerMachineMobileCard({
   row,
+  machine,
   isSelected = false,
+  onViewMachine,
 }: {
   row: PartnerMachineComparisonRow;
+  machine?: PartnerMachineOption;
   isSelected?: boolean;
+  onViewMachine: () => void;
 }) {
   const TrendIcon = getTrendIcon(row.current.grossSalesCents, row.previous?.grossSalesCents ?? 0);
 
   return (
     <div
+      data-reporting-partner-machine-row="mobile"
+      data-machine-id={row.current.reportingMachineId}
       className={cn(
         'rounded-lg border border-border bg-background p-4',
         isSelected && 'bg-muted/40'
@@ -2498,11 +2889,17 @@ function PartnerMachineMobileCard({
     >
       <div className="flex flex-col gap-3 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
         <div className="min-w-0">
-          <div className="font-medium text-foreground">{row.current.machineLabel}</div>
+          <div className="font-medium text-foreground">
+            {machine?.displayLabel ?? row.current.machineLabel}
+          </div>
+          <div className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+            <MapPin className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+            <span>{row.current.locationName ?? 'Location not provided'}</span>
+          </div>
         </div>
         <div className="shrink-0 text-left min-[390px]:text-right">
           <div className="font-semibold text-foreground">
-            {formatCurrency(row.current.grossSalesCents)}
+            {formatCurrency(row.current.grossSalesCents, true)}
           </div>
           <div
             className={cn(
@@ -2538,6 +2935,19 @@ function PartnerMachineMobileCard({
           detail={formatTaxDeductionsDetail(row.current)}
         />
       </div>
+
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-4 min-h-11 w-full"
+        onClick={onViewMachine}
+        data-reporting-partner-machine-action
+        data-machine-id={row.current.reportingMachineId}
+        aria-label={`View details for ${machine?.displayLabel ?? row.current.machineLabel}`}
+      >
+        <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+        View machine details
+      </Button>
     </div>
   );
 }
@@ -2643,6 +3053,173 @@ function buildPartnerMachineRows(
       previous: previousByMachine.get(current.reportingMachineId),
     }))
     .sort((left, right) => right.current.grossSalesCents - left.current.grossSalesCents);
+}
+
+function PartnerMachineSelector({
+  id,
+  triggerRef,
+  options,
+  value,
+  onValueChange,
+  disabled,
+}: {
+  id: string;
+  triggerRef: Ref<HTMLButtonElement>;
+  options: PartnerMachineOption[];
+  value: string;
+  onValueChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedMachine = options.find((machine) => machine.id === value);
+  const selectedLabel = selectedMachine?.displayLabel ?? 'All machines';
+
+  if (options.length < PARTNER_MACHINE_SEARCH_THRESHOLD) {
+    return (
+      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+        <SelectTrigger
+          ref={triggerRef}
+          id={id}
+          data-reporting-partner-machine-picker
+        >
+          <SelectValue placeholder="All machines" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value={ALL_PARTNER_MACHINES}>All machines</SelectItem>
+            {options.map((machine) => (
+              <SelectItem key={machine.id} value={machine.id}>
+                {machine.displayLabel}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          ref={triggerRef}
+          id={id}
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label={`Machine scope: ${selectedLabel}`}
+          disabled={disabled}
+          data-reporting-partner-machine-picker
+          className="min-h-10 w-full justify-between gap-2 px-3 font-normal"
+        >
+          <span className="truncate text-left">{selectedLabel}</span>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-trigger-width)] min-w-[18rem] p-0"
+      >
+        <Command>
+          <CommandInput placeholder="Search machine or location..." />
+          <CommandList>
+            <CommandEmpty>No machine found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value="All machines"
+                onSelect={() => {
+                  onValueChange(ALL_PARTNER_MACHINES);
+                  setOpen(false);
+                }}
+                className="min-h-11"
+              >
+                <Check
+                  className={cn(
+                    'mr-2 h-4 w-4 shrink-0',
+                    value === ALL_PARTNER_MACHINES ? 'opacity-100' : 'opacity-0'
+                  )}
+                  aria-hidden="true"
+                />
+                All machines
+              </CommandItem>
+              {options.map((machine) => (
+                <CommandItem
+                  key={machine.id}
+                  value={`${machine.displayLabel} ${machine.locationName ?? ''}`}
+                  onSelect={() => {
+                    onValueChange(machine.id);
+                    setOpen(false);
+                  }}
+                  className="min-h-11 items-start"
+                >
+                  <Check
+                    className={cn(
+                      'mr-2 mt-0.5 h-4 w-4 shrink-0',
+                      value === machine.id ? 'opacity-100' : 'opacity-0'
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate">{machine.displayLabel}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {machine.locationName ?? 'Location not provided'}
+                    </span>
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PartnerMachineScopeBar({
+  scopeRef,
+  partnershipName,
+  machine,
+  onBack,
+}: {
+  scopeRef: Ref<HTMLElement>;
+  partnershipName: string;
+  machine: PartnerMachineOption;
+  onBack: () => void;
+}) {
+  return (
+    <section
+      ref={scopeRef}
+      tabIndex={-1}
+      aria-label="Current machine scope"
+      aria-live="polite"
+      data-reporting-partner-machine-scope
+      className="sticky top-[4.75rem] z-30 flex scroll-mt-[5.5rem] flex-col gap-3 rounded-xl border border-primary/20 bg-background/95 p-3 shadow-sm outline-none backdrop-blur focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 supports-[backdrop-filter]:bg-background/90 min-[390px]:flex-row min-[390px]:items-center min-[390px]:justify-between lg:top-3 lg:scroll-mt-4"
+    >
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm">
+          <span className="truncate text-muted-foreground">{partnershipName}</span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate font-semibold text-foreground">{machine.displayLabel}</span>
+        </div>
+        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+          <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+          <span className="truncate">{machine.locationName ?? 'Location not provided'}</span>
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="min-h-11 shrink-0 min-[390px]:min-h-9"
+        onClick={onBack}
+        data-reporting-partner-back-all
+      >
+        <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
+        Back to all machines
+      </Button>
+    </section>
+  );
 }
 
 function LabeledControl({
@@ -2777,6 +3354,49 @@ function MachineSummaryRow({
   );
 }
 
+function OperatorDailySalesMobileCard({ row }: { row: OperatorDailySalesRow }) {
+  const { t } = useLanguage();
+  const isZeroSales = isOperatorDailyRowZero(row);
+
+  return (
+    <div
+      className="rounded-lg border border-border bg-background p-4"
+      aria-label={`${t('reports.dailySales')}: ${row.label}`}
+      data-reporting-daily-row
+      data-date={row.key}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="font-medium text-foreground">{row.label}</div>
+        <Badge variant="outline" className="max-w-full whitespace-normal text-left font-normal leading-snug">
+          {isZeroSales ? t('reports.noSalesLoaded') : t('reports.salesRecorded')}
+        </Badge>
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm min-[390px]:grid-cols-2">
+        <MobileProofItem
+          label={t('reports.netSales')}
+          value={formatCurrency(row.netSalesCents, true)}
+          detail={t('reports.afterRefundAdjustments')}
+        />
+        <MobileProofItem
+          label={t('reports.grossSales')}
+          value={formatCurrency(row.grossSalesCents, true)}
+          detail={t('reports.beforeRefundAdjustments')}
+        />
+        <MobileProofItem
+          label={t('reports.refundImpact')}
+          value={formatCurrency(row.refundAmountCents, true)}
+          detail={t('reports.appliedToDate')}
+        />
+        <MobileProofItem
+          label={t('reports.transactions')}
+          value={numberFormatter.format(row.transactionCount)}
+          detail={t('reports.ordersCounted')}
+        />
+      </div>
+    </div>
+  );
+}
+
 function OperatorReportRowMobileCard({ row }: { row: SalesReportRow }) {
   const { t } = useLanguage();
 
@@ -2796,12 +3416,12 @@ function OperatorReportRowMobileCard({ row }: { row: SalesReportRow }) {
       <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
           label={t('reports.netSales')}
-          value={formatCurrency(row.netSalesCents)}
+          value={formatCurrency(row.netSalesCents, true)}
           detail={`${numberFormatter.format(row.transactionCount)} ${t('reports.transactions').toLowerCase()}`}
         />
         <MobileProofItem
           label={t('reports.grossSales')}
-          value={formatCurrency(row.grossSalesCents)}
+          value={formatCurrency(row.grossSalesCents, true)}
           detail={`${t('reports.refundImpact')} ${formatCurrency(row.refundAmountCents, true)}`}
         />
       </div>
