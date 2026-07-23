@@ -113,6 +113,29 @@ export function getSupabaseProjectRef(value) {
   }
 }
 
+export function ensureSafeNayaxBaseUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(text(value || DEFAULT_NAYAX_BASE_URL, 400));
+  } catch {
+    throw new Error('Nayax read-only base URL is invalid.');
+  }
+  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.hostname.toLowerCase() !== 'lynx.nayax.com' ||
+    parsed.port ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    normalizedPath !== '/operational/v1'
+  ) {
+    throw new Error('Nayax read-only base URL must be the exact approved Lynx HTTPS endpoint.');
+  }
+  return DEFAULT_NAYAX_BASE_URL;
+}
+
 export function ensureSafeReadConfiguration(env, expectedProjectRef) {
   for (const key of Object.keys(env)) {
     if (key.startsWith('VITE_') && key.toUpperCase().includes('SERVICE_ROLE')) {
@@ -363,14 +386,12 @@ async function run(args) {
 
   const token = resolveNayaxToken(env, machine.nayax_account_key);
   if (!token) throw new Error('The server-only Nayax read token is missing.');
-  const baseUrl = text(env.NAYAX_LYNX_BASE_URL || DEFAULT_NAYAX_BASE_URL, 400).replace(
-    /\/+$/,
-    '',
-  );
+  const baseUrl = ensureSafeNayaxBaseUrl(env.NAYAX_LYNX_BASE_URL);
   const providerResponse = await fetch(
     `${baseUrl}/machines/${encodeURIComponent(text(machine.nayax_machine_id, 120))}/lastSales`,
     {
       method: 'GET',
+      redirect: 'error',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     },
   );
