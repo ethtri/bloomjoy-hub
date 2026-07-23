@@ -111,6 +111,14 @@ assert(
   'Retention-only cleanup must work without Gmail configuration or mailbox access and return aggregate evidence only',
 );
 assert(
+  syncFunction.includes('let attachmentDeleteFailures = 0') &&
+    syncFunction.includes('attachmentDeleteFailures += 1') &&
+    syncFunction.includes('if (attachmentDeleteFailures > 0)') &&
+    syncFunction.includes('"gmail_retention_attachment_delete_failed"') &&
+    !syncFunction.includes('if (error) continue;'),
+  'Attachment deletion failures must fail retention and stop Gmail sync before more data is copied',
+);
+assert(
   !syncFunction.includes('console.log(message)') && !syncFunction.includes('console.error(error)'),
   'Raw messages and provider errors must not be logged',
 );

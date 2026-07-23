@@ -27,6 +27,6 @@ Both `REFUND_GMAIL_ENABLED` and `REFUND_GMAIL_SYNC_ENABLED` must remain `false` 
 
 ## Deletion and incident procedure
 
-- Normal deletion removes expired quarantined objects first, then redacts attachment metadata, message sender/recipient/subject/body copies, and the copied thread subject. This local cleanup runs before Gmail configuration and Google mailbox access. A cleanup failure stops provider sync rather than copying more data; revoked authorization does not prevent cleanup when the scheduled job still runs. Case audit metadata remains.
+- Normal deletion removes expired quarantined objects first, then redacts attachment metadata, message sender/recipient/subject/body copies, and the copied thread subject. This local cleanup runs before Gmail configuration and Google mailbox access. A malformed attachment record or failed object deletion reports a redacted retention failure and stops provider sync rather than copying more data; revoked authorization does not prevent cleanup when the scheduled job still runs. Case audit metadata remains.
 - For a suspected credential compromise, disable the GitHub schedule, disable the Edge Function, and revoke the Google refresh token. Do not destructively delete linkage or audit tables during incident response.
 - For a privacy deletion request or legal hold, the Operations and privacy/security owners must identify the exact case in the production admin system and authorize a controlled service-role procedure. Do not place customer identifiers or message content in GitHub.

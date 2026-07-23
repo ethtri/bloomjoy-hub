@@ -245,15 +245,28 @@ const runRetentionSweep = async () => {
     );
   }
   let attachmentsDeleted = 0;
+  let attachmentDeleteFailures = 0;
   const expired = await rpc("service_list_refund_gmail_expired_attachments", { p_limit: 50 });
+  if (expired !== null && !Array.isArray(expired)) {
+    throw new RefundGmailError(
+      "database_operation_failed",
+      "Refund Gmail retention attachment list was invalid.",
+    );
+  }
   const items = Array.isArray(expired) ? expired : [];
   for (const item of items as Array<Record<string, unknown>>) {
     const attachmentId = sanitizeText(item.attachmentId, 80);
     const bucket = sanitizeText(item.storageBucket, 160);
     const path = sanitizeText(item.storagePath, 1024);
-    if (!attachmentId || !bucket || !path) continue;
+    if (!attachmentId || !bucket || !path) {
+      attachmentDeleteFailures += 1;
+      continue;
+    }
     const { error } = await supabase.storage.from(bucket).remove([path]);
-    if (error) continue;
+    if (error) {
+      attachmentDeleteFailures += 1;
+      continue;
+    }
     await rpc("service_mark_refund_gmail_attachment", {
       p_attachment_id: attachmentId,
       p_status: "deleted",
@@ -262,6 +275,12 @@ const runRetentionSweep = async () => {
       p_rejection_code: "retention_expired",
     });
     attachmentsDeleted += 1;
+  }
+  if (attachmentDeleteFailures > 0) {
+    throw new RefundGmailError(
+      "gmail_retention_attachment_delete_failed",
+      "One or more expired Gmail attachments could not be deleted.",
+    );
   }
   const { data: purgedMessages, error: purgeError } = await supabase.rpc(
     "service_purge_refund_gmail_expired_message_content",
