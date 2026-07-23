@@ -54,7 +54,7 @@ Set the following values before launch.
 | `NAYAX_REFUND_MAX_AMOUNT_CENTS` | Server-only | `nayax-card-refund` | Global per-refund cap for first execution pilot | Release owner |
 | `NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS` | Server-only | `nayax-card-refund` | Global daily amount cap for first execution pilot | Release owner |
 | `NAYAX_REFUND_DAILY_COUNT_CAP` | Server-only | `nayax-card-refund` | Global daily count cap for first execution pilot | Release owner |
-| `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Generated HMAC secret for execution idempotency | Technical owner |
+| `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Dedicated generated HMAC secret of at least 32 characters; never reuse another service credential | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Scheduler secret; may match `REPORT_SCHEDULER_SECRET` | Technical owner |
 | `REFUND_AUTOMATION_ENABLED` | Server-only | `refund-case-automation-sweep` | Default `false`; set `true` only after synthetic manual-run and alert proof | Release owner |
 | `REFUND_AUTOMATION_TIMEZONE` | Server-only | `refund-case-automation-sweep` | Customer-contact policy timezone; default `America/Los_Angeles` | Release owner |
@@ -291,6 +291,7 @@ The discovery audit passes only when a manager-only identity has at least one sh
 Controlled Nayax execution validation:
 - Keep the execution switch off, dry-run on, and kill switch on while deploying the adapter and atomic database claim. The deployed function must continue to fail closed without making a provider request.
 - Use only a separately named `NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY>` credential with confirmed request-and-approve permission. The function must fail closed if that exact account credential is absent and must never fall back to a reporting token or another account.
+- Use a dedicated `NAYAX_REFUND_IDEMPOTENCY_SECRET` of at least 32 characters. The function must fail closed if it is absent or too short and must never substitute the Supabase service key or another credential.
 - In Nayax QA, capture sanitized evidence for the request and approval calls. Record only HTTP status plus `Result` and `Status`; do not record raw payloads, tokens, transaction IDs, site IDs, machine times, or customer data.
 - Encode the confirmed raw-key or bearer authorization mode and only the approved exact pairs in `NAYAX_REFUND_PROVIDER_CONTRACT_JSON`, validate it locally with `npm run commerce:preflight -- --include-refunds`, and record the approved contract version in `#430`.
 - Run `npm run refunds:validate-nayax-provider`, `npm run refunds:validate-nayax-execution`, and `npm run db:validate-migrations`. Require the synthetic two-step success, unfamiliar-response stop, non-success HTTP stop, no-redirect token protection, separate write credential, authorization fail-closed behavior, exact locked-evidence claim, parallel safety, and daily cap tests to pass.

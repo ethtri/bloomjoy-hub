@@ -143,10 +143,18 @@ assert(
 assert(
   fn.includes('can_manage_refund_case') &&
     fn.includes('if (!actorCanManageCase)') &&
-    fn.indexOf('if (!actorCanManageCase)') < fn.indexOf('buildIdempotencyKeys(refundCase)') &&
+    fn.indexOf('if (!actorCanManageCase)') < fn.indexOf('const idempotencySecret') &&
     !fn.includes('allBlocks.includes("authorization_failed")') &&
     !fn.includes('actorIsSuperAdmin'),
   'Nayax execution must reject unauthorized callers before revealing case state or execution configuration.'
+);
+assert(
+  fn.includes('Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET")') &&
+    fn.includes('idempotencySecret.trim().length < 32') &&
+    fn.includes('buildIdempotencyKeys(refundCase, idempotencySecret)') &&
+    !fn.includes('Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET") ||\n    supabaseServiceRoleKey') &&
+    !fn.includes('"local-dev"'),
+  'Nayax execution must fail closed without a dedicated idempotency secret and may not substitute another server credential.'
 );
 assert(
   fn.includes('refundCase.refund_amount_cents ?? 0') &&
@@ -201,6 +209,7 @@ assert(
     envExample.includes('NAYAX_REFUND_EXECUTION_ENABLED=false') &&
     envExample.includes('NAYAX_REFUND_API_TOKEN_TGPACI_USA_DB=') &&
     envExample.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON=') &&
+    envExample.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET=') &&
     envExample.includes('NAYAX_REFUND_PROVIDER_TIMEOUT_MS=10000'),
   '.env.example must document fail-closed Nayax refund defaults.'
 );
@@ -209,6 +218,7 @@ assert(
     preflight.includes('parseNayaxRefundProviderContract') &&
     preflight.includes('NAYAX_REFUND_API_TOKEN_') &&
     preflight.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON') &&
+    preflight.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET must contain at least 32 characters') &&
     preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET'),
   'Commerce preflight must validate refund automation configuration.'
 );

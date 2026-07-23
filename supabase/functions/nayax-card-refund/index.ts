@@ -195,10 +195,10 @@ const buildExecutionFingerprint = (refundCaseId: string, evidence: ExecutionEvid
   evidence.nayaxMachineId ?? "",
 ].join("|");
 
-const buildIdempotencyKeys = async (refundCase: RefundCaseForExecution) => {
-  const secret = Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET") ||
-    supabaseServiceRoleKey ||
-    "local-dev";
+const buildIdempotencyKeys = async (
+  refundCase: RefundCaseForExecution,
+  secret: string,
+) => {
   const digest = await hmacSha256Hex(
     secret,
     buildExecutionFingerprint(refundCase.id, snapshotExecutionEvidence(refundCase)),
@@ -609,7 +609,15 @@ serve(async (req) => {
       return jsonResponse({ error: "Forbidden." }, 403);
     }
 
-    const idempotencyKeys = await buildIdempotencyKeys(refundCase);
+    const idempotencySecret = Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET") || "";
+    if (idempotencySecret.trim().length < 32) {
+      return jsonResponse({
+        error: "The Nayax refund connection is incomplete.",
+        code: "provider_configuration_invalid",
+      }, 409);
+    }
+
+    const idempotencyKeys = await buildIdempotencyKeys(refundCase, idempotencySecret);
     const expectedExecutionEvidence = snapshotExecutionEvidence(refundCase);
     const preflightBlocks = getPreflightBlocks(refundCase);
     const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(refundCase);

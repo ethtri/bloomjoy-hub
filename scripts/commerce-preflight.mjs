@@ -300,7 +300,11 @@ function run() {
         /^NAYAX_REFUND_API_TOKEN_[A-Z0-9_]+$/.test(key) &&
         String(env[key] || '').trim() !== ''
     );
+    const idempotencySecret = String(env.NAYAX_REFUND_IDEMPOTENCY_SECRET || '');
     const providerContractJson = String(env.NAYAX_REFUND_PROVIDER_CONTRACT_JSON || '').trim();
+    if (idempotencySecret && idempotencySecret.trim().length < 32) {
+      errors.push('NAYAX_REFUND_IDEMPOTENCY_SECRET must contain at least 32 characters.');
+    }
     if ((executionEnabled || providerContractConfirmed) && refundWriteTokenKeys.length === 0) {
       errors.push(
         'An account-scoped NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY> write credential is required before Nayax refund execution or provider-contract confirmation can be enabled.'
