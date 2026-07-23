@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { parseNayaxRefundProviderContract } from '../supabase/functions/_shared/nayax-refund-provider.mjs';
 
 const DEFAULTS = {
   envFiles: ['.env', '.env.local'],
@@ -286,6 +287,34 @@ function run() {
       warnings.push(
         'NAYAX_REFUND_EXECUTION_KILL_SWITCH is not true. Live card refund execution must stay disabled until explicit go/no-go.'
       );
+    }
+
+    const executionEnabled =
+      String(env.NAYAX_REFUND_EXECUTION_ENABLED || '').trim().toLowerCase() === 'true';
+    const providerContractConfirmed =
+      String(env.NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED || '')
+        .trim()
+        .toLowerCase() === 'true';
+    const providerContractJson = String(env.NAYAX_REFUND_PROVIDER_CONTRACT_JSON || '').trim();
+    if ((executionEnabled || providerContractConfirmed) && !providerContractJson) {
+      errors.push(
+        'NAYAX_REFUND_PROVIDER_CONTRACT_JSON is required before Nayax refund execution or provider-contract confirmation can be enabled.'
+      );
+    }
+    if (providerContractJson) {
+      try {
+        parseNayaxRefundProviderContract(providerContractJson);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`NAYAX_REFUND_PROVIDER_CONTRACT_JSON is invalid: ${message}`);
+      }
+    }
+
+    if (env.NAYAX_REFUND_PROVIDER_TIMEOUT_MS) {
+      const timeoutMs = Number(env.NAYAX_REFUND_PROVIDER_TIMEOUT_MS);
+      if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 20000) {
+        errors.push('NAYAX_REFUND_PROVIDER_TIMEOUT_MS must be an integer from 1000 to 20000.');
+      }
     }
   }
 

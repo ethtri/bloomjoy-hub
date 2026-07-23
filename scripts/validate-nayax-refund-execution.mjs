@@ -23,6 +23,9 @@ const files = {
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
   nayaxRecommendationMigration: 'supabase/migrations/202607210003_refund_nayax_recommendation_state.sql',
+  nayaxExecutionClaimMigration: 'supabase/migrations/202607220002_refund_nayax_execution_claim.sql',
+  nayaxExecutionClaimTest: 'supabase/tests/refund_nayax_execution_claim.sql',
+  nayaxProvider: 'supabase/functions/_shared/nayax-refund-provider.mjs',
 };
 
 const read = (relativePath) =>
@@ -49,6 +52,9 @@ const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
 const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
+const nayaxExecutionClaimMigration = read(files.nayaxExecutionClaimMigration);
+const nayaxExecutionClaimTest = read(files.nayaxExecutionClaimTest);
+const nayaxProvider = read(files.nayaxProvider);
 
 assert(
   migration.includes('refund_case_nayax_refund_attempts'),
@@ -88,8 +94,31 @@ assert(
 );
 assert(
   migration.includes('refund_case_nayax_one_live_attempt_per_case_idx') &&
-    migration.includes("status in ('in_progress', 'requested', 'approved', 'succeeded')"),
-  'Nayax attempts must prevent more than one live execution attempt per refund case.'
+    nayaxExecutionClaimMigration.includes('pg_advisory_xact_lock') &&
+    nayaxExecutionClaimMigration.includes("attempt.execution_mode = 'request_and_approve'") &&
+    nayaxExecutionClaimMigration.includes("'ambiguous'") &&
+    nayaxExecutionClaimMigration.includes("'manual_review'") &&
+    nayaxExecutionClaimMigration.includes('for update') &&
+    nayaxExecutionClaimMigration.includes('for share') &&
+    nayaxExecutionClaimMigration.includes('guard_claimed_nayax_refund_evidence') &&
+    nayaxExecutionClaimTest.includes('Provider transaction and amount evidence is immutable after a claim') &&
+    nayaxExecutionClaimMigration.includes('daily_count_cap_exceeded') &&
+    nayaxExecutionClaimMigration.includes('daily_amount_cap_exceeded'),
+  'Nayax attempts must atomically prevent repeat provider calls and enforce caps across confirmed and uncertain outcomes.'
+);
+assert(
+  nayaxExecutionClaimMigration.includes(
+    'revoke execute on function public.service_claim_nayax_refund_execution'
+  ) &&
+    nayaxExecutionClaimMigration.includes('from public, anon, authenticated') &&
+    nayaxExecutionClaimMigration.includes(
+      'grant execute on function public.service_claim_nayax_refund_execution'
+    ) &&
+    nayaxExecutionClaimMigration.includes('to service_role') &&
+    nayaxExecutionClaimTest.includes('A repeated claim creates exactly one provider attempt row') &&
+    nayaxExecutionClaimTest.includes('An ambiguous provider attempt still consumes the daily count cap') &&
+    nayaxExecutionClaimTest.includes('An ambiguous provider attempt still consumes the daily amount cap'),
+  'The atomic claim must be service-role-only and covered by database race and cap safety tests.'
 );
 assert(
   migration.includes('refund_business_fingerprint') &&
@@ -119,10 +148,26 @@ assert(
   'Nayax execution must use the server-stored refund amount and must not let callers override the execution amount.'
 );
 assert(
-  fn.includes('provider_execution_not_yet_enabled') &&
-    !fn.includes('/payment/refund-request') &&
-    !fn.includes('/payment/refund-approve'),
-  'This release must not call live Nayax refund endpoints.'
+  fn.includes('parseNayaxRefundProviderContract') &&
+    fn.includes('executeNayaxRefundProvider') &&
+    fn.includes('service_claim_nayax_refund_execution') &&
+    fn.includes('provider_outcome_unconfirmed') &&
+    fn.includes('Do not retry') &&
+    !fn.includes('provider_execution_not_yet_enabled') &&
+    nayaxProvider.includes('/payment/${path}') &&
+    nayaxProvider.includes('refund-request') &&
+    nayaxProvider.includes('refund-approve') &&
+    nayaxProvider.includes('IsRefundedExternally: false'),
+  'The provider adapter must use the two-step Nayax flow only after an atomic claim and stop uncertain outcomes from being retried.'
+);
+assert(
+  nayaxProvider.includes('exact Result and Status pair') &&
+    nayaxProvider.includes('outcome = "unknown"') &&
+    nayaxProvider.includes('payloadRedacted: true') &&
+    fn.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON') &&
+    fn.includes('NAYAX_REFUND_PROVIDER_TIMEOUT_MS') &&
+    fn.includes('provider_configuration_invalid'),
+  'Nayax success must be defined by an explicit account contract, with unfamiliar responses redacted and treated as unknown.'
 );
 assert(
   fn.includes('card_wallet_used') &&
@@ -139,11 +184,15 @@ assert(
 assert(
   envExample.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH=true') &&
     envExample.includes('NAYAX_REFUND_EXECUTION_DRY_RUN=true') &&
-    envExample.includes('NAYAX_REFUND_EXECUTION_ENABLED=false'),
+    envExample.includes('NAYAX_REFUND_EXECUTION_ENABLED=false') &&
+    envExample.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON=') &&
+    envExample.includes('NAYAX_REFUND_PROVIDER_TIMEOUT_MS=10000'),
   '.env.example must document fail-closed Nayax refund defaults.'
 );
 assert(
   preflight.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
+    preflight.includes('parseNayaxRefundProviderContract') &&
+    preflight.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON') &&
     preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET'),
   'Commerce preflight must validate refund automation configuration.'
 );

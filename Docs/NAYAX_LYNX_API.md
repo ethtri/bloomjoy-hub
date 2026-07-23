@@ -134,16 +134,19 @@ Do not build browser-side Nayax calls, and do not expose Nayax raw responses in 
 The versioned matching weights, states, timezone rules, privacy-safe evidence, fixtures, and rollback procedure are documented in [REFUND_NAYAX_MATCHING_RUNBOOK.md](./REFUND_NAYAX_MATCHING_RUNBOOK.md).
 Refund execution is separate from read-only Last Sales lookup.
 
-The current full-automation foundation adds `nayax-card-refund` as a backend-only, fail-closed execution surface. It does not call live Nayax refund endpoints until all of these are true:
+The current refund adapter implements Nayax's two-step request-and-approve flow behind a backend-only, fail-closed execution surface. Deploying the adapter does not enable live calls. It cannot call the refund endpoints until all of these are true:
 - Sponsor go/no-go is recorded outside secrets and mirrored by server-only env.
 - `NAYAX_REFUND_EXECUTION_ENABLED=true`
 - `NAYAX_REFUND_EXECUTION_DRY_RUN=false`
 - `NAYAX_REFUND_EXECUTION_KILL_SWITCH=false`
 - `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=true`
+- `NAYAX_REFUND_PROVIDER_CONTRACT_JSON` contains the account-approved amount unit, refund-email behavior, and exact `Result`/`Status` pairs for every recognized outcome.
 - The machine is explicitly allowlisted for Nayax refunds and the refund is below configured caps.
 - The case is card-only, manager-approved, `card_refund_pending`, matched to sanitized Nayax evidence, and has no prior settlement adjustment.
 
-First automated execution remains full-refund only, USD only, and super-admin initiated. Apple Pay or wallet last-four mismatches remain manual-review until a later decision changes that rule.
+First automated execution remains full-refund only, USD only, and manager initiated for a case that manager is authorized to handle. Apple Pay or wallet last-four mismatches remain manual-review until a later decision changes that rule.
+
+The adapter obtains a database-atomic single-use claim before contacting Nayax. That claim serializes daily cap checks and prevents double clicks, parallel servers, timeouts, and alternate idempotency keys from creating a second provider attempt for the same case. An unfamiliar response, non-success HTTP status, timeout, network error, pending approval, duplicate signal, or failure to record the result never produces a customer success email or reporting adjustment. The manager is told not to retry and must reconcile the attempt in Nayax.
 
 ## Official Refund Contract Audit (2026-07-22)
 
@@ -176,7 +179,7 @@ This public documentation is enough to define the expected request shape, but no
 
 A read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closes these gaps. The only internal token request located was explicitly for sales reporting, and the signed commercial agreement covers commercial/clearing terms rather than refund API semantics. Do not infer write authority from that token or agreement.
 
-Before implementation, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. The backend orchestrator must treat a successful request followed by a failed, timed-out, or unknown approval as unresolved: keep the case open, suppress Bloomjoy's success email and settlement adjustment, and route it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
+Before enabling the implemented adapter, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. Encode only the approved exact response pairs in the server-only provider contract. The backend orchestrator treats a successful request followed by a failed, timed-out, pending, or unknown approval as unresolved: it keeps the case open, suppresses Bloomjoy's success email and settlement adjustment, and routes it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
 
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.
