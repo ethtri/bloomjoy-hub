@@ -20,15 +20,22 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 
 ## Release gates before the pilot
 
+### Production checkpoint (2026-07-22)
+
+- The sponsor-authorized safe core is live from merged PR `#644` at release commit `30c790b3aa85b22d5588e1bdd0b2992eb76c408c`; manifest `refund-ops-2026-07-22-integrated-gpt-runner` and PR `#649` record the immutable production versions and bundle digests.
+- Production matches the reviewed eight-function, 23-migration Refund Operations release. The post-deploy migration dry run is clean, every function route and bundle-drift check passes, and the public customer form passes desktop/mobile smoke with customer-safe location labels.
+- Live Nayax execution, automation schedules, Gmail, and GPT remain disabled. The Google Form/Sheet/AppSheet workflow remains the fallback.
+- The release gate is complete. The unchecked items below are the still-required manager, communications, provider, pilot, and sponsor gates; they must not be inferred from the safe-core deployment.
+
 ### Integrated release
 
-- [ ] Review and approve the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` are superseded and must not be merged separately.
-- [ ] Sync `#644` with current `main` if shared foundations change, then rerun its full verification profile before merge.
-- [ ] On the final integrated `main` commit, regenerate and review the Refund Operations release manifest. It must include all eight approved refund functions, all 23 required migrations, and the final transitive source digest for each function.
-- [ ] Run the repository verification suite, migration validation, release-tooling checks, and the relevant refund validators on that same final commit. The release-candidate baseline is 115 migrations and 209 database tests; any lower total requires investigation.
-- [ ] Confirm production migrations and Edge Functions match the final reviewed release; a sanitized dry run must show no unexpected migration.
-- [ ] Confirm Bubble Planet and every other pilot option has a distinct customer-facing label and an unambiguous canonical machine/location mapping.
-- [ ] Capture a restore source and dry-run the documented rollback path before changing production.
+- [x] Review and approve the single integrated release candidate in `#644`. Draft PRs `#636` through `#643` were superseded and closed without merging.
+- [x] Sync `#644` with current `main` as needed, then rerun its full verification profile before merge.
+- [x] On the final integrated release, regenerate and review the Refund Operations manifest with all eight approved functions, all 23 required migrations, and each final transitive source digest.
+- [x] Run the repository verification suite, migration validation, release-tooling checks, and refund validators on that final release. The verified result is 115 migrations and 209 database tests.
+- [x] Confirm production migrations and Edge Functions match the final reviewed release; the post-deploy migration dry run shows no pending or unexpected migration.
+- [x] Confirm Bubble Planet and every other production option has a distinct customer-facing label and an unambiguous canonical machine/location mapping.
+- [x] Capture the pre-deployment restore source and validate the documented rollback path before changing production.
 
 ### Safety and access
 
