@@ -238,16 +238,35 @@ const quarantinePendingAttachments = async ({
 };
 
 const runRetentionSweep = async () => {
-  if (!supabase) return;
+  if (!supabase) {
+    throw new RefundGmailError(
+      "service_configuration_missing",
+      "Refund Gmail retention service is unavailable.",
+    );
+  }
+  let attachmentsDeleted = 0;
+  let attachmentDeleteFailures = 0;
   const expired = await rpc("service_list_refund_gmail_expired_attachments", { p_limit: 50 });
+  if (expired !== null && !Array.isArray(expired)) {
+    throw new RefundGmailError(
+      "database_operation_failed",
+      "Refund Gmail retention attachment list was invalid.",
+    );
+  }
   const items = Array.isArray(expired) ? expired : [];
   for (const item of items as Array<Record<string, unknown>>) {
     const attachmentId = sanitizeText(item.attachmentId, 80);
     const bucket = sanitizeText(item.storageBucket, 160);
     const path = sanitizeText(item.storagePath, 1024);
-    if (!attachmentId || !bucket || !path) continue;
+    if (!attachmentId || !bucket || !path) {
+      attachmentDeleteFailures += 1;
+      continue;
+    }
     const { error } = await supabase.storage.from(bucket).remove([path]);
-    if (error) continue;
+    if (error) {
+      attachmentDeleteFailures += 1;
+      continue;
+    }
     await rpc("service_mark_refund_gmail_attachment", {
       p_attachment_id: attachmentId,
       p_status: "deleted",
@@ -255,8 +274,31 @@ const runRetentionSweep = async () => {
       p_storage_path: null,
       p_rejection_code: "retention_expired",
     });
+    attachmentsDeleted += 1;
   }
-  await rpc("service_purge_refund_gmail_expired_message_content", { p_limit: 200 });
+  if (attachmentDeleteFailures > 0) {
+    throw new RefundGmailError(
+      "gmail_retention_attachment_delete_failed",
+      "One or more expired Gmail attachments could not be deleted.",
+    );
+  }
+  const { data: purgedMessages, error: purgeError } = await supabase.rpc(
+    "service_purge_refund_gmail_expired_message_content",
+    { p_limit: 200 },
+  );
+  if (purgeError) {
+    throw new RefundGmailError(
+      "database_operation_failed",
+      "Refund Gmail retention purge failed.",
+    );
+  }
+  const purgedCount = Number(purgedMessages ?? 0);
+  return {
+    attachmentsDeleted,
+    messagesPurged: Number.isInteger(purgedCount) && purgedCount >= 0
+      ? purgedCount
+      : 0,
+  };
 };
 
 serve(async (request) => {
@@ -267,8 +309,62 @@ serve(async (request) => {
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const triggerSource = sanitizeText(body.trigger, 40).toLowerCase() || "scheduled";
   const runKey = sanitizeText(body.runKey, 255);
-  if (!runKey || !["scheduled", "manual", "failure_test"].includes(triggerSource)) {
+  if (!runKey || !["scheduled", "manual", "failure_test", "retention"].includes(triggerSource)) {
     return jsonResponse({ error: "Valid run key and trigger are required." }, 400);
+  }
+
+  if (triggerSource === "retention") {
+    try {
+      const retention = await runRetentionSweep();
+      console.info("refund-gmail retention completed", {
+        status: "succeeded",
+        ...retention,
+        payloadRedacted: true,
+      });
+      return jsonResponse({
+        status: "succeeded",
+        retentionOnly: true,
+        ...retention,
+        payloadRedacted: true,
+      });
+    } catch (error) {
+      console.error("refund-gmail retention failed", {
+        errorType: error instanceof Error ? error.name : typeof error,
+        payloadRedacted: true,
+      });
+      return jsonResponse({
+        status: "failed",
+        retentionOnly: true,
+        errorCode: error instanceof RefundGmailError
+          ? error.code
+          : "gmail_retention_failed",
+        payloadRedacted: true,
+      }, 503);
+    }
+  }
+
+  if (triggerSource !== "failure_test") {
+    try {
+      const retention = await runRetentionSweep();
+      console.info("refund-gmail pre-sync retention completed", {
+        status: "succeeded",
+        ...retention,
+        payloadRedacted: true,
+      });
+    } catch (error) {
+      console.error("refund-gmail pre-sync retention failed", {
+        errorType: error instanceof Error ? error.name : typeof error,
+        payloadRedacted: true,
+      });
+      return jsonResponse({
+        status: "failed",
+        retentionOnly: false,
+        errorCode: error instanceof RefundGmailError
+          ? error.code
+          : "gmail_retention_failed",
+        payloadRedacted: true,
+      }, 503);
+    }
   }
 
   const config = getRefundGmailConfig();
@@ -330,8 +426,6 @@ serve(async (request) => {
   let profileHistoryId: string | null = null;
   let fatalError: RefundGmailError | null = null;
   try {
-    // Retention is a local privacy obligation and must not depend on Google authorization remaining healthy.
-    await runRetentionSweep();
     const profile = await verifyRefundGmailMailbox(config);
     profileHistoryId = sanitizeText(profile.historyId, 255) || null;
     const maxThreads = Math.min(

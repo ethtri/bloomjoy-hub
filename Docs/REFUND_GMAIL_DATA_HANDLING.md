@@ -23,8 +23,10 @@ This document is the production-enable gate for Refund Operations Gmail intake (
 
 Both `REFUND_GMAIL_ENABLED` and `REFUND_GMAIL_SYNC_ENABLED` must remain `false` until every field above is approved and the synthetic validation in `Docs/PRODUCTION_RUNBOOK.md` passes. Approval must be recorded in a reviewed PR or the linked GitHub issue without customer data, secrets, or provider identifiers.
 
+`REFUND_GMAIL_RETENTION_ENABLED` is independent of mailbox access. Turn it on before the first Gmail copy is stored and keep it on until at least 180 days after the final copied message or attachment expires. When provider sync is disabled, the retention-only job deletes expired local copies without refreshing a Google token or calling Gmail.
+
 ## Deletion and incident procedure
 
-- Normal deletion removes expired quarantined objects first, then redacts attachment metadata, message sender/recipient/subject/body copies, and the copied thread subject. This local cleanup runs before Google mailbox access, so revoked authorization does not prevent cleanup when the scheduled job still runs. Case audit metadata remains.
+- Normal deletion removes expired quarantined objects first, then redacts attachment metadata, message sender/recipient/subject/body copies, and the copied thread subject. This local cleanup runs before Gmail configuration and Google mailbox access. A malformed attachment record or failed object deletion reports a redacted retention failure and stops provider sync rather than copying more data; revoked authorization does not prevent cleanup when the scheduled job still runs. Case audit metadata remains.
 - For a suspected credential compromise, disable the GitHub schedule, disable the Edge Function, and revoke the Google refresh token. Do not destructively delete linkage or audit tables during incident response.
 - For a privacy deletion request or legal hold, the Operations and privacy/security owners must identify the exact case in the production admin system and authorize a controlled service-role procedure. Do not place customer identifiers or message content in GitHub.

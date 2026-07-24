@@ -93,8 +93,30 @@ assert(syncFunction.includes('collectAttachmentDescriptors'), 'Attachment type, 
 assert(syncFunction.includes('refund-gmail-quarantine'), 'Permitted attachments must be quarantined privately');
 assert(syncFunction.includes('payloadRedacted: true'), 'Gmail logs and responses must be aggregate-only');
 assert(
-  syncFunction.indexOf('await runRetentionSweep();') < syncFunction.indexOf('verifyRefundGmailMailbox(config)'),
-  'Local retention cleanup must run before Google authorization can fail',
+  syncFunction.includes('if (triggerSource !== "failure_test")') &&
+    syncFunction.indexOf('if (triggerSource !== "failure_test")') <
+      syncFunction.indexOf('const config = getRefundGmailConfig()') &&
+    syncFunction.indexOf('refund-gmail pre-sync retention completed') <
+      syncFunction.indexOf('const config = getRefundGmailConfig()') &&
+    syncFunction.indexOf('const config = getRefundGmailConfig()') <
+      syncFunction.indexOf('verifyRefundGmailMailbox(config)'),
+  'Local retention cleanup must run before Gmail configuration or Google authorization can fail',
+);
+assert(
+  syncFunction.includes('triggerSource === "retention"') &&
+    syncFunction.indexOf('triggerSource === "retention"') < syncFunction.indexOf('getRefundGmailConfig()') &&
+    syncFunction.includes('retentionOnly: true') &&
+    syncFunction.includes('messagesPurged') &&
+    syncFunction.includes('attachmentsDeleted'),
+  'Retention-only cleanup must work without Gmail configuration or mailbox access and return aggregate evidence only',
+);
+assert(
+  syncFunction.includes('let attachmentDeleteFailures = 0') &&
+    syncFunction.includes('attachmentDeleteFailures += 1') &&
+    syncFunction.includes('if (attachmentDeleteFailures > 0)') &&
+    syncFunction.includes('"gmail_retention_attachment_delete_failed"') &&
+    !syncFunction.includes('if (error) continue;'),
+  'Attachment deletion failures must fail retention and stop Gmail sync before more data is copied',
 );
 assert(
   !syncFunction.includes('console.log(message)') && !syncFunction.includes('console.error(error)'),
@@ -110,6 +132,12 @@ assert(
 );
 
 assert(workflow.includes('vars.REFUND_GMAIL_SYNC_ENABLED'), 'Scheduled Gmail sync must be disabled by default');
+assert(
+  workflow.includes('vars.REFUND_GMAIL_RETENTION_ENABLED') &&
+    workflow.includes('vars.REFUND_GMAIL_SYNC_ENABLED !=') &&
+    workflow.includes('\\"trigger\\":\\"retention\\"'),
+  'A separate schedule gate must keep local retention running while Gmail provider sync is disabled',
+);
 assert(workflow.includes('secrets.REFUND_GMAIL_SYNC_URL'), 'Gmail sync URL must be encrypted');
 assert(workflow.includes('secrets.REFUND_GMAIL_SYNC_TOKEN'), 'Gmail sync token must be encrypted');
 assert(workflow.includes('cancel-in-progress: false'), 'A running Gmail sync must not be cancelled mid-delivery');

@@ -6,12 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Run a safe Gmail sync or a PII-free failure-path test"
+        description: "Run Gmail sync, retention-only cleanup, or a PII-free failure-path test"
         required: true
         default: run
         type: choice
         options:
           - run
+          - retention
           - failure_test
 
 permissions:
@@ -23,7 +24,9 @@ concurrency:
 
 jobs:
   sync:
-    if: github.event_name == 'workflow_dispatch' || vars.REFUND_GMAIL_SYNC_ENABLED == 'true'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.mode != 'retention') ||
+      (github.event_name == 'schedule' && vars.REFUND_GMAIL_SYNC_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -56,4 +59,36 @@ jobs:
             --header "Authorization: Bearer $SYNC_TOKEN" \
             --header "Content-Type: application/json" \
             --data "{\"runKey\":\"$RUN_KEY\",\"trigger\":\"$TRIGGER\"}" \
+            "$SYNC_URL"
+
+  retention:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'retention') ||
+      (github.event_name == 'schedule' &&
+       vars.REFUND_GMAIL_RETENTION_ENABLED == 'true' &&
+       vars.REFUND_GMAIL_SYNC_ENABLED != 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate encrypted retention connection settings
+        env:
+          SYNC_URL: ${{ secrets.REFUND_GMAIL_SYNC_URL }}
+          SYNC_TOKEN: ${{ secrets.REFUND_GMAIL_SYNC_TOKEN }}
+        run: |
+          if [ -z "$SYNC_URL" ] || [ -z "$SYNC_TOKEN" ]; then
+            echo "Refund Gmail retention secrets are not configured."
+            exit 1
+          fi
+
+      - name: Purge expired local Gmail copies without mailbox access
+        env:
+          SYNC_URL: ${{ secrets.REFUND_GMAIL_SYNC_URL }}
+          SYNC_TOKEN: ${{ secrets.REFUND_GMAIL_SYNC_TOKEN }}
+          RUN_KEY: github-retention:${{ github.run_id }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $SYNC_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"runKey\":\"$RUN_KEY\",\"trigger\":\"retention\"}" \
             "$SYNC_URL"
