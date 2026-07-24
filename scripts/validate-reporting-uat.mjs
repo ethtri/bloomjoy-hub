@@ -997,6 +997,7 @@ const assertOperatorDesktop = async (browser) => {
       await breakdown.getByRole('radio', { name: 'Monthly', exact: true }).click();
       await page.getByRole('heading', { name: 'Sales by month', exact: true }).waitFor();
       const monthlyRows = page.locator(`${selectors.operatorPeriodSummary} [data-reporting-period-row]:visible`);
+      await monthlyRows.first().waitFor();
       assert((await monthlyRows.count()) === 1, `Monthly summary must show one selected-period row. Found ${await monthlyRows.count()}.`);
       const monthlySummaryText = await textOf(page.locator(selectors.operatorPeriodSummary));
       assert(
