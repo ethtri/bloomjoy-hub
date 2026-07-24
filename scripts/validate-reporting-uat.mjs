@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outputDir = path.join(repoRoot, 'output', 'playwright', 'issue-647');
+const outputDir = path.join(repoRoot, 'output', 'playwright', 'issue-656-657');
 const fixedNowIso = '2026-07-22T16:00:00.000Z';
 const fixedDateFrom = '2026-07-16';
 const fixedDateTo = '2026-07-22';
@@ -23,11 +23,19 @@ const startedAt = new Date().toISOString();
 let runError = null;
 
 const selectors = {
+  operatorDateRange: '[data-reporting-operator-date-range]',
+  operatorMoreFilters: '[data-reporting-operator-more-filters]',
+  operatorAdvancedFilters: '[data-reporting-operator-advanced-filters]',
   operatorBreakdown: '[data-reporting-operator-breakdown]',
+  operatorPayment: '[data-reporting-operator-payment]',
+  operatorFilterSummary: '[data-reporting-operator-filter-summary]',
   operatorMetrics: '[data-reporting-operator-metrics]',
+  operatorPeriodSummary: '[data-reporting-operator-period-summary]',
   operatorDailySales: '[data-reporting-operator-daily-sales]',
   operatorDailyRow: '[data-reporting-daily-row]',
   operatorFreshness: '[data-reporting-operator-freshness-state]',
+  operatorDetailsToggle: '[data-reporting-operator-details-toggle]',
+  operatorDetailsContent: '[data-reporting-operator-details-content]',
   partnerMachinePicker: '[data-reporting-partner-machine-picker]',
   partnerMachineRow: '[data-reporting-partner-machine-row]',
   partnerMachineAction: '[data-reporting-partner-machine-action]',
@@ -267,7 +275,7 @@ const makePartnerPreview = (body) => {
         severity: 'non_blocking',
         machine_id: 'partner-machine-harbor',
         machine_label: 'Atrium Unit',
-        message: 'INTERNAL-ONLY fixture warning: upstream reconciliation ticket UAT-647.',
+        message: 'INTERNAL-ONLY fixture warning: upstream reconciliation ticket UAT-656-657.',
       },
     ],
   };
@@ -648,6 +656,31 @@ const findOperatorMachineTrigger = async (page) => {
   throw new Error('Operator machine filter is not visible.');
 };
 
+const ensureMoreFiltersOpen = async (page) => {
+  const advancedFilters = page.locator(selectors.operatorAdvancedFilters);
+  if (!(await advancedFilters.isVisible())) {
+    await page.locator(selectors.operatorMoreFilters).click();
+  }
+  await advancedFilters.waitFor();
+};
+
+const selectOperatorPayment = async (page, paymentName) => {
+  await ensureMoreFiltersOpen(page);
+  await page.locator(selectors.operatorPayment).click();
+  const option = page.getByRole('menuitemcheckbox', { name: paymentName, exact: true });
+  await option.waitFor();
+  await option.click();
+  await page.keyboard.press('Escape');
+};
+
+const openDetailedBreakdown = async (page) => {
+  const content = page.locator(selectors.operatorDetailsContent);
+  if (!(await content.isVisible())) {
+    await page.locator(selectors.operatorDetailsToggle).click();
+  }
+  await content.waitFor();
+};
+
 const expectCurrency = async (locator, currency, label) => {
   await locator.getByText(currency, { exact: true }).first().waitFor();
   const text = await textOf(locator);
@@ -655,10 +688,9 @@ const expectCurrency = async (locator, currency, label) => {
 };
 
 const chooseLastSevenDaily = async (page) => {
-  const today = page.getByRole('radio', { name: 'Today', exact: true });
-  const lastSeven = page.getByRole('radio', { name: /Last 7 days/i });
+  const dateRange = page.locator(selectors.operatorDateRange);
   try {
-    await today.waitFor();
+    await dateRange.waitFor();
   } catch (error) {
     fs.writeFileSync(
       path.join(outputDir, 'operator-controls-debug.txt'),
@@ -670,8 +702,8 @@ const chooseLastSevenDaily = async (page) => {
     });
     throw error;
   }
-  await lastSeven.waitFor();
-  await lastSeven.click();
+  await selectRadixOption(dateRange, 'Last 7 days');
+  await ensureMoreFiltersOpen(page);
   const breakdown = page.locator(selectors.operatorBreakdown);
   await breakdown.waitFor();
   const daily = breakdown.getByRole('radio', { name: 'Daily', exact: true });
@@ -719,15 +751,45 @@ const assertOperatorDailyReconciliation = async (page) => {
     }
   }
 
-  const reportRowsHeading = page.getByRole('heading', { name: /Report rows/i });
-  const reportRowsCard = reportRowsHeading.locator('..').locator('..');
-  const detailText = await textOf(reportRowsCard);
+  await openDetailedBreakdown(page);
+  const detailedBreakdown = page.locator('[data-reporting-operator-detailed-breakdown]');
+  const detailText = await textOf(detailedBreakdown);
   for (const row of operatorFacts) {
     assert(detailText.includes(row.machine_label), `Detailed report must include ${row.machine_label}.`);
     assert(detailText.includes(paymentLabels[row.payment_method]), `Detailed report must include ${paymentLabels[row.payment_method]}.`);
     assert(detailText.includes(`$${(row.net_sales_cents / 100).toFixed(2)}`), `Detailed report must include $${(row.net_sales_cents / 100).toFixed(2)} net sales.`);
     assert(detailText.includes(`$${(row.gross_sales_cents / 100).toFixed(2)}`), `Detailed report must include $${(row.gross_sales_cents / 100).toFixed(2)} gross sales.`);
   }
+};
+
+const assertVisibleDetailedTotals = async (page, label) => {
+  await openDetailedBreakdown(page);
+  const rows = page.locator(`${selectors.operatorDetailsContent} table:visible tbody tr`);
+  const totals = {
+    netSalesCents: 0,
+    grossSalesCents: 0,
+    refundAmountCents: 0,
+    transactionCount: 0,
+  };
+  for (let index = 0; index < (await rows.count()); index += 1) {
+    const cells = rows.nth(index).locator('td');
+    const currencyToCents = (value) =>
+      Math.round(Number(value.replace(/[^0-9.-]/g, '')) * 100);
+    totals.netSalesCents += currencyToCents(await cells.nth(3).innerText());
+    totals.grossSalesCents += currencyToCents(await cells.nth(4).innerText());
+    totals.refundAmountCents += currencyToCents(await cells.nth(5).innerText());
+    totals.transactionCount += Number((await cells.nth(6).innerText()).replace(/[^0-9-]/g, ''));
+  }
+  assert(
+    JSON.stringify(totals) ===
+      JSON.stringify({
+        netSalesCents: 68000,
+        grossSalesCents: 70000,
+        refundAmountCents: 2000,
+        transactionCount: 68,
+      }),
+    `${label} detailed rows must reconcile exactly. Found: ${JSON.stringify(totals)}`,
+  );
 };
 
 const assertFreshnessState = async (page, state) => {
@@ -816,7 +878,50 @@ const assertOperatorDesktop = async (browser) => {
         'Operator-only reporting must not expose partner revenue-share data.',
       );
     });
-    await check('Operator exposes Today, Last 7 days, and visible Daily/Weekly/Monthly controls', async () => {
+    await check('Operator default toolbar keeps advanced and custom controls out of the primary path', async () => {
+      const dateRange = page.locator(selectors.operatorDateRange);
+      const machine = await findOperatorMachineTrigger(page);
+      const moreFilters = page.locator(selectors.operatorMoreFilters);
+      await dateRange.waitFor();
+      await machine.waitFor();
+      await moreFilters.waitFor();
+      assert((await textOf(dateRange)).includes('Last 7 days'), 'Last 7 days must be the default date range.');
+      assert((await page.locator(selectors.operatorAdvancedFilters).count()) === 0, 'Advanced filters must be collapsed by default.');
+      assert((await page.locator('[data-reporting-operator-custom-date-range]').count()) === 0, 'Custom dates must be hidden by default.');
+      assert(!(await page.locator(selectors.operatorDetailsContent).isVisible()), 'Detailed breakdown must be collapsed by default.');
+      const filterSummary = await textOf(page.locator(selectors.operatorFilterSummary));
+      for (const expected of ['Last 7 days', 'Daily', 'All machines', 'All payments']) {
+        assert(filterSummary.includes(expected), `Default filter summary must include ${expected}. Found: ${filterSummary}`);
+      }
+      for (const [locator, label] of [
+        [dateRange, 'Operator date range'],
+        [machine, 'Operator machine'],
+        [moreFilters, 'Operator More filters'],
+      ]) {
+        await assertTouchTarget(locator, `${label} control`);
+      }
+    });
+    await settleScreenshotViewport(page);
+    await page.screenshot({ path: path.join(outputDir, 'operator-filter-default-desktop.png'), fullPage: true });
+
+    await check('Operator date-range control keeps all presets and reveals dates only for Custom', async () => {
+      const dateRange = page.locator(selectors.operatorDateRange);
+      await dateRange.click();
+      for (const label of ['Today', 'Last 7 days', 'This week', 'Last week', 'Last 30 days', 'Month to date', 'Custom']) {
+        await page.getByRole('option', { name: label, exact: true }).waitFor();
+      }
+      await page.keyboard.press('Escape');
+      await selectRadixOption(dateRange, 'Custom');
+      const customDates = page.locator('[data-reporting-operator-custom-date-range]');
+      await customDates.waitFor();
+      assert((await customDates.locator('input[type="date"]').count()) === 2, 'Custom must reveal exactly two date inputs.');
+      await settleScreenshotViewport(page);
+      await page.screenshot({ path: path.join(outputDir, 'operator-custom-date-desktop.png'), fullPage: true });
+      await selectRadixOption(dateRange, 'Last 7 days');
+      assert((await page.locator('[data-reporting-operator-custom-date-range]').count()) === 0, 'Leaving Custom must hide date inputs.');
+    });
+
+    await check('Operator More filters contains visible Daily/Weekly/Monthly and one payment selector', async () => {
       await chooseLastSevenDaily(page);
       const breakdown = page.locator(selectors.operatorBreakdown);
       for (const label of ['Daily', 'Weekly', 'Monthly']) {
@@ -824,8 +929,24 @@ const assertOperatorDesktop = async (browser) => {
         await button.waitFor();
         await assertTouchTarget(button, `Operator ${label} breakdown button`);
       }
+      const payment = page.locator(selectors.operatorPayment);
+      await payment.waitFor();
+      assert((await textOf(payment)).includes('All payments'), 'Payment control must summarize its default as All payments.');
+      await assertTouchTarget(payment, 'Operator payment selector');
     });
+    await settleScreenshotViewport(page);
+    await page.screenshot({ path: path.join(outputDir, 'operator-filter-more-desktop.png'), fullPage: true });
+    await page.locator(selectors.operatorPayment).click();
+    for (const label of ['Cash', 'Credit', 'Other', 'Unknown']) {
+      await page.getByRole('menuitemcheckbox', { name: label, exact: true }).waitFor();
+    }
+    await page.screenshot({ path: path.join(outputDir, 'operator-payment-menu-desktop.png'), fullPage: true });
+    await page.keyboard.press('Escape');
+
     await check('Operator KPIs, daily totals, and detail rows reconcile exactly', () => assertOperatorDailyReconciliation(page));
+    await settleScreenshotViewport(page);
+    await page.screenshot({ path: path.join(outputDir, 'operator-detail-expanded-desktop.png'), fullPage: true });
+
     await check('Operator fresh status is separate from a loaded zero-sales date', async () => {
       await assertFreshnessState(page, 'fresh');
       const zeroRow = await visibleLocator(
@@ -848,10 +969,51 @@ const assertOperatorDesktop = async (browser) => {
       assert(await weekly.evaluate((element) => element === document.activeElement), 'ArrowRight from Daily must move focus to Weekly.');
       await daily.click();
     });
+    await check('Operator summary changes to weekly grouping while retaining reconciled totals', async () => {
+      const detailsContent = page.locator(selectors.operatorDetailsContent);
+      if (await detailsContent.isVisible()) {
+        await page.locator(selectors.operatorDetailsToggle).click();
+      }
+      const breakdown = page.locator(selectors.operatorBreakdown);
+      await breakdown.getByRole('radio', { name: 'Weekly', exact: true }).click();
+      await page.getByRole('heading', { name: 'Sales by week', exact: true }).waitFor();
+      const summaryRows = page.locator(`${selectors.operatorPeriodSummary} [data-reporting-period-row]:visible`);
+      assert((await summaryRows.count()) === 2, `Weekly summary must show two weekly periods. Found ${await summaryRows.count()}.`);
+      const weeklySummaryText = await textOf(page.locator(selectors.operatorPeriodSummary));
+      assert(
+        weeklySummaryText.includes('Jul 16 - Jul 19') &&
+          weeklySummaryText.includes('Jul 20 - Jul 22') &&
+          !weeklySummaryText.includes('Jul 13') &&
+          !weeklySummaryText.includes('Jul 26'),
+        `Partial weekly labels must stay inside the selected date range. Found: ${weeklySummaryText}`,
+      );
+      const metricsText = await textOf(page.locator(selectors.operatorMetrics));
+      assert(metricsText.includes('$680.00') && metricsText.includes('$700.00'), 'Weekly grouping must preserve reconciled totals.');
+      await settleScreenshotViewport(page);
+      await page.screenshot({ path: path.join(outputDir, 'operator-weekly-summary-desktop.png'), fullPage: true });
+      await assertVisibleDetailedTotals(page, 'Weekly');
+      await page.locator(selectors.operatorDetailsToggle).click();
+
+      await breakdown.getByRole('radio', { name: 'Monthly', exact: true }).click();
+      await page.getByRole('heading', { name: 'Sales by month', exact: true }).waitFor();
+      const monthlyRows = page.locator(`${selectors.operatorPeriodSummary} [data-reporting-period-row]:visible`);
+      assert((await monthlyRows.count()) === 1, `Monthly summary must show one selected-period row. Found ${await monthlyRows.count()}.`);
+      const monthlySummaryText = await textOf(page.locator(selectors.operatorPeriodSummary));
+      assert(
+        monthlySummaryText.includes('Jul 16 - Jul 22') &&
+          !monthlySummaryText.includes('Jul 1 - Jul 31'),
+        `Partial monthly labels must stay inside the selected date range. Found: ${monthlySummaryText}`,
+      );
+      await assertVisibleDetailedTotals(page, 'Monthly');
+      await page.locator(selectors.operatorDetailsToggle).click();
+
+      await breakdown.getByRole('radio', { name: 'Daily', exact: true }).click();
+      await page.getByRole('heading', { name: 'Sales by day', exact: true }).waitFor();
+    });
     await check('Operator machine and payment filters scope every total and export', async () => {
       const machineTrigger = await findOperatorMachineTrigger(page);
       await selectRadixOption(machineTrigger, 'North Atrium');
-      await page.getByRole('button', { name: 'Credit', exact: true }).click();
+      await selectOperatorPayment(page, 'Credit');
       const metrics = page.locator(selectors.operatorMetrics);
       await expectCurrency(metrics, '$210.00', 'Filtered operator net KPI');
       await expectCurrency(metrics, '$215.00', 'Filtered operator gross KPI');
@@ -874,14 +1036,11 @@ const assertOperatorDesktop = async (browser) => {
     });
     await check('Operator desktop has no horizontal overflow', () => assertNoHorizontalOverflow(page, 'Operator desktop'));
 
-    await selectRadixOption(await findOperatorMachineTrigger(page), 'All machines');
-    await page.getByRole('button', { name: 'Credit', exact: true }).click();
+    await page.locator('[data-reporting-operator-reset]').click();
     await visibleLocator(
       page.locator(`${selectors.operatorDailyRow}[data-date="2026-07-19"]`),
       'Operator daily row 2026-07-19 after clearing filters',
     );
-    await settleScreenshotViewport(page, /Polished operator report PDF is ready/i);
-    await page.screenshot({ path: path.join(outputDir, 'operator-daily-desktop.png'), fullPage: true });
   } finally {
     await context.close();
   }
@@ -892,13 +1051,28 @@ const assertOperatorMobile = async (browser) => {
   try {
     await page.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
     await waitForReport(page);
+    await check('Operator mobile defaults to compact filters and collapsed detail', async () => {
+      await page.locator(selectors.operatorDateRange).waitFor();
+      await page.locator(selectors.operatorMoreFilters).waitFor();
+      assert((await page.locator(selectors.operatorAdvancedFilters).count()) === 0, 'Mobile advanced filters must be collapsed by default.');
+      assert(!(await page.locator(selectors.operatorDetailsContent).isVisible()), 'Mobile detailed breakdown must be collapsed by default.');
+      await assertTouchTarget(page.locator(selectors.operatorDateRange), 'Operator mobile date range');
+      await assertTouchTarget(page.locator(selectors.operatorMoreFilters), 'Operator mobile More filters');
+    });
+    await settleScreenshotViewport(page);
+    await page.screenshot({ path: path.join(outputDir, 'operator-filter-default-mobile-390.png'), fullPage: true });
+
     await chooseLastSevenDaily(page);
+    await settleScreenshotViewport(page);
+    await page.screenshot({ path: path.join(outputDir, 'operator-filter-more-mobile-390.png'), fullPage: true });
     await check('Operator mobile preserves exact daily reconciliation', () => assertOperatorDailyReconciliation(page));
+    await page.locator(selectors.operatorMoreFilters).click();
+    await settleScreenshotViewport(page);
+    await page.screenshot({ path: path.join(outputDir, 'operator-detail-expanded-mobile-390.png'), fullPage: true });
     await check('Operator mobile is usable at 390px without horizontal overflow', async () => {
       await assertNoHorizontalOverflow(page, 'Operator mobile');
-      await assertTouchTarget(page.getByRole('radio', { name: /Last 7 days/i }), 'Operator Last 7 days mobile control');
+      await assertTouchTarget(page.locator(selectors.operatorDetailsToggle), 'Operator mobile detail control');
     });
-    await page.screenshot({ path: path.join(outputDir, 'operator-daily-mobile-390.png'), fullPage: true });
   } finally {
     await context.close();
   }
@@ -916,6 +1090,7 @@ const assertOperatorFreshnessVariants = async (browser) => {
       await page.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
       await waitForReport(page);
       await chooseLastSevenDaily(page);
+      await page.locator(selectors.operatorMoreFilters).click();
       await check(`Operator ${freshness} import state remains distinct from loaded zero sales`, async () => {
         await assertFreshnessState(page, freshness);
         const dailySection = page.locator(selectors.operatorDailySales);
@@ -1038,7 +1213,7 @@ const assertPartnerDesktop = async (browser) => {
         'Report data incomplete',
         'Export is unavailable because required report data is incomplete',
         'INTERNAL-ONLY',
-        'UAT-647',
+        'UAT-656-657',
         'Open admin setup',
         'Report setup needs attention',
       ]) {
@@ -1157,9 +1332,12 @@ const assertResponsiveBoundaryWidths = async (browser) => {
     try {
       await page.goto(`${appUrl}/portal/reports`, { waitUntil: 'networkidle' });
       await waitForReport(page);
+      await check(`Operator compact boundary ${width}px has no horizontal overflow`, () =>
+        assertNoHorizontalOverflow(page, `Operator compact ${width}px`),
+      );
       await chooseLastSevenDaily(page);
-      await check(`Operator responsive boundary ${width}px has no horizontal overflow`, () =>
-        assertNoHorizontalOverflow(page, `Operator ${width}px`),
+      await check(`Operator expanded-filter boundary ${width}px has no horizontal overflow`, () =>
+        assertNoHorizontalOverflow(page, `Operator expanded ${width}px`),
       );
     } finally {
       await context.close();
@@ -1216,7 +1394,7 @@ const assertPermissionBoundaries = async (browser) => {
   );
   const signedOutPage = await signedOutContext.newPage();
   try {
-    await signedOutPage.goto(`${appUrl}/portal/reports?source=issue-647`, { waitUntil: 'networkidle' });
+    await signedOutPage.goto(`${appUrl}/portal/reports?source=issue-656-657`, { waitUntil: 'networkidle' });
     await check('Signed-out reporting route still redirects to login', async () => {
       assert(new URL(signedOutPage.url()).pathname === '/login', `Signed-out report route must redirect to /login. Found: ${signedOutPage.url()}`);
     });
@@ -1228,7 +1406,7 @@ const assertPermissionBoundaries = async (browser) => {
 const writeResults = () => {
   fs.mkdirSync(outputDir, { recursive: true });
   const payload = {
-    issue: 647,
+    issues: [656, 657],
     appUrl,
     fixedNow: fixedNowIso,
     startedAt,
@@ -1244,7 +1422,7 @@ const writeResults = () => {
   };
   fs.writeFileSync(path.join(outputDir, 'reporting-uat-results.json'), `${JSON.stringify(payload, null, 2)}\n`);
   const markdown = [
-    '# Reporting UAT result - issue #647',
+    '# Reporting UAT result - issues #656 and #657',
     '',
     `- Status: **${payload.status.toUpperCase()}**`,
     `- App: \`${appUrl}\``,

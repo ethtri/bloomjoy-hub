@@ -13,6 +13,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
   ArrowLeft,
   AlertTriangle,
+  CalendarRange,
   Check,
   ChevronDown,
   ChevronRight,
@@ -24,6 +25,8 @@ import {
   Info,
   Loader2,
   MapPin,
+  RotateCcw,
+  SlidersHorizontal,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
@@ -40,6 +43,11 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
   Command,
   CommandEmpty,
   CommandGroup,
@@ -49,8 +57,11 @@ import {
 } from '@/components/ui/command';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -128,7 +139,7 @@ type OperatorPeriodPreset =
   | 'last_30_days'
   | 'month_to_date'
   | 'custom';
-type OperatorDailySalesRow = {
+type OperatorPeriodSummaryRow = {
   key: string;
   label: string;
   netSalesCents: number;
@@ -190,6 +201,30 @@ const paymentMethodLabelKeys: Record<PaymentMethod, TranslationKey> = {
   credit: 'reports.credit',
   other: 'reports.other',
   unknown: 'reports.unknown',
+};
+const operatorPeriodPresetLabelKeys: Record<OperatorPeriodPreset, TranslationKey> = {
+  today: 'reports.today',
+  last_7_days: 'reports.last7Days',
+  this_week: 'reports.thisWeek',
+  last_week: 'reports.lastWeek',
+  last_30_days: 'reports.last30Days',
+  month_to_date: 'reports.monthToDate',
+  custom: 'reports.custom',
+};
+const reportGrainLabelKeys: Record<ReportGrain, TranslationKey> = {
+  day: 'reports.daily',
+  week: 'reports.weekly',
+  month: 'reports.monthly',
+};
+const reportSummaryTitleKeys: Record<ReportGrain, TranslationKey> = {
+  day: 'reports.salesByDay',
+  week: 'reports.salesByWeek',
+  month: 'reports.salesByMonth',
+};
+const reportSummaryDescriptionKeys: Record<ReportGrain, TranslationKey> = {
+  day: 'reports.salesByDayDescription',
+  week: 'reports.salesByWeekDescription',
+  month: 'reports.salesByMonthDescription',
 };
 
 const partnerNetSalesChartConfig = {
@@ -539,6 +574,26 @@ const formatMonth = (value: string) =>
 const formatDateRange = (start: string | undefined, end: string | undefined) =>
   start && end ? `${formatShortDate(start)} - ${formatShortDate(end)}` : 'No period selected';
 
+const formatOperatorPeriodLabel = (
+  periodStart: string,
+  grain: ReportGrain,
+  dateFrom?: string,
+  dateTo?: string
+) => {
+  if (grain === 'day') return formatDate(periodStart);
+
+  const periodEnd =
+    grain === 'week'
+      ? toDateInput(addDays(parseDateInput(periodStart), 6))
+      : toDateInput(endOfMonth(parseDateInput(periodStart)));
+  const visibleStart = dateFrom && periodStart < dateFrom ? dateFrom : periodStart;
+  const visibleEnd = dateTo && periodEnd > dateTo ? dateTo : periodEnd;
+  if (grain === 'month' && visibleStart === periodStart && visibleEnd === periodEnd) {
+    return formatMonth(periodStart);
+  }
+  return formatDateRange(visibleStart, visibleEnd);
+};
+
 const formatPartnerPeriod = (
   period: Pick<PartnerDashboardPeriod, 'periodStart' | 'periodEnd'>,
   periodMode: PartnerPeriodMode
@@ -687,11 +742,20 @@ const groupRows = <TKey extends string>(
   return [...groups.values()].sort((left, right) => right.netSalesCents - left.netSalesCents);
 };
 
-const buildOperatorDailyRows = (
+const buildOperatorPeriodSummaryRows = (
   rows: SalesReportRow[],
   dateFrom: string,
-  dateTo: string
-): OperatorDailySalesRow[] => {
+  dateTo: string,
+  grain: ReportGrain
+): OperatorPeriodSummaryRow[] => {
+  if (grain !== 'day') {
+    return groupRows(
+      rows,
+      (row) => row.periodStart,
+      (row) => formatOperatorPeriodLabel(row.periodStart, grain, dateFrom, dateTo)
+    ).sort((left, right) => left.key.localeCompare(right.key));
+  }
+
   const startDate = parseDateInput(dateFrom);
   const endDate = parseDateInput(dateTo);
 
@@ -709,7 +773,7 @@ const buildOperatorDailyRows = (
       row,
     ])
   );
-  const dailyRows: OperatorDailySalesRow[] = [];
+  const dailyRows: OperatorPeriodSummaryRow[] = [];
 
   for (let date = startDate; date.getTime() <= endDate.getTime(); date = addDays(date, 1)) {
     const key = toDateInput(date);
@@ -727,7 +791,7 @@ const buildOperatorDailyRows = (
   return dailyRows;
 };
 
-const isOperatorDailyRowZero = (row: OperatorDailySalesRow) =>
+const isOperatorPeriodSummaryRowZero = (row: OperatorPeriodSummaryRow) =>
   row.netSalesCents === 0 &&
   row.grossSalesCents === 0 &&
   row.refundAmountCents === 0 &&
@@ -858,13 +922,15 @@ function OperatorReportingView({
       }) satisfies ChartConfig,
     [t]
   );
-  const defaultRange = useMemo(() => getOperatorPresetRange('last_30_days'), []);
-  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>('last_30_days');
+  const defaultRange = useMemo(() => getOperatorPresetRange('last_7_days'), []);
+  const [periodPreset, setPeriodPreset] = useState<OperatorPeriodPreset>('last_7_days');
   const [dateFrom, setDateFrom] = useState(defaultRange.dateFrom);
   const [dateTo, setDateTo] = useState(defaultRange.dateTo);
-  const [grain, setGrain] = useState<ReportGrain>(defaultRange.grain);
+  const [grain, setGrain] = useState<ReportGrain>('day');
   const [machineId, setMachineId] = useState('all');
   const [selectedPayments, setSelectedPayments] = useState<PaymentMethod[]>([]);
+  const [areMoreFiltersOpen, setAreMoreFiltersOpen] = useState(false);
+  const [isDetailedBreakdownOpen, setIsDetailedBreakdownOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   const {
@@ -912,9 +978,9 @@ function OperatorReportingView({
   const averageOrderCents =
     summary.transactionCount > 0 ? Math.round(summary.netSalesCents / summary.transactionCount) : 0;
 
-  const dailyRows = useMemo(
-    () => buildOperatorDailyRows(reportRows, dateFrom, dateTo),
-    [dateFrom, dateTo, reportRows]
+  const periodSummaryRows = useMemo(
+    () => buildOperatorPeriodSummaryRows(reportRows, dateFrom, dateTo, grain),
+    [dateFrom, dateTo, grain, reportRows]
   );
 
   const operatorFreshnessState = useMemo<OperatorFreshnessState>(() => {
@@ -926,18 +992,11 @@ function OperatorReportingView({
 
   const chartRows = useMemo(
     () =>
-      (grain === 'day'
-        ? dailyRows
-        : groupRows(
-            reportRows,
-            (row) => row.periodStart,
-            (row) => formatShortDate(row.periodStart)
-          ).sort((left, right) => left.key.localeCompare(right.key))
-      ).map((row) => ({
+      periodSummaryRows.map((row) => ({
         period: grain === 'day' ? formatShortDate(row.key) : row.label,
         netSales: row.netSalesCents / 100,
       })),
-    [dailyRows, grain, reportRows]
+    [grain, periodSummaryRows]
   );
 
   const machineRows = useMemo(
@@ -951,8 +1010,37 @@ function OperatorReportingView({
     const nextRange = getOperatorPresetRange(preset);
     setDateFrom(nextRange.dateFrom);
     setDateTo(nextRange.dateTo);
-    setGrain(nextRange.grain);
   };
+
+  const resetFilters = () => {
+    const nextRange = getOperatorPresetRange('last_7_days');
+    setPeriodPreset('last_7_days');
+    setDateFrom(nextRange.dateFrom);
+    setDateTo(nextRange.dateTo);
+    setGrain('day');
+    setMachineId('all');
+    setSelectedPayments([]);
+    setAreMoreFiltersOpen(false);
+  };
+
+  const selectedMachineLabel =
+    machineId === 'all'
+      ? t('reports.allMachines')
+      : machineOptions.find((machine) => machine.machineId === machineId)?.machineLabel ??
+        t('reports.allMachines');
+  const selectedPaymentLabel =
+    selectedPayments.length === 0
+      ? t('reports.allPayments')
+      : selectedPayments.length === 1
+        ? t(paymentMethodLabelKeys[selectedPayments[0]])
+        : t('reports.paymentMethodsSelected', { count: selectedPayments.length });
+  const activeAdvancedFilterCount =
+    (grain === 'day' ? 0 : 1) + (selectedPayments.length === 0 ? 0 : 1);
+  const hasNonDefaultFilters =
+    periodPreset !== 'last_7_days' ||
+    grain !== 'day' ||
+    machineId !== 'all' ||
+    selectedPayments.length > 0;
 
   const exportPdf = async () => {
     const exportWindow = reserveSignedExportWindow();
@@ -1012,133 +1100,217 @@ function OperatorReportingView({
             </div>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label id="operator-period-label">{t('reports.period')}</Label>
-              <ToggleGroup
-                type="single"
-                value={periodPreset}
-                onValueChange={(value) => {
-                  if (value) applyPeriodPreset(value as OperatorPeriodPreset);
-                }}
-                aria-labelledby="operator-period-label"
-                className="grid grid-cols-2 items-stretch rounded-lg border border-border bg-background p-1 sm:grid-cols-4 xl:grid-cols-7"
-              >
-                <ToggleGroupItem value="today" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
-                  {t('reports.today')}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="last_7_days" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
-                  {t('reports.last7Days')}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="this_week" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
-                  {t('reports.thisWeek')}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="last_week" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
-                  {t('reports.lastWeek')}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="last_30_days" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
-                  {t('reports.last30Days')}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="month_to_date" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
-                  {t('reports.monthToDate')}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="custom" className="min-h-11 rounded-md px-2 text-xs sm:text-sm">
-                  {t('reports.custom')}
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,1.5fr)]">
-              <LabeledControl label={t('reports.from')}>
-                <Input
-                  type="date"
-                  className="h-11 min-w-0"
-                  value={dateFrom}
-                  onChange={(event) => {
-                    setDateFrom(event.target.value);
-                    setPeriodPreset('custom');
-                  }}
-                />
-              </LabeledControl>
-              <LabeledControl label={t('reports.to')}>
-                <Input
-                  type="date"
-                  className="h-11 min-w-0"
-                  value={dateTo}
-                  onChange={(event) => {
-                    setDateTo(event.target.value);
-                    setPeriodPreset('custom');
-                  }}
-                />
-              </LabeledControl>
-              <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-1">
-                <Label id="operator-breakdown-label">{t('reports.breakdown')}</Label>
-                <ToggleGroup
-                  type="single"
-                  value={grain}
-                  onValueChange={(value) => {
-                    if (value) setGrain(value as ReportGrain);
-                  }}
-                  aria-labelledby="operator-breakdown-label"
-                  data-reporting-operator-breakdown
-                  className="grid grid-cols-3 rounded-lg border border-border bg-background p-1"
+        <Collapsible open={areMoreFiltersOpen} onOpenChange={setAreMoreFiltersOpen}>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto]">
+              <LabeledControl label={t('reports.dateRange')}>
+                <Select
+                  value={periodPreset}
+                  onValueChange={(value) => applyPeriodPreset(value as OperatorPeriodPreset)}
                 >
-                  <ToggleGroupItem value="day" className="min-h-11 rounded-md px-2 text-sm">
-                    {t('reports.daily')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="week" className="min-h-11 rounded-md px-2 text-sm">
-                    {t('reports.weekly')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="month" className="min-h-11 rounded-md px-2 text-sm">
-                    {t('reports.monthly')}
-                  </ToggleGroupItem>
-                </ToggleGroup>
+                  <SelectTrigger
+                    className="h-11 min-w-0"
+                    data-reporting-operator-date-range
+                  >
+                    <CalendarRange className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {(Object.keys(operatorPeriodPresetLabelKeys) as OperatorPeriodPreset[]).map(
+                        (preset) => (
+                          <SelectItem key={preset} value={preset}>
+                            {t(operatorPeriodPresetLabelKeys[preset])}
+                          </SelectItem>
+                        )
+                      )}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </LabeledControl>
+
+              <LabeledControl label={t('reports.machine')}>
+                <Select value={machineId} onValueChange={setMachineId}>
+                  <SelectTrigger className="h-11 min-w-0" data-reporting-operator-machine>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="all">{t('reports.allMachines')}</SelectItem>
+                      {machineOptions.map((dimension) => (
+                        <SelectItem key={dimension.machineId} value={dimension.machineId}>
+                          {dimension.machineLabel}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </LabeledControl>
+
+              <div className="flex flex-col gap-2 md:col-span-2 xl:col-span-1">
+                <Label>{t('reports.filters')}</Label>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="min-h-11 justify-between gap-3 px-4 xl:min-w-44"
+                    data-reporting-operator-more-filters
+                  >
+                    <span className="flex items-center gap-2">
+                      <SlidersHorizontal className="h-4 w-4" />
+                      {t('reports.moreFilters')}
+                      {activeAdvancedFilterCount > 0 && (
+                        <Badge variant="secondary" className="px-1.5 py-0 text-xs">
+                          {activeAdvancedFilterCount}
+                        </Badge>
+                      )}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        'h-4 w-4 text-muted-foreground transition-transform',
+                        areMoreFiltersOpen && 'rotate-180'
+                      )}
+                    />
+                  </Button>
+                </CollapsibleTrigger>
               </div>
             </div>
-          </div>
 
-          <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
-            <LabeledControl label={t('reports.machine')}>
-              <Select value={machineId} onValueChange={setMachineId}>
-                <SelectTrigger className="h-11 min-w-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="all">{t('reports.allMachines')}</SelectItem>
-                    {machineOptions.map((dimension) => (
-                      <SelectItem key={dimension.machineId} value={dimension.machineId}>
-                        {dimension.machineLabel}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </LabeledControl>
-
-            <div className="flex flex-col gap-2">
-              <Label id="operator-payment-label">{t('reports.payment')}</Label>
-              <ToggleGroup
-                type="multiple"
-                value={selectedPayments}
-                onValueChange={(value) => setSelectedPayments(value as PaymentMethod[])}
-                aria-labelledby="operator-payment-label"
-                className="grid grid-cols-2 rounded-lg border border-border bg-background p-1 sm:grid-cols-4"
+            {periodPreset === 'custom' && (
+              <div
+                className="grid gap-3 rounded-lg border border-border/70 bg-muted/25 p-4 sm:grid-cols-2"
+                data-reporting-operator-custom-date-range
               >
-                {paymentMethods.map((paymentMethod) => (
-                  <ToggleGroupItem
-                    key={paymentMethod}
-                    value={paymentMethod}
-                    className="min-h-11 rounded-md text-sm"
-                  >
-                    {t(paymentMethodLabelKeys[paymentMethod])}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
+                <LabeledControl label={t('reports.from')}>
+                  <Input
+                    type="date"
+                    className="h-11 min-w-0 bg-background"
+                    value={dateFrom}
+                    onChange={(event) => setDateFrom(event.target.value)}
+                  />
+                </LabeledControl>
+                <LabeledControl label={t('reports.to')}>
+                  <Input
+                    type="date"
+                    className="h-11 min-w-0 bg-background"
+                    value={dateTo}
+                    onChange={(event) => setDateTo(event.target.value)}
+                  />
+                </LabeledControl>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 rounded-lg bg-muted/35 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+                data-reporting-operator-filter-summary
+                aria-live="polite"
+              >
+                <span className="font-medium text-foreground">
+                  {t(operatorPeriodPresetLabelKeys[periodPreset])}
+                </span>
+                <span className="text-muted-foreground">
+                  {formatDateRange(dateFrom, dateTo)}
+                </span>
+                <span aria-hidden="true" className="text-border">•</span>
+                <span className="text-muted-foreground">{t(reportGrainLabelKeys[grain])}</span>
+                <span aria-hidden="true" className="text-border">•</span>
+                <span className="text-muted-foreground">{selectedMachineLabel}</span>
+                <span aria-hidden="true" className="text-border">•</span>
+                <span className="text-muted-foreground">{selectedPaymentLabel}</span>
+              </div>
+              {hasNonDefaultFilters && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetFilters}
+                  className="min-h-9 w-fit px-2 text-muted-foreground"
+                  data-reporting-operator-reset
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  {t('reports.resetFilters')}
+                </Button>
+              )}
             </div>
-          </div>
-        </CardContent>
+
+            <CollapsibleContent>
+              <div
+                className="grid gap-4 rounded-lg border border-border/70 bg-background p-4 sm:grid-cols-2"
+                data-reporting-operator-advanced-filters
+              >
+                <div className="flex flex-col gap-2">
+                  <Label id="operator-breakdown-label">{t('reports.groupResultsBy')}</Label>
+                  <ToggleGroup
+                    type="single"
+                    value={grain}
+                    onValueChange={(value) => {
+                      if (value) setGrain(value as ReportGrain);
+                    }}
+                    aria-labelledby="operator-breakdown-label"
+                    data-reporting-operator-breakdown
+                    className="grid grid-cols-3 rounded-lg border border-border bg-muted/20 p-1"
+                  >
+                    <ToggleGroupItem value="day" className="min-h-11 rounded-md px-2 text-sm">
+                      {t('reports.daily')}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="week" className="min-h-11 rounded-md px-2 text-sm">
+                      {t('reports.weekly')}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="month" className="min-h-11 rounded-md px-2 text-sm">
+                      {t('reports.monthly')}
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <Label>{t('reports.payment')}</Label>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="min-h-11 justify-between gap-3 font-normal"
+                        data-reporting-operator-payment
+                      >
+                        <span className="truncate">{selectedPaymentLabel}</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-64">
+                      <DropdownMenuLabel>{t('reports.paymentMethods')}</DropdownMenuLabel>
+                      <DropdownMenuItem onSelect={() => setSelectedPayments([])}>
+                        <Check
+                          className={cn(
+                            'mr-2 h-4 w-4',
+                            selectedPayments.length === 0 ? 'opacity-100' : 'opacity-0'
+                          )}
+                        />
+                        {t('reports.allPayments')}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      {paymentMethods.map((paymentMethod) => (
+                        <DropdownMenuCheckboxItem
+                          key={paymentMethod}
+                          checked={selectedPayments.includes(paymentMethod)}
+                          onSelect={(event) => event.preventDefault()}
+                          onCheckedChange={(checked) => {
+                            setSelectedPayments((current) => {
+                              const next = checked
+                                ? [...new Set([...current, paymentMethod])]
+                                : current.filter((value) => value !== paymentMethod);
+                              return next.length === paymentMethods.length ? [] : next;
+                            });
+                          }}
+                        >
+                          {t(paymentMethodLabelKeys[paymentMethod])}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </CardContent>
+        </Collapsible>
       </Card>
 
       <div
@@ -1178,13 +1350,16 @@ function OperatorReportingView({
         )}
       </div>
 
-      {grain === 'day' && (
-        <Card className="min-w-0" data-reporting-operator-daily-sales>
+      <Card
+        className="min-w-0"
+        data-reporting-operator-period-summary
+        data-reporting-operator-daily-sales={grain === 'day' ? 'true' : undefined}
+      >
           <CardHeader className="gap-2">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <CardTitle className="text-xl">{t('reports.dailySales')}</CardTitle>
-                <CardDescription>{t('reports.dailySalesDescription')}</CardDescription>
+                <CardTitle className="text-xl">{t(reportSummaryTitleKeys[grain])}</CardTitle>
+                <CardDescription>{t(reportSummaryDescriptionKeys[grain])}</CardDescription>
               </div>
               <Badge
                 variant="outline"
@@ -1202,26 +1377,34 @@ function OperatorReportingView({
             </div>
             {isFetching && !isLoading && (
               <div className="text-sm text-muted-foreground" role="status">
-                {t('reports.updatingDailyTotals')}
+                {t('reports.updatingSalesSummary')}
               </div>
             )}
           </CardHeader>
           <CardContent>
             {isLoading || accessContextFetching ? (
-              <div className="space-y-3" aria-label="Loading daily sales">
+              <div className="space-y-3" aria-label={t('reports.loadingSalesSummary')}>
                 <Skeleton className="h-20 w-full" />
                 <Skeleton className="h-20 w-full" />
                 <Skeleton className="h-20 w-full" />
               </div>
             ) : hasLoadError ? (
               <EmptyPanel
-                title={t('reports.dailySalesUnavailable')}
-                description={t('reports.dailySalesUnavailableDescription')}
+                title={t('reports.salesSummaryUnavailable')}
+                description={t('reports.salesSummaryUnavailableDescription')}
               />
-            ) : dailyRows.length === 0 ? (
+            ) : periodSummaryRows.length === 0 ? (
               <EmptyPanel
-                title={t('reports.chooseValidDateRange')}
-                description={t('reports.chooseValidDateRangeDescription')}
+                title={
+                  grain === 'day'
+                    ? t('reports.chooseValidDateRange')
+                    : t('reports.noSalesFound')
+                }
+                description={
+                  grain === 'day'
+                    ? t('reports.chooseValidDateRangeDescription')
+                    : t('reports.noSalesDescription')
+                }
               />
             ) : (
               <>
@@ -1234,21 +1417,29 @@ function OperatorReportingView({
                         : t('reports.importFreshnessUnavailable')}
                     </AlertTitle>
                     <AlertDescription>
-                      {t('reports.loadedTotalsIncomplete')}
+                      {grain === 'day'
+                        ? t('reports.loadedTotalsIncomplete')
+                        : t('reports.loadedPeriodTotalsIncomplete')}
                     </AlertDescription>
                   </Alert>
                 )}
                 <div className="flex flex-col gap-3 md:hidden">
-                  {dailyRows.map((row) => (
-                    <OperatorDailySalesMobileCard key={row.key} row={row} />
+                  {periodSummaryRows.map((row) => (
+                    <OperatorPeriodSummaryMobileCard
+                      key={row.key}
+                      row={row}
+                      grain={grain}
+                    />
                   ))}
                 </div>
                 <div className="hidden overflow-x-auto md:block">
                   <Table className="min-w-[760px]">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>{t('reports.date')}</TableHead>
-                        <TableHead>{t('reports.status')}</TableHead>
+                        <TableHead>
+                          {grain === 'day' ? t('reports.date') : t('reports.period')}
+                        </TableHead>
+                        {grain === 'day' && <TableHead>{t('reports.status')}</TableHead>}
                         <TableHead className="text-right">{t('reports.netSales')}</TableHead>
                         <TableHead className="text-right">{t('reports.grossSales')}</TableHead>
                         <TableHead className="text-right">{t('reports.refundImpact')}</TableHead>
@@ -1256,20 +1447,23 @@ function OperatorReportingView({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dailyRows.map((row) => (
+                      {periodSummaryRows.map((row) => (
                         <TableRow
                           key={row.key}
-                          data-reporting-daily-row
+                          data-reporting-period-row
+                          data-reporting-daily-row={grain === 'day' ? 'true' : undefined}
                           data-date={row.key}
                         >
                           <TableCell className="font-medium">{row.label}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="whitespace-nowrap font-normal">
-                              {isOperatorDailyRowZero(row)
-                                ? t('reports.noSalesLoaded')
-                                : t('reports.salesRecorded')}
-                            </Badge>
-                          </TableCell>
+                          {grain === 'day' && (
+                            <TableCell>
+                              <Badge variant="outline" className="whitespace-nowrap font-normal">
+                                {isOperatorPeriodSummaryRowZero(row)
+                                  ? t('reports.noSalesLoaded')
+                                  : t('reports.salesRecorded')}
+                              </Badge>
+                            </TableCell>
+                          )}
                           <TableCell className="text-right tabular-nums">
                             {formatCurrency(row.netSalesCents, true)}
                           </TableCell>
@@ -1290,8 +1484,7 @@ function OperatorReportingView({
               </>
             )}
           </CardContent>
-        </Card>
-      )}
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <Card>
@@ -1355,23 +1548,52 @@ function OperatorReportingView({
         </Card>
       </div>
 
-      <Card className="min-w-0">
-        <CardHeader>
-          <CardTitle className="text-xl">{t('reports.reportRows')}</CardTitle>
-          <CardDescription>
-            {t('reports.reportRowsDescription')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {reportRows.length === 0 ? (
-            <EmptyPanel title={t('reports.noRowsFound')} description={t('reports.noRowsDescription')} />
-          ) : (
-            <>
+      <Collapsible
+        open={isDetailedBreakdownOpen}
+        onOpenChange={setIsDetailedBreakdownOpen}
+      >
+        <Card className="min-w-0" data-reporting-operator-detailed-breakdown>
+          <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="text-xl">{t('reports.detailedBreakdown')}</CardTitle>
+                <Badge variant="secondary" className="font-normal">
+                  {t('reports.rowCount', { count: reportRows.length })}
+                </Badge>
+              </div>
+              <CardDescription className="mt-1">
+                {t('reports.detailedBreakdownDescription')}
+              </CardDescription>
+            </div>
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="outline"
+                className="min-h-11 w-full justify-between gap-3 sm:w-auto sm:shrink-0"
+                disabled={reportRows.length === 0}
+                data-reporting-operator-details-toggle
+              >
+                {isDetailedBreakdownOpen
+                  ? t('reports.hideDetailedBreakdown')
+                  : t('reports.viewDetailedBreakdown')}
+                <ChevronDown
+                  className={cn(
+                    'h-4 w-4 transition-transform',
+                    isDetailedBreakdownOpen && 'rotate-180'
+                  )}
+                />
+              </Button>
+            </CollapsibleTrigger>
+          </CardHeader>
+          <CollapsibleContent data-reporting-operator-details-content>
+            <CardContent className="border-t border-border/70 pt-6">
               <div className="flex flex-col gap-3 md:hidden">
                 {reportRows.map((row) => (
                   <OperatorReportRowMobileCard
                     key={`${row.periodStart}-${row.machineId}-${row.paymentMethod}`}
                     row={row}
+                    grain={grain}
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
                   />
                 ))}
               </div>
@@ -1391,7 +1613,14 @@ function OperatorReportingView({
                   <TableBody>
                     {reportRows.map((row) => (
                       <TableRow key={`${row.periodStart}-${row.machineId}-${row.paymentMethod}`}>
-                        <TableCell>{formatDate(row.periodStart)}</TableCell>
+                        <TableCell>
+                          {formatOperatorPeriodLabel(
+                            row.periodStart,
+                            grain,
+                            dateFrom,
+                            dateTo
+                          )}
+                        </TableCell>
                         <TableCell className="font-medium">{row.machineLabel}</TableCell>
                         <TableCell className="text-muted-foreground">
                           {t(paymentMethodLabelKeys[row.paymentMethod])}
@@ -1413,10 +1642,10 @@ function OperatorReportingView({
                   </TableBody>
                 </Table>
               </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       <div className="rounded-lg border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
         {t('reports.updatedAt', {
@@ -3354,22 +3583,31 @@ function MachineSummaryRow({
   );
 }
 
-function OperatorDailySalesMobileCard({ row }: { row: OperatorDailySalesRow }) {
+function OperatorPeriodSummaryMobileCard({
+  row,
+  grain,
+}: {
+  row: OperatorPeriodSummaryRow;
+  grain: ReportGrain;
+}) {
   const { t } = useLanguage();
-  const isZeroSales = isOperatorDailyRowZero(row);
+  const isZeroSales = isOperatorPeriodSummaryRowZero(row);
 
   return (
     <div
       className="rounded-lg border border-border bg-background p-4"
-      aria-label={`${t('reports.dailySales')}: ${row.label}`}
-      data-reporting-daily-row
+      aria-label={`${t(reportSummaryTitleKeys[grain])}: ${row.label}`}
+      data-reporting-period-row
+      data-reporting-daily-row={grain === 'day' ? 'true' : undefined}
       data-date={row.key}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="font-medium text-foreground">{row.label}</div>
-        <Badge variant="outline" className="max-w-full whitespace-normal text-left font-normal leading-snug">
-          {isZeroSales ? t('reports.noSalesLoaded') : t('reports.salesRecorded')}
-        </Badge>
+        {grain === 'day' && (
+          <Badge variant="outline" className="max-w-full whitespace-normal text-left font-normal leading-snug">
+            {isZeroSales ? t('reports.noSalesLoaded') : t('reports.salesRecorded')}
+          </Badge>
+        )}
       </div>
       <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
@@ -3397,14 +3635,25 @@ function OperatorDailySalesMobileCard({ row }: { row: OperatorDailySalesRow }) {
   );
 }
 
-function OperatorReportRowMobileCard({ row }: { row: SalesReportRow }) {
+function OperatorReportRowMobileCard({
+  row,
+  grain,
+  dateFrom,
+  dateTo,
+}: {
+  row: SalesReportRow;
+  grain: ReportGrain;
+  dateFrom: string;
+  dateTo: string;
+}) {
   const { t } = useLanguage();
+  const periodLabel = formatOperatorPeriodLabel(row.periodStart, grain, dateFrom, dateTo);
 
   return (
     <div className="rounded-lg border border-border bg-background p-4">
       <div className="flex flex-col gap-3 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
         <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">{formatDate(row.periodStart)}</div>
+          <div className="text-sm font-medium text-foreground">{periodLabel}</div>
           <div className="mt-1 break-words text-sm text-muted-foreground">
             {row.machineLabel}
           </div>

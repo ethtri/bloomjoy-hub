@@ -1,0 +1,160 @@
+{
+  "issues": [
+    656,
+    657
+  ],
+  "appUrl": "http://127.0.0.1:8097",
+  "fixedNow": "2026-07-22T16:00:00.000Z",
+  "startedAt": "2026-07-23T18:06:36.949Z",
+  "completedAt": "2026-07-23T18:07:18.582Z",
+  "status": "pass",
+  "sanitizedFixtures": true,
+  "checks": [
+    {
+      "name": "Operator-only reporting user cannot see partner controls or revenue-share data",
+      "status": "pass"
+    },
+    {
+      "name": "Operator default toolbar keeps advanced and custom controls out of the primary path",
+      "status": "pass"
+    },
+    {
+      "name": "Operator date-range control keeps all presets and reveals dates only for Custom",
+      "status": "pass"
+    },
+    {
+      "name": "Operator More filters contains visible Daily/Weekly/Monthly and one payment selector",
+      "status": "pass"
+    },
+    {
+      "name": "Operator KPIs, daily totals, and detail rows reconcile exactly",
+      "status": "pass"
+    },
+    {
+      "name": "Operator fresh status is separate from a loaded zero-sales date",
+      "status": "pass"
+    },
+    {
+      "name": "Operator breakdown control supports keyboard focus movement",
+      "status": "pass"
+    },
+    {
+      "name": "Operator summary changes to weekly grouping while retaining reconciled totals",
+      "status": "pass"
+    },
+    {
+      "name": "Operator machine and payment filters scope every total and export",
+      "status": "pass"
+    },
+    {
+      "name": "Operator desktop has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator mobile defaults to compact filters and collapsed detail",
+      "status": "pass"
+    },
+    {
+      "name": "Operator mobile preserves exact daily reconciliation",
+      "status": "pass"
+    },
+    {
+      "name": "Operator mobile is usable at 390px without horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator stale import state remains distinct from loaded zero sales",
+      "status": "pass"
+    },
+    {
+      "name": "Operator unavailable import state remains distinct from loaded zero sales",
+      "status": "pass"
+    },
+    {
+      "name": "Partner all-machines view shows six actions, locations, duplicate-name context, and zero sales",
+      "status": "pass"
+    },
+    {
+      "name": "Partner machine picker becomes searchable at the six-machine threshold",
+      "status": "pass"
+    },
+    {
+      "name": "Partner row action supports keyboard selection and a persistent selected scope",
+      "status": "pass"
+    },
+    {
+      "name": "Corporate Partner hides non-blocking internal notes without false review messaging",
+      "status": "pass"
+    },
+    {
+      "name": "Partner selected-machine KPIs, history, and export retain machine scope",
+      "status": "pass"
+    },
+    {
+      "name": "Partner desktop has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Partner mobile all-machines view preserves location and action context",
+      "status": "pass"
+    },
+    {
+      "name": "Partner mobile selected zero-sales machine keeps scope, history, back action, and no overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Super Admin can open and leave a scoped partner machine drilldown",
+      "status": "pass"
+    },
+    {
+      "name": "Operator compact boundary 360px has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator expanded-filter boundary 360px has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator compact boundary 414px has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Operator expanded-filter boundary 414px has no horizontal overflow",
+      "status": "pass"
+    },
+    {
+      "name": "Partner responsive boundary 414px keeps all-machine and selected-machine scopes in bounds",
+      "status": "pass"
+    },
+    {
+      "name": "Baseline account remains blocked from reporting",
+      "status": "pass"
+    },
+    {
+      "name": "Signed-out reporting route still redirects to login",
+      "status": "pass"
+    },
+    {
+      "name": "No unexpected browser errors occurred",
+      "status": "pass"
+    }
+  ],
+  "browserErrors": [],
+  "error": null,
+  "screenshots": [
+    "operator-custom-date-desktop.png",
+    "operator-detail-expanded-desktop.png",
+    "operator-detail-expanded-mobile-390.png",
+    "operator-filter-default-desktop.png",
+    "operator-filter-default-mobile-390.png",
+    "operator-filter-more-desktop.png",
+    "operator-filter-more-mobile-390.png",
+    "operator-payment-menu-desktop.png",
+    "operator-weekly-summary-desktop.png",
+    "operator-zero-sales-stale-desktop.png",
+    "partner-all-machines-desktop.png",
+    "partner-all-machines-mobile-390.png",
+    "partner-selected-machine-desktop.png",
+    "partner-selected-zero-machine-mobile-390.png"
+  ]
+}
