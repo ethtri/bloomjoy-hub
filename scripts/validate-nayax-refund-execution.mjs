@@ -23,6 +23,9 @@ const files = {
   refundOperationsUi: 'src/pages/admin/Refunds.tsx',
   nayaxCandidateTokenMigration: 'supabase/migrations/202605130001_refund_nayax_lookup_candidate_tokens.sql',
   nayaxRecommendationMigration: 'supabase/migrations/202607210003_refund_nayax_recommendation_state.sql',
+  nayaxExecutionClaimMigration: 'supabase/migrations/202607220002_refund_nayax_execution_claim.sql',
+  nayaxExecutionClaimTest: 'supabase/tests/refund_nayax_execution_claim.sql',
+  nayaxProvider: 'supabase/functions/_shared/nayax-refund-provider.mjs',
 };
 
 const read = (relativePath) =>
@@ -49,6 +52,9 @@ const refundOperationsLib = read(files.refundOperationsLib);
 const refundOperationsUi = read(files.refundOperationsUi);
 const nayaxCandidateTokenMigration = read(files.nayaxCandidateTokenMigration);
 const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
+const nayaxExecutionClaimMigration = read(files.nayaxExecutionClaimMigration);
+const nayaxExecutionClaimTest = read(files.nayaxExecutionClaimTest);
+const nayaxProvider = read(files.nayaxProvider);
 
 assert(
   migration.includes('refund_case_nayax_refund_attempts'),
@@ -88,8 +94,36 @@ assert(
 );
 assert(
   migration.includes('refund_case_nayax_one_live_attempt_per_case_idx') &&
-    migration.includes("status in ('in_progress', 'requested', 'approved', 'succeeded')"),
-  'Nayax attempts must prevent more than one live execution attempt per refund case.'
+    nayaxExecutionClaimMigration.includes('pg_advisory_xact_lock') &&
+    nayaxExecutionClaimMigration.includes("attempt.execution_mode = 'request_and_approve'") &&
+    nayaxExecutionClaimMigration.includes("'ambiguous'") &&
+    nayaxExecutionClaimMigration.includes("'manual_review'") &&
+    nayaxExecutionClaimMigration.includes('for update') &&
+    nayaxExecutionClaimMigration.includes('for share') &&
+    nayaxExecutionClaimMigration.includes('guard_claimed_nayax_refund_evidence') &&
+    nayaxExecutionClaimMigration.includes('p_expected_execution_evidence jsonb') &&
+    nayaxExecutionClaimMigration.includes("'execution_evidence_changed'") &&
+    nayaxExecutionClaimMigration.includes("'executionEvidence'") &&
+    nayaxExecutionClaimTest.includes('Provider transaction and amount evidence is immutable after a claim') &&
+    nayaxExecutionClaimTest.includes('Changed transaction evidence is rejected before any provider claim') &&
+    nayaxExecutionClaimTest.includes('exact locked provider evidence') &&
+    nayaxExecutionClaimMigration.includes('daily_count_cap_exceeded') &&
+    nayaxExecutionClaimMigration.includes('daily_amount_cap_exceeded'),
+  'Nayax attempts must atomically prevent repeat provider calls and enforce caps across confirmed and uncertain outcomes.'
+);
+assert(
+  nayaxExecutionClaimMigration.includes(
+    'revoke execute on function public.service_claim_nayax_refund_execution'
+  ) &&
+    nayaxExecutionClaimMigration.includes('from public, anon, authenticated') &&
+    nayaxExecutionClaimMigration.includes(
+      'grant execute on function public.service_claim_nayax_refund_execution'
+    ) &&
+    nayaxExecutionClaimMigration.includes('to service_role') &&
+    nayaxExecutionClaimTest.includes('A repeated claim creates exactly one provider attempt row') &&
+    nayaxExecutionClaimTest.includes('An ambiguous provider attempt still consumes the daily count cap') &&
+    nayaxExecutionClaimTest.includes('An ambiguous provider attempt still consumes the daily amount cap'),
+  'The atomic claim must be service-role-only and covered by database race and cap safety tests.'
 );
 assert(
   migration.includes('refund_business_fingerprint') &&
@@ -108,8 +142,19 @@ assert(
 );
 assert(
   fn.includes('can_manage_refund_case') &&
+    fn.includes('if (!actorCanManageCase)') &&
+    fn.indexOf('if (!actorCanManageCase)') < fn.indexOf('const idempotencySecret') &&
+    !fn.includes('allBlocks.includes("authorization_failed")') &&
     !fn.includes('actorIsSuperAdmin'),
-  'Nayax execution function must authorize assigned Machine Managers through refund case access, not a super-admin-only UI path.'
+  'Nayax execution must reject unauthorized callers before revealing case state or execution configuration.'
+);
+assert(
+  fn.includes('Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET")') &&
+    fn.includes('idempotencySecret.trim().length < 32') &&
+    fn.includes('buildIdempotencyKeys(refundCase, idempotencySecret)') &&
+    !fn.includes('Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET") ||\n    supabaseServiceRoleKey') &&
+    !fn.includes('"local-dev"'),
+  'Nayax execution must fail closed without a dedicated idempotency secret and may not substitute another server credential.'
 );
 assert(
   fn.includes('refundCase.refund_amount_cents ?? 0') &&
@@ -119,10 +164,32 @@ assert(
   'Nayax execution must use the server-stored refund amount and must not let callers override the execution amount.'
 );
 assert(
-  fn.includes('provider_execution_not_yet_enabled') &&
-    !fn.includes('/payment/refund-request') &&
-    !fn.includes('/payment/refund-approve'),
-  'This release must not call live Nayax refund endpoints.'
+  fn.includes('parseNayaxRefundProviderContract') &&
+    fn.includes('executeNayaxRefundProvider') &&
+    fn.includes('service_claim_nayax_refund_execution') &&
+    fn.includes('provider_outcome_unconfirmed') &&
+    fn.includes('Do not retry') &&
+    !fn.includes('provider_execution_not_yet_enabled') &&
+    nayaxProvider.includes('/payment/${path}') &&
+    nayaxProvider.includes('refund-request') &&
+    nayaxProvider.includes('refund-approve') &&
+    nayaxProvider.includes('IsRefundedExternally: false'),
+  'The provider adapter must use the two-step Nayax flow only after an atomic claim and stop uncertain outcomes from being retried.'
+);
+assert(
+  nayaxProvider.includes('exact Result and Status pair') &&
+    nayaxProvider.includes('authorizationMode must be bearer or raw') &&
+    nayaxProvider.includes('outcome = "unknown"') &&
+    nayaxProvider.includes('payloadRedacted: true') &&
+    fn.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON') &&
+    fn.includes('NAYAX_REFUND_PROVIDER_TIMEOUT_MS') &&
+    fn.includes('NAYAX_REFUND_API_TOKEN_${normalizedAccountKey}') &&
+    !fn.includes('NAYAX_LYNX_API_TOKEN_') &&
+    !fn.includes('Deno.env.get("NAYAX_LYNX_API_TOKEN")') &&
+    fn.includes('requireClaimedExecutionEvidence') &&
+    fn.includes('expectedExecutionEvidence') &&
+    fn.includes('provider_configuration_invalid'),
+  'Nayax success must use an explicit account contract, a dedicated write credential, and exact database-claimed evidence.'
 );
 assert(
   fn.includes('card_wallet_used') &&
@@ -139,11 +206,19 @@ assert(
 assert(
   envExample.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH=true') &&
     envExample.includes('NAYAX_REFUND_EXECUTION_DRY_RUN=true') &&
-    envExample.includes('NAYAX_REFUND_EXECUTION_ENABLED=false'),
+    envExample.includes('NAYAX_REFUND_EXECUTION_ENABLED=false') &&
+    envExample.includes('NAYAX_REFUND_API_TOKEN_TGPACI_USA_DB=') &&
+    envExample.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON=') &&
+    envExample.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET=') &&
+    envExample.includes('NAYAX_REFUND_PROVIDER_TIMEOUT_MS=10000'),
   '.env.example must document fail-closed Nayax refund defaults.'
 );
 assert(
   preflight.includes('NAYAX_REFUND_EXECUTION_KILL_SWITCH') &&
+    preflight.includes('parseNayaxRefundProviderContract') &&
+    preflight.includes('NAYAX_REFUND_API_TOKEN_') &&
+    preflight.includes('NAYAX_REFUND_PROVIDER_CONTRACT_JSON') &&
+    preflight.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET must contain at least 32 characters') &&
     preflight.includes('REFUND_AUTOMATION_SWEEP_SECRET'),
   'Commerce preflight must validate refund automation configuration.'
 );
@@ -184,6 +259,12 @@ assert(
   !refundOperationsUi.includes('candidate.transactionId') &&
     !refundOperationsUi.includes('matchedNayaxTransactionId'),
   'Browser refund UI must not store or submit raw Nayax transaction IDs.'
+);
+assert(
+  !fn.includes('providerReference') &&
+    !refundOperationsLib.includes('providerReference') &&
+    !refundOperationsUi.includes('providerReference'),
+  'Provider refund references must remain server-only and must not appear in Edge responses or browser contracts.'
 );
 assert(
   fn.includes('nayax_recommendation_state !== "high_confidence"') &&

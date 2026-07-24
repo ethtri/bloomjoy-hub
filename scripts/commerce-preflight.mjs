@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { parseNayaxRefundProviderContract } from '../supabase/functions/_shared/nayax-refund-provider.mjs';
 
 const DEFAULTS = {
   envFiles: ['.env', '.env.local'],
@@ -286,6 +287,48 @@ function run() {
       warnings.push(
         'NAYAX_REFUND_EXECUTION_KILL_SWITCH is not true. Live card refund execution must stay disabled until explicit go/no-go.'
       );
+    }
+
+    const executionEnabled =
+      String(env.NAYAX_REFUND_EXECUTION_ENABLED || '').trim().toLowerCase() === 'true';
+    const providerContractConfirmed =
+      String(env.NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED || '')
+        .trim()
+        .toLowerCase() === 'true';
+    const refundWriteTokenKeys = Object.keys(env).filter(
+      (key) =>
+        /^NAYAX_REFUND_API_TOKEN_[A-Z0-9_]+$/.test(key) &&
+        String(env[key] || '').trim() !== ''
+    );
+    const idempotencySecret = String(env.NAYAX_REFUND_IDEMPOTENCY_SECRET || '');
+    const providerContractJson = String(env.NAYAX_REFUND_PROVIDER_CONTRACT_JSON || '').trim();
+    if (idempotencySecret && idempotencySecret.trim().length < 32) {
+      errors.push('NAYAX_REFUND_IDEMPOTENCY_SECRET must contain at least 32 characters.');
+    }
+    if ((executionEnabled || providerContractConfirmed) && refundWriteTokenKeys.length === 0) {
+      errors.push(
+        'An account-scoped NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY> write credential is required before Nayax refund execution or provider-contract confirmation can be enabled.'
+      );
+    }
+    if ((executionEnabled || providerContractConfirmed) && !providerContractJson) {
+      errors.push(
+        'NAYAX_REFUND_PROVIDER_CONTRACT_JSON is required before Nayax refund execution or provider-contract confirmation can be enabled.'
+      );
+    }
+    if (providerContractJson) {
+      try {
+        parseNayaxRefundProviderContract(providerContractJson);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`NAYAX_REFUND_PROVIDER_CONTRACT_JSON is invalid: ${message}`);
+      }
+    }
+
+    if (env.NAYAX_REFUND_PROVIDER_TIMEOUT_MS) {
+      const timeoutMs = Number(env.NAYAX_REFUND_PROVIDER_TIMEOUT_MS);
+      if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 20000) {
+        errors.push('NAYAX_REFUND_PROVIDER_TIMEOUT_MS must be an integer from 1000 to 20000.');
+      }
     }
   }
 

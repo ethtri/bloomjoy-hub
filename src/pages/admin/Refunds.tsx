@@ -1172,6 +1172,20 @@ const nayaxExecutionBlockLabel = (block: string) => {
       return 'Execution approval or configuration is missing.';
     case 'provider_contract_unconfirmed':
       return 'Bloomjoy has not confirmed the live card-refund contract yet.';
+    case 'provider_configuration_invalid':
+      return 'The Nayax refund connection is incomplete or does not match the approved settings.';
+    case 'execution_evidence_changed':
+      return 'The matched transaction changed before the refund could start. Refresh the case and review it again.';
+    case 'provider_outcome_unconfirmed':
+      return 'Nayax did not confirm the outcome. Do not retry this refund until it is reconciled in Nayax.';
+    case 'provider_request_rejected':
+      return 'Nayax rejected the refund request. Review the Nayax record before taking another action.';
+    case 'provider_approval_rejected':
+      return 'Nayax did not approve the refund. Review the Nayax record before taking another action.';
+    case 'provider_duplicate':
+      return 'Nayax reported a possible duplicate. Review the transaction before taking another action.';
+    case 'provider_already_refunded':
+      return 'Nayax reported that this transaction may already be refunded.';
     case 'authorization_failed':
       return 'Your account is not authorized to run this card refund.';
     case 'already_refunded':
@@ -1200,11 +1214,9 @@ const getNayaxExecutionReference = (result: NayaxCardRefundExecutionResponse) =>
 
   return typeof executionRecord.refundReference === 'string'
     ? executionRecord.refundReference
-    : typeof executionRecord.providerReference === 'string'
-      ? executionRecord.providerReference
-      : typeof executionRecord.manualRefundReference === 'string'
-        ? executionRecord.manualRefundReference
-        : null;
+    : typeof executionRecord.manualRefundReference === 'string'
+      ? executionRecord.manualRefundReference
+      : null;
 };
 
 const alignDecisionForStatus = (status: RefundCaseStatus, currentDecision: RefundDecision): RefundDecision => {

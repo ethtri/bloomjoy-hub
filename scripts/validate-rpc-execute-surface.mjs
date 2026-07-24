@@ -65,6 +65,11 @@ const serviceRoleOnlyFunctions = [
     migrationName: '202605120002_refund_full_automation_foundation.sql',
   },
   {
+    signature: 'public.service_claim_nayax_refund_execution(uuid, uuid, text, integer, integer, text, text, jsonb)',
+    name: 'service_claim_nayax_refund_execution',
+    migrationName: '202607220002_refund_nayax_execution_claim.sql',
+  },
+  {
     signature: 'public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)',
     name: 'admin_update_refund_case',
     migrationName: '202605120002_refund_full_automation_foundation.sql',

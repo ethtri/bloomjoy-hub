@@ -35,11 +35,12 @@ Set the following values before launch.
 | `WECOM_ALERT_TO_USERIDS` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom recipient user IDs (comma-separated) | Release owner |
 | `SUPABASE_URL` | Server-only | Stripe/order/support Edge Functions, `refund-adjustment-sync`, `refund-case-intake`, `refund-case-admin-update`, `refund-case-message-send`, `refund-case-automation-sweep`, `nayax-transaction-lookup`, `nayax-card-refund` | Supabase project URL | Technical owner |
 | `SUPABASE_ANON_KEY` | Server-only | `stripe-sugar-checkout`, `stripe-plus-checkout`, `stripe-customer-portal` | Supabase project anon key | Technical owner |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake`, `access-invite`, `refund-adjustment-sync`, `refund-case-intake`, `refund-case-admin-update`, `refund-case-message-send`, `refund-case-automation-sweep`, `nayax-transaction-lookup` | Supabase service role key | Technical owner |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only | `stripe-webhook`, `stripe-sugar-checkout`, `lead-submission-intake`, `support-request-intake`, `access-invite`, `refund-adjustment-sync`, `refund-case-intake`, `refund-case-admin-update`, `refund-case-message-send`, `refund-case-automation-sweep`, `nayax-transaction-lookup`, `nayax-card-refund` | Supabase service role key | Technical owner |
 | `PUBLIC_INTAKE_ABUSE_HASH_SALT` | Server-only | `refund-case-intake` | Generated server-only salt | Technical owner |
 | `NAYAX_LYNX_BASE_URL` | Server-only | `nayax-transaction-lookup` | `https://lynx.nayax.com/operational/v1` | Technical owner |
-| `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` | Server-only | `nayax-transaction-lookup` | Nayax Lynx token for TGPACI USA DB | Technical owner |
-| `NAYAX_LYNX_API_TOKEN` | Server-only fallback | `nayax-transaction-lookup` | Fallback Nayax Lynx token only when account-specific token names are not used | Technical owner |
+| `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` | Server-only | `nayax-transaction-lookup` | Nayax Lynx reporting/read token for TGPACI USA DB; never reused for refund writes | Technical owner |
+| `NAYAX_LYNX_API_TOKEN` | Server-only fallback | `nayax-transaction-lookup` | Fallback Nayax Lynx reporting/read token only | Technical owner |
+| `NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY>` | Server-only | `nayax-card-refund` | Exact account-scoped refund-write token; no reporting-token or cross-account fallback | Technical owner |
 | `NAYAX_LOOKUP_WINDOW_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `6`; conservative card lookup window around reported incident time | Release owner |
 | `REFUND_NAYAX_CANDIDATE_TTL_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `24`; tokenized evidence review window | Release owner |
 | `REFUND_REPLY_TO_EMAIL` | Server-only | Refund customer email functions | Default `info@bloomjoysweets.com`; customer replies during pilot | Release owner |
@@ -48,10 +49,12 @@ Set the following values before launch.
 | `NAYAX_REFUND_EXECUTION_KILL_SWITCH` | Server-only | `nayax-card-refund` | Keep `true` except during approved execution pilot | Release owner |
 | `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` | Server-only | `nayax-card-refund` | Leave unset during shadow-mode setup; set only after sponsor approval for live execution | Release owner |
 | `NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED` | Server-only | `nayax-card-refund` | Set only after Nayax refund endpoint contract is validated | Technical owner |
+| `NAYAX_REFUND_PROVIDER_CONTRACT_JSON` | Server-only | `nayax-card-refund` | Exact account-validated authorization mode, request settings, and `Result`/`Status` outcome pairs; leave unset until QA evidence is approved | Technical owner |
+| `NAYAX_REFUND_PROVIDER_TIMEOUT_MS` | Server-only | `nayax-card-refund` | Default `10000`; permitted range 1000–20000 ms | Technical owner |
 | `NAYAX_REFUND_MAX_AMOUNT_CENTS` | Server-only | `nayax-card-refund` | Global per-refund cap for first execution pilot | Release owner |
 | `NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS` | Server-only | `nayax-card-refund` | Global daily amount cap for first execution pilot | Release owner |
 | `NAYAX_REFUND_DAILY_COUNT_CAP` | Server-only | `nayax-card-refund` | Global daily count cap for first execution pilot | Release owner |
-| `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Generated HMAC secret for execution idempotency | Technical owner |
+| `NAYAX_REFUND_IDEMPOTENCY_SECRET` | Server-only | `nayax-card-refund` | Dedicated generated HMAC secret of at least 32 characters; never reuse another service credential | Technical owner |
 | `REFUND_AUTOMATION_SWEEP_SECRET` | Server-only | `refund-case-automation-sweep` | Scheduler secret; may match `REPORT_SCHEDULER_SECRET` | Technical owner |
 | `REFUND_AUTOMATION_ENABLED` | Server-only | `refund-case-automation-sweep` | Default `false`; set `true` only after synthetic manual-run and alert proof | Release owner |
 | `REFUND_AUTOMATION_TIMEZONE` | Server-only | `refund-case-automation-sweep` | Customer-contact policy timezone; default `America/Los_Angeles` | Release owner |
@@ -167,6 +170,7 @@ supabase secrets set NAYAX_REFUND_EXECUTION_ENABLED=false
 supabase secrets set NAYAX_REFUND_EXECUTION_DRY_RUN=true
 supabase secrets set NAYAX_REFUND_EXECUTION_KILL_SWITCH=true
 supabase secrets set NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED=false
+supabase secrets set NAYAX_REFUND_PROVIDER_TIMEOUT_MS=10000
 supabase secrets set NAYAX_REFUND_MAX_AMOUNT_CENTS=1000
 supabase secrets set NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS=5000
 supabase secrets set NAYAX_REFUND_DAILY_COUNT_CAP=10
@@ -174,7 +178,7 @@ supabase secrets set NAYAX_REFUND_IDEMPOTENCY_SECRET=...
 supabase secrets set REFUND_AUTOMATION_SWEEP_SECRET=...
 ```
 
-Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO` during shadow-mode setup. It stays unset until a separate live card-refund execution pilot is explicitly approved.
+Do not set `NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO`, `NAYAX_REFUND_PROVIDER_CONTRACT_JSON`, or any `NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY>` write credential during shadow-mode setup. The sponsor value stays unset until a separate live card-refund execution pilot is explicitly approved. The provider contract and separate write credential stay unset until Nayax QA evidence confirms account write authority, the amount unit, email-list behavior, and exact `Result`/`Status` pairs for every configured outcome.
 
 Gmail and GPT credentials are enablement-time secrets, not prerequisites for the initial all-switches-off core deployment. Do not configure Gmail OAuth/mailbox secrets before the approvals in `#634`, and do not configure the production OpenAI key before the privacy/data-control approval in `#635`. Both functions deploy safely without provider credentials and remain inaccessible/disabled until their dedicated scheduler secret and enablement gates are configured.
 
@@ -283,6 +287,17 @@ npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-p
 ```
 
 The discovery audit passes only when a manager-only identity has at least one shadow-ready assignment. The cohort audit passes only when an identity has no broader access or assignments outside the supplied pilot set and every assigned pilot machine is shadow-ready. Keep identity selection private and post counts only in `#435`.
+
+Controlled Nayax execution validation:
+- Keep the execution switch off, dry-run on, and kill switch on while deploying the adapter and atomic database claim. The deployed function must continue to fail closed without making a provider request.
+- Use only a separately named `NAYAX_REFUND_API_TOKEN_<ACCOUNT_KEY>` credential with confirmed request-and-approve permission. The function must fail closed if that exact account credential is absent and must never fall back to a reporting token or another account.
+- Use a dedicated `NAYAX_REFUND_IDEMPOTENCY_SECRET` of at least 32 characters. The function must fail closed if it is absent or too short and must never substitute the Supabase service key or another credential.
+- In Nayax QA, capture sanitized evidence for the request and approval calls. Record only HTTP status plus `Result` and `Status`; do not record raw payloads, tokens, transaction IDs, site IDs, machine times, or customer data.
+- Encode the confirmed raw-key or bearer authorization mode and only the approved exact pairs in `NAYAX_REFUND_PROVIDER_CONTRACT_JSON`, validate it locally with `npm run commerce:preflight -- --include-refunds`, and record the approved contract version in `#430`.
+- Run `npm run refunds:validate-nayax-provider`, `npm run refunds:validate-nayax-execution`, and `npm run db:validate-migrations`. Require the synthetic two-step success, unfamiliar-response stop, non-success HTTP stop, no-redirect token protection, separate write credential, authorization fail-closed behavior, exact locked-evidence claim, parallel safety, and daily cap tests to pass.
+- For the sponsor-approved, low-value production smoke only, select one allowlisted machine and one exact, manager-confirmed card transaction. Record the caps and reconciliation owner in `#430`, then change the four execution gates only for the bounded test window.
+- A confirmed request followed by a rejected, pending, timed-out, unfamiliar, or unrecordable approval is not success. Leave the case open, suppress the customer success email and reporting adjustment, do not click again, and reconcile in Nayax Dynamic Transactions Monitor.
+- After the smoke, restore the kill switch first, then disable execution, return dry-run to true, and clear the sponsor and contract-confirmed acknowledgements. Preserve the attempt audit row and post only sanitized outcome evidence.
 
 Supabase function version numbers are audit evidence, not rollback targets. A rollback redeploy creates a new version number.
 The manifest's `sourceGitCommit` is checked against every function's transitive source. `preDeploymentProduction` records the exact live baseline, including missing functions. `approvedRestoreSource` validates the immutable known-good source for every existing core function; newly introduced disable-only functions such as `refund-gmail-sync` and `refund-gpt-triage` record `restoreAction=disable` and use their documented switch-off procedures instead of pretending an older deployed source existed.

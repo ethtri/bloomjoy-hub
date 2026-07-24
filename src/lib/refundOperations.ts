@@ -454,7 +454,13 @@ export type NayaxCardRefundExecutionErrorCode =
   | 'already_refunded'
   | 'amount_cap_exceeded'
   | 'provider_contract_unconfirmed'
-  | 'provider_execution_not_yet_enabled'
+  | 'provider_configuration_invalid'
+  | 'execution_evidence_changed'
+  | 'provider_outcome_unconfirmed'
+  | 'provider_request_rejected'
+  | 'provider_approval_rejected'
+  | 'provider_duplicate'
+  | 'provider_already_refunded'
   | (string & {});
 
 export type NayaxCardRefundExecutionStatus =
@@ -466,6 +472,7 @@ export type NayaxCardRefundExecutionStatus =
   | 'declined'
   | 'succeeded'
   | 'failed'
+  | 'ambiguous'
   | (string & {});
 
 export type ExecuteNayaxCardRefundInput = {
@@ -482,7 +489,6 @@ export type NayaxCardRefundExecutionResponse = {
   dryRun?: boolean;
   killSwitchActive?: boolean;
   refundReference?: string | null;
-  providerReference?: string | null;
   manualRefundReference?: string | null;
 };
 
