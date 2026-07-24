@@ -40,6 +40,7 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 ### Safety and access
 
 - [ ] `#430` records the approved Nayax provider fields and semantics for a stable machine/site identity and a confirmed successful sale, or explicitly approves a safe substitute contract.
+- [ ] The read-only production matcher shadow emits aggregate-only evidence with zero writes/refund calls. Negative `no_safe_match` evidence is kept separate from the required recent positive high-confidence case.
 - [ ] The global kill switch, execution-enabled flag, dry-run flag, sponsor flag, caps, machine allowlist, and idempotency controls are checked by name and expected state without printing values.
 - [ ] A clean authenticated manager from `#435` sees only assigned machines/cases and cannot reach Admin setup, unrelated cases, provider secrets, or raw payloads.
 - [ ] The selected machines and named managers are recorded in `#427`; broader fleet access remains off.
@@ -72,7 +73,7 @@ This is a release-safety sample, not a statistical accuracy claim.
 
 | Lane | Minimum proof | Pass condition |
 |---|---|---|
-| Ordinary card | Five high-confidence cases across at least two approved locations | Intended sale ranks first; manager agrees or records a structured disagreement; one primary action is shown; no manual status editing is required |
+| Ordinary card | Read-only production shadow plus five high-confidence cases across at least two approved locations | Shadow output contains no raw identifiers/customer/card details or writes; intended sale ranks first; manager agrees or records a structured disagreement; one primary action is shown; no manual status editing is required |
 | Card safety | One each for ambiguous, no-safe-match, wallet/manual, provider anomaly, duplicate/already-refunded, and provider-outcome-unknown | No unsafe case exposes an enabled refund action or sends a completion email |
 | Controlled Nayax execution | One approved low-value test only after `#430` sponsor approval | Exactly one provider attempt; provider-confirmed success precedes completion and customer email; retry/double-click creates no second attempt |
 | Cash/manual payout | Two matched cases plus one missing-information or denied case | One primary next action; amount cannot exceed recorded payment; non-sensitive reference only; double-submit creates no duplicate event/email/adjustment |
