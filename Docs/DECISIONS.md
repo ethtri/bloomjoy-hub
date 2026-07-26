@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-07-26 - Machine QR and confidence-gated refund identification (`#661`)
+Bloomjoy will use a machine-specific QR code and conservative transaction matching to improve refund identification without pretending that card digits or customer-reported time are always reliable.
+
+**Canonical behavior**
+- Each participating machine has an opaque, rotatable refund QR identifier. Opening the QR route creates a short-lived server-side claim context containing the resolved machine and server-recorded open time; browser time is not trusted.
+- The customer still provides approximate incident time, amount, payment method, and card last four. Apple Pay/mobile-wallet customers are told to provide the virtual last four shown in the wallet, which may differ from the physical card and may not reliably correlate to Nayax.
+- A transaction is recommended only when approved, versioned rules leave one plausible safe candidate. A matching last four can support a strong-card result; unique machine, exact-amount, reported-time, and QR-time evidence may support a recommendation when wallet digits do not correlate. Two plausible candidates means no recommendation.
+- Recommendation confidence is advisory. It does not prove a delivery failure, approve a refund, or enable payment execution. Managers remain the business approver, and any wallet refund stays outside live in-app execution unless the separate Nayax gate in `#430` is approved.
+- The first rollout is a shadow pilot for the approved Commercial/Mini cohort. Snapcase remains out of scope until its payment and sales source of truth is modeled.
+- Alternative compensation for unmatched wallet/contactless and cash claims remains TBD in `#666`. This decision does not select Nayax/Monyx, a gift-card provider, or a Bloomjoy stored-value platform.
+- The deployed policy in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` remains unchanged until the implementation issues are merged, tested, and deployed. The target behavior and issue sequence live in `Docs/REFUND_IDENTIFICATION_STRATEGY.md`.
+
+**Why this choice**
+- Contactless and wallet card digits may not be a stable key, while customer-reported time alone is too imprecise for machines with frequent same-price transactions.
+- A machine-specific server timestamp adds useful evidence without claiming more certainty than the data provides.
+- Separating identification, approval, and execution prevents an ambiguous match from becoming an unsafe payment action.
+
 ## 2026-07-21 - GPT refund triage is narrow, minimized, and always human-reviewed (`#635`)
 Bloomjoy may use GPT to reduce the time spent collecting missing refund details, but the assistance remains subordinate to the manager workflow and cannot make payment decisions.
 
