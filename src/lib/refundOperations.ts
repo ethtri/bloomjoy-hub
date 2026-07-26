@@ -36,6 +36,14 @@ export type RefundMachineOption = {
   locationTimezone: string;
 };
 
+export type RefundQrClaim = {
+  claimToken: string;
+  openedAt: string;
+  expiresAt: string;
+  ttlMinutes: number;
+  machine: RefundMachineOption;
+};
+
 type RefundMachineOptionRpc = {
   machine_id: string;
   machine_label: string;
@@ -53,6 +61,7 @@ export type RefundAttachmentInput = {
 
 export type SubmitRefundRequestInput = {
   machineId: string;
+  qrClaimToken?: string;
   customerName?: string;
   customerEmail: string;
   customerPhone?: string;
@@ -77,6 +86,12 @@ export type SubmitRefundRequestResponse = {
     status: RefundCaseStatus;
     correlationStatus: RefundCorrelationStatus;
   };
+};
+
+type StartRefundQrClaimResponse = {
+  error?: string;
+  errorCode?: string;
+  qrClaim?: RefundQrClaim;
 };
 
 export type RefundCaseAttachment = {
@@ -518,6 +533,19 @@ export const fetchRefundMachineOptions = async (): Promise<RefundMachineOption[]
     locationName: record.location_name,
     locationTimezone: record.location_timezone,
   }));
+};
+
+export const startRefundQrClaim = async (qrCode: string): Promise<RefundQrClaim> => {
+  const data = await invokeEdgeFunction<StartRefundQrClaimResponse>('refund-case-intake', {
+    action: 'startQrClaim',
+    qrCode,
+  });
+
+  if (!data.qrClaim) {
+    throw new Error(data.error || 'Unable to verify this machine refund code.');
+  }
+
+  return data.qrClaim;
 };
 
 export const submitRefundRequest = async (

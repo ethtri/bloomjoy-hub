@@ -90,6 +90,27 @@ export const PUBLIC_INTAKE_NOTIFICATION_LIMITS: PublicIntakeLimitRule[] = [
   },
 ];
 
+export const PUBLIC_REFUND_QR_CLAIM_LIMITS: PublicIntakeLimitRule[] = [
+  {
+    eventScope: "submission",
+    keyType: "global",
+    maxCount: 1000,
+    windowSeconds: 60 * 60,
+  },
+  {
+    eventScope: "submission",
+    keyType: "ip",
+    maxCount: 60,
+    windowSeconds: 60 * 60,
+  },
+  {
+    eventScope: "submission",
+    keyType: "source",
+    maxCount: 1000,
+    windowSeconds: 60 * 60,
+  },
+];
+
 const textEncoder = new TextEncoder();
 
 const bytesToHex = (bytes: Uint8Array): string =>
@@ -135,6 +156,7 @@ export const normalizePublicIntakeSource = (sourcePage: string): string => {
   if (path.startsWith("/plus")) return "/plus";
   if (path.startsWith("/resources")) return "/resources";
   if (path.startsWith("/about")) return "/about";
+  if (path.startsWith("/refunds")) return "/refunds";
 
   return "unknown";
 };

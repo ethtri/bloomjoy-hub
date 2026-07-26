@@ -61,6 +61,7 @@
    - Audited, idempotent cash refund completion: `supabase/migrations/202607210004_refund_cash_completion_audit.sql`
    - Refund automation run/action ledger and manager health: `supabase/migrations/202607210005_refund_automation_scheduler_health.sql`
    - Gmail refund draft/thread linkage, quarantine metadata, health, and retention: `supabase/migrations/202607210006_refund_gmail_thread_linkage.sql`
+   - Machine QR identifiers and short-lived server-timestamped refund claim contexts: `supabase/migrations/202607260001_refund_qr_claim_context.sql`
    - Scoped Admin entitlements: `supabase/migrations/202604270004_scoped_admin_entitlements.sql`
    - Technician entitlement resolver production repair: `supabase/migrations/202604270006_restore_technician_entitlement_resolution_rpc.sql`
    - Scoped Admin reporting visibility repair: `supabase/migrations/202604280008_scoped_admin_reporting_visibility.sql`
@@ -272,6 +273,9 @@ Steps:
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
    - `RF-UAT-CASH`: correlated cash/Zelle path marked completed with reporting write-through evidence.
 5) Open `/refunds/request?demo=on` separately to review the public customer intake form against synthetic location/machine options without creating a real case.
+   - Open `/refunds/request?demo=on&qr=synthetic_refund_qr_code_000000001` to review the locked-machine QR treatment and server-opened-time copy without creating a claim or case.
+   - Run `npm run refunds:validate-qr-claim` and `npm run db:validate-migrations` for token, RLS, expiry, tamper, rotation, single-use, duplicate, and direct-intake safety checks.
+   - Run `npm run refunds:validate-qr-intake-uat -- --app-url http://127.0.0.1:8081` for mocked desktop/mobile QR, refresh, wallet, manual, unavailable, expired/tampered-submit, and network-failure browser evidence.
 6) Run the mocked refund-only portal QA harness against the running app:
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081`
    - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data. Its `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.

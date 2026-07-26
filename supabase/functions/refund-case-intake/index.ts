@@ -20,9 +20,16 @@ import {
   PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
   PUBLIC_INTAKE_NOTIFICATION_LIMITS,
   PUBLIC_INTAKE_SUBMISSION_LIMITS,
+  PUBLIC_REFUND_QR_CLAIM_LIMITS,
   sanitizePublicIntakeSourcePage,
   type PublicIntakeAbuseSupabaseClient,
 } from "../_shared/public-intake-abuse-controls.ts";
+import {
+  createRefundQrClaimToken,
+  hashRefundQrClaimToken,
+  isRefundQrOpaqueToken,
+  REFUND_QR_CLAIM_TTL_MINUTES,
+} from "../_shared/refund-qr-claim.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -49,6 +56,13 @@ type PreparedRefundAttachment = {
   fileName: string;
   contentType: string;
   bytes: Uint8Array;
+};
+
+type VerifiedRefundQrClaim = {
+  id: string;
+  reportingMachineId: string;
+  openedAt: string;
+  expiresAt: string;
 };
 
 class RequestValidationError extends Error {}
@@ -211,7 +225,7 @@ const buildCustomerEmail = ({
     ? `We need one more detail for your Bloomjoy refund request ${publicReference}`
     : `We received your Bloomjoy refund request ${publicReference}`;
   const nextStep = needsMoreInfo
-    ? "We could not confidently match the request to a machine transaction yet. Please reply to this email with any extra details you have, such as the exact purchase time, the amount charged, the last 4 digits shown on the receipt, or a photo of the machine/payment screen."
+    ? "We could not confidently match the request to a machine transaction yet. Please reply to this email with any extra details you have, such as the exact purchase time, the amount charged, the virtual last 4 shown in Apple Pay or your mobile wallet when one was used, or a photo of the machine/payment screen. The wallet digits may differ from the physical card."
     : "Our team will review the transaction details and follow up as soon as we have the next step.";
   const safeGreeting = escapeHtml(greeting);
   const safeReference = escapeHtml(publicReference);
@@ -516,6 +530,221 @@ const uploadAttachments = async (
   return uploaded;
 };
 
+const refundQrUnavailableResponse = () =>
+  new Response(
+    JSON.stringify({
+      error:
+        "This machine's refund code is no longer available. Please use the regular refund form.",
+      errorCode: "refund_qr_unavailable",
+    }),
+    {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+
+const startRefundQrClaim = async (
+  req: Request,
+  body: Record<string, unknown>,
+) => {
+  if (!supabase) {
+    throw new Error("Refund intake is not configured.");
+  }
+
+  const qrCode = sanitizeText(body.qrCode, 80);
+  if (!isRefundQrOpaqueToken(qrCode)) {
+    return refundQrUnavailableResponse();
+  }
+
+  const sourcePage = sanitizePublicIntakeSourcePage(
+    "/refunds/request?qr=present",
+  );
+  const keyHashes = await buildPublicIntakeKeyHashes({
+    salt: getAbuseControlSalt(),
+    ip: getPublicIntakeClientIp(req),
+    email: "refund-qr-claim",
+    sourcePage,
+  });
+  const claimLimitResult = await checkPublicIntakeRateLimits({
+    supabase: supabase as unknown as PublicIntakeAbuseSupabaseClient,
+    keyHashes,
+    rules: PUBLIC_REFUND_QR_CLAIM_LIMITS,
+  });
+
+  if (!claimLimitResult.allowed) {
+    console.warn("Public refund QR claim throttled.", claimLimitResult.reason);
+    return new Response(
+      JSON.stringify({
+        error: "Too many attempts. Please wait and scan the refund code again.",
+        errorCode: "refund_qr_rate_limited",
+      }),
+      {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  const { data: qrCodeRow, error: qrCodeError } = await supabase
+    .from("refund_machine_qr_codes")
+    .select("id, reporting_machine_id")
+    .eq("public_code", qrCode)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (qrCodeError) {
+    throw qrCodeError;
+  }
+
+  if (!qrCodeRow) {
+    return refundQrUnavailableResponse();
+  }
+
+  const { data: machine, error: machineError } = await supabase
+    .from("reporting_machines")
+    .select(
+      "id, machine_label, machine_type, location_id, refund_public_display_label, reporting_locations(id, name, timezone, status)",
+    )
+    .eq("id", qrCodeRow.reporting_machine_id)
+    .eq("status", "active")
+    .in("machine_type", ["commercial", "mini"])
+    .eq("refund_intake_enabled", true)
+    .single();
+
+  if (machineError || !machine) {
+    return refundQrUnavailableResponse();
+  }
+
+  const machineRecord = machine as unknown as {
+    id: string;
+    machine_label: string;
+    machine_type: string;
+    location_id: string;
+    refund_public_display_label: string | null;
+    reporting_locations?:
+      | { id: string; name: string; timezone: string; status: string }
+      | { id: string; name: string; timezone: string; status: string }[]
+      | null;
+  };
+  const locationRecord = Array.isArray(machineRecord.reporting_locations)
+    ? machineRecord.reporting_locations[0] ?? null
+    : machineRecord.reporting_locations ?? null;
+
+  if (locationRecord?.status !== "active") {
+    return refundQrUnavailableResponse();
+  }
+
+  if (
+    (!locationRecord.name || isPlaceholderRefundLocation(locationRecord.name)) &&
+    !machineRecord.refund_public_display_label?.trim()
+  ) {
+    return refundQrUnavailableResponse();
+  }
+
+  const publicLabels = resolveRefundPublicLabels({
+    locationName: locationRecord.name,
+    publicMachineLabel: machineRecord.refund_public_display_label,
+    machineLabel: machineRecord.machine_label,
+  });
+
+  let claimToken = "";
+  let insertedClaim:
+    | { id: string; opened_at: string; expires_at: string }
+    | null = null;
+
+  for (let attempt = 0; attempt < 2 && !insertedClaim; attempt += 1) {
+    claimToken = createRefundQrClaimToken();
+    const claimTokenHash = await hashRefundQrClaimToken(claimToken);
+    const { data, error } = await supabase
+      .from("refund_qr_claim_contexts")
+      .insert({
+        qr_code_id: qrCodeRow.id,
+        reporting_machine_id: machineRecord.id,
+        claim_token_hash: claimTokenHash,
+      })
+      .select("id, opened_at, expires_at")
+      .single();
+
+    if (!error && data) {
+      insertedClaim = data;
+      break;
+    }
+
+    if (error?.code !== "23505") {
+      throw error ?? new Error("Unable to start refund QR claim.");
+    }
+  }
+
+  if (!insertedClaim || !claimToken) {
+    throw new Error("Unable to start refund QR claim.");
+  }
+
+  return new Response(
+    JSON.stringify({
+      qrClaim: {
+        claimToken,
+        openedAt: insertedClaim.opened_at,
+        expiresAt: insertedClaim.expires_at,
+        ttlMinutes: REFUND_QR_CLAIM_TTL_MINUTES,
+        machine: {
+          machineId: machineRecord.id,
+          machineLabel: publicLabels.machineLabel,
+          locationId: machineRecord.location_id,
+          locationName: publicLabels.locationName,
+          locationTimezone: locationRecord.timezone,
+        },
+      },
+    }),
+    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
+};
+
+const resolveRefundQrClaim = async (
+  claimToken: string,
+): Promise<VerifiedRefundQrClaim | null> => {
+  if (!supabase || !isRefundQrOpaqueToken(claimToken)) {
+    return null;
+  }
+
+  const claimTokenHash = await hashRefundQrClaimToken(claimToken);
+  const { data: claim, error: claimError } = await supabase
+    .from("refund_qr_claim_contexts")
+    .select(
+      "id, qr_code_id, reporting_machine_id, opened_at, expires_at, consumed_at",
+    )
+    .eq("claim_token_hash", claimTokenHash)
+    .maybeSingle();
+
+  if (claimError) {
+    throw claimError;
+  }
+
+  if (!claim || Date.parse(claim.expires_at) <= Date.now()) {
+    return null;
+  }
+
+  const { data: qrCode, error: qrCodeError } = await supabase
+    .from("refund_machine_qr_codes")
+    .select("status")
+    .eq("id", claim.qr_code_id)
+    .maybeSingle();
+
+  if (qrCodeError) {
+    throw qrCodeError;
+  }
+
+  if (qrCode?.status !== "active") {
+    return null;
+  }
+
+  return {
+    id: claim.id,
+    reportingMachineId: claim.reporting_machine_id,
+    openedAt: claim.opened_at,
+    expiresAt: claim.expires_at,
+  };
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -544,8 +773,15 @@ serve(async (req) => {
       });
     }
     const body = parsedBody.body;
+    const action = sanitizeText(body?.action, 40);
+    if (action === "startQrClaim") {
+      return await startRefundQrClaim(req, body);
+    }
+
     const sourcePage = sanitizePublicIntakeSourcePage("/refunds/request");
-    const machineId = sanitizeText(body?.machineId, 80);
+    const requestedMachineId = sanitizeText(body?.machineId, 80);
+    let machineId = requestedMachineId;
+    const qrClaimToken = sanitizeText(body?.qrClaimToken, 80);
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
@@ -567,11 +803,15 @@ serve(async (req) => {
       ? body.attachments as RefundAttachmentInput[]
       : [];
 
-    if (!isUuid(machineId)) {
+    if (!qrClaimToken && !isUuid(machineId)) {
       return new Response(JSON.stringify({ error: "Please choose a machine location." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (qrClaimToken && !isRefundQrOpaqueToken(qrClaimToken)) {
+      return refundQrUnavailableResponse();
     }
 
     if (!customerEmail || !isEmail(customerEmail)) {
@@ -653,6 +893,23 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         },
       );
+    }
+
+    let verifiedQrClaim: VerifiedRefundQrClaim | null = null;
+    if (qrClaimToken) {
+      verifiedQrClaim = await resolveRefundQrClaim(qrClaimToken);
+      if (!verifiedQrClaim) {
+        return refundQrUnavailableResponse();
+      }
+
+      if (
+        requestedMachineId &&
+        requestedMachineId !== verifiedQrClaim.reportingMachineId
+      ) {
+        return refundQrUnavailableResponse();
+      }
+
+      machineId = verifiedQrClaim.reportingMachineId;
     }
 
     const attachments = prepareAttachments(rawAttachments);
@@ -837,8 +1094,13 @@ serve(async (req) => {
         correlation_summary: correlationSummary,
         matched_sales_fact_id: matchedSalesFactId,
         refund_amount_cents: amountCents,
+        refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
         intake_meta: {
           source: "hosted_refund_intake",
+          intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
+          qr_claim_present: Boolean(verifiedQrClaim),
+          qr_claim_opened_at: verifiedQrClaim?.openedAt ?? null,
+          qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
           incident_time_resolution: incidentResolution.resolution,
           incident_possible_instant_count: incidentResolution.possibleInstantCount,
           candidate_sales_fact_ids: candidateIds,
@@ -853,6 +1115,9 @@ serve(async (req) => {
     const refundCase = insertedRefundCase;
     if (insertError) {
       if (insertError.code !== "23505") {
+        if (verifiedQrClaim && insertError.code === "23514") {
+          return refundQrUnavailableResponse();
+        }
         throw new Error(insertError.message || "Unable to create refund case.");
       }
 
@@ -863,6 +1128,19 @@ serve(async (req) => {
         .maybeSingle();
 
       if (dedupeLookupError || !dedupedRefundCase) {
+        if (verifiedQrClaim) {
+          return new Response(
+            JSON.stringify({
+              error:
+                "This QR session has already been used. Scan the code again or use the regular refund form.",
+              errorCode: "refund_qr_claim_used",
+            }),
+            {
+              status: 409,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
         throw new Error("Unable to create refund case.");
       }
 
@@ -895,6 +1173,8 @@ serve(async (req) => {
       metadata: {
         status,
         correlation_status: correlationStatus,
+        intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
+        qr_claim_present: Boolean(verifiedQrClaim),
         candidate_sales_fact_ids: candidateIds,
         attachment_count: uploadedAttachments.length,
       },
