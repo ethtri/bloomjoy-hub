@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-07-26-qr-aware-matcher",
-  "sourceGitCommit": "f0e77c9c43b73996947cec48fdcedb260eec701f",
+  "releaseId": "refund-ops-2026-07-26-qr-assets",
+  "sourceGitCommit": "144e62e8790a5dd3ee185ecff9f83e03c26daa12",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -29,10 +29,11 @@
     "202607210007_refund_gpt_triage_foundation.sql",
     "202607220001_refund_gpt_triage_runner.sql",
     "202607260001_refund_qr_claim_context.sql",
-    "202607260002_refund_qr_aware_nayax_recommendation.sql"
+    "202607260002_refund_qr_aware_nayax_recommendation.sql",
+    "202607260003_refund_machine_qr_asset_management.sql"
   ],
-  "migrationFilesSha256": "e7fe6e4ecd4250a161073dceaaad4a309cc04e09153300453c99d18c24b10036",
-  "migrationVersionSetSha256": "c6dafee01f72e23fef39af7a8e3a8e144f68a1c25825b124fbc3e084b93cc7c3",
+  "migrationFilesSha256": "cee0281bc5cad4af44bd0c4d12fd111e9a5ff28e7c027f8d1f2cd4a0ac6a8f2e",
+  "migrationVersionSetSha256": "d14284717064030e84187f0a9755e4616559a894ff262684fc03a5abaa70592a",
   "functions": [
     {
       "slug": "refund-case-intake",
