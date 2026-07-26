@@ -15,6 +15,14 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const source = fs.readFileSync(path.join(__dirname, 'refund-qr-shadow-pilot-report.mjs'), 'utf8');
+const lookupFunctionSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'supabase', 'functions', 'nayax-transaction-lookup', 'index.ts'),
+  'utf8',
+);
+const portalUatSource = fs.readFileSync(
+  path.join(__dirname, 'validate-refund-portal-uat.mjs'),
+  'utf8',
+);
 const incidentAt = '2026-07-26T19:00:00.000Z';
 const machineId = 'machine-101';
 
@@ -165,6 +173,25 @@ for (const fixture of fixtures) {
 }
 assert.equal(controlledFalsePositives, 0);
 
+// The ninth controlled scenario is the actual Nayax lookup failure contract:
+// the Edge Function records redacted/manual evidence, returns a safe error, and
+// the browser UAT proves no refund action is exposed.
+assert.match(lookupFunctionSource, /event_type: "nayax_lookup_failed"/);
+assert.match(lookupFunctionSource, /confidence_class: "ambiguous_manual"/);
+assert.match(lookupFunctionSource, /reason_codes: \["lookup_failed"\]/);
+assert.match(lookupFunctionSource, /payload_redacted: true/);
+assert.match(
+  lookupFunctionSource,
+  /return jsonResponse\(\{ error: "Unable to look up Nayax transactions\." \}, 500\)/,
+);
+assert.match(portalUatSource, /name: 'lookup failed'/);
+assert.match(portalUatSource, /lookupStatus: 'lookup_failed'/);
+assert.match(
+  portalUatSource,
+  /Nayax \$\{scenario\.name\} does not expose an enabled refund action/,
+);
+const controlledScenarioCount = fixtures.length + 1;
+
 const machineIds = Array.from(
   { length: 6 },
   (_, index) => `${String(index + 1).repeat(8)}-${String(index + 1).repeat(4)}-4${String(index + 1).repeat(3)}-8${String(index + 1).repeat(3)}-${String(index + 1).repeat(12)}`,
@@ -184,8 +211,8 @@ const observations = validateObservations({
   schemaVersion: '2026-07-26.v1',
   physicalMachineChecks: { expected: 6, passed: 6, failed: 0 },
   controlledFixtures: {
-    expected: fixtures.length + 1,
-    passed: fixtures.length + 1,
+    expected: controlledScenarioCount,
+    passed: controlledScenarioCount,
     failed: 0,
     knownFalsePositiveHighConfidence: controlledFalsePositives,
   },
@@ -324,5 +351,5 @@ assert.match(source, /rawIdentifiersEmitted: false/);
 assert.match(source, /sponsorDecisionStillRequired: true/);
 
 console.log(
-  `QR shadow pilot validator passed (${fixtures.length + 1} required scenarios, zero controlled false positives).`,
+  `QR shadow pilot validator passed (${controlledScenarioCount} required scenarios, zero controlled false positives).`,
 );
