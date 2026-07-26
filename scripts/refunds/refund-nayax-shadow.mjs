@@ -252,6 +252,47 @@ export function buildTimingDiagnostics({ providerRecords, refundCase, nowMs = Da
   };
 }
 
+export function qrToReportedTimeBucket(incidentAt, qrClaimOpenedAt) {
+  if (!text(incidentAt, 120) || !text(qrClaimOpenedAt, 120)) return 'unavailable';
+  const incidentMs = new Date(incidentAt).getTime();
+  const qrOpenedMs = new Date(qrClaimOpenedAt).getTime();
+  if (!Number.isFinite(incidentMs) || !Number.isFinite(qrOpenedMs)) return 'unavailable';
+
+  const deltaMinutes = Math.ceil((qrOpenedMs - incidentMs) / 60_000);
+  if (deltaMinutes < 0) return 'qr_before_reported_time';
+  if (deltaMinutes <= 5) return '0_to_5_minutes_after';
+  if (deltaMinutes <= 15) return '6_to_15_minutes_after';
+  if (deltaMinutes <= 30) return '16_to_30_minutes_after';
+  if (deltaMinutes <= 60) return '31_to_60_minutes_after';
+  return 'over_60_minutes_after';
+}
+
+export function buildQrClaimEvidence(refundCase, qrClaim) {
+  if (!text(refundCase.refund_qr_claim_context_id, 80)) {
+    return { status: 'missing', openedAt: null };
+  }
+
+  const openedAtValue = text(qrClaim?.opened_at, 120);
+  const consumedAtValue = text(qrClaim?.consumed_at, 120);
+  const openedAt = new Date(openedAtValue);
+  const consumedAt = new Date(consumedAtValue);
+  const machineMatches =
+    text(qrClaim?.reporting_machine_id, 80) === text(refundCase.reporting_machine_id, 80);
+  if (
+    !qrClaim ||
+    !machineMatches ||
+    !openedAtValue ||
+    !consumedAtValue ||
+    Number.isNaN(openedAt.getTime()) ||
+    Number.isNaN(consumedAt.getTime()) ||
+    consumedAt.getTime() < openedAt.getTime()
+  ) {
+    return { status: 'invalid', openedAt: null };
+  }
+
+  return { status: 'verified', openedAt: openedAt.toISOString() };
+}
+
 export function buildTransactionStates(rows, currentCaseId) {
   const states = {};
   for (const row of rows) {
@@ -309,8 +350,15 @@ export function buildShadowEvidence({
     providerWindowRecordCount: recommendation.providerWindowRecordCount,
     candidateCount: recommendation.candidateCount,
     recommendationState: recommendation.recommendationState,
+    confidenceClass: recommendation.confidenceClass,
+    reasonCodes: recommendation.reasonCodes,
     oneClickEligible: recommendation.oneClickEligible,
     policyVersion: recommendation.policyVersion,
+    qrClaimEvidenceStatus: recommendation.qrClaimEvidenceStatus,
+    qrToReportedTimeBucket: qrToReportedTimeBucket(
+      refundCase.incident_at,
+      recommendation.qrClaimOpenedAt,
+    ),
     topCandidate: top
       ? {
           recommendationRank: top.recommendationRank,
@@ -341,7 +389,7 @@ async function run(args) {
   let caseQuery = supabase
     .from('refund_cases')
     .select(
-      'id,status,incident_at,incident_time_resolution,payment_amount_cents,card_last4,card_wallet_used,reporting_machine_id,reporting_location_id',
+      'id,status,incident_at,incident_time_resolution,payment_amount_cents,card_last4,card_wallet_used,reporting_machine_id,reporting_location_id,refund_qr_claim_context_id',
     )
     .eq('payment_method', 'card');
   if (args.caseId) caseQuery = caseQuery.eq('id', args.caseId);
@@ -384,6 +432,18 @@ async function run(args) {
     throw new Error('The production case machine/location mapping is not shadow-ready.');
   }
 
+  const qrClaim = refundCase.refund_qr_claim_context_id
+    ? assertRead(
+        await supabase
+          .from('refund_qr_claim_contexts')
+          .select('reporting_machine_id,opened_at,consumed_at')
+          .eq('id', refundCase.refund_qr_claim_context_id)
+          .maybeSingle(),
+        'QR claim evidence read',
+      )
+    : null;
+  const qrEvidence = buildQrClaimEvidence(refundCase, qrClaim);
+
   const token = resolveNayaxToken(env, machine.nayax_account_key);
   if (!token) throw new Error('The server-only Nayax read token is missing.');
   const baseUrl = ensureSafeNayaxBaseUrl(env.NAYAX_LYNX_BASE_URL);
@@ -408,6 +468,8 @@ async function run(args) {
     requestAmountCents: Number(refundCase.payment_amount_cents),
     requestCardLast4: text(refundCase.card_last4, 20),
     cardWalletUsed: Boolean(refundCase.card_wallet_used),
+    qrClaimOpenedAt: qrEvidence.openedAt,
+    qrClaimEvidenceStatus: qrEvidence.status,
     windowHours: args.windowHours,
   };
   const preliminary = buildNayaxRecommendation(recommendationInput);

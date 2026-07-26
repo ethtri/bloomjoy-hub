@@ -97,7 +97,7 @@ Parent plan: [`#661`](https://github.com/ethtri/bloomjoy-hub/issues/661)
 | 1 | [`#662`](https://github.com/ethtri/bloomjoy-hub/issues/662) | Implemented and merged | Machine-specific QR intake, trusted server scan time, wallet copy, safe public failure states, and reusable UAT. |
 | 2A | [`#663`](https://github.com/ethtri/bloomjoy-hub/issues/663) | Implemented in source; deployment and pilot follow | QR-aware, wallet-safe deterministic recommendations with explainable ambiguity. |
 | 2B | [`#664`](https://github.com/ethtri/bloomjoy-hub/issues/664) | Implemented in source; live physical signoff follows in `#665` | Scoped Admin generation, print-ready download, rotation/disable, and per-version physical verification of QR assets. |
-| 3 | [`#665`](https://github.com/ethtri/bloomjoy-hub/issues/665) | Blocked by `#662`-`#664` | Six-machine shadow pilot, aggregate evidence, and rollout/rollback recommendation. |
+| 3 | [`#665`](https://github.com/ethtri/bloomjoy-hub/issues/665) | Execution packet/tooling ready; blocked by `#664` deployment and field authorization | Six-machine shadow pilot, aggregate evidence, and rollout/rollback recommendation. |
 | Separate decision | [`#666`](https://github.com/ethtri/bloomjoy-hub/issues/666) | Needs owner decision; does not block QR engineering | Select or decline an alternative compensation method for unmatched wallet/contactless and cash claims. |
 
 After `#662` establishes the shared contract, `#663` and `#664` can proceed in parallel. Broader rollout waits for `#665`.

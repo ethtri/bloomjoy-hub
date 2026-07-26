@@ -1,12 +1,14 @@
 # Refund Operations Shadow Pilot Runbook
 
-Last updated: 2026-07-22
+Last updated: 2026-07-26
 
 ## Purpose
 
 Prove the Refund Operations workflow in a narrow production shadow pilot before Bloomjoy enables live Nayax execution or retires the Google Form, Google Sheet, and AppSheet fallback.
 
 Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evidence, issue `#409` owns the final cutover decision, and `Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md` is the manager-facing test script.
+
+Issue `#665` and `Docs/REFUND_QR_SHADOW_PILOT_PACKET.md` own the narrower six-machine QR identification lane, including its controlled scenario matrix, aggregate evidence command, and QR-specific rollback proof.
 
 ## Non-negotiable rules
 

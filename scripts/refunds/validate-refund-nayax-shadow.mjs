@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildNayaxRecommendation } from '../../supabase/functions/_shared/nayax-recommendation.mjs';
 import {
+  buildQrClaimEvidence,
   buildShadowEvidence,
   buildTimingDiagnostics,
   buildTransactionStates,
@@ -13,6 +14,7 @@ import {
   ensureSafeReadConfiguration,
   parseArgs,
   parseEnvFile,
+  qrToReportedTimeBucket,
 } from './refund-nayax-shadow.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,7 +28,15 @@ const refundCase = {
   payment_amount_cents: 700,
   card_last4: '4242',
   card_wallet_used: false,
+  reporting_machine_id: '44444444-4444-4444-8444-444444444444',
+  refund_qr_claim_context_id: '55555555-5555-4555-8555-555555555555',
 };
+const qrClaim = {
+  reporting_machine_id: refundCase.reporting_machine_id,
+  opened_at: '2026-07-22T19:05:00.000Z',
+  consumed_at: '2026-07-22T19:07:00.000Z',
+};
+const qrEvidence = buildQrClaimEvidence(refundCase, qrClaim);
 const providerRecords = [
   {
     TransactionID: 123456789,
@@ -50,6 +60,8 @@ const recommendation = buildNayaxRecommendation({
   requestAmountCents: refundCase.payment_amount_cents,
   requestCardLast4: refundCase.card_last4,
   cardWalletUsed: refundCase.card_wallet_used,
+  qrClaimOpenedAt: qrEvidence.openedAt,
+  qrClaimEvidenceStatus: qrEvidence.status,
   windowHours: 6,
 });
 const evidence = buildShadowEvidence({
@@ -65,6 +77,9 @@ const evidence = buildShadowEvidence({
 assert.equal(recommendation.recommendationState, 'high_confidence');
 assert.equal(recommendation.oneClickEligible, true);
 assert.equal(evidence.topCandidate?.oneClickEligible, true);
+assert.equal(evidence.qrClaimEvidenceStatus, 'verified');
+assert.equal(evidence.qrToReportedTimeBucket, '0_to_5_minutes_after');
+assert.equal(evidence.confidenceClass, 'strong_card');
 assert.equal(evidence.rawIdentifiersEmitted, false);
 assert.equal(evidence.customerDataEmitted, false);
 assert.equal(evidence.providerWriteAttempted, false);
@@ -82,6 +97,28 @@ const oldCaseDiagnostics = buildTimingDiagnostics({
 });
 assert.ok(oldCaseDiagnostics.caseAgeDays > oldCaseDiagnostics.providerOldestAgeDays);
 assert.ok(oldCaseDiagnostics.nearestExactAmountAndLast4DeltaHours > 24);
+
+assert.deepEqual(buildQrClaimEvidence({ ...refundCase, refund_qr_claim_context_id: null }, null), {
+  status: 'missing',
+  openedAt: null,
+});
+assert.deepEqual(
+  buildQrClaimEvidence(refundCase, {
+    ...qrClaim,
+    reporting_machine_id: '66666666-6666-4666-8666-666666666666',
+  }),
+  { status: 'invalid', openedAt: null },
+);
+assert.deepEqual(
+  buildQrClaimEvidence(refundCase, { ...qrClaim, consumed_at: '2026-07-22T19:04:00.000Z' }),
+  { status: 'invalid', openedAt: null },
+);
+assert.equal(
+  qrToReportedTimeBucket('2026-07-22T19:00:00.000Z', '2026-07-22T19:05:01.000Z'),
+  '6_to_15_minutes_after',
+);
+assert.equal(qrToReportedTimeBucket('bad', 'also-bad'), 'unavailable');
+assert.equal(qrToReportedTimeBucket('2026-07-22T19:00:00.000Z', null), 'unavailable');
 
 assert.deepEqual(
   buildTransactionStates(
