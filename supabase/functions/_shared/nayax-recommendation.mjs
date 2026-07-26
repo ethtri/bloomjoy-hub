@@ -6,12 +6,13 @@ import { resolveLocalDateTimeInZone } from "./timezone-resolution.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-07-21.v1",
+  version: "2026-07-26.v2",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
-  ambiguityMarginPoints: 15,
   maximumOneClickTimeDeltaMinutes: 60,
+  maximumUniqueQrLagMinutes: 30,
+  maximumUniqueQrIncidentDeltaMinutes: 180,
   weights: Object.freeze({
     exactMappedMachineAndLocation: 40,
     exactAmount: 25,
@@ -193,13 +194,21 @@ const timePointsFor = (deltaMinutes, weights) => {
 };
 
 const timeLabelFor = (deltaMinutes) => {
-  if (deltaMinutes === 0) return "Transaction time matches the reported time";
-  if (deltaMinutes === 1) return "Transaction is 1 minute from the reported time";
-  return `Transaction is ${deltaMinutes} minutes from the reported time`;
+  if (deltaMinutes === 0) return "Transaction time matches the customer-reported time";
+  if (deltaMinutes === 1) return "Transaction is 1 minute from the customer-reported time";
+  return `Transaction is ${deltaMinutes} minutes from the customer-reported time`;
 };
 
 const addReason = (target, reason) => {
   if (!target.includes(reason)) target.push(reason);
+};
+
+const qrTimeLabelFor = (deltaMinutes) => {
+  if (deltaMinutes === null) return "No verified machine QR start time is available";
+  if (deltaMinutes < 0) return "The transaction occurred after the machine QR form was opened";
+  if (deltaMinutes === 0) return "The machine QR form opened in the same minute as the transaction";
+  if (deltaMinutes === 1) return "The machine QR form opened 1 minute after the transaction";
+  return `The machine QR form opened ${deltaMinutes} minutes after the transaction`;
 };
 
 const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
@@ -207,40 +216,55 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   const matchFactors = [];
   const manualReviewReasons = [];
   const hardExclusions = [];
+  const reasonCodes = [];
   let rankingPoints = 0;
 
   if (candidate.siteId === null) {
     addReason(manualReviewReasons, "missing_provider_site_id");
+    addReason(reasonCodes, "missing_provider_site_id");
     matchFactors.push(factor("provider_site", "missing", "Nayax did not return the site identity required for guarded execution"));
+  } else {
+    addReason(reasonCodes, "provider_site_present");
   }
 
   if (candidate.duplicateProviderRecord) {
     addReason(manualReviewReasons, "duplicate_provider_record");
+    addReason(reasonCodes, "duplicate_provider_record");
     matchFactors.push(factor("provider_record", "manual", "Nayax returned duplicate records for this transaction"));
   }
 
   if (request.incidentTimeResolution !== "exact") {
     addReason(manualReviewReasons, `incident_time_${request.incidentTimeResolution}`);
+    addReason(reasonCodes, `incident_time_${request.incidentTimeResolution}`);
     matchFactors.push(factor("incident_time", "manual", "Reported local time needs manual time-zone review"));
+  } else {
+    addReason(reasonCodes, "incident_time_exact");
   }
 
   if (candidate.providerTimeResolution !== "exact") {
     addReason(manualReviewReasons, `provider_time_${candidate.providerTimeResolution}`);
+    addReason(reasonCodes, `provider_time_${candidate.providerTimeResolution}`);
     matchFactors.push(factor("provider_time", "manual", "Nayax transaction time needs manual time-zone review"));
+  } else {
+    addReason(reasonCodes, "provider_time_exact");
   }
 
   if (!request.expectedMachineId) {
     addReason(manualReviewReasons, "missing_canonical_machine_mapping");
+    addReason(reasonCodes, "missing_canonical_machine_mapping");
     matchFactors.push(factor("machine", "missing", "The refund request is missing its canonical Nayax machine mapping"));
   } else if (!candidate.providerMachineId) {
     addReason(manualReviewReasons, "missing_provider_machine_id");
+    addReason(reasonCodes, "missing_provider_machine_id");
     matchFactors.push(factor("machine", "missing", "Nayax did not return machine identity evidence"));
   } else if (candidate.providerMachineId !== request.expectedMachineId) {
     hardExclusions.push("wrong_machine");
     addReason(manualReviewReasons, "provider_machine_mismatch");
+    addReason(reasonCodes, "provider_machine_mismatch");
     matchFactors.push(factor("machine", "mismatch", "Nayax returned a different machine than the mapped request machine"));
   } else {
     rankingPoints += weights.exactMappedMachineAndLocation;
+    addReason(reasonCodes, "machine_exact");
     matchFactors.push(factor("machine", "match", "Exact mapped machine and location"));
   }
 
@@ -249,71 +273,143 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     : Math.abs(candidate.amountCents - request.amountCents);
   if (amountDeltaCents === 0) {
     rankingPoints += weights.exactAmount;
+    addReason(reasonCodes, "amount_exact");
     matchFactors.push(factor("amount", "match", "Transaction amount matches exactly"));
   } else if (amountDeltaCents !== null && amountDeltaCents <= 50) {
     rankingPoints += weights.nearAmount;
+    addReason(manualReviewReasons, "amount_uncertain");
+    addReason(reasonCodes, "amount_uncertain");
     matchFactors.push(factor("amount", "partial", `Transaction amount differs by ${amountDeltaCents} cents`));
   } else if (amountDeltaCents !== null) {
+    addReason(manualReviewReasons, "amount_mismatch");
+    addReason(reasonCodes, "amount_mismatch");
     matchFactors.push(factor("amount", "mismatch", `Transaction amount differs by ${amountDeltaCents} cents`));
   } else {
     addReason(manualReviewReasons, "missing_amount_evidence");
+    addReason(reasonCodes, "missing_amount_evidence");
     matchFactors.push(factor("amount", "missing", "Amount evidence is incomplete"));
   }
 
   rankingPoints += timePointsFor(candidate.timeDeltaMinutes, weights);
-  matchFactors.push(factor("time", candidate.timeDeltaMinutes <= 60 ? "match" : "partial", timeLabelFor(candidate.timeDeltaMinutes)));
+  if (candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes) {
+    addReason(reasonCodes, "incident_time_within_60m");
+  } else if (candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes) {
+    addReason(reasonCodes, "incident_time_within_3h");
+  } else {
+    addReason(manualReviewReasons, "incident_time_too_far");
+    addReason(reasonCodes, "incident_time_too_far");
+  }
+  matchFactors.push(factor(
+    "incident_time",
+    candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes ? "match" : "partial",
+    timeLabelFor(candidate.timeDeltaMinutes),
+  ));
+
+  if (request.qrClaimEvidenceStatus === "verified" && candidate.qrTimeDeltaMinutes !== null) {
+    if (candidate.qrTimeDeltaMinutes < 0) {
+      addReason(manualReviewReasons, "transaction_after_qr_open");
+      addReason(reasonCodes, "transaction_after_qr_open");
+      matchFactors.push(factor("qr_time", "mismatch", qrTimeLabelFor(candidate.qrTimeDeltaMinutes)));
+    } else if (candidate.qrTimeDeltaMinutes <= policy.maximumUniqueQrLagMinutes) {
+      addReason(reasonCodes, "qr_time_within_30m");
+      matchFactors.push(factor("qr_time", "match", qrTimeLabelFor(candidate.qrTimeDeltaMinutes)));
+    } else {
+      addReason(manualReviewReasons, "qr_claim_late");
+      addReason(reasonCodes, "qr_claim_late");
+      matchFactors.push(factor("qr_time", "partial", qrTimeLabelFor(candidate.qrTimeDeltaMinutes)));
+    }
+  } else {
+    const qrReason = request.qrClaimEvidenceStatus === "replayed"
+      ? "qr_claim_replayed"
+      : request.qrClaimEvidenceStatus === "invalid"
+      ? "qr_claim_invalid"
+      : "qr_claim_missing";
+    addReason(manualReviewReasons, qrReason);
+    addReason(reasonCodes, qrReason);
+    matchFactors.push(factor(
+      "qr_time",
+      "missing",
+      request.qrClaimEvidenceStatus === "replayed"
+        ? "The QR claim was already used and cannot support this recommendation"
+        : request.qrClaimEvidenceStatus === "invalid"
+        ? "The QR claim could not be verified for this machine"
+        : qrTimeLabelFor(null),
+    ));
+  }
 
   if (!request.cardLast4) {
     addReason(manualReviewReasons, "missing_customer_card_last4");
+    addReason(reasonCodes, "missing_customer_card_last4");
     matchFactors.push(factor("card", "missing", "Customer card last four is missing"));
   } else if (!candidate.cardLast4) {
     addReason(manualReviewReasons, "missing_provider_card_last4");
+    addReason(reasonCodes, "missing_provider_card_last4");
     matchFactors.push(factor("card", "missing", "Nayax did not return card last-four evidence"));
   } else if (request.cardLast4 === candidate.cardLast4) {
     rankingPoints += weights.exactCardLast4;
+    addReason(reasonCodes, "card_last4_match");
     matchFactors.push(factor("card", "match", "Card last four matches"));
-  } else if (request.cardWalletUsed) {
-    addReason(manualReviewReasons, "wallet_last4_mismatch");
-    matchFactors.push(factor("card", "manual", "Wallet card last four differs and needs manual review"));
+  } else if (
+    request.cardWalletUsed ||
+    candidate.recognitionMethod === "wallet" ||
+    candidate.recognitionMethod === "contactless"
+  ) {
+    addReason(manualReviewReasons, "tokenized_last4_mismatch");
+    addReason(reasonCodes, "tokenized_last4_noncorrelating");
+    matchFactors.push(factor(
+      "card",
+      "manual",
+      "Contactless or wallet last four did not correlate; it is treated as a clue, not proof",
+    ));
   } else {
     hardExclusions.push("card_last4_mismatch");
+    addReason(reasonCodes, "card_last4_mismatch");
     matchFactors.push(factor("card", "mismatch", "Card last four does not match"));
   }
 
   if (request.cardWalletUsed || candidate.recognitionMethod === "wallet") {
     addReason(manualReviewReasons, "wallet_payment");
-    matchFactors.push(factor("wallet", "manual", "Wallet payments remain on the manual refund path for this pilot"));
+    addReason(reasonCodes, "wallet_payment");
+    matchFactors.push(factor("wallet", "manual", "Wallet payments may be recommended, but remain manual in Nayax"));
   }
 
   if (candidate.currencyCode === "USD") {
     rankingPoints += weights.usdCurrency;
+    addReason(reasonCodes, "currency_usd");
     matchFactors.push(factor("currency", "match", "Currency is USD"));
   } else if (candidate.currencyCode) {
     hardExclusions.push("currency_not_usd");
+    addReason(reasonCodes, "currency_not_usd");
     matchFactors.push(factor("currency", "mismatch", "Currency is not USD"));
   } else {
     addReason(manualReviewReasons, "missing_currency_evidence");
+    addReason(reasonCodes, "missing_currency_evidence");
     matchFactors.push(factor("currency", "missing", "Currency evidence is missing"));
   }
 
   if (candidate.paymentStatus === "approved") {
     rankingPoints += weights.approvedProviderStatus;
+    addReason(reasonCodes, "provider_sale_approved");
     matchFactors.push(factor("provider_status", "match", "Nayax marks the sale approved"));
   } else if (candidate.paymentStatus === "not approved") {
     hardExclusions.push("payment_not_approved");
+    addReason(reasonCodes, "payment_not_approved");
     matchFactors.push(factor("provider_status", "mismatch", "Nayax does not mark this as an approved sale"));
   } else {
     addReason(manualReviewReasons, "provider_status_unconfirmed");
+    addReason(reasonCodes, "provider_status_unconfirmed");
     matchFactors.push(factor("provider_status", "neutral", "Nayax returned a sale record without an explicit approval status"));
   }
 
   if (candidate.providerRefundState === "already_refunded" || transactionState === "already_refunded") {
     hardExclusions.push("already_refunded");
     addReason(manualReviewReasons, "already_refunded");
+    addReason(reasonCodes, "already_refunded");
     matchFactors.push(factor("refund_state", "blocked", "This transaction already has refund evidence"));
   } else if (transactionState === "duplicate") {
     hardExclusions.push("duplicate_transaction");
     addReason(manualReviewReasons, "duplicate_transaction");
+    addReason(reasonCodes, "duplicate_transaction");
     matchFactors.push(factor("refund_state", "blocked", "This transaction is already linked to another refund case"));
   }
 
@@ -322,12 +418,33 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   }
 
   const selectionAllowed = hardExclusions.length === 0;
-  const baseOneClickEligible =
+  const providerEvidenceComplete =
+    candidate.siteId !== null &&
+    candidate.providerTimeResolution === "exact" &&
+    candidate.currencyCode === "USD" &&
+    candidate.paymentStatus === "approved" &&
+    !candidate.duplicateProviderRecord;
+  const commonExactEvidence =
     selectionAllowed &&
-    manualReviewReasons.length === 0 &&
     amountDeltaCents === 0 &&
+    candidate.providerMachineId === request.expectedMachineId &&
+    request.incidentTimeResolution === "exact" &&
+    providerEvidenceComplete;
+  const strongCardEligible =
+    commonExactEvidence &&
+    Boolean(request.cardLast4) &&
+    Boolean(candidate.cardLast4) &&
+    request.cardLast4 === candidate.cardLast4 &&
     candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes &&
     rankingPoints >= policy.highConfidenceMinimumPoints;
+  const uniqueQrTimeEligible =
+    commonExactEvidence &&
+    request.qrClaimEvidenceStatus === "verified" &&
+    candidate.qrTimeDeltaMinutes !== null &&
+    candidate.qrTimeDeltaMinutes >= 0 &&
+    candidate.qrTimeDeltaMinutes <= policy.maximumUniqueQrLagMinutes &&
+    candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes &&
+    !hardExclusions.includes("card_last4_mismatch");
 
   return {
     ...candidate,
@@ -336,12 +453,15 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors,
     manualReviewReasons,
     hardExclusions,
+    reasonCodes,
     selectionAllowed,
-    baseOneClickEligible,
+    strongCardEligible,
+    uniqueQrTimeEligible,
     oneClickEligible: false,
     isRecommended: false,
     isTopRanked: false,
     recommendationRank: 0,
+    confidenceClass: "ambiguous_manual",
     matchStrength: manualReviewReasons.length > 0 || hardExclusions.length > 0 ? "manual_review" : "insufficient",
     matchReason: matchFactors.map((item) => item.label).join("; "),
   };
@@ -366,6 +486,8 @@ export const extractNayaxRecords = (payload) => {
  *   requestCardLast4: string,
  *   cardWalletUsed: boolean,
  *   incidentTimeResolution?: string,
+ *   qrClaimOpenedAt?: string | null,
+ *   qrClaimEvidenceStatus?: "verified" | "missing" | "invalid" | "replayed",
  *   transactionStates?: Map<string, string> | Record<string, string>,
  *   windowHours?: number,
  *   policy?: typeof NAYAX_RECOMMENDATION_POLICY,
@@ -380,12 +502,20 @@ export const buildNayaxRecommendation = ({
   requestCardLast4,
   cardWalletUsed,
   incidentTimeResolution = "exact",
+  qrClaimOpenedAt = null,
+  qrClaimEvidenceStatus,
   transactionStates = {},
   windowHours = NAYAX_RECOMMENDATION_POLICY.lookupWindowHours,
   policy = NAYAX_RECOMMENDATION_POLICY,
 }) => {
   const incidentDate = parseDateValue(incidentAt);
   if (!incidentDate) throw new Error("A valid incident time is required for Nayax recommendation scoring.");
+  const qrClaimOpenedDate = parseDateValue(qrClaimOpenedAt);
+  const normalizedQrClaimStatus = ["verified", "missing", "invalid", "replayed"].includes(qrClaimEvidenceStatus)
+    ? qrClaimEvidenceStatus
+    : qrClaimOpenedDate
+    ? "verified"
+    : "missing";
 
   const request = {
     expectedMachineId: sanitizeText(expectedMachineId, 120),
@@ -393,6 +523,9 @@ export const buildNayaxRecommendation = ({
     cardLast4: extractLast4(requestCardLast4),
     cardWalletUsed: Boolean(cardWalletUsed),
     incidentTimeResolution: sanitizeText(incidentTimeResolution, 40) || "legacy_absolute",
+    qrClaimEvidenceStatus: normalizedQrClaimStatus === "verified" && !qrClaimOpenedDate
+      ? "invalid"
+      : normalizedQrClaimStatus,
   };
   const windowMs = Math.max(1, Number(windowHours) || policy.lookupWindowHours) * 60 * 60 * 1000;
   const windowStartMs = incidentDate.getTime() - windowMs;
@@ -432,6 +565,14 @@ export const buildNayaxRecommendation = ({
       // Round outward so a transaction even one second beyond a safety boundary
       // cannot be admitted by display-oriented minute rounding.
       timeDeltaMinutes: Math.ceil(Math.abs(authorizationDate.getTime() - incidentDate.getTime()) / 60000),
+      qrTimeDeltaMinutes: qrClaimOpenedDate
+        ? (() => {
+            const delta = (qrClaimOpenedDate.getTime() - authorizationDate.getTime()) / 60000;
+            // Round away from zero so even a one-second boundary overrun fails
+            // closed instead of appearing to fit the QR safety window.
+            return delta >= 0 ? Math.ceil(delta) : Math.floor(delta);
+          })()
+        : null,
       amountCents: moneyToCents(record.AuthorizationValue ?? record.SettlementValue),
       currencyCode: sanitizeText(record.CurrencyCode ?? record.currencyCode, 3).toUpperCase(),
       cardLast4: extractLast4(record.CardNumber ?? record.cardNumber),
@@ -462,52 +603,76 @@ export const buildNayaxRecommendation = ({
     .map((candidate, index) => ({ ...candidate, recommendationRank: index + 1, isTopRanked: index === 0 }));
 
   const topOverall = candidates[0] ?? null;
-  const eligibleCandidates = candidates.filter((candidate) => candidate.baseOneClickEligible);
-  const topEligible = eligibleCandidates[0] ?? null;
-  const secondEligible = eligibleCandidates[1] ?? null;
+  const strongCardCandidates = candidates.filter((candidate) => candidate.strongCardEligible);
+  const qrTimeCandidates = candidates.filter((candidate) => candidate.uniqueQrTimeEligible);
   let recommendationState = "no_safe_match";
+  let confidenceClass = "ambiguous_manual";
+  let recommendedTransactionId = null;
+  let resultReasonCodes = [];
 
-  const topManualException = Boolean(
-    topOverall &&
-      (topOverall.manualReviewReasons.length > 0 ||
-        topOverall.hardExclusions.some((reason) =>
-          ["wrong_machine", "already_refunded", "duplicate_transaction", "payment_not_approved", "currency_not_usd"].includes(reason))),
-  );
-
-  if (topManualException && (!topEligible || topOverall.rankingPoints >= topEligible.rankingPoints)) {
+  if (strongCardCandidates.length === 1) {
+    recommendationState = "high_confidence";
+    confidenceClass = "strong_card";
+    recommendedTransactionId = strongCardCandidates[0].transactionId;
+    resultReasonCodes = [...strongCardCandidates[0].reasonCodes, "unique_strong_card_candidate"];
+  } else if (strongCardCandidates.length > 1) {
+    recommendationState = "ambiguous";
+    resultReasonCodes = ["multiple_strong_card_candidates", "plausible_runner_up"];
+  } else if (qrTimeCandidates.length === 1) {
+    recommendationState = "high_confidence";
+    confidenceClass = "unique_qr_time";
+    recommendedTransactionId = qrTimeCandidates[0].transactionId;
+    resultReasonCodes = [...qrTimeCandidates[0].reasonCodes, "unique_qr_time_candidate"];
+  } else if (qrTimeCandidates.length > 1) {
+    recommendationState = "ambiguous";
+    resultReasonCodes = ["multiple_qr_time_candidates", "plausible_runner_up"];
+  } else if (candidates.length > 0) {
     recommendationState = "manual_exception";
-  } else if (topEligible) {
-    const margin = secondEligible ? topEligible.rankingPoints - secondEligible.rankingPoints : Number.POSITIVE_INFINITY;
-    recommendationState = margin < policy.ambiguityMarginPoints ? "ambiguous" : "high_confidence";
-  } else if (candidates.some((candidate) => candidate.manualReviewReasons.length > 0)) {
-    recommendationState = "manual_exception";
+    resultReasonCodes = topOverall?.reasonCodes.length
+      ? topOverall.reasonCodes
+      : ["insufficient_evidence"];
+  } else {
+    resultReasonCodes = ["no_candidate_in_lookup_window"];
   }
 
-  const recommendedTransactionId = recommendationState === "high_confidence" ? topEligible?.transactionId ?? null : null;
   const finalizedCandidates = candidates.map((candidate) => {
     const isRecommended = Boolean(recommendedTransactionId && candidate.transactionId === recommendedTransactionId);
     const matchStrength = isRecommended
       ? "strong"
-      : recommendationState === "ambiguous" && candidate.baseOneClickEligible
+      : recommendationState === "ambiguous" && (candidate.strongCardEligible || candidate.uniqueQrTimeEligible)
         ? "compare"
         : candidate.manualReviewReasons.length > 0 || candidate.hardExclusions.length > 0
           ? "manual_review"
           : "insufficient";
+    const oneClickEligible =
+      isRecommended &&
+      recommendationState === "high_confidence" &&
+      confidenceClass === "strong_card" &&
+      !request.cardWalletUsed &&
+      candidate.recognitionMethod !== "wallet";
     return {
       ...candidate,
       policyVersion: policy.version,
       recommendationState,
       isRecommended,
-      oneClickEligible: isRecommended && recommendationState === "high_confidence",
+      oneClickEligible,
+      confidenceClass: isRecommended ? confidenceClass : "ambiguous_manual",
       matchStrength,
     };
   });
 
   const copy = {
-    high_confidence: {
-      summary: "Nayax found one card sale with strong, clearly separated evidence.",
-      recommendedAction: "Confirm the recommended sale. Only then may the guarded refund action become eligible.",
-    },
+    high_confidence: confidenceClass === "unique_qr_time"
+      ? {
+          summary: "Nayax found exactly one sale supported by the machine, amount, QR start, and timing.",
+          recommendedAction: "Verify the sale in Nayax and use the manual portal path. QR/time evidence does not enable one-click refund.",
+        }
+      : {
+          summary: "Nayax found exactly one sale with matching card, machine, amount, and reported time.",
+          recommendedAction: request.cardWalletUsed
+            ? "Verify the wallet sale in Nayax and use the manual portal path. One-click refund stays unavailable."
+            : "Confirm the recommended sale. Only then may the separately guarded refund action become eligible.",
+        },
     ambiguous: {
       summary: "Nayax found multiple plausible card sales that are too close to recommend safely.",
       recommendedAction: "Compare the alternatives and record why the manager chose a different sale. One-click refund stays unavailable.",
@@ -527,7 +692,12 @@ export const buildNayaxRecommendation = ({
   return {
     policyVersion: policy.version,
     recommendationState,
-    oneClickEligible: recommendationState === "high_confidence",
+    confidenceClass,
+    reasonCodes: resultReasonCodes,
+    oneClickEligible: finalizedCandidates.some((candidate) => candidate.oneClickEligible),
+    qrClaimEvidenceStatus: request.qrClaimEvidenceStatus,
+    qrClaimOpenedAt: qrClaimOpenedDate?.toISOString() ?? null,
+    maximumUniqueQrLagMinutes: policy.maximumUniqueQrLagMinutes,
     candidates: finalizedCandidates,
     candidateCount: finalizedCandidates.length,
     providerParseableRecordCount: parseableRecordCount,
@@ -544,6 +714,7 @@ export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   amountCents: candidate.amountCents,
   amountDeltaCents: candidate.amountDeltaCents,
   timeDeltaMinutes: candidate.timeDeltaMinutes,
+  qrTimeDeltaMinutes: candidate.qrTimeDeltaMinutes,
   currencyCode: candidate.currencyCode,
   cardLast4: candidate.cardLast4,
   cardBrand: candidate.cardBrand,
@@ -553,6 +724,8 @@ export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   isTopRanked: candidate.isTopRanked,
   isRecommended: candidate.isRecommended,
   recommendationState: candidate.recommendationState,
+  confidenceClass: candidate.confidenceClass,
+  reasonCodes: candidate.reasonCodes,
   oneClickEligible: candidate.oneClickEligible,
   selectionAllowed: candidate.selectionAllowed,
   matchStrength: candidate.matchStrength,

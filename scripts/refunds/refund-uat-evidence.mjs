@@ -26,6 +26,7 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-uat-processing.png',
   'refund-portal-uat-setup-needed.png',
   'refund-portal-uat-success.png',
+  'refund-portal-uat-unique-qr-wallet-recommendation.png',
   'refund-portal-uat-wallet-manual-review.png',
   'refund-qr-intake-desktop.png',
   'refund-qr-intake-mobile.png',

@@ -150,8 +150,14 @@ export type RefundNayaxLookupSummary = {
   summary: string;
   recommendedAction: string;
   recommendationState?: NayaxRecommendationState;
+  confidenceClass?: NayaxConfidenceClass;
+  reasonCodes?: string[];
   policyVersion?: string;
   oneClickEligible?: boolean;
+  incidentAt?: string | null;
+  qrClaimOpenedAt?: string | null;
+  qrClaimEvidenceStatus?: 'verified' | 'missing' | 'invalid' | 'replayed';
+  maximumUniqueQrLagMinutes?: number;
 };
 
 export type NayaxRecommendationState =
@@ -159,6 +165,11 @@ export type NayaxRecommendationState =
   | 'ambiguous'
   | 'no_safe_match'
   | 'manual_exception';
+
+export type NayaxConfidenceClass =
+  | 'strong_card'
+  | 'unique_qr_time'
+  | 'ambiguous_manual';
 
 export type NayaxMatchFactor = {
   key: string;
@@ -183,6 +194,7 @@ export type RefundCaseRecord = {
   zellePaymentContact: string | null;
   issueSummary: string;
   incidentAt: string;
+  qrClaimOpenedAt?: string | null;
   paymentMethod: RefundPaymentMethod;
   paymentAmountCents: number | null;
   cardLast4: string | null;
@@ -409,10 +421,13 @@ export type NayaxLookupCandidate = {
   paymentStatus: string;
   amountDeltaCents?: number | null;
   timeDeltaMinutes?: number;
+  qrTimeDeltaMinutes?: number | null;
   recommendationRank?: number;
   isTopRanked?: boolean;
   isRecommended?: boolean;
   recommendationState?: NayaxRecommendationState;
+  confidenceClass?: NayaxConfidenceClass;
+  reasonCodes?: string[];
   oneClickEligible?: boolean;
   selectionAllowed?: boolean;
   matchStrength?: 'strong' | 'compare' | 'manual_review' | 'insufficient' | string;
@@ -432,8 +447,14 @@ export type NayaxLookupResponse = {
   configured: boolean;
   lookupStatus?: RefundNayaxLookupStatus;
   recommendationState?: NayaxRecommendationState;
+  confidenceClass?: NayaxConfidenceClass;
+  reasonCodes?: string[];
   policyVersion?: string;
   oneClickEligible?: boolean;
+  incidentAt?: string | null;
+  qrClaimOpenedAt?: string | null;
+  qrClaimEvidenceStatus?: 'verified' | 'missing' | 'invalid' | 'replayed';
+  maximumUniqueQrLagMinutes?: number;
   lastCheckedAt?: string;
   providerRecordCount?: number;
   providerParseableRecordCount?: number;

@@ -583,6 +583,13 @@ serve(async (req) => {
         metadata: {
           policy_version: policyVersion,
           recommendation_state: recommendationState,
+          confidence_class: sanitizeText(nayaxEvidence.confidence_class, 80) || "ambiguous_manual",
+          reason_codes: Array.isArray(nayaxEvidence.reason_codes)
+            ? nayaxEvidence.reason_codes
+                .map((reason: unknown) => sanitizeText(reason, 80))
+                .filter(Boolean)
+                .slice(0, 20)
+            : [],
           selected_recommended: isRecommended,
           selected_rank: Number(nayaxEvidence.recommendation_rank) || null,
           disagreement_reason_code: isRecommended ? null : nayaxDisagreementReason,

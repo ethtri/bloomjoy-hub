@@ -8,7 +8,7 @@ Live Nayax refund execution remains controlled by the separate sponsor gate, mac
 
 ## Policy version
 
-Current policy: `2026-07-21.v1`.
+Current policy: `2026-07-26.v2`.
 
 Internal ranking points order otherwise-safe candidates. Never show the point total as a percentage or describe it as statistical confidence.
 
@@ -25,16 +25,26 @@ Internal ranking points order otherwise-safe candidates. Never show the point to
 | USD currency | 5 |
 | Explicit approved provider status | 5 |
 
+## Confidence classes
+
+- `strong_card`: exactly one otherwise-safe sale has the mapped machine, exact amount, exact resolved customer-reported time within 60 minutes, and correlating card last four. This is the only class that may become one-click eligible after manager confirmation, and only for a non-wallet transaction.
+- `unique_qr_time`: exactly one otherwise-safe sale has the mapped machine, exact amount, exact resolved provider/customer times, occurs no more than 30 minutes before the verified server-recorded QR open, and has no plausible runner-up. It may guide a manager to a sale in Nayax when wallet digits do not correlate, but it is always manual and never one-click eligible.
+- `ambiguous_manual`: the available evidence does not meet either rule. This includes close-together candidates, a missing/invalid/replayed QR claim, a QR opened more than 30 minutes after the sale, uncertain amount, non-exact time resolution, provider trouble, or another safety exception.
+
 ## Recommendation states
 
-- `high_confidence`: one safe candidate has at least 80 ranking points, exact amount, an exact resolved time within 60 minutes, matching card evidence, no safety/manual flags, and at least a 15-point lead over the next eligible candidate. Only this recommended candidate can become one-click eligible after manager confirmation.
-- `ambiguous`: at least two otherwise eligible candidates are separated by fewer than 15 points. No candidate is labeled recommended or one-click eligible.
+- `high_confidence`: exactly one candidate qualifies as `strong_card` or `unique_qr_time`. The confidence class—not this state alone—controls whether guarded execution can ever become eligible.
+- `ambiguous`: more than one candidate qualifies under the same safe evidence path. No candidate is labeled recommended or one-click eligible.
 - `no_safe_match`: no candidate satisfies the safe recommendation rules. Managers may request more information or use the manual review path.
-- `manual_exception`: provider, duplicate/refund, wallet, missing evidence, or timezone evidence requires manual review. One-click stays unavailable.
+- `manual_exception`: one or more candidates exist, but missing, late, contradictory, or unsafe evidence requires manual review. One-click stays unavailable.
 
 ## Safety rules
 
-The scorer hard-blocks selection for a different provider machine, non-USD currency, a declined/failed/voided sale, a transaction already linked to another case, or existing refund evidence. Negative provider status always overrides positive words in the same status (for example, `not approved` and `successful reversal` are blocked). Missing provider machine identity cannot earn mapped-machine points and requires manual review. A non-wallet card-last-four mismatch is not eligible. All wallet transactions, missing provider site identity, duplicate provider records, missing provider last four, unconfirmed provider status, missing currency, and non-exact incident/provider time resolution require manual review during this pilot.
+The scorer hard-blocks selection for a different provider machine, non-USD currency, a declined/failed/voided sale, a transaction already linked to another case, or existing refund evidence. Negative provider status always overrides positive words in the same status (for example, `not approved` and `successful reversal` are blocked). Missing provider machine identity cannot earn mapped-machine evidence. A non-wallet card-last-four mismatch is not eligible.
+
+Contactless and wallet last four is supporting evidence, not an identity key. A correlating last four can support `strong_card`, and a non-correlating last four can be ignored only when Nayax identifies the sale as contactless/wallet and exactly one sale qualifies as `unique_qr_time`. A `unique_qr_time` result and every wallet result stay outside live/one-click execution until the separate `#430` gate is approved.
+
+QR open time and customer-reported incident time are stored, evaluated, and displayed separately. QR evidence must be a consumed, single-use claim bound to the same machine. Missing, invalid, replayed, future, or late QR evidence never supports `unique_qr_time`.
 
 Exact amount is mandatory for one-click eligibility. An amount mismatch may remain visible as review evidence but cannot be recommended for one-click execution.
 
@@ -59,7 +69,7 @@ Candidates sort by ranking points, then smallest amount delta, smallest time del
 
 ## Privacy-safe shadow evidence
 
-Record only the policy version, recommendation state, candidate count, recommended rank (when one exists), one-click eligibility, manager selection rank, whether the recommendation was accepted, a structured disagreement reason, time/amount deltas, and redacted factor labels. Do not log customer email, card details beyond approved sanitized fields, free text, raw Nayax payloads, tokens, or provider transaction IDs.
+Record only the policy version, recommendation state, confidence class, redacted reason codes, QR-evidence status, candidate count, recommended rank (when one exists), one-click eligibility, manager selection rank, whether the recommendation was accepted, a structured disagreement reason, time/amount deltas, and redacted factor labels. Do not log customer email, card details beyond approved sanitized fields, free text, QR tokens/hashes, raw Nayax payloads, or provider transaction IDs.
 
 ## Verification
 
@@ -72,7 +82,7 @@ npm run refunds:validate-nayax-execution
 npm run db:validate-migrations
 ```
 
-Before a live pilot, verify ambiguous, no-safe-match, manual-exception, duplicate, already-refunded, wallet mismatch, and both DST edge cases all keep one-click execution closed.
+Before a live pilot, verify strong-card, unique QR/time, two close-together sales, missing QR, late QR, replay attempt, wrong/uncertain amount, lookup failure, duplicate, already-refunded, wallet mismatch, and both DST edge cases. Only a confirmed non-wallet `strong_card` candidate may ever open the separate execution gate.
 
 ## Rollback
 

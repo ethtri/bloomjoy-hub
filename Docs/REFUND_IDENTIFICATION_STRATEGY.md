@@ -25,15 +25,15 @@ A high-confidence recommendation helps a manager find the charge. It does not pr
 
 | Area | Current state | Gap |
 | --- | --- | --- |
-| Public intake | `/refunds/request` collects the machine, customer-reported incident time, amount, payment method, and card last four. | A customer selects the machine manually. The form does not create a machine-specific QR claim or record a trusted scan time. |
-| Wallet guidance | The form already warns that the Apple Pay last four may differ from the physical card. | The planned flow must make the virtual-last-four instruction prominent while avoiding the promise that it will always match Nayax. |
-| Nayax lookup | Server-side read-only Last Sales lookup and machine mappings are available for the current refund cohort. | The current deployed matching policy sends all wallet cases to manual review and does not use QR claim time. |
-| Matching | The deterministic matcher ranks sanitized candidates and fails closed for unsafe or ambiguous cases. | It needs a new, versioned QR-aware policy that can recognize a unique time-based match without weakening ambiguity controls. |
+| Public intake | `/refunds/request` supports both direct intake and an opaque machine-QR path with a short-lived, single-use, server-timestamped claim. | Physical QR generation, rotation, download, and placement controls are tracked separately in `#664`. |
+| Wallet guidance | The form asks Apple Pay/mobile-wallet customers for the virtual last four and explains that it may still differ from Nayax. | The digits remain supporting evidence rather than a reliable identity key. |
+| Nayax lookup | Server-side read-only Last Sales lookup and machine mappings are available for the current refund cohort. | Deployment and shadow-pilot evidence are still required before relying on the QR-aware policy operationally. |
+| Matching | Policy `2026-07-26.v2` separates reported incident time from verified QR-open time and supports strong-card, unique QR/time, and ambiguous/manual classes. | A unique QR/time result is advisory and manual-only; it cannot enable live/one-click execution. |
 | Manager workflow | Managers can review cases and use the authorized Nayax portal workflow. | Recommendation confidence must stay separate from manager approval and live in-app execution. |
 | Delivery evidence | No reliable machine signal says whether the product was delivered. | Transaction matching cannot establish that a vend failed. The manager still decides the customer-service outcome. |
 | Alternative compensation | Cash currently follows the manual cash/Zelle path. | An e-gift card, store credit, machine credit, or other fallback for unmatched wallet/contactless and cash claims is TBD. |
 
-The current production matching rules in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` remain authoritative until issue `#663` is implemented, tested, merged, and deployed.
+The versioned rules in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` are authoritative for source behavior. Production must not be treated as QR-aware until the migration and related Edge Functions are deployed and the shadow pilot in `#665` passes.
 
 ## Target customer flow
 
@@ -91,8 +91,8 @@ Parent plan: [`#661`](https://github.com/ethtri/bloomjoy-hub/issues/661)
 
 | Order | Issue | State | Outcome |
 | --- | --- | --- | --- |
-| 1 | [`#662`](https://github.com/ethtri/bloomjoy-hub/issues/662) | Ready to start | Machine-specific QR intake, trusted server scan time, wallet copy, safe public failure states, and reusable UAT. |
-| 2A | [`#663`](https://github.com/ethtri/bloomjoy-hub/issues/663) | Ready after `#662` establishes the claim contract | QR-aware, wallet-safe deterministic recommendations with explainable ambiguity. |
+| 1 | [`#662`](https://github.com/ethtri/bloomjoy-hub/issues/662) | Implemented and merged | Machine-specific QR intake, trusted server scan time, wallet copy, safe public failure states, and reusable UAT. |
+| 2A | [`#663`](https://github.com/ethtri/bloomjoy-hub/issues/663) | Implemented in source; deployment and pilot follow | QR-aware, wallet-safe deterministic recommendations with explainable ambiguity. |
 | 2B | [`#664`](https://github.com/ethtri/bloomjoy-hub/issues/664) | Ready after `#662` establishes the QR identifier contract | Admin generation, download, rotation, and physical verification of per-machine QR assets. |
 | 3 | [`#665`](https://github.com/ethtri/bloomjoy-hub/issues/665) | Blocked by `#662`-`#664` | Six-machine shadow pilot, aggregate evidence, and rollout/rollback recommendation. |
 | Separate decision | [`#666`](https://github.com/ethtri/bloomjoy-hub/issues/666) | Needs owner decision; does not block QR engineering | Select or decline an alternative compensation method for unmatched wallet/contactless and cash claims. |
