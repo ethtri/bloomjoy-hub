@@ -43,6 +43,7 @@ Epic `#628` owns the production-ready outcome. Issue `#427` owns the pilot evide
 - [ ] The global kill switch, execution-enabled flag, dry-run flag, sponsor flag, caps, machine allowlist, and idempotency controls are checked by name and expected state without printing values.
 - [ ] A clean authenticated manager from `#435` sees only assigned machines/cases and cannot reach Admin setup, unrelated cases, provider secrets, or raw payloads.
 - [ ] The selected machines and named managers are recorded in `#427`; broader fleet access remains off.
+- [ ] The Admin > Machines QR pilot card shows the approved six-machine cohort, one active current version per machine, and all six physical rollout checklists ready under `Docs/REFUND_QR_ASSET_ROLLOUT.md`. Synthetic browser evidence does not replace the installed real-phone scans.
 - [ ] Google Form/Sheet/AppSheet fallback ownership and the same-day stop/go contact are named in `#409`.
 
 ### Communications and automation
@@ -72,6 +73,7 @@ This is a release-safety sample, not a statistical accuracy claim.
 
 | Lane | Minimum proof | Pass condition |
 |---|---|---|
+| Machine QR assets | All six approved physical machines, plus one controlled rotation/retirement check | Correct human-readable label on each machine; production-origin opaque link; installed real-phone scan opens the expected machine; retired code fails safely; six current versions show ready |
 | Ordinary card | Five high-confidence cases across at least two approved locations | Intended sale ranks first; manager agrees or records a structured disagreement; one primary action is shown; no manual status editing is required |
 | Card safety | One each for ambiguous, no-safe-match, wallet/manual, provider anomaly, duplicate/already-refunded, and provider-outcome-unknown | No unsafe case exposes an enabled refund action or sends a completion email |
 | Controlled Nayax execution | One approved low-value test only after `#430` sponsor approval | Exactly one provider attempt; provider-confirmed success precedes completion and customer email; retry/double-click creates no second attempt |
@@ -117,6 +119,7 @@ Use the relevant quick-disable control first, preserve sanitized audit evidence,
 ## Go/no-go sequence
 
 1. **Core shadow pilot:** form intake, matching, manager workbench, cash workflow, email, automation health, permissions, and reporting. Nayax execution stays off.
+   Complete the six-machine QR installation/phone checklist first; if any physical label is uncertain, disable that machine's code and keep its legacy intake fallback.
 2. **Controlled Nayax execution:** starts only after `#430` records the provider contract, caps, allowlist, kill-switch proof, and sponsor approval.
 3. **Gmail/GPT lane:** starts only after `#634` data/OAuth approvals and approval of the production Supabase OpenAI secret destination plus privacy controls for `#635`. The local developer key is not production approval. All drafts remain human-reviewed.
 4. **Cutover:** `#409` receives the complete packet and explicit sponsor approval. Only then may the legacy workflow be retired; rollback and a staffed support window must remain ready.

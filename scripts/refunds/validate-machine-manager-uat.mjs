@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -131,6 +131,7 @@ const buildMockRefundManagerSetup = (state) => ({
       nayaxMachineId: state.refundSetup.nayaxMachineId,
       nayaxAccountKey: state.refundSetup.nayaxAccountKey,
       managerEmails: state.managerEmails,
+      qrAsset: null,
     },
   ],
 });
@@ -442,6 +443,9 @@ const run = async () => {
 
   const browser = await chromium.launch({ headless: !args.headed });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: args.appUrl,
+  });
   await installMockSupabaseRoutes(context, state);
 
   const page = await context.newPage();
@@ -592,10 +596,13 @@ const run = async () => {
       'Saved Machine Managers are visible in the Machines list',
       await machineRow.getByText(secondManagerEmail).isVisible()
     );
+    await machineRow.getByText(/Intake enabled/i).waitFor({ timeout: 10000 });
+    await machineRow.getByText(/Card lookup ready/i).waitFor({ timeout: 10000 });
+    const savedMachineRowText = await machineRow.innerText();
     recorder.assert(
       'Saved refund readiness is visible in the Machines list',
-      (await machineRow.getByText(/Intake enabled/i).isVisible()) &&
-        (await machineRow.getByText(/Card lookup ready/i).isVisible())
+      savedMachineRowText.includes('Intake enabled') &&
+        savedMachineRowText.includes('Card lookup ready')
     );
 
     await machineDialog.waitFor({ state: 'hidden', timeout: 10000 });
@@ -634,7 +641,7 @@ const run = async () => {
 
     recorder.assert(
       'Demo mode allows only listed demo Machine Manager accounts',
-      await demoMachineDialog.getByText('1 manager assigned').isVisible()
+      await demoMachineDialog.getByText('2 managers assigned').isVisible()
     );
     recorder.assert(
       'Demo mode Machine Manager save does not call the Supabase write RPC',
@@ -651,6 +658,108 @@ const run = async () => {
     recorder.assert(
       'Demo mode disables machine detail persistence',
       await demoMachineDialog.getByRole('button', { name: 'Save machine changes' }).isDisabled()
+    );
+
+    const qrManager = demoMachineDialog.getByTestId('refund-qr-asset-manager');
+    await qrManager.getByText('Version 1', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Enabled demo machine shows its active opaque QR version',
+      await qrManager.getByText('Rollout checks needed').isVisible()
+    );
+    recorder.assert(
+      'QR asset explains that matching does not approve a refund',
+      await qrManager.getByText(/does not approve a refund or prove failed delivery/i).isVisible()
+    );
+    recorder.assert(
+      'QR asset is clearly an Operations print preview for the physical machine',
+      await qrManager.getByText(/finished label belongs on the physical machine/i).isVisible()
+    );
+    recorder.assert(
+      'QR asset keeps internal and provider identifiers out of visible copy',
+      !(await qrManager.innerText()).includes('DEMO-NAYAX-01') &&
+        !(await qrManager.innerText()).includes(machineId)
+    );
+
+    await qrManager.getByRole('button', { name: 'Copy link' }).click();
+    const copiedQrLink = await page.evaluate(() => navigator.clipboard.readText());
+    recorder.assert(
+      'Copied QR link always uses the production Bloomjoy app origin',
+      /^https:\/\/app\.bloomjoyusa\.com\/refunds\/request\?qr=[A-Za-z0-9_-]{32,80}$/.test(
+        copiedQrLink
+      ),
+      copiedQrLink.replace(/qr=.*/, 'qr=[redacted]')
+    );
+
+    const downloadPromise = page.waitForEvent('download');
+    await qrManager.getByRole('button', { name: 'Download printable label' }).click();
+    const qrDownload = await downloadPromise;
+    const qrDownloadPath = await qrDownload.path();
+    const qrSvg = qrDownloadPath ? await readFile(qrDownloadPath, 'utf8') : '';
+    recorder.assert(
+      'Download produces a labeled print-ready SVG for the current version',
+      qrDownload.suggestedFilename().endsWith('-v1.svg') &&
+        qrSvg.includes('Need refund help?') &&
+        qrSvg.includes('Refund UAT Mall') &&
+        qrSvg.includes('Version 1') &&
+        qrSvg.includes('data:image/png;base64,')
+    );
+
+    await qrManager.getByRole('button', { name: 'Mark installed' }).click();
+    await qrManager.getByRole('button', { name: 'Verify label' }).click();
+    await qrManager.getByRole('button', { name: 'Verify phone scan' }).click();
+    await qrManager.getByText('Pilot ready').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Per-version rollout becomes ready only after physical and phone checks',
+      await qrManager.getByText('Ready', { exact: true }).isVisible()
+    );
+    recorder.assert(
+      'Replacement ownership is role-based and contains no person or customer record',
+      (await qrManager.locator(`#qr-owner-demo-machine-1`).inputValue()) === 'operations'
+    );
+
+    await page.waitForTimeout(4500);
+    await page.setViewportSize({ width: 1440, height: 1400 });
+    await qrManager.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'admin-machines-refund-qr-asset.png'),
+    });
+
+    await page.setViewportSize({ width: 390, height: 3000 });
+    await qrManager.getByText('Print and install refund QR').scrollIntoViewIfNeeded();
+    const mobileOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+    );
+    recorder.assert(
+      'Refund QR setup stays within a phone-width viewport',
+      mobileOverflow <= 1,
+      `${mobileOverflow}px overflow`
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'admin-machines-refund-qr-mobile.png'),
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+
+    await qrManager.getByRole('button', { name: 'Rotate' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Rotate QR' }).click();
+    await qrManager.getByText('Version 2', { exact: true }).waitFor({ timeout: 10000 });
+    await qrManager.getByRole('button', { name: 'Mark printed' }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Rotation creates a new version and resets rollout evidence',
+      await qrManager.getByRole('button', { name: 'Mark printed' }).isVisible()
+    );
+
+    await qrManager.getByRole('button', { name: 'Disable' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Disable QR' }).click();
+    await qrManager.getByText(/Version 2 is disabled/i).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Disabled QR state explains that the old link no longer starts a claim',
+      await qrManager.getByText(/old link no longer starts a valid claim/i).isVisible()
+    );
+    recorder.assert(
+      'Demo QR actions never call live Supabase QR RPCs',
+      !state.rpcCalls.includes('admin_manage_refund_machine_qr') &&
+        !state.rpcCalls.includes('admin_update_refund_qr_rollout'),
+      state.rpcCalls.join(', ')
     );
 
     await page.screenshot({

@@ -17,6 +17,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { RefundQrAssetManager } from '@/components/refunds/RefundQrAssetManager';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/auth-context';
@@ -62,6 +63,7 @@ import {
   setMachineNayaxConfigAdmin,
   setMachineRefundIntakeConfigAdmin,
   setMachineRefundManagersAdmin,
+  type RefundMachineQrAsset,
   type RefundManagerSetup,
 } from '@/lib/refundOperations';
 import {
@@ -94,6 +96,7 @@ type MachineSetupRowViewModel = {
   machineManagerEmails: string[];
   refundIntakeEnabled: boolean;
   nayaxLookupConfigured: boolean;
+  qrAsset: RefundMachineQrAsset | null;
   draftValue: string;
 };
 
@@ -108,6 +111,7 @@ type DemoRefundReadiness = {
   refundPublicDisplayLabel: string | null;
   nayaxMachineId: string | null;
   nayaxAccountKey: string | null;
+  qrAsset: RefundMachineQrAsset | null;
 };
 
 const setupQueryKey = ['admin-partnership-reporting-setup'];
@@ -263,6 +267,20 @@ const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
   ],
 });
 
+const demoActiveQrAsset: RefundMachineQrAsset = {
+  status: 'active',
+  version: 1,
+  publicPath: '/refunds/request?qr=refund_qr_asset_demo_public_code_000001',
+  createdAt: new Date().toISOString(),
+  deactivatedAt: null,
+  printedAt: new Date().toISOString(),
+  installedAt: null,
+  labelVerifiedAt: null,
+  phoneVerifiedAt: null,
+  replacementOwnerRole: 'operations',
+  rolloutReady: false,
+};
+
 export default function AdminMachinesPage() {
   const queryClient = useQueryClient();
   const { isScopedAdmin, isSuperAdmin } = useAuth();
@@ -282,10 +300,20 @@ export default function AdminMachinesPage() {
   const [isMachineDialogOpen, setIsMachineDialogOpen] = useState(false);
   const [demoRefundManagerEmailsByMachineId, setDemoRefundManagerEmailsByMachineId] = useState<
     Record<string, string[]>
-  >({});
+  >({
+    'demo-machine-1': ['manager-one@example.test'],
+  });
   const [demoRefundReadinessByMachineId, setDemoRefundReadinessByMachineId] = useState<
     Record<string, DemoRefundReadiness>
-  >({});
+  >({
+    'demo-machine-1': {
+      refundIntakeEnabled: true,
+      refundPublicDisplayLabel: 'Refund UAT Mall - Cotton Candy 01',
+      nayaxMachineId: 'DEMO-NAYAX-01',
+      nayaxAccountKey: 'TGPACI_USA_DB',
+      qrAsset: demoActiveQrAsset,
+    },
+  });
 
   const highlightedMachineId = searchParams.get('machineId');
   const isMachineEditorRequested = searchParams.get('edit') === 'machine';
@@ -335,6 +363,7 @@ export default function AdminMachinesPage() {
           refundPublicDisplayLabel: null,
           nayaxMachineId: null,
           nayaxAccountKey: null,
+          qrAsset: null,
         };
 
         return {
@@ -346,6 +375,7 @@ export default function AdminMachinesPage() {
           nayaxLookupConfigured: Boolean(demoReadiness.nayaxMachineId),
           nayaxMachineId: demoReadiness.nayaxMachineId,
           nayaxAccountKey: demoReadiness.nayaxAccountKey,
+          qrAsset: demoReadiness.qrAsset,
           managerEmails: demoRefundManagerEmailsByMachineId[machine.id] ?? [],
         };
       }),
@@ -375,7 +405,10 @@ export default function AdminMachinesPage() {
   const saveDemoRefundReadiness = async (machineId: string, readiness: DemoRefundReadiness) => {
     setDemoRefundReadinessByMachineId((current) => ({
       ...current,
-      [machineId]: readiness,
+      [machineId]: {
+        ...current[machineId],
+        ...readiness,
+      },
     }));
   };
 
@@ -424,6 +457,7 @@ export default function AdminMachinesPage() {
           machineManagerEmails,
           refundIntakeEnabled: refundSetup?.refundIntakeEnabled ?? false,
           nayaxLookupConfigured: refundSetup?.nayaxLookupConfigured ?? false,
+          qrAsset: refundSetup?.qrAsset ?? null,
           draftValue: taxDrafts[machine.id] ?? (taxRate ? String(Number(taxRate.tax_rate_percent)) : ''),
         };
       })
@@ -474,9 +508,24 @@ export default function AdminMachinesPage() {
     const overlappingAssignments = setup.warnings.filter(
       (warning) => warning.warningType === 'overlapping_partnership_assignments'
     ).length;
+    const refundPilotMachines = refundManagerSetup.machines.filter(
+      (machine) => machine.refundIntakeEnabled
+    );
+    const refundQrActive = refundPilotMachines.filter(
+      (machine) => machine.qrAsset?.status === 'active'
+    ).length;
+    const refundQrReady = refundPilotMachines.filter(
+      (machine) => machine.qrAsset?.rolloutReady
+    ).length;
 
-    return { missingTax, overlappingAssignments };
-  }, [setup]);
+    return {
+      missingTax,
+      overlappingAssignments,
+      refundPilotMachines: refundPilotMachines.length,
+      refundQrActive,
+      refundQrReady,
+    };
+  }, [refundManagerSetup.machines, setup]);
 
   const updateTaxFilter = (nextFilter: MachineTaxFilter) => {
     setTaxFilter(nextFilter);
@@ -719,7 +768,7 @@ export default function AdminMachinesPage() {
             </div>
           )}
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <ReadinessCard
               label="Assigned machines missing tax"
               value={readinessCounts.missingTax}
@@ -735,6 +784,23 @@ export default function AdminMachinesPage() {
               actionLabel="Review rows"
               onAction={() => updateAssignmentFilter('overlap')}
               isWarning={readinessCounts.overlappingAssignments > 0}
+            />
+            <ReadinessCard
+              label="Refund QR pilot ready"
+              value={readinessCounts.refundQrReady}
+              description={`${readinessCounts.refundQrActive} active code${
+                readinessCounts.refundQrActive === 1 ? '' : 's'
+              } across ${readinessCounts.refundPilotMachines} public refund machine${
+                readinessCounts.refundPilotMachines === 1 ? '' : 's'
+              }. Each machine row and setup sheet show its current version and rollout checks.`}
+              actionLabel={
+                readinessCounts.refundPilotMachines === 0
+                  ? 'No machines are currently enabled for the pilot.'
+                  : 'Open each enabled machine to finish print, placement, label, phone-scan, and replacement-owner checks.'
+              }
+              isWarning={
+                readinessCounts.refundQrReady < readinessCounts.refundPilotMachines
+              }
             />
           </div>
 
@@ -964,6 +1030,7 @@ function MachineSetupRow({
     machineManagerEmails,
     refundIntakeEnabled,
     nayaxLookupConfigured,
+    qrAsset,
     draftValue,
   } = row;
   const hasMissingRequiredTax = activeAssignments.length > 0 && taxStatus === 'missing';
@@ -1024,6 +1091,11 @@ function MachineSetupRow({
             <dd className="min-w-0 break-words">
               {refundIntakeEnabled ? 'Intake enabled' : 'Intake off'} -{' '}
               {nayaxLookupConfigured ? 'Card lookup ready' : 'Card lookup not mapped'}
+              {refundIntakeEnabled
+                ? qrAsset?.status === 'active'
+                  ? ` - QR v${qrAsset.version} ${qrAsset.rolloutReady ? 'pilot ready' : 'rollout checks needed'}`
+                  : ' - QR asset needed'
+                : ''}
             </dd>
           </div>
         </dl>
@@ -1402,6 +1474,7 @@ function MachineDialog({
           refundPublicDisplayLabel: draft.displayLabel || null,
           nayaxMachineId: draft.normalizedNayaxMachineId || null,
           nayaxAccountKey: draft.normalizedNayaxMachineId ? draft.normalizedNayaxAccountKey : null,
+          qrAsset: refundManagerSetup?.qrAsset ?? null,
         });
         setRefundReadinessSaveState('saved');
         return;
@@ -2121,6 +2194,32 @@ function MachineDialog({
               <p className="text-xs text-muted-foreground">
                 Zelle cash payouts and Nayax card refunds still require manager/manual completion. Refund setup saves with the machine changes button below.
               </p>
+              <RefundQrAssetManager
+                machineId={form.machineId}
+                locationName={refundManagerSetup?.locationName ?? form.locationName}
+                machineLabel={
+                  refundManagerSetup?.refundPublicDisplayLabel?.trim() ||
+                  refundManagerSetup?.machineLabel ||
+                  form.machineLabel ||
+                  'Bloomjoy machine'
+                }
+                refundIntakeEnabled={refundManagerSetup?.refundIntakeEnabled ?? false}
+                setupHasUnsavedChanges={refundReadinessHasChanges}
+                qrAsset={refundManagerSetup?.qrAsset ?? null}
+                isLocalDemoMode={isLocalDemoMode}
+                onDemoAssetChanged={(qrAsset) =>
+                  void onDemoRefundReadinessSaved(form.machineId!, {
+                    refundIntakeEnabled,
+                    refundPublicDisplayLabel: refundPublicDisplayLabel.trim() || null,
+                    nayaxMachineId: nayaxMachineId.trim() || null,
+                    nayaxAccountKey: nayaxMachineId.trim()
+                      ? nayaxAccountKey.trim() || 'TGPACI_USA_DB'
+                      : null,
+                    qrAsset,
+                  })
+                }
+                onSaved={onSaved}
+              />
             </div>
           </div>
           </>

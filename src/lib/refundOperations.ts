@@ -374,6 +374,28 @@ export type RefundManagerSetupMachine = {
   nayaxMachineId: string | null;
   nayaxAccountKey: string | null;
   managerEmails: string[];
+  qrAsset: RefundMachineQrAsset | null;
+};
+
+export type RefundMachineQrAssetStatus = 'active' | 'disabled' | 'retired';
+
+export type RefundMachineQrReplacementOwner =
+  | 'operations'
+  | 'machine_manager'
+  | 'site_partner';
+
+export type RefundMachineQrAsset = {
+  status: RefundMachineQrAssetStatus;
+  version: number;
+  publicPath: string | null;
+  createdAt: string;
+  deactivatedAt: string | null;
+  printedAt: string | null;
+  installedAt: string | null;
+  labelVerifiedAt: string | null;
+  phoneVerifiedAt: string | null;
+  replacementOwnerRole: RefundMachineQrReplacementOwner | null;
+  rolloutReady: boolean;
 };
 
 export type RefundManagerSetup = {
@@ -1143,6 +1165,55 @@ export const setMachineRefundIntakeConfigAdmin = async ({
   }
 
   return data as Record<string, unknown>;
+};
+
+export const manageMachineRefundQrAdmin = async ({
+  machineId,
+  action,
+  reason,
+}: {
+  machineId: string;
+  action: 'create' | 'rotate' | 'disable';
+  reason: string;
+}): Promise<RefundMachineQrAsset> => {
+  const { data, error } = await supabaseClient.rpc('admin_manage_refund_machine_qr', {
+    p_machine_id: machineId,
+    p_action: action,
+    p_reason: reason,
+  });
+
+  const qrAsset = (data as { qrAsset?: RefundMachineQrAsset } | null)?.qrAsset;
+  if (error || !qrAsset) {
+    throw new Error(error?.message || 'Unable to update this machine refund QR code.');
+  }
+
+  return qrAsset;
+};
+
+export const updateMachineRefundQrRolloutAdmin = async ({
+  machineId,
+  action,
+  replacementOwnerRole,
+  reason,
+}: {
+  machineId: string;
+  action: 'mark_printed' | 'mark_installed' | 'verify_label' | 'verify_phone' | 'set_owner';
+  replacementOwnerRole?: RefundMachineQrReplacementOwner | null;
+  reason: string;
+}): Promise<RefundMachineQrAsset> => {
+  const { data, error } = await supabaseClient.rpc('admin_update_refund_qr_rollout', {
+    p_machine_id: machineId,
+    p_action: action,
+    p_replacement_owner_role: replacementOwnerRole ?? null,
+    p_reason: reason,
+  });
+
+  const qrAsset = (data as { qrAsset?: RefundMachineQrAsset } | null)?.qrAsset;
+  if (error || !qrAsset) {
+    throw new Error(error?.message || 'Unable to update the QR rollout checklist.');
+  }
+
+  return qrAsset;
 };
 
 export const setMachineNayaxConfigAdmin = async ({

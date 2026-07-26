@@ -25,7 +25,7 @@ A high-confidence recommendation helps a manager find the charge. It does not pr
 
 | Area | Current state | Gap |
 | --- | --- | --- |
-| Public intake | `/refunds/request` supports both direct intake and an opaque machine-QR path with a short-lived, single-use, server-timestamped claim. | Physical QR generation, rotation, download, and placement controls are tracked separately in `#664`. |
+| Public intake | `/refunds/request` supports both direct intake and an opaque machine-QR path with a short-lived, single-use, server-timestamped claim. Admin > Machines can create, download, rotate, disable, and track physical rollout of each eligible machine's QR asset. | Production deployment plus six-machine installation and real-phone signoff remain in `#665`. |
 | Wallet guidance | The form asks Apple Pay/mobile-wallet customers for the virtual last four and explains that it may still differ from Nayax. | The digits remain supporting evidence rather than a reliable identity key. |
 | Nayax lookup | Server-side read-only Last Sales lookup and machine mappings are available for the current refund cohort. | Deployment and shadow-pilot evidence are still required before relying on the QR-aware policy operationally. |
 | Matching | Policy `2026-07-26.v2` separates reported incident time from verified QR-open time and supports strong-card, unique QR/time, and ambiguous/manual classes. | A unique QR/time result is advisory and manual-only; it cannot enable live/one-click execution. |
@@ -73,6 +73,9 @@ The matcher must never:
 - Each scan creates a new short-lived server-side claim context with the machine and `opened_at` time.
 - The intake function verifies the claim context and keeps QR time separate from the customer-reported incident time.
 - Disabled, rotated, expired, tampered, refreshed, and duplicate paths fail safely.
+- Admin QR actions require Super Admin or in-scope Scoped Admin authority. Machine Managers cannot create, download, disable, or rotate assets merely because they can manage refund cases.
+- The print asset uses the configured Bloomjoy production app origin, shows the human-readable location and machine label, and does not print or expose an internal machine ID or Nayax identifier.
+- Each QR version has its own rollout record: printed, physically installed, label checked, real-phone scan checked, and replacement-owner role. Rotation starts a fresh checklist.
 - Public endpoints use the existing abuse, rate-limit, and duplicate protections.
 - Customer-facing pages, logs, GitHub evidence, and partner reporting must not expose raw Nayax payloads, payment IDs, full card data, or complaint text.
 - Managers see only the sanitized evidence allowed by the existing refund visibility decision.
@@ -93,7 +96,7 @@ Parent plan: [`#661`](https://github.com/ethtri/bloomjoy-hub/issues/661)
 | --- | --- | --- | --- |
 | 1 | [`#662`](https://github.com/ethtri/bloomjoy-hub/issues/662) | Implemented and merged | Machine-specific QR intake, trusted server scan time, wallet copy, safe public failure states, and reusable UAT. |
 | 2A | [`#663`](https://github.com/ethtri/bloomjoy-hub/issues/663) | Implemented in source; deployment and pilot follow | QR-aware, wallet-safe deterministic recommendations with explainable ambiguity. |
-| 2B | [`#664`](https://github.com/ethtri/bloomjoy-hub/issues/664) | Ready after `#662` establishes the QR identifier contract | Admin generation, download, rotation, and physical verification of per-machine QR assets. |
+| 2B | [`#664`](https://github.com/ethtri/bloomjoy-hub/issues/664) | Implemented in source; live physical signoff follows in `#665` | Scoped Admin generation, print-ready download, rotation/disable, and per-version physical verification of QR assets. |
 | 3 | [`#665`](https://github.com/ethtri/bloomjoy-hub/issues/665) | Blocked by `#662`-`#664` | Six-machine shadow pilot, aggregate evidence, and rollout/rollback recommendation. |
 | Separate decision | [`#666`](https://github.com/ethtri/bloomjoy-hub/issues/666) | Needs owner decision; does not block QR engineering | Select or decline an alternative compensation method for unmatched wallet/contactless and cash claims. |
 
