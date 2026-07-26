@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(17);
+select plan(19);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -151,6 +151,28 @@ select ok(
   and has_table_privilege('service_role', 'public.refund_qr_claim_contexts', 'insert')
   and has_table_privilege('service_role', 'public.refund_qr_claim_contexts', 'update'),
   'Only the server role receives the QR table privileges required by intake and rotation'
+);
+
+select is(
+  public.record_public_intake_rate_limit_event(
+    'refund_qr_claim',
+    'ip',
+    repeat('8', 64),
+    3600
+  ),
+  1,
+  'A QR claim start uses its own supported rate-limit scope'
+);
+
+select is(
+  public.record_public_intake_rate_limit_event(
+    'submission',
+    'ip',
+    repeat('8', 64),
+    3600
+  ),
+  1,
+  'QR claim starts do not consume the completed-submission quota'
 );
 
 select ok(

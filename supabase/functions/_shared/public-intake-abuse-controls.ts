@@ -1,4 +1,7 @@
-export type PublicIntakeEventScope = "submission" | "notification";
+export type PublicIntakeEventScope =
+  | "submission"
+  | "notification"
+  | "refund_qr_claim";
 export type PublicIntakeKeyType = "ip" | "email" | "source" | "global";
 
 type RpcResult<T> = {
@@ -92,19 +95,19 @@ export const PUBLIC_INTAKE_NOTIFICATION_LIMITS: PublicIntakeLimitRule[] = [
 
 export const PUBLIC_REFUND_QR_CLAIM_LIMITS: PublicIntakeLimitRule[] = [
   {
-    eventScope: "submission",
+    eventScope: "refund_qr_claim",
     keyType: "global",
     maxCount: 1000,
     windowSeconds: 60 * 60,
   },
   {
-    eventScope: "submission",
+    eventScope: "refund_qr_claim",
     keyType: "ip",
     maxCount: 60,
     windowSeconds: 60 * 60,
   },
   {
-    eventScope: "submission",
+    eventScope: "refund_qr_claim",
     keyType: "source",
     maxCount: 1000,
     windowSeconds: 60 * 60,

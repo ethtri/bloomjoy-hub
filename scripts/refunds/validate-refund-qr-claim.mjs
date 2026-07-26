@@ -98,7 +98,12 @@ for (const forbiddenClientEvidence of [
 
 expectAll(
   abuseSource,
-  ['PUBLIC_REFUND_QR_CLAIM_LIMITS', 'keyType: "global"', 'keyType: "ip"'],
+  [
+    'PUBLIC_REFUND_QR_CLAIM_LIMITS',
+    'eventScope: "refund_qr_claim"',
+    'keyType: "global"',
+    'keyType: "ip"',
+  ],
   'QR abuse controls'
 );
 
