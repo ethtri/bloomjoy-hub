@@ -51,6 +51,7 @@ const exact = recommend([
   sale({ id: "exact-distractor", at: "2026-07-21T19:02:00.000Z", amount: 8.5 }),
 ]);
 assert.equal(exact.recommendationState, "high_confidence");
+assert.equal(exact.confidenceClass, "strong_card");
 assert.equal(exact.candidates[0].transactionId, "exact");
 assert.equal(exact.candidates[0].oneClickEligible, true);
 
@@ -60,7 +61,7 @@ assert.equal(nearTime.candidates[0].timeDeltaMinutes, 45);
 assert.equal(nearTime.candidates[0].oneClickEligible, true);
 
 const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 9.5 })]);
-assert.equal(wrongAmount.recommendationState, "no_safe_match");
+assert.equal(wrongAmount.recommendationState, "manual_exception");
 assert.equal(wrongAmount.oneClickEligible, false);
 
 const wrongMachine = recommend([sale({ id: "wrong-machine", machineId: "machine-999" })]);
@@ -86,8 +87,132 @@ const exactWallet = recommend(
   [sale({ id: "exact-wallet", recognitionMethod: "Apple Pay" })],
   { cardWalletUsed: true },
 );
-assert.equal(exactWallet.recommendationState, "manual_exception");
+assert.equal(exactWallet.recommendationState, "high_confidence");
+assert.equal(exactWallet.confidenceClass, "strong_card");
 assert.equal(exactWallet.oneClickEligible, false);
+
+const uniqueQrWallet = recommend(
+  [sale({
+    id: "unique-qr-wallet",
+    at: "2026-07-21T19:03:00.000Z",
+    last4: "9999",
+    recognitionMethod: "Apple Pay",
+  })],
+  {
+    cardWalletUsed: true,
+    qrClaimOpenedAt: "2026-07-21T19:08:00.000Z",
+    qrClaimEvidenceStatus: "verified",
+  },
+);
+assert.equal(uniqueQrWallet.recommendationState, "high_confidence");
+assert.equal(uniqueQrWallet.confidenceClass, "unique_qr_time");
+assert.equal(uniqueQrWallet.oneClickEligible, false);
+assert.equal(uniqueQrWallet.candidates[0].qrTimeDeltaMinutes, 5);
+assert.ok(uniqueQrWallet.reasonCodes.includes("unique_qr_time_candidate"));
+
+const uniqueQrContactlessCard = recommend(
+  [sale({
+    id: "unique-qr-contactless-card",
+    at: "2026-07-21T19:03:00.000Z",
+    last4: "9999",
+    recognitionMethod: "Contactless",
+  })],
+  {
+    cardWalletUsed: false,
+    qrClaimOpenedAt: "2026-07-21T19:08:00.000Z",
+    qrClaimEvidenceStatus: "verified",
+  },
+);
+assert.equal(uniqueQrContactlessCard.recommendationState, "high_confidence");
+assert.equal(uniqueQrContactlessCard.confidenceClass, "unique_qr_time");
+assert.equal(uniqueQrContactlessCard.oneClickEligible, false);
+assert.ok(uniqueQrContactlessCard.reasonCodes.includes("tokenized_last4_noncorrelating"));
+
+const uniqueQrWithoutLast4 = recommend(
+  [sale({ id: "unique-qr-no-last4", at: "2026-07-21T19:04:00.000Z", last4: "" })],
+  {
+    requestCardLast4: "",
+    qrClaimOpenedAt: "2026-07-21T19:09:00.000Z",
+    qrClaimEvidenceStatus: "verified",
+  },
+);
+assert.equal(uniqueQrWithoutLast4.recommendationState, "high_confidence");
+assert.equal(uniqueQrWithoutLast4.confidenceClass, "unique_qr_time");
+assert.equal(uniqueQrWithoutLast4.oneClickEligible, false);
+
+const closeQrTransactions = recommend(
+  [
+    sale({
+      id: "close-qr-a",
+      at: "2026-07-21T19:03:00.000Z",
+      last4: "9999",
+      recognitionMethod: "Apple Pay",
+    }),
+    sale({
+      id: "close-qr-b",
+      at: "2026-07-21T19:05:00.000Z",
+      last4: "8888",
+      recognitionMethod: "Apple Pay",
+    }),
+  ],
+  {
+    cardWalletUsed: true,
+    qrClaimOpenedAt: "2026-07-21T19:08:00.000Z",
+    qrClaimEvidenceStatus: "verified",
+  },
+);
+assert.equal(closeQrTransactions.recommendationState, "ambiguous");
+assert.equal(closeQrTransactions.confidenceClass, "ambiguous_manual");
+assert.equal(closeQrTransactions.candidates.some((candidate) => candidate.isRecommended), false);
+assert.ok(closeQrTransactions.reasonCodes.includes("plausible_runner_up"));
+
+const lateQrScan = recommend(
+  [sale({
+    id: "late-qr",
+    last4: "9999",
+    recognitionMethod: "Apple Pay",
+  })],
+  {
+    cardWalletUsed: true,
+    qrClaimOpenedAt: "2026-07-21T20:00:00.000Z",
+    qrClaimEvidenceStatus: "verified",
+  },
+);
+assert.equal(lateQrScan.recommendationState, "manual_exception");
+assert.ok(lateQrScan.reasonCodes.includes("qr_claim_late"));
+assert.equal(lateQrScan.oneClickEligible, false);
+
+const justOutsideQrWindow = recommend(
+  [sale({
+    id: "outside-qr-window",
+    last4: "9999",
+    recognitionMethod: "Apple Pay",
+  })],
+  {
+    cardWalletUsed: true,
+    qrClaimOpenedAt: "2026-07-21T19:30:01.000Z",
+    qrClaimEvidenceStatus: "verified",
+  },
+);
+assert.equal(justOutsideQrWindow.candidates[0].qrTimeDeltaMinutes, 31);
+assert.equal(justOutsideQrWindow.recommendationState, "manual_exception");
+assert.equal(justOutsideQrWindow.oneClickEligible, false);
+
+const replayedQrClaim = recommend(
+  [sale({
+    id: "replayed-qr",
+    last4: "9999",
+    recognitionMethod: "Apple Pay",
+  })],
+  {
+    cardWalletUsed: true,
+    qrClaimOpenedAt: "2026-07-21T19:05:00.000Z",
+    qrClaimEvidenceStatus: "replayed",
+  },
+);
+assert.equal(replayedQrClaim.recommendationState, "manual_exception");
+assert.ok(replayedQrClaim.reasonCodes.includes("qr_claim_replayed"));
+assert.equal(replayedQrClaim.oneClickEligible, false);
 
 const missingMachineEvidence = recommend([sale({ id: "missing-machine", machineId: "" })]);
 assert.equal(missingMachineEvidence.recommendationState, "manual_exception");
@@ -225,6 +350,7 @@ assert.equal("transactionId" in publicCandidate, false, "raw transaction ID must
 assert.equal(publicJson.includes("rankingPoints"), false, "internal points must not look like probability");
 assert.equal(publicJson.includes("providerMachineId"), false);
 assert.equal(publicCandidate.matchStrength, "strong");
+assert.equal(publicCandidate.confidenceClass, "strong_card");
 assert.equal(publicCandidate.candidateToken, "opaque-token");
 
-console.log("Nayax deterministic recommendation fixtures passed (23 safety scenarios).");
+console.log("Nayax deterministic recommendation fixtures passed (30 safety scenarios).");

@@ -603,6 +603,10 @@ const formatCandidateSummary = (candidate: NayaxLookupCandidate) =>
   }, ${formatDate(candidate.machineAuthorizationTime)}${
     typeof candidate.timeDeltaMinutes === 'number' ? `, ${candidate.timeDeltaMinutes} minutes from reported time` : ''
   }${
+    typeof candidate.qrTimeDeltaMinutes === 'number' && candidate.qrTimeDeltaMinutes >= 0
+      ? `, QR opened ${candidate.qrTimeDeltaMinutes} minutes later`
+      : ''
+  }${
     typeof candidate.amountDeltaCents === 'number'
       ? candidate.amountDeltaCents === 0
         ? ', exact amount'
@@ -784,6 +788,12 @@ const nayaxStatusClass = (status: RefundNayaxLookupStatus, hasSelectedMatch = fa
     (status === 'checking' || status === 'not_started' || status === 'not_applicable') &&
       'border-slate-200 bg-slate-50 text-slate-700'
   );
+
+const nayaxConfidenceLabel = (confidenceClass?: RefundNayaxLookupSummary['confidenceClass']) => {
+  if (confidenceClass === 'strong_card') return 'Strong card evidence';
+  if (confidenceClass === 'unique_qr_time') return 'Unique QR + time';
+  return 'Manual review';
+};
 
 const hasSelectedCardEvidence = (refundCase: RefundCaseRecord, editor: EditorState) =>
   refundCase.paymentMethod === 'card' &&
@@ -1967,8 +1977,14 @@ export default function AdminRefundsPage() {
             ? 'Confirm the correct card sale before completing the case.'
             : 'Ask the customer for one more detail before deciding this card case.'),
         recommendationState: result.recommendationState,
+        confidenceClass: result.confidenceClass,
+        reasonCodes: result.reasonCodes,
         policyVersion: result.policyVersion,
         oneClickEligible: result.oneClickEligible,
+        incidentAt: result.incidentAt,
+        qrClaimOpenedAt: result.qrClaimOpenedAt,
+        qrClaimEvidenceStatus: result.qrClaimEvidenceStatus,
+        maximumUniqueQrLagMinutes: result.maximumUniqueQrLagMinutes,
       };
       setNayaxLookupSummary(nextSummary);
       if (!result.configured) {
@@ -2461,8 +2477,13 @@ export default function AdminRefundsPage() {
       >
         <span className="flex flex-wrap items-center gap-2 font-semibold">
           <span>{label}</span>
-          {candidate.oneClickEligible && (
-            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">Strong evidence</Badge>
+          {candidate.confidenceClass === 'strong_card' && (
+            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">
+              Strong card evidence{candidate.oneClickEligible ? '' : ' · manual only'}
+            </Badge>
+          )}
+          {candidate.confidenceClass === 'unique_qr_time' && (
+            <Badge className="border-sky-200 bg-sky-100 text-sky-900">Unique QR + time · manual only</Badge>
           )}
         </span>
         <span className="mt-1 block text-sky-800">{formatCandidateSummary(candidate)}</span>
@@ -2493,7 +2514,7 @@ export default function AdminRefundsPage() {
             </p>
             <p className="mt-1 text-xs text-sky-800">
               {recommendedCandidate
-                ? 'Confirm only if the details below match the request. This recommendation is advisory.'
+                ? 'Confirm only if the details below match the request. This identifies a likely payment; it does not prove a delivery failure or approve a refund.'
                 : 'No transaction is safe to recommend automatically. One-click refund stays unavailable.'}
             </p>
             {isUsingDemoData && (
@@ -2752,6 +2773,12 @@ export default function AdminRefundsPage() {
                   <p className="mt-1 font-medium text-white">{formatDate(selectedCase.incidentAt)}</p>
                 </div>
                 <div>
+                  <p className="text-xs text-slate-400">Machine QR opened</p>
+                  <p className="mt-1 font-medium text-white">
+                    {selectedCase.qrClaimOpenedAt ? formatDate(selectedCase.qrClaimOpenedAt) : 'Not available · direct form'}
+                  </p>
+                </div>
+                <div>
                   <p className="text-xs text-slate-400">Requested</p>
                   <p className="mt-1 font-medium text-white">{formatCurrency(selectedCase.paymentAmountCents)}</p>
                 </div>
@@ -2780,9 +2807,14 @@ export default function AdminRefundsPage() {
                   </p>
                 </div>
                 {selectedNayaxSummary && (
-                  <Badge className={nayaxStatusClass(selectedNayaxSummary.lookupStatus, hasSelectedCardEvidence(selectedCase, editor))}>
-                    {nayaxDisplayStatusLabel(selectedNayaxSummary, selectedCase, editor)}
-                  </Badge>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <Badge className={nayaxStatusClass(selectedNayaxSummary.lookupStatus, hasSelectedCardEvidence(selectedCase, editor))}>
+                      {nayaxDisplayStatusLabel(selectedNayaxSummary, selectedCase, editor)}
+                    </Badge>
+                    <span className="text-[11px] font-medium text-slate-300">
+                      {nayaxConfidenceLabel(selectedNayaxSummary.confidenceClass)}
+                    </span>
+                  </div>
                 )}
               </div>
 
@@ -2812,14 +2844,15 @@ export default function AdminRefundsPage() {
                       ))}
                     </div>
                   )}
-                  <p className="mt-3 text-xs leading-5 text-slate-400">
-                    Advisory match. Bloomjoy rechecks the safety rules when the refund is submitted.
-                  </p>
                   <div className="mt-3 text-slate-950">{renderCardSaleCandidates()}</div>
                 </>
               ) : (
                 <div className="mt-3 text-slate-950">{renderCardSaleCandidates()}</div>
               )}
+              <p className="mt-3 text-xs leading-5 text-slate-400">
+                <span>Advisory match. Bloomjoy rechecks the safety rules when the refund is submitted.</span>{' '}
+                <span>This identifies a likely payment only; it does not prove a delivery failure or approve a refund.</span>
+              </p>
             </article>
           </div>
         </section>
@@ -3917,7 +3950,13 @@ export default function AdminRefundsPage() {
                           {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)}
                         </p>
                         <p className="mt-1 text-muted-foreground">
-                          Incident: {formatDate(selectedCase.incidentAt)}
+                          Customer-reported time: {formatDate(selectedCase.incidentAt)}
+                        </p>
+                        <p className="mt-1 text-muted-foreground">
+                          Machine QR opened:{' '}
+                          {selectedCase.qrClaimOpenedAt
+                            ? formatDate(selectedCase.qrClaimOpenedAt)
+                            : 'Not available · direct form'}
                         </p>
                         <p className="mt-3 break-words text-muted-foreground">{selectedCase.issueSummary}</p>
                       </div>
@@ -3954,9 +3993,13 @@ export default function AdminRefundsPage() {
                               <span>Window: +/- {selectedNayaxSummary.windowHours ?? 6} hours</span>
                               <span>Checked: {formatDate(selectedNayaxSummary.lastCheckedAt)}</span>
                               <span>Records found: {selectedNayaxSummary.providerWindowRecordCount ?? 'n/a'}</span>
+                              <span>Evidence: {nayaxConfidenceLabel(selectedNayaxSummary.confidenceClass)}</span>
                             </div>
                             <p className="mt-3 text-xs font-medium text-sky-950">
                               {nayaxNextActionText(selectedNayaxSummary, selectedCase, editor)}
+                            </p>
+                            <p className="mt-2 text-xs text-sky-800">
+                              This identifies a likely payment only. It does not prove a delivery failure or approve a refund.
                             </p>
                           </div>
                         )}

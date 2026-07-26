@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-07-26-machine-qr-intake",
-  "sourceGitCommit": "c26b86f6998747d86b996d5f59030c1b1476fd45",
+  "releaseId": "refund-ops-2026-07-26-qr-aware-matcher",
+  "sourceGitCommit": "f0e77c9c43b73996947cec48fdcedb260eec701f",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -28,10 +28,11 @@
     "202607210006_refund_gmail_thread_linkage.sql",
     "202607210007_refund_gpt_triage_foundation.sql",
     "202607220001_refund_gpt_triage_runner.sql",
-    "202607260001_refund_qr_claim_context.sql"
+    "202607260001_refund_qr_claim_context.sql",
+    "202607260002_refund_qr_aware_nayax_recommendation.sql"
   ],
-  "migrationFilesSha256": "f52233149487e6cd3ffef429204bf65d9b072afd8c95ddcd727d6f850da3e423",
-  "migrationVersionSetSha256": "0da3007ff681c79bfcfbbb166f220f03215571562cbd8143346ec5a160b0802b",
+  "migrationFilesSha256": "e7fe6e4ecd4250a161073dceaaad4a309cc04e09153300453c99d18c24b10036",
+  "migrationVersionSetSha256": "c6dafee01f72e23fef39af7a8e3a8e144f68a1c25825b124fbc3e084b93cc7c3",
   "functions": [
     {
       "slug": "refund-case-intake",
@@ -46,7 +47,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "0534c1e5352426ea90e36dec9e48daadebdd869ce5e0ec6b547381c768f3b67b",
+      "sourceSha256": "38c54eb518d3c0905ca493d21038d4844bdc74714b22f623ed33409efc436d28",
       "production": {
         "version": 2,
         "ezbrSha256": "ab266fb778db5834bba4259fc42b49b5df10d0d0130bcf1b4355caff6a1a9ea9",
@@ -56,7 +57,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "9f7ab7da65c19225cf4fec10a656c291b07c88e8436cee52625a311d860c5cfa",
+      "sourceSha256": "175964e606f934335fdd6ea4eeeb208d71564718dc96d1acd530b2381b109402",
       "production": {
         "version": 2,
         "ezbrSha256": "37563a7c377d35c1da6cc4bc717510b4ba3709c81c4e7ee103763756aabcddfe",
@@ -76,7 +77,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "39a693373c4a00169da5d5744ce46862382a6bf27a564b428a9f93cf6e5271e6",
+      "sourceSha256": "96bd0c2bb42f17a617e52dba73906149c304bd351f1bcb53cf261f422cf16cf7",
       "production": {
         "version": 2,
         "ezbrSha256": "90e95bd7d4b11ff50bb608003c8fd9795647275fef23af59d0d0c6cf263b06ee",

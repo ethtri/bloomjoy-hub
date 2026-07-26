@@ -6,7 +6,7 @@ import {
 } from "./nayax-recommendation.mjs";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 
-export { extractNayaxRecords };
+export { extractNayaxRecords, NAYAX_RECOMMENDATION_POLICY };
 
 const defaultNayaxBaseUrl = "https://lynx.nayax.com/operational/v1";
 const defaultNayaxAccountKey = "TGPACI_USA_DB";
@@ -79,6 +79,11 @@ export type NayaxRecommendationState =
   | "no_safe_match"
   | "manual_exception";
 
+export type NayaxConfidenceClass =
+  | "strong_card"
+  | "unique_qr_time"
+  | "ambiguous_manual";
+
 export type NayaxMatchFactor = {
   key: string;
   outcome: string;
@@ -93,6 +98,7 @@ export type NayaxProviderCandidate = {
   machineAuthorizationTime: string;
   providerTimeResolution: string;
   timeDeltaMinutes: number;
+  qrTimeDeltaMinutes: number | null;
   amountCents: number | null;
   amountDeltaCents: number | null;
   currencyCode: string;
@@ -106,6 +112,8 @@ export type NayaxProviderCandidate = {
   isTopRanked: boolean;
   isRecommended: boolean;
   recommendationState: NayaxRecommendationState;
+  confidenceClass: NayaxConfidenceClass;
+  reasonCodes: string[];
   oneClickEligible: boolean;
   selectionAllowed: boolean;
   matchStrength: string;
@@ -133,8 +141,13 @@ export type NayaxLookupResult = {
     | "setup_needed"
     | "lookup_failed";
   recommendationState: NayaxRecommendationState;
+  confidenceClass: NayaxConfidenceClass;
+  reasonCodes: string[];
   policyVersion: string;
   oneClickEligible: boolean;
+  qrClaimEvidenceStatus: "verified" | "missing" | "invalid" | "replayed";
+  qrClaimOpenedAt: string | null;
+  maximumUniqueQrLagMinutes: number;
   lastCheckedAt: string;
   message?: string;
   providerRecordCount?: number;
@@ -156,6 +169,8 @@ export type NayaxLookupResult = {
     refundAmountCents: number | null;
     machineLabel: string | null;
     locationName: string | null;
+    incidentAt: string;
+    qrClaimOpenedAt: string | null;
   };
 };
 
@@ -243,6 +258,8 @@ const persistNayaxLookupCandidates = async ({
         ranking_points: candidate.rankingPoints,
         recommendation_rank: candidate.recommendationRank,
         recommendation_state: candidate.recommendationState,
+        confidence_class: candidate.confidenceClass,
+        reason_codes: candidate.reasonCodes,
         is_top_ranked: candidate.isTopRanked,
         is_recommended: candidate.isRecommended,
         one_click_eligible: candidate.oneClickEligible,
@@ -253,6 +270,7 @@ const persistNayaxLookupCandidates = async ({
         manual_review_reasons: candidate.manualReviewReasons,
         hard_exclusions: candidate.hardExclusions,
         time_delta_minutes: candidate.timeDeltaMinutes,
+        qr_time_delta_minutes: candidate.qrTimeDeltaMinutes,
         amount_delta_cents: candidate.amountDeltaCents,
         provider_time_resolution: candidate.providerTimeResolution,
         card_brand: candidate.cardBrand || null,
@@ -299,6 +317,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
       status,
       reporting_machine_id,
       reporting_location_id,
+      refund_qr_claim_context_id,
       incident_at,
       incident_time_resolution,
       payment_method,
@@ -344,6 +363,29 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     );
   }
 
+  let qrClaimEvidenceStatus: NayaxLookupResult["qrClaimEvidenceStatus"] = "missing";
+  let qrClaimOpenedAt: string | null = null;
+  const qrClaimContextId = sanitizeText(refundCase?.refund_qr_claim_context_id, 80);
+  if (qrClaimContextId) {
+    const { data: qrClaim, error: qrClaimError } = await supabase
+      .from("refund_qr_claim_contexts")
+      .select("reporting_machine_id, opened_at, consumed_at")
+      .eq("id", qrClaimContextId)
+      .maybeSingle();
+    if (qrClaimError) throw qrClaimError;
+
+    const openedAt = parseIncidentAt(qrClaim?.opened_at);
+    const consumedAt = parseIncidentAt(qrClaim?.consumed_at);
+    const machineMatches =
+      sanitizeText(qrClaim?.reporting_machine_id, 80) === sanitizeText(refundCase?.reporting_machine_id, 80);
+    if (openedAt && consumedAt && consumedAt.getTime() >= openedAt.getTime() && machineMatches) {
+      qrClaimEvidenceStatus = "verified";
+      qrClaimOpenedAt = openedAt.toISOString();
+    } else {
+      qrClaimEvidenceStatus = "invalid";
+    }
+  }
+
   const caseSnapshot = {
     id: sanitizeText(refundCase.id, 80),
     publicReference: sanitizeText(refundCase.public_reference, 80),
@@ -355,6 +397,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     refundAmountCents: sanitizeInputCents(refundCase.refund_amount_cents),
     machineLabel: sanitizeText(machine?.machine_label, 180) || null,
     locationName: sanitizeText(location?.name, 180) || null,
+    incidentAt: incidentAt.toISOString(),
+    qrClaimOpenedAt,
   };
 
   const nayaxMachineId = sanitizeText(machine?.nayax_machine_id, 120);
@@ -364,8 +408,13 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     configured: false,
     lookupStatus: "setup_needed",
     recommendationState: "manual_exception",
+    confidenceClass: "ambiguous_manual",
+    reasonCodes: ["lookup_setup_incomplete"],
     policyVersion: NAYAX_RECOMMENDATION_POLICY.version,
     oneClickEligible: false,
+    qrClaimEvidenceStatus,
+    qrClaimOpenedAt,
+    maximumUniqueQrLagMinutes: NAYAX_RECOMMENDATION_POLICY.maximumUniqueQrLagMinutes,
     lastCheckedAt,
     candidates: [],
     candidateCount: 0,
@@ -418,6 +467,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     requestAmountCents: sanitizeInputCents(refundCase?.payment_amount_cents),
     requestCardLast4: extractLast4(refundCase?.card_last4),
     cardWalletUsed: Boolean(refundCase?.card_wallet_used),
+    qrClaimOpenedAt,
+    qrClaimEvidenceStatus,
     windowHours,
   };
   const preliminary = buildNayaxRecommendation(commonRecommendationInput) as {
@@ -434,7 +485,12 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   }) as {
     policyVersion: string;
     recommendationState: NayaxRecommendationState;
+    confidenceClass: NayaxConfidenceClass;
+    reasonCodes: string[];
     oneClickEligible: boolean;
+    qrClaimEvidenceStatus: NayaxLookupResult["qrClaimEvidenceStatus"];
+    qrClaimOpenedAt: string | null;
+    maximumUniqueQrLagMinutes: number;
     candidates: NayaxProviderCandidate[];
     candidateCount: number;
     providerParseableRecordCount: number;
@@ -453,8 +509,13 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     configured: true,
     lookupStatus: recommendationToLookupStatus(recommendation.recommendationState),
     recommendationState: recommendation.recommendationState,
+    confidenceClass: recommendation.confidenceClass,
+    reasonCodes: recommendation.reasonCodes,
     policyVersion: recommendation.policyVersion,
     oneClickEligible: recommendation.oneClickEligible,
+    qrClaimEvidenceStatus: recommendation.qrClaimEvidenceStatus,
+    qrClaimOpenedAt: recommendation.qrClaimOpenedAt,
+    maximumUniqueQrLagMinutes: recommendation.maximumUniqueQrLagMinutes,
     lastCheckedAt,
     providerRecordCount: extractNayaxRecords(nayaxPayload).length,
     providerParseableRecordCount: recommendation.providerParseableRecordCount,

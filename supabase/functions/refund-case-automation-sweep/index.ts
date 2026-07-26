@@ -589,7 +589,13 @@ const runCardNayaxLookupSweep = async (
           refund_case_id: refundCase.id,
           event_type: "nayax_auto_lookup_setup_needed",
           message: "Automated Nayax lookup could not run because setup is incomplete.",
-          metadata: { configured: false, payload_redacted: true },
+          metadata: {
+            configured: false,
+            policy_version: lookupResult.policyVersion,
+            confidence_class: lookupResult.confidenceClass,
+            reason_codes: lookupResult.reasonCodes,
+            payload_redacted: true,
+          },
         });
         if (eventError) throw eventError;
         await finishAction(action, "completed", "nayax_setup_needed", null, counters);
@@ -623,6 +629,8 @@ const runCardNayaxLookupSweep = async (
           message: "Automated Nayax lookup evaluated sanitized card-sale evidence for manager review.",
           metadata: {
             recommendation_state: lookupResult.recommendationState,
+            confidence_class: lookupResult.confidenceClass,
+            reason_codes: lookupResult.reasonCodes,
             policy_version: lookupResult.policyVersion,
             candidate_count: lookupResult.candidates.length,
             recommended_rank: lookupResult.recommendationState === "high_confidence" ? 1 : null,
@@ -630,6 +638,7 @@ const runCardNayaxLookupSweep = async (
             window_hours: lookupResult.windowHours,
             provider_record_count: lookupResult.providerRecordCount ?? null,
             provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
+            qr_claim_evidence_status: lookupResult.qrClaimEvidenceStatus,
             payload_redacted: true,
           },
         });
@@ -670,9 +679,12 @@ const runCardNayaxLookupSweep = async (
             window_hours: lookupResult.windowHours,
             candidate_count: lookupResult.candidates.length,
             recommendation_state: lookupResult.recommendationState,
+            confidence_class: lookupResult.confidenceClass,
+            reason_codes: lookupResult.reasonCodes,
             policy_version: lookupResult.policyVersion,
             provider_record_count: lookupResult.providerRecordCount ?? null,
             provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
+            qr_claim_evidence_status: lookupResult.qrClaimEvidenceStatus,
             payload_redacted: true,
           },
         });
