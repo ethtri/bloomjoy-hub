@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-Status: approved direction; implementation is not yet live.
+Status: approved direction; identification is partially implemented, while automatic correction and live refund execution are not yet enabled.
 
 ## Plain-English summary
 
@@ -19,7 +19,7 @@ For Apple Pay or another mobile wallet, the form must ask for the virtual card's
 
 Bloomjoy will compare the claim with recent Nayax transactions for that machine. A manager will see a recommended transaction only when the evidence points to one plausible transaction. If two transactions could fit, Bloomjoy will not guess.
 
-A high-confidence recommendation helps a manager find the charge. It does not prove the product failed to dispense, approve the refund, or authorize an automatic payment.
+A high-confidence recommendation does not prove the product failed to dispense or approve the refund. It does let Bloomjoy put one clear decision in front of the manager. When the manager approves, the target experience is for Bloomjoy to refund the selected transaction through the Nayax API and send the customer and manager confirmations automatically.
 
 ## What exists today
 
@@ -28,10 +28,11 @@ A high-confidence recommendation helps a manager find the charge. It does not pr
 | Public intake | `/refunds/request` supports both direct intake and an opaque machine-QR path with a short-lived, single-use, server-timestamped claim. | Physical QR generation, rotation, download, and placement controls are tracked separately in `#664`. |
 | Wallet guidance | The form asks Apple Pay/mobile-wallet customers for the virtual last four and explains that it may still differ from Nayax. | The digits remain supporting evidence rather than a reliable identity key. |
 | Nayax lookup | Server-side read-only Last Sales lookup and machine mappings are available for the current refund cohort. | Deployment and shadow-pilot evidence are still required before relying on the QR-aware policy operationally. |
-| Matching | Policy `2026-07-26.v2` separates reported incident time from verified QR-open time and supports strong-card, unique QR/time, and ambiguous/manual classes. | A unique QR/time result is advisory and manual-only; it cannot enable live/one-click execution. |
-| Manager workflow | Managers can review cases and use the authorized Nayax portal workflow. | Recommendation confidence must stay separate from manager approval and live in-app execution. |
+| Matching | Policy `2026-07-26.v2` separates reported incident time from verified QR-open time and supports strong-card, unique QR/time, and ambiguous/manual classes. | The current policy keeps unique QR/time results manual-only. Issue `#674` must add tested execution eligibility without weakening ambiguity rules. |
+| Customer correction | The intake form explains that wallet/device digits may differ from the physical card. | Issue `#673` must automatically collect corrected virtual last four through a secure self-service link and re-run matching. |
+| Manager workflow | Managers can review cases. The guarded in-app refund endpoint remains fail-closed, so live payment execution is not available. | The target is one approval followed by server-side provider execution and automatic customer/manager confirmation, implemented through `#430` and `#674`. |
 | Delivery evidence | No reliable machine signal says whether the product was delivered. | Transaction matching cannot establish that a vend failed. The manager still decides the customer-service outcome. |
-| Alternative compensation | Cash currently follows the manual cash/Zelle path. | An e-gift card, store credit, machine credit, or other fallback for unmatched wallet/contactless and cash claims is TBD. |
+| Alternative compensation | Cash currently follows the manual cash/Zelle path. | Issue `#666` is a P0 decision for the terminal unmatched/contactless and cash path. The provider and business rules remain TBD. |
 
 The versioned rules in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` are authoritative for source behavior. Production must not be treated as QR-aware until the migration and related Edge Functions are deployed and the shadow pilot in `#665` passes.
 
@@ -43,7 +44,11 @@ The versioned rules in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` are authoritative
 4. The customer enters the approximate purchase time, amount, payment method, and last four.
 5. Apple Pay/mobile-wallet customers enter the virtual last four displayed in their wallet, not the physical-card last four.
 6. Bloomjoy searches recent Nayax transactions for that machine and applies deterministic, versioned rules.
-7. A manager receives either one explainable recommendation or an explicit ambiguous/no-safe-match result.
+7. If the wallet details may be wrong, Bloomjoy automatically asks the customer to provide the virtual/device last four through a secure correction link and then repeats the search.
+8. A manager receives one explainable recommendation only when the evidence leaves one plausible transaction.
+9. The manager chooses **Approve refund** or **Decline**. The match never makes that decision for them.
+10. After approval, Bloomjoy executes the refund through the server-side Nayax flow. Only confirmed success completes the case and sends one confirmation to the customer and one to the manager.
+11. If bounded matching and correction attempts still cannot identify one transaction, Bloomjoy offers the approved alternative-compensation route. If Nayax's result is unknown, Bloomjoy reconciles it before any retry or fallback.
 
 The direct form remains available for customers who did not scan a QR code, but those cases will not have trusted QR timing evidence.
 
@@ -51,10 +56,11 @@ The direct form remains available for customers who did not scan a QR code, but 
 
 | Result | Meaning | Manager action |
 | --- | --- | --- |
-| Strong card evidence | The approved machine, amount, timing, and submitted last four agree with one safe Nayax candidate. | Review the evidence and, if the refund is approved, process it through the authorized Nayax portal workflow. |
-| Unique QR/time evidence | The machine, exact amount, customer-reported time, and server-recorded QR time leave exactly one plausible Nayax candidate. A wallet last-four mismatch or unavailable value does not create a second candidate. | Review the explanation and, if approved, process the original-card refund manually in Nayax. Live in-app execution stays disabled. |
-| Ambiguous or no safe match | More than one candidate could fit, the scan was too late to be useful, required evidence is missing, the provider response is unsafe, or no candidate fits. | Do not select a transaction. Request more information or use the approved manual/fallback process. The alternative-compensation method is still TBD. |
-| Cash | There is no Nayax card transaction to refund. | Continue the current approved manual path until issue `#666` records a replacement decision. |
+| Strong card evidence | The approved machine, amount, timing, and submitted last four agree with one safe Nayax candidate. | Decide **Approve refund** or **Decline**. After approval and the `#430` release gate, Bloomjoy executes the refund and sends both confirmations automatically. |
+| Unique QR/time evidence | The machine, exact amount, customer-reported time, and server-recorded QR time leave exactly one plausible Nayax candidate. Wallet evidence does not leave another plausible transaction. | Make the same one-approval decision. Once the tested `#674` eligibility and `#430` provider gates pass, the manager does not need to process the transaction in Nayax. |
+| Correctable wallet details | The customer may have entered the physical-card last four instead of the virtual/device last four, and corrected evidence could safely resolve the case. | Bloomjoy automatically sends the secure correction request in `#673`, receives the limited update, and re-runs matching without manager correspondence. |
+| Ambiguous or no safe match | More than one candidate could fit, the scan was too late to be useful, required evidence is missing, the provider response is unsafe, or no candidate fits. | Do not guess or execute a card refund. Run any useful bounded correction step, then offer the approved `#666` fallback only when the case is terminally unmatched. |
+| Cash | There is no Nayax card transaction to refund. | Use the approved `#666` fallback when available. Until then, continue the current approved manual cash/Zelle path. |
 
 The exact timing windows must be named, server-controlled, versioned, visible in sanitized audit evidence, and covered by close-transaction fixtures. They must be conservative enough for machines that may process roughly 30 transactions per hour. Changing a threshold requires test evidence and an updated policy version.
 
@@ -65,7 +71,9 @@ The matcher must never:
 - use browser time as trusted scan evidence
 - treat a transaction match as proof of failed delivery
 - turn a recommendation into automatic approval
-- make wallet cases eligible for live in-app execution without the separate provider and sponsor gates in `#430`
+- make any wallet or QR/time case execution-eligible when another transaction remains plausible
+- treat manager approval as provider success
+- retry an unknown provider result or issue fallback compensation before reconciliation
 
 ## QR and data safeguards
 
@@ -83,28 +91,38 @@ The first rollout covers the six proposed public Commercial/Mini refund machines
 
 Snapcase/phone-case machines stay out of scope until Bloomjoy chooses and models their payment and sales source of truth.
 
-The legacy Google Form/Sheet/AppSheet fallback remains available until the existing cutover gate is approved. This strategy does not enable live Nayax API refunds, Gmail, GPT, or automatic refund approval.
+The legacy Google Form/Sheet/AppSheet fallback remains available until the existing cutover gate is approved. This strategy does not enable production Nayax API refunds, Gmail, GPT, or automatic refund approval. It defines the one-approval target; provider execution remains disabled until `#430` passes its separate release gate.
 
 ## Delivery plan
 
-Parent plan: [`#661`](https://github.com/ethtri/bloomjoy-hub/issues/661)
+End-to-end parent: [`#674`](https://github.com/ethtri/bloomjoy-hub/issues/674)
 
 | Order | Issue | State | Outcome |
 | --- | --- | --- | --- |
-| 1 | [`#662`](https://github.com/ethtri/bloomjoy-hub/issues/662) | Implemented and merged | Machine-specific QR intake, trusted server scan time, wallet copy, safe public failure states, and reusable UAT. |
-| 2A | [`#663`](https://github.com/ethtri/bloomjoy-hub/issues/663) | Implemented in source; deployment and pilot follow | QR-aware, wallet-safe deterministic recommendations with explainable ambiguity. |
-| 2B | [`#664`](https://github.com/ethtri/bloomjoy-hub/issues/664) | Ready after `#662` establishes the QR identifier contract | Admin generation, download, rotation, and physical verification of per-machine QR assets. |
-| 3 | [`#665`](https://github.com/ethtri/bloomjoy-hub/issues/665) | Blocked by `#662`-`#664` | Six-machine shadow pilot, aggregate evidence, and rollout/rollback recommendation. |
-| Separate decision | [`#666`](https://github.com/ethtri/bloomjoy-hub/issues/666) | Needs owner decision; does not block QR engineering | Select or decline an alternative compensation method for unmatched wallet/contactless and cash claims. |
-
-After `#662` establishes the shared contract, `#663` and `#664` can proceed in parallel. Broader rollout waits for `#665`.
+| 1 | [`#661`](https://github.com/ethtri/bloomjoy-hub/issues/661), [`#662`](https://github.com/ethtri/bloomjoy-hub/issues/662), [`#663`](https://github.com/ethtri/bloomjoy-hub/issues/663), [`#664`](https://github.com/ethtri/bloomjoy-hub/issues/664), [`#665`](https://github.com/ethtri/bloomjoy-hub/issues/665) | Foundation partly merged; QR asset and shadow-pilot work remains | Prove machine-specific QR intake, trusted timing, conservative recommendations, printable assets, and the six-machine pilot. |
+| 2 | [`#673`](https://github.com/ethtri/bloomjoy-hub/issues/673) | Ready for implementation | Secure customer correction, bounded reminders, and automatic re-matching without manager correspondence. |
+| 3 | [`#430`](https://github.com/ethtri/bloomjoy-hub/issues/430) | Fail-closed foundation exists; account contract and integrated implementation remain | One manager approval triggers idempotent Nayax execution; confirmed success sends customer and manager receipts and writes reporting once. |
+| 4 | [`#666`](https://github.com/ethtri/bloomjoy-hub/issues/666) | P0 owner decision required | Select and implement the terminal alternative-compensation method and controls. |
+| 5 | [`#674`](https://github.com/ethtri/bloomjoy-hub/issues/674) | In progress | Integrate the slices and pass the end-to-end controlled pilot before production enablement. |
 
 ## Pilot success standard
 
-The shadow pilot must include ordinary cards, wallet last-four mismatch, one unique transaction, multiple same-price transactions close together, a late scan, wrong or uncertain amount, missing QR evidence, direct-form intake, and Nayax failure.
+The shadow pilot must include ordinary cards, a wallet with correct virtual last four, a wallet with physical last four corrected through self-service, one unique QR/time transaction, multiple same-price transactions close together, a late scan, wrong or uncertain amount, missing QR evidence, correction timeout, direct-form intake, provider rejection, provider timeout/unknown status, and a manager double-click.
 
 The pilot pauses a confidence class if it produces any known false-positive recommendation in the controlled validation set. Evidence shared in GitHub remains aggregate and sanitized. Any live refund continues through the authorized human-reviewed process.
 
+## How this should play out
+
+**Physical card, one clear sale:** The customer scans the machine QR and submits the last four. Bloomjoy finds one sale. The manager approves once. Bloomjoy refunds it through Nayax and emails both people.
+
+**Apple Pay, correct virtual last four:** Bloomjoy finds one sale using the machine, timing, amount, and wallet evidence. The manager sees the same one-button decision and never opens Nayax.
+
+**Apple Pay, physical last four entered by mistake:** Bloomjoy emails the customer a secure correction link explaining where to find the virtual/device last four. The customer corrects it, Bloomjoy re-runs the search, and the manager is notified only when one safe match exists.
+
+**Several same-price sales close together:** Bloomjoy does not guess. It attempts the useful correction step automatically. If the case remains ambiguous or the customer does not respond within the bounded window, Bloomjoy offers the approved alternative compensation.
+
+**Nayax does not return a clear result:** Bloomjoy tells neither party that the refund succeeded, does not retry blindly, and does not issue a gift card. It reconciles the original attempt first so the customer cannot be paid twice.
+
 ## Open decision
 
-The fallback compensation method is intentionally TBD. No gift-card provider, Nayax/Monyx app flow, stored-value platform, or machine-credit design is approved by this strategy. Issue `#666` owns that research and owner decision.
+The fallback compensation method is intentionally TBD but now blocks the complete terminal flow. No gift-card provider, Nayax/Monyx app flow, stored-value platform, or machine-credit design is approved by this strategy. Issue `#666` owns that research and owner decision.
