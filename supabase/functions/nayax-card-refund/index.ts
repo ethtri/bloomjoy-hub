@@ -8,6 +8,8 @@ import {
   executeNayaxRefundProvider,
   parseNayaxRefundProviderContract,
 } from "../_shared/nayax-refund-provider.mjs";
+import { NAYAX_RECOMMENDATION_POLICY } from "../_shared/nayax-recommendation.mjs";
+import { deliverRefundResolutionNotifications } from "../_shared/refund-resolution-notifications.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -54,6 +56,7 @@ type RefundCaseForExecution = {
   correlation_source: string | null;
   nayax_recommendation_state: string | null;
   nayax_match_execution_eligible: boolean;
+  nayax_refund_execution_status: string;
   matched_nayax_transaction_id: string | null;
   matched_nayax_site_id: number | null;
   matched_nayax_machine_auth_time: string | null;
@@ -119,6 +122,7 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseForExecution | n
       correlation_source,
       nayax_recommendation_state,
       nayax_match_execution_eligible,
+      nayax_refund_execution_status,
       matched_nayax_transaction_id,
       matched_nayax_site_id,
       matched_nayax_machine_auth_time,
@@ -217,7 +221,6 @@ const getPreflightBlocks = (refundCase: RefundCaseForExecution) => {
   if (refundCase.status !== "card_refund_pending") blocks.push("validation_rejected");
   if (refundCase.decision !== "approved") blocks.push("validation_rejected");
   if (refundCase.payment_method !== "card") blocks.push("validation_rejected");
-  if (refundCase.card_wallet_used) blocks.push("manual_review");
   if (refundCase.correlation_status !== "matched") blocks.push("validation_rejected");
   if (refundCase.correlation_source !== "nayax") blocks.push("validation_rejected");
   if (refundCase.nayax_recommendation_state !== "high_confidence") blocks.push("manual_review");
@@ -373,6 +376,67 @@ const requireClaimedExecutionEvidence = (
   return evidence;
 };
 
+const sanitizeProviderStageResult = (result: ProviderStageResult) => ({
+  outcome: result.outcome,
+  http_status: result.httpStatus,
+  result: result.result,
+  status: result.status,
+  failure_type: result.failureType ?? null,
+  payload_redacted: true,
+});
+
+const buildSanitizedProviderResponse = (
+  stageResult: ProviderStageResult,
+  priorStageResult?: ProviderStageResult | null,
+) =>
+  stageResult.stage === "approve"
+    ? {
+        request: priorStageResult
+          ? sanitizeProviderStageResult(priorStageResult)
+          : null,
+        approve: sanitizeProviderStageResult(stageResult),
+        payload_redacted: true,
+      }
+    : {
+        request: sanitizeProviderStageResult(stageResult),
+        payload_redacted: true,
+      };
+
+const buildProviderStatus = (stageResult: ProviderStageResult) =>
+  [
+    stageResult.stage,
+    stageResult.result ?? "none",
+    stageResult.status ?? "none",
+  ].join(":").slice(0, 200);
+
+const approveRecommendedRefund = async ({
+  actorUserId,
+  refundCaseId,
+  candidateToken,
+}: {
+  actorUserId: string;
+  refundCaseId: string;
+  candidateToken: string | null;
+}) => {
+  if (!supabase) throw new Error("Nayax refund database client is unavailable.");
+  const { data, error } = await supabase.rpc(
+    "service_approve_nayax_refund_as_actor",
+    {
+      p_actor_user_id: actorUserId,
+      p_refund_case_id: refundCaseId,
+      p_candidate_token: candidateToken,
+      p_policy_version: NAYAX_RECOMMENDATION_POLICY.version,
+    },
+  );
+  if (error) throw error;
+  return (data ?? {}) as {
+    approved?: boolean;
+    alreadyCompleted?: boolean;
+    candidateAccepted?: boolean;
+    approvalRecorded?: boolean;
+  };
+};
+
 const updateAttemptAndCase = async ({
   attemptId,
   refundCaseId,
@@ -392,36 +456,16 @@ const updateAttemptAndCase = async ({
 }) => {
   if (!supabase) throw new Error("Nayax refund database client is unavailable.");
 
-  const providerStatus = [
-    stageResult.stage,
-    stageResult.result ?? "none",
-    stageResult.status ?? "none",
-  ].join(":").slice(0, 200);
-  const sanitizeStageResult = (result: ProviderStageResult) => ({
-    outcome: result.outcome,
-    http_status: result.httpStatus,
-    result: result.result,
-    status: result.status,
-    failure_type: result.failureType ?? null,
-    payload_redacted: true,
-  });
-  const sanitizedResponse = stageResult.stage === "approve"
-    ? {
-      request: priorStageResult ? sanitizeStageResult(priorStageResult) : null,
-      approve: sanitizeStageResult(stageResult),
-      payload_redacted: true,
-    }
-    : {
-      request: sanitizeStageResult(stageResult),
-      payload_redacted: true,
-    };
   const { data: updatedAttempt, error: attemptError } = await supabase
     .from("refund_case_nayax_refund_attempts")
     .update({
       status: attemptStatus,
-      provider_status: providerStatus,
+      provider_status: buildProviderStatus(stageResult),
       error_code: errorCode,
-      sanitized_response: sanitizedResponse,
+      sanitized_response: buildSanitizedProviderResponse(
+        stageResult,
+        priorStageResult,
+      ),
     })
     .eq("id", attemptId)
     .select("id")
@@ -439,6 +483,37 @@ const updateAttemptAndCase = async ({
   if (caseError || !updatedCase) {
     throw caseError ?? new Error("Nayax refund case status update was not recorded.");
   }
+};
+
+const finalizeSucceededRefund = async ({
+  actorUserId,
+  refundCaseId,
+  attemptId,
+  stageResult,
+  priorStageResult,
+}: {
+  actorUserId: string;
+  refundCaseId: string;
+  attemptId: string;
+  stageResult: ProviderStageResult;
+  priorStageResult: ProviderStageResult | null;
+}) => {
+  if (!supabase) throw new Error("Nayax refund database client is unavailable.");
+  const { data, error } = await supabase.rpc(
+    "service_finalize_nayax_refund_execution",
+    {
+      p_actor_user_id: actorUserId,
+      p_refund_case_id: refundCaseId,
+      p_attempt_id: attemptId,
+      p_provider_status: buildProviderStatus(stageResult),
+      p_sanitized_response: buildSanitizedProviderResponse(
+        stageResult,
+        priorStageResult,
+      ),
+    },
+  );
+  if (error) throw error;
+  return data as { completed?: boolean } | null;
 };
 
 const providerStageState = (result: ProviderStageResult) => {
@@ -540,11 +615,30 @@ const claimProviderExecution = async ({
   return (data ?? {}) as ClaimResult;
 };
 
-const existingClaimResponse = (claim: ClaimResult) => {
+const existingClaimResponse = async (
+  claim: ClaimResult,
+  refundCaseId: string,
+) => {
   if (claim.status === "succeeded") {
+    const notifications = supabase
+      ? await deliverRefundResolutionNotifications({
+          supabase,
+          refundCaseId,
+          limit: 2,
+        }).catch(() => ({
+          claimed: 0,
+          sent: 0,
+          failed: 0,
+          customerStatus: "pending",
+          managerStatus: "pending",
+        }))
+      : null;
     return jsonResponse({
       executed: true,
       status: "succeeded",
+      caseCompleted: true,
+      managerApprovalRecorded: true,
+      notifications,
       message: "This approved Nayax refund was already completed.",
     });
   }
@@ -563,6 +657,7 @@ const existingClaimResponse = (claim: ClaimResult) => {
     executed: false,
     status: claim.status ?? "preflight_blocked",
     errorCode,
+    managerApprovalRecorded: true,
     message: outcomeUnknown
       ? "A Nayax refund attempt already exists. Do not retry it until the transaction is reconciled in Nayax."
       : "This refund could not obtain a safe, single-use Nayax execution claim.",
@@ -590,13 +685,27 @@ serve(async (req) => {
     const user = authData?.user;
     if (authError || !user) return jsonResponse({ error: "Unauthorized." }, 401);
 
-    const body = await req.json();
-    const caseId = sanitizeText(body?.caseId, 80);
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return jsonResponse({ error: "A valid refund approval request is required." }, 400);
+    }
+    const requestBody = body as Record<string, unknown>;
+    const unexpectedKeys = Object.keys(requestBody)
+      .filter((key) => !["caseId", "candidateToken"].includes(key));
+    if (unexpectedKeys.length > 0) {
+      return jsonResponse({ error: "Unexpected refund approval fields were provided." }, 400);
+    }
+
+    const caseId = sanitizeText(requestBody.caseId, 80);
     if (!isUuid(caseId)) {
       return jsonResponse({ error: "Refund case is required." }, 400);
     }
+    const candidateToken = sanitizeText(requestBody.candidateToken, 80);
+    if (candidateToken && !isUuid(candidateToken)) {
+      return jsonResponse({ error: "The recommended transaction expired. Run matching again." }, 400);
+    }
 
-    const refundCase = await getRefundCase(caseId);
+    let refundCase = await getRefundCase(caseId);
     if (!refundCase) return jsonResponse({ error: "Refund case not found." }, 404);
     const { data: actorCanManageCase, error: accessError } = await supabase.rpc(
       "can_manage_refund_case",
@@ -607,11 +716,67 @@ serve(async (req) => {
       return jsonResponse({ error: "Forbidden." }, 403);
     }
 
+    try {
+      const approval = await approveRecommendedRefund({
+        actorUserId: user.id,
+        refundCaseId: refundCase.id,
+        candidateToken: candidateToken || null,
+      });
+      if (!approval.approved) {
+        return jsonResponse({
+          executed: false,
+          status: "preflight_blocked",
+          errorCode: "approval_rejected",
+          managerApprovalRecorded: false,
+          message: "Only the current high-confidence recommended transaction can be approved.",
+        }, 409);
+      }
+    } catch {
+      return jsonResponse({
+        executed: false,
+        status: "preflight_blocked",
+        errorCode: "approval_rejected",
+        managerApprovalRecorded: false,
+        message: "The high-confidence recommendation expired or changed. Run matching again before approval.",
+      }, 409);
+    }
+
+    refundCase = await getRefundCase(caseId);
+    if (!refundCase) {
+      return jsonResponse({ error: "Refund case could not be reloaded after approval." }, 500);
+    }
+
+    if (
+      refundCase.status === "completed" &&
+      refundCase.nayax_refund_execution_status === "succeeded"
+    ) {
+      const notifications = await deliverRefundResolutionNotifications({
+        supabase,
+        refundCaseId: refundCase.id,
+        limit: 2,
+      }).catch(() => ({
+        claimed: 0,
+        sent: 0,
+        failed: 0,
+        customerStatus: "pending",
+        managerStatus: "pending",
+      }));
+      return jsonResponse({
+        executed: true,
+        status: "succeeded",
+        caseCompleted: true,
+        managerApprovalRecorded: true,
+        notifications,
+        message: "This approved Nayax refund was already completed.",
+      });
+    }
+
     const idempotencySecret = Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET") || "";
     if (idempotencySecret.trim().length < 32) {
       return jsonResponse({
         error: "The Nayax refund connection is incomplete.",
-        code: "provider_configuration_invalid",
+        errorCode: "provider_configuration_invalid",
+        managerApprovalRecorded: true,
       }, 409);
     }
 
@@ -662,6 +827,7 @@ serve(async (req) => {
         blocks: allBlocks,
         dryRun,
         killSwitchActive,
+        managerApprovalRecorded: true,
       }, 409);
     }
 
@@ -678,6 +844,7 @@ serve(async (req) => {
         executed: false,
         status: attempt?.status ?? "manual_review",
         errorCode: "provider_contract_unconfirmed",
+        managerApprovalRecorded: true,
         message: "Bloomjoy must confirm the account-specific Nayax refund responses before this can run.",
       }, 409);
     }
@@ -697,6 +864,7 @@ serve(async (req) => {
         executed: false,
         status: attempt?.status ?? "preflight_blocked",
         errorCode: "provider_configuration_invalid",
+        managerApprovalRecorded: true,
         message: "The Nayax refund connection is incomplete or does not match the approved contract.",
       }, 409);
     }
@@ -713,7 +881,7 @@ serve(async (req) => {
       expectedExecutionEvidence,
     });
     if (!claim.claimed || !claim.attemptId) {
-      return existingClaimResponse(claim);
+      return await existingClaimResponse(claim, refundCase.id);
     }
 
     try {
@@ -736,23 +904,47 @@ serve(async (req) => {
           if (stageResult.stage === "request") {
             requestStageResult = stageResult;
           }
-          const state = providerStageState(stageResult);
-          await updateAttemptAndCase({
-            attemptId: claim.attemptId as string,
-            refundCaseId: refundCase.id,
-            ...state,
-            stageResult,
-            priorStageResult,
-          });
+          if (stageResult.stage === "approve" && stageResult.outcome === "succeeded") {
+            await finalizeSucceededRefund({
+              actorUserId: user.id,
+              attemptId: claim.attemptId as string,
+              refundCaseId: refundCase.id,
+              stageResult,
+              priorStageResult,
+            });
+          } else {
+            const state = providerStageState(stageResult);
+            await updateAttemptAndCase({
+              attemptId: claim.attemptId as string,
+              refundCaseId: refundCase.id,
+              ...state,
+              stageResult,
+              priorStageResult,
+            });
+          }
         },
       });
 
       if (result.executed) {
+        const notifications = await deliverRefundResolutionNotifications({
+          supabase,
+          refundCaseId: refundCase.id,
+          limit: 2,
+        }).catch(() => ({
+          claimed: 0,
+          sent: 0,
+          failed: 0,
+          customerStatus: "pending",
+          managerStatus: "pending",
+        }));
         return jsonResponse({
           executed: true,
           status: "succeeded",
+          caseCompleted: true,
+          managerApprovalRecorded: true,
+          notifications,
           refundReference: refundCase.public_reference,
-          message: "The Nayax card refund was approved.",
+          message: "The Nayax card refund was approved and the case was completed.",
         });
       }
 
@@ -762,6 +954,7 @@ serve(async (req) => {
         executed: false,
         status: finalState.attemptStatus,
         errorCode: finalState.errorCode,
+        managerApprovalRecorded: true,
         message: finalState.errorCode === "provider_outcome_unconfirmed"
           ? "Nayax did not return a confirmed outcome. Do not retry; reconcile this transaction in Nayax."
           : "Nayax did not complete this refund. Review the recorded provider outcome before taking another action.",
@@ -772,6 +965,7 @@ serve(async (req) => {
         executed: false,
         status: "ambiguous",
         errorCode: "provider_outcome_unconfirmed",
+        managerApprovalRecorded: true,
         message: "The Nayax outcome could not be confirmed. Do not retry; reconcile this transaction in Nayax.",
       }, 502);
     }

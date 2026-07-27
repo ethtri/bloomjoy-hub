@@ -19,6 +19,7 @@ import {
   getRefundWalletCorrectionExpiry,
   hashRefundWalletCorrectionToken,
 } from "../_shared/refund-wallet-correction.ts";
+import { deliverRefundResolutionNotifications } from "../_shared/refund-resolution-notifications.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -172,6 +173,8 @@ type SweepCounters = {
   remindersFailed: number;
   escalationsSent: number;
   escalationsFailed: number;
+  resolutionNotificationsSent: number;
+  resolutionNotificationsFailed: number;
 };
 
 type ClaimedAction = {
@@ -202,6 +205,8 @@ const createCounters = (): SweepCounters => ({
   remindersFailed: 0,
   escalationsSent: 0,
   escalationsFailed: 0,
+  resolutionNotificationsSent: 0,
+  resolutionNotificationsFailed: 0,
 });
 
 const addReason = (counters: SweepCounters, reason: string, count = 1) => {
@@ -224,6 +229,8 @@ const redactedSummary = (counters: SweepCounters) => ({
   remindersFailed: counters.remindersFailed,
   escalationsSent: counters.escalationsSent,
   escalationsFailed: counters.escalationsFailed,
+  resolutionNotificationsSent: counters.resolutionNotificationsSent,
+  resolutionNotificationsFailed: counters.resolutionNotificationsFailed,
   payloadRedacted: true,
 });
 
@@ -1351,6 +1358,30 @@ serve(async (req) => {
         timezone: automationTimezone,
         ...redactedSummary(counters),
       });
+    }
+
+    const resolutionNotifications = await deliverRefundResolutionNotifications({
+      supabase,
+      limit: 20,
+    });
+    counters.actionsAttempted += resolutionNotifications.claimed;
+    counters.actionsSucceeded += resolutionNotifications.sent;
+    counters.actionsFailed += resolutionNotifications.failed;
+    counters.resolutionNotificationsSent += resolutionNotifications.sent;
+    counters.resolutionNotificationsFailed += resolutionNotifications.failed;
+    if (resolutionNotifications.sent > 0) {
+      addReason(
+        counters,
+        "refund_resolution_notification_sent",
+        resolutionNotifications.sent,
+      );
+    }
+    if (resolutionNotifications.failed > 0) {
+      addReason(
+        counters,
+        "refund_resolution_notification_failed",
+        resolutionNotifications.failed,
+      );
     }
 
     await runCardNayaxLookupSweep(runId, counters, policyWindowStart);

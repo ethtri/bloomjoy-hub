@@ -30,6 +30,7 @@ export type TransactionalEmailInput = {
   text: string;
   html?: string;
   replyTo?: string | string[] | null;
+  idempotencyKey?: string | null;
 };
 
 const getResendConfig = () => {
@@ -56,6 +57,7 @@ export async function sendTransactionalEmail({
   text,
   html,
   replyTo,
+  idempotencyKey,
 }: TransactionalEmailInput) {
   const { resendApiKey, fromEmail } = getResendConfig();
 
@@ -92,21 +94,46 @@ export async function sendTransactionalEmail({
     payload.reply_to = replyToRecipients;
   }
 
+  const normalizedIdempotencyKey = idempotencyKey?.trim() ?? "";
+  if (
+    normalizedIdempotencyKey &&
+    (
+      normalizedIdempotencyKey.length > 256 ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(normalizedIdempotencyKey)
+    )
+  ) {
+    throw new Error("Invalid email idempotency key.");
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${resendApiKey}`,
+    "Content-Type": "application/json",
+  };
+  if (normalizedIdempotencyKey) {
+    headers["Idempotency-Key"] = normalizedIdempotencyKey;
+  }
+
   const response = await fetch(RESEND_API_BASE_URL, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${resendApiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(
-      `Resend request failed (${response.status}): ${errorBody || "Unknown error"}`
-    );
+    await response.body?.cancel();
+    throw new Error(`Resend request failed (${response.status}).`);
   }
+
+  const responseBody = await response.json().catch(() => ({})) as { id?: unknown };
+  const providerMessageId =
+    typeof responseBody.id === "string" ? responseBody.id.trim() : "";
+  return {
+    providerMessageId: /^[A-Za-z0-9][A-Za-z0-9._:-]{5,159}$/.test(
+        providerMessageId,
+      )
+      ? providerMessageId
+      : null,
+  };
 }
 
 export async function sendInternalEmail({ subject, text }: InternalEmailInput) {

@@ -6,7 +6,7 @@ import { resolveLocalDateTimeInZone } from "./timezone-resolution.mjs";
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-07-26.v2",
+  version: "2026-07-27.v3",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -647,9 +647,7 @@ export const buildNayaxRecommendation = ({
     const oneClickEligible =
       isRecommended &&
       recommendationState === "high_confidence" &&
-      confidenceClass === "strong_card" &&
-      !request.cardWalletUsed &&
-      candidate.recognitionMethod !== "wallet";
+      ["strong_card", "unique_qr_time"].includes(confidenceClass);
     return {
       ...candidate,
       policyVersion: policy.version,
@@ -665,13 +663,11 @@ export const buildNayaxRecommendation = ({
     high_confidence: confidenceClass === "unique_qr_time"
       ? {
           summary: "Nayax found exactly one sale supported by the machine, amount, QR start, and timing.",
-          recommendedAction: "Verify the sale in Nayax and use the manual portal path. QR/time evidence does not enable one-click refund.",
+          recommendedAction: "Approve the recommended refund only if the customer report is valid. Bloomjoy will handle the verified Nayax sale automatically.",
         }
       : {
           summary: "Nayax found exactly one sale with matching card, machine, amount, and reported time.",
-          recommendedAction: request.cardWalletUsed
-            ? "Verify the wallet sale in Nayax and use the manual portal path. One-click refund stays unavailable."
-            : "Confirm the recommended sale. Only then may the separately guarded refund action become eligible.",
+          recommendedAction: "Approve the recommended refund only if the customer report is valid. Bloomjoy will handle the verified Nayax sale automatically.",
         },
     ambiguous: {
       summary: "Nayax found multiple plausible card sales that are too close to recommend safely.",

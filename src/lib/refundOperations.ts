@@ -554,6 +554,7 @@ export type NayaxCardRefundExecutionStatus =
 
 export type ExecuteNayaxCardRefundInput = {
   caseId: string;
+  candidateToken?: string | null;
 };
 
 export type NayaxCardRefundExecutionResponse = {
@@ -567,6 +568,15 @@ export type NayaxCardRefundExecutionResponse = {
   killSwitchActive?: boolean;
   refundReference?: string | null;
   manualRefundReference?: string | null;
+  caseCompleted?: boolean;
+  managerApprovalRecorded?: boolean;
+  notifications?: {
+    claimed: number;
+    sent: number;
+    failed: number;
+    customerStatus: string | null;
+    managerStatus: string | null;
+  } | null;
 };
 
 export type NayaxCardRefundExecutionError =
@@ -1270,10 +1280,14 @@ export const isNayaxCardRefundExecutionError = (
 
 export const executeNayaxCardRefund = async ({
   caseId,
+  candidateToken,
 }: ExecuteNayaxCardRefundInput): Promise<NayaxCardRefundExecutionResponse> =>
   invokeEdgeFunction<NayaxCardRefundExecutionResponse>(
     'nayax-card-refund',
-    { caseId },
+    {
+      caseId,
+      ...(candidateToken ? { candidateToken } : {}),
+    },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to execute Nayax card refunds.',

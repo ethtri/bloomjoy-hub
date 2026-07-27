@@ -89,7 +89,7 @@ const exactWallet = recommend(
 );
 assert.equal(exactWallet.recommendationState, "high_confidence");
 assert.equal(exactWallet.confidenceClass, "strong_card");
-assert.equal(exactWallet.oneClickEligible, false);
+assert.equal(exactWallet.oneClickEligible, true);
 
 const uniqueQrWallet = recommend(
   [sale({
@@ -106,7 +106,7 @@ const uniqueQrWallet = recommend(
 );
 assert.equal(uniqueQrWallet.recommendationState, "high_confidence");
 assert.equal(uniqueQrWallet.confidenceClass, "unique_qr_time");
-assert.equal(uniqueQrWallet.oneClickEligible, false);
+assert.equal(uniqueQrWallet.oneClickEligible, true);
 assert.equal(uniqueQrWallet.candidates[0].qrTimeDeltaMinutes, 5);
 assert.ok(uniqueQrWallet.reasonCodes.includes("unique_qr_time_candidate"));
 
@@ -125,7 +125,7 @@ const uniqueQrContactlessCard = recommend(
 );
 assert.equal(uniqueQrContactlessCard.recommendationState, "high_confidence");
 assert.equal(uniqueQrContactlessCard.confidenceClass, "unique_qr_time");
-assert.equal(uniqueQrContactlessCard.oneClickEligible, false);
+assert.equal(uniqueQrContactlessCard.oneClickEligible, true);
 assert.ok(uniqueQrContactlessCard.reasonCodes.includes("tokenized_last4_noncorrelating"));
 
 const uniqueQrWithoutLast4 = recommend(
@@ -138,7 +138,7 @@ const uniqueQrWithoutLast4 = recommend(
 );
 assert.equal(uniqueQrWithoutLast4.recommendationState, "high_confidence");
 assert.equal(uniqueQrWithoutLast4.confidenceClass, "unique_qr_time");
-assert.equal(uniqueQrWithoutLast4.oneClickEligible, false);
+assert.equal(uniqueQrWithoutLast4.oneClickEligible, true);
 
 const closeQrTransactions = recommend(
   [

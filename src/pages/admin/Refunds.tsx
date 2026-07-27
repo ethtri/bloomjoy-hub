@@ -867,6 +867,20 @@ const matchResultLabel = (
 const selectedNayaxCandidate = (editor: EditorState, candidates: NayaxLookupCandidate[]) =>
   candidates.find((candidate) => candidate.candidateToken === editor.matchedNayaxCandidateToken) ?? null;
 
+const editorWithNayaxCandidate = (
+  editor: EditorState,
+  candidate: NayaxLookupCandidate
+): EditorState => ({
+  ...editor,
+  matchedNayaxCandidateToken: candidate.candidateToken,
+  matchedNayaxMachineAuthTime: candidate.machineAuthorizationTime,
+  matchedNayaxAmount:
+    typeof candidate.amountCents === 'number' ? (candidate.amountCents / 100).toFixed(2) : '',
+  matchedNayaxCardLast4: candidate.cardLast4,
+  matchedNayaxCurrencyCode: candidate.currencyCode,
+  nayaxDisagreementReason: candidate.isRecommended ? '' : editor.nayaxDisagreementReason,
+});
+
 const activeNayaxCandidate = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
@@ -1024,46 +1038,46 @@ const primaryActionConfig = (
       };
     }
 
-    const hasUnsavedCandidate = Boolean(editor.matchedNayaxCandidateToken.trim());
-    if (hasUnsavedCandidate && selectedCandidate) {
+    const oneClickEligible =
+      selectedCandidate?.oneClickEligible === true ||
+      refundCase.nayaxMatchExecutionEligible === true;
+    if (oneClickEligible) {
       return {
-        label: 'Confirm this card sale',
-        helper: selectedCandidate.oneClickEligible
-          ? 'Save the manager-confirmed sale before the guarded card refund becomes available.'
-          : 'Save this reviewed sale. One-click refund stays unavailable unless every server-side safety rule passes.',
+        label: 'Approve refund',
+        helper:
+          'One approval tells Bloomjoy Hub to verify the recommended sale again, send the refund through Nayax, complete reporting, and notify both you and the customer after Nayax confirms success.',
         targetStatus: 'card_refund_pending',
-        targetDecision: 'approved',
-        messageType: 'approved',
-        mode: 'case_update',
-      };
-    }
-
-    const oneClickEligible = refundCase.nayaxMatchExecutionEligible === true;
-    if (editor.decision === 'approved' || editor.status === 'card_refund_pending' || refundCase.status === 'card_refund_pending') {
-      if (!oneClickEligible) {
-        return {
-          label: 'Manual card review required',
-          helper: 'This transaction was not the uniquely recommended safe match, so the one-click Nayax refund stays unavailable.',
-          disabled: true,
-        };
-      }
-      return {
-        label: 'Refund card payment',
-        helper: 'Confirm the refund amount, then attempt the card refund from this page. The customer is emailed only after a successful execution.',
-        targetStatus: 'completed',
         targetDecision: 'approved',
         messageType: 'completed',
         mode: 'nayax_refund_execution',
       };
     }
 
+    if (editor.decision === 'approved' || editor.status === 'card_refund_pending' || refundCase.status === 'card_refund_pending') {
+      return {
+        label: 'Approved refund needs attention',
+        helper:
+          'The approval is saved, but the transaction is not currently eligible for an automatic Nayax refund. Re-run matching or reconcile the existing provider attempt before taking another payment action.',
+        disabled: true,
+      };
+    }
+
+    if (selectedCandidate) {
+      return {
+        label: 'Save reviewed sale',
+        helper:
+          'This sale can be kept as review evidence, but it is not safe enough for an automatic refund. Bloomjoy Hub will not approve or contact the customer.',
+        targetStatus: 'needs_review',
+        targetDecision: null,
+        mode: 'case_update',
+      };
+    }
+
     return {
-      label: 'Confirm this card sale',
-      helper: 'Confirm the card sale and send the approval email. The next step is card refund execution in Bloomjoy Hub.',
-      targetStatus: 'card_refund_pending',
-      targetDecision: 'approved',
-      messageType: 'approved',
-      mode: 'case_update',
+      label: 'Automatic refund not ready',
+      helper:
+        'Bloomjoy Hub has not found one high-confidence transaction. Ask the customer for another detail or run the Nayax check again.',
+      disabled: true,
     };
   }
 
@@ -1653,6 +1667,38 @@ export default function AdminRefundsPage() {
     [isLookingUpNayax, nayaxCandidates, nayaxLookupNotice, nayaxLookupSummary, selectedCase]
   );
 
+  useEffect(() => {
+    if (
+      selectedCase?.paymentMethod !== 'card' ||
+      selectedCase.hasMatchedNayaxTransaction
+    ) {
+      return;
+    }
+    const recommendedCandidate = nayaxCandidates.find(
+      (candidate) =>
+        candidate.isRecommended === true &&
+        candidate.oneClickEligible === true &&
+        candidate.selectionAllowed !== false
+    );
+    if (!recommendedCandidate) return;
+
+    setEditor((current) => {
+      if (
+        !current ||
+        current.clearNayaxMatch ||
+        current.matchedNayaxCandidateToken
+      ) {
+        return current;
+      }
+      return editorWithNayaxCandidate(current, recommendedCandidate);
+    });
+  }, [
+    nayaxCandidates,
+    selectedCase?.hasMatchedNayaxTransaction,
+    selectedCase?.id,
+    selectedCase?.paymentMethod,
+  ]);
+
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
     setSelectedId(refundCase.id);
     setSelectionRevision((current) => current + 1);
@@ -1797,54 +1843,47 @@ export default function AdminRefundsPage() {
     setNayaxExecutionNotice(null);
     setRefundActionReceipt(null);
     try {
+      const candidate = activeNayaxCandidate(selectedCase, editor, nayaxCandidates);
       const result = await executeNayaxCardRefund({
         caseId: selectedCase.id,
+        candidateToken:
+          candidate?.candidateToken ??
+          (editor.matchedNayaxCandidateToken.trim() || null),
       });
 
       if (!result.executed) {
+        const approvalSaved = result.managerApprovalRecorded === true;
         setNayaxExecutionNotice({
           tone: 'warning',
           message: formatNayaxExecutionBlockedMessage(result),
         });
         setRefundActionReceipt({
           tone: 'warning',
-          title: 'Refund not sent',
-          message: `${formatNayaxExecutionBlockedMessage(result)} The case is still open and no customer completion email was sent.`,
+          title: approvalSaved ? 'Approval saved; refund not confirmed' : 'Refund not sent',
+          message: approvalSaved
+            ? `${formatNayaxExecutionBlockedMessage(result)} Bloomjoy Hub saved your approval, kept the case open, and sent no success confirmations. Do not retry while a Nayax outcome is unresolved.`
+            : `${formatNayaxExecutionBlockedMessage(result)} The case is still open and no success confirmations were sent.`,
         });
         toast.error('Card refund was blocked by safety controls. The case was not completed.');
+        await refresh();
         return;
       }
 
-      const completedEditor: EditorState = {
-        ...executionEditor,
-        manualRefundReference: getNayaxExecutionReference(result) ?? editor.manualRefundReference,
-      };
-      setEditor(completedEditor);
-      const saveResult = await handleSaveCase(completedEditor, 'completed');
       const reference = getNayaxExecutionReference(result);
-      if (!saveResult) {
-        setRefundActionReceipt({
-          tone: 'warning',
-          title: 'Refund sent; follow-up needs attention',
-          message:
-            'Nayax reported success, but Bloomjoy Hub could not finish the case or customer email. Do not retry the payment. Reconcile this case against Nayax and retry only the customer follow-up.',
-          reference,
-        });
-        return;
-      }
+      const customerNotified = result.notifications?.customerStatus === 'sent';
+      const managerNotified = result.notifications?.managerStatus === 'sent';
+      const confirmationsSent = customerNotified && managerNotified;
 
       setRefundActionReceipt({
         tone: 'success',
         title: 'Refund completed',
-        message:
-          saveResult.customerMessage?.status === 'failed'
-            ? 'Nayax reported success and the case was completed, but the customer email needs a retry.'
-            : saveResult.customerMessage?.status === 'sent'
-              ? 'Nayax reported success, the case was completed, and the customer was notified.'
-              : 'Nayax reported success, the case was completed, and the customer email is queued for delivery.',
+        message: confirmationsSent
+          ? 'Nayax confirmed the refund, Bloomjoy Hub completed the case and reporting, and both you and the customer were notified.'
+          : 'Nayax confirmed the refund and Bloomjoy Hub completed the case and reporting. Any missing confirmations are queued for automatic retry; do not resend the refund.',
         reference,
       });
       setIsRefundConfirmationOpen(false);
+      await refresh();
     } catch (executionError) {
       const response = isNayaxCardRefundExecutionError(executionError)
         ? executionError.data
@@ -1860,12 +1899,19 @@ export default function AdminRefundsPage() {
       });
       setRefundActionReceipt({
         tone: 'warning',
-        title: response ? 'Refund not sent' : 'Refund outcome needs verification',
-        message: response
-          ? `${message} The case remains open and the customer was not emailed.`
+        title: response?.managerApprovalRecorded
+          ? 'Approval saved; refund not confirmed'
+          : response
+            ? 'Refund not sent'
+            : 'Refund outcome needs verification',
+        message: response?.managerApprovalRecorded
+          ? `${message} Bloomjoy Hub saved your approval, kept the case open, and sent no success confirmations. Do not retry while a Nayax outcome is unresolved.`
+          : response
+            ? `${message} The case remains open and no success confirmations were sent.`
           : `${message} Do not retry until the Nayax transaction is checked, because the provider outcome was not confirmed.`,
       });
       toast.error('Card refund was not completed. The customer was not contacted.');
+      await refresh();
     } finally {
       setIsRunningNayaxRefund(false);
     }
@@ -1877,10 +1923,7 @@ export default function AdminRefundsPage() {
       await handleSendCustomerMessage(primaryAction.messageType);
       return;
     }
-    if (
-      primaryAction.targetStatus === 'completed' &&
-      selectedCase?.paymentMethod === 'card'
-    ) {
+    if (primaryAction.mode === 'nayax_refund_execution') {
       await handleRunNayaxRefund();
       return;
     }
@@ -2459,18 +2502,7 @@ export default function AdminRefundsPage() {
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (candidate.selectionAllowed === false) return;
       setEditor((current) =>
-        current
-          ? {
-              ...current,
-              matchedNayaxCandidateToken: candidate.candidateToken,
-              matchedNayaxMachineAuthTime: candidate.machineAuthorizationTime,
-              matchedNayaxAmount:
-                typeof candidate.amountCents === 'number' ? (candidate.amountCents / 100).toFixed(2) : '',
-              matchedNayaxCardLast4: candidate.cardLast4,
-              matchedNayaxCurrencyCode: candidate.currencyCode,
-              nayaxDisagreementReason: candidate.isRecommended ? '' : current.nayaxDisagreementReason,
-            }
-          : current
+        current ? editorWithNayaxCandidate(current, candidate) : current
       );
     };
     const candidateOption = (candidate: NayaxLookupCandidate, label: string) => (
@@ -2495,7 +2527,9 @@ export default function AdminRefundsPage() {
             </Badge>
           )}
           {candidate.confidenceClass === 'unique_qr_time' && (
-            <Badge className="border-sky-200 bg-sky-100 text-sky-900">Unique QR + time · manual only</Badge>
+            <Badge className="border-sky-200 bg-sky-100 text-sky-900">
+              Unique QR + time{candidate.oneClickEligible ? '' : ' · manual only'}
+            </Badge>
           )}
         </span>
         <span className="mt-1 block text-sky-800">{formatCandidateSummary(candidate)}</span>
@@ -2646,8 +2680,11 @@ export default function AdminRefundsPage() {
     selectedCase && editor && primaryAction?.messageType
       ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
       : null;
-  const primaryActionIsCompletion = primaryAction?.targetStatus === 'completed';
-  const isCardCompletion = primaryActionIsCompletion && selectedCase?.paymentMethod === 'card';
+  const isCardCompletion =
+    primaryAction?.mode === 'nayax_refund_execution' &&
+    selectedCase?.paymentMethod === 'card';
+  const primaryActionIsCompletion =
+    primaryAction?.targetStatus === 'completed' || isCardCompletion;
   const completionProvider = 'Zelle';
   const completionActionName = selectedCase?.paymentMethod === 'card' ? 'card refund' : 'Zelle refund';
   const completionOutsideAction =
@@ -2677,7 +2714,7 @@ export default function AdminRefundsPage() {
       selectedCase.matchedNayaxMachineAuthTime ||
       editor.matchedNayaxMachineAuthTime ||
       selectedCase.incidentAt;
-    const actionLabel = `Refund ${formatCurrency(cardAmountCents)} and notify customer`;
+    const actionLabel = `Review ${formatCurrency(cardAmountCents)} refund`;
     const hasReadyRefund = isCardCompletion && primaryAction?.disabled !== true;
     const isActionDisabled =
       isSaving ||
@@ -2726,7 +2763,7 @@ export default function AdminRefundsPage() {
                 Manager decision
               </p>
               <h3 className="mt-1 text-xl font-semibold">
-                {hasReadyRefund ? 'Ready for final confirmation' : primaryAction?.label ?? 'Review this request'}
+                {hasReadyRefund ? 'Ready for approval' : primaryAction?.label ?? 'Review this request'}
               </h3>
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
@@ -2874,9 +2911,11 @@ export default function AdminRefundsPage() {
             <div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Final action</p>
-                <p className="mt-1 text-lg font-semibold text-foreground">{actionLabel}</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
+                  Approve {formatCurrency(cardAmountCents)} refund
+                </p>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  You will review the exact payment and customer email before anything is submitted.
+                  Bloomjoy Hub will recheck this exact transaction, submit the Nayax refund, complete reporting, and notify you and the customer only after confirmed success.
                 </p>
               </div>
             </div>
@@ -2994,9 +3033,9 @@ export default function AdminRefundsPage() {
         >
           <AlertDialogContent data-testid="refund-confirmation-dialog" className="max-w-xl">
             <AlertDialogHeader>
-              <AlertDialogTitle>Confirm {formatCurrency(cardAmountCents)} card refund</AlertDialogTitle>
+              <AlertDialogTitle>Approve {formatCurrency(cardAmountCents)} card refund</AlertDialogTitle>
               <AlertDialogDescription>
-                Check every detail. The customer email sends only after Nayax confirms success.
+                This is the only approval step. Bloomjoy Hub will handle Nayax, reporting, and both confirmation emails after Nayax confirms success.
               </AlertDialogDescription>
             </AlertDialogHeader>
 
@@ -3042,7 +3081,7 @@ export default function AdminRefundsPage() {
                 ) : (
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                 )}
-                Confirm refund &amp; send email
+                Approve refund
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

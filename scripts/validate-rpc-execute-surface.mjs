@@ -70,6 +70,26 @@ const serviceRoleOnlyFunctions = [
     migrationName: '202607220002_refund_nayax_execution_claim.sql',
   },
   {
+    signature: 'public.service_approve_nayax_refund_as_actor(uuid, uuid, uuid, text)',
+    name: 'service_approve_nayax_refund_as_actor',
+    migrationName: '202607270002_refund_one_approval_resolution.sql',
+  },
+  {
+    signature: 'public.service_finalize_nayax_refund_execution(uuid, uuid, uuid, text, jsonb)',
+    name: 'service_finalize_nayax_refund_execution',
+    migrationName: '202607270002_refund_one_approval_resolution.sql',
+  },
+  {
+    signature: 'public.service_claim_refund_resolution_notifications(uuid, integer)',
+    name: 'service_claim_refund_resolution_notifications',
+    migrationName: '202607270002_refund_one_approval_resolution.sql',
+  },
+  {
+    signature: 'public.service_finish_refund_resolution_notification(uuid, text, text, text)',
+    name: 'service_finish_refund_resolution_notification',
+    migrationName: '202607270002_refund_one_approval_resolution.sql',
+  },
+  {
     signature: 'public.admin_update_refund_case(uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)',
     name: 'admin_update_refund_case',
     migrationName: '202605120002_refund_full_automation_foundation.sql',

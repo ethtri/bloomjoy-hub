@@ -112,8 +112,8 @@ select ok(
     update public.refund_cases
     set card_wallet_used = true
     where id = '74000000-0000-4000-8000-000000000001'
-  $sql$) is not null,
-  'An execution-eligible wallet case is rejected by the database constraint'
+  $sql$) is null,
+  'A high-confidence wallet case may remain execution eligible'
 );
 
 select ok(
@@ -141,8 +141,8 @@ select ok(
   pg_get_functiondef('public.can_prepare_nayax_refund_execution(uuid,uuid)'::regprocedure)
     like '%nayax_match_execution_eligible = true%'
   and pg_get_functiondef('public.can_prepare_nayax_refund_execution(uuid,uuid)'::regprocedure)
-    like '%card_wallet_used = false%',
-  'The database execution predicate requires eligibility and blocks wallets'
+    not like '%card_wallet_used = false%',
+  'The database execution predicate requires eligibility without rejecting wallets'
 );
 
 select ok(

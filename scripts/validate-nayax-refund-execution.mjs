@@ -26,6 +26,11 @@ const files = {
   nayaxExecutionClaimMigration: 'supabase/migrations/202607220002_refund_nayax_execution_claim.sql',
   nayaxExecutionClaimTest: 'supabase/tests/refund_nayax_execution_claim.sql',
   nayaxProvider: 'supabase/functions/_shared/nayax-refund-provider.mjs',
+  oneApprovalMigration: 'supabase/migrations/202607270002_refund_one_approval_resolution.sql',
+  oneApprovalTest: 'supabase/tests/refund_one_approval_resolution.sql',
+  resolutionNotifications: 'supabase/functions/_shared/refund-resolution-notifications.ts',
+  internalEmail: 'supabase/functions/_shared/internal-email.ts',
+  automationSweep: 'supabase/functions/refund-case-automation-sweep/index.ts',
 };
 
 const read = (relativePath) =>
@@ -55,6 +60,11 @@ const nayaxRecommendationMigration = read(files.nayaxRecommendationMigration);
 const nayaxExecutionClaimMigration = read(files.nayaxExecutionClaimMigration);
 const nayaxExecutionClaimTest = read(files.nayaxExecutionClaimTest);
 const nayaxProvider = read(files.nayaxProvider);
+const oneApprovalMigration = read(files.oneApprovalMigration);
+const oneApprovalTest = read(files.oneApprovalTest);
+const resolutionNotifications = read(files.resolutionNotifications);
+const internalEmail = read(files.internalEmail);
+const automationSweep = read(files.automationSweep);
 
 assert(
   migration.includes('refund_case_nayax_refund_attempts'),
@@ -192,9 +202,11 @@ assert(
   'Nayax success must use an explicit account contract, a dedicated write credential, and exact database-claimed evidence.'
 );
 assert(
-  fn.includes('card_wallet_used') &&
-    fn.includes('manual_review'),
-  'Wallet/Apple Pay last-four mismatch must stay manual-review for v1 execution.'
+  oneApprovalMigration.includes("candidate_confidence_class not in ('strong_card', 'unique_qr_time')") &&
+    oneApprovalMigration.includes('nayax_match_execution_eligible = true') &&
+    !oneApprovalMigration.includes('refund_case.card_wallet_used = false') &&
+    !fn.includes('if (refundCase.card_wallet_used)'),
+  'Strong-card and unique QR/time recommendations must be eligible after server verification, including wallet transactions.'
 );
 assert(
   config.includes('[functions.nayax-card-refund]') &&
@@ -269,12 +281,11 @@ assert(
 assert(
   fn.includes('nayax_recommendation_state !== "high_confidence"') &&
     fn.includes('!refundCase.nayax_match_execution_eligible') &&
-    fn.includes('refundCase.card_wallet_used') &&
     fn.includes('duplicate_transaction') &&
     nayaxRecommendationMigration.includes("refund_case.nayax_recommendation_state = 'high_confidence'") &&
     nayaxRecommendationMigration.includes('refund_case.nayax_match_execution_eligible = true') &&
     nayaxRecommendationMigration.includes('refund_cases_unique_matched_nayax_transaction_id_idx') &&
-    nayaxRecommendationMigration.includes("refund_case.card_wallet_used = false"),
+    oneApprovalMigration.includes('drop constraint if exists refund_cases_nayax_execution_eligibility_check'),
   'Nayax execution must require a manager-confirmed high-confidence recommendation in both the Edge Function and database predicate.'
 );
 assert(
@@ -288,6 +299,54 @@ assert(
     nayaxRecommendationMigration.includes("'oneClickEligible'") &&
     nayaxRecommendationMigration.includes("'matchFactors'"),
   'The live overview RPC must return the sanitized versioned recommendation contract after reload.'
+);
+
+assert(
+  fn.includes('service_approve_nayax_refund_as_actor') &&
+    fn.includes('service_finalize_nayax_refund_execution') &&
+    fn.includes('managerApprovalRecorded: true') &&
+    fn.includes('caseCompleted: true') &&
+    fn.lastIndexOf('const approval = await approveRecommendedRefund') <
+      fn.lastIndexOf('const preflightBlocks') &&
+    refundOperationsLib.includes('candidateToken?: string | null') &&
+    refundOperationsUi.includes("label: 'Approve refund'") &&
+    refundOperationsUi.includes("primaryAction.mode === 'nayax_refund_execution'") &&
+    refundOperationsUi.includes('candidateToken:') &&
+    !refundOperationsUi.includes("handleSaveCase(completedEditor, 'completed')"),
+  'One manager approval must atomically authorize the recommended sale and let the server complete the provider, case, and reporting workflow.'
+);
+
+assert(
+  oneApprovalMigration.includes('refund_case_resolution_notifications') &&
+    oneApprovalMigration.includes('constraint refund_case_resolution_notification_audience_unique') &&
+    oneApprovalMigration.includes('for update skip locked') &&
+    oneApprovalMigration.includes("notification.attempt_count >= 3") &&
+    oneApprovalMigration.includes("interval '23 hours'") &&
+    oneApprovalMigration.includes('on conflict (refund_case_id, audience) do nothing') &&
+    resolutionNotifications.includes('deliveryKey') &&
+    resolutionNotifications.includes('idempotencyKey: claim.deliveryKey') &&
+    internalEmail.includes('headers["Idempotency-Key"] = normalizedIdempotencyKey') &&
+    automationSweep.includes('deliverRefundResolutionNotifications'),
+  'Confirmed refunds must queue exactly one customer and manager confirmation with bounded, idempotent automatic delivery.'
+);
+
+assert(
+  oneApprovalMigration.includes(
+    'revoke execute on function public.service_approve_nayax_refund_as_actor'
+  ) &&
+    oneApprovalMigration.includes(
+      'revoke execute on function public.service_finalize_nayax_refund_execution'
+    ) &&
+    oneApprovalMigration.includes(
+      'revoke execute on function public.service_claim_refund_resolution_notifications'
+    ) &&
+    oneApprovalMigration.includes(
+      'revoke execute on function public.service_finish_refund_resolution_notification'
+    ) &&
+    oneApprovalTest.includes('A repeated success callback does not duplicate reporting or confirmations') &&
+    oneApprovalTest.includes('Authenticated browser clients cannot finalize a provider refund') &&
+    oneApprovalTest.includes('An ambiguous candidate cannot be promoted'),
+  'One-approval mutations and notification delivery must remain service-only and cover duplicate and ambiguity safety in database tests.'
 );
 
 console.log('Nayax refund execution guardrails validated.');

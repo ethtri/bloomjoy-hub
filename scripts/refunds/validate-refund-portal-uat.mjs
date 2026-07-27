@@ -730,6 +730,7 @@ const installMockSupabaseRoutes = async (
             blocks: ['feature_disabled'],
             dryRun: true,
             killSwitchActive: true,
+            managerApprovalRecorded: true,
             message: 'Card refund execution is disabled for this pilot environment.',
           }
         ),
@@ -1142,7 +1143,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   recorder.assert(
     'Normal card path has one visible dominant action',
     (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 1 &&
-      await page.getByRole('button', { name: 'Refund $7.00 and notify customer', exact: true }).isVisible()
+      await page.getByRole('button', { name: 'Review $7.00 refund', exact: true }).isVisible()
   );
   recorder.assert(
     'Normal card path hides manual status and decision selectors',
@@ -1237,7 +1238,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
   const lastSaveBody = saveBodies.at(-1)?.body ?? {};
   recorder.assert(
-    'Primary action attempts guarded card refund before completion',
+    'One manager approval attempts the guarded refund without a separate case save',
     functionCalls.includes('nayax-card-refund') &&
       !saveBodies.some((entry) => entry.body?.status === 'completed') &&
       await confirmationDialog.getByText('Card refund execution is disabled for this pilot environment.').isVisible(),
@@ -1255,7 +1256,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     functionCalls.join(', ')
   );
   recorder.assert(
-    'Blocked Nayax execution leaves customer uncontacted',
+    'Blocked Nayax execution sends no success communication',
     !saveBodies.some((entry) => entry.body?.customerMessageType === 'completed') &&
       !functionCalls.includes('refund-case-message-send') &&
       await page.getByText('Card refund was not completed. The customer was not contacted.').isVisible(),
@@ -1263,10 +1264,10 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   await page.getByRole('button', { name: 'Go back' }).click();
   recorder.assert(
-    'Blocked provider result leaves a visible recoverable case receipt',
+    'Blocked provider result keeps the saved approval visible without claiming success',
     await page.getByTestId('refund-action-receipt').isVisible() &&
-      await page.getByText('Refund not sent', { exact: true }).isVisible() &&
-      await page.getByText(/case (is still|remains) open/i).isVisible()
+      await page.getByText('Approval saved; refund not confirmed', { exact: true }).isVisible() &&
+      await page.getByText(/saved your approval, kept the case open/i).isVisible()
   );
 
   await page.screenshot({
@@ -1963,7 +1964,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         ],
       },
       expectedBadge: 'Multiple possible matches',
-      expectedAction: 'Confirm this card sale',
+      expectedAction: 'Automatic refund not ready',
       expectedCandidateCount: 2,
     },
     {
@@ -1974,8 +1975,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         recommendationState: 'high_confidence',
         confidenceClass: 'unique_qr_time',
         reasonCodes: ['machine_exact', 'amount_exact', 'qr_time_within_30m', 'unique_qr_time_candidate'],
-        policyVersion: '2026-07-26.v2',
-        oneClickEligible: false,
+        policyVersion: '2026-07-27.v3',
+        oneClickEligible: true,
         incidentAt: isoHoursAgo(3),
         qrClaimOpenedAt: isoHoursAgo(2.9),
         qrClaimEvidenceStatus: 'verified',
@@ -1987,7 +1988,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         candidateCount: 1,
         windowHours: 6,
         summary: 'Nayax found exactly one sale supported by the machine, amount, QR start, and timing.',
-        recommendedAction: 'Verify the sale in Nayax and use the manual portal path. QR/time evidence does not enable one-click refund.',
+        recommendedAction: 'Approve the refund in Bloomjoy Hub. The system will recheck the sale and handle Nayax automatically.',
         candidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000204',
@@ -2008,10 +2009,10 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             recommendationState: 'high_confidence',
             confidenceClass: 'unique_qr_time',
             reasonCodes: ['machine_exact', 'amount_exact', 'qr_time_within_30m', 'unique_qr_time_candidate'],
-            oneClickEligible: false,
+            oneClickEligible: true,
             selectionAllowed: true,
             matchStrength: 'strong',
-            policyVersion: '2026-07-26.v2',
+            policyVersion: '2026-07-27.v3',
             matchFactors: [
               { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
               { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
@@ -2021,10 +2022,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           },
         ],
       },
-      expectedBadge: 'Candidate found',
-      expectedAction: 'Confirm this card sale',
+      expectedBadge: 'Match selected',
+      expectedAction: 'Ready for approval',
       expectedCandidateCount: 1,
-      expectedConfidence: 'Unique QR + time · manual only',
+      expectedAutomaticRefund: true,
+      expectedConfidence: 'Unique QR + time',
     },
     {
       name: 'lookup failed',
@@ -2091,7 +2093,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         ],
       },
       expectedBadge: 'Candidate found',
-      expectedAction: 'Confirm this card sale',
+      expectedAction: 'Automatic refund not ready',
       expectedCandidateCount: 1,
     },
   ];
@@ -2157,8 +2159,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       }
       if (scenario.expectedConfidence) {
         recorder.assert(
-          `Nayax ${scenario.name} labels manual QR confidence`,
-          await page.getByText(scenario.expectedConfidence, { exact: true }).isVisible()
+          `Nayax ${scenario.name} labels QR confidence`,
+          await page.getByText(scenario.expectedConfidence, { exact: true }).first().isVisible()
         );
       }
     }
@@ -2167,8 +2169,10 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       !(await page.locator('body').innerText()).includes('providerTransactionId')
     );
     recorder.assert(
-      `Nayax ${scenario.name} does not expose an enabled refund action`,
-      (await page.getByRole('button', { name: /Refund .* and notify customer/i }).count()) === 0
+      `Nayax ${scenario.name} exposes an automatic refund only for high-confidence evidence`,
+      scenario.expectedAutomaticRefund
+        ? await page.getByTestId('refund-run-nayax-refund').isVisible()
+        : (await page.getByTestId('refund-run-nayax-refund').count()) === 0
     );
     recorder.assert(
       `Nayax ${scenario.name} does not claim delivery-failure proof`,
@@ -2243,7 +2247,16 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, artifactDir, re
     nayaxCardRefundResponse: {
       executed: true,
       status: 'succeeded',
-      providerReference: 'NAYAX-PROVIDER-REF-1',
+      caseCompleted: true,
+      managerApprovalRecorded: true,
+      refundReference: 'RF-UAT-CARD',
+      notifications: {
+        claimed: 2,
+        sent: 2,
+        failed: 0,
+        customerStatus: 'sent',
+        managerStatus: 'sent',
+      },
       message: 'Card refund completed.',
     },
   });
@@ -2265,18 +2278,20 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, artifactDir, re
   });
   await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
 
+  const nayaxExecutionBodies = functionBodies
+    .filter((entry) => entry.functionName === 'nayax-card-refund')
+    .map((entry) => entry.body ?? {});
   const adminUpdateBodies = functionBodies
     .filter((entry) => entry.functionName === 'refund-case-admin-update')
     .map((entry) => entry.body ?? {});
-  const completionBody = adminUpdateBodies.find((body) => body.status === 'completed') ?? {};
 
   recorder.assert(
-    'Successful guarded card refund execution completes case through admin update',
+    'One approval delegates provider execution, case completion, and reporting to the server',
     functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
-      completionBody.status === 'completed' &&
-      completionBody.manualRefundReference === 'NAYAX-PROVIDER-REF-1' &&
-      completionBody.customerMessageType === 'completed',
-    JSON.stringify({ functionCalls, completionBody })
+      nayaxExecutionBodies.length === 1 &&
+      nayaxExecutionBodies[0].caseId === 'case-card-1' &&
+      !adminUpdateBodies.some((body) => body.status === 'completed'),
+    JSON.stringify({ functionCalls, nayaxExecutionBodies, adminUpdateBodies })
   );
   recorder.assert(
     'Successful guarded card refund execution still avoids standalone customer message send',
@@ -2284,9 +2299,11 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, artifactDir, re
     functionCalls.join(', ')
   );
   recorder.assert(
-    'Successful execution shows an auditable success receipt',
+    'Successful execution confirms both automatic emails without exposing a provider reference',
     await page.getByText('Refund completed', { exact: true }).isVisible() &&
-      await page.getByText('Confirmation: NAYAX-PROVIDER-REF-1').isVisible()
+      await page.getByText(/both you and the customer were notified/i).isVisible() &&
+      await page.getByText('Confirmation: RF-UAT-CARD').isVisible() &&
+      !(await page.locator('body').innerText()).includes('NAYAX-PROVIDER-REF-1')
   );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-success.png'),
