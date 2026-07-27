@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-07-26-qr-aware-matcher",
-  "sourceGitCommit": "f0e77c9c43b73996947cec48fdcedb260eec701f",
+  "sourceGitCommit": "73d9cea240f06ee3bef37be6b1ccbe320db86fbc",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
