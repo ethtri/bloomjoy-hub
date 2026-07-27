@@ -276,6 +276,8 @@ Steps:
    - Open `/refunds/request?demo=on&qr=synthetic_refund_qr_code_000000001` to review the locked-machine QR treatment and server-opened-time copy without creating a claim or case.
    - Run `npm run refunds:validate-qr-claim` and `npm run db:validate-migrations` for token, RLS, expiry, tamper, rotation, single-use, duplicate, and direct-intake safety checks.
    - Run `npm run refunds:validate-qr-intake-uat -- --app-url http://127.0.0.1:8081` for mocked desktop/mobile QR, refresh, wallet, manual, unavailable, expired/tampered-submit, and network-failure browser evidence.
+   - Open `/refunds/correct-wallet?demo=on` for the synthetic wallet-correction form. Add `&result=fallback` or `&result=review` to inspect the non-match result copy without calling Supabase or Nayax.
+   - Run `npm run refunds:validate-wallet-correction` and `npm run db:validate-migrations` for token hashing, strict accepted fields, RLS, expiry, single use, replay rejection, locked machine/QR evidence, redacted audit records, and automatic re-match wiring.
 6) Run the mocked refund-only portal QA harness against the running app:
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081`
    - The script uses synthetic mocked Auth/RPC responses, writes screenshots under `output/playwright`, and does not touch Supabase data. Its `RF-UAT-CASH-REVIEW` journey proves approval, missing-information and denial previews, required amount/time/reference/payment confirmation, sensitive-reference rejection, one idempotent completion payload, post-save email behavior, and desktop/mobile layout.

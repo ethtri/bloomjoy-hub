@@ -50,6 +50,7 @@ const BillingCancellation = lazyRoute(() => import("./pages/BillingCancellation"
 const Cart = lazyRoute(() => import("./pages/Cart"));
 const RefundRequest = lazyRoute(() => import("./pages/RefundRequest"));
 const RefundThankYou = lazyRoute(() => import("./pages/RefundThankYou"));
+const RefundWalletCorrection = lazyRoute(() => import("./pages/RefundWalletCorrection"));
 const Login = lazyRoute(() => import("./pages/Login"));
 const ResetPassword = lazyRoute(() => import("./pages/ResetPassword"));
 const PortalDashboard = lazyRoute(loadPortalDashboard);
@@ -106,7 +107,7 @@ const RedirectWithSearch = ({ to }: { to: string }) => {
 const isAppLanguageSurface = (pathname: string) =>
   pathname === "/login" ||
   pathname === "/reset-password" ||
-  pathname === "/refunds" ||
+  pathname.startsWith("/refunds") ||
   pathname.startsWith("/portal") ||
   pathname.startsWith("/admin");
 
@@ -193,6 +194,7 @@ export const AppShell = () => (
           <Route path="/cart" element={<Cart />} />
           <Route path="/refunds/request" element={<RefundRequest />} />
           <Route path="/refunds/thank-you" element={<RefundThankYou />} />
+          <Route path="/refunds/correct-wallet" element={<RefundWalletCorrection />} />
           <Route path="/login" element={<Login />} />
           <Route path="/login/operator" element={<Navigate to="/login" replace />} />
           <Route path="/reset-password" element={<ResetPassword />} />
