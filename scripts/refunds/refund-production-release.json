@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-07-27-wallet-correction",
-  "sourceGitCommit": "aa080af1d017c5543a849fdd2b5fa961a0bc17e5",
+  "sourceGitCommit": "433c7d7da702907c2919f2f98e3e6c79f64e54f6",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
