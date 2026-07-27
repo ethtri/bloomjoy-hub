@@ -152,7 +152,7 @@ The adapter records the manager's one approval, then obtains a database-atomic s
 
 Only confirmed approval success completes the case and reporting adjustment. The same database transaction queues exactly one customer and one approving-manager confirmation. Delivery uses unique outbox rows plus Resend idempotency keys, attempts immediate delivery, and lets the existing automation sweep retry bounded failures without manager intervention. An unfamiliar response, non-success HTTP status, timeout, network error, pending approval, duplicate signal, or failure to record the result never produces a success confirmation or reporting adjustment. The manager is told not to retry and must reconcile the attempt in Nayax.
 
-## Official Refund Contract Audit (2026-07-22)
+## Official Refund Contract Audit (2026-07-22; independently rechecked 2026-07-27)
 
 Nayax's public Lynx documentation now confirms that a card refund is a two-step operation, even if Bloomjoy presents it as one manager action:
 
@@ -161,7 +161,9 @@ Nayax's public Lynx documentation now confirms that a card refund is a two-step 
 
 The request body uses `RefundAmount`, optional `RefundEmailList`, optional `RefundReason`, `TransactionId`, `SiteId`, and `MachineAuTime`. The approve request must repeat the same transaction, site, and machine-authorization-time identifiers and includes `IsRefundedExternally` plus an optional `RefundDocumentUrl`. Nayax documents `TransactionID` and `SiteID` as fields returned by Last Sales, although `SiteID` was not present in Bloomjoy's previously captured production field inventory.
 
-Nayax defines `IsRefundedExternally=true` only for a refund the customer's billing provider already handled; that path requires the provider's refund document URL. Therefore, for an ordinary refund that Nayax itself should process, Bloomjoy's expected approval value is `IsRefundedExternally=false` and no external-refund document URL. This is now the documented default, but it must still be confirmed in Bloomjoy's Nayax QA/account before a production write call is enabled.
+Nayax defines `IsRefundedExternally=true` only for a refund the customer's billing provider already handled; that path requires the provider's refund document URL. Therefore, for an ordinary refund that Nayax itself should process, Bloomjoy must send `IsRefundedExternally=false` and omit the external-refund document URL.
+
+Nayax's security guide closes two questions that were left open in the first audit: production uses the same `/operational/v1` path on `https://lynx.nayax.com`, and Lynx authentication uses `Authorization: Bearer <token>`. The request guide defines `RefundEmailList` as nullable, and the approval guide says Nayax emails the addresses supplied there after approval or denial. Bloomjoy should therefore omit `RefundEmailList` and send its own customer and manager confirmation only after confirmed approval success.
 
 Nayax also documents a manual reconciliation path: a successfully requested refund remains `Pending` and appears in **Reports > Online Reports > Dynamic Transactions Monitor** under the `Refund Requested` status; approval or decline updates that status. This gives Bloomjoy a fail-safe manual check after a timeout or uncertain response, but the public Lynx documentation still does not identify a read-only API endpoint for programmatic refund-status reconciliation.
 
@@ -173,17 +175,17 @@ Primary references:
 - [Last Sales response](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/machines/getting-a-machines-last-sales)
 - [Security and token handling](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/security)
 
-This public documentation is enough to define the expected request shape, but not enough to enable production execution safely. It uses QA host examples and does not establish all of the following for Bloomjoy's account:
-- the production refund hostname/path and whether the existing reporting token has refund request and approval permissions;
-- whether `RefundAmount` is expressed in major currency units and how rounding is handled;
-- the exact `Result` and `Status` values for accepted, rejected, already-refunded, duplicate, pending, and unknown outcomes;
-- whether either step supports a provider idempotency key, how duplicate retries behave, and whether an API status/reconciliation endpoint exists after a timeout; the documented Dynamic Transactions Monitor remains the manual fallback;
-- which production response supplies `SiteID` when Last Sales omits it, and what field/value proves that the original sale is approved and refundable;
-- whether `RefundEmailList` can remain empty so Bloomjoy sends the single customer confirmation only after final confirmed success.
+The 2026-07-27 follow-up audited Nayax's public OpenAPI file and complete documentation index, plus broader public code search. It found no additional Lynx refund endpoint, no documented provider idempotency field, no read-only refund-status endpoint, and no enumerated values for the response's nullable free-text `Result` and `Status` fields. The public contract is therefore sufficient to build the calls, but two account/runtime facts cannot be established without observing Bloomjoy's own environment:
+- whether a Bloomjoy User Token has permission to call both refund write endpoints; reporting access does not prove write authority;
+- the exact `Result` and `Status` pairs returned for accepted and completed calls, and for rejection, duplicate/already-refunded, pending, or uncertain outcomes.
+
+`RefundAmount` is a `double`, while Last Sales represents the original USD `AuthorizationValue` as a decimal currency amount such as `10.00`. This strongly indicates major currency units, so a $7.00 refund should be sent as `7.00`, not `700`; treat that as an evidence-backed inference until a controlled QA or low-value pilot observes the request and result. Refund execution must also remain ineligible when Bloomjoy's actual Last Sales record omits `SiteID`, because both write calls require it even though Nayax's published Last Sales schema includes it.
 
 A read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closes these gaps. The only internal token request located was explicitly for sales reporting, and the signed commercial agreement covers commercial/clearing terms rather than refund API semantics. Do not infer write authority from that token or agreement.
 
-Before enabling the implemented adapter, obtain a sanitized Nayax account-owner response covering the unresolved items above and validate the two calls in Nayax's QA environment. Encode the confirmed raw-key or bearer authorization mode and only the approved exact response pairs in the server-only provider contract. The backend orchestrator treats a successful request followed by a failed, timed-out, pending, or unknown approval as unresolved: it keeps the case open, suppresses Bloomjoy's success email and settlement adjustment, and routes it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
+Do not contact Nayax as the default next step. First, sign in to Bloomjoy's own Nayax Core account, inspect the User Token/account role without copying a token into chat or source control, and request or use a QA transaction if the account exposes one. Validate the two calls in QA and record only sanitized HTTP status plus `Result`/`Status` values. If QA is unavailable, request explicit approval for one controlled low-value production pilot; contact Nayax only if neither route can establish permission and response behavior.
+
+Encode only Bearer authorization, major currency units, omitted `RefundEmailList`, and the exact observed response pairs in the server-only provider contract. The backend orchestrator treats a successful request followed by a failed, timed-out, pending, or unknown approval as unresolved: it keeps the case open, suppresses Bloomjoy's success email and settlement adjustment, and routes it to reconciliation. Live production calls remain prohibited by `Docs/DECISIONS.md` and issue `#430` until the separate sponsor pilot decision is recorded.
 
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.
