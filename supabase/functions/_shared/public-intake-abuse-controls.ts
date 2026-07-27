@@ -1,4 +1,8 @@
-export type PublicIntakeEventScope = "submission" | "notification";
+export type PublicIntakeEventScope =
+  | "submission"
+  | "notification"
+  | "refund_qr_claim"
+  | "refund_wallet_correction";
 export type PublicIntakeKeyType = "ip" | "email" | "source" | "global";
 
 type RpcResult<T> = {
@@ -90,6 +94,48 @@ export const PUBLIC_INTAKE_NOTIFICATION_LIMITS: PublicIntakeLimitRule[] = [
   },
 ];
 
+export const PUBLIC_REFUND_QR_CLAIM_LIMITS: PublicIntakeLimitRule[] = [
+  {
+    eventScope: "refund_qr_claim",
+    keyType: "global",
+    maxCount: 1000,
+    windowSeconds: 60 * 60,
+  },
+  {
+    eventScope: "refund_qr_claim",
+    keyType: "ip",
+    maxCount: 60,
+    windowSeconds: 60 * 60,
+  },
+  {
+    eventScope: "refund_qr_claim",
+    keyType: "source",
+    maxCount: 1000,
+    windowSeconds: 60 * 60,
+  },
+];
+
+export const PUBLIC_REFUND_WALLET_CORRECTION_LIMITS: PublicIntakeLimitRule[] = [
+  {
+    eventScope: "refund_wallet_correction",
+    keyType: "global",
+    maxCount: 500,
+    windowSeconds: 60 * 60,
+  },
+  {
+    eventScope: "refund_wallet_correction",
+    keyType: "ip",
+    maxCount: 30,
+    windowSeconds: 60 * 60,
+  },
+  {
+    eventScope: "refund_wallet_correction",
+    keyType: "source",
+    maxCount: 500,
+    windowSeconds: 60 * 60,
+  },
+];
+
 const textEncoder = new TextEncoder();
 
 const bytesToHex = (bytes: Uint8Array): string =>
@@ -135,6 +181,7 @@ export const normalizePublicIntakeSource = (sourcePage: string): string => {
   if (path.startsWith("/plus")) return "/plus";
   if (path.startsWith("/resources")) return "/resources";
   if (path.startsWith("/about")) return "/about";
+  if (path.startsWith("/refunds")) return "/refunds";
 
   return "unknown";
 };

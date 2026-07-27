@@ -1,5 +1,45 @@
 # Decisions
 
+## 2026-07-26 - Verified refunds use one manager approval and automatic fulfillment (`#674`)
+Bloomjoy will make every bounded, safe effort to identify the correct transaction before asking a Machine Manager to decide a refund. The normal high-confidence path is one manager approval followed by automatic provider execution and confirmation, not a second manual workflow in Nayax.
+
+**Canonical behavior**
+- Bloomjoy owns transaction discovery. The system uses the machine-specific QR context, server-recorded scan time, customer-reported time and amount, payment method, and permitted card evidence to find one transaction or state clearly that it cannot.
+- When a customer may have supplied the physical-card last four after paying with Apple Pay or another wallet, the system sends a short-lived, single-use correction link, accepts only the virtual/device last four plus limited claim confirmation, and automatically re-runs matching. It never asks for or accepts a full card number, CVV, expiration date, wallet credentials, or a wallet screenshot.
+- A deterministic `strong_card` result or a uniquely verified `unique_qr_time` result may become execution-eligible. Wallet use alone does not force a manager into the Nayax portal, but a wallet mismatch cannot be ignored when another plausible transaction remains.
+- The manager remains the business approver because a transaction match does not prove the product failed to dispense. Their normal task is one **Approve refund** or **Decline** decision against the recommended transaction.
+- **Approve refund** triggers the server-side Nayax refund-request and refund-approval sequence. Only a confirmed provider success may complete the case, write the reporting adjustment, and send exactly one confirmation to the customer and one to the manager.
+- A provider rejection leaves the case open and sends no success confirmation. A timeout or unknown provider result is never retried blindly and must be reconciled before retrying or issuing alternative compensation.
+- Alternative compensation is offered only after bounded matching and correction attempts reach a terminal unmatched state, or for a payment method such as cash that cannot use the card-refund path. Selecting the compensation provider and its business rules remains the P0 owner decision in `#666`.
+- Engineering may implement and test behind disabled flags. Production refund execution remains gated in `#430` until Bloomjoy confirms the account-specific Nayax write contract, credentials, amount units, response/status semantics, idempotency and reconciliation behavior, required provider identifiers, and a controlled test procedure.
+
+This decision supersedes the manual-only target for high-confidence wallet/QR-time transactions in the machine-QR decision below. It does not authorize automatic refund approval or production payment execution.
+
+**Why this choice**
+- Managers should decide whether to help the customer, not repeat transaction research or operate a second payment console.
+- A self-service correction loop handles the common physical-versus-virtual-last-four mistake without creating manager correspondence work.
+- Confirmed-success-only completion, idempotency, and reconciliation protect against duplicate refunds and false customer notices.
+- Keeping approval human while automating fulfillment is the simplest low-friction experience that still respects the missing vend-failure signal.
+
+## 2026-07-26 - Machine QR and confidence-gated refund identification (`#661`)
+Bloomjoy will use a machine-specific QR code and conservative transaction matching to improve refund identification without pretending that card digits or customer-reported time are always reliable.
+
+The identification model remains binding. Where this entry describes high-confidence wallet/QR-time transactions as manual-only or alternative compensation as non-blocking, the later one-approval decision in `#674` supersedes it.
+
+**Canonical behavior**
+- Each participating machine has an opaque, rotatable refund QR identifier. Opening the QR route creates a short-lived server-side claim context containing the resolved machine and server-recorded open time; browser time is not trusted.
+- The customer still provides approximate incident time, amount, payment method, and card last four. Apple Pay/mobile-wallet customers are told to provide the virtual last four shown in the wallet, which may differ from the physical card and may not reliably correlate to Nayax.
+- A transaction is recommended only when approved, versioned rules leave one plausible safe candidate. A matching last four can support a strong-card result; unique machine, exact-amount, reported-time, and QR-time evidence may support a recommendation when wallet digits do not correlate. Two plausible candidates means no recommendation.
+- Recommendation confidence is advisory. It does not prove a delivery failure, approve a refund, or enable payment execution. Managers remain the business approver, and any wallet refund stays outside live in-app execution unless the separate Nayax gate in `#430` is approved.
+- The first rollout is a shadow pilot for the approved Commercial/Mini cohort. Snapcase remains out of scope until its payment and sales source of truth is modeled.
+- Alternative compensation for unmatched wallet/contactless and cash claims remains TBD in `#666`. This decision does not select Nayax/Monyx, a gift-card provider, or a Bloomjoy stored-value platform.
+- The deployed policy in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` remains unchanged until the implementation issues are merged, tested, and deployed. The target behavior and issue sequence live in `Docs/REFUND_IDENTIFICATION_STRATEGY.md`.
+
+**Why this choice**
+- Contactless and wallet card digits may not be a stable key, while customer-reported time alone is too imprecise for machines with frequent same-price transactions.
+- A machine-specific server timestamp adds useful evidence without claiming more certainty than the data provides.
+- Separating identification, approval, and execution prevents an ambiguous match from becoming an unsafe payment action.
+
 ## 2026-07-21 - GPT refund triage is narrow, minimized, and always human-reviewed (`#635`)
 Bloomjoy may use GPT to reduce the time spent collecting missing refund details, but the assistance remains subordinate to the manager workflow and cannot make payment decisions.
 

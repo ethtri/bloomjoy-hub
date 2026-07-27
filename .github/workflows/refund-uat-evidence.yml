@@ -55,6 +55,8 @@ jobs:
           exit 1
       - name: Run Refund portal synthetic UAT
         run: npm run refunds:validate-portal-uat -- --artifact-dir output/refund-uat-evidence
+      - name: Run Refund QR intake synthetic UAT
+        run: npm run refunds:validate-qr-intake-uat -- --artifact-dir output/refund-uat-evidence
       - name: Run Machine Manager synthetic UAT
         run: npm run refunds:validate-machine-manager-uat -- --artifact-dir output/refund-uat-evidence
       - name: Build evidence manifest
@@ -73,7 +75,7 @@ jobs:
           echo "### Refund Operations synthetic UAT evidence" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artifact: ${{ steps.upload.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Digest: ${{ steps.upload.outputs.artifact-digest }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Screenshots: 18 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Screenshots: 24 synthetic states; no production data" >> "$GITHUB_STEP_SUMMARY"
       - name: Stop synthetic UAT app
         if: always()
         run: |

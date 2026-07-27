@@ -4,6 +4,7 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
+  NAYAX_RECOMMENDATION_POLICY,
   NayaxLookupRequestError,
 } from "../_shared/nayax-lookup.ts";
 
@@ -115,6 +116,8 @@ serve(async (req) => {
         metadata: {
           lookup_status: result.lookupStatus,
           recommendation_state: result.recommendationState,
+          confidence_class: result.confidenceClass,
+          reason_codes: result.reasonCodes,
           policy_version: result.policyVersion,
           candidate_count: result.candidates.length,
           recommended_rank: result.recommendationState === "high_confidence" ? 1 : null,
@@ -122,6 +125,7 @@ serve(async (req) => {
           window_hours: result.windowHours,
           provider_record_count: result.providerRecordCount ?? null,
           provider_window_record_count: result.providerWindowRecordCount ?? null,
+          qr_claim_evidence_status: result.qrClaimEvidenceStatus,
           payload_redacted: true,
         },
       });
@@ -137,6 +141,9 @@ serve(async (req) => {
           lookup_status: result.lookupStatus,
           window_hours: result.windowHours,
           configured: false,
+          policy_version: result.policyVersion,
+          confidence_class: result.confidenceClass,
+          reason_codes: result.reasonCodes,
           payload_redacted: true,
         },
       });
@@ -146,8 +153,14 @@ serve(async (req) => {
       configured: result.configured,
       lookupStatus: result.lookupStatus,
       recommendationState: result.recommendationState,
+      confidenceClass: result.confidenceClass,
+      reasonCodes: result.reasonCodes,
       policyVersion: result.policyVersion,
       oneClickEligible: result.oneClickEligible,
+      incidentAt: result.refundCase?.incidentAt ?? null,
+      qrClaimOpenedAt: result.qrClaimOpenedAt,
+      qrClaimEvidenceStatus: result.qrClaimEvidenceStatus,
+      maximumUniqueQrLagMinutes: result.maximumUniqueQrLagMinutes,
       message: result.message,
       lastCheckedAt: result.lastCheckedAt,
       providerRecordCount: result.providerRecordCount,
@@ -169,6 +182,9 @@ serve(async (req) => {
           message: "Nayax lookup failed and the case remains in manager review.",
           metadata: {
             error_type: error instanceof Error ? error.name : typeof error,
+            policy_version: NAYAX_RECOMMENDATION_POLICY.version,
+            confidence_class: "ambiguous_manual",
+            reason_codes: ["lookup_failed"],
             payload_redacted: true,
           },
         });

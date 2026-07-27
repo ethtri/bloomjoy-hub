@@ -36,6 +36,55 @@ export type RefundMachineOption = {
   locationTimezone: string;
 };
 
+export type RefundQrClaim = {
+  claimToken: string;
+  openedAt: string;
+  expiresAt: string;
+  ttlMinutes: number;
+  machine: RefundMachineOption;
+};
+
+export type RefundWalletCorrectionContext = {
+  state: 'ready';
+  expiresAt: string;
+  version: number;
+  publicReference: string;
+  machineLabel: string;
+  locationName: string;
+  locationTimezone: string;
+  paymentAmountCents: number;
+  incidentLocalDateTime: string | null;
+  incidentAt: string;
+};
+
+export type RefundWalletCorrectionResolution =
+  | 'match_ready'
+  | 'fallback_eligible'
+  | 'still_reviewing';
+
+type InspectRefundWalletCorrectionResponse = {
+  error?: string;
+  errorCode?: string;
+  correction?: RefundWalletCorrectionContext;
+};
+
+export type SubmitRefundWalletCorrectionInput = {
+  token: string;
+  walletType: 'apple_pay' | 'google_pay' | 'other_wallet';
+  cardLast4: string;
+  incidentDate: string;
+  incidentTime: string;
+  amountConfirmed: boolean;
+};
+
+type SubmitRefundWalletCorrectionResponse = {
+  error?: string;
+  result?: {
+    publicReference: string;
+    resolution: RefundWalletCorrectionResolution;
+  };
+};
+
 type RefundMachineOptionRpc = {
   machine_id: string;
   machine_label: string;
@@ -53,6 +102,7 @@ export type RefundAttachmentInput = {
 
 export type SubmitRefundRequestInput = {
   machineId: string;
+  qrClaimToken?: string;
   customerName?: string;
   customerEmail: string;
   customerPhone?: string;
@@ -77,6 +127,12 @@ export type SubmitRefundRequestResponse = {
     status: RefundCaseStatus;
     correlationStatus: RefundCorrelationStatus;
   };
+};
+
+type StartRefundQrClaimResponse = {
+  error?: string;
+  errorCode?: string;
+  qrClaim?: RefundQrClaim;
 };
 
 export type RefundCaseAttachment = {
@@ -135,8 +191,14 @@ export type RefundNayaxLookupSummary = {
   summary: string;
   recommendedAction: string;
   recommendationState?: NayaxRecommendationState;
+  confidenceClass?: NayaxConfidenceClass;
+  reasonCodes?: string[];
   policyVersion?: string;
   oneClickEligible?: boolean;
+  incidentAt?: string | null;
+  qrClaimOpenedAt?: string | null;
+  qrClaimEvidenceStatus?: 'verified' | 'missing' | 'invalid' | 'replayed';
+  maximumUniqueQrLagMinutes?: number;
 };
 
 export type NayaxRecommendationState =
@@ -144,6 +206,11 @@ export type NayaxRecommendationState =
   | 'ambiguous'
   | 'no_safe_match'
   | 'manual_exception';
+
+export type NayaxConfidenceClass =
+  | 'strong_card'
+  | 'unique_qr_time'
+  | 'ambiguous_manual';
 
 export type NayaxMatchFactor = {
   key: string;
@@ -168,6 +235,7 @@ export type RefundCaseRecord = {
   zellePaymentContact: string | null;
   issueSummary: string;
   incidentAt: string;
+  qrClaimOpenedAt?: string | null;
   paymentMethod: RefundPaymentMethod;
   paymentAmountCents: number | null;
   cardLast4: string | null;
@@ -394,10 +462,13 @@ export type NayaxLookupCandidate = {
   paymentStatus: string;
   amountDeltaCents?: number | null;
   timeDeltaMinutes?: number;
+  qrTimeDeltaMinutes?: number | null;
   recommendationRank?: number;
   isTopRanked?: boolean;
   isRecommended?: boolean;
   recommendationState?: NayaxRecommendationState;
+  confidenceClass?: NayaxConfidenceClass;
+  reasonCodes?: string[];
   oneClickEligible?: boolean;
   selectionAllowed?: boolean;
   matchStrength?: 'strong' | 'compare' | 'manual_review' | 'insufficient' | string;
@@ -417,8 +488,14 @@ export type NayaxLookupResponse = {
   configured: boolean;
   lookupStatus?: RefundNayaxLookupStatus;
   recommendationState?: NayaxRecommendationState;
+  confidenceClass?: NayaxConfidenceClass;
+  reasonCodes?: string[];
   policyVersion?: string;
   oneClickEligible?: boolean;
+  incidentAt?: string | null;
+  qrClaimOpenedAt?: string | null;
+  qrClaimEvidenceStatus?: 'verified' | 'missing' | 'invalid' | 'replayed';
+  maximumUniqueQrLagMinutes?: number;
   lastCheckedAt?: string;
   providerRecordCount?: number;
   providerParseableRecordCount?: number;
@@ -524,6 +601,55 @@ export const fetchRefundMachineOptions = async (): Promise<RefundMachineOption[]
     locationName: record.location_name,
     locationTimezone: record.location_timezone,
   }));
+};
+
+export const startRefundQrClaim = async (qrCode: string): Promise<RefundQrClaim> => {
+  const data = await invokeEdgeFunction<StartRefundQrClaimResponse>('refund-case-intake', {
+    action: 'startQrClaim',
+    qrCode,
+  });
+
+  if (!data.qrClaim) {
+    throw new Error(data.error || 'Unable to verify this machine refund code.');
+  }
+
+  return data.qrClaim;
+};
+
+export const inspectRefundWalletCorrection = async (
+  token: string
+): Promise<RefundWalletCorrectionContext> => {
+  const data = await invokeEdgeFunction<InspectRefundWalletCorrectionResponse>(
+    'refund-case-intake',
+    {
+      action: 'inspectWalletCorrection',
+      token,
+    }
+  );
+
+  if (!data.correction) {
+    throw new Error(data.error || 'This secure wallet-detail link is no longer available.');
+  }
+
+  return data.correction;
+};
+
+export const submitRefundWalletCorrection = async (
+  input: SubmitRefundWalletCorrectionInput
+): Promise<NonNullable<SubmitRefundWalletCorrectionResponse['result']>> => {
+  const data = await invokeEdgeFunction<SubmitRefundWalletCorrectionResponse>(
+    'refund-case-intake',
+    {
+      action: 'submitWalletCorrection',
+      ...input,
+    }
+  );
+
+  if (!data.result) {
+    throw new Error(data.error || 'Unable to save the corrected wallet details.');
+  }
+
+  return data.result;
 };
 
 export const submitRefundRequest = async (

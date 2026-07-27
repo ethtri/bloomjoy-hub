@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 
 export const EXPECTED_SCREENSHOTS = [
   'admin-machines-machine-managers.png',
+  'refund-direct-intake-desktop.png',
   'refund-portal-demo-fallback.png',
   'refund-portal-gmail-draft-desktop.png',
   'refund-portal-gmail-draft-mobile.png',
@@ -25,7 +26,12 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-uat-processing.png',
   'refund-portal-uat-setup-needed.png',
   'refund-portal-uat-success.png',
+  'refund-portal-uat-unique-qr-wallet-recommendation.png',
   'refund-portal-uat-wallet-manual-review.png',
+  'refund-qr-intake-desktop.png',
+  'refund-qr-intake-mobile.png',
+  'refund-qr-intake-mobile-wallet.png',
+  'refund-qr-intake-retired.png',
 ];
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);

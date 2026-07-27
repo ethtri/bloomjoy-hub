@@ -8,10 +8,17 @@ import {
 } from "../_shared/nayax-lookup.ts";
 import {
   buildRefundCustomerEmail,
+  buildRefundWalletCorrectionEmail,
   sendRefundCustomerEmail,
+  sendRefundWalletCorrectionEmail,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
+import {
+  createRefundWalletCorrectionToken,
+  getRefundWalletCorrectionExpiry,
+  hashRefundWalletCorrectionToken,
+} from "../_shared/refund-wallet-correction.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -126,9 +133,12 @@ type RefundSweepCase = {
   customer_email: string;
   customer_name: string | null;
   payment_method: string;
+  card_wallet_used: boolean;
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
   created_at: string;
+  wallet_correction_state: string;
+  wallet_correction_version: number;
   reporting_machines?: {
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -236,9 +246,12 @@ const caseSelect = `
   customer_email,
   customer_name,
   payment_method,
+  card_wallet_used,
   payment_amount_cents,
   refund_amount_cents,
   created_at,
+  wallet_correction_state,
+  wallet_correction_version,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -262,7 +275,14 @@ const claimAction = async (
   runId: string,
   refundCaseId: string | null,
   actionKey: string,
-  actionType: "nayax_lookup" | "customer_reminder" | "customer_more_info" | "internal_escalation" | "ops_alert",
+  actionType:
+    | "nayax_lookup"
+    | "customer_reminder"
+    | "customer_more_info"
+    | "wallet_correction_request"
+    | "wallet_correction_reminder"
+    | "internal_escalation"
+    | "ops_alert",
   caseState: string | null,
   policyWindowStart: string,
   counters: SweepCounters,
@@ -463,6 +483,123 @@ const sendCustomerSweepMessage = async (
   }
 };
 
+const getPortalBaseUrl = () =>
+  (
+    Deno.env.get("BLOOMJOY_APP_URL") ||
+    Deno.env.get("PUBLIC_APP_URL") ||
+    "https://app.bloomjoyusa.com"
+  ).replace(/\/+$/, "");
+
+const sendWalletCorrectionMessage = async (
+  refundCase: RefundSweepCase,
+  reminder: boolean,
+) => {
+  if (!supabase) {
+    throw new Error("Refund automation is not configured.");
+  }
+
+  const token = createRefundWalletCorrectionToken();
+  const tokenHash = await hashRefundWalletCorrectionToken(token);
+  const expiresAt = getRefundWalletCorrectionExpiry();
+  const correctionUrl =
+    `${getPortalBaseUrl()}/refunds/correct-wallet?token=${encodeURIComponent(token)}`;
+  const publicLabels = resolveRefundPublicLabels({
+    locationName: refundCase.reporting_locations?.name,
+    publicMachineLabel:
+      refundCase.reporting_machines?.refund_public_display_label,
+    machineLabel: refundCase.reporting_machines?.machine_label,
+  });
+  const emailInput = {
+    publicReference: refundCase.public_reference,
+    customerName: refundCase.customer_name,
+    customerEmail: refundCase.customer_email,
+    machineLabel: publicLabels.machineLabel,
+    locationName: publicLabels.locationName,
+    correctionUrl,
+    reminder,
+  };
+  const email = buildRefundWalletCorrectionEmail(emailInput);
+
+  const { error: issueError } = await supabase.rpc(
+    "service_issue_refund_wallet_correction",
+    {
+      p_refund_case_id: refundCase.id,
+      p_token_hash: tokenHash,
+      p_expires_at: expiresAt.toISOString(),
+    },
+  );
+  if (issueError) throw issueError;
+
+  let messageId: string | null = null;
+  try {
+    const messageType = reminder
+      ? "wallet_correction_reminder"
+      : "wallet_correction";
+    const { data: messageRow, error: messageError } = await supabase
+      .from("refund_case_messages")
+      .insert({
+        refund_case_id: refundCase.id,
+        message_type: messageType,
+        status: "pending",
+        recipient_email: refundCase.customer_email,
+        subject: email.subject,
+        body: email.text.replace(
+          correctionUrl,
+          "[secure single-use correction link omitted from audit log]",
+        ),
+        template_key: reminder
+          ? "refund_wallet_correction_reminder_v1"
+          : "refund_wallet_correction_v1",
+      })
+      .select("id")
+      .single();
+    if (messageError) throw messageError;
+    messageId = messageRow?.id ?? null;
+
+    await sendRefundWalletCorrectionEmail(emailInput);
+
+    if (messageId) {
+      const { error: messageUpdateError } = await supabase
+        .from("refund_case_messages")
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+        })
+        .eq("id", messageId);
+      if (messageUpdateError) throw messageUpdateError;
+    }
+
+    const { error: caseUpdateError } = await supabase
+      .from("refund_cases")
+      .update({
+        customer_last_contacted_at: new Date().toISOString(),
+        last_customer_message_type: messageType,
+      })
+      .eq("id", refundCase.id);
+    if (caseUpdateError) throw caseUpdateError;
+
+    return { status: "sent" as const, messageId };
+  } catch (error) {
+    if (messageId) {
+      await supabase
+        .from("refund_case_messages")
+        .update({
+          status: "failed",
+          error_message: "customer_email_delivery_failed",
+        })
+        .eq("id", messageId);
+    }
+    await supabase.rpc("service_cancel_refund_wallet_correction", {
+      p_token_hash: tokenHash,
+    });
+    console.error("refund wallet correction email failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      reminder,
+    });
+    return { status: "failed" as const, messageId };
+  }
+};
+
 const escalateStaleCase = async (refundCase: RefundSweepCase) => {
   const publicLabels = resolveRefundPublicLabels({
     locationName: refundCase.reporting_locations?.name,
@@ -589,14 +726,57 @@ const runCardNayaxLookupSweep = async (
           refund_case_id: refundCase.id,
           event_type: "nayax_auto_lookup_setup_needed",
           message: "Automated Nayax lookup could not run because setup is incomplete.",
-          metadata: { configured: false, payload_redacted: true },
+          metadata: {
+            configured: false,
+            policy_version: lookupResult.policyVersion,
+            confidence_class: lookupResult.confidenceClass,
+            reason_codes: lookupResult.reasonCodes,
+            payload_redacted: true,
+          },
         });
         if (eventError) throw eventError;
         await finishAction(action, "completed", "nayax_setup_needed", null, counters);
         continue;
       }
 
-      if (lookupResult.recommendationState !== "no_safe_match") {
+      const walletCorrectionUseful =
+        lookupResult.recommendationState !== "high_confidence" &&
+        (
+          refundCase.card_wallet_used ||
+          lookupResult.reasonCodes.some((reasonCode) =>
+            [
+              "tokenized_last4_noncorrelating",
+              "wallet_payment",
+              "missing_customer_card_last4",
+            ].includes(reasonCode)
+          )
+        );
+
+      if (walletCorrectionUseful && !refundCase.card_wallet_used) {
+        const { error: walletDetectionError } = await supabase
+          .from("refund_cases")
+          .update({ card_wallet_used: true })
+          .eq("id", refundCase.id);
+        if (walletDetectionError) throw walletDetectionError;
+        const { error: walletDetectionEventError } = await supabase
+          .from("refund_case_events")
+          .insert({
+            refund_case_id: refundCase.id,
+            event_type: "wallet_payment_detected_from_provider_evidence",
+            message:
+              "Nayax evidence indicated a tokenized wallet payment, so the automated wallet-detail correction path was opened.",
+            metadata: {
+              reason_codes: lookupResult.reasonCodes,
+              payload_redacted: true,
+            },
+          });
+        if (walletDetectionEventError) throw walletDetectionEventError;
+      }
+
+      if (
+        lookupResult.recommendationState !== "no_safe_match" &&
+        !walletCorrectionUseful
+      ) {
         counters.nayaxCandidatesFound += lookupResult.candidates.length;
         const correlationStatus = lookupResult.recommendationState === "ambiguous"
           ? "multiple_candidates"
@@ -623,6 +803,8 @@ const runCardNayaxLookupSweep = async (
           message: "Automated Nayax lookup evaluated sanitized card-sale evidence for manager review.",
           metadata: {
             recommendation_state: lookupResult.recommendationState,
+            confidence_class: lookupResult.confidenceClass,
+            reason_codes: lookupResult.reasonCodes,
             policy_version: lookupResult.policyVersion,
             candidate_count: lookupResult.candidates.length,
             recommended_rank: lookupResult.recommendationState === "high_confidence" ? 1 : null,
@@ -630,11 +812,91 @@ const runCardNayaxLookupSweep = async (
             window_hours: lookupResult.windowHours,
             provider_record_count: lookupResult.providerRecordCount ?? null,
             provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
+            qr_claim_evidence_status: lookupResult.qrClaimEvidenceStatus,
             payload_redacted: true,
           },
         });
         if (eventError) throw eventError;
         await finishAction(action, "completed", "nayax_review_ready", null, counters);
+        continue;
+      }
+
+      if (
+        walletCorrectionUseful &&
+        !["sent", "received", "fallback_eligible"].includes(
+          refundCase.wallet_correction_state,
+        )
+      ) {
+        const correctionAction = await claimAction(
+          runId,
+          refundCase.id,
+          `wallet_correction:${refundCase.id}:${refundCase.wallet_correction_version + 1}`,
+          "wallet_correction_request",
+          refundCase.status,
+          policyWindowStart,
+          counters,
+        );
+        if (!correctionAction.claimed) {
+          await finishAction(
+            action,
+            "suppressed",
+            "wallet_correction_already_requested",
+            null,
+            counters,
+          );
+          continue;
+        }
+
+        const correctionResult = await sendWalletCorrectionMessage(
+          refundCase,
+          false,
+        );
+        if (correctionResult.status === "sent") {
+          const { error: updateError } = await supabase.from("refund_cases")
+            .update({
+              correlation_status: "no_match",
+              correlation_source: "nayax",
+              correlation_confidence: 0,
+              correlation_summary:
+                `${lookupResult.summary} A secure wallet-detail correction was requested automatically.`,
+              nayax_recommendation_state: lookupResult.recommendationState,
+              nayax_recommendation_policy_version: lookupResult.policyVersion,
+              nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
+              nayax_match_execution_eligible: false,
+            })
+            .eq("id", refundCase.id);
+          if (updateError) throw updateError;
+
+          await finishAction(
+            correctionAction,
+            "completed",
+            "wallet_correction_sent",
+            correctionResult.messageId,
+            counters,
+          );
+          await finishAction(
+            action,
+            "completed",
+            "nayax_no_match_wallet_correction_sent",
+            correctionResult.messageId,
+            counters,
+          );
+        } else {
+          await finishAction(
+            correctionAction,
+            "failed",
+            "customer_email_failed",
+            correctionResult.messageId,
+            counters,
+          );
+          await finishAction(
+            action,
+            "failed",
+            "wallet_correction_email_failed",
+            correctionResult.messageId,
+            counters,
+          );
+        }
         continue;
       }
 
@@ -670,9 +932,12 @@ const runCardNayaxLookupSweep = async (
             window_hours: lookupResult.windowHours,
             candidate_count: lookupResult.candidates.length,
             recommendation_state: lookupResult.recommendationState,
+            confidence_class: lookupResult.confidenceClass,
+            reason_codes: lookupResult.reasonCodes,
             policy_version: lookupResult.policyVersion,
             provider_record_count: lookupResult.providerRecordCount ?? null,
             provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
+            qr_claim_evidence_status: lookupResult.qrClaimEvidenceStatus,
             payload_redacted: true,
           },
         });
@@ -712,6 +977,104 @@ const runCardNayaxLookupSweep = async (
   }
 };
 
+const runWalletCorrectionExpirySweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase) return;
+  const { data: dueCases, error: dueError } = await supabase
+    .from("refund_cases")
+    .select(caseSelect)
+    .eq("payment_method", "card")
+    .eq("card_wallet_used", true)
+    .eq("status", "waiting_on_customer")
+    .in("wallet_correction_state", ["sent", "expired"])
+    .lte("automation_follow_up_due_at", new Date().toISOString())
+    .limit(25);
+  if (dueError) throw dueError;
+
+  for (
+    const rawRefundCase of (dueCases ?? []) as unknown as RawRefundSweepCase[]
+  ) {
+    const refundCase = normalizeRefundSweepCase(rawRefundCase);
+    counters.evaluatedCaseIds.add(refundCase.id);
+
+    if (refundCase.wallet_correction_version >= 2) {
+      const { error: contextError } = await supabase
+        .from("refund_wallet_correction_contexts")
+        .update({
+          status: "expired",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("refund_case_id", refundCase.id)
+        .eq("status", "pending")
+        .lte("expires_at", new Date().toISOString());
+      if (contextError) throw contextError;
+
+      const { error: caseError } = await supabase
+        .from("refund_cases")
+        .update({
+          status: "needs_review",
+          automation_state: "fallback_eligible",
+          automation_follow_up_due_at: null,
+          wallet_correction_state: "fallback_eligible",
+        })
+        .eq("id", refundCase.id);
+      if (caseError) throw caseError;
+
+      const { error: eventError } = await supabase
+        .from("refund_case_events")
+        .insert({
+          refund_case_id: refundCase.id,
+          event_type: "wallet_correction_contact_limit_reached",
+          message:
+            "The secure wallet-detail link and one reminder expired; the case is eligible for the approved fallback route.",
+          metadata: {
+            link_count: refundCase.wallet_correction_version,
+            fallback_method: "tbd",
+            payload_redacted: true,
+          },
+        });
+      if (eventError) throw eventError;
+      addReason(counters, "wallet_correction_fallback_eligible");
+      continue;
+    }
+
+    const action = await claimAction(
+      runId,
+      refundCase.id,
+      `wallet_correction_reminder:${refundCase.id}:${refundCase.wallet_correction_version + 1}`,
+      "wallet_correction_reminder",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!action.claimed) continue;
+
+    const result = await sendWalletCorrectionMessage(refundCase, true);
+    if (result.status === "sent") {
+      counters.remindersSent += 1;
+      await finishAction(
+        action,
+        "completed",
+        "wallet_correction_reminder_sent",
+        result.messageId,
+        counters,
+      );
+    } else {
+      counters.remindersFailed += 1;
+      await finishAction(
+        action,
+        "failed",
+        "customer_email_failed",
+        result.messageId,
+        counters,
+      );
+    }
+  }
+};
+
 const runReminderSweep = async (
   runId: string,
   counters: SweepCounters,
@@ -724,6 +1087,8 @@ const runReminderSweep = async (
     .from("refund_cases")
     .select(caseSelect)
     .eq("status", "waiting_on_customer")
+    .eq("wallet_correction_state", "not_needed")
+    .neq("automation_state", "wallet_correction_sent")
     .lte("automation_follow_up_due_at", dueCutoff)
     .limit(25);
   if (reminderError) throw reminderError;
@@ -989,6 +1354,11 @@ serve(async (req) => {
     }
 
     await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
+    await runWalletCorrectionExpirySweep(
+      runId,
+      counters,
+      policyWindowStart,
+    );
     await runReminderSweep(runId, counters, policyWindowStart);
     await runEscalationSweep(runId, counters, policyWindowStart);
     if (counters.actionsFailed > 0) {
