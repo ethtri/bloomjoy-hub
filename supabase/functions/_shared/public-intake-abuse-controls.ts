@@ -1,7 +1,8 @@
 export type PublicIntakeEventScope =
   | "submission"
   | "notification"
-  | "refund_qr_claim";
+  | "refund_qr_claim"
+  | "refund_wallet_correction";
 export type PublicIntakeKeyType = "ip" | "email" | "source" | "global";
 
 type RpcResult<T> = {
@@ -110,6 +111,27 @@ export const PUBLIC_REFUND_QR_CLAIM_LIMITS: PublicIntakeLimitRule[] = [
     eventScope: "refund_qr_claim",
     keyType: "source",
     maxCount: 1000,
+    windowSeconds: 60 * 60,
+  },
+];
+
+export const PUBLIC_REFUND_WALLET_CORRECTION_LIMITS: PublicIntakeLimitRule[] = [
+  {
+    eventScope: "refund_wallet_correction",
+    keyType: "global",
+    maxCount: 500,
+    windowSeconds: 60 * 60,
+  },
+  {
+    eventScope: "refund_wallet_correction",
+    keyType: "ip",
+    maxCount: 30,
+    windowSeconds: 60 * 60,
+  },
+  {
+    eventScope: "refund_wallet_correction",
+    keyType: "source",
+    maxCount: 500,
     windowSeconds: 60 * 60,
   },
 ];

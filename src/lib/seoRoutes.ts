@@ -466,6 +466,19 @@ export const privateRoutes: PrivateRouteSeo[] = [
     lastmod: LASTMOD,
   },
   {
+    path: "/refunds/correct-wallet",
+    canonicalOrigin: MARKETING_ORIGIN,
+    title: "Secure Wallet Detail Check | Bloomjoy",
+    description:
+      "Secure, single-use detail check for an existing Bloomjoy mobile-wallet refund request.",
+    robots: PRIVATE_ROBOTS,
+    surface: "marketing",
+    ogType: "website",
+    ogImagePath: DEFAULT_SHARE_IMAGE_PATH,
+    ogImageAlt: DEFAULT_IMAGE_ALT,
+    lastmod: LASTMOD,
+  },
+  {
     path: "/login/operator",
     canonicalOrigin: APP_ORIGIN,
     canonicalPath: "/login",

@@ -44,6 +44,47 @@ export type RefundQrClaim = {
   machine: RefundMachineOption;
 };
 
+export type RefundWalletCorrectionContext = {
+  state: 'ready';
+  expiresAt: string;
+  version: number;
+  publicReference: string;
+  machineLabel: string;
+  locationName: string;
+  locationTimezone: string;
+  paymentAmountCents: number;
+  incidentLocalDateTime: string | null;
+  incidentAt: string;
+};
+
+export type RefundWalletCorrectionResolution =
+  | 'match_ready'
+  | 'fallback_eligible'
+  | 'still_reviewing';
+
+type InspectRefundWalletCorrectionResponse = {
+  error?: string;
+  errorCode?: string;
+  correction?: RefundWalletCorrectionContext;
+};
+
+export type SubmitRefundWalletCorrectionInput = {
+  token: string;
+  walletType: 'apple_pay' | 'google_pay' | 'other_wallet';
+  cardLast4: string;
+  incidentDate: string;
+  incidentTime: string;
+  amountConfirmed: boolean;
+};
+
+type SubmitRefundWalletCorrectionResponse = {
+  error?: string;
+  result?: {
+    publicReference: string;
+    resolution: RefundWalletCorrectionResolution;
+  };
+};
+
 type RefundMachineOptionRpc = {
   machine_id: string;
   machine_label: string;
@@ -567,6 +608,42 @@ export const startRefundQrClaim = async (qrCode: string): Promise<RefundQrClaim>
   }
 
   return data.qrClaim;
+};
+
+export const inspectRefundWalletCorrection = async (
+  token: string
+): Promise<RefundWalletCorrectionContext> => {
+  const data = await invokeEdgeFunction<InspectRefundWalletCorrectionResponse>(
+    'refund-case-intake',
+    {
+      action: 'inspectWalletCorrection',
+      token,
+    }
+  );
+
+  if (!data.correction) {
+    throw new Error(data.error || 'This secure wallet-detail link is no longer available.');
+  }
+
+  return data.correction;
+};
+
+export const submitRefundWalletCorrection = async (
+  input: SubmitRefundWalletCorrectionInput
+): Promise<NonNullable<SubmitRefundWalletCorrectionResponse['result']>> => {
+  const data = await invokeEdgeFunction<SubmitRefundWalletCorrectionResponse>(
+    'refund-case-intake',
+    {
+      action: 'submitWalletCorrection',
+      ...input,
+    }
+  );
+
+  if (!data.result) {
+    throw new Error(data.error || 'Unable to save the corrected wallet details.');
+  }
+
+  return data.result;
 };
 
 export const submitRefundRequest = async (

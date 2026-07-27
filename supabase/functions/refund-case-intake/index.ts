@@ -6,6 +6,10 @@ import {
   sendTransactionalEmail,
 } from "../_shared/internal-email.ts";
 import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
+import {
+  lookupNayaxCandidatesForRefundCase,
+  type NayaxLookupResult,
+} from "../_shared/nayax-lookup.ts";
 import { resolveLocalDateTimeInZone } from "../_shared/timezone-resolution.mjs";
 import {
   isPlaceholderRefundLocation,
@@ -21,6 +25,7 @@ import {
   PUBLIC_INTAKE_NOTIFICATION_LIMITS,
   PUBLIC_INTAKE_SUBMISSION_LIMITS,
   PUBLIC_REFUND_QR_CLAIM_LIMITS,
+  PUBLIC_REFUND_WALLET_CORRECTION_LIMITS,
   sanitizePublicIntakeSourcePage,
   type PublicIntakeAbuseSupabaseClient,
 } from "../_shared/public-intake-abuse-controls.ts";
@@ -30,6 +35,10 @@ import {
   isRefundQrOpaqueToken,
   REFUND_QR_CLAIM_TTL_MINUTES,
 } from "../_shared/refund-qr-claim.ts";
+import {
+  hashRefundWalletCorrectionToken,
+  isRefundWalletCorrectionToken,
+} from "../_shared/refund-wallet-correction.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -63,6 +72,19 @@ type VerifiedRefundQrClaim = {
   reportingMachineId: string;
   openedAt: string;
   expiresAt: string;
+};
+
+type RefundWalletCorrectionContext = {
+  state?: string;
+  expiresAt?: string;
+  version?: number;
+  publicReference?: string;
+  machineLabel?: string;
+  locationName?: string;
+  locationTimezone?: string;
+  paymentAmountCents?: number;
+  incidentLocalDateTime?: string | null;
+  incidentAt?: string;
 };
 
 class RequestValidationError extends Error {}
@@ -745,6 +767,474 @@ const resolveRefundQrClaim = async (
   };
 };
 
+const walletCorrectionUnavailableResponse = (
+  state = "invalid",
+  status = 410,
+) =>
+  new Response(
+    JSON.stringify({
+      error:
+        "This secure wallet-detail link is invalid, expired, or has already been used.",
+      errorCode: "refund_wallet_correction_unavailable",
+      state,
+    }),
+    {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+
+const checkWalletCorrectionRateLimit = async (req: Request) => {
+  if (!supabase) return false;
+  const sourcePage = sanitizePublicIntakeSourcePage(
+    "/refunds/correct-wallet",
+  );
+  const keyHashes = await buildPublicIntakeKeyHashes({
+    salt: getAbuseControlSalt(),
+    ip: getPublicIntakeClientIp(req),
+    email: "refund-wallet-correction",
+    sourcePage,
+  });
+  const result = await checkPublicIntakeRateLimits({
+    supabase: supabase as unknown as PublicIntakeAbuseSupabaseClient,
+    keyHashes,
+    rules: PUBLIC_REFUND_WALLET_CORRECTION_LIMITS,
+  });
+
+  return result.allowed;
+};
+
+const getWalletCorrectionContext = async (
+  token: string,
+): Promise<RefundWalletCorrectionContext | null> => {
+  if (!supabase || !isRefundWalletCorrectionToken(token)) return null;
+  const tokenHash = await hashRefundWalletCorrectionToken(token);
+  const { data, error } = await supabase.rpc(
+    "service_get_refund_wallet_correction",
+    { p_token_hash: tokenHash },
+  );
+  if (error) throw error;
+  return data as RefundWalletCorrectionContext | null;
+};
+
+const inspectWalletCorrection = async (
+  req: Request,
+  body: Record<string, unknown>,
+) => {
+  if (!supabase) throw new Error("Refund intake is not configured.");
+  if (
+    Object.keys(body).some((key) => !["action", "token"].includes(key))
+  ) {
+    return walletCorrectionUnavailableResponse();
+  }
+
+  const token = sanitizeText(body.token, 80);
+  if (!isRefundWalletCorrectionToken(token)) {
+    return walletCorrectionUnavailableResponse();
+  }
+
+  if (!(await checkWalletCorrectionRateLimit(req))) {
+    return new Response(
+      JSON.stringify({
+        error: "Too many attempts. Please wait and try the secure link again.",
+        errorCode: "refund_wallet_correction_rate_limited",
+      }),
+      {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  const correction = await getWalletCorrectionContext(token);
+  if (!correction || correction.state !== "ready") {
+    return walletCorrectionUnavailableResponse(correction?.state);
+  }
+
+  return new Response(JSON.stringify({ correction }), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+};
+
+const sendWalletMatchReadyNotification = async ({
+  refundCaseId,
+  publicReference,
+  machineId,
+  machineLabel,
+  locationName,
+  confidenceClass,
+}: {
+  refundCaseId: string;
+  publicReference: string;
+  machineId: string;
+  machineLabel: string;
+  locationName: string;
+  confidenceClass: string;
+}) => {
+  if (!supabase) return;
+  const { data: managerRows, error: managerError } = await supabase
+    .from("reporting_machine_refund_managers")
+    .select("manager_email")
+    .eq("reporting_machine_id", machineId)
+    .eq("status", "active")
+    .is("revoked_at", null);
+  if (managerError) throw managerError;
+
+  const managerRecipients = ((managerRows ?? []) as Array<{
+    manager_email?: string | null;
+  }>)
+    .map((row) => sanitizeEmail(row.manager_email))
+    .filter(Boolean);
+  const recipients = Array.from(
+    new Set([...managerRecipients, ...getInternalNotificationRecipients()]),
+  );
+  if (recipients.length === 0) {
+    throw new Error("No refund manager notification recipients are configured.");
+  }
+
+  await sendTransactionalEmail({
+    to: recipients,
+    subject: `Refund transaction ready for approval: ${publicReference}`,
+    text: [
+      "Bloomjoy automatically re-checked corrected mobile-wallet details and found one high-confidence transaction.",
+      "",
+      `Reference: ${publicReference}`,
+      `Machine: ${machineLabel}`,
+      `Location: ${locationName}`,
+      `Confidence class: ${confidenceClass}`,
+      "",
+      `Review and decide: ${getPortalBaseUrl()}/portal/refunds?case=${encodeURIComponent(refundCaseId)}`,
+      "",
+      "The customer communication, matching, and correction steps were handled automatically. This email intentionally omits card digits, customer PII, complaint text, and provider identifiers.",
+    ].join("\n"),
+  });
+
+  await supabase.from("refund_case_events").insert({
+    refund_case_id: refundCaseId,
+    event_type: "wallet_correction_match_ready_notification_sent",
+    message:
+      "High-confidence wallet correction match notification sent to the assigned machine managers and Bloomjoy ops fallback.",
+    metadata: {
+      recipient_count: recipients.length,
+      machine_manager_recipient_count: managerRecipients.length,
+      confidence_class: confidenceClass,
+      payload_redacted: true,
+    },
+  });
+};
+
+const persistWalletCorrectionLookup = async (
+  refundCaseId: string,
+  result: NayaxLookupResult,
+) => {
+  if (!supabase) throw new Error("Refund intake is not configured.");
+
+  if (!result.configured) {
+    const { error } = await supabase.from("refund_cases").update({
+      status: "needs_review",
+      correlation_status: "nayax_not_configured",
+      correlation_source: "nayax",
+      correlation_confidence: 0,
+      correlation_summary:
+        result.message ||
+        "Nayax setup needs attention before corrected wallet details can be checked.",
+      automation_state: "under_review",
+      nayax_recommendation_state: "manual_exception",
+      nayax_recommendation_policy_version: result.policyVersion,
+      nayax_recommendation_evaluated_at: result.lastCheckedAt,
+      nayax_match_execution_eligible: false,
+    }).eq("id", refundCaseId);
+    if (error) throw error;
+    return "still_reviewing" as const;
+  }
+
+  if (result.recommendationState === "high_confidence") {
+    const { data: candidate, error: candidateError } = await supabase
+      .from("refund_nayax_lookup_candidates")
+      .select(
+        "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code",
+      )
+      .eq("refund_case_id", refundCaseId)
+      .contains("evidence_summary", { is_recommended: true })
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    if (candidateError) throw candidateError;
+
+    if (candidate) {
+      const { error } = await supabase.from("refund_cases").update({
+        status: "needs_review",
+        correlation_status: "matched",
+        correlation_source: "nayax",
+        correlation_confidence: 0,
+        correlation_summary: result.summary,
+        matched_nayax_transaction_id: candidate.provider_transaction_id,
+        matched_nayax_site_id: candidate.site_id,
+        matched_nayax_machine_auth_time: candidate.machine_authorization_time,
+        matched_nayax_amount_cents: candidate.amount_cents,
+        matched_nayax_card_last4: candidate.card_last4,
+        matched_nayax_currency_code: candidate.currency_code,
+        automation_state: "under_review",
+        wallet_correction_state: "received",
+        nayax_recommendation_state: result.recommendationState,
+        nayax_recommendation_policy_version: result.policyVersion,
+        nayax_recommendation_evaluated_at: result.lastCheckedAt,
+        nayax_match_execution_eligible: false,
+      }).eq("id", refundCaseId);
+      if (error) throw error;
+
+      await supabase.from("refund_case_events").insert({
+        refund_case_id: refundCaseId,
+        event_type: "wallet_correction_auto_match_ready",
+        message:
+          "Corrected wallet details produced one high-confidence Nayax recommendation for manager approval.",
+        metadata: {
+          recommendation_state: result.recommendationState,
+          confidence_class: result.confidenceClass,
+          reason_codes: result.reasonCodes,
+          policy_version: result.policyVersion,
+          candidate_count: result.candidates.length,
+          provider_payload_redacted: true,
+          payload_redacted: true,
+        },
+      });
+      return "match_ready" as const;
+    }
+  }
+
+  const { error } = await supabase.from("refund_cases").update({
+    status: "needs_review",
+    correlation_status:
+      result.recommendationState === "ambiguous"
+        ? "multiple_candidates"
+        : result.recommendationState === "no_safe_match"
+        ? "no_match"
+        : "manual_review",
+    correlation_source: "nayax",
+    correlation_confidence: 0,
+    correlation_summary: result.summary,
+    automation_state: "fallback_eligible",
+    wallet_correction_state: "fallback_eligible",
+    nayax_recommendation_state: result.recommendationState,
+    nayax_recommendation_policy_version: result.policyVersion,
+    nayax_recommendation_evaluated_at: result.lastCheckedAt,
+    nayax_match_execution_eligible: false,
+  }).eq("id", refundCaseId);
+  if (error) throw error;
+
+  await supabase.from("refund_case_events").insert({
+    refund_case_id: refundCaseId,
+    event_type: "wallet_correction_fallback_eligible",
+    message:
+      "Corrected wallet details did not produce one high-confidence transaction; the case is eligible for the approved fallback route.",
+    metadata: {
+      recommendation_state: result.recommendationState,
+      confidence_class: result.confidenceClass,
+      reason_codes: result.reasonCodes,
+      policy_version: result.policyVersion,
+      candidate_count: result.candidates.length,
+      fallback_method: "tbd",
+      payload_redacted: true,
+    },
+  });
+  return "fallback_eligible" as const;
+};
+
+const submitWalletCorrection = async (
+  req: Request,
+  body: Record<string, unknown>,
+) => {
+  if (!supabase) throw new Error("Refund intake is not configured.");
+  const allowedKeys = new Set([
+    "action",
+    "token",
+    "walletType",
+    "cardLast4",
+    "incidentDate",
+    "incidentTime",
+    "amountConfirmed",
+  ]);
+  if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
+    return new Response(
+      JSON.stringify({
+        error:
+          "Submit only the requested wallet last four, purchase time, and amount confirmation.",
+      }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  const token = sanitizeText(body.token, 80);
+  const walletType = sanitizeText(body.walletType, 40).toLowerCase();
+  const cardLast4 = sanitizeText(body.cardLast4, 4);
+  const incidentDate = sanitizeText(body.incidentDate, 10);
+  const incidentTime = sanitizeText(body.incidentTime, 8);
+  if (
+    !isRefundWalletCorrectionToken(token) ||
+    !["apple_pay", "google_pay", "other_wallet"].includes(walletType) ||
+    !/^[0-9]{4}$/.test(cardLast4) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(incidentDate) ||
+    !/^\d{2}:\d{2}$/.test(incidentTime) ||
+    body.amountConfirmed !== true
+  ) {
+    return new Response(
+      JSON.stringify({
+        error:
+          "Enter the mobile wallet used, its virtual card last four, the approximate purchase time, and confirm the amount.",
+      }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  if (!(await checkWalletCorrectionRateLimit(req))) {
+    return new Response(
+      JSON.stringify({
+        error: "Too many attempts. Please wait and try the secure link again.",
+        errorCode: "refund_wallet_correction_rate_limited",
+      }),
+      {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  const correction = await getWalletCorrectionContext(token);
+  if (
+    !correction ||
+    correction.state !== "ready" ||
+    !sanitizeText(correction.locationTimezone, 80)
+  ) {
+    return walletCorrectionUnavailableResponse(correction?.state);
+  }
+
+  const incidentResolution = resolveLocalDateTimeInZone({
+    localDate: incidentDate,
+    localTime: incidentTime,
+    timeZone: correction.locationTimezone,
+  });
+  if (!incidentResolution.instant || incidentResolution.resolution !== "exact") {
+    return new Response(
+      JSON.stringify({
+        error:
+          "That local time is not exact because of a clock change. Choose the nearest valid time.",
+      }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  const tokenHash = await hashRefundWalletCorrectionToken(token);
+  const { data: applied, error: applyError } = await supabase.rpc(
+    "service_apply_refund_wallet_correction",
+    {
+      p_token_hash: tokenHash,
+      p_wallet_type: walletType,
+      p_card_last4: cardLast4,
+      p_incident_at: incidentResolution.instant,
+      p_incident_local_datetime: `${incidentDate}T${incidentTime}`,
+      p_amount_confirmed: true,
+    },
+  );
+  if (applyError) {
+    return walletCorrectionUnavailableResponse();
+  }
+
+  const refundCaseId = sanitizeText(applied?.refundCaseId, 80);
+  const publicReference = sanitizeText(applied?.publicReference, 80);
+  let resolution:
+    | "match_ready"
+    | "fallback_eligible"
+    | "still_reviewing" = "still_reviewing";
+  let lookupResult: NayaxLookupResult | null = null;
+  try {
+    lookupResult = await lookupNayaxCandidatesForRefundCase({
+      supabase,
+      caseId: refundCaseId,
+      actorUserId: null,
+    });
+    resolution = await persistWalletCorrectionLookup(
+      refundCaseId,
+      lookupResult,
+    );
+  } catch (lookupError) {
+    console.error("refund wallet correction automatic lookup failed", {
+      errorType:
+        lookupError instanceof Error ? lookupError.name : typeof lookupError,
+    });
+    await supabase.from("refund_cases").update({
+      status: "needs_review",
+      automation_state: "under_review",
+      correlation_status: "needs_nayax",
+      correlation_summary:
+        "Corrected wallet details were saved, but the automatic Nayax re-match needs a retry.",
+    }).eq("id", refundCaseId);
+    await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "wallet_correction_auto_match_failed",
+      message:
+        "Corrected wallet details were saved, but automatic Nayax re-match failed and needs a system retry.",
+      metadata: {
+        error_type:
+          lookupError instanceof Error ? lookupError.name : typeof lookupError,
+        payload_redacted: true,
+      },
+    });
+  }
+
+  if (
+    resolution === "match_ready" &&
+    lookupResult?.refundCase
+  ) {
+    try {
+      const { data: caseContext } = await supabase
+        .from("refund_cases")
+        .select("reporting_machine_id")
+        .eq("id", refundCaseId)
+        .single();
+      await sendWalletMatchReadyNotification({
+        refundCaseId,
+        publicReference,
+        machineId: sanitizeText(caseContext?.reporting_machine_id, 80),
+        machineLabel: lookupResult.refundCase.machineLabel ?? "Bloomjoy machine",
+        locationName: lookupResult.refundCase.locationName ?? "Bloomjoy location",
+        confidenceClass: lookupResult.confidenceClass,
+      });
+    } catch (notificationError) {
+      console.error("wallet correction manager notification failed", {
+        errorType:
+          notificationError instanceof Error
+            ? notificationError.name
+            : typeof notificationError,
+      });
+      await supabase.from("refund_case_events").insert({
+        refund_case_id: refundCaseId,
+        event_type: "wallet_correction_match_ready_notification_failed",
+        message:
+          "The high-confidence transaction is ready, but its manager notification needs a retry.",
+        metadata: { payload_redacted: true },
+      });
+    }
+  }
+
+  return new Response(
+    JSON.stringify({
+      result: {
+        publicReference,
+        resolution,
+      },
+    }),
+    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -776,6 +1266,12 @@ serve(async (req) => {
     const action = sanitizeText(body?.action, 40);
     if (action === "startQrClaim") {
       return await startRefundQrClaim(req, body);
+    }
+    if (action === "inspectWalletCorrection") {
+      return await inspectWalletCorrection(req, body);
+    }
+    if (action === "submitWalletCorrection") {
+      return await submitWalletCorrection(req, body);
     }
 
     const sourcePage = sanitizePublicIntakeSourcePage("/refunds/request");
