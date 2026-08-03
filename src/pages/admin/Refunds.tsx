@@ -43,6 +43,7 @@ import {
   isLocalUatDemoForced,
   lookupNayaxTransactions,
   rejectRefundGptTriage,
+  resolveRefundGmailDeliveryNotFound,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
   isNayaxCardRefundExecutionError,
@@ -204,7 +205,7 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution';
+  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'resolve_delivery_not_found';
   disabled?: boolean;
 };
 
@@ -942,6 +943,19 @@ const transactionMatchSummary = (
   return 'Cash transaction review is still in progress.';
 };
 
+const isRefundCustomerDeliveryUncertain = (errorMessage: string | null | undefined) => {
+  const normalized = errorMessage?.trim().toLowerCase() ?? '';
+  if (!normalized) return false;
+
+  return normalized.includes('delivery could not be confirmed') ||
+    normalized === 'gmail_network_unknown' ||
+    normalized === 'gmail_delivery_record_failed' ||
+    normalized === 'gmail_send_unconfirmed' ||
+    normalized === 'gmail_response_invalid' ||
+    normalized === 'gmail_delivery_reconciliation_required' ||
+    /^gmail_http_5\d\d$/.test(normalized);
+};
+
 const primaryActionConfig = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
@@ -949,6 +963,21 @@ const primaryActionConfig = (
 ): PrimaryActionConfig => {
   const latestMessage = getLatestCustomerMessage(refundCase);
   if (latestMessage?.status === 'failed') {
+    if (isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)) {
+      return {
+        label: 'Resolve uncertain Gmail delivery',
+        helper: 'First check the original Gmail thread. If no message was sent, record that verification here before sending a controlled follow-up.',
+        mode: 'resolve_delivery_not_found',
+      };
+    }
+    if (latestMessage.messageType === 'confirmation') {
+      return {
+        label: 'Send a safe customer follow-up',
+        helper: 'The first acknowledgement has a confirmed send failure. Review and send a status update in the original Gmail thread.',
+        messageType: 'status_update',
+        mode: 'retry_message',
+      };
+    }
     return {
       label: 'Retry customer email',
       helper: `The last ${statusLabel(latestMessage.messageType)} email failed. Retry it before treating the customer as contacted.`,
@@ -1396,6 +1425,8 @@ export default function AdminRefundsPage() {
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
   const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
+  const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
+  const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
@@ -1584,6 +1615,9 @@ export default function AdminRefundsPage() {
   }, [selectedId, selectionRevision]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const customerDeliveryNeedsReconciliation = Boolean(
+    selectedCase && isRefundCustomerDeliveryUncertain(getLatestCustomerMessage(selectedCase)?.errorMessage)
+  );
   const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
   const {
     data: gmailContext,
@@ -1859,8 +1893,33 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const handleResolveGmailDeliveryNotFound = async () => {
+    const latestMessage = selectedCase ? getLatestCustomerMessage(selectedCase) : null;
+    if (!latestMessage || !isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)) {
+      toast.error('The Gmail delivery state changed. Refresh the case before continuing.');
+      setIsGmailResolutionOpen(false);
+      return;
+    }
+
+    setIsResolvingGmailDelivery(true);
+    try {
+      await resolveRefundGmailDeliveryNotFound(latestMessage.id);
+      setIsGmailResolutionOpen(false);
+      toast.success('Verified as not delivered. A controlled customer follow-up is now available.');
+      await refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to resolve the Gmail delivery.');
+    } finally {
+      setIsResolvingGmailDelivery(false);
+    }
+  };
+
   const handlePrimaryAction = async () => {
     if (!editor || !primaryAction || !primaryActionEditor) return;
+    if (primaryAction.mode === 'resolve_delivery_not_found') {
+      setIsGmailResolutionOpen(true);
+      return;
+    }
     if (primaryAction.mode === 'retry_message') {
       await handleSendCustomerMessage(primaryAction.messageType);
       return;
@@ -2181,7 +2240,7 @@ export default function AdminRefundsPage() {
                 data-testid="refund-gmail-ask-for-details"
                 data-dominant-action="true"
                 onClick={() => void handleSendCustomerMessage('more_info')}
-                disabled={isSendingCustomerMessage || isUsingDemoData}
+                disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                 className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
               >
                 {isSendingCustomerMessage ? (
@@ -2274,7 +2333,7 @@ export default function AdminRefundsPage() {
                     data-testid="refund-gmail-ask-for-details"
                     data-dominant-action="true"
                     onClick={() => void handleSendCustomerMessage('more_info')}
-                    disabled={isSendingCustomerMessage || isUsingDemoData}
+                    disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                     className="min-h-11"
                   >
                     {isSendingCustomerMessage ? (
@@ -2391,6 +2450,10 @@ export default function AdminRefundsPage() {
 
   const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null) => {
     if (!selectedCase) return;
+    if (customerDeliveryNeedsReconciliation) {
+      toast.error('Gmail delivery is uncertain. Check the original Gmail thread before sending anything else.');
+      return;
+    }
     if (isUsingDemoData) {
       toast.info('Demo cases are read-only. Seed local Supabase fixtures to test outbound customer email.');
       return;
@@ -2669,6 +2732,7 @@ export default function AdminRefundsPage() {
     const hasReadyRefund = isCardCompletion && primaryAction?.disabled !== true;
     const isActionDisabled =
       isSaving ||
+      isSendingCustomerMessage ||
       isRunningNayaxRefund ||
       isUsingDemoData ||
       !primaryAction ||
@@ -3049,6 +3113,7 @@ export default function AdminRefundsPage() {
       : primaryAction?.label ?? 'Review cash refund';
     const isActionDisabled =
       isSaving ||
+      isSendingCustomerMessage ||
       isCashCompletionSubmitting ||
       isUsingDemoData ||
       !primaryAction ||
@@ -4161,6 +4226,7 @@ export default function AdminRefundsPage() {
                             onClick={() => void handlePrimaryAction()}
                             disabled={
                               isSaving ||
+                              isSendingCustomerMessage ||
                               isUsingDemoData ||
                               !primaryAction ||
                               primaryAction.disabled ||
@@ -4256,6 +4322,7 @@ export default function AdminRefundsPage() {
                             onClick={() => void handlePrimaryAction()}
                             disabled={
                               isSaving ||
+                              isSendingCustomerMessage ||
                               isUsingDemoData ||
                               primaryAction.disabled ||
                               primaryActionIssues.length > 0
@@ -4485,12 +4552,22 @@ export default function AdminRefundsPage() {
                         <InfoHint>
                           Keep this friendly and specific. Do not paste raw Nayax payloads, Zelle details, or private internal notes into customer email.
                         </InfoHint>
+                        {customerDeliveryNeedsReconciliation && (
+                          <InfoHint>
+                            Gmail delivery is uncertain. Check the original Gmail thread before sending anything else; all reply paths stay blocked to prevent a duplicate.
+                          </InfoHint>
+                        )}
                       </div>
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => void handleSendCustomerMessage()}
-                        disabled={isUsingDemoData || isSendingCustomerMessage || !messageBody.trim()}
+                        disabled={
+                          isUsingDemoData ||
+                          isSendingCustomerMessage ||
+                          customerDeliveryNeedsReconciliation ||
+                          !messageBody.trim()
+                        }
                       >
                         {isSendingCustomerMessage ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -4701,6 +4778,36 @@ export default function AdminRefundsPage() {
           </div>
         </div>
       </section>
+
+      <AlertDialog
+        open={isGmailResolutionOpen}
+        onOpenChange={(open) => {
+          if (!isResolvingGmailDelivery) setIsGmailResolutionOpen(open);
+        }}
+      >
+        <AlertDialogContent data-testid="refund-gmail-not-delivered-dialog" className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm the Gmail message was not delivered</AlertDialogTitle>
+            <AlertDialogDescription>
+              Open the original Gmail thread first and check for the attempted reply. Continue only if that exact message is absent. This audited confirmation clears the duplicate-send block so a controlled follow-up can be sent.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResolvingGmailDelivery}>Keep delivery blocked</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="refund-gmail-confirm-not-delivered"
+              disabled={isResolvingGmailDelivery}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleResolveGmailDeliveryNotFound();
+              }}
+            >
+              {isResolvingGmailDelivery && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              I checked; no message was sent
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

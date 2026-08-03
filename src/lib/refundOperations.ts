@@ -1169,6 +1169,27 @@ export const sendRefundCaseMessage = async (input: SendRefundCaseMessageInput) =
   return data.message;
 };
 
+export const resolveRefundGmailDeliveryNotFound = async (refundCaseMessageId: string) => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_resolve_refund_gmail_delivery_not_found',
+    { p_refund_case_message_id: refundCaseMessageId }
+  );
+
+  if (error) {
+    const message = error.message || 'Unable to resolve the uncertain Gmail delivery.';
+    if (message.includes('latest-version Gmail no-match check')) {
+      throw new Error('Run Gmail sync until the latest check completes with no matching message, then inspect the original thread again.');
+    }
+    throw new Error(message);
+  }
+
+  const result = data as { resolved?: boolean } | null;
+  if (!result?.resolved) {
+    throw new Error('The Gmail delivery state changed. Refresh the case before continuing.');
+  }
+  return result;
+};
+
 export const setMachineRefundManagersAdmin = async ({
   machineId,
   managerEmails,

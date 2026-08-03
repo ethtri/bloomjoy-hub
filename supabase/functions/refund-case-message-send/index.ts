@@ -4,7 +4,10 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
-import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import {
+  REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
+  RefundGmailError,
+} from "../_shared/refund-gmail.ts";
 import {
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
@@ -351,6 +354,7 @@ serve(async (req) => {
       const safeErrorCode = emailError instanceof RefundGmailError
         ? emailError.code
         : "customer_email_delivery_failed";
+      const deliveryUncertain = emailError instanceof RefundGmailError && emailError.deliveryUncertain;
       console.error("refund-case-message-send customer email failed", {
         errorType: emailError instanceof Error ? emailError.name : typeof emailError,
         messageType,
@@ -361,7 +365,7 @@ serve(async (req) => {
         .from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: safeErrorCode,
+          error_message: deliveryUncertain ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE : safeErrorCode,
         })
         .eq("id", messageRow.id);
 
@@ -373,13 +377,14 @@ serve(async (req) => {
         metadata: {
           message_type: messageType,
           message_id: messageRow.id,
+          error_code: safeErrorCode,
           payload_redacted: true,
         },
       });
 
       return jsonResponse({
-        error: safeErrorCode === "gmail_network_unknown" || safeErrorCode === "gmail_delivery_record_failed"
-          ? "Gmail delivery could not be confirmed. Check the original thread before retrying."
+        error: deliveryUncertain
+          ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE
           : "Unable to send customer email.",
         errorCode: safeErrorCode,
       }, 502);

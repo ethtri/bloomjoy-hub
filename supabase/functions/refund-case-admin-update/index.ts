@@ -10,7 +10,10 @@ import {
 } from "../_shared/refund-email.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
-import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import {
+  REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
+  RefundGmailError,
+} from "../_shared/refund-gmail.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -368,6 +371,7 @@ const sendAndLogCustomerMessage = async (
     const safeErrorCode = emailError instanceof RefundGmailError
       ? emailError.code
       : "customer_email_delivery_failed";
+    const deliveryUncertain = emailError instanceof RefundGmailError && emailError.deliveryUncertain;
     console.error("refund-case-admin-update customer email failed", {
       errorType: emailError instanceof Error ? emailError.name : typeof emailError,
       messageType,
@@ -379,7 +383,7 @@ const sendAndLogCustomerMessage = async (
         .from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: safeErrorCode,
+          error_message: deliveryUncertain ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE : safeErrorCode,
         })
         .eq("id", messageId);
       if (failedUpdateError) {
@@ -392,10 +396,13 @@ const sendAndLogCustomerMessage = async (
     const { error: failedEventError } = await supabase.from("refund_case_events").insert({
       refund_case_id: refundCase.id,
       event_type: "customer_message_failed",
-      message: `Automated ${messageType.replaceAll("_", " ")} email failed. Case update remains recorded, but customer contact still needs retry.`,
+      message: deliveryUncertain
+        ? `Automated ${messageType.replaceAll("_", " ")} email delivery is uncertain. Reconcile the original Gmail thread before retrying.`
+        : `Automated ${messageType.replaceAll("_", " ")} email failed. Case update remains recorded, but customer contact still needs retry.`,
       metadata: {
         message_type: messageType,
         message_id: messageId,
+        error_code: safeErrorCode,
         payload_redacted: true,
       },
     });

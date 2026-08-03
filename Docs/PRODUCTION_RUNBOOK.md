@@ -305,6 +305,7 @@ Refund automation scheduler validation:
 Refund Gmail intake validation:
 - Create an OAuth client for the exact designated support mailbox and grant only `gmail.readonly` and `gmail.send`. Record any required Google verification or security review before production use.
 - Apply the Gmail migration; deploy `refund-gmail-sync`, the updated refund message/admin functions, and the frontend. Set `REFUND_GMAIL_SYNC_URL` and `REFUND_GMAIL_SYNC_TOKEN`, but keep both `REFUND_GMAIL_SYNC_ENABLED=false` and `REFUND_GMAIL_ENABLED=false` during setup.
+- Configure every first-contact value listed in `Docs/REFUND_GMAIL_FIRST_CONTACT_CUTOVER.md` as a server-only secret. Include every verified Gmail send-as identity in `GMAIL_SUPPORT_SEND_AS_ALIASES` so support/refunds replies are always classified as outbound. Start with `REFUND_GMAIL_FIRST_CONTACT_MODE=disabled`; never use a `VITE_` name. In `#688`, active mode is intentionally code-blocked until `#686` installs participant classification and current mapped-manager CC behavior.
 - Approve and record the 180-day Gmail-copy retention and quarantine-until-malware-cleared behavior in `Docs/REFUND_GMAIL_DATA_HANDLING.md`. Do not enable the schedule while either approval is pending.
 - Run the workflow manually with `failure_test` while real Gmail access remains disabled; confirm central-admin health shows a safe failure signal and the workflow output contains aggregate fields only.
 - With synthetic messages only, set `REFUND_GMAIL_ENABLED=true` and manually run the workflow. An explicitly labeled test email must create one draft visible to a Super Admin or Scoped Admin, but not to a location-only Machine Manager. Re-running the same delivery must not create a second case, message, or event.
@@ -312,6 +313,7 @@ Refund Gmail intake validation:
 - Confirm unrelated and unlabeled messages remain untouched, including label, archive, deletion, and read state. Confirm an incoming Luhn-valid test card number is stored/displayed only as redacted last four and does not appear in logs or workflow output.
 - Send allowed and rejected synthetic attachments. PDF/JPEG/PNG files at or below 5 MB and within the three-file limit must remain private and quarantined; unsupported, oversized, or excess files must be rejected without exposing content or paths.
 - Revoke the test refresh token. Gmail health must show authorization failure while hosted-form cases, queue access, and manual non-Gmail replies continue to work. Reauthorize before any scheduled pilot.
+- Follow the exact shadow and isolated-label sequence in `Docs/REFUND_GMAIL_FIRST_CONTACT_CUTOVER.md`. The isolated label must differ from the production label, every legacy sender must exclude it, and only owner-controlled synthetic sender addresses may be allowlisted. Reconcile every first-contact or manager-reply `pending_send`/`delivery_unknown` operation against the deterministic Gmail Message-ID before any response; nonzero outstanding counts keep health failed. If automatic checks find no message, an authorized person must inspect the original thread and use the audited not-delivered portal confirmation before a controlled follow-up; never retry uncertain delivery blindly.
 - Enable `REFUND_GMAIL_SYNC_ENABLED=true` only after every check above passes. Quick disable order is the GitHub variable first and Edge secret second; this must not disable form intake or existing case handling.
 
 Refund GPT triage validation:
@@ -430,7 +432,7 @@ Rollback order:
    - Do not run destructive rollback SQL during incident response.
    - If a migration caused breakage, recover via pre-launch backup/snapshot and controlled restore.
 
-Gmail-only rollback: set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_ENABLED=false`, and revoke the Gmail refresh token if compromise is suspected. Do not delete Gmail linkage tables during an incident. Verify hosted-form refund intake and non-Gmail case work remain available.
+Gmail-only rollback: first set `REFUND_GMAIL_SYNC_ENABLED=false`, then `REFUND_GMAIL_FIRST_CONTACT_MODE=disabled`, then `REFUND_GMAIL_ENABLED=false`; revoke the Gmail refresh token if compromise is suspected. Verify Hub first-contact claims have stopped before restoring any legacy responder. Do not delete Gmail linkage or first-contact operation tables during an incident. Reconcile uncertain operations and verify hosted-form refund intake and non-Gmail case work remain available.
 
 GPT-only rollback: set `REFUND_GPT_TRIAGE_SYNC_ENABLED=false`, then `REFUND_GPT_TRIAGE_ENABLED=false`, then `refund_gpt_triage_settings.enabled=false`. The legacy restore source disables the newly introduced function rather than inventing an older deployment. Do not delete job/review/audit rows; verify the deterministic missing-information reply remains available.
 
