@@ -12,6 +12,10 @@ import {
   sanitizeRefundMessageType,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
+import {
+  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  sanitizeRefundMissingFields,
+} from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
 
@@ -49,6 +53,7 @@ type RefundCaseRow = {
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
   decision_reason: string | null;
+  card_wallet_used: boolean;
   reporting_machines?: OneOrMany<{
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -70,6 +75,7 @@ const firstRelation = <T>(value: OneOrMany<T>) =>
 
 const allowedPortalMessageTypes = new Set<RefundCustomerMessageType>([
   "more_info",
+  "no_safe_match",
   "status_update",
   "approved",
   "denied",
@@ -85,6 +91,7 @@ const selectCaseQuery = `
   payment_amount_cents,
   refund_amount_cents,
   decision_reason,
+  card_wallet_used,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -110,6 +117,8 @@ const syncAutomationFields = async (
 
   const nextAutomationState = {
     more_info: "more_info_needed",
+    no_safe_match: "more_info_needed",
+    information_received: "under_review",
     reminder: "more_info_needed",
     approved: "approved",
     denied: "denied",
@@ -126,9 +135,7 @@ const syncAutomationFields = async (
       automation_state: nextAutomationState,
       customer_last_contacted_at: new Date().toISOString(),
       last_customer_message_type: messageType,
-      automation_follow_up_due_at: messageType === "more_info"
-        ? new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
-        : null,
+      automation_follow_up_due_at: null,
     })
     .eq("id", refundCaseId);
 };
@@ -170,6 +177,7 @@ serve(async (req) => {
     }
 
     const triageSuggestionId = sanitizeText(body?.triageSuggestionId, 80);
+    const suppliedMissingFields = sanitizeRefundMissingFields(body?.missingFields);
     let triageSuggestion: RefundGptTriageRow | null = null;
     if (triageSuggestionId) {
       if (!isUuid(triageSuggestionId) || messageType !== "more_info") {
@@ -191,6 +199,16 @@ serve(async (req) => {
       ) {
         return jsonResponse({ error: "This suggested reply requires a new human review." }, 409);
       }
+    }
+
+    const missingFields = triageSuggestion
+      ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
+      : suppliedMissingFields;
+    if (messageType === "more_info" && missingFields.length === 0) {
+      return jsonResponse({ error: "Choose the exact missing purchase details before sending." }, 400);
+    }
+    if (messageType !== "more_info" && suppliedMissingFields.length > 0) {
+      return jsonResponse({ error: "Missing-detail fields apply only to the missing-information template." }, 400);
     }
 
     const { data: canManageCase, error: accessError } = await supabase.rpc(
@@ -229,7 +247,15 @@ serve(async (req) => {
       refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
       paymentMethod: refundCase.payment_method,
       decisionReason: refundCase.decision_reason,
+      missingFields,
+      cardWalletUsed: refundCase.card_wallet_used,
     };
+    if (
+      messageType === "more_info" && refundCase.card_wallet_used &&
+      missingFields.includes("card_last4")
+    ) {
+      return jsonResponse({ error: "Use the secure mobile-wallet correction link instead of asking for wallet digits by email." }, 400);
+    }
     const defaultEmail = buildRefundCustomerEmail(templateInput);
     const requestedSubject = sanitizeText(body?.subject, 180);
     const requestedBody = sanitizeText(body?.body, 4000);
@@ -263,6 +289,17 @@ serve(async (req) => {
         body: email.text,
         template_key: `refund_${messageType}_editable_v1`,
         created_by: user.id,
+        content_source: triageSuggestion ? "manager_reviewed_gpt" : "manager_authored",
+        delivery_kind: "manual",
+        reason_code: messageType === "more_info"
+          ? "missing_information"
+          : messageType === "no_safe_match"
+          ? "no_safe_match"
+          : null,
+        template_version: ["more_info", "no_safe_match"].includes(messageType)
+          ? REFUND_DETERMINISTIC_FOLLOW_UP_VERSION
+          : null,
+        requested_fields: messageType === "more_info" ? missingFields : [],
       })
       .select("id")
       .single();

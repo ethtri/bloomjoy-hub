@@ -162,6 +162,12 @@ export type RefundCaseMessage = {
   sentAt: string | null;
   errorMessage: string | null;
   createdAt: string;
+  contentSource?: 'deterministic_template' | 'manager_reviewed_gpt' | 'manager_authored' | null;
+  deliveryKind?: 'automatic' | 'manual' | null;
+  reasonCode?: 'missing_information' | 'no_safe_match' | null;
+  templateVersion?: string | null;
+  requestedFields?: RefundMissingField[];
+  followUpCycleId?: string | null;
 };
 
 export type RefundCustomerCommunicationStatus =
@@ -452,6 +458,7 @@ export type UpdateRefundCaseInput = {
   matchedNayaxCurrencyCode?: string | null;
   nayaxDisagreementReason?: NayaxDisagreementReason | null;
   customerMessageType?: RefundCustomerPortalMessageType | null;
+  customerMissingFields?: RefundMissingField[];
 };
 
 export type NayaxDisagreementReason =
@@ -580,6 +587,7 @@ export type NayaxCardRefundExecutionError =
 
 export type RefundCustomerPortalMessageType =
   | 'more_info'
+  | 'no_safe_match'
   | 'status_update'
   | 'approved'
   | 'denied'
@@ -591,7 +599,16 @@ export type SendRefundCaseMessageInput = {
   subject?: string;
   body?: string;
   triageSuggestionId?: string;
+  missingFields?: RefundMissingField[];
 };
+
+export type RefundMissingField =
+  | 'location_or_machine'
+  | 'incident_date'
+  | 'incident_time'
+  | 'payment_method'
+  | 'amount'
+  | 'card_last4';
 
 export const fetchRefundMachineOptions = async (): Promise<RefundMachineOption[]> => {
   const { data, error } = await supabaseClient.rpc('public_refund_machine_options');

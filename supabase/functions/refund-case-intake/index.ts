@@ -2,7 +2,11 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendTransactionalEmail } from "../_shared/internal-email.ts";
-import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
+import {
+  buildRefundCustomerEmail,
+  getRefundReplyToEmail,
+} from "../_shared/refund-email.ts";
+import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
@@ -46,6 +50,7 @@ const maxAttachments = 3;
 const maxAttachmentBytes = 5 * 1024 * 1024;
 const maxRequestBytes = 18 * 1024 * 1024;
 const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+const automaticCustomerContactEnabled = automaticRefundCustomerContactEnabled();
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -214,110 +219,6 @@ const formatCurrency = (cents: number | null) => {
     style: "currency",
     currency: "USD",
   }).format(cents / 100);
-};
-
-const escapeHtml = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-
-const buildCustomerEmail = ({
-  publicReference,
-  customerName,
-  machineLabel,
-  locationName,
-  amountCents,
-  paymentMethod,
-  needsMoreInfo,
-}: {
-  publicReference: string;
-  customerName: string;
-  machineLabel: string;
-  locationName: string;
-  amountCents: number | null;
-  paymentMethod: string;
-  needsMoreInfo: boolean;
-}) => {
-  const greeting = customerName ? `Hi ${customerName},` : "Hi there,";
-  const subject = needsMoreInfo
-    ? `We need one more detail for your Bloomjoy refund request ${publicReference}`
-    : `We received your Bloomjoy refund request ${publicReference}`;
-  const nextStep = needsMoreInfo
-    ? "We could not confidently match the request to a machine transaction yet. Please reply to this email with any extra details you have, such as the exact purchase time, the amount charged, the virtual last 4 shown in Apple Pay or your mobile wallet when one was used, or a photo of the machine/payment screen. The wallet digits may differ from the physical card."
-    : "Our team will review the transaction details and follow up as soon as we have the next step.";
-  const safeGreeting = escapeHtml(greeting);
-  const safeReference = escapeHtml(publicReference);
-  const safeMachineLabel = escapeHtml(machineLabel);
-  const safeLocationName = escapeHtml(locationName);
-  const safeAmount = escapeHtml(formatCurrency(amountCents));
-  const safeNextStep = escapeHtml(nextStep);
-  const paymentNote = paymentMethod === "cash"
-    ? "If approved, cash refunds are sent through Zelle using the contact information you shared."
-    : "If approved, card refunds are completed through our payment provider.";
-  const safePaymentNote = escapeHtml(paymentNote);
-
-  const text = [
-    greeting,
-    "",
-    "Thank you for reaching out. We are sorry the Bloomjoy experience did not go the way it should have, and we have opened a refund request for you.",
-    "",
-    `Reference: ${publicReference}`,
-    `Machine: ${machineLabel}`,
-    `Location: ${locationName}`,
-    `Reported amount: ${formatCurrency(amountCents)}`,
-    "",
-    nextStep,
-    paymentNote,
-    "Our target is to complete refund reviews within 5 business days.",
-    "",
-    "You can reply directly to this email. We will keep the review friendly, careful, and quick.",
-    "",
-    "Warmly,",
-    "The Bloomjoy Sweets Team",
-  ].join("\n");
-
-  const html = `
-    <!doctype html>
-    <html lang="en">
-      <body style="margin:0;padding:0;background:#fff7f9;font-family:Arial,Helvetica,sans-serif;color:#2f2430;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff7f9;padding:28px 0;">
-          <tr>
-            <td align="center" style="padding:0 16px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #f1d6de;border-radius:22px;overflow:hidden;">
-                <tr>
-                  <td style="background:#e96b8f;color:#ffffff;padding:26px 28px;">
-                    <div style="font-size:12px;letter-spacing:1.4px;text-transform:uppercase;font-weight:700;">Bloomjoy refund request</div>
-                    <div style="font-size:28px;line-height:34px;font-weight:800;margin-top:8px;">${needsMoreInfo ? "A quick detail check" : "We received your request"}</div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:28px;">
-                    <p style="font-size:15px;line-height:24px;margin:0 0 16px;">${safeGreeting}</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">Thank you for reaching out. We are sorry the Bloomjoy experience did not go the way it should have, and we have opened a refund request for you.</p>
-                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #f1d6de;border-radius:16px;background:#fff3f7;padding:16px;margin:0 0 18px;">
-                      <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Reference</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeReference}</td></tr>
-                      <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Machine</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeMachineLabel}</td></tr>
-                      <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Location</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeLocationName}</td></tr>
-                      <tr><td style="font-size:13px;color:#756877;padding:4px 0;">Reported amount</td><td style="font-size:14px;font-weight:700;text-align:right;padding:4px 0;">${safeAmount}</td></tr>
-                    </table>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">${safeNextStep}</p>
-                    <p style="font-size:15px;line-height:24px;margin:0 0 18px;">${safePaymentNote} Our target is to complete refund reviews within 5 business days.</p>
-                    <p style="font-size:14px;line-height:22px;margin:0;color:#756877;">You can reply directly to this email. We will keep the review friendly, careful, and quick.</p>
-                    <p style="font-size:14px;line-height:22px;margin:20px 0 0;color:#756877;">Warmly,<br />The Bloomjoy Sweets Team</p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-    </html>
-  `;
-
-  return { subject, text, html };
 };
 
 const buildManagerNotificationSummary = ({
@@ -1493,7 +1394,7 @@ serve(async (req) => {
         correlationConfidence = 0.4;
         correlationSummary = "Multiple cash Sunze candidates were found in the conservative time window.";
       } else {
-        status = "waiting_on_customer";
+        status = "needs_review";
         correlationStatus = "no_match";
         correlationSource = "sunze";
         correlationSummary = "No cash Sunze sales fact matched this machine within +/- 1 hour.";
@@ -1645,30 +1546,55 @@ serve(async (req) => {
       status,
     });
 
-    const needsMoreInfo = status === "waiting_on_customer";
-    const email = buildCustomerEmail({
+    const email = buildRefundCustomerEmail({
+      messageType: "confirmation",
       publicReference: refundCase.public_reference,
       customerName,
+      customerEmail,
       machineLabel: publicLabels.machineLabel,
       locationName: publicLabels.locationName,
-      amountCents,
+      refundAmountCents: amountCents,
       paymentMethod,
-      needsMoreInfo,
+      cardWalletUsed,
+      incidentLocalDateTime: hasLocalIncidentInput ? `${incidentDate} ${incidentTime}` : null,
     });
 
     const { data: messageRow } = await supabase
       .from("refund_case_messages")
       .insert({
         refund_case_id: refundCase.id,
-        message_type: needsMoreInfo ? "more_info" : "confirmation",
+        message_type: "confirmation",
         status: "pending",
         recipient_email: customerEmail,
         subject: email.subject,
         body: email.text,
-        template_key: needsMoreInfo ? "refund_more_info_v1" : "refund_confirmation_v1",
+        template_key: "refund_confirmation_v1",
       })
       .select("id")
       .single();
+
+    if (!automaticCustomerContactEnabled) {
+      if (messageRow?.id) {
+        await supabase
+          .from("refund_case_messages")
+          .update({
+            status: "skipped",
+            error_message: "automatic_customer_contact_disabled",
+          })
+          .eq("id", messageRow.id);
+      }
+      return new Response(
+        JSON.stringify({
+          refundCase: {
+            id: refundCase.id,
+            publicReference: refundCase.public_reference,
+            status: refundCase.status,
+            correlationStatus: refundCase.correlation_status,
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const notificationLimitResult = await checkPublicIntakeRateLimits({
       supabase: abuseSupabase,

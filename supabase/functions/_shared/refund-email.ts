@@ -1,10 +1,24 @@
 import { sendTransactionalEmail } from "./internal-email.ts";
 import { resolveRefundPublicLabels } from "./refund-location.ts";
+import {
+  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  sanitizeRefundMissingFields,
+  type RefundFollowUpReason,
+  type RefundMissingField,
+} from "./refund-deterministic-follow-up.ts";
+
+export {
+  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  sanitizeRefundMissingFields,
+  type RefundMissingField,
+} from "./refund-deterministic-follow-up.ts";
 
 export type RefundCustomerMessageType =
   | "confirmation"
   | "more_info"
   | "reminder"
+  | "no_safe_match"
+  | "information_received"
   | "wallet_correction"
   | "wallet_correction_reminder"
   | "status_update"
@@ -22,8 +36,25 @@ export type RefundCustomerEmailInput = {
   refundAmountCents?: number | null;
   paymentMethod?: string | null;
   decisionReason?: string | null;
+  missingFields?: RefundMissingField[];
+  followUpReason?: RefundFollowUpReason;
+  incidentLocalDateTime?: string | null;
+  cardWalletUsed?: boolean;
   managerCcEmails?: string[];
 };
+
+const refundMissingFieldRequest: Record<RefundMissingField, string> = {
+  location_or_machine: "the machine or Bloomjoy location",
+  incident_date: "the purchase date",
+  incident_time: "the approximate purchase time, including AM or PM",
+  payment_method: "whether you paid by card, Apple Pay, Google Pay, or cash",
+  amount: "the exact amount charged",
+  card_last4:
+    "only the last four digits shown on the card charge (do not email wallet or device-card digits)",
+};
+
+export const describeRefundMissingFields = (value: unknown) =>
+  sanitizeRefundMissingFields(value).map((field) => refundMissingFieldRequest[field]);
 
 const escapeHtml = (value: string) =>
   value
@@ -47,6 +78,8 @@ export const sanitizeRefundMessageType = (value: unknown): RefundCustomerMessage
     normalized === "confirmation" ||
     normalized === "more_info" ||
     normalized === "reminder" ||
+    normalized === "no_safe_match" ||
+    normalized === "information_received" ||
     normalized === "wallet_correction" ||
     normalized === "wallet_correction_reminder" ||
     normalized === "status_update" ||
@@ -74,6 +107,10 @@ const getSubject = (messageType: RefundCustomerMessageType, publicReference: str
       return `A quick detail check for your Bloomjoy refund request ${publicReference}`;
     case "reminder":
       return `Still here to help with your Bloomjoy refund request ${publicReference}`;
+    case "no_safe_match":
+      return `A careful check of your Bloomjoy refund request ${publicReference}`;
+    case "information_received":
+      return `We added your information to Bloomjoy refund request ${publicReference}`;
     case "wallet_correction":
       return `Please check your mobile-wallet card details for refund request ${publicReference}`;
     case "wallet_correction_reminder":
@@ -98,6 +135,10 @@ const getHeadline = (messageType: RefundCustomerMessageType) => {
       return "A tiny bit more information";
     case "reminder":
       return "We are still here to help";
+    case "no_safe_match":
+      return "We checked carefully";
+    case "information_received":
+      return "Thank you for the added details";
     case "wallet_correction":
     case "wallet_correction_reminder":
       return "One quick wallet detail check";
@@ -120,22 +161,58 @@ const getBodyParagraphs = ({
   refundAmountCents,
   paymentMethod,
   decisionReason,
+  missingFields,
+  followUpReason,
+  cardWalletUsed,
 }: RefundCustomerEmailInput) => {
   const refundAmount = formatCurrency(refundAmountCents);
   const amountPhrase = refundAmount ? ` for ${refundAmount}` : "";
   const isCash = paymentMethod === "cash";
+  const missingFieldRequests = describeRefundMissingFields(missingFields);
+  const requestedDetails = missingFieldRequests.join("; ");
+
+  if (cardWalletUsed && sanitizeRefundMissingFields(missingFields).includes("card_last4")) {
+    throw new Error(
+      "Mobile-wallet last-four corrections must use the secure correction flow, not email.",
+    );
+  }
 
   switch (messageType) {
     case "more_info":
+      if (missingFieldRequests.length === 0) {
+        throw new Error("A deterministic missing-field list is required for a more-information message.");
+      }
       return [
-        "Thank you again for reaching out. We want to review this carefully, and we need one more detail before we can confidently match the request to a machine transaction.",
-        "Please reply with anything that may help, such as the exact purchase time, amount paid, card last 4 shown on the charge, or a photo of the machine/payment screen.",
-        "Once we have that, our team will continue the review. Our target is to complete refund reviews within 5 business days.",
+        "Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.",
+        `Please reply with ${requestedDetails}.`,
+        "Please do not send a full card number, security code, expiration date, PIN, password, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.",
       ];
     case "reminder":
+      if (followUpReason === "no_safe_match") {
+        return [
+          "We are checking in once because we still want to help with your refund request. There is no need to resend the information you already shared.",
+          "Please reply only if any detail shown below needs a correction, such as the machine or location, purchase date or approximate time, amount, or payment method. If everything is correct, no action is needed from you and a person will continue the review.",
+          "For your safety, please never send a full card number, security code, expiration date, PIN, password, wallet digits, or screenshot.",
+        ];
+      }
+      if (missingFieldRequests.length === 0) {
+        throw new Error("A deterministic missing-field list is required for a reminder message.");
+      }
       return [
-        "We are checking in because we still need one more detail to finish reviewing your request.",
-        "If you have the exact purchase time, amount paid, card last 4 shown on the charge, or a photo of the machine/payment screen, please reply here and we will continue the review.",
+        "We are checking in once because we still need the specific details below to continue the review. There is no need to resend anything else.",
+        `When you have a moment, please reply with ${requestedDetails}.`,
+        "For your safety, please never send a full card number, security code, expiration date, PIN, password, or payment-screen screenshot.",
+      ];
+    case "no_safe_match":
+      return [
+        "Thank you for the details you shared. We checked the available machine transaction records carefully, but we could not identify one transaction that we can safely match to your request yet. This does not mean you did anything wrong.",
+        "Please reply only if any of the details shown below need a correction, such as the machine or location, purchase date or approximate time, amount, or payment method.",
+        "Please do not send a full card number, security code, expiration date, PIN, password, or screenshot. We will take another careful look after any correction, and a person will review the case if there still is not one clear match.",
+      ];
+    case "information_received":
+      return [
+        "Thank you for sending the additional information. We added it to your refund request, so you do not need to resend it.",
+        "Our team will check the updated details against the available transaction records. This message confirms receipt only. It is not yet a refund decision and is not a promise that a payment has been completed.",
       ];
     case "wallet_correction":
     case "wallet_correction_reminder":
@@ -202,8 +279,15 @@ export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
   if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
-    details.push(`Refund amount: ${refundAmount}`);
+    const amountLabel = input.messageType === "approved" || input.messageType === "completed"
+      ? "Refund amount"
+      : "Reported amount";
+    details.push(`${amountLabel}: ${refundAmount}`);
   }
+  const incidentLocalDateTime = sanitizeText(input.incidentLocalDateTime, 40);
+  if (incidentLocalDateTime) details.push(`Reported purchase time: ${incidentLocalDateTime}`);
+  if (input.paymentMethod === "card") details.push("Payment method: Card or mobile wallet");
+  if (input.paymentMethod === "cash") details.push("Payment method: Cash");
 
   const text = [
     greeting,

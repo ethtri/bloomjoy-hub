@@ -14,6 +14,17 @@ import {
   sendRefundWalletCorrectionEmail,
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
+import {
+  automaticRefundCustomerContactEnabled,
+  buildRefundFollowUpTriggerFingerprint,
+  deriveRefundMissingFields,
+  refundFollowUpTemplateKey,
+  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  sanitizeRefundMissingFields,
+  type RefundFollowUpMessageClass,
+  type RefundFollowUpReason,
+  type RefundMissingField,
+} from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import {
   createRefundWalletCorrectionToken,
@@ -27,6 +38,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const sweepSecret = Deno.env.get("REFUND_AUTOMATION_SWEEP_SECRET") || Deno.env.get("REPORT_SCHEDULER_SECRET");
 const automationEnabled = (Deno.env.get("REFUND_AUTOMATION_ENABLED") || "false").toLowerCase() === "true";
+const automaticCustomerContactEnabled = automaticRefundCustomerContactEnabled();
 const reminderDelayDays = Number(Deno.env.get("REFUND_MORE_INFO_REMINDER_DAYS") || 2);
 const escalationDays = Number(Deno.env.get("REFUND_ESCALATION_DAYS") || 5);
 const automationTimezone = Deno.env.get("REFUND_AUTOMATION_TIMEZONE") || "America/Los_Angeles";
@@ -129,16 +141,25 @@ const sanitizeFailureCategory = (error: unknown) => {
 type RefundSweepCase = {
   id: string;
   public_reference: string;
+  reporting_machine_id: string | null;
+  reporting_location_id: string | null;
   status: string;
+  intake_source: string;
+  correlation_status: string;
+  correlation_source: string | null;
   automation_state: string;
   automation_follow_up_due_at: string | null;
+  deterministic_fact_version: number;
   customer_last_contacted_at: string | null;
   customer_email: string;
   customer_name: string | null;
-  payment_method: string;
+  payment_method: string | null;
   card_wallet_used: boolean;
+  card_last4: string | null;
   payment_amount_cents: number | null;
   refund_amount_cents: number | null;
+  incident_at: string | null;
+  incident_local_datetime: string | null;
   created_at: string;
   wallet_correction_state: string;
   wallet_correction_version: number;
@@ -173,6 +194,10 @@ type SweepCounters = {
   nayaxSetupNeeded: number;
   remindersSent: number;
   remindersFailed: number;
+  missingInformationRequestsSent: number;
+  noSafeMatchRequestsSent: number;
+  informationReceivedSent: number;
+  providerExceptionsSent: number;
   escalationsSent: number;
   escalationsFailed: number;
 };
@@ -203,6 +228,10 @@ const createCounters = (): SweepCounters => ({
   nayaxSetupNeeded: 0,
   remindersSent: 0,
   remindersFailed: 0,
+  missingInformationRequestsSent: 0,
+  noSafeMatchRequestsSent: 0,
+  informationReceivedSent: 0,
+  providerExceptionsSent: 0,
   escalationsSent: 0,
   escalationsFailed: 0,
 });
@@ -225,6 +254,10 @@ const redactedSummary = (counters: SweepCounters) => ({
   nayaxSetupNeeded: counters.nayaxSetupNeeded,
   remindersSent: counters.remindersSent,
   remindersFailed: counters.remindersFailed,
+  missingInformationRequestsSent: counters.missingInformationRequestsSent,
+  noSafeMatchRequestsSent: counters.noSafeMatchRequestsSent,
+  informationReceivedSent: counters.informationReceivedSent,
+  providerExceptionsSent: counters.providerExceptionsSent,
   escalationsSent: counters.escalationsSent,
   escalationsFailed: counters.escalationsFailed,
   payloadRedacted: true,
@@ -242,16 +275,25 @@ const normalizeRefundSweepCase = (refundCase: RawRefundSweepCase): RefundSweepCa
 const caseSelect = `
   id,
   public_reference,
+  reporting_machine_id,
+  reporting_location_id,
   status,
+  intake_source,
+  correlation_status,
+  correlation_source,
   automation_state,
   automation_follow_up_due_at,
+  deterministic_fact_version,
   customer_last_contacted_at,
   customer_email,
   customer_name,
   payment_method,
   card_wallet_used,
+  card_last4,
   payment_amount_cents,
   refund_amount_cents,
+  incident_at,
+  incident_local_datetime,
   created_at,
   wallet_correction_state,
   wallet_correction_version,
@@ -282,8 +324,11 @@ const claimAction = async (
     | "nayax_lookup"
     | "customer_reminder"
     | "customer_more_info"
+    | "customer_information_received"
+    | "customer_reply_recheck"
     | "wallet_correction_request"
     | "wallet_correction_reminder"
+    | "provider_exception"
     | "internal_escalation"
     | "ops_alert",
   caseState: string | null,
@@ -366,20 +411,114 @@ const getAutomationHealth = async (): Promise<RefundAutomationHealth> => {
   return (data ?? {}) as RefundAutomationHealth;
 };
 
-const logMessage = async (
+type RefundFollowUpCycleContext = {
+  id: string;
+  refundCaseId: string;
+  cycleNumber: number;
+  reasonCode: RefundFollowUpReason;
+  requestedFields: RefundMissingField[];
+  templateVersion: string;
+  caseFactVersion: number;
+  status: string;
+  sourceCustomerMessageId: string | null;
+  reminderDueAt: string | null;
+};
+
+type RefundFollowUpCycleClaim = {
+  enabled?: boolean;
+  claimed?: boolean;
+  reason?: string;
+  cycle?: Record<string, unknown> | null;
+};
+
+type RefundFollowUpCustomerReplyClaim = {
+  enabled?: boolean;
+  claimed?: boolean;
+  reason?: string;
+  cycleId?: string;
+  refundCaseId?: string;
+  sourceMessageId?: string;
+  sourceReceivedAt?: string;
+  factsChanged?: boolean;
+  caseFactVersion?: number;
+  cycleFactVersion?: number;
+  reasonCode?: RefundFollowUpReason;
+  requestedFields?: RefundMissingField[];
+  templateVersion?: string;
+  nextAction?: string;
+};
+
+const textValue = (value: unknown) => typeof value === "string" ? value.trim() : "";
+const integerValue = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : fallback;
+};
+
+const normalizeFollowUpCycle = (
+  value: Record<string, unknown> | null | undefined,
+): RefundFollowUpCycleContext | null => {
+  if (!value) return null;
+  const id = textValue(value.id ?? value.cycleId ?? value.cycle_id);
+  const refundCaseId = textValue(
+    value.refundCaseId ?? value.refund_case_id,
+  );
+  const reasonCode = textValue(
+    value.reasonCode ?? value.reason_code,
+  ) as RefundFollowUpReason;
+  const templateVersion = textValue(
+    value.templateVersion ?? value.template_version,
+  );
+  const caseFactVersion = integerValue(
+    value.caseFactVersion ?? value.case_fact_version,
+  );
+  const cycleNumber = integerValue(value.cycleNumber ?? value.cycle_number);
+  if (
+    !id || !refundCaseId ||
+    !["missing_information", "no_safe_match"].includes(reasonCode) ||
+    templateVersion !== REFUND_DETERMINISTIC_FOLLOW_UP_VERSION ||
+    caseFactVersion < 1 || cycleNumber < 1 || cycleNumber > 2
+  ) {
+    return null;
+  }
+  return {
+    id,
+    refundCaseId,
+    cycleNumber,
+    reasonCode,
+    requestedFields: sanitizeRefundMissingFields(
+      value.requestedFields ?? value.requested_fields,
+    ),
+    templateVersion,
+    caseFactVersion,
+    status: textValue(value.status) || "claimed",
+    sourceCustomerMessageId: textValue(
+      value.sourceCustomerMessageId ?? value.source_customer_message_id,
+    ) || null,
+    reminderDueAt: textValue(value.reminderDueAt ?? value.reminder_due_at) || null,
+  };
+};
+
+const messageTypeForFollowUp = (
+  cycle: RefundFollowUpCycleContext,
+  messageClass: RefundFollowUpMessageClass,
+): RefundCustomerMessageType => {
+  if (messageClass === "information_received") return "information_received";
+  if (messageClass === "reminder") return "reminder";
+  return cycle.reasonCode === "missing_information" ? "more_info" : "no_safe_match";
+};
+
+const buildFollowUpEmailInput = (
   refundCase: RefundSweepCase,
-  messageType: RefundCustomerMessageType,
-  status: "pending" | "sent" | "failed" | "skipped",
-  errorMessage?: string | null,
+  cycle: RefundFollowUpCycleContext,
+  messageClass: RefundFollowUpMessageClass,
 ) => {
-  if (!supabase) return null;
   const publicLabels = resolveRefundPublicLabels({
     locationName: refundCase.reporting_locations?.name,
     publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
     machineLabel: refundCase.reporting_machines?.machine_label,
   });
-  const email = buildRefundCustomerEmail({
-    messageType,
+  return {
+    messageType: messageTypeForFollowUp(cycle, messageClass),
     publicReference: refundCase.public_reference,
     customerName: refundCase.customer_name,
     customerEmail: refundCase.customer_email,
@@ -387,20 +526,39 @@ const logMessage = async (
     locationName: publicLabels.locationName,
     refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
     paymentMethod: refundCase.payment_method,
-  });
+    cardWalletUsed: refundCase.card_wallet_used,
+    incidentLocalDateTime: refundCase.incident_local_datetime,
+    missingFields: cycle.requestedFields,
+    followUpReason: cycle.reasonCode,
+  };
+};
+
+const logDeterministicFollowUpMessage = async (
+  refundCase: RefundSweepCase,
+  cycle: RefundFollowUpCycleContext,
+  messageClass: RefundFollowUpMessageClass,
+) => {
+  if (!supabase) return null;
+  const emailInput = buildFollowUpEmailInput(refundCase, cycle, messageClass);
+  const email = buildRefundCustomerEmail(emailInput);
+  const messageType = messageTypeForFollowUp(cycle, messageClass);
 
   const { data, error } = await supabase
     .from("refund_case_messages")
     .insert({
       refund_case_id: refundCase.id,
       message_type: messageType,
-      status,
+      status: "pending",
       recipient_email: refundCase.customer_email,
       subject: email.subject,
       body: email.text,
-      template_key: `refund_${messageType}_v1`,
-      sent_at: status === "sent" ? new Date().toISOString() : null,
-      error_message: errorMessage ?? null,
+      template_key: refundFollowUpTemplateKey(cycle.reasonCode, messageClass),
+      content_source: "deterministic_template",
+      delivery_kind: "automatic",
+      reason_code: cycle.reasonCode,
+      template_version: cycle.templateVersion,
+      follow_up_cycle_id: cycle.id,
+      requested_fields: cycle.requestedFields,
     })
     .select("id")
     .single();
@@ -409,29 +567,25 @@ const logMessage = async (
   return data?.id ?? null;
 };
 
-const sendCustomerSweepMessage = async (
+const sendDeterministicFollowUpMessage = async (
   refundCase: RefundSweepCase,
-  messageType: RefundCustomerMessageType,
+  cycle: RefundFollowUpCycleContext,
+  messageClass: RefundFollowUpMessageClass,
 ) => {
-  const messageId = await logMessage(refundCase, messageType, "pending");
-  const publicLabels = resolveRefundPublicLabels({
-    locationName: refundCase.reporting_locations?.name,
-    publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
-    machineLabel: refundCase.reporting_machines?.machine_label,
-  });
-  const emailInput = {
-    messageType,
-    publicReference: refundCase.public_reference,
-    customerName: refundCase.customer_name,
-    customerEmail: refundCase.customer_email,
-    machineLabel: publicLabels.machineLabel,
-    locationName: publicLabels.locationName,
-    refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
-    paymentMethod: refundCase.payment_method,
-  };
+  if (!automaticCustomerContactEnabled) {
+    return { status: "suppressed" as const, messageId: null };
+  }
+  const messageType = messageTypeForFollowUp(cycle, messageClass);
+  const emailInput = buildFollowUpEmailInput(refundCase, cycle, messageClass);
   const email = buildRefundCustomerEmail(emailInput);
+  let messageId: string | null = null;
 
   try {
+    messageId = await logDeterministicFollowUpMessage(
+      refundCase,
+      cycle,
+      messageClass,
+    );
     if (!messageId) throw new Error("Refund customer message record is required.");
     const gmailDelivery = await dispatchRefundCaseGmailReply({
       supabase: supabase!,
@@ -451,20 +605,35 @@ const sendCustomerSweepMessage = async (
     if (messageId) {
       const { error: messageUpdateError } = await supabase
         ?.from("refund_case_messages")
-        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+        })
         .eq("id", messageId) ?? { error: null };
       if (messageUpdateError) throw messageUpdateError;
     }
 
+    const { data: refreshedCycle, error: refreshedCycleError } = await supabase
+      ?.from("refund_follow_up_cycles")
+      .select("reminder_due_at")
+      .eq("id", cycle.id)
+      .maybeSingle() ?? { data: null, error: null };
+    if (refreshedCycleError) throw refreshedCycleError;
+    const reminderDueAt = textValue(refreshedCycle?.reminder_due_at) || null;
+
     const { error: caseUpdateError } = await supabase
       ?.from("refund_cases")
       .update({
+        status: messageClass === "information_received"
+          ? (refundCase.status === "draft" ? "draft" : "needs_review")
+          : (refundCase.status === "draft" ? "draft" : "waiting_on_customer"),
+        automation_state: messageClass === "information_received"
+          ? "customer_replied"
+          : "more_info_needed",
         customer_last_contacted_at: new Date().toISOString(),
         last_customer_message_type: messageType,
-        automation_follow_up_due_at:
-          messageType === "more_info" || messageType === "reminder"
-            ? new Date(Date.now() + reminderDelayDays * 24 * 60 * 60 * 1000).toISOString()
-            : null,
+        automation_follow_up_due_at: messageClass === "request" ? reminderDueAt : null,
       })
       .eq("id", refundCase.id) ?? { error: null };
     if (caseUpdateError) throw caseUpdateError;
@@ -476,6 +645,11 @@ const sendCustomerSweepMessage = async (
       metadata: {
         message_type: messageType,
         message_id: messageId,
+        follow_up_cycle_id: cycle.id,
+        follow_up_cycle_number: cycle.cycleNumber,
+        follow_up_reason: cycle.reasonCode,
+        template_version: cycle.templateVersion,
+        requested_fields: cycle.requestedFields,
         transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
         manager_cc_count: gmailDelivery.managerCcCount,
         recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
@@ -484,7 +658,7 @@ const sendCustomerSweepMessage = async (
     }) ?? { error: null };
     if (eventError) throw eventError;
 
-    return { status: "sent" as const, messageId };
+    return { status: "sent" as const, messageId, reminderDueAt };
   } catch (error) {
     console.error("refund-case-automation-sweep customer email failed", {
       errorType: error instanceof Error ? error.name : typeof error,
@@ -504,6 +678,242 @@ const sendCustomerSweepMessage = async (
     }
 
     return { status: "failed" as const, messageId };
+  }
+};
+
+const getSweepCase = async (refundCaseId: string) => {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("refund_cases")
+    .select(caseSelect)
+    .eq("id", refundCaseId)
+    .maybeSingle();
+  if (error) throw error;
+  return data
+    ? normalizeRefundSweepCase(data as unknown as RawRefundSweepCase)
+    : null;
+};
+
+const getLatestVerifiedCustomerMessageId = async (refundCaseId: string) => {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("refund_gmail_messages")
+    .select("id")
+    .eq("refund_case_id", refundCaseId)
+    .eq("direction", "inbound")
+    .eq("participant_role", "customer")
+    .eq("participant_trust", "verified")
+    .eq("status", "received")
+    .is("content_deleted_at", null)
+    .order("received_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return textValue(data?.id) || null;
+};
+
+const claimFollowUpCycle = async ({
+  refundCase,
+  reasonCode,
+  sourceCustomerMessageId,
+  requestedFields,
+}: {
+  refundCase: RefundSweepCase;
+  reasonCode: RefundFollowUpReason;
+  sourceCustomerMessageId: string | null;
+  requestedFields: RefundMissingField[];
+}) => {
+  if (!supabase || !automaticCustomerContactEnabled) {
+    return {
+      enabled: false,
+      claimed: false,
+      reason: "automatic_customer_contact_disabled",
+      cycle: null,
+    };
+  }
+  const triggerFingerprint = await buildRefundFollowUpTriggerFingerprint({
+    refundCaseId: refundCase.id,
+    reason: reasonCode,
+    requestedFields,
+    caseFactVersion: refundCase.deterministic_fact_version,
+    sourceCustomerMessageId,
+  });
+  const { data, error } = await supabase.rpc(
+    "service_claim_refund_follow_up_cycle",
+    {
+      p_refund_case_id: refundCase.id,
+      p_reason_code: reasonCode,
+      p_template_version: REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+      p_trigger_fingerprint: triggerFingerprint,
+      p_source_customer_message_id: sourceCustomerMessageId,
+    },
+  );
+  if (error) throw error;
+  const claim = (data ?? {}) as RefundFollowUpCycleClaim;
+  const cycle = normalizeFollowUpCycle(claim.cycle);
+  if (claim.claimed === true && !cycle) {
+    throw new Error("Refund follow-up claim returned an invalid cycle contract.");
+  }
+  return {
+    enabled: claim.enabled === true,
+    claimed: claim.claimed === true,
+    reason: textValue(claim.reason) || null,
+    cycle,
+  };
+};
+
+const sendFollowUpManagerNotice = async ({
+  refundCase,
+  noticeKind,
+}: {
+  refundCase: RefundSweepCase;
+  noticeKind: "provider_setup" | "provider_outage" | "provider_rejection" |
+    "provider_timeout" | "provider_unknown" | "follow_up_manual_review" |
+    "customer_reply_review";
+}) => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
+  const noticeLabels: Record<typeof noticeKind, string> = {
+    provider_setup: "Payment-provider setup needs attention",
+    provider_outage: "Payment-provider lookup is temporarily unavailable",
+    provider_rejection: "Payment-provider lookup was rejected",
+    provider_timeout: "Payment-provider lookup timed out",
+    provider_unknown: "Payment-provider result needs a person to verify it",
+    follow_up_manual_review: "Automatic customer follow-up reached a safe stopping point",
+    customer_reply_review: "The customer replied and the case needs a person to review the new information",
+  };
+  const summary = noticeLabels[noticeKind];
+  const notice = await sendRefundManagerActionNotice({
+    supabase,
+    refundCaseId: refundCase.id,
+    customerEmail: refundCase.customer_email,
+    subject: `Refund case needs attention: ${refundCase.public_reference}`,
+    summaryText: [
+      summary,
+      "",
+      `Reference: ${refundCase.public_reference}`,
+      `Status: ${refundCase.status}`,
+      "Please open the case and decide the next safe step. No customer or payment action was taken by this notice.",
+    ].join("\n"),
+  });
+  const { error: eventError } = await supabase.from("refund_case_events").insert({
+    refund_case_id: refundCase.id,
+    event_type: noticeKind.startsWith("provider_")
+      ? "refund_provider_exception_notice_sent"
+      : "refund_follow_up_manager_notice_sent",
+    message: summary,
+    metadata: {
+      notice_kind: noticeKind,
+      recipient_count: notice.recipientCount,
+      machine_manager_recipient_count: notice.managerRecipientCount,
+      manager_resolution_status: notice.resolutionStatus,
+      used_ops_fallback: notice.usedOpsFallback,
+      payload_redacted: true,
+    },
+  });
+  if (eventError) throw eventError;
+  return notice;
+};
+
+const classifyProviderException = (
+  error: unknown,
+): "provider_outage" | "provider_rejection" | "provider_timeout" | "provider_unknown" => {
+  const detail = `${
+    error instanceof Error ? `${error.name} ${error.message}` : typeof error
+  } ${error && typeof error === "object" && "code" in error ? String(error.code) : ""}`
+    .toLowerCase();
+  if (detail.includes("timeout") || detail.includes("timed out")) return "provider_timeout";
+  if (
+    detail.includes("401") || detail.includes("403") ||
+    detail.includes("unauthorized") || detail.includes("forbidden") ||
+    detail.includes("reject")
+  ) return "provider_rejection";
+  if (
+    detail.includes("network") || detail.includes("unavailable") ||
+    detail.includes("connection") || detail.includes("502") ||
+    detail.includes("503") || detail.includes("504")
+  ) return "provider_outage";
+  return "provider_unknown";
+};
+
+const routeProviderException = async ({
+  runId,
+  refundCase,
+  reasonCategory,
+  counters,
+}: {
+  runId: string;
+  refundCase: RefundSweepCase;
+  reasonCategory: "provider_setup" | "provider_outage" | "provider_rejection" |
+    "provider_timeout" | "provider_unknown";
+  counters: SweepCounters;
+}) => {
+  if (!supabase) return;
+  const actionKey = `provider_exception:${refundCase.id}:${reasonCategory}:${refundCase.deterministic_fact_version}`;
+  const { data, error } = await supabase.rpc(
+    "service_claim_refund_provider_exception_action",
+    {
+      p_run_id: runId,
+      p_refund_case_id: refundCase.id,
+      p_action_key: actionKey,
+      p_reason_category: reasonCategory,
+    },
+  );
+  if (error) throw error;
+  const result = data && typeof data === "object"
+    ? data as Record<string, unknown>
+    : {};
+  const action: ClaimedAction = {
+    actionId: textValue(result.actionId ?? result.action_id) || null,
+    claimed: result.claimed === true,
+  };
+  if (!action.claimed) {
+    counters.actionsSuppressed += 1;
+    addReason(counters, "provider_exception_already_routed");
+    return;
+  }
+  counters.actionsAttempted += 1;
+  try {
+    await sendFollowUpManagerNotice({ refundCase, noticeKind: reasonCategory });
+    counters.providerExceptionsSent += 1;
+    await finishAction(action, "completed", reasonCategory, null, counters);
+  } catch (noticeError) {
+    await finishAction(action, "failed", "provider_exception_notice_failed", null, counters);
+    throw noticeError;
+  }
+};
+
+const routeFollowUpManualReview = async ({
+  runId,
+  refundCase,
+  actionKeySuffix,
+  noticeKind,
+  policyWindowStart,
+  counters,
+}: {
+  runId: string;
+  refundCase: RefundSweepCase;
+  actionKeySuffix: string;
+  noticeKind: "follow_up_manual_review" | "customer_reply_review";
+  policyWindowStart: string;
+  counters: SweepCounters;
+}) => {
+  const action = await claimAction(
+    runId,
+    refundCase.id,
+    `follow_up_review:${refundCase.id}:${actionKeySuffix}`,
+    "internal_escalation",
+    refundCase.status,
+    policyWindowStart,
+    counters,
+  );
+  if (!action.claimed) return;
+  try {
+    await sendFollowUpManagerNotice({ refundCase, noticeKind });
+    await finishAction(action, "completed", noticeKind, null, counters);
+  } catch (error) {
+    await finishAction(action, "failed", "manager_notice_failed", null, counters);
+    throw error;
   }
 };
 
@@ -716,6 +1126,362 @@ const sendAutomationHealthAlert = async (
   });
 };
 
+const getFollowUpCycle = async (cycleId: string) => {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("refund_follow_up_cycles")
+    .select(
+      "id,refund_case_id,cycle_number,reason_code,requested_fields,template_version,case_fact_version,status,source_customer_message_id,reminder_due_at",
+    )
+    .eq("id", cycleId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? normalizeFollowUpCycle(data as Record<string, unknown>) : null;
+};
+
+const runMissingInformationSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase || !automaticCustomerContactEnabled) return;
+  const { data, error } = await supabase
+    .from("refund_cases")
+    .select(caseSelect)
+    .eq("status", "draft")
+    .eq("intake_source", "gmail")
+    .in("automation_state", ["customer_replied", "submitted", "under_review"])
+    .limit(25);
+  if (error) throw error;
+
+  for (const rawCase of (data ?? []) as unknown as RawRefundSweepCase[]) {
+    const refundCase = normalizeRefundSweepCase(rawCase);
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const derived = deriveRefundMissingFields({
+      reportingMachineId: refundCase.reporting_machine_id,
+      reportingLocationId: refundCase.reporting_location_id,
+      incidentAt: refundCase.incident_at,
+      paymentMethod: refundCase.payment_method,
+      paymentAmountCents: refundCase.payment_amount_cents,
+      cardLast4: refundCase.card_last4,
+      cardWalletUsed: refundCase.card_wallet_used,
+    });
+
+    if (derived.requiresSecureWalletCorrection && derived.missingFields.length === 0) {
+      await routeFollowUpManualReview({
+        runId,
+        refundCase,
+        actionKeySuffix: `wallet-required:${refundCase.deterministic_fact_version}`,
+        noticeKind: "follow_up_manual_review",
+        policyWindowStart,
+        counters,
+      });
+      continue;
+    }
+
+    if (derived.missingFields.length === 0) {
+      const { error: completeError } = await supabase.from("refund_cases")
+        .update({ status: "needs_review", automation_state: "under_review" })
+        .eq("id", refundCase.id)
+        .eq("status", "draft");
+      if (completeError) throw completeError;
+      await routeFollowUpManualReview({
+        runId,
+        refundCase: { ...refundCase, status: "needs_review", automation_state: "under_review" },
+        actionKeySuffix: `complete-draft:${refundCase.deterministic_fact_version}`,
+        noticeKind: "follow_up_manual_review",
+        policyWindowStart,
+        counters,
+      });
+      continue;
+    }
+
+    const sourceCustomerMessageId = await getLatestVerifiedCustomerMessageId(refundCase.id);
+    if (!sourceCustomerMessageId) {
+      counters.actionsSuppressed += 1;
+      addReason(counters, "missing_verified_customer_source");
+      continue;
+    }
+    const cycleClaim = await claimFollowUpCycle({
+      refundCase,
+      reasonCode: "missing_information",
+      sourceCustomerMessageId,
+      requestedFields: derived.missingFields,
+    });
+    if (!cycleClaim.claimed || !cycleClaim.cycle) {
+      if (["contact_limit_reached", "active_cycle_exists", "manual_review"].includes(cycleClaim.reason ?? "")) {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase,
+          actionKeySuffix: `missing:${refundCase.deterministic_fact_version}:${cycleClaim.reason}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+      } else {
+        counters.actionsSuppressed += 1;
+        addReason(counters, cycleClaim.reason ?? "missing_information_cycle_not_claimed");
+      }
+      continue;
+    }
+    if (
+      JSON.stringify(cycleClaim.cycle.requestedFields) !==
+        JSON.stringify(derived.missingFields)
+    ) {
+      await routeFollowUpManualReview({
+        runId,
+        refundCase,
+        actionKeySuffix: `field-contract:${cycleClaim.cycle.id}`,
+        noticeKind: "follow_up_manual_review",
+        policyWindowStart,
+        counters,
+      });
+      continue;
+    }
+
+    counters.actionsAttempted += 1;
+    const result = await sendDeterministicFollowUpMessage(
+      refundCase,
+      cycleClaim.cycle,
+      "request",
+    );
+    if (result.status === "sent") {
+      counters.actionsSucceeded += 1;
+      counters.missingInformationRequestsSent += 1;
+      addReason(counters, "missing_information_requested");
+    } else {
+      counters.actionsFailed += 1;
+      addReason(counters, result.status === "suppressed"
+        ? "automatic_customer_contact_disabled"
+        : "customer_email_failed");
+    }
+  }
+};
+
+const runCashNoSafeMatchSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase || !automaticCustomerContactEnabled) return;
+  const { data, error } = await supabase
+    .from("refund_cases")
+    .select(caseSelect)
+    .eq("payment_method", "cash")
+    .eq("status", "needs_review")
+    .eq("correlation_status", "no_match")
+    .eq("correlation_source", "sunze")
+    .limit(25);
+  if (error) throw error;
+
+  for (const rawCase of (data ?? []) as unknown as RawRefundSweepCase[]) {
+    const refundCase = normalizeRefundSweepCase(rawCase);
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const derived = deriveRefundMissingFields({
+      reportingMachineId: refundCase.reporting_machine_id,
+      reportingLocationId: refundCase.reporting_location_id,
+      incidentAt: refundCase.incident_at,
+      paymentMethod: refundCase.payment_method,
+      paymentAmountCents: refundCase.payment_amount_cents,
+      cardLast4: refundCase.card_last4,
+      cardWalletUsed: refundCase.card_wallet_used,
+    });
+    if (derived.missingFields.length > 0 || derived.requiresSecureWalletCorrection) {
+      await routeFollowUpManualReview({
+        runId,
+        refundCase,
+        actionKeySuffix: `cash-no-match-incomplete:${refundCase.deterministic_fact_version}`,
+        noticeKind: "follow_up_manual_review",
+        policyWindowStart,
+        counters,
+      });
+      continue;
+    }
+    const cycleClaim = await claimFollowUpCycle({
+      refundCase,
+      reasonCode: "no_safe_match",
+      sourceCustomerMessageId: null,
+      requestedFields: [],
+    });
+    if (!cycleClaim.claimed || !cycleClaim.cycle) {
+      if (["contact_limit_reached", "active_cycle_exists", "manual_review"].includes(cycleClaim.reason ?? "")) {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase,
+          actionKeySuffix: `cash-no-match:${refundCase.deterministic_fact_version}:${cycleClaim.reason}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+      } else {
+        counters.actionsSuppressed += 1;
+        addReason(counters, cycleClaim.reason ?? "cash_no_safe_match_cycle_not_claimed");
+      }
+      continue;
+    }
+    counters.actionsAttempted += 1;
+    const result = await sendDeterministicFollowUpMessage(
+      refundCase,
+      cycleClaim.cycle,
+      "request",
+    );
+    if (result.status === "sent") {
+      counters.actionsSucceeded += 1;
+      counters.noSafeMatchRequestsSent += 1;
+      addReason(counters, "cash_no_safe_match_customer_contacted");
+    } else {
+      counters.actionsFailed += 1;
+      addReason(counters, result.status === "suppressed"
+        ? "automatic_customer_contact_disabled"
+        : "customer_email_failed");
+    }
+  }
+};
+
+const runCustomerReplyFollowUpSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase || !automaticCustomerContactEnabled) return;
+  const { data, error } = await supabase
+    .from("refund_follow_up_cycles")
+    .select("id,refund_case_id")
+    .eq("status", "waiting")
+    .not("request_sent_at", "is", null)
+    .is("reply_message_id", null)
+    .order("request_sent_at", { ascending: true })
+    .limit(25);
+  if (error) throw error;
+
+  for (const candidate of data ?? []) {
+    const cycleId = textValue(candidate.id);
+    const refundCaseId = textValue(candidate.refund_case_id);
+    if (!cycleId || !refundCaseId) continue;
+    const { data: claimedData, error: claimError } = await supabase.rpc(
+      "service_claim_refund_follow_up_customer_reply",
+      {
+        p_refund_case_id: refundCaseId,
+        p_follow_up_cycle_id: cycleId,
+      },
+    );
+    if (claimError) throw claimError;
+    const claim = (claimedData ?? {}) as RefundFollowUpCustomerReplyClaim;
+    if (claim.claimed !== true) continue;
+
+    const sourceMessageId = textValue(claim.sourceMessageId);
+    const cycle = await getFollowUpCycle(cycleId);
+    const refundCase = await getSweepCase(refundCaseId);
+    if (!sourceMessageId || !cycle || !refundCase) {
+      counters.actionsFailed += 1;
+      addReason(counters, "customer_reply_contract_invalid");
+      continue;
+    }
+    counters.evaluatedCaseIds.add(refundCase.id);
+
+    const receiptAction = await claimAction(
+      runId,
+      refundCase.id,
+      `information_received:${cycle.id}:${sourceMessageId}`,
+      "customer_information_received",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!receiptAction.claimed) continue;
+    const receipt = await sendDeterministicFollowUpMessage(
+      refundCase,
+      cycle,
+      "information_received",
+    );
+    if (receipt.status !== "sent") {
+      await finishAction(
+        receiptAction,
+        "failed",
+        receipt.status === "suppressed"
+          ? "automatic_customer_contact_disabled"
+          : "customer_email_failed",
+        receipt.messageId,
+        counters,
+      );
+      continue;
+    }
+    counters.informationReceivedSent += 1;
+    await finishAction(
+      receiptAction,
+      "completed",
+      "information_received_sent",
+      receipt.messageId,
+      counters,
+    );
+
+    const recheckAction = await claimAction(
+      runId,
+      refundCase.id,
+      `customer_reply_recheck:${cycle.id}:${sourceMessageId}`,
+      "customer_reply_recheck",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!recheckAction.claimed) continue;
+    try {
+      const factsChanged = claim.factsChanged === true;
+      const currentMissing = deriveRefundMissingFields({
+        reportingMachineId: refundCase.reporting_machine_id,
+        reportingLocationId: refundCase.reporting_location_id,
+        incidentAt: refundCase.incident_at,
+        paymentMethod: refundCase.payment_method,
+        paymentAmountCents: refundCase.payment_amount_cents,
+        cardLast4: refundCase.card_last4,
+        cardWalletUsed: refundCase.card_wallet_used,
+      });
+      if (factsChanged && currentMissing.missingFields.length === 0) {
+        const { error: updateError } = await supabase.from("refund_cases")
+          .update({
+            status: "needs_review",
+            automation_state: "under_review",
+            automation_follow_up_due_at: null,
+          })
+          .eq("id", refundCase.id);
+        if (updateError) throw updateError;
+      } else {
+        await sendFollowUpManagerNotice({
+          refundCase,
+          noticeKind: "customer_reply_review",
+        });
+      }
+      const { error: eventError } = await supabase.from("refund_case_events").insert({
+        refund_case_id: refundCase.id,
+        event_type: "refund_customer_reply_rechecked",
+        message: factsChanged
+          ? "The verified customer reply triggered one deterministic fact-version recheck."
+          : "The verified customer reply was acknowledged and routed to a person because no structured case fact changed.",
+        metadata: {
+          follow_up_cycle_id: cycle.id,
+          source_message_id: sourceMessageId,
+          facts_changed: factsChanged,
+          case_fact_version: integerValue(claim.caseFactVersion),
+          cycle_fact_version: integerValue(claim.cycleFactVersion),
+          next_action: textValue(claim.nextAction) || "manual_review",
+          payload_redacted: true,
+        },
+      });
+      if (eventError) throw eventError;
+      await finishAction(
+        recheckAction,
+        "completed",
+        factsChanged ? "structured_facts_rechecked" : "customer_reply_manual_review",
+        null,
+        counters,
+      );
+    } catch (recheckError) {
+      await finishAction(recheckAction, "failed", "customer_reply_recheck_failed", null, counters);
+      throw recheckError;
+    }
+  }
+};
+
 const runCardNayaxLookupSweep = async (
   runId: string,
   counters: SweepCounters,
@@ -784,6 +1550,12 @@ const runCardNayaxLookupSweep = async (
           },
         });
         if (eventError) throw eventError;
+        await routeProviderException({
+          runId,
+          refundCase,
+          reasonCategory: "provider_setup",
+          counters,
+        });
         await finishAction(action, "completed", "nayax_setup_needed", null, counters);
         continue;
       }
@@ -949,35 +1721,82 @@ const runCardNayaxLookupSweep = async (
         continue;
       }
 
-      const moreInfoResult = await sendCustomerSweepMessage(
-        { ...refundCase, status: "waiting_on_customer", automation_state: "more_info_needed" },
-        "more_info",
+      if (walletCorrectionUseful) {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase,
+          actionKeySuffix: `wallet:${refundCase.wallet_correction_version}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+        await finishAction(action, "completed", "wallet_correction_pending_or_exhausted", null, counters);
+        continue;
+      }
+
+      const { error: noMatchUpdateError } = await supabase.from("refund_cases")
+        .update({
+          status: "needs_review",
+          correlation_status: "no_match",
+          correlation_source: "nayax",
+          correlation_confidence: 0,
+          correlation_summary: `${lookupResult.summary} No deterministic customer correction has been assumed.`,
+          automation_state: "under_review",
+          nayax_recommendation_state: lookupResult.recommendationState,
+          nayax_recommendation_policy_version: lookupResult.policyVersion,
+          nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
+          nayax_match_execution_eligible: false,
+          automation_follow_up_due_at: null,
+        })
+        .eq("id", refundCase.id);
+      if (noMatchUpdateError) throw noMatchUpdateError;
+
+      const noMatchCase = {
+        ...refundCase,
+        status: "needs_review",
+        automation_state: "under_review",
+      };
+      const cycleClaim = await claimFollowUpCycle({
+        refundCase: noMatchCase,
+        reasonCode: "no_safe_match",
+        sourceCustomerMessageId: null,
+        requestedFields: [],
+      });
+
+      if (!cycleClaim.claimed || !cycleClaim.cycle) {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase: noMatchCase,
+          actionKeySuffix: `no-safe-match:${refundCase.deterministic_fact_version}:${cycleClaim.reason ?? "not-claimed"}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+        await finishAction(
+          action,
+          "completed",
+          cycleClaim.reason ?? "no_safe_match_manual_review",
+          null,
+          counters,
+        );
+        continue;
+      }
+
+      const noMatchResult = await sendDeterministicFollowUpMessage(
+        noMatchCase,
+        cycleClaim.cycle,
+        "request",
       );
-
-      if (moreInfoResult.status === "sent") {
-        const { error: updateError } = await supabase.from("refund_cases")
-          .update({
-            status: "waiting_on_customer",
-            correlation_status: "no_match",
-            correlation_source: "nayax",
-            correlation_confidence: 0,
-            correlation_summary: `${lookupResult.summary} More information requested from the customer.`,
-            automation_state: "more_info_needed",
-            nayax_recommendation_state: lookupResult.recommendationState,
-            nayax_recommendation_policy_version: lookupResult.policyVersion,
-            nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
-            nayax_match_execution_eligible: false,
-            automation_follow_up_due_at: new Date(Date.now() + reminderDelayDays * 24 * 60 * 60 * 1000).toISOString(),
-          })
-          .eq("id", refundCase.id);
-        if (updateError) throw updateError;
+      if (noMatchResult.status === "sent") {
         counters.nayaxNoMatchMovedToWaiting += 1;
-
+        counters.noSafeMatchRequestsSent += 1;
         const { error: eventError } = await supabase.from("refund_case_events").insert({
           refund_case_id: refundCase.id,
-          event_type: "nayax_auto_lookup_no_match",
-          message: "Automated Nayax lookup found no candidate, so the customer was asked for more information.",
+          event_type: "nayax_auto_lookup_no_safe_match_contacted",
+          message: "A confirmed provider no-safe-match result triggered one versioned correction-focused customer message.",
           metadata: {
+            follow_up_cycle_id: cycleClaim.cycle.id,
+            template_version: cycleClaim.cycle.templateVersion,
             window_hours: lookupResult.windowHours,
             candidate_count: lookupResult.candidates.length,
             recommendation_state: lookupResult.recommendationState,
@@ -991,21 +1810,23 @@ const runCardNayaxLookupSweep = async (
           },
         });
         if (eventError) throw eventError;
-        await finishAction(action, "completed", "nayax_no_match_customer_contacted", moreInfoResult.messageId, counters);
+        await finishAction(
+          action,
+          "completed",
+          "nayax_no_safe_match_customer_contacted",
+          noMatchResult.messageId,
+          counters,
+        );
       } else {
-        const { error: eventError } = await supabase.from("refund_case_events").insert({
-          refund_case_id: refundCase.id,
-          event_type: "nayax_auto_lookup_no_match_message_failed",
-          message: "Automated Nayax lookup found no candidate, but customer email failed so the case remains in manager review.",
-          metadata: {
-            window_hours: lookupResult.windowHours,
-            provider_record_count: lookupResult.providerRecordCount ?? null,
-            provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
-            payload_redacted: true,
-          },
-        });
-        if (eventError) throw eventError;
-        await finishAction(action, "failed", "customer_email_failed", moreInfoResult.messageId, counters);
+        await finishAction(
+          action,
+          "failed",
+          noMatchResult.status === "suppressed"
+            ? "automatic_customer_contact_disabled"
+            : "customer_email_failed",
+          noMatchResult.messageId,
+          counters,
+        );
       }
     } catch (error) {
       counters.nayaxLookupFailures += 1;
@@ -1021,6 +1842,18 @@ const runCardNayaxLookupSweep = async (
           payload_redacted: true,
         },
       });
+      try {
+        await routeProviderException({
+          runId,
+          refundCase,
+          reasonCategory: classifyProviderException(error),
+          counters,
+        });
+      } catch (noticeError) {
+        console.error("refund provider exception notice failed", {
+          errorType: noticeError instanceof Error ? noticeError.name : typeof noticeError,
+        });
+      }
       await finishAction(action, "failed", sanitizeFailureCategory(error), null, counters);
     }
   }
@@ -1129,32 +1962,39 @@ const runReminderSweep = async (
   counters: SweepCounters,
   policyWindowStart: string,
 ) => {
-  if (!supabase) return;
-  const dueCutoff = new Date().toISOString();
-  const reminderCutoff = daysAgoIso(Number.isFinite(reminderDelayDays) ? reminderDelayDays : 2);
-  const { data: reminderCases, error: reminderError } = await supabase
-    .from("refund_cases")
-    .select(caseSelect)
-    .eq("status", "waiting_on_customer")
-    .eq("wallet_correction_state", "not_needed")
-    .neq("automation_state", "wallet_correction_sent")
-    .lte("automation_follow_up_due_at", dueCutoff)
-    .limit(25);
-  if (reminderError) throw reminderError;
+  if (!supabase || !automaticCustomerContactEnabled) return;
+  const { data, error } = await supabase.rpc(
+    "service_claim_due_refund_follow_up_reminders",
+    { p_limit: 25 },
+  );
+  if (error) throw error;
+  const jobs = Array.isArray(data) ? data : [];
 
-  for (const rawRefundCase of (reminderCases ?? []) as unknown as RawRefundSweepCase[]) {
-    const refundCase = normalizeRefundSweepCase(rawRefundCase);
-    counters.evaluatedCaseIds.add(refundCase.id);
-    if (refundCase.customer_last_contacted_at && refundCase.customer_last_contacted_at > reminderCutoff) {
-      counters.actionsSuppressed += 1;
-      addReason(counters, "customer_contact_not_due");
+  for (const rawJob of jobs) {
+    const job = rawJob && typeof rawJob === "object"
+      ? rawJob as Record<string, unknown>
+      : {};
+    const cycleId = textValue(job.cycleId ?? job.cycle_id ?? job.id);
+    const refundCaseId = textValue(job.refundCaseId ?? job.refund_case_id);
+    if (!cycleId || !refundCaseId) {
+      counters.actionsFailed += 1;
+      addReason(counters, "reminder_contract_invalid");
       continue;
     }
+    const cycle = normalizeFollowUpCycle({ ...job, id: cycleId, refundCaseId }) ??
+      await getFollowUpCycle(cycleId);
+    const refundCase = await getSweepCase(refundCaseId);
+    if (!cycle || !refundCase) {
+      counters.actionsFailed += 1;
+      addReason(counters, "reminder_contract_invalid");
+      continue;
+    }
+    counters.evaluatedCaseIds.add(refundCase.id);
 
     const action = await claimAction(
       runId,
       refundCase.id,
-      `reminder:${refundCase.id}:${keyTimestamp(refundCase.automation_follow_up_due_at, "due")}`,
+      `reminder:${cycle.id}`,
       "customer_reminder",
       refundCase.status,
       policyWindowStart,
@@ -1162,13 +2002,25 @@ const runReminderSweep = async (
     );
     if (!action.claimed) continue;
 
-    const result = await sendCustomerSweepMessage(refundCase, "reminder");
+    const result = await sendDeterministicFollowUpMessage(
+      refundCase,
+      cycle,
+      "reminder",
+    );
     if (result.status === "sent") {
       counters.remindersSent += 1;
       await finishAction(action, "completed", "reminder_sent", result.messageId, counters);
     } else {
       counters.remindersFailed += 1;
-      await finishAction(action, "failed", "customer_email_failed", result.messageId, counters);
+      await finishAction(
+        action,
+        "failed",
+        result.status === "suppressed"
+          ? "automatic_customer_contact_disabled"
+          : "customer_email_failed",
+        result.messageId,
+        counters,
+      );
     }
   }
 };
@@ -1402,6 +2254,12 @@ serve(async (req) => {
       });
     }
 
+    if (!automaticCustomerContactEnabled) {
+      addReason(counters, "automatic_customer_contact_disabled");
+    }
+    await runCustomerReplyFollowUpSweep(runId, counters, policyWindowStart);
+    await runMissingInformationSweep(runId, counters, policyWindowStart);
+    await runCashNoSafeMatchSweep(runId, counters, policyWindowStart);
     await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
     await runWalletCorrectionExpirySweep(
       runId,

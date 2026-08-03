@@ -57,6 +57,7 @@ import {
   type RefundCaseStatus,
   type RefundCustomerPortalMessageType,
   type RefundDecision,
+  type RefundMissingField,
 } from '@/lib/refundOperations';
 import { cn } from '@/lib/utils';
 
@@ -101,7 +102,12 @@ const customerMessageOptions: Array<{
   {
     value: 'more_info',
     label: 'Ask for more information',
-    helper: 'Use when the transaction cannot be matched yet and the customer can help clarify details.',
+    helper: 'Use only when the case is missing specific structured purchase details.',
+  },
+  {
+    value: 'no_safe_match',
+    label: 'No safe match found',
+    helper: 'Use after a complete case was checked and no single transaction can be matched safely.',
   },
   {
     value: 'status_update',
@@ -406,6 +412,45 @@ const formatRefundMachineLocation = (locationName: string, machineLabel: string)
 
   return `${normalizedLocationName} - ${normalizedMachineLabel}`;
 };
+
+const isMissingRefundLabel = (value: string | null | undefined) => {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  return !normalized || normalized.startsWith('unknown') || normalized.startsWith('unmapped');
+};
+
+const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
+  const missing: RefundMissingField[] = [];
+  if (isMissingRefundLabel(refundCase.machineLabel) || isMissingRefundLabel(refundCase.locationName)) {
+    missing.push('location_or_machine');
+  }
+  if (!refundCase.incidentAt) missing.push('incident_date', 'incident_time');
+  if (!['card', 'cash'].includes(refundCase.paymentMethod ?? '')) missing.push('payment_method');
+  if (!Number.isInteger(refundCase.paymentAmountCents) || Number(refundCase.paymentAmountCents) <= 0) {
+    missing.push('amount');
+  }
+  if (
+    refundCase.paymentMethod === 'card' &&
+    !/^\d{4}$/.test(refundCase.cardLast4 ?? '') &&
+    refundCase.cardWalletUsed !== true
+  ) {
+    missing.push('card_last4');
+  }
+  return missing;
+};
+
+const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
+  location_or_machine: 'the machine or Bloomjoy location',
+  incident_date: 'the purchase date',
+  incident_time: 'the approximate purchase time, including AM or PM',
+  payment_method: 'whether payment was by card, Apple Pay, Google Pay, or cash',
+  amount: 'the exact amount charged',
+  card_last4: 'only the last four digits shown on the card charge (not wallet or device-card digits)',
+};
+
+const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
+  Object.keys(missingFieldCustomerLabel).filter(
+    (field): field is RefundMissingField => fields.includes(field),
+  );
 
 const formatMessageAmount = (refundCase: RefundCaseRecord) =>
   formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents);
@@ -987,10 +1032,12 @@ const primaryActionConfig = (
 
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
+  const missingFields = derivePortalRefundMissingFields(refundCase);
   const waitingOnCustomer = refundCase.status === 'waiting_on_customer' || editor.status === 'waiting_on_customer';
   const customerAlreadyAsked =
     waitingOnCustomer &&
-    latestMessage?.messageType === 'more_info' &&
+    latestMessage &&
+    ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
   if (customerAlreadyAsked) {
@@ -1002,12 +1049,15 @@ const primaryActionConfig = (
   }
 
   if (waitingOnCustomer || noMatch) {
+    const canAskForExactMissingFields = missingFields.length > 0;
     return {
-      label: 'Ask customer for details',
-      helper: 'Move this case to customer follow-up and send the friendly detail-request email in one step.',
+      label: canAskForExactMissingFields ? 'Ask for missing details' : 'Explain that no safe match was found',
+      helper: canAskForExactMissingFields
+        ? 'Ask only for the specific structured details that are absent from this case.'
+        : 'Restate the safe case facts and invite corrections without blaming the customer or promising a refund.',
       targetStatus: 'waiting_on_customer',
       targetDecision: null,
-      messageType: 'more_info',
+      messageType: canAskForExactMissingFields ? 'more_info' : 'no_safe_match',
       mode: 'case_update',
     };
   }
@@ -1105,14 +1155,27 @@ const getCustomerMessageDraft = (
     editor?.decisionReason.trim() ||
     refundCase.decisionReason ||
     'If any of the details were submitted incorrectly, please reply and we will take another careful look.';
+  const missingFields = derivePortalRefundMissingFields(refundCase);
+  const missingFieldList = missingFields.map((field) => `- ${missingFieldCustomerLabel[field]}`);
   switch (messageType) {
     case 'more_info':
       return {
         subject: `A quick detail check for your Bloomjoy refund request ${refundCase.publicReference}`,
         body: [
-          'Thank you again for reaching out. We want to review this carefully, and we need one more detail before we can confidently match the request to a machine transaction.',
-          'Please reply with anything that may help, such as the exact purchase time, amount paid, card last 4 shown on the charge, or a photo of the machine/payment screen.',
-          'Once we have that, our team will continue the review. Our target is to complete refund reviews within 5 business days.',
+          'Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.',
+          missingFieldList.length > 0
+            ? ['Please reply with only the missing details below:', '', ...missingFieldList].join('\n')
+            : 'No additional detail is selected. Use the no-safe-match update instead.',
+          'Please do not send a full card number, security code, expiration date, PIN, password, wallet digits, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.',
+        ].join('\n\n'),
+      };
+    case 'no_safe_match':
+      return {
+        subject: `A careful check of your Bloomjoy refund request ${refundCase.publicReference}`,
+        body: [
+          'Thank you for the details you shared. We checked the available machine transaction records carefully, but we could not identify one transaction that we can safely match to your request yet. This does not mean you did anything wrong.',
+          'Please reply only if the machine or location, purchase date or approximate time, amount, or payment method in the case details needs a correction.',
+          'Please do not send a full card number, security code, expiration date, PIN, password, wallet digits, or screenshot. We will take another careful look after any correction, and a person will review the case if there still is not one clear match.',
         ].join('\n\n'),
       };
     case 'approved':
@@ -1724,6 +1787,9 @@ export default function AdminRefundsPage() {
         matchedNayaxCurrencyCode: nextEditor.matchedNayaxCurrencyCode.trim().toUpperCase() || null,
         nayaxDisagreementReason: nextEditor.nayaxDisagreementReason || null,
         customerMessageType,
+        customerMissingFields: customerMessageType === 'more_info'
+          ? derivePortalRefundMissingFields(selectedCase)
+          : [],
       });
       if (result.customerMessage?.status === 'failed') {
         toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
@@ -2145,11 +2211,10 @@ export default function AdminRefundsPage() {
       ['human_review', 'ready_for_review'].includes(triageSuggestion.status);
     const missingDetails = triageDraftReady
       ? triageSuggestion.missingFields.map((field) => gptMissingFieldLabels[field] ?? statusLabel(field))
-      : [
-          'Machine location',
-          'Purchase date and time',
-          'Payment method, amount, and card last 4 if applicable',
-        ];
+      : derivePortalRefundMissingFields(selectedCase).map((field) => missingFieldCustomerLabel[field]);
+    const draftFollowUpType: RefundCustomerPortalMessageType = missingDetails.length > 0
+      ? 'more_info'
+      : 'no_safe_match';
 
     return (
       <div data-testid="refund-gmail-draft-workbench" className="space-y-4">
@@ -2180,7 +2245,7 @@ export default function AdminRefundsPage() {
                 type="button"
                 data-testid="refund-gmail-ask-for-details"
                 data-dominant-action="true"
-                onClick={() => void handleSendCustomerMessage('more_info')}
+                onClick={() => void handleSendCustomerMessage(draftFollowUpType)}
                 disabled={isSendingCustomerMessage || isUsingDemoData}
                 className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
               >
@@ -2422,6 +2487,11 @@ export default function AdminRefundsPage() {
         subject: subject.trim(),
         body: body.trim(),
         triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id : undefined,
+        missingFields: nextMessageType === 'more_info'
+          ? usesReviewedTriageDraft
+            ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
+            : derivePortalRefundMissingFields(selectedCase)
+          : [],
       });
       toast.success(
         sentMessage.transport === 'gmail_thread'
@@ -2686,7 +2756,9 @@ export default function AdminRefundsPage() {
             }
           : current
       );
-      handleMessageTypeChange('more_info');
+      handleMessageTypeChange(
+        derivePortalRefundMissingFields(selectedCase).length > 0 ? 'more_info' : 'no_safe_match',
+      );
     };
 
     const chooseDenial = () => {
@@ -3068,7 +3140,9 @@ export default function AdminRefundsPage() {
             }
           : current
       );
-      handleMessageTypeChange('more_info');
+      handleMessageTypeChange(
+        derivePortalRefundMissingFields(selectedCase).length > 0 ? 'more_info' : 'no_safe_match',
+      );
     };
 
     const chooseApproval = () => {
@@ -3385,7 +3459,7 @@ export default function AdminRefundsPage() {
                     Approve refund
                   </Button>
                 )}
-                {primaryAction?.messageType !== 'more_info' && (
+                {!['more_info', 'no_safe_match'].includes(primaryAction?.messageType ?? '') && (
                   <Button type="button" variant="outline" size="sm" onClick={chooseCustomerFollowUp} disabled={isUsingDemoData}>
                     Ask customer for details
                   </Button>
@@ -4185,7 +4259,7 @@ export default function AdminRefundsPage() {
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">{primaryAction.helper}</p>
                           <div className="mt-3 flex flex-wrap gap-2">
-                            {primaryAction.label !== 'Ask customer for details' && (
+                            {!['more_info', 'no_safe_match'].includes(primaryAction.messageType ?? '') && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -4202,7 +4276,11 @@ export default function AdminRefundsPage() {
                                         }
                                       : current
                                   );
-                                  handleMessageTypeChange('more_info');
+                                  handleMessageTypeChange(
+                                    derivePortalRefundMissingFields(selectedCase).length > 0
+                                      ? 'more_info'
+                                      : 'no_safe_match',
+                                  );
                                 }}
                               >
                                 Ask customer instead
@@ -4695,7 +4773,29 @@ export default function AdminRefundsPage() {
                                   <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
                                     {message.status}
                                   </Badge>
+                                  {message.deliveryKind && (
+                                    <Badge variant="secondary" className="capitalize">
+                                      {message.deliveryKind === 'automatic' ? 'Automatic' : 'Manager sent'}
+                                    </Badge>
+                                  )}
                                 </div>
+                                {(message.reasonCode || message.templateVersion || (message.requestedFields?.length ?? 0) > 0) && (
+                                  <div className="mt-2 rounded-md border border-sky-200 bg-sky-50 p-2 text-xs leading-5 text-sky-950">
+                                    <p className="font-medium">
+                                      {message.reasonCode === 'missing_information'
+                                        ? 'Reason: exact purchase details were missing'
+                                        : message.reasonCode === 'no_safe_match'
+                                          ? 'Reason: no single safe transaction match was found'
+                                          : 'Customer communication evidence'}
+                                    </p>
+                                    {message.requestedFields && message.requestedFields.length > 0 && (
+                                      <p>
+                                        Requested: {message.requestedFields.map((field) => missingFieldCustomerLabel[field]).join('; ')}
+                                      </p>
+                                    )}
+                                    {message.templateVersion && <p>Template: {message.templateVersion}</p>}
+                                  </div>
+                                )}
                                 <p className="mt-2 break-words text-sm font-medium text-foreground">
                                   {message.subject}
                                 </p>
