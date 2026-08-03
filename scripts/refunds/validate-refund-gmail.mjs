@@ -3,14 +3,33 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
-const [migration, gmailHelper, gmailTransport, syncFunction, sendFunction, adminUpdate, workflow, ui, client, preflight] =
+const [
+  migration,
+  participantMigration,
+  gmailHelper,
+  gmailTransport,
+  managerNotification,
+  syncFunction,
+  sendFunction,
+  adminUpdate,
+  automationSweep,
+  intakeFunction,
+  workflow,
+  ui,
+  client,
+  preflight,
+] =
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
+    read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
     read('supabase/functions/_shared/refund-gmail-transport.ts'),
+    read('supabase/functions/_shared/refund-manager-notification.ts'),
     read('supabase/functions/refund-gmail-sync/index.ts'),
     read('supabase/functions/refund-case-message-send/index.ts'),
     read('supabase/functions/refund-case-admin-update/index.ts'),
+    read('supabase/functions/refund-case-automation-sweep/index.ts'),
+    read('supabase/functions/refund-case-intake/index.ts'),
     read('.github/workflows/refund-gmail-sync.yml'),
     read('src/pages/admin/Refunds.tsx'),
     read('src/lib/refundOperations.ts'),
@@ -81,6 +100,21 @@ assert(!gmailHelper.includes('/messages/modify'), 'The integration must not modi
 assert(!gmailHelper.includes('/trash'), 'The integration must not trash Gmail messages');
 assert(!gmailHelper.includes('/delete'), 'The integration must not delete Gmail messages');
 assert(gmailHelper.includes('/messages/send'), 'Manager-approved replies must use Gmail send');
+assert(gmailHelper.includes('GMAIL_SUPPORT_SEND_AS_ALIASES'), 'Approved mailbox aliases must be explicit server configuration');
+assert(
+  gmailHelper.includes('providerSentEvidence') && gmailHelper.includes('labelIds') && gmailHelper.includes('"SENT"'),
+  'Mailbox aliases must require Gmail Sent-label evidence rather than trusting the From header',
+);
+assert(
+  gmailHelper.includes('message/delivery-status') &&
+    gmailHelper.includes('hasAuthenticatedDeliveryReporter') &&
+    gmailHelper.includes('failedRecipientEmails') &&
+    gmailHelper.includes('isHardBounce'),
+  'Hard-bounce detection must require trustworthy DSN evidence and extract failed recipients',
+);
+assert(gmailHelper.includes('Cc: ${safeCc.join(", ")}'), 'Gmail MIME must support visible mapped-manager CC');
+assert(gmailHelper.includes('threadId: providerThreadId'), 'Gmail sends must pin the original provider thread');
+assert(gmailHelper.includes('internal_case_link_blocked'), 'Customer-visible Gmail must reject internal case links');
 
 assert(syncFunction.includes('REFUND_GMAIL_ENABLED'), 'Server-side Gmail enable flag must default closed');
 assert(syncFunction.includes('REFUND_GMAIL_SYNC_SECRET'), 'Scheduled Gmail sync must authenticate independently');
@@ -104,6 +138,17 @@ assert(
 assert(gmailTransport.includes('dispatchRefundCaseGmailReply'), 'Case-aware Gmail transport must exist');
 assert(sendFunction.includes('dispatchRefundCaseGmailReply'), 'Manual portal replies must use linked Gmail threads');
 assert(adminUpdate.includes('dispatchRefundCaseGmailReply'), 'Status-action replies must use linked Gmail threads');
+assert(
+  automationSweep.includes('dispatchRefundCaseGmailReply') &&
+    automationSweep.includes('deliveryKind: "automatic"'),
+  'Scheduled Gmail-linked customer mail must stay in the original thread and obey automatic-contact pauses',
+);
+assert(
+  syncFunction.includes('p_provider_sent: providerSentEvidence') &&
+    syncFunction.includes('p_is_hard_bounce: isHardBounce') &&
+    syncFunction.includes('p_failed_recipient_emails: participantSignals.failedRecipientEmails'),
+  'Gmail sync must pass provider Sent proof and DSN recipient proof into participant-safe ingestion',
+);
 assert(
   sendFunction.includes('Gmail delivery could not be confirmed. Check the original thread before retrying.'),
   'Uncertain Gmail sends must stop automatic retry and tell the manager what to check',
@@ -129,4 +174,95 @@ assert(
   'Unassigned Gmail drafts must be limited to central internal admins',
 );
 
-console.log('Refund Gmail validation passed: label-only intake, idempotent thread linkage, safe manager replies, quarantine, retention, health, and least-privilege boundaries are present.');
+assert(
+  participantMigration.includes("participant_role in ('customer', 'assigned_manager', 'mailbox', 'automated_system', 'unknown')"),
+  'Gmail messages must use an explicit participant model',
+);
+assert(
+  participantMigration.includes("manager.status = 'active'") &&
+    participantMigration.includes('manager.revoked_at is null'),
+  'Manager CC and participant classification must use current active non-revoked mappings',
+);
+assert(
+  participantMigration.includes('service_resolve_refund_customer_manager_cc') &&
+    participantMigration.includes("lower(btrim(manager.manager_email)) <> normalized_customer") &&
+    participantMigration.includes('not (lower(btrim(manager.manager_email)) = any(mailbox_identities))') &&
+    participantMigration.includes('distinct_active_mapping_count > 3 or eligible_mapping_count > 3') &&
+    participantMigration.includes("manager_cc_emails := '{}'::text[]"),
+  'Customer, mailbox, revoked, duplicate, malformed, and over-cap mappings must be excluded from manager CC',
+);
+assert(
+  gmailTransport.includes('"gmail_link_changed"') &&
+    !gmailTransport.includes('if (!claim?.linked) {\n    return { usedGmail: false as const }') &&
+    gmailTransport.includes('deliveryKind,') &&
+    gmailHelper.includes('"Auto-Submitted: auto-generated"') &&
+    gmailHelper.includes('"X-Auto-Response-Suppress: All"'),
+  'A linked-thread race must fail closed, and only automatic replies must carry responder-loop suppression headers',
+);
+assert(
+  participantMigration.includes("participant_role := 'assigned_manager'") &&
+    participantMigration.includes("normalized_trust = 'direct_human' and exists") &&
+    participantMigration.includes("stored_direction := 'system'") &&
+    participantMigration.includes("if participant_role = 'customer' then"),
+  'Manager and unknown replies must not enter customer state or GPT inbound processing',
+);
+assert(
+  participantMigration.includes('automatic_customer_contact_paused_at') &&
+    participantMigration.includes('coalesce(p_is_hard_bounce, false)') &&
+    participantMigration.includes('any(normalized_failed_recipient_emails)') &&
+    participantMigration.includes("'automatic_contact_paused'"),
+  'Only a trusted hard bounce for the exact case customer may pause subsequent automatic contact',
+);
+assert(
+  participantMigration.includes('recipient_cc_emails = \'{}\'::text[]') &&
+    participantMigration.includes("subject = '[Deleted after Gmail retention period]'"),
+  'Raw CC recipients must purge with the approved Gmail copy',
+);
+assert(
+  participantMigration.includes('revoke execute on function public.service_ingest_refund_gmail_message(') &&
+    participantMigration.includes('from service_role'),
+  'The participant-blind legacy ingestion RPC must fail closed after migration',
+);
+const participantManagerContext = participantMigration.slice(
+  participantMigration.indexOf('create or replace function public.admin_get_refund_gmail_case_context'),
+);
+assert(
+  !participantManagerContext.includes("'senderEmail'") &&
+    !participantManagerContext.includes("'recipientEmail'") &&
+    participantManagerContext.includes("'participantRole'") &&
+    participantManagerContext.includes("'managerCcCount'"),
+  'Safe browser views must expose participant roles and recipient counts, never raw To or CC addresses',
+);
+assert(
+  ui.includes('refund-gmail-contact-paused') && ui.includes('Not customer evidence'),
+  'Managers must see hard-bounce recovery and unverified participant warnings',
+);
+assert(
+  managerNotification.includes('service_resolve_refund_customer_manager_cc') &&
+    managerNotification.includes('/refunds?case=${encodeURIComponent(refundCaseId)}') &&
+    !managerNotification.includes('/portal/refunds?case=') &&
+    managerNotification.includes('usedOpsFallback') &&
+    managerNotification.includes('resolveRefundOpsFallbackRecipients') &&
+    managerNotification.includes('!excluded.has(email)') &&
+    managerNotification.includes('MAX_OPS_FALLBACK_RECIPIENTS'),
+  'Action notices must re-resolve current managers, use the canonical case link, and use a customer/mailbox-excluding capped ops fallback only for routing exceptions',
+);
+assert(
+  intakeFunction.includes('sendRefundManagerActionNotice') &&
+    automationSweep.includes('sendRefundManagerActionNotice') &&
+    syncFunction.includes('sendGmailCaseActionNotice') &&
+    syncFunction.includes('participantRole === "customer" || automaticContactPaused'),
+  'New intake, Gmail action-needed work, delivery exceptions, and aging cases must emit the separate canonical-link notice',
+);
+assert(
+  intakeFunction.includes('dispatchRefundCaseGmailReply') &&
+    intakeFunction.includes('cc: gmailDelivery.managerCcEmails'),
+  'Hosted-form customer acknowledgement must resolve and visibly copy the current manager set before transactional delivery',
+);
+assert(
+  !adminUpdate.includes('sendRefundManagerActionNotice') &&
+    !sendFunction.includes('sendRefundManagerActionNotice'),
+  'Completion and ordinary customer-message paths must not emit a duplicate manager-only completion notice',
+);
+
+console.log('Refund Gmail validation passed: label-only intake, participant-safe original threading, current mapped-manager CC, bounce recovery, quarantine, retention, health, and least-privilege boundaries are present.');

@@ -129,6 +129,20 @@ const run = () => {
     } else if (enabled === 'true') {
       warnings.push('REFUND_GMAIL_ENABLED is true; confirm all approvals and synthetic shadow checks before continuing.');
     }
+    const aliases = String(env.GMAIL_SUPPORT_SEND_AS_ALIASES ?? '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    const invalidAliases = aliases.filter((value) => !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value));
+    if (invalidAliases.length > 0) {
+      errors.push('GMAIL_SUPPORT_SEND_AS_ALIASES must contain only valid comma-separated addresses.');
+    }
+    if (new Set(aliases).size !== aliases.length) {
+      errors.push('GMAIL_SUPPORT_SEND_AS_ALIASES must not contain duplicate addresses.');
+    }
+    if (enabled === 'true' && aliases.length === 0) {
+      errors.push('GMAIL_SUPPORT_SEND_AS_ALIASES must list every approved send-as alias before Gmail is enabled.');
+    }
     if (env.GMAIL_REFUND_START_AT && !Number.isFinite(new Date(env.GMAIL_REFUND_START_AT).getTime())) {
       errors.push('GMAIL_REFUND_START_AT must be a valid ISO timestamp when provided.');
     }
@@ -146,6 +160,7 @@ const run = () => {
   if (loaded.length > 0) console.log(`INFO: Loaded env files: ${loaded.join(', ')}`);
   printList('Required Gmail controls', [
     'Exact designated mailbox and explicit refund label configured',
+    'Approved send-as aliases inventoried for participant and CC boundaries',
     'OAuth client and refresh token kept server-only',
     'Dedicated scheduler secret configured',
     'Supabase service credentials available to the Edge Function',

@@ -22,6 +22,7 @@ export type RefundCustomerEmailInput = {
   refundAmountCents?: number | null;
   paymentMethod?: string | null;
   decisionReason?: string | null;
+  managerCcEmails?: string[];
 };
 
 const escapeHtml = (value: string) =>
@@ -361,6 +362,7 @@ export const sendRefundCustomerEmail = async (input: RefundCustomerEmailInput) =
   const email = buildRefundCustomerEmail(input);
   await sendTransactionalEmail({
     to: [input.customerEmail],
+    cc: input.managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
@@ -378,6 +380,7 @@ export type RefundWalletCorrectionEmailInput = {
   locationName?: string | null;
   correctionUrl: string;
   reminder?: boolean;
+  managerCcEmails?: string[];
 };
 
 export const buildRefundWalletCorrectionEmail = (
@@ -463,6 +466,7 @@ export const sendRefundWalletCorrectionEmail = async (
   const email = buildRefundWalletCorrectionEmail(input);
   await sendTransactionalEmail({
     to: [input.customerEmail],
+    cc: input.managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,

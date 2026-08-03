@@ -6,8 +6,8 @@ import {
   getRefundGmailAttachment,
   getRefundGmailConfig,
   getRefundGmailThread,
+  inspectRefundGmailParticipantSignals,
   listLabeledRefundThreads,
-  parseEmailAddress,
   redactPaymentCardNumbers,
   REFUND_GMAIL_ALLOWED_MIME_TYPES,
   REFUND_GMAIL_MAX_ATTACHMENTS_PER_MESSAGE,
@@ -18,6 +18,7 @@ import {
   type GmailMessage,
   type GmailMessagePart,
 } from "../_shared/refund-gmail.ts";
+import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -135,24 +136,6 @@ const collectAttachmentDescriptors = (payload: GmailMessagePart | undefined) => 
   return descriptors;
 };
 
-const isBounceMessage = (message: GmailMessage) => {
-  const headers = message.payload?.headers;
-  const sender = parseEmailAddress(getGmailHeader(headers, "From")).email;
-  const subject = getGmailHeader(headers, "Subject").toLowerCase();
-  return sender.startsWith("mailer-daemon@") || sender.startsWith("postmaster@") ||
-    Boolean(getGmailHeader(headers, "X-Failed-Recipients")) ||
-    subject.includes("delivery status notification") || subject.includes("undeliverable");
-};
-
-const isAutomatedMessage = (message: GmailMessage) => {
-  const headers = message.payload?.headers;
-  const autoSubmitted = getGmailHeader(headers, "Auto-Submitted").toLowerCase();
-  const precedence = getGmailHeader(headers, "Precedence").toLowerCase();
-  return (autoSubmitted && autoSubmitted !== "no") ||
-    ["bulk", "junk", "list"].includes(precedence) ||
-    Boolean(getGmailHeader(headers, "X-Auto-Response-Suppress"));
-};
-
 const extractPublicReference = (subject: string, body: string) =>
   `${subject}\n${body}`.match(/\bRF-[A-Z0-9]{6,20}\b/i)?.[0]?.toUpperCase() ?? null;
 
@@ -168,6 +151,78 @@ const rpc = async (name: string, args: Record<string, unknown>) => {
   const { data, error } = await supabase.rpc(name, args);
   if (error) throw new RefundGmailError("database_operation_failed", "Refund Gmail database operation failed.");
   return data as Record<string, unknown> | null;
+};
+
+const sendGmailCaseActionNotice = async ({
+  refundCaseId,
+  publicReference,
+  reason,
+}: {
+  refundCaseId: string;
+  publicReference: string;
+  reason: "customer_message" | "hard_bounce";
+}) => {
+  if (!supabase) return;
+  try {
+    const { data: refundCase, error: caseError } = await supabase
+      .from("refund_cases")
+      .select("customer_email")
+      .eq("id", refundCaseId)
+      .single();
+    if (caseError) throw caseError;
+
+    const customerEmail = sanitizeText(refundCase?.customer_email, 320).toLowerCase();
+    const isHardBounce = reason === "hard_bounce";
+    const notice = await sendRefundManagerActionNotice({
+      supabase,
+      refundCaseId,
+      customerEmail,
+      subject: isHardBounce
+        ? `Refund delivery exception needs attention: ${publicReference}`
+        : `Refund email needs attention: ${publicReference}`,
+      summaryText: [
+        isHardBounce
+          ? "Gmail reported a trusted hard delivery failure for this refund customer. Automatic customer contact is paused for review."
+          : "A verified customer message arrived in the linked refund Gmail thread and needs review.",
+        "",
+        `Reference: ${publicReference}`,
+        `Reason: ${isHardBounce ? "customer delivery exception" : "new verified customer correspondence"}`,
+      ].join("\n"),
+    });
+
+    await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: isHardBounce
+        ? "gmail_bounce_action_notice_sent"
+        : "gmail_customer_action_notice_sent",
+      message: notice.usedOpsFallback
+        ? "Gmail action-needed work was routed to operations because no eligible current Machine Manager was resolved."
+        : "Gmail action-needed notice sent only to the currently assigned Machine Managers.",
+      metadata: {
+        notice_reason: reason,
+        recipient_count: notice.recipientCount,
+        machine_manager_recipient_count: notice.managerRecipientCount,
+        manager_resolution_status: notice.resolutionStatus,
+        used_ops_fallback: notice.usedOpsFallback,
+        payload_redacted: true,
+      },
+    });
+  } catch (notificationError) {
+    console.error("refund-gmail-sync manager action notice failed", {
+      errorType: notificationError instanceof Error ? notificationError.name : typeof notificationError,
+      noticeReason: reason,
+      payloadRedacted: true,
+    });
+    await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "gmail_manager_action_notice_failed",
+      message: "Gmail action-needed work was retained, but the manager notification needs a retry.",
+      metadata: {
+        notice_reason: reason,
+        payload_redacted: true,
+      },
+    });
+  }
 };
 
 const quarantinePendingAttachments = async ({
@@ -361,14 +416,25 @@ serve(async (request) => {
               continue;
             }
             const headers = message.payload?.headers;
-            const from = parseEmailAddress(getGmailHeader(headers, "From"));
-            const to = parseEmailAddress(getGmailHeader(headers, "To"));
-            const isBounce = isBounceMessage(message);
-            const isAutomated = isAutomatedMessage(message);
-            const direction = isBounce || isAutomated
+            const participantSignals = inspectRefundGmailParticipantSignals({
+              message,
+              mailboxIdentities: config.mailboxIdentities,
+            });
+            const {
+              from,
+              isBounce,
+              isHardBounce,
+              isAutomated,
+              mailboxOrigin,
+              providerSentEvidence,
+              participantTrust,
+            } = participantSignals;
+            const direction = isBounce
               ? "system"
-              : from.email === config.mailbox
+              : mailboxOrigin && providerSentEvidence
               ? "outbound"
+              : isAutomated
+              ? "system"
               : "inbound";
             if (!from.email && direction !== "system") {
               counters.messagesFailed += 1;
@@ -381,7 +447,7 @@ serve(async (request) => {
             const attachmentDescriptors = direction === "inbound" && !isBounce
               ? collectAttachmentDescriptors(message.payload)
               : [];
-            const ingestion = await rpc("service_ingest_refund_gmail_message", {
+            const ingestion = await rpc("service_ingest_refund_gmail_message_v2", {
               p_mailbox_hash: mailboxHash,
               p_provider_thread_id: providerThreadId,
               p_provider_message_id: providerMessageId,
@@ -391,18 +457,34 @@ serve(async (request) => {
               p_is_bounce: isBounce,
               p_sender_email: from.email || null,
               p_sender_name: from.name || null,
-              p_recipient_email: to.email || config.mailbox,
+              p_recipient_email: participantSignals.toEmails[0] || config.mailbox,
               p_subject: redactedSubject.text,
               p_plain_body: redactedBody.text,
               p_sensitive_data_redacted: redactedSubject.redacted || redactedBody.redacted,
               p_received_at: receivedAtForMessage(message),
               p_public_reference: extractPublicReference(redactedSubject.text, redactedBody.text),
               p_attachments: attachmentDescriptors,
+              p_recipient_cc_emails: participantSignals.ccEmails,
+              p_mailbox_identities: config.mailboxIdentities,
+              p_participant_trust: participantTrust,
+              p_provider_sent: providerSentEvidence,
+              p_is_hard_bounce: isHardBounce,
+              p_failed_recipient_emails: participantSignals.failedRecipientEmails,
             });
             if (ingestion?.created) counters.messagesCreated += 1;
             if (ingestion?.duplicate) counters.messagesDeduplicated += 1;
             const caseId = sanitizeText(ingestion?.caseId, 80);
             const internalMessageId = sanitizeText(ingestion?.messageId, 80);
+            const publicReference = sanitizeText(ingestion?.publicReference, 80) || "refund case";
+            const participantRole = sanitizeText(ingestion?.participantRole, 80);
+            const automaticContactPaused = ingestion?.automaticCustomerContactPaused === true;
+            if (ingestion?.created && caseId && (participantRole === "customer" || automaticContactPaused)) {
+              await sendGmailCaseActionNotice({
+                refundCaseId: caseId,
+                publicReference,
+                reason: automaticContactPaused ? "hard_bounce" : "customer_message",
+              });
+            }
             const attachmentRows = Array.isArray(ingestion?.attachments)
               ? ingestion.attachments as Array<Record<string, unknown>>
               : [];

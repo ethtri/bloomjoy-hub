@@ -4565,6 +4565,17 @@ export default function AdminRefundsPage() {
                           Gmail conversation ({gmailContext?.messages.length ?? 0})
                         </summary>
                         <div className="mt-3 space-y-3">
+                          {gmailContext?.automaticCustomerContactPaused && (
+                            <div
+                              data-testid="refund-gmail-contact-paused"
+                              className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950"
+                            >
+                              <p className="font-semibold">Automatic customer email is paused</p>
+                              <p className="mt-1">
+                                Gmail reported a hard delivery failure. Check the customer address and original thread before choosing a manual response.
+                              </p>
+                            </div>
+                          )}
                           {gmailContextIsLoading && (
                             <p className="text-sm text-muted-foreground">Loading the linked conversation…</p>
                           )}
@@ -4590,8 +4601,18 @@ export default function AdminRefundsPage() {
                             >
                               <div className="flex flex-wrap items-center gap-2">
                                 <Badge variant="outline" className="capitalize">
-                                  {message.kind === 'bounce' ? 'Delivery notice' : message.direction}
+                                  {message.kind === 'bounce' ? 'Delivery notice' : message.senderLabel}
                                 </Badge>
+                                {message.participantRole === 'unknown' && (
+                                  <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-900">
+                                    Not customer evidence
+                                  </Badge>
+                                )}
+                                {message.participantRole === 'assigned_manager' && (
+                                  <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-900">
+                                    Manager correspondence
+                                  </Badge>
+                                )}
                                 <span className="text-xs text-muted-foreground">
                                   {formatDate(message.sentAt ?? message.receivedAt)}
                                 </span>
@@ -4602,6 +4623,12 @@ export default function AdminRefundsPage() {
                                 )}
                               </div>
                               <p className="mt-2 break-words text-sm font-medium text-foreground">{message.subject}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {message.recipientSummary}
+                                {message.direction === 'outbound' && message.managerCcCount > 0
+                                  ? ` · ${message.managerCcCount} current mapped manager${message.managerCcCount === 1 ? '' : 's'} copied`
+                                  : ''}
+                              </p>
                               <p className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-muted-foreground">
                                 {message.body}
                               </p>

@@ -315,14 +315,20 @@ const buildMockGmailContext = () => ({
   connected: true,
   subject: 'Refund help',
   latestMessageAt: isoHoursAgo(0.5),
+  automaticCustomerContactPaused: true,
+  automaticCustomerContactPauseReason: 'hard_bounce',
   messages: [
     {
       id: 'gmail-message-inbound-1',
       direction: 'inbound',
       kind: 'message',
       status: 'received',
-      senderEmail: 'customer-gmail@example.test',
-      recipientEmail: 'support@example.test',
+      participantRole: 'customer',
+      participantTrust: 'verified',
+      senderLabel: 'Customer',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
       subject: 'Refund help',
       body: 'My card was charged and ends in 4242. Please help.',
       receivedAt: isoHoursAgo(1),
@@ -345,11 +351,91 @@ const buildMockGmailContext = () => ({
       direction: 'inbound',
       kind: 'message',
       status: 'received',
-      senderEmail: 'customer-gmail@example.test',
-      recipientEmail: 'support@example.test',
+      participantRole: 'customer',
+      participantTrust: 'verified',
+      senderLabel: 'Customer',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
       subject: 'Re: Refund help',
       body: 'Following up with the last four only: 4242.',
       receivedAt: isoHoursAgo(0.5),
+      sentAt: null,
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+    {
+      id: 'gmail-message-manager-1',
+      direction: 'system',
+      kind: 'message',
+      status: 'received',
+      participantRole: 'assigned_manager',
+      participantTrust: 'verified',
+      senderLabel: 'Machine Manager',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
+      subject: 'Re: Refund help',
+      body: 'I will review the machine record.',
+      receivedAt: isoHoursAgo(0.4),
+      sentAt: null,
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+    {
+      id: 'gmail-message-unknown-1',
+      direction: 'system',
+      kind: 'message',
+      status: 'received',
+      participantRole: 'unknown',
+      participantTrust: 'forwarded',
+      senderLabel: 'Unverified participant',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
+      subject: 'Fwd: Refund help',
+      body: 'Forwarded context retained for manager review only.',
+      receivedAt: isoHoursAgo(0.3),
+      sentAt: null,
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+    {
+      id: 'gmail-message-outbound-1',
+      direction: 'outbound',
+      kind: 'message',
+      status: 'sent',
+      participantRole: 'mailbox',
+      participantTrust: 'verified',
+      senderLabel: 'Bloomjoy support',
+      recipientSummary: 'Customer + 2 mapped Machine Managers',
+      managerCcCount: 2,
+      recipientResolutionStatus: 'resolved',
+      subject: 'Re: Refund help',
+      body: 'Thank you for your patience. We are sorry for the trouble and are reviewing this carefully.',
+      receivedAt: isoHoursAgo(0.2),
+      sentAt: isoHoursAgo(0.2),
+      sensitiveDataRedacted: false,
+      contentDeleted: false,
+      attachments: [],
+    },
+    {
+      id: 'gmail-message-bounce-1',
+      direction: 'system',
+      kind: 'bounce',
+      status: 'received',
+      participantRole: 'automated_system',
+      participantTrust: 'automated',
+      senderLabel: 'Automated delivery system',
+      recipientSummary: 'Bloomjoy support',
+      managerCcCount: 0,
+      recipientResolutionStatus: null,
+      subject: 'Delivery Status Notification (Failure)',
+      body: 'Delivery failed. Review the customer address before another automatic message.',
+      receivedAt: isoHoursAgo(0.1),
       sentAt: null,
       sensitiveDataRedacted: false,
       contentDeleted: false,
@@ -1444,6 +1530,20 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-gmail-thread').getByText('held for security review').isVisible() &&
       (await page.getByTestId('refund-gmail-thread').locator('a').count()) === 0
   );
+  recorder.assert(
+    'Participant-safe Gmail view labels managers and unverified senders without raw addresses',
+    await page.getByTestId('refund-gmail-thread').getByText('Manager correspondence').isVisible() &&
+      await page.getByTestId('refund-gmail-thread').getByText('Not customer evidence').isVisible() &&
+      (await page.getByTestId('refund-gmail-thread').getByText(/@example\.test/).count()) === 0
+  );
+  recorder.assert(
+    'Mapped-manager CC is summarized without exposing recipient addresses',
+    await page.getByTestId('refund-gmail-thread').getByText('2 current mapped managers copied').isVisible()
+  );
+  recorder.assert(
+    'A hard bounce creates a clear manager recovery state',
+    await page.getByTestId('refund-gmail-contact-paused').getByText('Automatic customer email is paused').isVisible()
+  );
 
   const threadMessageBodies = await page
     .getByTestId('refund-gmail-thread')
@@ -1451,9 +1551,10 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     .allTextContents();
   recorder.assert(
     'Gmail replies render oldest to newest',
-    threadMessageBodies.length === 2 &&
+    threadMessageBodies.length === 6 &&
       threadMessageBodies[0].includes('My card was charged') &&
-      threadMessageBodies[1].includes('Following up'),
+      threadMessageBodies[1].includes('Following up') &&
+      threadMessageBodies[5].includes('Delivery failed'),
     JSON.stringify(threadMessageBodies)
   );
 

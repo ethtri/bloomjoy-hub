@@ -1,11 +1,10 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
-import {
-  getInternalNotificationRecipients,
-  sendTransactionalEmail,
-} from "../_shared/internal-email.ts";
+import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import { getRefundReplyToEmail } from "../_shared/refund-email.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
   type NayaxLookupResult,
@@ -321,11 +320,7 @@ const buildCustomerEmail = ({
   return { subject, text, html };
 };
 
-const getPortalBaseUrl = () =>
-  (Deno.env.get("BLOOMJOY_APP_URL") || Deno.env.get("PUBLIC_APP_URL") || "https://app.bloomjoyusa.com")
-    .replace(/\/+$/, "");
-
-const buildManagerNotificationText = ({
+const buildManagerNotificationSummary = ({
   publicReference,
   machineLabel,
   locationName,
@@ -333,7 +328,6 @@ const buildManagerNotificationText = ({
   paymentMethod,
   incidentAt,
   status,
-  caseId,
 }: {
   publicReference: string;
   machineLabel: string;
@@ -342,7 +336,6 @@ const buildManagerNotificationText = ({
   paymentMethod: string;
   incidentAt: Date;
   status: string;
-  caseId: string;
 }) => [
   "A new Bloomjoy refund request is ready for manager review.",
   "",
@@ -353,16 +346,12 @@ const buildManagerNotificationText = ({
   `Incident time: ${incidentAt.toISOString()}`,
   `Payment method: ${paymentMethod}`,
   `Current status: ${status}`,
-  "",
-  `Open the case: ${getPortalBaseUrl()}/portal/refunds?case=${encodeURIComponent(caseId)}`,
-  "",
-  "This operational notification intentionally omits card digits, Zelle details, customer complaint text, and provider payloads.",
 ].join("\n");
 
 const sendManagerIntakeNotification = async ({
   refundCaseId,
   publicReference,
-  machineId,
+  customerEmail,
   machineLabel,
   locationName,
   amountCents,
@@ -372,7 +361,7 @@ const sendManagerIntakeNotification = async ({
 }: {
   refundCaseId: string;
   publicReference: string;
-  machineId: string;
+  customerEmail: string;
   machineLabel: string;
   locationName: string;
   amountCents: number | null;
@@ -383,25 +372,7 @@ const sendManagerIntakeNotification = async ({
   if (!supabase) return;
 
   try {
-    const { data: managerRows, error: managerError } = await supabase
-      .from("reporting_machine_refund_managers")
-      .select("manager_email")
-      .eq("reporting_machine_id", machineId)
-      .eq("status", "active")
-      .is("revoked_at", null);
-
-    if (managerError) {
-      throw managerError;
-    }
-
-    const managerRecipients = ((managerRows ?? []) as Array<{ manager_email?: string | null }>)
-      .map((row) => sanitizeEmail(row.manager_email))
-      .filter(Boolean);
-    const recipients = Array.from(
-      new Set([...managerRecipients, ...getInternalNotificationRecipients()])
-    );
-
-    const text = buildManagerNotificationText({
+    const summaryText = buildManagerNotificationSummary({
       publicReference,
       machineLabel,
       locationName,
@@ -409,22 +380,27 @@ const sendManagerIntakeNotification = async ({
       paymentMethod,
       incidentAt,
       status,
-      caseId: refundCaseId,
     });
 
-    await sendTransactionalEmail({
-      to: recipients,
+    const notice = await sendRefundManagerActionNotice({
+      supabase,
+      refundCaseId,
+      customerEmail,
       subject: `New Bloomjoy refund request ${publicReference}`,
-      text,
+      summaryText,
     });
 
     await supabase.from("refund_case_events").insert({
       refund_case_id: refundCaseId,
       event_type: "manager_notification_sent",
-      message: "New refund request notification sent to Machine Managers and Bloomjoy ops fallback.",
+      message: notice.usedOpsFallback
+        ? "New refund request created an operations routing-exception notice because no eligible current Machine Manager was resolved."
+        : "New refund request action notice sent only to the currently assigned Machine Managers.",
       metadata: {
-        recipient_count: recipients.length,
-        machine_manager_recipient_count: managerRecipients.length,
+        recipient_count: notice.recipientCount,
+        machine_manager_recipient_count: notice.managerRecipientCount,
+        manager_resolution_status: notice.resolutionStatus,
+        used_ops_fallback: notice.usedOpsFallback,
         payload_redacted: true,
       },
     });
@@ -859,64 +835,45 @@ const inspectWalletCorrection = async (
 const sendWalletMatchReadyNotification = async ({
   refundCaseId,
   publicReference,
-  machineId,
+  customerEmail,
   machineLabel,
   locationName,
   confidenceClass,
 }: {
   refundCaseId: string;
   publicReference: string;
-  machineId: string;
+  customerEmail: string;
   machineLabel: string;
   locationName: string;
   confidenceClass: string;
 }) => {
   if (!supabase) return;
-  const { data: managerRows, error: managerError } = await supabase
-    .from("reporting_machine_refund_managers")
-    .select("manager_email")
-    .eq("reporting_machine_id", machineId)
-    .eq("status", "active")
-    .is("revoked_at", null);
-  if (managerError) throw managerError;
-
-  const managerRecipients = ((managerRows ?? []) as Array<{
-    manager_email?: string | null;
-  }>)
-    .map((row) => sanitizeEmail(row.manager_email))
-    .filter(Boolean);
-  const recipients = Array.from(
-    new Set([...managerRecipients, ...getInternalNotificationRecipients()]),
-  );
-  if (recipients.length === 0) {
-    throw new Error("No refund manager notification recipients are configured.");
-  }
-
-  await sendTransactionalEmail({
-    to: recipients,
+  const notice = await sendRefundManagerActionNotice({
+    supabase,
+    refundCaseId,
+    customerEmail,
     subject: `Refund transaction ready for approval: ${publicReference}`,
-    text: [
+    summaryText: [
       "Bloomjoy automatically re-checked corrected mobile-wallet details and found one high-confidence transaction.",
       "",
       `Reference: ${publicReference}`,
       `Machine: ${machineLabel}`,
       `Location: ${locationName}`,
       `Confidence class: ${confidenceClass}`,
-      "",
-      `Review and decide: ${getPortalBaseUrl()}/portal/refunds?case=${encodeURIComponent(refundCaseId)}`,
-      "",
-      "The customer communication, matching, and correction steps were handled automatically. This email intentionally omits card digits, customer PII, complaint text, and provider identifiers.",
     ].join("\n"),
   });
 
   await supabase.from("refund_case_events").insert({
     refund_case_id: refundCaseId,
     event_type: "wallet_correction_match_ready_notification_sent",
-    message:
-      "High-confidence wallet correction match notification sent to the assigned machine managers and Bloomjoy ops fallback.",
+    message: notice.usedOpsFallback
+      ? "High-confidence wallet correction match created an operations routing-exception notice because no eligible current Machine Manager was resolved."
+      : "High-confidence wallet correction action notice sent only to the currently assigned Machine Managers.",
     metadata: {
-      recipient_count: recipients.length,
-      machine_manager_recipient_count: managerRecipients.length,
+      recipient_count: notice.recipientCount,
+      machine_manager_recipient_count: notice.managerRecipientCount,
+      manager_resolution_status: notice.resolutionStatus,
+      used_ops_fallback: notice.usedOpsFallback,
       confidence_class: confidenceClass,
       payload_redacted: true,
     },
@@ -1196,13 +1153,13 @@ const submitWalletCorrection = async (
     try {
       const { data: caseContext } = await supabase
         .from("refund_cases")
-        .select("reporting_machine_id")
+        .select("customer_email")
         .eq("id", refundCaseId)
         .single();
       await sendWalletMatchReadyNotification({
         refundCaseId,
         publicReference,
-        machineId: sanitizeText(caseContext?.reporting_machine_id, 80),
+        customerEmail: sanitizeEmail(caseContext?.customer_email),
         machineLabel: lookupResult.refundCase.machineLabel ?? "Bloomjoy machine",
         locationName: lookupResult.refundCase.locationName ?? "Bloomjoy location",
         confidenceClass: lookupResult.confidenceClass,
@@ -1679,7 +1636,7 @@ serve(async (req) => {
     await sendManagerIntakeNotification({
       refundCaseId: refundCase.id,
       publicReference: refundCase.public_reference,
-      machineId: machineRecord.id,
+      customerEmail,
       machineLabel: publicLabels.machineLabel,
       locationName: publicLabels.locationName,
       amountCents,
@@ -1749,20 +1706,36 @@ serve(async (req) => {
     }
 
     try {
-      await sendTransactionalEmail({
-        to: [customerEmail],
-        subject: email.subject,
-        text: email.text,
-        html: email.html,
-        replyTo: getRefundReplyToEmail(),
-      });
-
-      if (messageRow?.id) {
-        await supabase
-          .from("refund_case_messages")
-          .update({ status: "sent", sent_at: new Date().toISOString() })
-          .eq("id", messageRow.id);
+      if (!messageRow?.id) {
+        throw new Error("Refund customer message record is required.");
       }
+      const gmailDelivery = await dispatchRefundCaseGmailReply({
+        supabase,
+        refundCaseId: refundCase.id,
+        refundCaseMessageId: messageRow.id,
+        recipientEmail: customerEmail,
+        email,
+        deliveryKind: "automatic",
+      });
+      if (!gmailDelivery.usedGmail) {
+        await sendTransactionalEmail({
+          to: [customerEmail],
+          cc: gmailDelivery.managerCcEmails,
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
+          replyTo: getRefundReplyToEmail(),
+        });
+      }
+
+      await supabase
+        .from("refund_case_messages")
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
+        })
+        .eq("id", messageRow.id);
     } catch (emailError) {
       console.error("refund-case-intake email failed", {
         errorType: emailError instanceof Error ? emailError.name : typeof emailError,

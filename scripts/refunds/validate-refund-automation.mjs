@@ -13,6 +13,7 @@ const check = (name, condition) => checks.push({ name, pass: Boolean(condition) 
 
 const migration = read('supabase/migrations/202607210005_refund_automation_scheduler_health.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
+const managerNotification = read('supabase/functions/_shared/refund-manager-notification.ts');
 const schedulerWorkflow = read('.github/workflows/refund-automation-sweep.yml');
 const healthWorkflow = read('.github/workflows/refund-automation-health.yml');
 
@@ -62,7 +63,7 @@ check(
   'The response and alert paths expose aggregate redacted fields only',
   sweep.includes('payloadRedacted: true') &&
     sweep.includes('reasonCounts') &&
-    sweep.includes('Customer PII, payment details, complaint text, and provider payloads are intentionally omitted')
+    managerNotification.includes('Customer PII, payment details, complaint text, and provider payloads are intentionally omitted')
 );
 check(
   'A safe failure-test mode exercises the ops alert without customer actions',

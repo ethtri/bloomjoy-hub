@@ -203,6 +203,8 @@ const syncAutomationState = async (
     completed: "completed",
     confirmation: "submitted",
     status_update: "under_review",
+    wallet_correction: "more_info_needed",
+    wallet_correction_reminder: "more_info_needed",
   }[messageType];
 
   const { error } = await supabase
@@ -328,10 +330,19 @@ const sendAndLogCustomerMessage = async (
         refundCaseMessageId: messageId,
         recipientEmail: refundCase.customer_email,
         email,
+        deliveryKind: "automatic",
       })
-      : { usedGmail: false as const };
+      : {
+        usedGmail: false as const,
+        managerCcEmails: [] as string[],
+        managerCcCount: 0,
+        recipientResolutionStatus: "unavailable",
+      };
     if (!gmailDelivery.usedGmail) {
-      await sendRefundCustomerEmail(emailInput);
+      await sendRefundCustomerEmail({
+        ...emailInput,
+        managerCcEmails: gmailDelivery.managerCcEmails,
+      });
     }
 
     if (messageId) {
@@ -358,6 +369,8 @@ const sendAndLogCustomerMessage = async (
         message_type: messageType,
         message_id: messageId,
         transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+        manager_cc_count: gmailDelivery.managerCcCount,
+        recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
         payload_redacted: true,
       },
     });

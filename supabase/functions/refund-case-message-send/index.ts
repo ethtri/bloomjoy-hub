@@ -116,6 +116,8 @@ const syncAutomationFields = async (
     completed: "completed",
     confirmation: "submitted",
     status_update: "under_review",
+    wallet_correction: "more_info_needed",
+    wallet_correction_reminder: "more_info_needed",
   }[messageType];
 
   await supabase
@@ -274,10 +276,12 @@ serve(async (req) => {
         refundCaseMessageId: messageRow.id,
         recipientEmail: refundCase.customer_email,
         email,
+        deliveryKind: "manual",
       });
       if (!gmailDelivery.usedGmail) {
         await sendTransactionalEmail({
           to: [refundCase.customer_email],
+          cc: gmailDelivery.managerCcEmails,
           subject: email.subject,
           text: email.text,
           html: email.html,
@@ -332,6 +336,8 @@ serve(async (req) => {
           message_type: messageType,
           message_id: messageRow.id,
           transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+          manager_cc_count: gmailDelivery.managerCcCount,
+          recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
           triage_review_status: triageReviewStatus,
           payload_redacted: true,
         },
@@ -380,6 +386,8 @@ serve(async (req) => {
       return jsonResponse({
         error: safeErrorCode === "gmail_network_unknown" || safeErrorCode === "gmail_delivery_record_failed"
           ? "Gmail delivery could not be confirmed. Check the original thread before retrying."
+          : safeErrorCode === "gmail_automatic_contact_paused"
+          ? "Automatic email is paused after a delivery failure. Review the Gmail thread and customer address before sending."
           : "Unable to send customer email.",
         errorCode: safeErrorCode,
       }, 502);

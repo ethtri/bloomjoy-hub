@@ -352,8 +352,18 @@ export type RefundGmailMessage = {
   direction: 'inbound' | 'outbound' | 'system';
   kind: 'message' | 'bounce';
   status: 'received' | 'pending_send' | 'sent' | 'failed' | 'delivery_unknown';
-  senderEmail: string | null;
-  recipientEmail: string | null;
+  participantRole: 'customer' | 'assigned_manager' | 'mailbox' | 'automated_system' | 'unknown';
+  participantTrust: 'verified' | 'unverified' | 'forwarded' | 'spoof_suspected' | 'automated';
+  senderLabel: string;
+  recipientSummary: string;
+  managerCcCount: number;
+  recipientResolutionStatus:
+    | 'resolved'
+    | 'resolved_with_exclusions'
+    | 'machine_unresolved'
+    | 'no_active_managers'
+    | 'invalid_manager_mapping'
+    | null;
   subject: string;
   body: string;
   receivedAt: string;
@@ -400,6 +410,8 @@ export type RefundGmailCaseContext = {
   connected: boolean;
   subject?: string;
   latestMessageAt?: string;
+  automaticCustomerContactPaused: boolean;
+  automaticCustomerContactPauseReason: 'hard_bounce' | null;
   messages: RefundGmailMessage[];
   triageSuggestion: RefundGptTriageSuggestion | null;
 };
@@ -1095,6 +1107,9 @@ export const fetchRefundGmailCaseContext = async (
     subject: typeof context.subject === 'string' ? context.subject : undefined,
     latestMessageAt:
       typeof context.latestMessageAt === 'string' ? context.latestMessageAt : undefined,
+    automaticCustomerContactPaused: context.automaticCustomerContactPaused === true,
+    automaticCustomerContactPauseReason:
+      context.automaticCustomerContactPauseReason === 'hard_bounce' ? 'hard_bounce' : null,
     messages: Array.isArray(context.messages) ? context.messages : [],
     triageSuggestion,
   };

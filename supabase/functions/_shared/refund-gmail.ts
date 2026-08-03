@@ -15,6 +15,7 @@ export type RefundGmailConfig = {
   clientSecret: string;
   refreshToken: string;
   mailbox: string;
+  mailboxIdentities: string[];
   labelId: string;
   startAt: Date;
 };
@@ -60,6 +61,37 @@ const cleanEnv = (name: string, maxLength: number) =>
 const isEmail = (value: string) =>
   /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value) && value.length <= 320;
 
+export const parseEmailAddressList = (headerValue: string) => {
+  const matches = headerValue.match(
+    /[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/gi,
+  ) ?? [];
+  return Array.from(
+    new Set(
+      matches
+        .map((value) => value.trim().toLowerCase().slice(0, 320))
+        .filter(isEmail),
+    ),
+  );
+};
+
+const configuredMailboxIdentities = () => {
+  const values = [
+    cleanEnv("GMAIL_SUPPORT_MAILBOX", 320),
+    ...cleanEnv("GMAIL_SUPPORT_SEND_AS_ALIASES", 4096).split(","),
+    cleanEnv("REFUND_REPLY_TO_EMAIL", 320),
+    cleanEnv("INTERNAL_NOTIFICATION_FROM_EMAIL", 320),
+  ];
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value.trim().toLowerCase())
+        .filter(isEmail),
+    ),
+  );
+};
+
+export const getRefundGmailMailboxIdentities = () => configuredMailboxIdentities();
+
 export const getRefundGmailConfig = (): RefundGmailConfig | null => {
   const clientId = cleanEnv("GMAIL_SUPPORT_CLIENT_ID", 512);
   const clientSecret = cleanEnv("GMAIL_SUPPORT_CLIENT_SECRET", 1024);
@@ -76,7 +108,8 @@ export const getRefundGmailConfig = (): RefundGmailConfig | null => {
     return null;
   }
 
-  return { clientId, clientSecret, refreshToken, mailbox, labelId, startAt };
+  const mailboxIdentities = Array.from(new Set([mailbox, ...configuredMailboxIdentities()]));
+  return { clientId, clientSecret, refreshToken, mailbox, mailboxIdentities, labelId, startAt };
 };
 
 const base64UrlToBytes = (value: string) => {
@@ -176,6 +209,90 @@ export const parseEmailAddress = (headerValue: string) => {
     .replace(/^['"]|['"]$/g, "")
     .slice(0, 160);
   return { email, name };
+};
+
+export type RefundGmailParticipantTrust =
+  | "direct_human"
+  | "forwarded"
+  | "spoof_suspected"
+  | "automated";
+
+export const inspectRefundGmailParticipantSignals = ({
+  message,
+  mailboxIdentities,
+}: {
+  message: GmailMessage;
+  mailboxIdentities: string[];
+}) => {
+  const headers = message.payload?.headers;
+  const from = parseEmailAddress(getGmailHeader(headers, "From"));
+  const subject = getGmailHeader(headers, "Subject").toLowerCase();
+  const autoSubmitted = getGmailHeader(headers, "Auto-Submitted").toLowerCase();
+  const precedence = getGmailHeader(headers, "Precedence").toLowerCase();
+  const authenticationResults = getGmailHeader(headers, "Authentication-Results").toLowerCase();
+  const deliveryStatusPart = (part: GmailMessagePart | undefined): boolean => {
+    if (!part) return false;
+    if ((part.mimeType ?? "").toLowerCase() === "message/delivery-status") return true;
+    return (part.parts ?? []).some(deliveryStatusPart);
+  };
+  const deliveryStatusText = findBodyPart(message.payload, "message/delivery-status");
+  const failedRecipientLines = deliveryStatusText.match(
+    /(?:final|original)-recipient\s*:[^\r\n]*/gi,
+  ) ?? [];
+  const failedRecipientEmails = Array.from(new Set([
+    ...parseEmailAddressList(getGmailHeader(headers, "X-Failed-Recipients")),
+    ...failedRecipientLines.flatMap(parseEmailAddressList),
+  ]));
+  const contentType = getGmailHeader(headers, "Content-Type").toLowerCase();
+  const hasDeliveryStatusEvidence = deliveryStatusPart(message.payload) ||
+    contentType.includes("report-type=delivery-status");
+  const hasAuthenticatedDeliveryReporter =
+    /^(?:mailer-daemon|postmaster)@(?:googlemail\.com|gmail\.com)$/.test(from.email) &&
+    /(?:spf|dkim|dmarc)=pass\b/i.test(authenticationResults);
+  const isBounce = from.email.startsWith("mailer-daemon@") ||
+    from.email.startsWith("postmaster@") ||
+    Boolean(getGmailHeader(headers, "X-Failed-Recipients")) ||
+    subject.includes("delivery status notification") ||
+    subject.includes("undeliverable");
+  const isAutomated = isBounce ||
+    (autoSubmitted !== "" && autoSubmitted !== "no") ||
+    ["bulk", "junk", "list"].includes(precedence) ||
+    Boolean(getGmailHeader(headers, "List-Id")) ||
+    Boolean(getGmailHeader(headers, "X-Auto-Response-Suppress"));
+  const isForwarded = /^\s*(?:fwd?|fw):/i.test(getGmailHeader(headers, "Subject")) ||
+    Boolean(getGmailHeader(headers, "Resent-From")) ||
+    Boolean(getGmailHeader(headers, "X-Forwarded-For")) ||
+    Boolean(getGmailHeader(headers, "X-Forwarded-To"));
+  const spoofSuspected = /(?:spf|dkim|dmarc)=(?:fail|softfail|temperror|permerror)/i.test(
+    authenticationResults,
+  );
+  const normalizedMailboxIdentities = new Set(
+    mailboxIdentities.map((value) => value.trim().toLowerCase()).filter(isEmail),
+  );
+  const mailboxOrigin = Boolean(from.email) && normalizedMailboxIdentities.has(from.email);
+  const providerSentEvidence = (message.labelIds ?? []).some((value) => value.toUpperCase() === "SENT");
+  const isHardBounce = isBounce && hasDeliveryStatusEvidence &&
+    hasAuthenticatedDeliveryReporter && failedRecipientEmails.length > 0;
+  const participantTrust: RefundGmailParticipantTrust = isAutomated
+    ? "automated"
+    : spoofSuspected
+    ? "spoof_suspected"
+    : isForwarded
+    ? "forwarded"
+    : "direct_human";
+
+  return {
+    from,
+    toEmails: parseEmailAddressList(getGmailHeader(headers, "To")),
+    ccEmails: parseEmailAddressList(getGmailHeader(headers, "Cc")),
+    isBounce,
+    isHardBounce,
+    isAutomated,
+    mailboxOrigin,
+    providerSentEvidence,
+    failedRecipientEmails,
+    participantTrust,
+  };
 };
 
 const luhnValid = (digits: string) => {
@@ -370,9 +487,11 @@ const encodeHeader = (value: string) =>
 
 const wrapBase64 = (value: string) => value.match(/.{1,76}/g)?.join("\r\n") ?? "";
 
-const buildReplyMime = ({
+export const buildRefundGmailReplyMime = ({
   from,
   to,
+  cc,
+  deliveryKind = "manual",
   subject,
   text,
   html,
@@ -382,6 +501,8 @@ const buildReplyMime = ({
 }: {
   from: string;
   to: string;
+  cc?: string[];
+  deliveryKind?: "manual" | "automatic";
   subject: string;
   text: string;
   html: string;
@@ -401,6 +522,22 @@ const buildReplyMime = ({
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ];
+  if (deliveryKind === "automatic") {
+    headers.splice(
+      headers.length - 2,
+      0,
+      "Auto-Submitted: auto-generated",
+      "X-Auto-Response-Suppress: All",
+    );
+  }
+  const safeCc = Array.from(
+    new Set(
+      (cc ?? [])
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => isEmail(value) && value !== to.trim().toLowerCase()),
+    ),
+  );
+  if (safeCc.length > 0) headers.splice(2, 0, `Cc: ${safeCc.join(", ")}`);
   const safeInReplyTo = sanitizeHeader(inReplyTo ?? "", 998);
   const safeReferences = sanitizeHeader(references ?? "", 4000);
   if (safeInReplyTo) headers.push(`In-Reply-To: ${safeInReplyTo}`);
@@ -432,6 +569,8 @@ export const sendRefundGmailReply = async ({
   providerThreadId,
   operationKey,
   recipientEmail,
+  ccEmails = [],
+  deliveryKind = "manual",
   subject,
   text,
   html,
@@ -442,6 +581,8 @@ export const sendRefundGmailReply = async ({
   providerThreadId: string;
   operationKey: string;
   recipientEmail: string;
+  ccEmails?: string[];
+  deliveryKind?: "manual" | "automatic";
   subject: string;
   text: string;
   html: string;
@@ -451,13 +592,41 @@ export const sendRefundGmailReply = async ({
   if (!isEmail(recipientEmail.toLowerCase())) {
     throw new RefundGmailError("invalid_recipient", "Gmail reply recipient is invalid.");
   }
+  const normalizedCc = Array.from(
+    new Set(
+      ccEmails
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => isEmail(value) && value !== recipientEmail.toLowerCase()),
+    ),
+  );
+  const mailboxIdentities = new Set(
+    config.mailboxIdentities.map((value) => value.trim().toLowerCase()),
+  );
+  if (
+    normalizedCc.length > 3 ||
+    ccEmails.some((value) =>
+      !isEmail(value.trim().toLowerCase()) ||
+      value.trim().toLowerCase() === recipientEmail.toLowerCase() ||
+      mailboxIdentities.has(value.trim().toLowerCase())
+    )
+  ) {
+    throw new RefundGmailError("invalid_cc_recipient", "Gmail reply CC recipients are invalid.");
+  }
   if (containsPaymentCardNumber(`${subject}\n${text}`)) {
     throw new RefundGmailError("unsafe_payment_data", "Gmail reply contains a possible full card number.");
   }
+  if (/\/refunds\?case=/i.test(`${text}\n${html}`)) {
+    throw new RefundGmailError(
+      "internal_case_link_blocked",
+      "Customer Gmail replies cannot contain an internal refund case link.",
+    );
+  }
 
-  const mime = buildReplyMime({
+  const mime = buildRefundGmailReplyMime({
     from: config.mailbox,
     to: recipientEmail,
+    cc: normalizedCc,
+    deliveryKind,
     subject,
     text,
     html,
@@ -476,5 +645,9 @@ export const sendRefundGmailReply = async ({
   if (!response.id || response.threadId !== providerThreadId) {
     throw new RefundGmailError("gmail_send_unconfirmed", "Gmail did not confirm the reply thread.", true);
   }
-  return { providerMessageId: response.id, providerMessageHeader: mime.messageHeader };
+  return {
+    providerMessageId: response.id,
+    providerMessageHeader: mime.messageHeader,
+    ccCount: normalizedCc.length,
+  };
 };

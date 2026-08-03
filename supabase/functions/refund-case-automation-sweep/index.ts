@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
+import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
   NayaxLookupRequestError,
@@ -19,6 +20,8 @@ import {
   getRefundWalletCorrectionExpiry,
   hashRefundWalletCorrectionToken,
 } from "../_shared/refund-wallet-correction.ts";
+import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -416,18 +419,34 @@ const sendCustomerSweepMessage = async (
     publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
     machineLabel: refundCase.reporting_machines?.machine_label,
   });
+  const emailInput = {
+    messageType,
+    publicReference: refundCase.public_reference,
+    customerName: refundCase.customer_name,
+    customerEmail: refundCase.customer_email,
+    machineLabel: publicLabels.machineLabel,
+    locationName: publicLabels.locationName,
+    refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
+    paymentMethod: refundCase.payment_method,
+  };
+  const email = buildRefundCustomerEmail(emailInput);
 
   try {
-    await sendRefundCustomerEmail({
-      messageType,
-      publicReference: refundCase.public_reference,
-      customerName: refundCase.customer_name,
-      customerEmail: refundCase.customer_email,
-      machineLabel: publicLabels.machineLabel,
-      locationName: publicLabels.locationName,
-      refundAmountCents: refundCase.refund_amount_cents ?? refundCase.payment_amount_cents,
-      paymentMethod: refundCase.payment_method,
+    if (!messageId) throw new Error("Refund customer message record is required.");
+    const gmailDelivery = await dispatchRefundCaseGmailReply({
+      supabase: supabase!,
+      refundCaseId: refundCase.id,
+      refundCaseMessageId: messageId,
+      recipientEmail: refundCase.customer_email,
+      email,
+      deliveryKind: "automatic",
     });
+    if (!gmailDelivery.usedGmail) {
+      await sendRefundCustomerEmail({
+        ...emailInput,
+        managerCcEmails: gmailDelivery.managerCcEmails,
+      });
+    }
 
     if (messageId) {
       const { error: messageUpdateError } = await supabase
@@ -457,6 +476,9 @@ const sendCustomerSweepMessage = async (
       metadata: {
         message_type: messageType,
         message_id: messageId,
+        transport: gmailDelivery.usedGmail ? "gmail_thread" : "transactional_email",
+        manager_cc_count: gmailDelivery.managerCcCount,
+        recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
         payload_redacted: true,
       },
     }) ?? { error: null };
@@ -474,7 +496,9 @@ const sendCustomerSweepMessage = async (
         ?.from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: "customer_email_delivery_failed",
+          error_message: error instanceof RefundGmailError
+            ? error.code
+            : "customer_email_delivery_failed",
         })
         .eq("id", messageId);
     }
@@ -556,7 +580,21 @@ const sendWalletCorrectionMessage = async (
     if (messageError) throw messageError;
     messageId = messageRow?.id ?? null;
 
-    await sendRefundWalletCorrectionEmail(emailInput);
+    if (!messageId) throw new Error("Refund wallet-correction message record is required.");
+    const gmailDelivery = await dispatchRefundCaseGmailReply({
+      supabase,
+      refundCaseId: refundCase.id,
+      refundCaseMessageId: messageId,
+      recipientEmail: refundCase.customer_email,
+      email,
+      deliveryKind: "automatic",
+    });
+    if (!gmailDelivery.usedGmail) {
+      await sendRefundWalletCorrectionEmail({
+        ...emailInput,
+        managerCcEmails: gmailDelivery.managerCcEmails,
+      });
+    }
 
     if (messageId) {
       const { error: messageUpdateError } = await supabase
@@ -564,6 +602,7 @@ const sendWalletCorrectionMessage = async (
         .update({
           status: "sent",
           sent_at: new Date().toISOString(),
+          subject: gmailDelivery.usedGmail ? gmailDelivery.subject : email.subject,
         })
         .eq("id", messageId);
       if (messageUpdateError) throw messageUpdateError;
@@ -585,7 +624,9 @@ const sendWalletCorrectionMessage = async (
         .from("refund_case_messages")
         .update({
           status: "failed",
-          error_message: "customer_email_delivery_failed",
+          error_message: error instanceof RefundGmailError
+            ? error.code
+            : "customer_email_delivery_failed",
         })
         .eq("id", messageId);
     }
@@ -601,43 +642,51 @@ const sendWalletCorrectionMessage = async (
 };
 
 const escalateStaleCase = async (refundCase: RefundSweepCase) => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
   const publicLabels = resolveRefundPublicLabels({
     locationName: refundCase.reporting_locations?.name,
     publicMachineLabel: refundCase.reporting_machines?.refund_public_display_label,
     machineLabel: refundCase.reporting_machines?.machine_label,
   });
-  await sendInternalEmail({
+  const notice = await sendRefundManagerActionNotice({
+    supabase,
+    refundCaseId: refundCase.id,
+    customerEmail: refundCase.customer_email,
     subject: `Refund case needs attention: ${refundCase.public_reference}`,
-    text: [
+    summaryText: [
       "A Bloomjoy refund case needs attention.",
       "",
       `Reference: ${refundCase.public_reference}`,
       `Status: ${refundCase.status}`,
       `Machine: ${publicLabels.machineLabel}`,
       `Location: ${publicLabels.locationName}`,
-      "",
-      "Customer PII, payment details, complaint text, and provider payloads are intentionally omitted from this alert.",
     ].join("\n"),
   });
 
-  const { error: caseUpdateError } = await supabase?.from("refund_cases")
+  const { error: caseUpdateError } = await supabase.from("refund_cases")
     .update({
       automation_state: "escalated",
       automation_follow_up_due_at: null,
     })
-    .eq("id", refundCase.id) ?? { error: null };
+    .eq("id", refundCase.id);
   if (caseUpdateError) throw caseUpdateError;
 
-  const { error: eventError } = await supabase?.from("refund_case_events").insert({
+  const { error: eventError } = await supabase.from("refund_case_events").insert({
     refund_case_id: refundCase.id,
     event_type: "automation_escalated",
-    message: "Refund case escalated by automation sweep.",
+    message: notice.usedOpsFallback
+      ? "Aging refund case escalated to operations because no eligible current Machine Manager was resolved."
+      : "Aging refund case action notice sent only to the currently assigned Machine Managers.",
     metadata: {
       public_reference: refundCase.public_reference,
       status: refundCase.status,
+      recipient_count: notice.recipientCount,
+      machine_manager_recipient_count: notice.managerRecipientCount,
+      manager_resolution_status: notice.resolutionStatus,
+      used_ops_fallback: notice.usedOpsFallback,
       payload_redacted: true,
     },
-  }) ?? { error: null };
+  });
   if (eventError) throw eventError;
 };
 

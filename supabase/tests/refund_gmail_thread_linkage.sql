@@ -100,7 +100,7 @@ select ok(
 select ok(
   not has_function_privilege(
     'authenticated',
-    'public.service_ingest_refund_gmail_message(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamp with time zone,text,jsonb)',
+    'public.service_ingest_refund_gmail_message_v2(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamp with time zone,text,jsonb,text[],text[],text,boolean,boolean,text[])',
     'execute'
   ),
   'Browser clients cannot invoke the Gmail ingestion service function'
@@ -108,14 +108,14 @@ select ok(
 select ok(
   has_function_privilege(
     'service_role',
-    'public.service_ingest_refund_gmail_message(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamp with time zone,text,jsonb)',
+    'public.service_ingest_refund_gmail_message_v2(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamp with time zone,text,jsonb,text[],text[],text,boolean,boolean,text[])',
     'execute'
   ),
   'The service worker can invoke Gmail ingestion'
 );
 
 create temporary table first_ingest as
-select public.service_ingest_refund_gmail_message(
+select public.service_ingest_refund_gmail_message_v2(
   repeat('a', 64),
   'gmail-thread-1',
   'gmail-message-1',
@@ -139,7 +139,13 @@ select public.service_ingest_refund_gmail_message(
     'disposition', 'attachment',
     'allowed', true,
     'rejectionCode', null
-  ))
+  )),
+  '{}'::text[],
+  array['support@example.test'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
 ) as result;
 
 select is(
@@ -179,7 +185,7 @@ select is(
 );
 
 create temporary table duplicate_ingest as
-select public.service_ingest_refund_gmail_message(
+select public.service_ingest_refund_gmail_message_v2(
   repeat('a', 64),
   'gmail-thread-1',
   'gmail-message-1',
@@ -195,7 +201,13 @@ select public.service_ingest_refund_gmail_message(
   true,
   now() - interval '10 minutes',
   null,
-  '[]'::jsonb
+  '[]'::jsonb,
+  '{}'::text[],
+  array['support@example.test'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
 ) as result;
 
 select is(
@@ -214,7 +226,7 @@ select is(
   'Repeated Gmail delivery does not duplicate the customer-message event'
 );
 
-select public.service_ingest_refund_gmail_message(
+select public.service_ingest_refund_gmail_message_v2(
   repeat('a', 64),
   'gmail-thread-1',
   'gmail-message-2',
@@ -230,7 +242,13 @@ select public.service_ingest_refund_gmail_message(
   false,
   now() - interval '5 minutes',
   null,
-  '[]'::jsonb
+  '[]'::jsonb,
+  '{}'::text[],
+  array['support@example.test'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
 );
 
 select is(
@@ -244,7 +262,7 @@ select is(
   'A customer follow-up adds one chronological message to the same case'
 );
 
-select public.service_ingest_refund_gmail_message(
+select public.service_ingest_refund_gmail_message_v2(
   repeat('a', 64),
   'gmail-thread-2',
   'gmail-message-3',
@@ -260,7 +278,13 @@ select public.service_ingest_refund_gmail_message(
   false,
   now() - interval '2 minutes',
   (select public_reference from public.refund_cases where intake_source = 'gmail' order by created_at limit 1),
-  '[]'::jsonb
+  '[]'::jsonb,
+  '{}'::text[],
+  array['support@example.test'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
 );
 
 select is(
@@ -294,13 +318,15 @@ values (
 );
 
 create temporary table outbound_claim as
-select public.service_claim_refund_gmail_outbound(
+select public.service_claim_refund_gmail_outbound_v2(
   (select id from public.refund_cases where intake_source = 'gmail' order by created_at limit 1),
   '77500000-0000-4000-8000-000000000001',
   'refund-case-message:77500000-0000-4000-8000-000000000001',
   'support@example.test',
   'refund-customer@example.test',
-  'Please share the missing purchase details.'
+  'Please share the missing purchase details.',
+  array['support@example.test'],
+  'manual'
 ) as result;
 
 select is(
@@ -310,13 +336,15 @@ select is(
 );
 select is(
   (
-    public.service_claim_refund_gmail_outbound(
+    public.service_claim_refund_gmail_outbound_v2(
       (select id from public.refund_cases where intake_source = 'gmail' order by created_at limit 1),
       '77500000-0000-4000-8000-000000000001',
       'refund-case-message:77500000-0000-4000-8000-000000000001',
       'support@example.test',
       'refund-customer@example.test',
-      'Please share the missing purchase details.'
+      'Please share the missing purchase details.',
+      array['support@example.test'],
+      'manual'
     ) ->> 'claimed'
   )::boolean,
   false,
@@ -492,6 +520,7 @@ select ok(
       or plain_body <> '[Deleted after Gmail retention period]'
       or sender_email is not null
       or recipient_email is not null
+      or cardinality(recipient_cc_emails) <> 0
   )
   and not exists (
     select 1
