@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-03
 
-Status: approved operating direction; production Gmail, automatic customer follow-up, manager CC, and live Nayax execution remain disabled until their separate release gates pass.
+Status: approved operating direction; production Gmail, automatic customer follow-up, manager CC, official manager actions, and live Nayax execution remain disabled until their separate release gates pass.
 
 Tracking epic: [#683 Refund Email Assistant and Manager Communications](https://github.com/ethtri/bloomjoy-hub/issues/683)
 
@@ -41,6 +41,8 @@ The Gmail OAuth identity, automation scheduler, GPT runner, and agent tools must
 
 Current portal authorization also permits Super Admins and some machine-scoped Scoped Admins to manage cases. That is a known target-state gap tracked in `#689`. During the production pilot, those roles may assist with setup and review but do not perform an official decision or Nayax action unless Bloomjoy separately approves a reason-required, audited break-glass policy.
 
+A valid mapped-manager login is necessary but not sufficient. `#689` must refuse to mint an official-action receipt without a recent TOTP authentication event, and `#692` must require the manager to complete a new TOTP challenge after reviewing the exact action. The challenge is bound to the case, action, case/evidence versions, and amount; any change requires a new challenge. TOTP codes, factor identifiers, secrets, QR material, and raw tokens are never stored in refund records or logs. Agent-controlled and shared browser sessions may review work but are prohibited from official payment actions.
+
 ## End-to-end operating flow
 
 1. Gmail receives a message at the designated Info/Support/Refunds mailbox.
@@ -53,8 +55,9 @@ Current portal authorization also permits Super Admins and some machine-scoped S
 8. The deterministic Nayax matcher either recommends one safe transaction or returns a clear manual/no-safe-match state.
 9. When a safe candidate is ready, or an actionable case is aging, blocked by setup/mapping, delivery-held, no-match, or otherwise needs a person, the currently mapped Machine Managers receive one sanitized notice with the canonical `/refunds?case=<case-id>` link and the correct next action.
 10. The Machine Manager opens the portal, reviews the customer request and match evidence, and chooses the official action.
-11. After manager approval, the guarded backend attempts Nayax execution. The case completes only after confirmed provider success.
-12. Provider success creates one customer-facing completion-message operation with the active mapped-manager set CC'd. It does not create a second internal manager completion email. Rejection or unknown provider state sends no success message.
+11. The portal freezes the exact action context and asks the manager to personally complete a fresh TOTP challenge. Cancellation, stale verification, mapping/case/evidence change, or a shared/agent session fails closed.
+12. After the action-bound manager verification, the guarded backend attempts Nayax execution. The case completes only after confirmed provider success.
+13. Provider success creates one customer-facing completion-message operation with the active mapped-manager set CC'd. It does not create a second internal manager completion email. Rejection or unknown provider state sends no success message.
 
 ## Required refund facts
 
