@@ -161,6 +161,11 @@ assert(workflow.includes('cancel-in-progress: false'), 'A running Gmail sync mus
 
 assert(client.includes('admin_get_refund_gmail_draft_cases'), 'Gmail draft cases must join the manager queue');
 assert(client.includes('admin_get_refund_gmail_case_context'), 'Managers must be able to load safe thread context');
+assert(
+  client.includes('admin_recover_refund_gmail_customer_contact') &&
+    client.includes("p_confirmation: 'customer_address_verified'"),
+  'The portal must use the explicit manager recovery boundary after customer-address verification',
+);
 assert(client.includes('get_refund_gmail_health'), 'Managers must be able to see Gmail sync health');
 assert(ui.includes('refund-gmail-draft-workbench'), 'Gmail draft cases need a simple dedicated workbench');
 assert(ui.includes('refund-gmail-ask-for-details'), 'Gmail draft workbench needs one clear reply action');
@@ -226,6 +231,48 @@ assert(
     participantMigration.includes("'automatic_contact_paused'"),
   'Only a trusted hard bounce for the exact case customer may pause subsequent automatic contact',
 );
+const outboundClaim = participantMigration.slice(
+  participantMigration.indexOf('create or replace function public.service_claim_refund_gmail_outbound_v2'),
+  participantMigration.indexOf('create or replace function public.admin_recover_refund_gmail_customer_contact'),
+);
+assert(
+  outboundClaim.includes('perform thread.id') &&
+    outboundClaim.includes('where thread.refund_case_id = p_refund_case_id') &&
+    outboundClaim.includes('select min(thread.automatic_customer_contact_paused_at)') &&
+    outboundClaim.includes('normalized_delivery_kind = \'automatic\' and case_pause_at is not null') &&
+    !outboundClaim.includes('thread_row.automatic_customer_contact_paused_at is not null'),
+  'Every automatic outbound claim must lock and enforce hard-bounce pauses across all case-linked threads',
+);
+const recoveryStart = participantMigration.indexOf(
+  'create or replace function public.admin_recover_refund_gmail_customer_contact',
+);
+const recoveryEnd = participantMigration.indexOf(
+  'create or replace function public.service_purge_refund_gmail_expired_message_content',
+);
+const recoveryBlock = participantMigration.slice(recoveryStart, recoveryEnd);
+assert(
+  recoveryStart >= 0 &&
+    recoveryBlock.includes('actor_user_id uuid := auth.uid()') &&
+    recoveryBlock.includes('public.can_manage_refund_case(actor_user_id, p_refund_case_id)') &&
+    recoveryBlock.includes("btrim(coalesce(p_confirmation, '')) <> 'customer_address_verified'") &&
+    recoveryBlock.includes('where thread.refund_case_id = p_refund_case_id') &&
+    recoveryBlock.includes('automatic_customer_contact_paused_at = null') &&
+    recoveryBlock.includes("'gmail_customer_contact_recovered'") &&
+    recoveryBlock.includes('actor_user_id'),
+  'Recovery must be explicit, authenticated, case-wide, atomic, and actor-audited',
+);
+assert(
+  (participantMigration.match(/automatic_customer_contact_paused_at = null/g) ?? []).length === 1 &&
+    (participantMigration.match(/automatic_customer_contact_pause_reason = null/g) ?? []).length === 1 &&
+    participantMigration.includes(
+      'revoke insert, update, delete on table public.refund_gmail_threads from service_role',
+    ) &&
+    participantMigration.includes(
+      'revoke execute on function public.admin_recover_refund_gmail_customer_contact(uuid,text,text)',
+    ) &&
+    participantMigration.includes('from public, anon, service_role'),
+  'Only the authenticated manager recovery RPC may clear pause evidence; service and scheduler paths must fail closed',
+);
 assert(
   gmailHelper.includes('parsePermanentDsnFailureRecipients') &&
     gmailHelper.includes('/^mx\\.google\\.com\\s*;/i') &&
@@ -257,8 +304,21 @@ assert(
   'Safe browser views must expose participant roles and recipient counts, never raw To or CC addresses',
 );
 assert(
-  ui.includes('refund-gmail-contact-paused') && ui.includes('Not customer evidence'),
-  'Managers must see hard-bounce recovery and unverified participant warnings',
+  participantManagerContext.includes('min(thread.automatic_customer_contact_paused_at)') &&
+    participantManagerContext.includes("'automaticCustomerContactPaused', case_pause_at is not null") &&
+    participantManagerContext.includes("'pausedThreadCount', paused_thread_count") &&
+    !participantManagerContext.includes(
+      "'automaticCustomerContactPaused', latest_thread.automatic_customer_contact_paused_at is not null",
+    ),
+  'Manager context must surface the aggregate case-wide pause even when the newest thread is unpaused',
+);
+assert(
+  ui.includes('refund-gmail-contact-paused') &&
+    ui.includes('refund-gmail-recovery-dialog') &&
+    ui.includes('refund-gmail-recovery-verified') &&
+    ui.includes('Resume all linked threads') &&
+    ui.includes('Not customer evidence'),
+  'Managers must see case-wide hard-bounce recovery, deliberately verify it, and see unverified participant warnings',
 );
 assert(
   managerNotification.includes('service_resolve_refund_customer_manager_cc') &&

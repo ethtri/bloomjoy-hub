@@ -19,6 +19,10 @@ alter table public.refund_gmail_threads
     )
   );
 
+create index if not exists refund_gmail_threads_case_contact_pause_idx
+  on public.refund_gmail_threads (refund_case_id, automatic_customer_contact_paused_at)
+  where automatic_customer_contact_paused_at is not null;
+
 alter table public.refund_gmail_messages
   add column if not exists participant_role text not null default 'unknown',
   add column if not exists participant_trust text not null default 'unverified',
@@ -662,6 +666,7 @@ declare
   normalized_delivery_kind text := lower(btrim(coalesce(p_delivery_kind, '')));
   reply_subject text;
   reply_references text;
+  case_pause_at timestamptz;
 begin
   if length(btrim(coalesce(p_operation_key, ''))) not between 8 and 255 then
     raise exception 'Valid Gmail outbound operation key required';
@@ -688,22 +693,37 @@ begin
     raise exception 'Customer recipient must match the refund case';
   end if;
 
+  -- Lock every linked thread before deriving case-wide delivery safety. A
+  -- permanent failure on an older thread must not be bypassed merely because a
+  -- newer Gmail thread became the reply target.
+  perform thread.id
+  from public.refund_gmail_threads thread
+  where thread.refund_case_id = p_refund_case_id
+  order by thread.id
+  for update;
+
   select * into thread_row
   from public.refund_gmail_threads
   where refund_case_id = p_refund_case_id
   order by latest_message_at desc, id desc
-  limit 1
-  for update;
+  limit 1;
 
   if thread_row.id is null then
     return jsonb_build_object('linked', false, 'claimed', false);
   end if;
-  if normalized_delivery_kind = 'automatic'
-    and thread_row.automatic_customer_contact_paused_at is not null then
+  select min(thread.automatic_customer_contact_paused_at)
+  into case_pause_at
+  from public.refund_gmail_threads thread
+  where thread.refund_case_id = p_refund_case_id
+    and thread.automatic_customer_contact_paused_at is not null;
+
+  if normalized_delivery_kind = 'automatic' and case_pause_at is not null then
     return jsonb_build_object(
       'linked', true,
       'claimed', false,
-      'status', 'automatic_contact_paused'
+      'status', 'automatic_contact_paused',
+      'automaticCustomerContactPaused', true,
+      'automaticCustomerContactPauseReason', 'hard_bounce'
     );
   end if;
 
@@ -833,6 +853,106 @@ begin
 end;
 $$;
 
+create or replace function public.admin_recover_refund_gmail_customer_contact(
+  p_refund_case_id uuid,
+  p_verified_customer_email text,
+  p_confirmation text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  actor_user_id uuid := auth.uid();
+  case_row public.refund_cases;
+  paused_thread_count integer := 0;
+  cleared_thread_count integer := 0;
+begin
+  if actor_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+  if not public.can_manage_refund_case(actor_user_id, p_refund_case_id) then
+    raise exception 'Refund case access required';
+  end if;
+
+  select * into case_row
+  from public.refund_cases
+  where id = p_refund_case_id
+  for update;
+
+  if case_row.id is null then
+    raise exception 'Refund case not found';
+  end if;
+  if lower(btrim(coalesce(p_verified_customer_email, ''))) <>
+    lower(btrim(case_row.customer_email)) then
+    raise exception 'Verified customer email must match the refund case';
+  end if;
+  if btrim(coalesce(p_confirmation, '')) <> 'customer_address_verified' then
+    raise exception 'Explicit customer address verification is required';
+  end if;
+
+  -- Keep recovery atomic across the entire case. No caller can choose a single
+  -- thread or silently resume only the newest conversation.
+  perform thread.id
+  from public.refund_gmail_threads thread
+  where thread.refund_case_id = p_refund_case_id
+  order by thread.id
+  for update;
+
+  select count(*)::integer
+  into paused_thread_count
+  from public.refund_gmail_threads thread
+  where thread.refund_case_id = p_refund_case_id
+    and thread.automatic_customer_contact_paused_at is not null;
+
+  if paused_thread_count = 0 then
+    return jsonb_build_object(
+      'recovered', false,
+      'status', 'not_paused',
+      'clearedThreadCount', 0
+    );
+  end if;
+
+  update public.refund_gmail_threads thread
+  set
+    automatic_customer_contact_paused_at = null,
+    automatic_customer_contact_pause_reason = null
+  where thread.refund_case_id = p_refund_case_id
+    and thread.automatic_customer_contact_paused_at is not null;
+
+  get diagnostics cleared_thread_count = row_count;
+  if cleared_thread_count <> paused_thread_count then
+    raise exception 'Case-wide Gmail contact recovery did not clear every paused thread';
+  end if;
+
+  insert into public.refund_case_events (
+    refund_case_id,
+    actor_user_id,
+    event_type,
+    message,
+    metadata
+  ) values (
+    p_refund_case_id,
+    actor_user_id,
+    'gmail_customer_contact_recovered',
+    'A manager verified the customer address and resumed automatic Gmail contact for every linked thread.',
+    jsonb_build_object(
+      'verification', 'customer_address_verified',
+      'cleared_thread_count', cleared_thread_count,
+      'case_wide', true,
+      'payload_redacted', true
+    )
+  );
+
+  return jsonb_build_object(
+    'recovered', true,
+    'status', 'recovered',
+    'clearedThreadCount', cleared_thread_count
+  );
+end;
+$$;
+
 create or replace function public.service_purge_refund_gmail_expired_message_content(p_limit integer default 200)
 returns integer
 language plpgsql
@@ -886,6 +1006,8 @@ as $$
 declare
   actor_user_id uuid := auth.uid();
   latest_thread public.refund_gmail_threads;
+  case_pause_at timestamptz;
+  paused_thread_count integer := 0;
 begin
   if actor_user_id is null then
     raise exception 'Authentication required';
@@ -901,15 +1023,31 @@ begin
   limit 1;
 
   if latest_thread.id is null then
-    return jsonb_build_object('connected', false, 'messages', '[]'::jsonb);
+    return jsonb_build_object(
+      'connected', false,
+      'automaticCustomerContactPaused', false,
+      'automaticCustomerContactPauseReason', null,
+      'automaticCustomerContactPausedAt', null,
+      'pausedThreadCount', 0,
+      'messages', '[]'::jsonb
+    );
   end if;
+
+  select
+    min(thread.automatic_customer_contact_paused_at),
+    count(*) filter (where thread.automatic_customer_contact_paused_at is not null)::integer
+  into case_pause_at, paused_thread_count
+  from public.refund_gmail_threads thread
+  where thread.refund_case_id = p_refund_case_id;
 
   return jsonb_build_object(
     'connected', true,
     'subject', latest_thread.thread_subject,
     'latestMessageAt', latest_thread.latest_message_at,
-    'automaticCustomerContactPaused', latest_thread.automatic_customer_contact_paused_at is not null,
-    'automaticCustomerContactPauseReason', latest_thread.automatic_customer_contact_pause_reason,
+    'automaticCustomerContactPaused', case_pause_at is not null,
+    'automaticCustomerContactPauseReason', case when case_pause_at is not null then 'hard_bounce' else null end,
+    'automaticCustomerContactPausedAt', case_pause_at,
+    'pausedThreadCount', paused_thread_count,
     'messages', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', message.id,
@@ -974,6 +1112,14 @@ revoke execute on function public.service_ingest_refund_gmail_message_v2(text,te
   from public, anon, authenticated;
 revoke execute on function public.service_claim_refund_gmail_outbound_v2(uuid,uuid,text,text,text,text,text[],text)
   from public, anon, authenticated;
+revoke execute on function public.admin_recover_refund_gmail_customer_contact(uuid,text,text)
+  from public, anon, service_role;
+
+-- Service workers read transport linkage directly but all writes go through
+-- narrowly scoped SECURITY DEFINER RPCs. This prevents a worker or scheduler
+-- from clearing or deleting the durable hard-bounce evidence out of band.
+revoke insert, update, delete on table public.refund_gmail_threads from service_role;
+grant select on table public.refund_gmail_threads to service_role;
 
 grant execute on function public.refund_email_address_is_valid(text) to service_role;
 grant execute on function public.normalize_refund_mailbox_identities(text[]) to service_role;
@@ -982,12 +1128,16 @@ grant execute on function public.service_ingest_refund_gmail_message_v2(text,tex
   to service_role;
 grant execute on function public.service_claim_refund_gmail_outbound_v2(uuid,uuid,text,text,text,text,text[],text)
   to service_role;
+grant execute on function public.admin_recover_refund_gmail_customer_contact(uuid,text,text)
+  to authenticated;
 
 comment on function public.service_resolve_refund_customer_manager_cc(uuid,text,text[]) is
   'Service-only current active machine-manager CC resolver. Raw addresses never reach browser roles or audit events.';
 comment on function public.service_ingest_refund_gmail_message_v2(text,text,text,text,text,text,boolean,text,text,text,text,text,boolean,timestamptz,text,jsonb,text[],text[],text,boolean,boolean,text[]) is
   'Service-only participant-safe Gmail ingestion. Only verified direct customer messages can change customer workflow state.';
 comment on function public.service_claim_refund_gmail_outbound_v2(uuid,uuid,text,text,text,text,text[],text) is
-  'Service-only original-thread send claim with current mapped-manager CC resolution and automatic-contact pause enforcement.';
+  'Service-only original-thread send claim with current mapped-manager CC resolution and case-wide automatic-contact pause enforcement.';
+comment on function public.admin_recover_refund_gmail_customer_contact(uuid,text,text) is
+  'Authenticated manager-only, case-wide hard-bounce recovery after explicit customer-address verification; clears all linked pauses atomically and writes a redacted audit event.';
 
 select pg_notify('pgrst', 'reload schema');
