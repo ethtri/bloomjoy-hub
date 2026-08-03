@@ -14,6 +14,10 @@ type RefundEmailPayload = {
 };
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+const CUSTOMER_MANAGER_CC_ALLOWED_STATUSES = new Set([
+  "resolved",
+  "resolved_with_exclusions",
+]);
 
 const parseManagerCc = (
   value: unknown,
@@ -50,6 +54,44 @@ const parseManagerCc = (
     );
   }
   return normalized;
+};
+
+export const requireRefundCustomerManagerCcResolution = ({
+  resolution,
+  customerEmail,
+  mailboxIdentities,
+}: {
+  resolution: unknown;
+  customerEmail: string;
+  mailboxIdentities: string[];
+}) => {
+  const result = resolution && typeof resolution === "object"
+    ? resolution as Record<string, unknown>
+    : {};
+  const recipientResolutionStatus = typeof result.status === "string"
+    ? result.status
+    : "unavailable";
+  const managerCcEmails = parseManagerCc(
+    result.managerCcEmails,
+    customerEmail,
+    mailboxIdentities,
+  );
+
+  if (
+    !CUSTOMER_MANAGER_CC_ALLOWED_STATUSES.has(recipientResolutionStatus) ||
+    managerCcEmails.length === 0
+  ) {
+    throw new RefundGmailError(
+      "manager_cc_required",
+      "Customer contact requires at least one current active mapped Machine Manager in CC.",
+    );
+  }
+
+  return {
+    managerCcEmails,
+    managerCcCount: managerCcEmails.length,
+    recipientResolutionStatus,
+  };
 };
 
 export const dispatchRefundCaseGmailReply = async ({
@@ -101,19 +143,14 @@ export const dispatchRefundCaseGmailReply = async ({
         "Unable to resolve the current Machine Manager recipients.",
       );
     }
-    const resolvedManagerCc = parseManagerCc(
-      recipientResolution?.managerCcEmails,
-      recipientEmail,
+    const managerResolution = requireRefundCustomerManagerCcResolution({
+      resolution: recipientResolution,
+      customerEmail: recipientEmail,
       mailboxIdentities,
-    );
-    const recipientResolutionStatus = typeof recipientResolution?.status === "string"
-      ? recipientResolution.status
-      : "unavailable";
+    });
     return {
       usedGmail: false as const,
-      managerCcEmails: resolvedManagerCc,
-      managerCcCount: resolvedManagerCc.length,
-      recipientResolutionStatus,
+      ...managerResolution,
     };
   }
 
@@ -156,6 +193,12 @@ export const dispatchRefundCaseGmailReply = async ({
         "Automatic customer contact is paused after a Gmail delivery failure.",
       );
     }
+    if (claim.status === "manager_cc_required") {
+      throw new RefundGmailError(
+        "manager_cc_required",
+        "Customer contact requires at least one current active mapped Machine Manager in CC.",
+      );
+    }
     throw new RefundGmailError(
       claim.status === "sent" ? "gmail_reply_already_sent" : "gmail_reply_already_claimed",
       "This Gmail reply has already been processed.",
@@ -171,14 +214,16 @@ export const dispatchRefundCaseGmailReply = async ({
   const subject = typeof claim.subject === "string" && claim.subject.trim()
     ? claim.subject.trim()
     : email.subject;
-  const managerCcEmails = parseManagerCc(
-    claim.managerCcEmails,
-    recipientEmail,
-    config.mailboxIdentities,
-  );
-  const claimedResolutionStatus = typeof claim.recipientResolutionStatus === "string"
-    ? claim.recipientResolutionStatus
-    : "unavailable";
+  const managerResolution = requireRefundCustomerManagerCcResolution({
+    resolution: {
+      status: claim.recipientResolutionStatus,
+      managerCcEmails: claim.managerCcEmails,
+    },
+    customerEmail: recipientEmail,
+    mailboxIdentities: config.mailboxIdentities,
+  });
+  const managerCcEmails = managerResolution.managerCcEmails;
+  const claimedResolutionStatus = managerResolution.recipientResolutionStatus;
   if (!transportMessageId || !providerThreadId) {
     throw new RefundGmailError("gmail_send_claim_invalid", "Gmail reply claim was incomplete.");
   }

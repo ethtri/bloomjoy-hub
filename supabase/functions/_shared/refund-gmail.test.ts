@@ -3,9 +3,11 @@ import {
   type GmailMessage,
   inspectRefundGmailParticipantSignals,
   parseEmailAddressList,
+  RefundGmailError,
   type RefundGmailConfig,
   sendRefundGmailReply,
 } from "./refund-gmail.ts";
+import { requireRefundCustomerManagerCcResolution } from "./refund-gmail-transport.ts";
 import { resolveRefundOpsFallbackRecipients } from "./refund-manager-notification.ts";
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
@@ -136,6 +138,72 @@ Deno.test("ops action-notice fallback fails closed above its explicit recipient 
     [],
     "over-cap ops fallback",
   );
+});
+
+Deno.test("customer manager CC resolution accepts only owned nonempty routes", () => {
+  assertEquals(
+    requireRefundCustomerManagerCcResolution({
+      resolution: {
+        status: "resolved_with_exclusions",
+        managerCcEmails: ["MANAGER@example.test"],
+      },
+      customerEmail: "customer@example.test",
+      mailboxIdentities: ["info@bloomjoysweets.com"],
+    }),
+    {
+      managerCcEmails: ["manager@example.test"],
+      managerCcCount: 1,
+      recipientResolutionStatus: "resolved_with_exclusions",
+    },
+    "nonempty current manager route",
+  );
+
+  for (
+    const scenario of [
+      { status: "machine_unresolved", managerCcEmails: [] },
+      { status: "no_active_managers", managerCcEmails: [] },
+      { status: "invalid_manager_mapping", managerCcEmails: [] },
+      { status: "resolved", managerCcEmails: [] },
+    ]
+  ) {
+    let errorCode = "no_error";
+    try {
+      requireRefundCustomerManagerCcResolution({
+        resolution: scenario,
+        customerEmail: "customer@example.test",
+        mailboxIdentities: ["info@bloomjoysweets.com"],
+      });
+    } catch (error) {
+      errorCode = error instanceof RefundGmailError ? error.code : "unexpected_error";
+    }
+    assertEquals(
+      errorCode,
+      "manager_cc_required",
+      `${scenario.status} customer send gate`,
+    );
+  }
+});
+
+Deno.test("transactional fallback cannot proceed without a current mapped manager", () => {
+  let fallbackReached = false;
+  try {
+    requireRefundCustomerManagerCcResolution({
+      resolution: {
+        status: "no_active_managers",
+        managerCcEmails: [],
+      },
+      customerEmail: "customer@example.test",
+      mailboxIdentities: ["info@bloomjoysweets.com"],
+    });
+    fallbackReached = true;
+  } catch (error) {
+    assertEquals(
+      error instanceof RefundGmailError ? error.code : "unexpected_error",
+      "manager_cc_required",
+      "transactional fallback gate",
+    );
+  }
+  assertEquals(fallbackReached, false, "transactional send was not reached");
 });
 
 Deno.test("mailbox aliases are mailbox-origin even when automatic headers are present", () => {

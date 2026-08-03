@@ -323,21 +323,20 @@ const sendAndLogCustomerMessage = async (
       decisionReason: refundCase.decision_reason,
     };
     const email = buildRefundCustomerEmail(emailInput);
-    const gmailDelivery = messageId
-      ? await dispatchRefundCaseGmailReply({
-        supabase,
-        refundCaseId: refundCase.id,
-        refundCaseMessageId: messageId,
-        recipientEmail: refundCase.customer_email,
-        email,
-        deliveryKind: "automatic",
-      })
-      : {
-        usedGmail: false as const,
-        managerCcEmails: [] as string[],
-        managerCcCount: 0,
-        recipientResolutionStatus: "unavailable",
-      };
+    if (!messageId) {
+      throw new RefundGmailError(
+        "customer_message_record_required",
+        "Customer delivery requires a tracked refund message.",
+      );
+    }
+    const gmailDelivery = await dispatchRefundCaseGmailReply({
+      supabase,
+      refundCaseId: refundCase.id,
+      refundCaseMessageId: messageId,
+      recipientEmail: refundCase.customer_email,
+      email,
+      deliveryKind: "automatic",
+    });
     if (!gmailDelivery.usedGmail) {
       await sendRefundCustomerEmail({
         ...emailInput,

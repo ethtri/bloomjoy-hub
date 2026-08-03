@@ -1,5 +1,6 @@
 import { sendTransactionalEmail } from "./internal-email.ts";
 import { resolveRefundPublicLabels } from "./refund-location.ts";
+import { getRefundGmailMailboxIdentities } from "./refund-gmail.ts";
 
 export type RefundCustomerMessageType =
   | "confirmation"
@@ -37,6 +38,41 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
   typeof value === "string" || typeof value === "number" || typeof value === "boolean"
     ? String(value).trim().slice(0, maxLength)
     : "";
+
+const REFUND_MANAGER_CC_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+
+export const requireRefundManagerCcEmailsForSend = (
+  managerCcEmails: string[] | undefined,
+  customerEmail: string,
+) => {
+  if (!Array.isArray(managerCcEmails)) {
+    throw new Error(
+      "Refund customer email requires at least one current mapped Machine Manager in CC.",
+    );
+  }
+
+  const normalized = managerCcEmails.map((email) => email.trim().toLowerCase());
+  const excluded = new Set([
+    customerEmail.trim().toLowerCase(),
+    ...getRefundGmailMailboxIdentities(),
+  ]);
+  if (
+    normalized.length < 1 ||
+    normalized.length > 3 ||
+    new Set(normalized).size !== normalized.length ||
+    normalized.some((email) =>
+      email.length > 320 ||
+      !REFUND_MANAGER_CC_PATTERN.test(email) ||
+      excluded.has(email)
+    )
+  ) {
+    throw new Error(
+      "Refund customer email requires at least one current mapped Machine Manager in CC.",
+    );
+  }
+
+  return normalized;
+};
 
 export const getRefundReplyToEmail = () =>
   sanitizeText(Deno.env.get("REFUND_REPLY_TO_EMAIL"), 320) || "info@bloomjoysweets.com";
@@ -360,9 +396,13 @@ export const buildEditableRefundCustomerEmail = ({
 
 export const sendRefundCustomerEmail = async (input: RefundCustomerEmailInput) => {
   const email = buildRefundCustomerEmail(input);
+  const managerCcEmails = requireRefundManagerCcEmailsForSend(
+    input.managerCcEmails,
+    input.customerEmail,
+  );
   await sendTransactionalEmail({
     to: [input.customerEmail],
-    cc: input.managerCcEmails,
+    cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
@@ -464,9 +504,13 @@ export const sendRefundWalletCorrectionEmail = async (
   input: RefundWalletCorrectionEmailInput,
 ) => {
   const email = buildRefundWalletCorrectionEmail(input);
+  const managerCcEmails = requireRefundManagerCcEmailsForSend(
+    input.managerCcEmails,
+    input.customerEmail,
+  );
   await sendTransactionalEmail({
     to: [input.customerEmail],
-    cc: input.managerCcEmails,
+    cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
