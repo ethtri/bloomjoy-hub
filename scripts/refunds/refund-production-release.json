@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-07-27-wallet-correction",
-  "sourceGitCommit": "433c7d7da702907c2919f2f98e3e6c79f64e54f6",
+  "releaseId": "refund-ops-2026-08-03-gmail-manager-cc",
+  "sourceGitCommit": "c740b4251fdb0b2e6f32ab2cf9eba7c49e07af37",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -30,15 +30,16 @@
     "202607220001_refund_gpt_triage_runner.sql",
     "202607260001_refund_qr_claim_context.sql",
     "202607260002_refund_qr_aware_nayax_recommendation.sql",
-    "202607270001_refund_wallet_correction.sql"
+    "202607270001_refund_wallet_correction.sql",
+    "202608030003_refund_gmail_participant_cc.sql"
   ],
-  "migrationFilesSha256": "6620f92af1340562d9f71121ab302623683a46fe62bc9fcca12ace4206fa5ca7",
-  "migrationVersionSetSha256": "f469285280329c4af7edf4a659057b49d3a678981d0807f53cbbde33c3da4b1c",
+  "migrationFilesSha256": "d68870cdebdbaec28a2b1678ba4d65647d68c030dce2ed8ca1f3f80294116c0b",
+  "migrationVersionSetSha256": "8608f7c45624a0098410dd753eaceb1617adddcd69ffe44e2c583ea0dfe81c76",
   "functions": [
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "e409be80f17379849a1f0da6ad18ac4cf125fba410a62909774dab4f7d7b8386",
+      "sourceSha256": "a9d02d0a455c27393672fb5c203f006a5786b7bf1e7537da296da181970d11ce",
       "production": {
         "version": 2,
         "ezbrSha256": "0099bdc13bb03dfa996c9dfad3ebc856a66f89ef6797238bd88b4b5b87728987",
@@ -58,7 +59,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "51006bc25d8424e1090b4f21afc311c89e84acdffcc47537c85d161c64248bb2",
+      "sourceSha256": "d62509e293ad2e0d91eb65a50cc983ac1186a63b755c499543161fc280fcf8d1",
       "production": {
         "version": 2,
         "ezbrSha256": "37563a7c377d35c1da6cc4bc717510b4ba3709c81c4e7ee103763756aabcddfe",
@@ -68,7 +69,7 @@
     {
       "slug": "refund-case-message-send",
       "verifyJwt": false,
-      "sourceSha256": "19a5c51374c9ca17746c420c2259c29356facaf20b577183d880dce79e4a88af",
+      "sourceSha256": "ea38e95656bf8ad0116b0567c203cbbe0f321ce1bca137ca8e8427a44a2ad91c",
       "production": {
         "version": 1,
         "ezbrSha256": "ff3c72cf8254a4007fdd4fc9787ee51f1cd4907db6807aeec32e26011c644179",
@@ -78,7 +79,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "d64362ab9fff4f302fb2e075faceb4bb4e1ae97db55e54a7dc954fd08eeea553",
+      "sourceSha256": "6c38ee98698310f82288978ec09577002f45584f885b0ad90b2b1942d2b31957",
       "production": {
         "version": 2,
         "ezbrSha256": "90e95bd7d4b11ff50bb608003c8fd9795647275fef23af59d0d0c6cf263b06ee",
@@ -88,7 +89,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "19697ba2c49915c4d0167f4e16aa0948a0a7845d2ffa9e0f0a32c653e4eacaf9",
+      "sourceSha256": "d62f1a0d0bd92890ab07d37bc453c7e22f8135a773816faa888e3a137e10b15a",
       "production": {
         "version": 1,
         "ezbrSha256": "83a3f0a745e8433d4a700259de047eb8e0304e73dc40264313679a63a9561d87",
