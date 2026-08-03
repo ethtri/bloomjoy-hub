@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(53);
+select plan(73);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -88,6 +88,30 @@ select ok(
 select ok(
   not has_table_privilege('authenticated', 'public.refund_gmail_messages', 'select'),
   'Browser roles cannot read raw To or CC rows'
+);
+select ok(
+  has_function_privilege(
+    'authenticated',
+    'public.admin_recover_refund_gmail_customer_contact(uuid,text,text)',
+    'execute'
+  ),
+  'Authenticated managers can invoke the guarded case-wide recovery boundary'
+);
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.admin_recover_refund_gmail_customer_contact(uuid,text,text)',
+    'execute'
+  ),
+  'Service workers cannot invoke manager hard-bounce recovery'
+);
+select ok(
+  not has_table_privilege('service_role', 'public.refund_gmail_threads', 'update'),
+  'Service workers cannot update Gmail thread pause evidence directly'
+);
+select ok(
+  not has_table_privilege('service_role', 'public.refund_gmail_threads', 'delete'),
+  'Service workers cannot delete Gmail thread pause evidence directly'
 );
 
 create temporary table first_customer_ingest as
@@ -584,12 +608,66 @@ select ok(
   'A hard bounce pauses further automatic customer contact'
 );
 
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('c', 64), 'participant-thread-newer', 'participant-customer-newer',
+  '<participant-customer-newer@example.test>', null, 'inbound', false,
+  'customer@example.test', 'Synthetic Customer', 'info@bloomjoysweets.com',
+  'Re: Refund request in a new conversation', 'A newer direct customer thread.', false,
+  now() + interval '1 minute',
+  (select public_reference from public.refund_cases where id = (select (result ->> 'caseId')::uuid from first_customer_ingest)),
+  '[]'::jsonb, '{}'::text[],
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'direct_human', false, false, '{}'::text[]
+);
+select is(
+  (
+    select refund_case_id
+    from public.refund_gmail_threads
+    where provider_thread_id = 'participant-thread-newer'
+  ),
+  (select (result ->> 'caseId')::uuid from first_customer_ingest),
+  'A newer Gmail thread can link to the same refund case'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_threads
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_customer_ingest)
+      and automatic_customer_contact_paused_at is not null
+  ),
+  1,
+  'Linking a newer unpaused thread preserves the older hard-bounce pause'
+);
+
+select set_config('request.jwt.claim.sub', '', true);
+select ok(
+  pg_temp.capture_error(format(
+    'select public.admin_recover_refund_gmail_customer_contact(%L::uuid, %L, %L)',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'customer@example.test',
+    'customer_address_verified'
+  )) like '%Authentication required%',
+  'An unauthenticated caller cannot clear any hard-bounce pause'
+);
+select set_config('request.jwt.claim.sub', '78600000-0000-4000-8000-000000000005', true);
+select ok(
+  pg_temp.capture_error(format(
+    'select public.admin_recover_refund_gmail_customer_contact(%L::uuid, %L, %L)',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'customer@example.test',
+    'customer_address_verified'
+  )) like '%Refund case access required%',
+  'An authenticated user without case access cannot clear any hard-bounce pause'
+);
+select set_config('request.jwt.claim.sub', '', true);
+
 insert into public.refund_case_messages (
   id, refund_case_id, message_type, status, recipient_email, subject, body
 )
 values
   ('78650000-0000-4000-8000-000000000002', (select (result ->> 'caseId')::uuid from first_customer_ingest), 'reminder', 'pending', 'customer@example.test', 'Automatic reminder', 'Friendly automatic reminder.'),
-  ('78650000-0000-4000-8000-000000000003', (select (result ->> 'caseId')::uuid from first_customer_ingest), 'status_update', 'pending', 'customer@example.test', 'Manual recovery', 'A manager reviewed the delivery issue.');
+  ('78650000-0000-4000-8000-000000000003', (select (result ->> 'caseId')::uuid from first_customer_ingest), 'status_update', 'pending', 'customer@example.test', 'Manual recovery', 'A manager reviewed the delivery issue.'),
+  ('78650000-0000-4000-8000-000000000004', (select (result ->> 'caseId')::uuid from first_customer_ingest), 'reminder', 'pending', 'customer@example.test', 'Automatic reminder after recovery', 'Friendly automatic reminder after verified recovery.');
 
 select is(
   public.service_claim_refund_gmail_outbound_v2(
@@ -598,7 +676,7 @@ select is(
     'customer@example.test', 'Friendly automatic reminder.', array['info@bloomjoysweets.com'], 'automatic'
   ) ->> 'status',
   'automatic_contact_paused',
-  'A hard bounce blocks an automatic follow-up before provider send'
+  'An older linked-thread hard bounce blocks automatic follow-up on the newer reply thread'
 );
 select is(
   (public.service_claim_refund_gmail_outbound_v2(
@@ -637,7 +715,152 @@ select is(
     (select (result ->> 'caseId')::uuid from first_customer_ingest)
   ) ->> 'automaticCustomerContactPaused',
   'true',
-  'Managers see the hard-bounce recovery state without provider claims'
+  'Managers see the case-wide hard-bounce state even when the newest thread is unpaused'
+);
+
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('c', 64), 'participant-thread-newer', 'participant-bounce-newer',
+  '<participant-bounce-newer@example.test>', null, 'system', true,
+  'mailer-daemon@googlemail.com', 'Mail Delivery Subsystem', 'info@bloomjoysweets.com',
+  'Delivery Status Notification (Failure)', 'Synthetic hard bounce on the newer thread.', false,
+  now() + interval '2 minutes', null, '[]'::jsonb, '{}'::text[],
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'automated', false, true, array['customer@example.test']
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_threads
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_customer_ingest)
+      and automatic_customer_contact_paused_at is not null
+  ),
+  2,
+  'Independent trusted hard bounces retain pause evidence on every affected linked thread'
+);
+
+set local role service_role;
+select ok(
+  pg_temp.capture_error(
+    $clear$update public.refund_gmail_threads
+      set automatic_customer_contact_paused_at = null,
+          automatic_customer_contact_pause_reason = null
+      where provider_thread_id = 'participant-thread-newer'$clear$
+  ) like '%permission denied%',
+  'A service worker cannot clear only the newest paused thread'
+);
+reset role;
+
+select ok(
+  pg_temp.capture_error(format(
+    'select public.admin_recover_refund_gmail_customer_contact(%L::uuid, %L, %L)',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'customer@example.test',
+    'not_verified'
+  )) like '%Explicit customer address verification is required%',
+  'An authorized manager must make the exact deliberate verification before recovery'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_threads
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_customer_ingest)
+      and automatic_customer_contact_paused_at is not null
+  ),
+  2,
+  'A failed or partial recovery attempt leaves all case-linked pauses intact'
+);
+select is(
+  (
+    public.admin_recover_refund_gmail_customer_contact(
+      (select (result ->> 'caseId')::uuid from first_customer_ingest),
+      'customer@example.test',
+      'customer_address_verified'
+    ) ->> 'clearedThreadCount'
+  )::integer,
+  2,
+  'One authorized recovery atomically clears every paused thread linked to the case'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_threads
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_customer_ingest)
+      and automatic_customer_contact_paused_at is not null
+  ),
+  0,
+  'No case-linked thread remains partially paused after recovery'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_case_events
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_customer_ingest)
+      and event_type = 'gmail_customer_contact_recovered'
+      and actor_user_id = '78600000-0000-4000-8000-000000000001'
+      and metadata ->> 'verification' = 'customer_address_verified'
+      and (metadata ->> 'cleared_thread_count')::integer = 2
+      and (metadata ->> 'case_wide')::boolean
+      and (metadata ->> 'payload_redacted')::boolean
+  ),
+  1,
+  'Case-wide recovery writes one actor-attributed redacted audit event'
+);
+select is(
+  public.admin_get_refund_gmail_case_context(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest)
+  ) ->> 'automaticCustomerContactPaused',
+  'false',
+  'Manager context reports resumed contact only after every linked pause is cleared'
+);
+select is(
+  public.admin_recover_refund_gmail_customer_contact(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'customer@example.test',
+    'customer_address_verified'
+  ) ->> 'status',
+  'not_paused',
+  'Repeated recovery is idempotent and cannot fabricate another clear'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_case_events
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_customer_ingest)
+      and event_type = 'gmail_customer_contact_recovered'
+  ),
+  1,
+  'Idempotent recovery does not write a duplicate recovery event'
+);
+
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('c', 64), 'participant-thread-newer', 'participant-bounce-uncertain-newer',
+  '<participant-bounce-uncertain-newer@example.test>', null, 'system', true,
+  'mailer-daemon@googlemail.com', 'Mail Delivery Subsystem', 'info@bloomjoysweets.com',
+  'Delivery Status Notification (Delay)', 'Synthetic uncertain delivery notice.', false,
+  now() + interval '3 minutes', null, '[]'::jsonb, '{}'::text[],
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'automated', false, false, array['customer@example.test']
+);
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_threads
+    where refund_case_id = (select (result ->> 'caseId')::uuid from first_customer_ingest)
+      and automatic_customer_contact_paused_at is not null
+  ),
+  0,
+  'An uncertain non-hard delivery notice cannot recreate a case-wide pause'
+);
+select is(
+  (public.service_claim_refund_gmail_outbound_v2(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    '78650000-0000-4000-8000-000000000004', 'participant-recovered-auto',
+    'info@bloomjoysweets.com', 'customer@example.test',
+    'Friendly automatic reminder after verified recovery.',
+    array['info@bloomjoysweets.com'], 'automatic'
+  ) ->> 'claimed')::boolean,
+  true,
+  'Automatic contact can resume only after explicit case-wide recovery'
 );
 select ok(
   not exists (
@@ -650,8 +873,8 @@ select ok(
 );
 select is(
   (select count(*)::integer from public.refund_case_events where event_type = 'gmail_customer_message_bounced'),
-  1,
-  'The hard bounce creates one redacted manager-visible recovery event'
+  2,
+  'Each exact-customer hard bounce creates redacted manager-visible recovery evidence'
 );
 
 select * from finish();

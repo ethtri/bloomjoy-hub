@@ -317,6 +317,8 @@ const buildMockGmailContext = () => ({
   latestMessageAt: isoHoursAgo(0.5),
   automaticCustomerContactPaused: true,
   automaticCustomerContactPauseReason: 'hard_bounce',
+  automaticCustomerContactPausedAt: isoHoursAgo(0.25),
+  pausedThreadCount: 2,
   messages: [
     {
       id: 'gmail-message-inbound-1',
@@ -974,6 +976,10 @@ const installMockSupabaseRoutes = async (
       return route.fulfill(jsonResponse(gmailContext ?? { connected: false, messages: [] }));
     }
 
+    if (url.includes('/admin_recover_refund_gmail_customer_contact')) {
+      return route.fulfill(jsonResponse({ recovered: true, status: 'recovered', clearedThreadCount: 2 }));
+    }
+
     if (url.includes('/admin_get_refund_gpt_triage')) {
       return route.fulfill(jsonResponse(
         gptTriageSuggestion === undefined
@@ -1449,8 +1455,10 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
   const functionCalls = [];
   const functionBodies = [];
+  const rpcCalls = [];
   await installMockSupabaseRoutes(context, {
     refundOverview: buildEmptyRefundOverview,
+    rpcCalls,
     functionCalls,
     functionBodies,
     gmailDraftCases: buildMockGmailDraftCases(),
@@ -1542,7 +1550,28 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   recorder.assert(
     'A hard bounce creates a clear manager recovery state',
-    await page.getByTestId('refund-gmail-contact-paused').getByText('Automatic customer email is paused').isVisible()
+    await page.getByTestId('refund-gmail-contact-paused').getByText('Automatic customer email is paused').isVisible() &&
+      await page.getByTestId('refund-gmail-contact-paused').getByText(/protects every Gmail conversation/).isVisible()
+  );
+  await page.getByTestId('refund-gmail-open-recovery').click();
+  const recoveryDialog = page.getByTestId('refund-gmail-recovery-dialog');
+  recorder.assert(
+    'Case-wide recovery requires deliberate customer-address verification',
+    await recoveryDialog.isVisible() &&
+      await recoveryDialog.getByText(/removes the hard-bounce pause from every Gmail conversation/).isVisible() &&
+      await page.getByTestId('refund-gmail-confirm-recovery').isDisabled()
+  );
+  await page.getByTestId('refund-gmail-recovery-verified').click();
+  recorder.assert(
+    'Verified manager can submit one audited all-thread recovery',
+    await page.getByTestId('refund-gmail-confirm-recovery').isEnabled()
+  );
+  await page.getByTestId('refund-gmail-confirm-recovery').click();
+  await recoveryDialog.waitFor({ state: 'hidden', timeout: 5000 });
+  recorder.assert(
+    'Portal recovery uses the authenticated case-wide RPC',
+    rpcCalls.includes('admin_recover_refund_gmail_customer_contact') && !(await recoveryDialog.isVisible()),
+    rpcCalls.join(', ')
   );
 
   const threadMessageBodies = await page

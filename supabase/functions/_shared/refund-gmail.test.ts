@@ -330,6 +330,23 @@ Deno.test("hard bounce requires failed action and permanent 5.x status in one re
   );
 });
 
+Deno.test("an authenticated transient DSN for the exact customer never emits pause-eligible evidence", () => {
+  const transientFailure = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      deliveryStatus:
+        "Final-Recipient: rfc822; customer@example.test\nAction: failed\nStatus: 4.2.0",
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(transientFailure.isBounce, true, "delivery notice classification");
+  assertEquals(transientFailure.isHardBounce, false, "transient failure is not permanent");
+  assertEquals(
+    transientFailure.failedRecipientEmails,
+    [],
+    "transient recipient cannot become database pause evidence",
+  );
+});
+
 Deno.test("hard bounce binds recipient action and status inside the same DSN block", () => {
   const split = inspectRefundGmailParticipantSignals({
     message: buildDsnMessage({

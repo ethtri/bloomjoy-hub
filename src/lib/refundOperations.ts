@@ -412,8 +412,16 @@ export type RefundGmailCaseContext = {
   latestMessageAt?: string;
   automaticCustomerContactPaused: boolean;
   automaticCustomerContactPauseReason: 'hard_bounce' | null;
+  automaticCustomerContactPausedAt: string | null;
+  pausedThreadCount: number;
   messages: RefundGmailMessage[];
   triageSuggestion: RefundGptTriageSuggestion | null;
+};
+
+export type RefundGmailContactRecovery = {
+  recovered: boolean;
+  status: 'recovered' | 'not_paused';
+  clearedThreadCount: number;
 };
 
 export type RefundManagerSetupMachine = {
@@ -1110,8 +1118,37 @@ export const fetchRefundGmailCaseContext = async (
     automaticCustomerContactPaused: context.automaticCustomerContactPaused === true,
     automaticCustomerContactPauseReason:
       context.automaticCustomerContactPauseReason === 'hard_bounce' ? 'hard_bounce' : null,
+    automaticCustomerContactPausedAt:
+      typeof context.automaticCustomerContactPausedAt === 'string'
+        ? context.automaticCustomerContactPausedAt
+        : null,
+    pausedThreadCount: Number.isFinite(Number(context.pausedThreadCount))
+      ? Math.max(0, Number(context.pausedThreadCount))
+      : 0,
     messages: Array.isArray(context.messages) ? context.messages : [],
     triageSuggestion,
+  };
+};
+
+export const recoverRefundGmailCustomerContact = async (
+  caseId: string,
+  verifiedCustomerEmail: string
+): Promise<RefundGmailContactRecovery> => {
+  const { data, error } = await supabaseClient.rpc('admin_recover_refund_gmail_customer_contact', {
+    p_refund_case_id: caseId,
+    p_verified_customer_email: verifiedCustomerEmail,
+    p_confirmation: 'customer_address_verified',
+  });
+  if (error) {
+    throw new Error(error.message || 'Unable to resume automatic customer email.');
+  }
+  const recovery = (data ?? {}) as Partial<RefundGmailContactRecovery>;
+  return {
+    recovered: recovery.recovered === true,
+    status: recovery.status === 'recovered' ? 'recovered' : 'not_paused',
+    clearedThreadCount: Number.isFinite(Number(recovery.clearedThreadCount))
+      ? Math.max(0, Number(recovery.clearedThreadCount))
+      : 0,
   };
 };
 

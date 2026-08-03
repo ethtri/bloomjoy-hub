@@ -42,6 +42,7 @@ import {
   fetchRefundOperationsOverview,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
+  recoverRefundGmailCustomerContact,
   rejectRefundGptTriage,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
@@ -1411,6 +1412,9 @@ export default function AdminRefundsPage() {
   const [isRejectingTriage, setIsRejectingTriage] = useState(false);
   const [triageRejectReason, setTriageRejectReason] = useState('wrong_missing_fields');
   const [triageRejectNote, setTriageRejectNote] = useState('');
+  const [isGmailRecoveryOpen, setIsGmailRecoveryOpen] = useState(false);
+  const [gmailRecoveryVerified, setGmailRecoveryVerified] = useState(false);
+  const [isRecoveringGmailContact, setIsRecoveringGmailContact] = useState(false);
   const forceDemoData = isLocalUatDemoForced();
   const showLegacyCashWorkbench =
     import.meta.env.DEV &&
@@ -1614,6 +1618,40 @@ export default function AdminRefundsPage() {
     setMessageBody(suggestion.draftBody);
     setAppliedTriageSuggestionId(suggestion.id);
   }, [appliedTriageSuggestionId, gmailContext?.triageSuggestion]);
+
+  const handleRecoverGmailCustomerContact = async () => {
+    if (!selectedCase || !gmailRecoveryVerified || isRecoveringGmailContact) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only. Use a seeded local case to test Gmail recovery.');
+      return;
+    }
+
+    setIsRecoveringGmailContact(true);
+    try {
+      const recovery = await recoverRefundGmailCustomerContact(
+        selectedCase.id,
+        selectedCase.customerEmail
+      );
+      setIsGmailRecoveryOpen(false);
+      setGmailRecoveryVerified(false);
+      if (recovery.recovered) {
+        toast.success(
+          `Automatic customer email resumed across ${recovery.clearedThreadCount} linked ${recovery.clearedThreadCount === 1 ? 'thread' : 'threads'}.`
+        );
+      } else {
+        toast.info('Automatic customer email was already active.');
+      }
+      await refresh();
+    } catch (recoveryError) {
+      toast.error(
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : 'Unable to resume automatic customer email.'
+      );
+    } finally {
+      setIsRecoveringGmailContact(false);
+    }
+  };
   const primaryAction = useMemo(
     () => (selectedCase && editor ? primaryActionConfig(selectedCase, editor, nayaxCandidates) : null),
     [editor, nayaxCandidates, selectedCase]
@@ -1664,6 +1702,8 @@ export default function AdminRefundsPage() {
     setIsTriageRejectOpen(false);
     setTriageRejectReason('wrong_missing_fields');
     setTriageRejectNote('');
+    setIsGmailRecoveryOpen(false);
+    setGmailRecoveryVerified(false);
 
   };
 
@@ -4572,8 +4612,22 @@ export default function AdminRefundsPage() {
                             >
                               <p className="font-semibold">Automatic customer email is paused</p>
                               <p className="mt-1">
-                                Gmail reported a hard delivery failure. Check the customer address and original thread before choosing a manual response.
+                                Gmail reported a hard delivery failure. This pause protects every Gmail conversation linked to the case, including newer threads.
                               </p>
+                              <p className="mt-1">
+                                Verify the customer address and original conversation before resuming automation. A manual response remains available for deliberate recovery.
+                              </p>
+                              <Button
+                                data-testid="refund-gmail-open-recovery"
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="mt-3 border-orange-400 bg-white text-orange-950 hover:bg-orange-100"
+                                disabled={isUsingDemoData || isRecoveringGmailContact}
+                                onClick={() => setIsGmailRecoveryOpen(true)}
+                              >
+                                Review and resume automatic email
+                              </Button>
                             </div>
                           )}
                           {gmailContextIsLoading && (
@@ -4728,6 +4782,53 @@ export default function AdminRefundsPage() {
           </div>
         </div>
       </section>
+
+      <AlertDialog
+        open={isGmailRecoveryOpen}
+        onOpenChange={(open) => {
+          if (isRecoveringGmailContact) return;
+          setIsGmailRecoveryOpen(open);
+          if (!open) setGmailRecoveryVerified(false);
+        }}
+      >
+        <AlertDialogContent data-testid="refund-gmail-recovery-dialog" className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Resume automatic customer email?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the hard-bounce pause from every Gmail conversation linked to this refund case. The action is recorded in the case history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
+            <p className="font-medium">Verify before continuing</p>
+            <p className="mt-1">
+              Confirm that {selectedCase?.customerEmail ?? 'the customer address'} is correct and that the original Gmail delivery problem has been reviewed.
+            </p>
+            <label className="mt-3 flex cursor-pointer items-start gap-2">
+              <Checkbox
+                data-testid="refund-gmail-recovery-verified"
+                checked={gmailRecoveryVerified}
+                onCheckedChange={(checked) => setGmailRecoveryVerified(checked === true)}
+                disabled={isRecoveringGmailContact}
+              />
+              <span>I verified the customer address and reviewed the delivery failure.</span>
+            </label>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRecoveringGmailContact}>Keep paused</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="refund-gmail-confirm-recovery"
+              disabled={!gmailRecoveryVerified || isRecoveringGmailContact}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRecoverGmailCustomerContact();
+              }}
+            >
+              {isRecoveringGmailContact && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Resume all linked threads
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
