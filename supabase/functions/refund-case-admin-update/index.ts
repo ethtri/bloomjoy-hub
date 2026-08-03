@@ -712,6 +712,7 @@ serve(async (req) => {
     const expectedOfficialActionVersion = Number(
       body?.expectedOfficialActionVersion,
     );
+    const stepUpIntentId = sanitizeText(body?.stepUpIntentId, 80) || null;
 
     const officialAuthorization = officialAction
       ? await authorizeRefundOfficialAction({
@@ -721,6 +722,8 @@ serve(async (req) => {
         context: {
           caseId,
           action: officialAction,
+          targetFunction: "refund-case-admin-update",
+          stepUpIntentId,
           expectedCaseVersion: expectedOfficialActionVersion,
           targetStatus: requestedStatus,
           targetDecision: requestedDecision,
@@ -897,7 +900,14 @@ serve(async (req) => {
   } catch (error) {
     if (error instanceof RefundOfficialActionAuthorizationError) {
       return jsonResponse(
-        { error: error.message, errorCode: error.code },
+        {
+          error: error.message,
+          errorCode: error.code,
+          stepUpIntentId: error.stepUpIntentId,
+          stepUpExpiresAt: error.stepUpExpiresAt,
+          officialAction: error.action,
+          targetFunction: error.targetFunction,
+        },
         error.status,
       );
     }

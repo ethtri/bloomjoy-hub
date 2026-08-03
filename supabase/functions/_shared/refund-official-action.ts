@@ -6,9 +6,15 @@ export type RefundOfficialAction =
   | "cash_complete"
   | "nayax_execute";
 
+export type RefundOfficialActionTarget =
+  | "refund-case-admin-update"
+  | "nayax-card-refund";
+
 export type RefundOfficialActionContext = {
   caseId: string;
   action: RefundOfficialAction;
+  targetFunction: RefundOfficialActionTarget;
+  stepUpIntentId?: string | null;
   expectedCaseVersion: number;
   targetStatus: string | null;
   targetDecision: string | null;
@@ -36,20 +42,35 @@ export class RefundOfficialActionAuthorizationError extends Error {
   readonly code:
     | "configuration_missing"
     | "mapping_required"
+    | "manager_step_up_required"
     | "manager_verification_required"
     | "official_actions_disabled"
     | "stale_case"
     | "authorization_failed";
+  readonly stepUpIntentId: string | null;
+  readonly stepUpExpiresAt: string | null;
+  readonly action: RefundOfficialAction | null;
+  readonly targetFunction: RefundOfficialActionTarget | null;
 
   constructor(
     message: string,
     status: number,
     code: RefundOfficialActionAuthorizationError["code"],
+    details?: {
+      stepUpIntentId?: string | null;
+      stepUpExpiresAt?: string | null;
+      action?: RefundOfficialAction | null;
+      targetFunction?: RefundOfficialActionTarget | null;
+    },
   ) {
     super(message);
     this.name = "RefundOfficialActionAuthorizationError";
     this.status = status;
     this.code = code;
+    this.stepUpIntentId = details?.stepUpIntentId ?? null;
+    this.stepUpExpiresAt = details?.stepUpExpiresAt ?? null;
+    this.action = details?.action ?? null;
+    this.targetFunction = details?.targetFunction ?? null;
   }
 }
 
@@ -75,7 +96,10 @@ const classifyAuthorizationError = (message: string) => {
       "stale_case",
     );
   }
-  if (normalized.includes("fresh authenticator verification is required")) {
+  if (
+    normalized.includes("fresh authenticator verification is required") ||
+    normalized.includes("new authenticator code entered after reviewing")
+  ) {
     return new RefundOfficialActionAuthorizationError(
       "Verify with your authenticator immediately before taking this official action.",
       403,
@@ -142,24 +166,71 @@ export const authorizeRefundOfficialAction = async ({
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
 
+  const rpcArguments = {
+    p_case_id: context.caseId,
+    p_action: context.action,
+    p_target_function: context.targetFunction,
+    p_expected_case_version: context.expectedCaseVersion,
+    p_target_status: context.targetStatus,
+    p_target_decision: context.targetDecision,
+    p_assigned_manager_email: context.assignedManagerEmail ?? null,
+    p_decision_reason: context.decisionReason ?? null,
+    p_internal_note: context.internalNote ?? null,
+    p_refund_amount_cents: context.refundAmountCents ?? null,
+    p_manual_refund_reference: context.manualRefundReference ?? null,
+    p_cash_payout_sent_at: context.cashPayoutSentAt ?? null,
+    p_cash_payment_confirmed: context.cashPaymentConfirmed === true,
+    p_matched_nayax_candidate_token: context.matchedNayaxCandidateToken ?? null,
+    p_nayax_disagreement_reason: context.nayaxDisagreementReason ?? null,
+  };
+
+  if (!context.stepUpIntentId) {
+    const { data, error } = await userClient.rpc(
+      "admin_prepare_refund_action_step_up_intent",
+      rpcArguments,
+    );
+
+    if (error || !data || typeof data !== "object") {
+      throw classifyAuthorizationError(safeErrorMessage(error?.message));
+    }
+
+    const intent = data as Partial<{
+      intentId: string;
+      action: RefundOfficialAction;
+      targetFunction: RefundOfficialActionTarget;
+      expiresAt: string;
+    }>;
+    if (
+      typeof intent.intentId !== "string" ||
+      intent.action !== context.action ||
+      intent.targetFunction !== context.targetFunction ||
+      typeof intent.expiresAt !== "string"
+    ) {
+      throw new RefundOfficialActionAuthorizationError(
+        "Refund action verification returned an invalid request.",
+        500,
+        "authorization_failed",
+      );
+    }
+
+    throw new RefundOfficialActionAuthorizationError(
+      "Enter a fresh authenticator code to personally authorize this exact action.",
+      428,
+      "manager_step_up_required",
+      {
+        stepUpIntentId: intent.intentId,
+        stepUpExpiresAt: intent.expiresAt,
+        action: intent.action,
+        targetFunction: intent.targetFunction,
+      },
+    );
+  }
+
   const { data, error } = await userClient.rpc(
-    "admin_authorize_refund_official_action",
+    "admin_consume_refund_action_step_up_intent",
     {
-      p_case_id: context.caseId,
-      p_action: context.action,
-      p_expected_case_version: context.expectedCaseVersion,
-      p_target_status: context.targetStatus,
-      p_target_decision: context.targetDecision,
-      p_assigned_manager_email: context.assignedManagerEmail ?? null,
-      p_decision_reason: context.decisionReason ?? null,
-      p_internal_note: context.internalNote ?? null,
-      p_refund_amount_cents: context.refundAmountCents ?? null,
-      p_manual_refund_reference: context.manualRefundReference ?? null,
-      p_cash_payout_sent_at: context.cashPayoutSentAt ?? null,
-      p_cash_payment_confirmed: context.cashPaymentConfirmed === true,
-      p_matched_nayax_candidate_token: context.matchedNayaxCandidateToken ??
-        null,
-      p_nayax_disagreement_reason: context.nayaxDisagreementReason ?? null,
+      p_intent_id: context.stepUpIntentId,
+      ...rpcArguments,
     },
   );
 

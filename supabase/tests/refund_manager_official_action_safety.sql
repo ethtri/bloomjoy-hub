@@ -517,8 +517,8 @@ select ok(
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000001'),
       'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
     )
-  $sql$) like '%Official refund actions are disabled%',
-  'The hard-disabled gate is evaluated before manager step-up or action mutation'
+  $sql$) like '%Action-bound manager step-up intent required%',
+  'The legacy receipt authorizer cannot bypass the action-bound step-up protocol'
 );
 reset role;
 
@@ -547,8 +547,8 @@ select ok(
       '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
     )
-  $sql$) like '%fresh authenticator verification is required%',
-  'AAL1 cannot authorize an official action even with a fresh TOTP-shaped AMR entry'
+  $sql$) like '%Action-bound manager step-up intent required%',
+  'AAL1 cannot use the legacy authorizer even with a TOTP-shaped AMR entry'
 );
 
 select pg_temp.set_auth_claims(
@@ -563,8 +563,8 @@ select ok(
       '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
     )
-  $sql$) like '%fresh authenticator verification is required%',
-  'AAL2 without a TOTP AMR entry cannot authorize an official action'
+  $sql$) like '%Action-bound manager step-up intent required%',
+  'AAL2 without a TOTP AMR entry cannot use the legacy authorizer'
 );
 
 select pg_temp.set_auth_claims(
@@ -579,8 +579,8 @@ select ok(
       '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, 700, null, null, false, null, null
     )
-  $sql$) like '%fresh authenticator verification is required%',
-  'A stale TOTP AMR entry cannot authorize an official action'
+  $sql$) like '%Action-bound manager step-up intent required%',
+  'A stale TOTP AMR entry cannot use the legacy authorizer'
 );
 reset role;
 
@@ -591,15 +591,15 @@ select pg_temp.set_auth_claims(
 );
 select ok(
   pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
-      '79600000-0000-4000-8000-000000000001', 'approve',
+    select public.admin_prepare_refund_action_step_up_intent(
+      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000001'),
       'card_refund_pending', 'approved', null, null, null, 700, null, null, false, null, null
     )
   $sql$) like '%Cash approval must enter the cash refund pending state%'
   and pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
-      '79600000-0000-4000-8000-000000000009', 'approve',
+    select public.admin_prepare_refund_action_step_up_intent(
+      '79600000-0000-4000-8000-000000000009', 'approve', 'refund-case-admin-update',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000009'),
       'cash_zelle_pending', 'approved', null, null, null, 450, null, null, false, null, null
     )
@@ -609,20 +609,95 @@ select ok(
 
 select ok(
   pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
-      '79600000-0000-4000-8000-000000000001', 'approve', 1,
+    select public.admin_prepare_refund_action_step_up_intent(
+      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update', 1,
       'cash_zelle_pending', 'approved', null, null, null, 0, null, null, false, null, null
     )
   $sql$) like '%positive reviewed refund amount%'
   and pg_temp.capture_error($sql$
-    select public.admin_authorize_refund_official_action(
-      '79600000-0000-4000-8000-000000000001', 'approve', 1,
+    select public.admin_prepare_refund_action_step_up_intent(
+      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update', 1,
       'cash_zelle_pending', 'approved', null, null, null, null, null, null, false, null, null
     )
   $sql$) like '%positive reviewed refund amount%',
   'Approve receipts require an exact positive reviewed refund amount'
 );
 reset role;
+
+-- The remaining #689 regression assertions need receipts. Route their legacy
+-- test helper through the new #692 prepare/verify/consume protocol. This
+-- transaction-local replacement rolls back with the test.
+create or replace function public.admin_authorize_refund_official_action(
+  p_case_id uuid,
+  p_action text,
+  p_expected_case_version bigint,
+  p_target_status text default null,
+  p_target_decision text default null,
+  p_assigned_manager_email text default null,
+  p_decision_reason text default null,
+  p_internal_note text default null,
+  p_refund_amount_cents integer default null,
+  p_manual_refund_reference text default null,
+  p_cash_payout_sent_at timestamptz default null,
+  p_cash_payment_confirmed boolean default false,
+  p_matched_nayax_candidate_token uuid default null,
+  p_nayax_disagreement_reason text default null
+)
+returns jsonb
+language plpgsql
+set search_path = public, auth, pg_temp
+as $$
+declare
+  intent jsonb;
+  target_function text := case
+    when lower(btrim(coalesce(p_action, ''))) = 'nayax_execute'
+      then 'nayax-card-refund'
+    else 'refund-case-admin-update'
+  end;
+begin
+  intent := public.admin_prepare_refund_action_step_up_intent(
+    p_case_id,
+    p_action,
+    target_function,
+    p_expected_case_version,
+    p_target_status,
+    p_target_decision,
+    p_assigned_manager_email,
+    p_decision_reason,
+    p_internal_note,
+    p_refund_amount_cents,
+    p_manual_refund_reference,
+    p_cash_payout_sent_at,
+    p_cash_payment_confirmed,
+    p_matched_nayax_candidate_token,
+    p_nayax_disagreement_reason
+  );
+  perform pg_temp.set_auth_claims(
+    auth.uid(),
+    'aal2',
+    'totp',
+    extract(epoch from statement_timestamp() + interval '1 second')
+  );
+  return public.admin_consume_refund_action_step_up_intent(
+    (intent ->> 'intentId')::uuid,
+    p_case_id,
+    p_action,
+    target_function,
+    p_expected_case_version,
+    p_target_status,
+    p_target_decision,
+    p_assigned_manager_email,
+    p_decision_reason,
+    p_internal_note,
+    p_refund_amount_cents,
+    p_manual_refund_reference,
+    p_cash_payout_sent_at,
+    p_cash_payment_confirmed,
+    p_matched_nayax_candidate_token,
+    p_nayax_disagreement_reason
+  );
+end;
+$$;
 
 select ok(
   public.can_perform_refund_official_action(

@@ -505,6 +505,8 @@ serve(async (req) => {
       context: {
         caseId: refundCase.id,
         action: "nayax_execute",
+        targetFunction: "nayax-card-refund",
+        stepUpIntentId: sanitizeText(body?.stepUpIntentId, 80) || null,
         expectedCaseVersion: Number(body?.expectedOfficialActionVersion),
         targetStatus: "card_refund_pending",
         targetDecision: "approved",
@@ -560,7 +562,14 @@ serve(async (req) => {
   } catch (error) {
     if (error instanceof RefundOfficialActionAuthorizationError) {
       return jsonResponse(
-        { error: error.message, errorCode: error.code },
+        {
+          error: error.message,
+          errorCode: error.code,
+          stepUpIntentId: error.stepUpIntentId,
+          stepUpExpiresAt: error.stepUpExpiresAt,
+          officialAction: error.action,
+          targetFunction: error.targetFunction,
+        },
         error.status,
       );
     }

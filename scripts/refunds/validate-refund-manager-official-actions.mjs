@@ -21,9 +21,23 @@ const assert = (condition, message) => {
 const migration = read(
   'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql'
 );
+const stepUpMigration = read(
+  'supabase/migrations/202608030004_refund_manager_action_step_up.sql'
+);
 const authorizationHelper = read(
   'supabase/functions/_shared/refund-official-action.ts'
 );
+const totpHelper = read(
+  'supabase/functions/_shared/refund-manager-totp.ts'
+);
+const stepUpEdge = read(
+  'supabase/functions/refund-manager-action-step-up/index.ts'
+);
+const enrollmentEdge = read(
+  'supabase/functions/refund-manager-totp-enrollment/index.ts'
+);
+const supabaseConfig = read('supabase/config.toml');
+const authPreflight = read('scripts/auth-preflight.mjs');
 const adminUpdate = read(
   'supabase/functions/refund-case-admin-update/index.ts'
 );
@@ -35,6 +49,12 @@ const portal = read('src/pages/admin/Refunds.tsx');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
 const databaseTests = read(
   'supabase/tests/refund_manager_official_action_safety.sql'
+);
+const stepUpDatabaseTests = read(
+  'supabase/tests/refund_manager_action_step_up_safety.sql'
+);
+const totpTests = read(
+  'supabase/functions/_shared/refund-manager-totp.test.ts'
 );
 
 assert(
@@ -59,27 +79,27 @@ assert(
 );
 
 assert(
-  migration.includes('create or replace function public.refund_official_actions_enabled()') &&
-    migration.includes('-- #692 replaces this protocol stub only') &&
-    migration.includes('select false;') &&
-    migration.indexOf('Official refund actions are disabled until manager step-up verification is deployed') <
-      migration.indexOf('A fresh authenticator verification is required for this official action') &&
-    migration.includes("auth.jwt() ->> 'aal' = 'aal2'") &&
-    migration.includes("method ->> 'method' = 'totp'") &&
-    migration.includes("statement_timestamp() - interval '2 minutes'") &&
-    databaseTests.includes('AAL1 cannot authorize an official action') &&
-    databaseTests.includes('AAL2 without a TOTP AMR entry') &&
-    databaseTests.includes('A stale TOTP AMR entry'),
-  'Official actions must stay hard-disabled until #692 and then require AAL2 with a fresh TOTP AMR entry.'
+  stepUpMigration.includes('create or replace function public.refund_official_actions_enabled()') &&
+    stepUpMigration.includes('select false;') &&
+    stepUpMigration.includes('totp_enrollment_enabled boolean not null default false') &&
+    supabaseConfig.includes('[auth.mfa.totp]') &&
+    supabaseConfig.includes('enroll_enabled = false') &&
+    authPreflight.includes("['enroll_enabled = false', 'owner-controlled, closed-by-default TOTP enrollment']") &&
+    stepUpMigration.includes("auth.jwt() ->> 'aal' <> 'aal2'") &&
+    stepUpMigration.includes("method ->> 'method' = 'totp'") &&
+    stepUpMigration.includes("summary.newest_epoch <= extract(epoch from date_trunc('second', p_not_before))") &&
+    stepUpDatabaseTests.includes('AAL1 cannot consume even with a TOTP-shaped AMR') &&
+    stepUpDatabaseTests.includes('AAL2 without TOTP cannot consume') &&
+    stepUpDatabaseTests.includes('A stale login-time TOTP cannot consume'),
+  'Official actions and enrollment must default closed, then require AAL2 with a TOTP proof strictly newer than the exact action intent.'
 );
 
 assert(
-  migration.includes('actor_user_id uuid := auth.uid()') &&
-    migration.includes("auth.role() is distinct from 'authenticated'") &&
-    migration.includes(
-      'create or replace function public.admin_authorize_refund_official_action(\n  p_case_id uuid,\n  p_action text,\n  p_expected_case_version bigint'
-    ),
-  'The browser authorizer must derive the actor from auth.uid() instead of accepting an actor identifier.'
+  stepUpMigration.includes('authenticated_actor_user_id uuid := auth.uid()') &&
+    stepUpMigration.includes("auth.role() is distinct from 'authenticated'") &&
+    stepUpMigration.includes('admin_prepare_refund_action_step_up_intent') &&
+    stepUpMigration.includes('admin_consume_refund_action_step_up_intent'),
+  'The step-up boundary must derive the actor from auth.uid() instead of accepting an actor identifier.'
 );
 
 assert(
@@ -159,9 +179,11 @@ assert(
 assert(
   authorizationHelper.includes("createClient(supabaseUrl, supabaseAnonKey") &&
     authorizationHelper.includes('global: { headers: { Authorization: `Bearer ${accessToken}` } }') &&
-    authorizationHelper.includes('"admin_authorize_refund_official_action"') &&
+    authorizationHelper.includes('"admin_prepare_refund_action_step_up_intent"') &&
+    authorizationHelper.includes('"admin_consume_refund_action_step_up_intent"') &&
+    !authorizationHelper.includes('"admin_authorize_refund_official_action"') &&
     authorizationHelper.includes('p_expected_case_version: context.expectedCaseVersion'),
-  'Edge Functions must mint receipts through the caller\'s browser bearer token and exact reviewed case revision.'
+  'Edge Functions must create and consume action-bound intents through the caller-derived bearer token and exact reviewed case revision.'
 );
 
 assert(
@@ -176,6 +198,35 @@ assert(
 );
 
 assert(
+  stepUpMigration.includes('refund_manager_action_step_up_one_live_actor_idx') &&
+    stepUpMigration.includes('refund_manager_action_step_up_one_use_totp_idx') &&
+    stepUpMigration.includes("statement_timestamp() + interval '2 minutes'") &&
+    stepUpMigration.includes("statement_timestamp() + interval '30 seconds'") &&
+    stepUpMigration.includes('This authenticator verification already authorized a different official action') &&
+    stepUpMigration.includes('Action-bound manager step-up intent required for every official refund action') &&
+    stepUpDatabaseTests.includes('One TOTP verification cannot consume a second intent even with positive clock skew') &&
+    stepUpDatabaseTests.includes('Consumed intent cannot be replayed') &&
+    stepUpDatabaseTests.includes('Changing the exact amount invalidates the intent') &&
+    stepUpDatabaseTests.includes('Manager mapping revision drift invalidates the intent'),
+  'Action-bound step-up must be short-lived, one-use per actor and TOTP proof, replay-safe, and invalidated by payload or authority drift.'
+);
+
+assert(
+  stepUpEdge.includes('verifyRefundManagerTotp') &&
+    stepUpEdge.includes('x-supabase-auth-token') &&
+    stepUpEdge.includes('stepUpIntentId: intentId') &&
+    totpHelper.includes('body: { challenge_id: challengeId, code }') &&
+    totpHelper.includes('cancelRefundManagerTotpEnrollment') &&
+    enrollmentEdge.includes('operation === "cancel"') &&
+    enrollmentEdge.includes('can_enroll_refund_manager_totp_current_user') &&
+    !stepUpEdge.includes('console.log') &&
+    !enrollmentEdge.includes('console.log') &&
+    totpTests.includes('malformed codes fail before any Auth request') &&
+    totpTests.includes("cancelling enrollment removes only the caller's unfinished TOTP factor"),
+  'The trusted Edge flow must keep codes and factor details server-side, support safe enrollment cancellation, and avoid sensitive success logging.'
+);
+
+assert(
   operationsLibrary.includes('canPerformOfficialAction?: boolean') &&
     operationsLibrary.includes("| 'official_actions_disabled'") &&
     operationsLibrary.includes('officialActionVersion?: number') &&
@@ -185,6 +236,11 @@ assert(
     portal.includes('selectedCaseIsReviewOnly || officialActionVersion <= 0') &&
     portal.includes("selectedCaseOfficialActionBlockReason === 'official_actions_disabled'") &&
     portal.includes('Official refund actions remain disabled until the per-action manager authenticator flow is deployed.') &&
+    portal.includes('data-testid="refund-manager-step-up-dialog"') &&
+    portal.includes('Human Machine Manager verification only') &&
+    portal.includes('Do not use an agent-controlled or shared browser') &&
+    portal.includes('Never screenshot, copy, email, or share this QR code') &&
+    portal.includes('Support agents cannot reset or bypass this step') &&
     portal.includes("? 'refund-manager-verification-banner'") &&
     portal.includes(": 'refund-review-only-banner'") &&
     portal.includes('Only a currently mapped Machine Manager can approve, decline, complete, or issue this'),
@@ -215,8 +271,13 @@ assert(
   portalUat.includes("name: 'mapped Super Admin'") &&
     portalUat.includes("name: 'mapped Scoped Admin'") &&
     portalUat.includes('A case with a missing review version cannot inherit the previous case version') &&
-    portalUat.includes('Refund case deep link selects the case without automatically querying Nayax'),
-  'Portal UAT must cover dual-entitlement review-only personas, version reset, and navigation-only deep links.'
+    portalUat.includes('Refund case deep link selects the case without automatically querying Nayax') &&
+    portalUat.includes('Cancelling step-up invalidates the pending intent and takes no official action') &&
+    portalUat.includes('A bad authenticator code leaves the reviewed action pending') &&
+    portalUat.includes('Expired step-up fails before authenticator verification or target execution') &&
+    portalUat.includes('Successful verification submits only the frozen reviewed target, case, and version') &&
+    portalUat.includes('Cancelling supervised enrollment asks the trusted Edge flow to remove the unfinished factor'),
+  'Portal UAT must cover review-only personas, version reset, navigation-only deep links, fresh step-up, cancellation, expiry, bad codes, frozen payloads, and enrollment cleanup.'
 );
 
 console.log('Refund Machine Manager official-action boundary validated.');
