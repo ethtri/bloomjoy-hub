@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-02-portfolio-intake",
-  "sourceGitCommit": "pending",
+  "sourceGitCommit": "0594a82ffc94f2aee557d5c32f3acbc916e932ab",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -33,8 +33,8 @@
     "202607270001_refund_wallet_correction.sql",
     "202608020001_refund_portfolio_wide_intake.sql"
   ],
-  "migrationFilesSha256": "6620f92af1340562d9f71121ab302623683a46fe62bc9fcca12ace4206fa5ca7",
-  "migrationVersionSetSha256": "f469285280329c4af7edf4a659057b49d3a678981d0807f53cbbde33c3da4b1c",
+  "migrationFilesSha256": "133377c067f8cd5c54b360f6a5618239821695bb7b6fb83017c214559051afdf",
+  "migrationVersionSetSha256": "c31f6fc058505357c89451523b9a645c941752690208803a051985248f268371",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-07-22-integrated-gpt-runner",
     "sourceGitCommit": "30c790b3aa85b22d5588e1bdd0b2992eb76c408c",
@@ -52,7 +52,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "e409be80f17379849a1f0da6ad18ac4cf125fba410a62909774dab4f7d7b8386",
+      "sourceSha256": "6aec865a362982f5c8ea10a1a117227e717dcdbe45ee3a782e1c2fdbfb344ae0",
       "production": {
         "version": 7,
         "ezbrSha256": "7484d3a4b92eae16ab7fd6e4e531e4fb73f01f58fd4f88dbbbef18be339b6abb",
