@@ -298,6 +298,10 @@ select is(
   'A safe threading change creates another provider-thread link to the same case'
 );
 
+update public.refund_cases
+set reporting_machine_id = '77300000-0000-4000-8000-000000000001'
+where intake_source = 'gmail';
+
 insert into public.refund_case_messages (
   id,
   refund_case_id,
@@ -372,6 +376,10 @@ select is(
   false,
   'A sent Gmail reply cannot be finalized twice'
 );
+
+update public.refund_cases
+set reporting_machine_id = null
+where intake_source = 'gmail';
 
 select set_config('request.jwt.claim.sub', '77000000-0000-4000-8000-000000000001', true);
 

@@ -736,6 +736,21 @@ begin
   into manager_cc_emails
   from jsonb_array_elements_text(recipient_resolution -> 'managerCcEmails') value;
 
+  -- Customer contact is an owned Machine Manager workflow. Do not create an
+  -- outbound delivery claim unless the send-time mapping yields at least one
+  -- safe current manager recipient. This intentionally suppresses even a
+  -- missing-machine request until routing and ownership are repaired.
+  if recipient_resolution ->> 'status' not in ('resolved', 'resolved_with_exclusions')
+    or cardinality(manager_cc_emails) = 0 then
+    return jsonb_build_object(
+      'linked', true,
+      'claimed', false,
+      'status', 'manager_cc_required',
+      'recipientResolutionStatus', recipient_resolution ->> 'status',
+      'managerCcCount', cardinality(manager_cc_emails)
+    );
+  end if;
+
   select * into latest_message
   from public.refund_gmail_messages
   where gmail_thread_id = thread_row.id

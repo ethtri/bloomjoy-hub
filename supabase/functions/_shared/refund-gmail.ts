@@ -707,6 +707,7 @@ export const sendRefundGmailReply = async ({
     config.mailboxIdentities.map((value) => value.trim().toLowerCase()),
   );
   if (
+    normalizedCc.length === 0 ||
     normalizedCc.length > 3 ||
     ccEmails.some((value) =>
       !isEmail(value.trim().toLowerCase()) ||

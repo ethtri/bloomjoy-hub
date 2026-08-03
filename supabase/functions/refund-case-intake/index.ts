@@ -8,6 +8,7 @@ import {
 } from "../_shared/refund-email.ts";
 import { automaticRefundCustomerContactEnabled } from "../_shared/refund-deterministic-follow-up.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
@@ -1688,7 +1689,9 @@ serve(async (req) => {
           .from("refund_case_messages")
           .update({
             status: "failed",
-            error_message: "customer_email_delivery_failed",
+            error_message: emailError instanceof RefundGmailError
+              ? emailError.code
+              : "customer_email_delivery_failed",
           })
           .eq("id", messageRow.id);
       }

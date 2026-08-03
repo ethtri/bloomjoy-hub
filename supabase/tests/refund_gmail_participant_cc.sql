@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(73);
+select plan(80);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -390,6 +390,44 @@ select is(
   '[]'::jsonb,
   'An over-cap mapping returns no visible manager CC recipients'
 );
+insert into public.refund_case_messages (
+  id, refund_case_id, message_type, status, recipient_email, subject, body
+)
+values
+  (
+    '78650000-0000-4000-8000-000000000010',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'more_info', 'pending', 'customer@example.test', 'Invalid route send',
+    'This customer message must not be claimed while manager routing is invalid.'
+  ),
+  (
+    '78650000-0000-4000-8000-000000000011',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'more_info', 'pending', 'customer@example.test', 'Unresolved route send',
+    'This customer message must not be claimed before the machine is resolved.'
+  ),
+  (
+    '78650000-0000-4000-8000-000000000012',
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    'more_info', 'pending', 'customer@example.test', 'Zero manager route send',
+    'This customer message must not be claimed before a current manager is mapped.'
+  );
+select is(
+  public.service_claim_refund_gmail_outbound_v2(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    '78650000-0000-4000-8000-000000000010', 'participant-invalid-route',
+    'info@bloomjoysweets.com', 'customer@example.test',
+    'This customer message must not be claimed while manager routing is invalid.',
+    array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'], 'manual'
+  ) ->> 'status',
+  'manager_cc_required',
+  'An invalid manager mapping blocks the outbound claim before customer delivery'
+);
+select is(
+  (select count(*)::integer from public.refund_gmail_messages where operation_key = 'participant-invalid-route'),
+  0,
+  'An invalid manager mapping creates no outbound Gmail row'
+);
 
 delete from public.reporting_machine_refund_managers
 where id in (
@@ -553,13 +591,59 @@ select is(
     array['info@bloomjoysweets.com']
   ) ->> 'status',
   'machine_unresolved',
-  'Before machine resolution customer service continues with no manager CC'
+  'Before machine resolution the recipient route is explicitly unresolved'
+);
+select is(
+  public.service_claim_refund_gmail_outbound_v2(
+    (select (result ->> 'caseId')::uuid from first_customer_ingest),
+    '78650000-0000-4000-8000-000000000011', 'participant-unresolved-route',
+    'info@bloomjoysweets.com', 'customer@example.test',
+    'This customer message must not be claimed before the machine is resolved.',
+    array['info@bloomjoysweets.com'], 'manual'
+  ) ->> 'status',
+  'manager_cc_required',
+  'An unresolved machine blocks the outbound claim before customer delivery'
+);
+select is(
+  (select count(*)::integer from public.refund_gmail_messages where operation_key = 'participant-unresolved-route'),
+  0,
+  'An unresolved machine creates no outbound Gmail row'
 );
 update public.refund_cases
 set
   reporting_machine_id = '78630000-0000-4000-8000-000000000001',
   reporting_location_id = '78620000-0000-4000-8000-000000000001',
   incident_at = now() - interval '1 hour', payment_method = 'card', status = 'waiting_on_customer'
+where id = (select (result ->> 'caseId')::uuid from first_customer_ingest);
+
+update public.refund_cases
+set reporting_machine_id = '78630000-0000-4000-8000-000000000002'
+where id = (select (result ->> 'caseId')::uuid from first_customer_ingest);
+create temporary table zero_manager_claim as
+select public.service_claim_refund_gmail_outbound_v2(
+  (select (result ->> 'caseId')::uuid from first_customer_ingest),
+  '78650000-0000-4000-8000-000000000012', 'participant-zero-manager-route',
+  'info@bloomjoysweets.com', 'customer@example.test',
+  'This customer message must not be claimed before a current manager is mapped.',
+  array['info@bloomjoysweets.com'], 'manual'
+) as result;
+select is(
+  (select result ->> 'status' from zero_manager_claim),
+  'manager_cc_required',
+  'A machine with zero active managers blocks the outbound claim before customer delivery'
+);
+select is(
+  (select result ->> 'recipientResolutionStatus' from zero_manager_claim),
+  'no_active_managers',
+  'The blocked zero-manager claim preserves its redacted routing reason'
+);
+select is(
+  (select count(*)::integer from public.refund_gmail_messages where operation_key = 'participant-zero-manager-route'),
+  0,
+  'A zero-manager route creates no outbound Gmail row'
+);
+update public.refund_cases
+set reporting_machine_id = '78630000-0000-4000-8000-000000000001'
 where id = (select (result ->> 'caseId')::uuid from first_customer_ingest);
 
 select public.service_ingest_refund_gmail_message_v2(

@@ -447,6 +447,8 @@ serve(async (req) => {
           ? "Gmail delivery could not be confirmed. Check the original thread before retrying."
           : safeErrorCode === "gmail_automatic_contact_paused"
           ? "Automatic email is paused after a delivery failure. Review the Gmail thread and customer address before sending."
+          : safeErrorCode === "manager_cc_required"
+          ? "Customer email is paused until the case has at least one current active mapped Machine Manager to copy."
           : "Unable to send customer email.",
         errorCode: safeErrorCode,
       }, 502);

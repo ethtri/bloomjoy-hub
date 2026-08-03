@@ -8,6 +8,7 @@ const [
   participantMigration,
   gmailHelper,
   gmailTransport,
+  refundEmail,
   managerNotification,
   syncFunction,
   sendFunction,
@@ -24,6 +25,7 @@ const [
     read('supabase/migrations/202608030003_refund_gmail_participant_cc.sql'),
     read('supabase/functions/_shared/refund-gmail.ts'),
     read('supabase/functions/_shared/refund-gmail-transport.ts'),
+    read('supabase/functions/_shared/refund-email.ts'),
     read('supabase/functions/_shared/refund-manager-notification.ts'),
     read('supabase/functions/refund-gmail-sync/index.ts'),
     read('supabase/functions/refund-case-message-send/index.ts'),
@@ -113,6 +115,10 @@ assert(
   'Hard-bounce detection must require trustworthy DSN evidence and extract failed recipients',
 );
 assert(gmailHelper.includes('Cc: ${safeCc.join(", ")}'), 'Gmail MIME must support visible mapped-manager CC');
+assert(
+  gmailHelper.includes('normalizedCc.length === 0'),
+  'The low-level refund Gmail sender must reject a customer message with no manager CC',
+);
 assert(gmailHelper.includes('threadId: providerThreadId'), 'Gmail sends must pin the original provider thread');
 assert(gmailHelper.includes('internal_case_link_blocked'), 'Customer-visible Gmail must reject internal case links');
 
@@ -197,6 +203,23 @@ assert(
   'Customer, mailbox, revoked, duplicate, malformed, and over-cap mappings must be excluded from manager CC',
 );
 assert(
+  gmailTransport.includes('CUSTOMER_MANAGER_CC_ALLOWED_STATUSES') &&
+    gmailTransport.includes('managerCcEmails.length === 0') &&
+    gmailTransport.includes('"manager_cc_required"') &&
+    gmailTransport.includes('requireRefundCustomerManagerCcResolution'),
+  'Customer delivery must require a resolved nonempty current-manager CC set in both Gmail and transactional paths',
+);
+assert(
+  refundEmail.includes('requireRefundManagerCcEmailsForSend') &&
+    (refundEmail.match(/const managerCcEmails = requireRefundManagerCcEmailsForSend/g) ?? []).length === 2,
+  'Both ordinary and wallet transactional refund helpers must reject empty or invalid manager CC sets',
+);
+assert(
+  !adminUpdate.includes('managerCcEmails: [] as string[]') &&
+    adminUpdate.includes('"customer_message_record_required"'),
+  'Status-action customer delivery cannot bypass the tracked send-time manager resolution path',
+);
+assert(
   gmailTransport.includes('"gmail_link_changed"') &&
     !gmailTransport.includes('if (!claim?.linked) {\n    return { usedGmail: false as const }') &&
     gmailTransport.includes('deliveryKind,') &&
@@ -242,6 +265,14 @@ assert(
     outboundClaim.includes('normalized_delivery_kind = \'automatic\' and case_pause_at is not null') &&
     !outboundClaim.includes('thread_row.automatic_customer_contact_paused_at is not null'),
   'Every automatic outbound claim must lock and enforce hard-bounce pauses across all case-linked threads',
+);
+assert(
+  outboundClaim.includes("recipient_resolution ->> 'status' not in ('resolved', 'resolved_with_exclusions')") &&
+    outboundClaim.includes('cardinality(manager_cc_emails) = 0') &&
+    outboundClaim.includes("'status', 'manager_cc_required'") &&
+    outboundClaim.indexOf("'status', 'manager_cc_required'") <
+      outboundClaim.indexOf('insert into public.refund_gmail_messages'),
+  'The database claim must block unresolved, zero-manager, and invalid routes before creating outbound Gmail state',
 );
 const recoveryStart = participantMigration.indexOf(
   'create or replace function public.admin_recover_refund_gmail_customer_contact',
@@ -339,8 +370,11 @@ assert(
 );
 assert(
   intakeFunction.includes('dispatchRefundCaseGmailReply') &&
-    intakeFunction.includes('cc: gmailDelivery.managerCcEmails'),
-  'Hosted-form customer acknowledgement must resolve and visibly copy the current manager set before transactional delivery',
+    intakeFunction.includes('cc: gmailDelivery.managerCcEmails') &&
+    sendFunction.includes('cc: gmailDelivery.managerCcEmails') &&
+    adminUpdate.includes('managerCcEmails: gmailDelivery.managerCcEmails') &&
+    automationSweep.includes('managerCcEmails: gmailDelivery.managerCcEmails'),
+  'Every transactional refund fallback must receive its nonempty manager CC set from the fail-closed send-time resolver',
 );
 assert(
   !adminUpdate.includes('sendRefundManagerActionNotice') &&
