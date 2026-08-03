@@ -199,6 +199,14 @@ export const extractPlainTextBody = (payload: GmailMessagePart | undefined) => {
 export const getGmailHeader = (headers: GmailHeader[] | undefined, name: string) =>
   (headers ?? []).find((header) => (header.name ?? "").toLowerCase() === name.toLowerCase())?.value?.trim() ?? "";
 
+const getGmailHeaderValues = (
+  headers: GmailHeader[] | undefined,
+  name: string,
+) => (headers ?? [])
+  .filter((header) => (header.name ?? "").toLowerCase() === name.toLowerCase())
+  .map((header) => header.value?.trim() ?? "")
+  .filter(Boolean);
+
 export const parseEmailAddress = (headerValue: string) => {
   const angleMatch = headerValue.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
   const rawEmail = (angleMatch?.[2] ?? headerValue).trim().toLowerCase();
@@ -217,6 +225,107 @@ export type RefundGmailParticipantTrust =
   | "spoof_suspected"
   | "automated";
 
+const authIdentityDomain = (
+  method: "spf" | "dkim" | "dmarc",
+  clause: string,
+) => {
+  const property = method === "spf"
+    ? "smtp\\.mailfrom"
+    : method === "dkim"
+    ? "header\\.(?:i|d)"
+    : "header\\.from";
+  const match = clause.match(
+    new RegExp(`\\b${property}\\s*=\\s*(?:"([^"]+)"|([^\\s;()]+))`, "i"),
+  );
+  const identity = (match?.[1] ?? match?.[2] ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^mailto:/, "")
+    .replace(/[<>"']/g, "")
+    .replace(/\.$/, "");
+  if (!identity) return "";
+  if (identity.startsWith("@")) return identity.slice(1);
+  const atIndex = identity.lastIndexOf("@");
+  return atIndex >= 0 ? identity.slice(atIndex + 1) : identity;
+};
+
+const hasTrustedGoogleDeliveryReporter = ({
+  headers,
+  reporterEmail,
+}: {
+  headers: GmailHeader[] | undefined;
+  reporterEmail: string;
+}) => {
+  const reporterMatch = reporterEmail.match(
+    /^(?:mailer-daemon|postmaster)@(googlemail\.com|gmail\.com)$/,
+  );
+  if (!reporterMatch) return false;
+  const reporterDomain = reporterMatch[1];
+  const receiverResult = getGmailHeaderValues(
+    headers,
+    "Authentication-Results",
+  )[0] ?? "";
+  if (!/^mx\.google\.com\s*;/i.test(receiverResult)) return false;
+
+  let alignedPass = false;
+  let alignedContradiction = false;
+  for (const rawClause of receiverResult.split(";").slice(1)) {
+    const clause = rawClause.trim().toLowerCase();
+    const methodResult = clause.match(
+      /^(spf|dkim|dmarc)\s*=\s*([a-z_]+)\b/i,
+    );
+    if (!methodResult) continue;
+    const method = methodResult[1] as "spf" | "dkim" | "dmarc";
+    const result = methodResult[2];
+    if (authIdentityDomain(method, clause) !== reporterDomain) continue;
+    if (result === "pass") {
+      alignedPass = true;
+    } else if (
+      ["fail", "softfail", "temperror", "permerror"].includes(result)
+    ) {
+      alignedContradiction = true;
+    }
+  }
+  return alignedPass && !alignedContradiction;
+};
+
+export const parsePermanentDsnFailureRecipients = (deliveryStatus: string) => {
+  const permanentFailures = new Set<string>();
+  const normalized = deliveryStatus
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  for (const rawBlock of normalized.split(/\n{2,}/)) {
+    const unfolded = rawBlock.replace(/\n[ \t]+/g, " ");
+    const fields = new Map<string, string[]>();
+    for (const line of unfolded.split("\n")) {
+      const field = line.match(/^([a-z][a-z0-9-]*)\s*:\s*(.*)$/i);
+      if (!field) continue;
+      const key = field[1].toLowerCase();
+      fields.set(key, [...(fields.get(key) ?? []), field[2].trim()]);
+    }
+
+    const actions = fields.get("action") ?? [];
+    const statuses = fields.get("status") ?? [];
+    if (
+      actions.length !== 1 ||
+      statuses.length !== 1 ||
+      !/^failed(?:\s|$)/i.test(actions[0]) ||
+      !/^5\.\d{1,3}\.\d{1,3}(?:\s|$)/.test(statuses[0])
+    ) {
+      continue;
+    }
+
+    const recipientEmails = Array.from(new Set([
+      ...(fields.get("final-recipient") ?? []).flatMap(parseEmailAddressList),
+      ...(fields.get("original-recipient") ?? []).flatMap(parseEmailAddressList),
+    ]));
+    if (recipientEmails.length === 1) {
+      permanentFailures.add(recipientEmails[0]);
+    }
+  }
+  return Array.from(permanentFailures);
+};
+
 export const inspectRefundGmailParticipantSignals = ({
   message,
   mailboxIdentities,
@@ -229,31 +338,26 @@ export const inspectRefundGmailParticipantSignals = ({
   const subject = getGmailHeader(headers, "Subject").toLowerCase();
   const autoSubmitted = getGmailHeader(headers, "Auto-Submitted").toLowerCase();
   const precedence = getGmailHeader(headers, "Precedence").toLowerCase();
-  const authenticationResults = getGmailHeader(headers, "Authentication-Results").toLowerCase();
-  const deliveryStatusPart = (part: GmailMessagePart | undefined): boolean => {
-    if (!part) return false;
-    if ((part.mimeType ?? "").toLowerCase() === "message/delivery-status") return true;
-    return (part.parts ?? []).some(deliveryStatusPart);
-  };
+  const authenticationResults = getGmailHeaderValues(
+    headers,
+    "Authentication-Results",
+  ).join("\n").toLowerCase();
   const deliveryStatusText = findBodyPart(message.payload, "message/delivery-status");
-  const failedRecipientLines = deliveryStatusText.match(
-    /(?:final|original)-recipient\s*:[^\r\n]*/gi,
-  ) ?? [];
-  const failedRecipientEmails = Array.from(new Set([
-    ...parseEmailAddressList(getGmailHeader(headers, "X-Failed-Recipients")),
-    ...failedRecipientLines.flatMap(parseEmailAddressList),
-  ]));
+  const failedRecipientEmails = parsePermanentDsnFailureRecipients(
+    deliveryStatusText,
+  );
   const contentType = getGmailHeader(headers, "Content-Type").toLowerCase();
-  const hasDeliveryStatusEvidence = deliveryStatusPart(message.payload) ||
-    contentType.includes("report-type=delivery-status");
-  const hasAuthenticatedDeliveryReporter =
-    /^(?:mailer-daemon|postmaster)@(?:googlemail\.com|gmail\.com)$/.test(from.email) &&
-    /(?:spf|dkim|dmarc)=pass\b/i.test(authenticationResults);
+  const hasDeliveryStatusEvidence = deliveryStatusText.trim().length > 0;
+  const hasAuthenticatedDeliveryReporter = hasTrustedGoogleDeliveryReporter({
+    headers,
+    reporterEmail: from.email,
+  });
   const isBounce = from.email.startsWith("mailer-daemon@") ||
     from.email.startsWith("postmaster@") ||
     Boolean(getGmailHeader(headers, "X-Failed-Recipients")) ||
     subject.includes("delivery status notification") ||
-    subject.includes("undeliverable");
+    subject.includes("undeliverable") ||
+    contentType.includes("report-type=delivery-status");
   const isAutomated = isBounce ||
     (autoSubmitted !== "" && autoSubmitted !== "no") ||
     ["bulk", "junk", "list"].includes(precedence) ||

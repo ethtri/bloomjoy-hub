@@ -51,6 +51,47 @@ const messageWithHeaders = (headers: Record<string, string>): GmailMessage => ({
 const encodeBody = (value: string) =>
   btoa(value).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 
+const buildDsnMessage = ({
+  from = "mailer-daemon@googlemail.com",
+  authenticationResults =
+    "mx.google.com; spf=pass smtp.mailfrom=mailer-daemon@googlemail.com",
+  deliveryStatus,
+  includeDeliveryStatusPart = true,
+  subject = "Delivery Status Notification (Failure)",
+  xFailedRecipients,
+}: {
+  from?: string;
+  authenticationResults?: string;
+  deliveryStatus: string;
+  includeDeliveryStatusPart?: boolean;
+  subject?: string;
+  xFailedRecipients?: string;
+}): GmailMessage => ({
+  id: "synthetic-dsn",
+  threadId: "synthetic-thread",
+  payload: {
+    mimeType: "multipart/report",
+    headers: [
+      { name: "From", value: from },
+      { name: "Subject", value: subject },
+      {
+        name: "Content-Type",
+        value: "multipart/report; report-type=delivery-status",
+      },
+      { name: "Authentication-Results", value: authenticationResults },
+      ...(xFailedRecipients
+        ? [{ name: "X-Failed-Recipients", value: xFailedRecipients }]
+        : []),
+    ],
+    parts: includeDeliveryStatusPart
+      ? [{
+        mimeType: "message/delivery-status",
+        body: { data: encodeBody(deliveryStatus) },
+      }]
+      : [],
+  },
+});
+
 Deno.test("Gmail address lists are normalized and deduplicated", () => {
   assertEquals(
     parseEmailAddressList(
@@ -175,7 +216,7 @@ Deno.test("only provider SENT evidence can verify a configured mailbox alias", (
   );
 });
 
-Deno.test("hard bounce requires delivery-status evidence and an explicit failed recipient", () => {
+Deno.test("hard bounce accepts receiver-authenticated reporter-aligned permanent DSN evidence", () => {
   const weakBounce = inspectRefundGmailParticipantSignals({
     message: messageWithHeaders({
       From: "mailer-daemon@googlemail.com",
@@ -190,33 +231,15 @@ Deno.test("hard bounce requires delivery-status evidence and an explicit failed 
     "weak bounce cannot pause contact",
   );
 
-  const strongBounce: GmailMessage = {
-    id: "synthetic-dsn",
-    threadId: "synthetic-thread",
-    payload: {
-      mimeType: "multipart/report",
-      headers: [
-        { name: "From", value: "mailer-daemon@googlemail.com" },
-        { name: "Subject", value: "Delivery Status Notification (Failure)" },
-        {
-          name: "Content-Type",
-          value: "multipart/report; report-type=delivery-status",
-        },
-        {
-          name: "Authentication-Results",
-          value: "mx.google.com; spf=pass smtp.mailfrom=googlemail.com",
-        },
-      ],
-      parts: [{
-        mimeType: "message/delivery-status",
-        body: {
-          data: encodeBody(
-            "Final-Recipient: rfc822; customer@example.test\nAction: failed",
-          ),
-        },
-      }],
-    },
-  };
+  const strongBounce = buildDsnMessage({
+    deliveryStatus: [
+      "Reporting-MTA: dns; gmail-smtp-in.l.google.com",
+      "",
+      "Final-Recipient: rfc822; customer@example.test",
+      "Action: failed",
+      "Status: 5.1.1",
+    ].join("\n"),
+  });
   const strongSignals = inspectRefundGmailParticipantSignals({
     message: strongBounce,
     mailboxIdentities: ["info@bloomjoysweets.com"],
@@ -227,6 +250,133 @@ Deno.test("hard bounce requires delivery-status evidence and an explicit failed 
     ["customer@example.test"],
     "failed recipient",
   );
+
+  const alignedDkimDmarc = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      from: "postmaster@gmail.com",
+      authenticationResults:
+        "mx.google.com; spf=none smtp.mailfrom=<>; dkim=pass header.i=@gmail.com; dmarc=pass header.from=gmail.com",
+      deliveryStatus:
+        "Original-Recipient: rfc822; customer@example.test\nAction: failed\nStatus: 5.2.0",
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(
+    alignedDkimDmarc.isHardBounce,
+    true,
+    "aligned DKIM/DMARC reporter proof",
+  );
+});
+
+Deno.test("hard bounce rejects unrelated passes and contradictory Google reporter authentication", () => {
+  const signals = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      authenticationResults:
+        "mx.google.com; spf=fail smtp.mailfrom=mailer-daemon@googlemail.com; dmarc=fail header.from=googlemail.com; dkim=pass header.i=@attacker.test",
+      deliveryStatus:
+        "Final-Recipient: rfc822; customer@example.test\nAction: failed\nStatus: 5.1.1",
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(signals.isHardBounce, false, "contradictory reporter auth");
+});
+
+Deno.test("hard bounce rejects pass evidence from a non-Google authserv-id", () => {
+  const signals = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      authenticationResults:
+        "mail.attacker.test; spf=pass smtp.mailfrom=mailer-daemon@googlemail.com; dkim=pass header.i=@googlemail.com",
+      deliveryStatus:
+        "Final-Recipient: rfc822; customer@example.test\nAction: failed\nStatus: 5.1.1",
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(signals.isHardBounce, false, "untrusted authserv-id");
+});
+
+Deno.test("hard bounce requires failed action and permanent 5.x status in one recipient block", () => {
+  const delayed = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      deliveryStatus:
+        "Final-Recipient: rfc822; customer@example.test\nAction: delayed\nStatus: 4.2.0",
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(delayed.isHardBounce, false, "delayed 4.x result");
+  assertEquals(delayed.failedRecipientEmails, [], "delayed recipient exclusion");
+
+  for (const action of ["delivered", "relayed", "expanded"]) {
+    const nonterminal = inspectRefundGmailParticipantSignals({
+      message: buildDsnMessage({
+        deliveryStatus:
+          `Final-Recipient: rfc822; customer@example.test\nAction: ${action}\nStatus: 5.1.1`,
+      }),
+      mailboxIdentities: ["info@bloomjoysweets.com"],
+    });
+    assertEquals(nonterminal.isHardBounce, false, `${action} action`);
+  }
+
+  const missingPermanentStatus = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      deliveryStatus:
+        "Final-Recipient: rfc822; customer@example.test\nAction: failed\nDiagnostic-Code: smtp; temporary failure",
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(
+    missingPermanentStatus.isHardBounce,
+    false,
+    "failed action without 5.x status",
+  );
+});
+
+Deno.test("hard bounce binds recipient action and status inside the same DSN block", () => {
+  const split = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      deliveryStatus: [
+        "Final-Recipient: rfc822; customer@example.test",
+        "Action: delayed",
+        "Status: 4.2.0",
+        "",
+        "Final-Recipient: rfc822; other@example.test",
+        "Action: failed",
+        "Status: 5.1.1",
+      ].join("\n"),
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(
+    split.failedRecipientEmails,
+    ["other@example.test"],
+    "only the permanently failed block recipient",
+  );
+
+  const wrongRecipient = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      deliveryStatus:
+        "Final-Recipient: rfc822; wrong@example.test\nAction: failed\nStatus: 5.1.1",
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(
+    wrongRecipient.failedRecipientEmails,
+    ["wrong@example.test"],
+    "wrong failed recipient remains distinguishable for exact-case matching",
+  );
+});
+
+Deno.test("hard bounce rejects subject, X-Failed-Recipients, and report-type without a DSN body", () => {
+  const signals = inspectRefundGmailParticipantSignals({
+    message: buildDsnMessage({
+      deliveryStatus: "",
+      includeDeliveryStatusPart: false,
+      xFailedRecipients: "customer@example.test",
+    }),
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  assertEquals(signals.isBounce, true, "weak delivery notice classification");
+  assertEquals(signals.isHardBounce, false, "weak delivery evidence");
+  assertEquals(signals.failedRecipientEmails, [], "header-only recipient exclusion");
 });
 
 Deno.test("forwarded and spoof-suspected messages never look like direct customer replies", () => {
