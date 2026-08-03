@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-07-27-wallet-correction",
-  "sourceGitCommit": "433c7d7da702907c2919f2f98e3e6c79f64e54f6",
+  "releaseId": "refund-ops-2026-08-02-portfolio-intake",
+  "sourceGitCommit": "pending",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -30,7 +30,8 @@
     "202607220001_refund_gpt_triage_runner.sql",
     "202607260001_refund_qr_claim_context.sql",
     "202607260002_refund_qr_aware_nayax_recommendation.sql",
-    "202607270001_refund_wallet_correction.sql"
+    "202607270001_refund_wallet_correction.sql",
+    "202608020001_refund_portfolio_wide_intake.sql"
   ],
   "migrationFilesSha256": "6620f92af1340562d9f71121ab302623683a46fe62bc9fcca12ace4206fa5ca7",
   "migrationVersionSetSha256": "f469285280329c4af7edf4a659057b49d3a678981d0807f53cbbde33c3da4b1c",

@@ -297,6 +297,7 @@ Admin > Machines Machine Manager UAT:
 - Machine Manager changes autosave immediately. There is no separate `Save Machine Managers` button.
 - After adding or removing a manager, confirm the status changes to `Saved`, close the sheet, and confirm the manager email is visible in the machine row.
 - The bottom `Save machine changes` button saves machine identity plus customer-refund setup fields. Machine Manager assignment autosaves separately when a person is added or removed.
+- Active Commercial/Mini machines with active customer-safe locations appear on the public refund form automatically. The refund automation switch controls manager/Nayax readiness only; turning it off must not remove the machine from public intake.
 
 Partner Technician Access UAT:
 - Start the app with `npm run dev:uat`.

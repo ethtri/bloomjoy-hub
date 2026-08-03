@@ -39,7 +39,7 @@ The versioned rules in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` are authoritative
 ## Target customer flow
 
 1. The customer scans the QR code attached to the machine.
-2. Bloomjoy resolves an opaque QR identifier to one refund-enabled machine and records the server time.
+2. Bloomjoy resolves an opaque QR identifier to one active portfolio machine and records the server time. Manager/Nayax automation readiness is evaluated separately.
 3. The refund form shows the machine/location so the customer can confirm they scanned the correct code.
 4. The customer enters the approximate purchase time, amount, payment method, and last four.
 5. Apple Pay/mobile-wallet customers enter the virtual last four displayed in their wallet, not the physical-card last four.

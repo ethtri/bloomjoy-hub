@@ -56,7 +56,7 @@ values
     'Refund QR machine one',
     'commercial',
     'active',
-    true,
+    false,
     'Refund QR machine one'
   ),
   (

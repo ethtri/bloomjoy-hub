@@ -321,7 +321,7 @@ After deploying the eight Refund Operations functions:
 
 1. Run the no-auth, no-body route smoke. It sends only `OPTIONS`, creates no case, sends no email, and makes no Nayax/OpenAI/Gmail provider request:
    - `npm run refunds:smoke-routes -- --project-ref <project-ref> --confirm-project-ref <project-ref>`
-2. Run the aggregate-only public-options smoke. It fails when an internal `Unmapped`/`Unknown` label, duplicate machine/display row, or missing Atlanta/DC/Seattle option remains and never prints machine/location identifiers:
+2. Run the aggregate-only public-options smoke. It fails when the public option count does not equal the active eligible Commercial/Mini portfolio, any portfolio option is missing, an internal `Unmapped`/`Unknown` label or duplicate machine/display row remains, or Atlanta/DC/Seattle is missing. It never prints machine/location identifiers:
    - `npm run refunds:smoke-public-options -- --project-ref <project-ref> --confirm-project-ref <project-ref>`
 3. Run the aggregate-only Nayax mapping smoke. It confirms every active refund-intake machine has one non-duplicate account/machine mapping, one to three active managers, and a location timezone while live execution stays off. The SELECT-only audit prints no identifiers, writes no records, makes no provider call, and does not replace the later transaction-lookup or controlled-execution evidence:
    - `npm run refunds:smoke-nayax-mapping -- --project-ref <project-ref> --confirm-project-ref <project-ref>`

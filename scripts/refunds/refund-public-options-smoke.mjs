@@ -12,7 +12,9 @@ const linkedProjectRefPath = path.join(repoRoot, 'supabase', '.temp', 'project-r
 
 const RESULT_KEYS = [
   'read_only',
+  'active_portfolio_machine_count',
   'public_option_count',
+  'missing_portfolio_option_count',
   'unsafe_internal_label_count',
   'atlanta_option_count',
   'dc_option_count',
@@ -22,13 +24,36 @@ const RESULT_KEYS = [
 ];
 
 export const PUBLIC_OPTIONS_QUERY = `
-with options as (
+with eligible_portfolio as (
+  select machine.id as machine_id
+  from public.reporting_machines machine
+  join public.reporting_locations location on location.id = machine.location_id
+  where machine.status = 'active'
+    and machine.machine_type in ('commercial', 'mini')
+    and location.status = 'active'
+    and (
+      not (
+        lower(trim(location.name)) like 'unmapped %'
+        or lower(trim(location.name)) like 'unknown %'
+        or lower(trim(location.name)) in ('unmapped', 'unknown')
+      )
+      or nullif(trim(machine.refund_public_display_label), '') is not null
+    )
+),
+options as (
   select *
   from public.public_refund_machine_options()
 )
 select
   true as read_only,
+  (select count(*)::integer from eligible_portfolio) as active_portfolio_machine_count,
   count(*)::integer as public_option_count,
+  (
+    select count(*)::integer
+    from eligible_portfolio portfolio
+    left join options option on option.machine_id = portfolio.machine_id
+    where option.machine_id is null
+  ) as missing_portfolio_option_count,
   count(*) filter (
     where lower(coalesce(machine_label, '') || ' ' || coalesce(location_name, ''))
       ~ '(unmapped|unknown)'
@@ -94,7 +119,7 @@ export function parseArgs(argv) {
 function printHelp() {
   console.log(`Refund public-options production smoke (aggregate-only)
 
-Run after deploying the approved public-label migration:
+Run after deploying the approved portfolio-intake migration and intake function:
   npm run refunds:smoke-public-options -- --project-ref <ref> --confirm-project-ref <ref>
 
 Use --allow-not-ready only to capture a pre-deployment baseline. The query is
@@ -128,7 +153,10 @@ export function validateAggregateRow(row) {
 
 export function determineReadiness(row) {
   const checks = {
-    hasPublicOptions: row.public_option_count >= 3,
+    hasPublicOptions: row.public_option_count >= 1,
+    fullPortfolioCoverage:
+      row.missing_portfolio_option_count === 0 &&
+      row.public_option_count === row.active_portfolio_machine_count,
     noInternalLabels: row.unsafe_internal_label_count === 0,
     atlantaPresent: row.atlanta_option_count >= 1,
     dcPresent: row.dc_option_count >= 1,
@@ -180,7 +208,9 @@ function printAggregate(row, projectRef) {
   console.log('Refund public-options production smoke');
   console.log(`Project ref: ${projectRef}`);
   console.log('Read-only query: yes');
+  console.log(`Active portfolio machines: ${row.active_portfolio_machine_count}`);
   console.log(`Public options: ${row.public_option_count}`);
+  console.log(`Missing portfolio options: ${row.missing_portfolio_option_count}`);
   console.log(`Unsafe internal labels: ${row.unsafe_internal_label_count}`);
   console.log(`Atlanta options: ${row.atlanta_option_count}`);
   console.log(`DC options: ${row.dc_option_count}`);
