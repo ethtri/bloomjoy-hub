@@ -206,12 +206,35 @@ assert(
     participantMigration.includes("if participant_role = 'customer' then"),
   'Manager and unknown replies must not enter customer state or GPT inbound processing',
 );
+const customerClassificationIndex = participantMigration.indexOf(
+  "and normalized_sender_email = lower(btrim(case_row.customer_email)) then",
+);
+const managerClassificationIndex = participantMigration.indexOf(
+  "manager.reporting_machine_id = case_row.reporting_machine_id",
+  customerClassificationIndex,
+);
+assert(
+  customerClassificationIndex >= 0 &&
+    managerClassificationIndex > customerClassificationIndex &&
+    participantMigration.includes("case_row.id is null and exists ("),
+  'The exact case customer must outrank a conflicting active manager mapping in linked and referenced threads',
+);
 assert(
   participantMigration.includes('automatic_customer_contact_paused_at') &&
     participantMigration.includes('coalesce(p_is_hard_bounce, false)') &&
     participantMigration.includes('any(normalized_failed_recipient_emails)') &&
     participantMigration.includes("'automatic_contact_paused'"),
   'Only a trusted hard bounce for the exact case customer may pause subsequent automatic contact',
+);
+assert(
+  gmailHelper.includes('parsePermanentDsnFailureRecipients') &&
+    gmailHelper.includes('/^mx\\.google\\.com\\s*;/i') &&
+    gmailHelper.includes('authIdentityDomain(method, clause) !== reporterDomain') &&
+    gmailHelper.includes('["fail", "softfail", "temperror", "permerror"]') &&
+    gmailHelper.includes('!/^failed(?:\\s|$)/i') &&
+    gmailHelper.includes('!/^5\\.\\d{1,3}\\.\\d{1,3}(?:\\s|$)/') &&
+    !gmailHelper.includes('...parseEmailAddressList(getGmailHeader(headers, "X-Failed-Recipients"))'),
+  'Hard-bounce evidence must bind trusted Google reporter auth and permanent action/status to one DSN recipient block',
 );
 assert(
   participantMigration.includes('recipient_cc_emails = \'{}\'::text[]') &&

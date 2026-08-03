@@ -291,14 +291,7 @@ begin
     if requested_direction <> 'inbound'
       or coalesce(p_is_bounce, false)
       or normalized_trust <> 'direct_human'
-      or normalized_sender_email = any(mailbox_identities)
-      or exists (
-        select 1
-        from public.reporting_machine_refund_managers manager
-        where manager.status = 'active'
-          and manager.revoked_at is null
-          and lower(btrim(manager.manager_email)) = normalized_sender_email
-      ) then
+      or normalized_sender_email = any(mailbox_identities) then
       return jsonb_build_object('created', false, 'skipped', true, 'reason', 'unlinked_non_customer_message');
     end if;
     if not public.refund_email_address_is_valid(normalized_sender_email) then
@@ -312,6 +305,16 @@ begin
         and lower(customer_email) = normalized_sender_email
       order by created_at desc
       limit 1;
+    end if;
+
+    if case_row.id is null and exists (
+      select 1
+      from public.reporting_machine_refund_managers manager
+      where manager.status = 'active'
+        and manager.revoked_at is null
+        and lower(btrim(manager.manager_email)) = normalized_sender_email
+    ) then
+      return jsonb_build_object('created', false, 'skipped', true, 'reason', 'unlinked_non_customer_message');
     end if;
 
     if case_row.id is null then
@@ -387,6 +390,11 @@ begin
     participant_role := 'automated_system';
     stored_direction := 'system';
     stored_trust := 'automated';
+  elsif normalized_trust = 'direct_human'
+    and normalized_sender_email = lower(btrim(case_row.customer_email)) then
+    participant_role := 'customer';
+    stored_direction := 'inbound';
+    stored_trust := 'verified';
   elsif normalized_trust = 'direct_human' and exists (
     select 1
     from public.reporting_machine_refund_managers manager
@@ -397,11 +405,6 @@ begin
   ) then
     participant_role := 'assigned_manager';
     stored_direction := 'system';
-    stored_trust := 'verified';
-  elsif normalized_trust = 'direct_human'
-    and normalized_sender_email = lower(btrim(case_row.customer_email)) then
-    participant_role := 'customer';
-    stored_direction := 'inbound';
     stored_trust := 'verified';
   else
     participant_role := 'unknown';

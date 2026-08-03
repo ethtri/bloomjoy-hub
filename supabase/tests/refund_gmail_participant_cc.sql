@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(49);
+select plan(53);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -172,6 +172,52 @@ select is(
   1,
   'Manager correspondence creates one redacted manager event'
 );
+
+insert into public.reporting_machine_refund_managers (
+  id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason
+)
+values (
+  '78640000-0000-4000-8000-000000000007', '78630000-0000-4000-8000-000000000001',
+  '78600000-0000-4000-8000-000000000003', 'customer@example.test', 'active',
+  'Synthetic customer-address mapping drift'
+);
+select public.service_ingest_refund_gmail_message_v2(
+  repeat('c', 64), 'participant-thread', 'participant-customer-mapping-drift',
+  '<participant-customer-mapping-drift@example.test>', '<participant-customer-1@example.test>',
+  'inbound', false, 'customer@example.test', 'Synthetic Customer', 'info@bloomjoysweets.com',
+  'Re: Refund request', 'The exact case customer is replying directly.', false,
+  now() - interval '14 minutes 55 seconds', null, '[]'::jsonb, '{}'::text[],
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'], 'direct_human',
+  false, false, '{}'::text[]
+);
+select is(
+  (select participant_role from public.refund_gmail_messages where provider_message_id = 'participant-customer-mapping-drift'),
+  'customer',
+  'The exact case customer wins over a conflicting active manager mapping'
+);
+select is(
+  (select direction from public.refund_gmail_messages where provider_message_id = 'participant-customer-mapping-drift'),
+  'inbound',
+  'A customer address affected by manager-mapping drift remains customer evidence'
+);
+select is(
+  (select status from public.refund_cases where id = (select (result ->> 'caseId')::uuid from first_customer_ingest)),
+  'needs_review',
+  'The exact customer reply clears waiting-on-customer despite mapping drift'
+);
+select is(
+  (select automation_state from public.refund_cases where id = (select (result ->> 'caseId')::uuid from first_customer_ingest)),
+  'customer_replied',
+  'The exact customer reply triggers customer-replied automation state despite mapping drift'
+);
+delete from public.reporting_machine_refund_managers
+where id = '78640000-0000-4000-8000-000000000007';
+update public.refund_cases
+set
+  status = 'waiting_on_customer',
+  automation_state = 'more_info_needed',
+  automation_follow_up_due_at = now() + interval '2 days'
+where id = (select (result ->> 'caseId')::uuid from first_customer_ingest);
 
 select public.service_ingest_refund_gmail_message_v2(
   repeat('c', 64), 'participant-thread', 'participant-manager-forwarded', '<participant-manager-forwarded@example.test>',
