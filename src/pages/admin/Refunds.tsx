@@ -105,11 +105,6 @@ const customerMessageOptions: Array<{
     helper: 'Use only when the case is missing specific structured purchase details.',
   },
   {
-    value: 'no_safe_match',
-    label: 'No safe match found',
-    helper: 'Use after a complete case was checked and no single transaction can be matched safely.',
-  },
-  {
     value: 'status_update',
     label: 'Send status update',
     helper: 'Use when review is still moving and you want to reassure the customer.',
@@ -420,10 +415,20 @@ const isMissingRefundLabel = (value: string | null | undefined) => {
 
 const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
   const missing: RefundMissingField[] = [];
-  if (isMissingRefundLabel(refundCase.machineLabel) || isMissingRefundLabel(refundCase.locationName)) {
+  if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
     missing.push('location_or_machine');
   }
-  if (!refundCase.incidentAt) missing.push('incident_date', 'incident_time');
+  const structuredIncidentAt = typeof refundCase.structuredIncidentAt === 'undefined'
+    ? refundCase.incidentAt
+    : refundCase.structuredIncidentAt;
+  const incidentAtIsStructured = Boolean(structuredIncidentAt);
+  if (!incidentAtIsStructured) missing.push('incident_date');
+  if (
+    !incidentAtIsStructured
+    || !['exact', 'legacy_absolute'].includes(refundCase.incidentTimeResolution ?? '')
+  ) {
+    missing.push('incident_time');
+  }
   if (!['card', 'cash'].includes(refundCase.paymentMethod ?? '')) missing.push('payment_method');
   if (!Number.isInteger(refundCase.paymentAmountCents) || Number(refundCase.paymentAmountCents) <= 0) {
     missing.push('amount');
@@ -994,6 +999,13 @@ const primaryActionConfig = (
 ): PrimaryActionConfig => {
   const latestMessage = getLatestCustomerMessage(refundCase);
   if (latestMessage?.status === 'failed') {
+    if (latestMessage.deliveryKind === 'automatic' || latestMessage.messageType === 'no_safe_match') {
+      return {
+        label: 'Manager review required',
+        helper: 'The automatic customer message did not complete. Review the Gmail thread and case evidence before taking another step; automatic messages are not retried from the portal.',
+        disabled: true,
+      };
+    }
     return {
       label: 'Retry customer email',
       helper: `The last ${statusLabel(latestMessage.messageType)} email failed. Retry it before treating the customer as contacted.`,
@@ -1050,14 +1062,19 @@ const primaryActionConfig = (
 
   if (waitingOnCustomer || noMatch) {
     const canAskForExactMissingFields = missingFields.length > 0;
+    if (!canAskForExactMissingFields) {
+      return {
+        label: 'Manager review required',
+        helper: 'No structured purchase detail is missing. A no-safe-match message may be sent only by the bounded automatic workflow after fresh server evidence.',
+        disabled: true,
+      };
+    }
     return {
-      label: canAskForExactMissingFields ? 'Ask for missing details' : 'Explain that no safe match was found',
-      helper: canAskForExactMissingFields
-        ? 'Ask only for the specific structured details that are absent from this case.'
-        : 'Restate the safe case facts and invite corrections without blaming the customer or promising a refund.',
+      label: 'Ask for missing details',
+      helper: 'Ask only for the specific structured details that are absent from this case.',
       targetStatus: 'waiting_on_customer',
       targetDecision: null,
-      messageType: canAskForExactMissingFields ? 'more_info' : 'no_safe_match',
+      messageType: 'more_info',
       mode: 'case_update',
     };
   }
@@ -1165,17 +1182,8 @@ const getCustomerMessageDraft = (
           'Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.',
           missingFieldList.length > 0
             ? ['Please reply with only the missing details below:', '', ...missingFieldList].join('\n')
-            : 'No additional detail is selected. Use the no-safe-match update instead.',
+            : 'No specific missing detail is available to request. Please return to manager review before contacting the customer.',
           'Please do not send a full card number, security code, expiration date, PIN, password, wallet digits, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.',
-        ].join('\n\n'),
-      };
-    case 'no_safe_match':
-      return {
-        subject: `A careful check of your Bloomjoy refund request ${refundCase.publicReference}`,
-        body: [
-          'Thank you for the details you shared. We checked the available machine transaction records carefully, but we could not identify one transaction that we can safely match to your request yet. This does not mean you did anything wrong.',
-          'Please reply only if the machine or location, purchase date or approximate time, amount, or payment method in the case details needs a correction.',
-          'Please do not send a full card number, security code, expiration date, PIN, password, wallet digits, or screenshot. We will take another careful look after any correction, and a person will review the case if there still is not one clear match.',
         ].join('\n\n'),
       };
     case 'approved':
@@ -2202,19 +2210,20 @@ export default function AdminRefundsPage() {
       .reverse()
       .find((message) => message.direction === 'inbound' && message.kind === 'message');
     const triageSuggestion = gmailContext?.triageSuggestion ?? null;
-    const triageDraftReady =
+    const triageDraftCandidate =
       triageSuggestion?.status === 'ready_for_review' &&
       triageSuggestion.route === 'draft_reply' &&
       !triageSuggestion.contentDeleted;
+    const triageDraftReady = triageDraftCandidate && triageSuggestion.missingFields.length > 0;
     const triageNeedsHuman =
-      triageSuggestion?.route === 'human_review' &&
-      ['human_review', 'ready_for_review'].includes(triageSuggestion.status);
+      (
+        triageSuggestion?.route === 'human_review' &&
+        ['human_review', 'ready_for_review'].includes(triageSuggestion.status)
+      ) || (triageDraftCandidate && triageSuggestion.missingFields.length === 0);
     const missingDetails = triageDraftReady
       ? triageSuggestion.missingFields.map((field) => gptMissingFieldLabels[field] ?? statusLabel(field))
       : derivePortalRefundMissingFields(selectedCase).map((field) => missingFieldCustomerLabel[field]);
-    const draftFollowUpType: RefundCustomerPortalMessageType = missingDetails.length > 0
-      ? 'more_info'
-      : 'no_safe_match';
+    const draftFollowUpType: RefundCustomerPortalMessageType = 'more_info';
 
     return (
       <div data-testid="refund-gmail-draft-workbench" className="space-y-4">
@@ -2240,7 +2249,7 @@ export default function AdminRefundsPage() {
                     : 'This request is safely linked to its Gmail conversation, but it is not ready for transaction matching or a refund decision yet.'}
               </p>
             </div>
-            {!triageNeedsHuman && !triageDraftReady && (
+            {!triageNeedsHuman && !triageDraftReady && missingDetails.length > 0 && (
               <Button
                 type="button"
                 data-testid="refund-gmail-ask-for-details"
@@ -2744,8 +2753,10 @@ export default function AdminRefundsPage() {
       !primaryAction ||
       primaryAction.disabled === true ||
       primaryActionIssues.length > 0;
+    const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
+      if (!canAskForCustomerDetails) return;
       setEditor((current) =>
         current
           ? {
@@ -2756,9 +2767,7 @@ export default function AdminRefundsPage() {
             }
           : current
       );
-      handleMessageTypeChange(
-        derivePortalRefundMissingFields(selectedCase).length > 0 ? 'more_info' : 'no_safe_match',
-      );
+      handleMessageTypeChange('more_info');
     };
 
     const chooseDenial = () => {
@@ -3008,7 +3017,7 @@ export default function AdminRefundsPage() {
             <details className="text-sm sm:text-right">
               <summary className="cursor-pointer font-medium text-muted-foreground">Other decisions</summary>
               <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
-                {primaryAction?.label !== 'Ask customer for details' && (
+                {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseCustomerFollowUp}>
                     Ask customer for details
                   </Button>
@@ -3127,8 +3136,10 @@ export default function AdminRefundsPage() {
       primaryAction.disabled === true ||
       primaryActionIssues.length > 0;
     const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
+    const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
+      if (!canAskForCustomerDetails) return;
       setEditor((current) =>
         current
           ? {
@@ -3140,9 +3151,7 @@ export default function AdminRefundsPage() {
             }
           : current
       );
-      handleMessageTypeChange(
-        derivePortalRefundMissingFields(selectedCase).length > 0 ? 'more_info' : 'no_safe_match',
-      );
+      handleMessageTypeChange('more_info');
     };
 
     const chooseApproval = () => {
@@ -3459,7 +3468,7 @@ export default function AdminRefundsPage() {
                     Approve refund
                   </Button>
                 )}
-                {!['more_info', 'no_safe_match'].includes(primaryAction?.messageType ?? '') && (
+                {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" variant="outline" size="sm" onClick={chooseCustomerFollowUp} disabled={isUsingDemoData}>
                     Ask customer for details
                   </Button>
@@ -4259,7 +4268,8 @@ export default function AdminRefundsPage() {
                           </p>
                           <p className="mt-1 text-sm text-muted-foreground">{primaryAction.helper}</p>
                           <div className="mt-3 flex flex-wrap gap-2">
-                            {!['more_info', 'no_safe_match'].includes(primaryAction.messageType ?? '') && (
+                            {derivePortalRefundMissingFields(selectedCase).length > 0
+                              && primaryAction.messageType !== 'more_info' && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -4276,11 +4286,7 @@ export default function AdminRefundsPage() {
                                         }
                                       : current
                                   );
-                                  handleMessageTypeChange(
-                                    derivePortalRefundMissingFields(selectedCase).length > 0
-                                      ? 'more_info'
-                                      : 'no_safe_match',
-                                  );
+                                  handleMessageTypeChange('more_info');
                                 }}
                               >
                                 Ask customer instead

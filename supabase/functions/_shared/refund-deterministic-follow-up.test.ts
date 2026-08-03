@@ -43,6 +43,7 @@ Deno.test("missing fields are exact, ordered, and never request wallet digits by
     reportingMachineId: "machine",
     reportingLocationId: "location",
     incidentAt: "2026-08-03T12:00:00Z",
+    incidentTimeResolution: "exact",
     paymentMethod: "card",
     paymentAmountCents: 725,
     cardLast4: null,
@@ -50,6 +51,32 @@ Deno.test("missing fields are exact, ordered, and never request wallet digits by
   });
   assert(wallet.requiresSecureWalletCorrection, "wallet mismatch must use the secure flow");
   assert(!wallet.missingFields.includes("card_last4"), "wallet digits must not be requested by email");
+
+  const approximateTime = deriveRefundMissingFields({
+    reportingMachineId: "machine",
+    reportingLocationId: "location",
+    incidentAt: "2026-08-03T12:00:00Z",
+    incidentTimeResolution: "date_only",
+    paymentMethod: "cash",
+    paymentAmountCents: 725,
+  });
+  assert(
+    JSON.stringify(approximateTime.missingFields) === JSON.stringify(["incident_time"]),
+    "a stored date without a resolved purchase time must still request the time",
+  );
+
+  const locationOnly = deriveRefundMissingFields({
+    reportingMachineId: null,
+    reportingLocationId: "location",
+    incidentAt: "2026-08-03T12:00:00Z",
+    incidentTimeResolution: "exact",
+    paymentMethod: "cash",
+    paymentAmountCents: 725,
+  });
+  assert(
+    !locationOnly.missingFields.includes("location_or_machine"),
+    "a known machine or a known Bloomjoy location must satisfy the customer-facing location fact",
+  );
 });
 
 Deno.test("complete facts have no missing-field request", () => {
@@ -57,6 +84,7 @@ Deno.test("complete facts have no missing-field request", () => {
     reportingMachineId: "machine",
     reportingLocationId: "location",
     incidentAt: "2026-08-03T12:00:00Z",
+    incidentTimeResolution: "exact",
     paymentMethod: "card",
     paymentAmountCents: 725,
     cardLast4: "4242",

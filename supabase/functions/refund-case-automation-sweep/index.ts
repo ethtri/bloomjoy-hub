@@ -58,6 +58,22 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
     })
   : null;
 
+const automaticCustomerContactAllowed = async () => {
+  if (!automaticCustomerContactEnabled || !supabase) return false;
+  const { data, error } = await supabase
+    .from("refund_customer_contact_settings")
+    .select("automatic_customer_contact_enabled")
+    .eq("singleton", true)
+    .maybeSingle();
+  if (error) {
+    console.error("refund automatic customer-contact gate unavailable", {
+      errorType: typeof error.code === "string" ? error.code : "database_error",
+    });
+    return false;
+  }
+  return data?.automatic_customer_contact_enabled === true;
+};
+
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -160,6 +176,7 @@ type RefundSweepCase = {
   refund_amount_cents: number | null;
   incident_at: string | null;
   incident_local_datetime: string | null;
+  incident_time_resolution: string | null;
   created_at: string;
   wallet_correction_state: string;
   wallet_correction_version: number;
@@ -205,6 +222,7 @@ type SweepCounters = {
 type ClaimedAction = {
   actionId: string | null;
   claimed: boolean;
+  status: string | null;
 };
 
 type RefundAutomationHealth = {
@@ -294,6 +312,7 @@ const caseSelect = `
   refund_amount_cents,
   incident_at,
   incident_local_datetime,
+  incident_time_resolution,
   created_at,
   wallet_correction_state,
   wallet_correction_version,
@@ -345,7 +364,7 @@ const claimAction = async (
     p_policy_window_start: policyWindowStart,
   });
   if (error) throw error;
-  const result = data as { actionId?: string; claimed?: boolean };
+  const result = data as { actionId?: string; claimed?: boolean; status?: string };
   if (result.claimed === true) {
     counters.actionsAttempted += 1;
   } else {
@@ -355,6 +374,7 @@ const claimAction = async (
   return {
     actionId: typeof result.actionId === "string" ? result.actionId : null,
     claimed: result.claimed === true,
+    status: typeof result.status === "string" ? result.status : null,
   };
 };
 
@@ -572,7 +592,7 @@ const sendDeterministicFollowUpMessage = async (
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
 ) => {
-  if (!automaticCustomerContactEnabled) {
+  if (!(await automaticCustomerContactAllowed())) {
     return { status: "suppressed" as const, messageId: null };
   }
   const messageType = messageTypeForFollowUp(cycle, messageClass);
@@ -621,22 +641,6 @@ const sendDeterministicFollowUpMessage = async (
       .maybeSingle() ?? { data: null, error: null };
     if (refreshedCycleError) throw refreshedCycleError;
     const reminderDueAt = textValue(refreshedCycle?.reminder_due_at) || null;
-
-    const { error: caseUpdateError } = await supabase
-      ?.from("refund_cases")
-      .update({
-        status: messageClass === "information_received"
-          ? (refundCase.status === "draft" ? "draft" : "needs_review")
-          : (refundCase.status === "draft" ? "draft" : "waiting_on_customer"),
-        automation_state: messageClass === "information_received"
-          ? "customer_replied"
-          : "more_info_needed",
-        customer_last_contacted_at: new Date().toISOString(),
-        last_customer_message_type: messageType,
-        automation_follow_up_due_at: messageClass === "request" ? reminderDueAt : null,
-      })
-      .eq("id", refundCase.id) ?? { error: null };
-    if (caseUpdateError) throw caseUpdateError;
 
     const { error: eventError } = await supabase?.from("refund_case_events").insert({
       refund_case_id: refundCase.id,
@@ -866,6 +870,7 @@ const routeProviderException = async ({
   const action: ClaimedAction = {
     actionId: textValue(result.actionId ?? result.action_id) || null,
     claimed: result.claimed === true,
+    status: textValue(result.status) || null,
   };
   if (!action.claimed) {
     counters.actionsSuppressed += 1;
@@ -931,6 +936,9 @@ const sendWalletCorrectionMessage = async (
   if (!supabase) {
     throw new Error("Refund automation is not configured.");
   }
+  if (!(await automaticCustomerContactAllowed())) {
+    return { status: "suppressed" as const, messageId: null };
+  }
 
   const token = createRefundWalletCorrectionToken();
   const tokenHash = await hashRefundWalletCorrectionToken(token);
@@ -984,6 +992,14 @@ const sendWalletCorrectionMessage = async (
         template_key: reminder
           ? "refund_wallet_correction_reminder_v1"
           : "refund_wallet_correction_v1",
+        content_source: "deterministic_template",
+        delivery_kind: "automatic",
+        reason_code: null,
+        template_version: reminder
+          ? "refund_wallet_correction_reminder_v1"
+          : "refund_wallet_correction_v1",
+        follow_up_cycle_id: null,
+        requested_fields: [],
       })
       .select("id")
       .single();
@@ -1161,13 +1177,26 @@ const runMissingInformationSweep = async (
       reportingMachineId: refundCase.reporting_machine_id,
       reportingLocationId: refundCase.reporting_location_id,
       incidentAt: refundCase.incident_at,
+      incidentTimeResolution: refundCase.incident_time_resolution,
       paymentMethod: refundCase.payment_method,
       paymentAmountCents: refundCase.payment_amount_cents,
       cardLast4: refundCase.card_last4,
       cardWalletUsed: refundCase.card_wallet_used,
     });
 
-    if (derived.requiresSecureWalletCorrection && derived.missingFields.length === 0) {
+    if (derived.requiresSecureWalletCorrection) {
+      if (derived.missingFields.length === 0) {
+        const { error: walletReadyError } = await supabase.from("refund_cases")
+          .update({
+            status: "needs_review",
+            automation_state: "wallet_correction_needed",
+            automation_follow_up_due_at: null,
+          })
+          .eq("id", refundCase.id)
+          .eq("status", "draft");
+        if (walletReadyError) throw walletReadyError;
+        continue;
+      }
       await routeFollowUpManualReview({
         runId,
         refundCase,
@@ -1180,6 +1209,17 @@ const runMissingInformationSweep = async (
     }
 
     if (derived.missingFields.length === 0) {
+      if (!refundCase.reporting_machine_id || !refundCase.reporting_location_id) {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase,
+          actionKeySuffix: `mapping-resolution:${refundCase.deterministic_fact_version}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+        continue;
+      }
       const { error: completeError } = await supabase.from("refund_cases")
         .update({ status: "needs_review", automation_state: "under_review" })
         .eq("id", refundCase.id)
@@ -1209,7 +1249,7 @@ const runMissingInformationSweep = async (
       requestedFields: derived.missingFields,
     });
     if (!cycleClaim.claimed || !cycleClaim.cycle) {
-      if (["contact_limit_reached", "active_cycle_exists", "manual_review"].includes(cycleClaim.reason ?? "")) {
+      if (["contact_limit_reached", "active_cycle_exists", "manual_review", "no_material_fact_progress"].includes(cycleClaim.reason ?? "")) {
         await routeFollowUpManualReview({
           runId,
           refundCase,
@@ -1281,6 +1321,7 @@ const runCashNoSafeMatchSweep = async (
       reportingMachineId: refundCase.reporting_machine_id,
       reportingLocationId: refundCase.reporting_location_id,
       incidentAt: refundCase.incident_at,
+      incidentTimeResolution: refundCase.incident_time_resolution,
       paymentMethod: refundCase.payment_method,
       paymentAmountCents: refundCase.payment_amount_cents,
       cardLast4: refundCase.card_last4,
@@ -1304,7 +1345,7 @@ const runCashNoSafeMatchSweep = async (
       requestedFields: [],
     });
     if (!cycleClaim.claimed || !cycleClaim.cycle) {
-      if (["contact_limit_reached", "active_cycle_exists", "manual_review"].includes(cycleClaim.reason ?? "")) {
+      if (["contact_limit_reached", "active_cycle_exists", "manual_review", "no_material_fact_progress"].includes(cycleClaim.reason ?? "")) {
         await routeFollowUpManualReview({
           runId,
           refundCase,
@@ -1343,13 +1384,13 @@ const runCustomerReplyFollowUpSweep = async (
   counters: SweepCounters,
   policyWindowStart: string,
 ) => {
-  if (!supabase || !automaticCustomerContactEnabled) return;
+  if (!supabase) return;
   const { data, error } = await supabase
     .from("refund_follow_up_cycles")
     .select("id,refund_case_id")
-    .eq("status", "waiting")
+    .in("status", ["waiting", "customer_replied"])
     .not("request_sent_at", "is", null)
-    .is("reply_message_id", null)
+    .is("recheck_claimed_at", null)
     .order("request_sent_at", { ascending: true })
     .limit(25);
   if (error) throw error;
@@ -1388,32 +1429,41 @@ const runCustomerReplyFollowUpSweep = async (
       policyWindowStart,
       counters,
     );
-    if (!receiptAction.claimed) continue;
-    const receipt = await sendDeterministicFollowUpMessage(
-      refundCase,
-      cycle,
-      "information_received",
-    );
-    if (receipt.status !== "sent") {
-      await finishAction(
-        receiptAction,
-        "failed",
-        receipt.status === "suppressed"
-          ? "automatic_customer_contact_disabled"
-          : "customer_email_failed",
-        receipt.messageId,
-        counters,
+    let receiptOutcome: "sent" | "settled_without_send" | "in_progress" =
+      receiptAction.status === "completed"
+        ? "sent"
+        : ["failed", "suppressed"].includes(receiptAction.status ?? "")
+        ? "settled_without_send"
+        : "in_progress";
+    if (receiptAction.claimed) {
+      const receipt = await sendDeterministicFollowUpMessage(
+        refundCase,
+        cycle,
+        "information_received",
       );
-      continue;
+      if (receipt.status === "sent") {
+        receiptOutcome = "sent";
+        counters.informationReceivedSent += 1;
+        await finishAction(
+          receiptAction,
+          "completed",
+          "information_received_sent",
+          receipt.messageId,
+          counters,
+        );
+      } else {
+        receiptOutcome = "settled_without_send";
+        await finishAction(
+          receiptAction,
+          receipt.status === "suppressed" ? "suppressed" : "failed",
+          receipt.status === "suppressed"
+            ? "automatic_customer_contact_disabled"
+            : "customer_email_failed",
+          receipt.messageId,
+          counters,
+        );
+      }
     }
-    counters.informationReceivedSent += 1;
-    await finishAction(
-      receiptAction,
-      "completed",
-      "information_received_sent",
-      receipt.messageId,
-      counters,
-    );
 
     const recheckAction = await claimAction(
       runId,
@@ -1424,23 +1474,46 @@ const runCustomerReplyFollowUpSweep = async (
       policyWindowStart,
       counters,
     );
-    if (!recheckAction.claimed) continue;
+    if (!recheckAction.claimed) {
+      if (
+        ["completed", "failed", "suppressed"].includes(recheckAction.status ?? "")
+        && receiptOutcome !== "in_progress"
+      ) {
+        const { error: closeError } = await supabase.from("refund_follow_up_cycles")
+          .update({
+            recheck_claimed_at: new Date().toISOString(),
+            status: receiptOutcome === "sent" ? "closed" : "manual_review",
+          })
+          .eq("id", cycle.id)
+          .is("recheck_claimed_at", null);
+        if (closeError) throw closeError;
+      }
+      continue;
+    }
     try {
       const factsChanged = claim.factsChanged === true;
       const currentMissing = deriveRefundMissingFields({
         reportingMachineId: refundCase.reporting_machine_id,
         reportingLocationId: refundCase.reporting_location_id,
         incidentAt: refundCase.incident_at,
+        incidentTimeResolution: refundCase.incident_time_resolution,
         paymentMethod: refundCase.payment_method,
         paymentAmountCents: refundCase.payment_amount_cents,
         cardLast4: refundCase.card_last4,
         cardWalletUsed: refundCase.card_wallet_used,
       });
-      if (factsChanged && currentMissing.missingFields.length === 0) {
+      if (
+        factsChanged
+        && currentMissing.missingFields.length === 0
+        && refundCase.reporting_machine_id
+        && refundCase.reporting_location_id
+      ) {
         const { error: updateError } = await supabase.from("refund_cases")
           .update({
             status: "needs_review",
-            automation_state: "under_review",
+            automation_state: currentMissing.requiresSecureWalletCorrection
+              ? "wallet_correction_needed"
+              : "under_review",
             automation_follow_up_due_at: null,
           })
           .eq("id", refundCase.id);
@@ -1475,8 +1548,24 @@ const runCustomerReplyFollowUpSweep = async (
         null,
         counters,
       );
+      const { error: closeError } = await supabase.from("refund_follow_up_cycles")
+        .update({
+          recheck_claimed_at: new Date().toISOString(),
+          status: receiptOutcome === "sent"
+            ? "closed"
+            : receiptOutcome === "settled_without_send"
+            ? "manual_review"
+            : "customer_replied",
+        })
+        .eq("id", cycle.id)
+        .is("recheck_claimed_at", null);
+      if (closeError) throw closeError;
     } catch (recheckError) {
       await finishAction(recheckAction, "failed", "customer_reply_recheck_failed", null, counters);
+      await supabase.from("refund_follow_up_cycles")
+        .update({ recheck_claimed_at: new Date().toISOString() })
+        .eq("id", cycle.id)
+        .is("recheck_claimed_at", null);
       throw recheckError;
     }
   }
@@ -1648,6 +1737,24 @@ const runCardNayaxLookupSweep = async (
           refundCase.wallet_correction_state,
         )
       ) {
+        if (!(await automaticCustomerContactAllowed())) {
+          await routeFollowUpManualReview({
+            runId,
+            refundCase,
+            actionKeySuffix: `wallet-contact-disabled:${refundCase.wallet_correction_version}`,
+            noticeKind: "follow_up_manual_review",
+            policyWindowStart,
+            counters,
+          });
+          await finishAction(
+            action,
+            "completed",
+            "automatic_customer_contact_disabled",
+            null,
+            counters,
+          );
+          continue;
+        }
         const correctionAction = await claimAction(
           runId,
           refundCase.id,
@@ -1700,6 +1807,29 @@ const runCardNayaxLookupSweep = async (
             "completed",
             "nayax_no_match_wallet_correction_sent",
             correctionResult.messageId,
+            counters,
+          );
+        } else if (correctionResult.status === "suppressed") {
+          await finishAction(
+            correctionAction,
+            "suppressed",
+            "automatic_customer_contact_disabled",
+            null,
+            counters,
+          );
+          await routeFollowUpManualReview({
+            runId,
+            refundCase,
+            actionKeySuffix: `wallet-contact-disabled:${refundCase.wallet_correction_version}`,
+            noticeKind: "follow_up_manual_review",
+            policyWindowStart,
+            counters,
+          });
+          await finishAction(
+            action,
+            "completed",
+            "automatic_customer_contact_disabled",
+            null,
             counters,
           );
         } else {
@@ -1865,6 +1995,10 @@ const runWalletCorrectionExpirySweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
+  const customerContactAllowed = await automaticCustomerContactAllowed();
+  if (!customerContactAllowed) {
+    addReason(counters, "automatic_customer_contact_disabled");
+  }
   const { data: dueCases, error: dueError } = await supabase
     .from("refund_cases")
     .select(caseSelect)
@@ -1923,6 +2057,18 @@ const runWalletCorrectionExpirySweep = async (
       continue;
     }
 
+    if (!customerContactAllowed) {
+      await routeFollowUpManualReview({
+        runId,
+        refundCase,
+        actionKeySuffix: `wallet-reminder-contact-disabled:${refundCase.wallet_correction_version}`,
+        noticeKind: "follow_up_manual_review",
+        policyWindowStart,
+        counters,
+      });
+      continue;
+    }
+
     const action = await claimAction(
       runId,
       refundCase.id,
@@ -1968,7 +2114,14 @@ const runReminderSweep = async (
     { p_limit: 25 },
   );
   if (error) throw error;
-  const jobs = Array.isArray(data) ? data : [];
+  const claim = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+  if (claim.enabled !== true) {
+    addReason(counters, "automatic_customer_contact_disabled");
+    return;
+  }
+  const jobs = Array.isArray(claim.reminders) ? claim.reminders : [];
 
   for (const rawJob of jobs) {
     const job = rawJob && typeof rawJob === "object"
@@ -2010,14 +2163,20 @@ const runReminderSweep = async (
     if (result.status === "sent") {
       counters.remindersSent += 1;
       await finishAction(action, "completed", "reminder_sent", result.messageId, counters);
+    } else if (result.status === "suppressed") {
+      await finishAction(
+        action,
+        "suppressed",
+        "automatic_customer_contact_disabled",
+        result.messageId,
+        counters,
+      );
     } else {
       counters.remindersFailed += 1;
       await finishAction(
         action,
         "failed",
-        result.status === "suppressed"
-          ? "automatic_customer_contact_disabled"
-          : "customer_email_failed",
+        "customer_email_failed",
         result.messageId,
         counters,
       );

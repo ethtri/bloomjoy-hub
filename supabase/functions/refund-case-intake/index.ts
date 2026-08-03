@@ -58,6 +58,22 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
     })
   : null;
 
+const automaticCustomerContactAllowed = async () => {
+  if (!automaticCustomerContactEnabled || !supabase) return false;
+  const { data, error } = await supabase
+    .from("refund_customer_contact_settings")
+    .select("automatic_customer_contact_enabled")
+    .eq("singleton", true)
+    .maybeSingle();
+  if (error) {
+    console.error("refund intake customer-contact gate unavailable", {
+      errorType: typeof error.code === "string" ? error.code : "database_error",
+    });
+    return false;
+  }
+  return data?.automatic_customer_contact_enabled === true;
+};
+
 type RefundAttachmentInput = {
   fileName?: unknown;
   contentType?: unknown;
@@ -1447,6 +1463,7 @@ serve(async (req) => {
         correlation_confidence: correlationConfidence,
         correlation_summary: correlationSummary,
         matched_sales_fact_id: matchedSalesFactId,
+        cash_match_evaluated_fact_version: paymentMethod === "cash" ? 1 : null,
         refund_amount_cents: amountCents,
         refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
         intake_meta: {
@@ -1573,7 +1590,7 @@ serve(async (req) => {
       .select("id")
       .single();
 
-    if (!automaticCustomerContactEnabled) {
+    if (!(await automaticCustomerContactAllowed())) {
       if (messageRow?.id) {
         await supabase
           .from("refund_case_messages")

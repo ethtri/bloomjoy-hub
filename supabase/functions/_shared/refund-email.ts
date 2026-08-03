@@ -379,7 +379,10 @@ export const buildEditableRefundCustomerEmail = ({
   if (locationName) details.push(`Location: ${locationName}`);
   const refundAmount = formatCurrency(input.refundAmountCents);
   if (refundAmount) {
-    details.push(`Refund amount: ${refundAmount}`);
+    const amountLabel = ["approved", "completed"].includes(input.messageType)
+      ? "Refund amount"
+      : "Reported amount";
+    details.push(`${amountLabel}: ${refundAmount}`);
   }
 
   const text = [

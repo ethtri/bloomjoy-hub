@@ -123,10 +123,10 @@ const run = async () => {
     includesAll(refundEmail, [
       'Mobile-wallet last-four corrections must use the secure correction flow',
       'do not email wallet or device-card digits',
-    ]) &&
+      ]) &&
       includesAll(messageSend, [
-        'Use the secure mobile-wallet correction link',
-        'missingFields.includes("card_last4")',
+        'derived.requiresSecureWalletCorrection',
+        'Use the secure mobile-wallet correction link instead of requesting wallet information by email',
       ])
   );
   assert(

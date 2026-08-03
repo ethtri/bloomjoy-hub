@@ -9,7 +9,7 @@ import {
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
 import {
-  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  deriveRefundMissingFields,
   sanitizeRefundMissingFields,
   type RefundMissingField,
 } from "../_shared/refund-deterministic-follow-up.ts";
@@ -65,8 +65,11 @@ type RefundCaseRow = {
   refund_amount_cents: number | null;
   payment_amount_cents: number | null;
   card_wallet_used: boolean;
+  card_last4: string | null;
   reporting_machine_id: string;
   reporting_location_id: string;
+  incident_at: string | null;
+  incident_time_resolution: string | null;
   reporting_machines?: {
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -105,15 +108,17 @@ const selectCaseQuery = `
   refund_amount_cents,
   payment_amount_cents,
   card_wallet_used,
+  card_last4,
   reporting_machine_id,
   reporting_location_id,
+  incident_at,
+  incident_time_resolution,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
 
 const managerActionMessageTypes = new Set<RefundCustomerMessageType>([
   "more_info",
-  "no_safe_match",
   "status_update",
   "approved",
   "denied",
@@ -132,6 +137,9 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseRow | null> => {
   if (error) throw error;
   return data as RefundCaseRow | null;
 };
+
+const sameMissingFields = (left: RefundMissingField[], right: RefundMissingField[]) =>
+  left.length === right.length && left.every((field, index) => field === right[index]);
 
 const getNayaxLookupCandidate = async (
   caseId: string,
@@ -275,14 +283,8 @@ const logCustomerMessage = async ({
       error_message: errorMessage ?? null,
       content_source: "manager_authored",
       delivery_kind: "manual",
-      reason_code: messageType === "more_info"
-        ? "missing_information"
-        : messageType === "no_safe_match"
-        ? "no_safe_match"
-        : null,
-      template_version: ["more_info", "no_safe_match"].includes(messageType)
-        ? REFUND_DETERMINISTIC_FOLLOW_UP_VERSION
-        : null,
+      reason_code: messageType === "more_info" ? "missing_information" : null,
+      template_version: null,
       requested_fields: messageType === "more_info" ? missingFields : [],
     })
     .select("id")
@@ -532,21 +534,35 @@ serve(async (req) => {
 
     const requestedStatus = sanitizeText(body?.status, 80) || null;
     const requestedMessageType = sanitizeRefundMessageType(body?.customerMessageType);
-    const customerMissingFields = sanitizeRefundMissingFields(body?.customerMissingFields);
+    const suppliedCustomerMissingFields = sanitizeRefundMissingFields(body?.customerMissingFields);
+    let customerMissingFields: RefundMissingField[] = [];
     if (requestedMessageType && !managerActionMessageTypes.has(requestedMessageType)) {
       return jsonResponse({ error: "Choose an approved customer message type for this action." }, 400);
     }
-    if (requestedMessageType === "more_info" && customerMissingFields.length === 0) {
-      return jsonResponse({ error: "Choose the exact missing purchase details before sending." }, 400);
-    }
-    if (requestedMessageType !== "more_info" && customerMissingFields.length > 0) {
+    if (requestedMessageType !== "more_info" && suppliedCustomerMissingFields.length > 0) {
       return jsonResponse({ error: "Missing-detail fields apply only to the missing-information template." }, 400);
     }
-    if (
-      requestedMessageType === "more_info" && beforeRow.card_wallet_used &&
-      customerMissingFields.includes("card_last4")
-    ) {
-      return jsonResponse({ error: "Use the secure mobile-wallet correction link instead of asking for wallet digits by email." }, 400);
+    if (requestedMessageType === "more_info") {
+      const derived = deriveRefundMissingFields({
+        reportingMachineId: beforeRow.reporting_machine_id,
+        reportingLocationId: beforeRow.reporting_location_id,
+        incidentAt: beforeRow.incident_at,
+        incidentTimeResolution: beforeRow.incident_time_resolution,
+        paymentMethod: beforeRow.payment_method,
+        paymentAmountCents: beforeRow.payment_amount_cents,
+        cardLast4: beforeRow.card_last4,
+        cardWalletUsed: beforeRow.card_wallet_used,
+      });
+      if (derived.requiresSecureWalletCorrection) {
+        return jsonResponse({ error: "Use the secure mobile-wallet correction link instead of requesting wallet information by email." }, 409);
+      }
+      if (derived.missingFields.length === 0) {
+        return jsonResponse({ error: "This case has no structured purchase detail to request. Return it to manager review." }, 409);
+      }
+      if (!sameMissingFields(suppliedCustomerMissingFields, derived.missingFields)) {
+        return jsonResponse({ error: "The case facts changed. Refresh before asking for the exact missing purchase details." }, 409);
+      }
+      customerMissingFields = derived.missingFields;
     }
 
     const isCashCompletion = beforeRow.payment_method === "cash" && requestedStatus === "completed";

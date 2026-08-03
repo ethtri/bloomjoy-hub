@@ -22,6 +22,7 @@ export type RefundFollowUpFacts = {
   reportingMachineId?: string | null;
   reportingLocationId?: string | null;
   incidentAt?: string | null;
+  incidentTimeResolution?: string | null;
   paymentMethod?: string | null;
   paymentAmountCents?: number | null;
   cardLast4?: string | null;
@@ -53,11 +54,19 @@ export const deriveRefundMissingFields = (
   facts: RefundFollowUpFacts,
 ): { missingFields: RefundMissingField[]; requiresSecureWalletCorrection: boolean } => {
   const fields: RefundMissingField[] = [];
-  if (!nonBlank(facts.reportingMachineId) || !nonBlank(facts.reportingLocationId)) {
+  if (!nonBlank(facts.reportingMachineId) && !nonBlank(facts.reportingLocationId)) {
     fields.push("location_or_machine");
   }
   if (!nonBlank(facts.incidentAt)) {
-    fields.push("incident_date", "incident_time");
+    fields.push("incident_date");
+  }
+  if (
+    !nonBlank(facts.incidentAt) ||
+    !["exact", "legacy_absolute"].includes(
+      (facts.incidentTimeResolution ?? "").trim().toLowerCase(),
+    )
+  ) {
+    fields.push("incident_time");
   }
 
   const paymentMethod = typeof facts.paymentMethod === "string"
@@ -75,7 +84,7 @@ export const deriveRefundMissingFields = (
 
   const cardLast4Present = /^[0-9]{4}$/.test((facts.cardLast4 ?? "").trim());
   const requiresSecureWalletCorrection =
-    paymentMethod === "card" && facts.cardWalletUsed === true && !cardLast4Present;
+    paymentMethod === "card" && facts.cardWalletUsed === true;
   if (paymentMethod === "card" && !cardLast4Present && !requiresSecureWalletCorrection) {
     fields.push("card_last4");
   }
@@ -127,4 +136,3 @@ export const buildRefundFollowUpTriggerFingerprint = async ({
     (sourceCustomerMessageId ?? "initial").trim().toLowerCase(),
     REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
   ].join("|"));
-

@@ -241,6 +241,8 @@ export type RefundCaseRecord = {
   zellePaymentContact: string | null;
   issueSummary: string;
   incidentAt: string;
+  structuredIncidentAt?: string | null;
+  incidentTimeResolution?: string | null;
   qrClaimOpenedAt?: string | null;
   paymentMethod: RefundPaymentMethod;
   paymentAmountCents: number | null;
@@ -587,7 +589,6 @@ export type NayaxCardRefundExecutionError =
 
 export type RefundCustomerPortalMessageType =
   | 'more_info'
-  | 'no_safe_match'
   | 'status_update'
   | 'approved'
   | 'denied'
@@ -788,6 +789,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         zellePaymentContact: null,
         issueSummary: 'Machine spun but product did not dispense correctly.',
         incidentAt: demoIsoHoursAgo(5),
+        incidentTimeResolution: 'exact',
         paymentMethod: 'card',
         paymentAmountCents: 700,
         cardLast4: '4242',
@@ -886,6 +888,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         zellePaymentContact: 'cash-customer@example.test',
         issueSummary: 'Paid cash and the machine did not start.',
         incidentAt: demoIsoHoursAgo(12),
+        incidentTimeResolution: 'exact',
         paymentMethod: 'cash',
         paymentAmountCents: 500,
         cardLast4: null,
@@ -952,6 +955,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         zellePaymentContact: 'zelle-customer@example.test',
         issueSummary: 'Paid cash, product started, but did not finish correctly.',
         incidentAt: demoIsoHoursAgo(28),
+        incidentTimeResolution: 'exact',
         paymentMethod: 'cash',
         paymentAmountCents: 600,
         cardLast4: null,

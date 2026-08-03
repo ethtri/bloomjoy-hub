@@ -220,7 +220,8 @@ insert into public.refund_cases (
   status,
   correlation_status,
   correlation_source,
-  correlation_summary
+  correlation_summary,
+  cash_match_evaluated_fact_version
 ) values
   (
     '84000000-0000-4000-8000-000000000007',
@@ -239,7 +240,8 @@ insert into public.refund_cases (
     'needs_review',
     'no_match',
     'sunze',
-    'No matching local cash sale was found for the complete structured facts.'
+    'No matching local cash sale was found for the complete structured facts.',
+    1
   ),
   (
     '84000000-0000-4000-8000-000000000008',
@@ -258,7 +260,8 @@ insert into public.refund_cases (
     'needs_review',
     'manual_review',
     'sunze',
-    'The local lookup outcome is unknown and requires internal review.'
+    'The local lookup outcome is unknown and requires internal review.',
+    null
   );
 
 insert into public.refund_gmail_threads (
@@ -822,8 +825,8 @@ select is(
     '84000000-0000-4000-8000-000000000001',
     (select (result #>> '{cycle,id}')::uuid from first_cycle_claim)
   ) ->> 'reason',
-  'reply_already_claimed',
-  'Verified customer reply and recheck are idempotent'
+  'reply_recheck_resumed',
+  'A claimed reply can safely resume its one unfinished recheck after a worker interruption'
 );
 select is(
   (
@@ -875,8 +878,24 @@ select is(
     from public.refund_follow_up_cycles
     where id = (select (result #>> '{cycle,id}')::uuid from first_cycle_claim)
   ),
+  'customer_replied',
+  'Delivered information receipt does not close the cycle before its internal recheck completes'
+);
+
+update public.refund_follow_up_cycles
+set
+  recheck_claimed_at = statement_timestamp(),
+  status = 'closed'
+where id = (select (result #>> '{cycle,id}')::uuid from first_cycle_claim);
+
+select is(
+  (
+    select status
+    from public.refund_follow_up_cycles
+    where id = (select (result #>> '{cycle,id}')::uuid from first_cycle_claim)
+  ),
   'closed',
-  'Delivered information-received receipt closes the cycle'
+  'One completed recheck closes the cycle after its information receipt is delivered'
 );
 select ok(
   pg_temp.capture_error(format(
@@ -897,6 +916,30 @@ select ok(
   'A cycle cannot send a second information-received receipt'
 );
 
+create temporary table unchanged_second_cycle_claim as
+select public.service_claim_refund_follow_up_cycle(
+  '84000000-0000-4000-8000-000000000001',
+  'missing_information',
+  'refund_follow_up_v1',
+  repeat('b', 64),
+  '86000000-0000-4000-8000-000000000003'
+) as result;
+
+select is(
+  (select (result ->> 'claimed')::boolean from unchanged_second_cycle_claim),
+  false,
+  'An unchanged customer reply cannot authorize the same request again'
+);
+select is(
+  (select result ->> 'reason' from unchanged_second_cycle_claim),
+  'no_material_fact_progress',
+  'An unchanged reply is routed to a person instead of opening another cycle'
+);
+
+update public.refund_cases
+set reporting_location_id = '82000000-0000-4000-8000-000000000001'
+where id = '84000000-0000-4000-8000-000000000001';
+
 create temporary table second_cycle_claim as
 select public.service_claim_refund_follow_up_cycle(
   '84000000-0000-4000-8000-000000000001',
@@ -909,7 +952,7 @@ select public.service_claim_refund_follow_up_cycle(
 select is(
   (select (result ->> 'claimed')::boolean from second_cycle_claim),
   true,
-  'Second and final explicit customer request cycle can be claimed after closure'
+  'Material structured-fact progress can claim the second and final request cycle'
 );
 select is(
   (select (result #>> '{cycle,cycleNumber}')::integer from second_cycle_claim),
@@ -934,7 +977,7 @@ insert into public.refund_case_messages (
   'missing_information',
   'refund_follow_up_v1',
   (select (result #>> '{cycle,id}')::uuid from second_cycle_claim),
-  array['location_or_machine','incident_date','incident_time','payment_method','amount']
+  array['incident_date','incident_time','payment_method','amount']
 );
 
 update public.refund_case_messages
@@ -978,7 +1021,7 @@ select ok(
     ) values (
       '84000000-0000-4000-8000-000000000001', 3, %L,
       'missing_information',
-      array['location_or_machine','incident_date','incident_time','payment_method','amount'],
+      array['incident_date','incident_time','payment_method','amount'],
       'refund_follow_up_v1',
       (select deterministic_fact_version from public.refund_cases where id = '84000000-0000-4000-8000-000000000001'),
       72,
@@ -1131,6 +1174,38 @@ select is(
   (select result #> '{cycle,requestedFields}' from cash_no_match_cycle_claim),
   '[]'::jsonb,
   'Cash no-safe-match confirmation requests no already-complete field'
+);
+
+update public.refund_cases
+set payment_amount_cents = 701
+where id = '84000000-0000-4000-8000-000000000007';
+
+select is(
+  (
+    select cash_match_evaluated_fact_version
+    from public.refund_cases
+    where id = '84000000-0000-4000-8000-000000000007'
+  ),
+  null::bigint,
+  'A changed cash fact atomically invalidates the persisted Sunze evaluation marker'
+);
+select ok(
+  pg_temp.capture_error(format(
+    $sql$insert into public.refund_case_messages (
+      id, refund_case_id, message_type, status, recipient_email, subject, body,
+      content_source, delivery_kind, reason_code, template_version,
+      follow_up_cycle_id, requested_fields
+    ) values (
+      '87000000-0000-4000-8000-000000000009',
+      '84000000-0000-4000-8000-000000000007',
+      'no_safe_match', 'pending', 'cash-no-match-customer@example.test',
+      'Stale cash evidence', 'This message must not leave the system.',
+      'deterministic_template', 'automatic', 'no_safe_match',
+      'refund_follow_up_v1', %L::uuid, '{}'::text[]
+    )$sql$,
+    (select result #>> '{cycle,id}' from cash_no_match_cycle_claim)
+  )) like '%stale before delivery%',
+  'Fact drift after claim blocks stale cash no-match copy at the message boundary'
 );
 select is(
   public.service_claim_refund_follow_up_cycle(

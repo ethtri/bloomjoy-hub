@@ -32,15 +32,92 @@ revoke all on table public.refund_customer_contact_settings
 grant select, update on table public.refund_customer_contact_settings
   to service_role;
 
+alter function public.service_issue_refund_wallet_correction(uuid, text, timestamptz)
+  rename to service_issue_refund_wallet_correction_pre_followup_20260803;
+
+revoke execute on function public.service_issue_refund_wallet_correction_pre_followup_20260803(
+  uuid,
+  text,
+  timestamptz
+) from public, anon, authenticated;
+revoke execute on function public.service_issue_refund_wallet_correction_pre_followup_20260803(
+  uuid,
+  text,
+  timestamptz
+) from service_role;
+
+create function public.service_issue_refund_wallet_correction(
+  p_refund_case_id uuid,
+  p_token_hash text,
+  p_expires_at timestamptz
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1
+    from public.refund_customer_contact_settings settings
+    where settings.singleton
+      and settings.automatic_customer_contact_enabled
+  ) then
+    raise exception 'Automatic customer contact is disabled'
+      using errcode = '23514';
+  end if;
+
+  return public.service_issue_refund_wallet_correction_pre_followup_20260803(
+    p_refund_case_id,
+    p_token_hash,
+    p_expires_at
+  );
+end;
+$$;
+
+revoke execute on function public.service_issue_refund_wallet_correction(uuid, text, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.service_issue_refund_wallet_correction(uuid, text, timestamptz)
+  to service_role;
+
 alter table public.refund_cases
   add column if not exists deterministic_fact_version bigint not null default 1,
   add column if not exists deterministic_facts_updated_at timestamptz not null
-    default statement_timestamp();
+    default statement_timestamp(),
+  add column if not exists cash_match_evaluated_fact_version bigint;
 
 alter table public.refund_cases
   drop constraint if exists refund_cases_deterministic_fact_version_check,
   add constraint refund_cases_deterministic_fact_version_check
-    check (deterministic_fact_version >= 1);
+    check (deterministic_fact_version >= 1),
+  drop constraint if exists refund_cases_cash_match_evaluated_fact_version_check,
+  add constraint refund_cases_cash_match_evaluated_fact_version_check
+    check (
+      cash_match_evaluated_fact_version is null
+      or cash_match_evaluated_fact_version between 1 and deterministic_fact_version
+    );
+
+alter table public.refund_cases
+  drop constraint if exists refund_cases_automation_state_check;
+
+alter table public.refund_cases
+  add constraint refund_cases_automation_state_check
+  check (automation_state in (
+    'submitted',
+    'under_review',
+    'more_info_needed',
+    'customer_replied',
+    'customer_reply_review',
+    'wallet_correction_needed',
+    'wallet_correction_sent',
+    'wallet_correction_received',
+    'fallback_eligible',
+    'approved',
+    'denied',
+    'completed',
+    'closed_incomplete',
+    'escalated'
+  ));
 
 create or replace function public.guard_refund_deterministic_fact_version()
 returns trigger
@@ -61,6 +138,7 @@ begin
     or new.card_wallet_used is distinct from old.card_wallet_used then
     new.deterministic_fact_version := old.deterministic_fact_version + 1;
     new.deterministic_facts_updated_at := statement_timestamp();
+    new.cash_match_evaluated_fact_version := null;
   else
     -- The version is derived evidence, never a caller-controlled counter.
     new.deterministic_fact_version := old.deterministic_fact_version;
@@ -123,7 +201,7 @@ as $$
   select public.canonical_refund_follow_up_fields(array[
     case
       when refund_case.reporting_machine_id is null
-        or refund_case.reporting_location_id is null
+        and refund_case.reporting_location_id is null
       then 'location_or_machine'
     end,
     case when refund_case.incident_at is null then 'incident_date' end,
@@ -310,20 +388,46 @@ alter table public.refund_case_messages
       delivery_kind = 'manual'
       and content_source in ('deterministic_template', 'manager_reviewed_gpt', 'manager_authored')
       and follow_up_cycle_id is null
-      and reason_code is null
-      and cardinality(requested_fields) = 0
       and (
-        (content_source = 'deterministic_template' and template_version is not null)
-        or (content_source <> 'deterministic_template' and template_version is null)
+        (
+          message_type = 'more_info'
+          and content_source in ('manager_reviewed_gpt', 'manager_authored')
+          and reason_code = 'missing_information'
+          and cardinality(requested_fields) > 0
+          and template_version is null
+        )
+        or (
+          message_type <> 'more_info'
+          and reason_code is null
+          and cardinality(requested_fields) = 0
+          and (
+            (content_source = 'deterministic_template' and template_version is not null)
+            or (content_source <> 'deterministic_template' and template_version is null)
+          )
+        )
       )
     )
     or (
       delivery_kind = 'automatic'
       and content_source = 'deterministic_template'
-      and reason_code in ('missing_information', 'no_safe_match')
-      and template_version = 'refund_follow_up_v1'
-      and follow_up_cycle_id is not null
-      and message_type in ('more_info', 'no_safe_match', 'reminder', 'information_received')
+      and (
+        (
+          reason_code in ('missing_information', 'no_safe_match')
+          and template_version = 'refund_follow_up_v1'
+          and follow_up_cycle_id is not null
+          and message_type in ('more_info', 'no_safe_match', 'reminder', 'information_received')
+        )
+        or (
+          message_type in ('wallet_correction', 'wallet_correction_reminder')
+          and reason_code is null
+          and template_version = case message_type
+            when 'wallet_correction' then 'refund_wallet_correction_v1'
+            else 'refund_wallet_correction_reminder_v1'
+          end
+          and follow_up_cycle_id is null
+          and cardinality(requested_fields) = 0
+        )
+      )
     )
   );
 
@@ -352,6 +456,7 @@ declare
   case_row public.refund_cases;
   existing_count integer;
   existing_max smallint;
+  existing_fact_version bigint;
   expected_missing text[] := '{}'::text[];
 begin
   if tg_op = 'INSERT' then
@@ -368,8 +473,11 @@ begin
       raise exception 'Refund case not found';
     end if;
 
-    select count(*)::integer, coalesce(max(cycle_number), 0)::smallint
-    into existing_count, existing_max
+    select
+      count(*)::integer,
+      coalesce(max(cycle_number), 0)::smallint,
+      coalesce(max(case_fact_version), 0)::bigint
+    into existing_count, existing_max, existing_fact_version
     from public.refund_follow_up_cycles
     where refund_case_id = new.refund_case_id;
 
@@ -379,6 +487,10 @@ begin
     end if;
     if new.cycle_number <> existing_max + 1 then
       raise exception 'Refund follow-up cycle number must be sequential'
+        using errcode = '23514';
+    end if;
+    if existing_count > 0 and new.case_fact_version <= existing_fact_version then
+      raise exception 'A new refund follow-up cycle requires material fact progress'
         using errcode = '23514';
     end if;
     if new.case_fact_version <> case_row.deterministic_fact_version then
@@ -434,6 +546,7 @@ begin
             and case_row.correlation_source = 'sunze'
             and nullif(btrim(coalesce(case_row.correlation_summary, '')), '') is not null
             and case_row.matched_sales_fact_id is null
+            and case_row.cash_match_evaluated_fact_version = case_row.deterministic_fact_version
             and case_row.matched_nayax_transaction_id is null
             and case_row.nayax_match_execution_eligible is not true
           )
@@ -658,11 +771,8 @@ begin
     new.request_sent_at is null
     or new.reply_customer_message_id is null
     or new.reply_received_at is null
-    or new.recheck_claimed_at is null
-    or new.receipt_sent_at is not null
-    or new.failed_message_id is not null
   ) then
-    raise exception 'Customer-replied cycle requires verified reply and recheck evidence'
+    raise exception 'Customer-replied cycle requires one verified reply'
       using errcode = '23514';
   elsif new.status = 'closed' and (
     new.request_sent_at is null
@@ -702,7 +812,8 @@ set search_path = public
 as $$
 declare
   cycle_row public.refund_follow_up_cycles;
-  case_customer_email text;
+  case_row public.refund_cases;
+  expected_missing text[] := '{}'::text[];
   expected_request_type text;
   automatic_contact_enabled boolean := false;
   attempting_automatic_delivery boolean := false;
@@ -770,6 +881,49 @@ begin
     end if;
   end if;
 
+  if new.message_type in ('wallet_correction', 'wallet_correction_reminder') then
+    if not attempting_automatic_delivery then
+      return new;
+    end if;
+    select * into case_row
+    from public.refund_cases
+    where id = new.refund_case_id
+    for share;
+
+    if case_row.id is null
+      or lower(btrim(new.recipient_email)) <> lower(btrim(case_row.customer_email))
+      or case_row.payment_method <> 'card'
+      or case_row.card_wallet_used is not true
+      or case_row.status in ('approved', 'denied', 'completed', 'closed')
+      or case_row.decision is not null
+      or case_row.wallet_correction_state <> 'sent'
+      or case_row.wallet_correction_version not between 1 and 2
+      or new.content_source <> 'deterministic_template'
+      or new.reason_code is not null
+      or new.follow_up_cycle_id is not null
+      or cardinality(new.requested_fields) <> 0
+      or new.template_version <> (case new.message_type
+        when 'wallet_correction' then 'refund_wallet_correction_v1'
+        else 'refund_wallet_correction_reminder_v1'
+      end)
+      or not exists (
+        select 1
+        from public.refund_wallet_correction_contexts context
+        where context.refund_case_id = case_row.id
+          and context.version = case_row.wallet_correction_version
+          and context.status = 'pending'
+          and context.expires_at > statement_timestamp()
+      ) then
+      raise exception 'Automatic wallet-correction message requires current versioned secure-link evidence'
+        using errcode = '23514';
+    end if;
+    if new.status = 'sent' and new.sent_at is null then
+      raise exception 'Sent automatic wallet-correction message requires a sent timestamp'
+        using errcode = '23514';
+    end if;
+    return new;
+  end if;
+
   select * into cycle_row
   from public.refund_follow_up_cycles
   where id = new.follow_up_cycle_id
@@ -780,12 +934,21 @@ begin
       using errcode = '23514';
   end if;
 
-  select lower(btrim(customer_email)) into case_customer_email
+  select * into case_row
   from public.refund_cases
-  where id = new.refund_case_id;
+  where id = new.refund_case_id
+  for share;
+
+  if attempting_automatic_delivery and (
+    case_row.status in ('approved', 'denied', 'completed', 'closed')
+    or case_row.decision is not null
+  ) then
+    raise exception 'Terminal refund case cannot receive automatic follow-up'
+      using errcode = '23514';
+  end if;
 
   if cycle_row.refund_case_id <> new.refund_case_id
-    or lower(btrim(new.recipient_email)) <> case_customer_email
+    or lower(btrim(new.recipient_email)) <> lower(btrim(case_row.customer_email))
     or new.content_source <> 'deterministic_template'
     or new.reason_code <> cycle_row.reason_code
     or new.template_version <> cycle_row.template_version
@@ -799,10 +962,97 @@ begin
     when 'no_safe_match' then 'no_safe_match'
   end;
 
+  if attempting_automatic_delivery
+    and new.message_type in (expected_request_type, 'reminder') then
+    if case_row.deterministic_fact_version <> cycle_row.case_fact_version then
+      raise exception 'Automatic follow-up message facts became stale before delivery'
+        using errcode = '23514';
+    end if;
+    expected_missing := coalesce(
+      public.refund_missing_follow_up_fields(new.refund_case_id),
+      '{}'::text[]
+    );
+    if cycle_row.reason_code = 'missing_information'
+      and (
+        case_row.card_wallet_used is true
+        or expected_missing <> cycle_row.requested_fields
+      ) then
+      raise exception 'Automatic missing-information evidence became stale before delivery'
+        using errcode = '23514';
+    end if;
+    if cycle_row.reason_code = 'no_safe_match'
+      and (
+        cardinality(expected_missing) <> 0
+        or not (
+          (
+            case_row.payment_method = 'card'
+            and case_row.card_wallet_used is false
+            and case_row.correlation_status = 'no_match'
+            and case_row.correlation_source = 'nayax'
+            and case_row.nayax_recommendation_state = 'no_safe_match'
+            and nullif(btrim(coalesce(case_row.nayax_recommendation_policy_version, '')), '') is not null
+            and case_row.nayax_recommendation_evaluated_at is not null
+            and case_row.nayax_recommendation_evaluated_at >= case_row.deterministic_facts_updated_at
+            and case_row.nayax_match_execution_eligible is not true
+            and case_row.matched_nayax_transaction_id is null
+          )
+          or (
+            case_row.payment_method = 'cash'
+            and case_row.card_wallet_used is false
+            and case_row.correlation_status = 'no_match'
+            and case_row.correlation_source = 'sunze'
+            and nullif(btrim(coalesce(case_row.correlation_summary, '')), '') is not null
+            and case_row.matched_sales_fact_id is null
+            and case_row.cash_match_evaluated_fact_version = case_row.deterministic_fact_version
+            and case_row.matched_nayax_transaction_id is null
+            and case_row.nayax_match_execution_eligible is not true
+          )
+        )
+      ) then
+      raise exception 'Automatic no-safe-match evidence became stale before delivery'
+        using errcode = '23514';
+    end if;
+  end if;
+
   if new.message_type = expected_request_type then
     if cycle_row.status <> 'claimed'
       or (cycle_row.request_message_id is not null and cycle_row.request_message_id <> new.id) then
       raise exception 'Follow-up request is no longer claimable'
+        using errcode = '23514';
+    end if;
+    if attempting_automatic_delivery
+      and cycle_row.source_customer_message_id is not null and exists (
+      select 1
+      from public.refund_gmail_messages newer_message
+      join public.refund_gmail_messages source_message
+        on source_message.id = cycle_row.source_customer_message_id
+      where newer_message.refund_case_id = cycle_row.refund_case_id
+        and newer_message.direction = 'inbound'
+        and newer_message.message_kind = 'message'
+        and newer_message.status = 'received'
+        and newer_message.participant_role = 'customer'
+        and newer_message.participant_trust = 'verified'
+        and newer_message.content_deleted_at is null
+        and (newer_message.received_at, newer_message.id)
+          > (source_message.received_at, source_message.id)
+    ) then
+      raise exception 'A newer verified customer message superseded this request'
+        using errcode = '23514';
+    end if;
+    if attempting_automatic_delivery
+      and cycle_row.source_customer_message_id is null and exists (
+      select 1
+      from public.refund_gmail_messages newer_message
+      where newer_message.refund_case_id = cycle_row.refund_case_id
+        and newer_message.direction = 'inbound'
+        and newer_message.message_kind = 'message'
+        and newer_message.status = 'received'
+        and newer_message.participant_role = 'customer'
+        and newer_message.participant_trust = 'verified'
+        and newer_message.content_deleted_at is null
+        and newer_message.received_at > cycle_row.created_at
+    ) then
+      raise exception 'A newer verified customer message superseded this request'
         using errcode = '23514';
     end if;
   elsif new.message_type = 'reminder' then
@@ -816,10 +1066,24 @@ begin
       raise exception 'Follow-up reminder is not due or was already claimed'
         using errcode = '23514';
     end if;
+    if attempting_automatic_delivery and exists (
+      select 1
+      from public.refund_gmail_messages newer_message
+      where newer_message.refund_case_id = cycle_row.refund_case_id
+        and newer_message.direction = 'inbound'
+        and newer_message.message_kind = 'message'
+        and newer_message.status = 'received'
+        and newer_message.participant_role = 'customer'
+        and newer_message.participant_trust = 'verified'
+        and newer_message.content_deleted_at is null
+        and newer_message.received_at > cycle_row.request_sent_at
+    ) then
+      raise exception 'A verified customer reply superseded this reminder'
+        using errcode = '23514';
+    end if;
   elsif new.message_type = 'information_received' then
     if cycle_row.status <> 'customer_replied'
       or cycle_row.reply_customer_message_id is null
-      or cycle_row.recheck_claimed_at is null
       or (cycle_row.receipt_message_id is not null and cycle_row.receipt_message_id <> new.id) then
       raise exception 'Information-received receipt requires one verified customer reply'
         using errcode = '23514';
@@ -943,23 +1207,6 @@ begin
       receipt_sent_at = case
         when new.status = 'sent' then coalesce(receipt_sent_at, new.sent_at)
         else receipt_sent_at
-      end,
-      status = case
-        when new.status = 'sent' then 'closed'
-        when new.status in ('failed', 'skipped') then 'failed'
-        else status
-      end,
-      failed_message_id = case
-        when new.status in ('failed', 'skipped') then coalesce(failed_message_id, new.id)
-        else failed_message_id
-      end,
-      failed_at = case
-        when new.status in ('failed', 'skipped') then coalesce(failed_at, statement_timestamp())
-        else failed_at
-      end,
-      failure_code = case
-        when new.status in ('failed', 'skipped') then coalesce(failure_code, 'information_received_' || new.status)
-        else failure_code
       end
     where id = cycle_row.id;
   end if;
@@ -995,7 +1242,10 @@ begin
     update public.refund_cases
     set
       status = case when status = 'waiting_on_customer' then 'needs_review' else status end,
-      automation_state = 'under_review',
+      automation_state = case
+        when status = 'draft' then 'customer_reply_review'
+        else 'under_review'
+      end,
       automation_follow_up_due_at = null,
       customer_last_contacted_at = new.sent_at,
       last_customer_message_type = new.message_type
@@ -1069,6 +1319,7 @@ declare
   normalized_reason text := lower(btrim(coalesce(p_reason_code, '')));
   expected_missing text[] := '{}'::text[];
   existing_count integer;
+  latest_cycle_fact_version bigint := 0;
   next_cycle_number smallint;
 begin
   select * into settings_row
@@ -1151,8 +1402,11 @@ begin
     );
   end if;
 
-  select count(*)::integer, (coalesce(max(cycle_number), 0) + 1)::smallint
-  into existing_count, next_cycle_number
+  select
+    count(*)::integer,
+    (coalesce(max(cycle_number), 0) + 1)::smallint,
+    coalesce(max(case_fact_version), 0)::bigint
+  into existing_count, next_cycle_number, latest_cycle_fact_version
   from public.refund_follow_up_cycles
   where refund_case_id = p_refund_case_id;
 
@@ -1161,6 +1415,16 @@ begin
       'enabled', true,
       'claimed', false,
       'reason', 'contact_limit_reached',
+      'cycle', null
+    );
+  end if;
+
+  if existing_count > 0
+    and case_row.deterministic_fact_version <= latest_cycle_fact_version then
+    return jsonb_build_object(
+      'enabled', true,
+      'claimed', false,
+      'reason', 'no_material_fact_progress',
       'cycle', null
     );
   end if;
@@ -1233,6 +1497,7 @@ begin
         and case_row.correlation_source = 'sunze'
         and nullif(btrim(coalesce(case_row.correlation_summary, '')), '') is not null
         and case_row.matched_sales_fact_id is null
+        and case_row.cash_match_evaluated_fact_version = case_row.deterministic_fact_version
         and case_row.matched_nayax_transaction_id is null
         and case_row.nayax_match_execution_eligible is not true
       )
@@ -1363,14 +1628,6 @@ begin
   from public.refund_customer_contact_settings
   where singleton;
 
-  if not coalesce(settings_row.automatic_customer_contact_enabled, false) then
-    return jsonb_build_object(
-      'enabled', false,
-      'claimed', false,
-      'reason', 'automatic_customer_contact_disabled'
-    );
-  end if;
-
   select * into cycle_row
   from public.refund_follow_up_cycles
   where id = p_follow_up_cycle_id
@@ -1390,8 +1647,11 @@ begin
   if cycle_row.reply_customer_message_id is not null then
     return jsonb_build_object(
       'enabled', true,
-      'claimed', false,
-      'reason', 'reply_already_claimed',
+      'claimed', cycle_row.recheck_claimed_at is null,
+      'reason', case
+        when cycle_row.recheck_claimed_at is null then 'reply_recheck_resumed'
+        else 'reply_recheck_completed'
+      end,
       'cycleId', cycle_row.id,
       'refundCaseId', cycle_row.refund_case_id,
       'sourceMessageId', cycle_row.reply_customer_message_id,
@@ -1414,19 +1674,9 @@ begin
     );
   end if;
 
-  if exists (
-    select 1
-    from public.refund_gmail_threads thread
-    where thread.refund_case_id = p_refund_case_id
-      and thread.automatic_customer_contact_paused_at is not null
-  ) then
-    return jsonb_build_object(
-      'enabled', true,
-      'claimed', false,
-      'reason', 'automatic_customer_contact_paused'
-    );
-  end if;
-
+  -- A claimed reminder owns the outbound lease until its immutable delivery
+  -- row settles. This prevents a customer reply from racing a stale reminder
+  -- into the same Gmail conversation.
   if cycle_row.reminder_message_id is not null
     and cycle_row.reminder_sent_at is null then
     return jsonb_build_object(
@@ -1467,15 +1717,14 @@ begin
   set
     status = 'customer_replied',
     reply_customer_message_id = reply_row.id,
-    reply_received_at = reply_row.received_at,
-    recheck_claimed_at = statement_timestamp()
+    reply_received_at = reply_row.received_at
   where id = cycle_row.id
   returning * into cycle_row;
 
   update public.refund_cases
   set
     status = case when status = 'waiting_on_customer' then 'needs_review' else status end,
-    automation_state = 'customer_replied',
+    automation_state = 'customer_reply_review',
     automation_follow_up_due_at = null
   where id = p_refund_case_id
     and status not in ('approved', 'denied', 'completed', 'closed')
@@ -1496,6 +1745,7 @@ begin
     'reasonCode', cycle_row.reason_code,
     'requestedFields', to_jsonb(cycle_row.requested_fields),
     'templateVersion', cycle_row.template_version,
+    'customerContactEnabled', coalesce(settings_row.automatic_customer_contact_enabled, false),
     'nextAction', case
       when facts_changed then 'send_information_received_and_recheck'
       else 'send_information_received_then_manual_review'
@@ -2098,6 +2348,16 @@ begin
 
   select coalesce(jsonb_agg(
     case_item.case_json || jsonb_build_object(
+      'structuredIncidentAt', (
+        select refund_case.incident_at
+        from public.refund_cases refund_case
+        where refund_case.id = (case_item.case_json ->> 'id')::uuid
+      ),
+      'incidentTimeResolution', (
+        select refund_case.incident_time_resolution
+        from public.refund_cases refund_case
+        where refund_case.id = (case_item.case_json ->> 'id')::uuid
+      ),
       'messages', coalesce((
         select jsonb_agg(
           message_item.message_json || jsonb_build_object(
@@ -2127,6 +2387,65 @@ begin
   return jsonb_set(base_result, '{cases}', enriched_cases, true);
 end;
 $$;
+
+alter function public.admin_get_refund_gmail_draft_cases()
+  rename to admin_get_refund_gmail_draft_cases_pre_followup_20260803;
+
+revoke execute on function public.admin_get_refund_gmail_draft_cases_pre_followup_20260803()
+  from public, anon, authenticated;
+
+create function public.admin_get_refund_gmail_draft_cases()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, auth
+as $$
+declare
+  base_result jsonb;
+  enriched_cases jsonb;
+begin
+  base_result := public.admin_get_refund_gmail_draft_cases_pre_followup_20260803();
+
+  select coalesce(jsonb_agg(
+    case_item.case_json || jsonb_build_object(
+      'structuredIncidentAt', refund_case.incident_at,
+      'incidentTimeResolution', refund_case.incident_time_resolution,
+      'messages', coalesce((
+        select jsonb_agg(
+          message_item.message_json || jsonb_build_object(
+            'contentSource', message_row.content_source,
+            'deliveryKind', message_row.delivery_kind,
+            'reasonCode', message_row.reason_code,
+            'templateVersion', message_row.template_version,
+            'requestedFields', to_jsonb(message_row.requested_fields),
+            'followUpCycleId', message_row.follow_up_cycle_id
+          )
+          order by message_item.message_order
+        )
+        from jsonb_array_elements(
+          coalesce(case_item.case_json -> 'messages', '[]'::jsonb)
+        ) with ordinality as message_item(message_json, message_order)
+        left join public.refund_case_messages message_row
+          on message_row.id = (message_item.message_json ->> 'id')::uuid
+      ), '[]'::jsonb)
+    )
+    order by case_item.case_order
+  ), '[]'::jsonb)
+  into enriched_cases
+  from jsonb_array_elements(coalesce(base_result, '[]'::jsonb))
+    with ordinality as case_item(case_json, case_order)
+  join public.refund_cases refund_case
+    on refund_case.id = (case_item.case_json ->> 'id')::uuid;
+
+  return enriched_cases;
+end;
+$$;
+
+revoke execute on function public.admin_get_refund_gmail_draft_cases()
+  from public, anon;
+grant execute on function public.admin_get_refund_gmail_draft_cases()
+  to authenticated;
 
 revoke execute on function public.guard_refund_deterministic_fact_version()
   from public, anon, authenticated;

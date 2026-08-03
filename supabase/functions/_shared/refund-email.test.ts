@@ -1,4 +1,5 @@
 import {
+  buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
   describeRefundMissingFields,
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
@@ -110,9 +111,21 @@ Deno.test("approved and completed copy labels only the confirmed refund amount",
     customerEmail: "customer@example.com",
     refundAmountCents: 725,
   });
+  const editedStatus = buildEditableRefundCustomerEmail({
+    input: {
+      messageType: "status_update",
+      publicReference: "RF-EDITED-STATUS",
+      customerEmail: "customer@example.com",
+      refundAmountCents: 725,
+    },
+    subject: "We are still reviewing your request",
+    body: "Thank you for your patience while we check the available records.",
+  });
 
   assertIncludes(approved.text, "Refund amount: $7.25", "post-decision amount label");
   assertIncludes(status.text, "Reported amount: $7.25", "pre-decision amount label");
+  assertIncludes(editedStatus.text, "Reported amount: $7.25", "edited pre-decision amount label");
+  assertNotIncludes(editedStatus.text, "Refund amount: $7.25", "edited pre-decision copy must not imply approval");
 });
 
 Deno.test("no-safe-match reminder is bounded and never solicits wallet digits", () => {

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(18);
+select plan(19);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -181,6 +181,22 @@ select is(
   1,
   'Wallet correction attempts use a dedicated public rate-limit scope'
 );
+
+select throws_like(
+  $sql$
+    select public.service_issue_refund_wallet_correction(
+      '94000000-0000-4000-8000-000000000001',
+      repeat('a', 64),
+      statement_timestamp() + interval '48 hours'
+    )
+  $sql$,
+  '%Automatic customer contact is disabled%',
+  'The database kill switch blocks wallet-link issuance by default'
+);
+
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled = true
+where singleton;
 
 select lives_ok(
   $sql$

@@ -13,8 +13,9 @@ import {
   type RefundCustomerMessageType,
 } from "../_shared/refund-email.ts";
 import {
-  REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
+  deriveRefundMissingFields,
   sanitizeRefundMissingFields,
+  type RefundMissingField,
 } from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { validateRefundGptReviewedDraft } from "../_shared/refund-gpt-triage-policy.mjs";
@@ -54,6 +55,11 @@ type RefundCaseRow = {
   refund_amount_cents: number | null;
   decision_reason: string | null;
   card_wallet_used: boolean;
+  card_last4: string | null;
+  reporting_machine_id: string | null;
+  reporting_location_id: string | null;
+  incident_at: string | null;
+  incident_time_resolution: string | null;
   reporting_machines?: OneOrMany<{
     machine_label: string | null;
     refund_public_display_label: string | null;
@@ -75,7 +81,6 @@ const firstRelation = <T>(value: OneOrMany<T>) =>
 
 const allowedPortalMessageTypes = new Set<RefundCustomerMessageType>([
   "more_info",
-  "no_safe_match",
   "status_update",
   "approved",
   "denied",
@@ -92,6 +97,11 @@ const selectCaseQuery = `
   refund_amount_cents,
   decision_reason,
   card_wallet_used,
+  card_last4,
+  reporting_machine_id,
+  reporting_location_id,
+  incident_at,
+  incident_time_resolution,
   reporting_machines(machine_label, refund_public_display_label),
   reporting_locations(name)
 `;
@@ -108,6 +118,9 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseRow | null> => {
   if (error) throw error;
   return data as RefundCaseRow | null;
 };
+
+const sameMissingFields = (left: RefundMissingField[], right: RefundMissingField[]) =>
+  left.length === right.length && left.every((field, index) => field === right[index]);
 
 const syncAutomationFields = async (
   refundCaseId: string,
@@ -201,12 +214,6 @@ serve(async (req) => {
       }
     }
 
-    const missingFields = triageSuggestion
-      ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
-      : suppliedMissingFields;
-    if (messageType === "more_info" && missingFields.length === 0) {
-      return jsonResponse({ error: "Choose the exact missing purchase details before sending." }, 400);
-    }
     if (messageType !== "more_info" && suppliedMissingFields.length > 0) {
       return jsonResponse({ error: "Missing-detail fields apply only to the missing-information template." }, 400);
     }
@@ -230,6 +237,33 @@ serve(async (req) => {
       return jsonResponse({ error: "Customer email is missing for this refund case." }, 400);
     }
 
+    const derived = deriveRefundMissingFields({
+      reportingMachineId: refundCase.reporting_machine_id,
+      reportingLocationId: refundCase.reporting_location_id,
+      incidentAt: refundCase.incident_at,
+      incidentTimeResolution: refundCase.incident_time_resolution,
+      paymentMethod: refundCase.payment_method,
+      paymentAmountCents: refundCase.payment_amount_cents,
+      cardLast4: refundCase.card_last4,
+      cardWalletUsed: refundCase.card_wallet_used,
+    });
+    const reviewedMissingFields = triageSuggestion
+      ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
+      : suppliedMissingFields;
+    let missingFields: RefundMissingField[] = [];
+    if (messageType === "more_info") {
+      if (derived.requiresSecureWalletCorrection) {
+        return jsonResponse({ error: "Use the secure mobile-wallet correction link instead of requesting wallet information by email." }, 409);
+      }
+      if (derived.missingFields.length === 0) {
+        return jsonResponse({ error: "This case has no structured purchase detail to request. Return it to manager review." }, 409);
+      }
+      if (!sameMissingFields(reviewedMissingFields, derived.missingFields)) {
+        return jsonResponse({ error: "The case facts changed. Refresh before asking for the exact missing purchase details." }, 409);
+      }
+      missingFields = derived.missingFields;
+    }
+
     const machine = firstRelation(refundCase.reporting_machines);
     const location = firstRelation(refundCase.reporting_locations);
     const publicLabels = resolveRefundPublicLabels({
@@ -250,12 +284,6 @@ serve(async (req) => {
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
     };
-    if (
-      messageType === "more_info" && refundCase.card_wallet_used &&
-      missingFields.includes("card_last4")
-    ) {
-      return jsonResponse({ error: "Use the secure mobile-wallet correction link instead of asking for wallet digits by email." }, 400);
-    }
     const defaultEmail = buildRefundCustomerEmail(templateInput);
     const requestedSubject = sanitizeText(body?.subject, 180);
     const requestedBody = sanitizeText(body?.body, 4000);
@@ -291,14 +319,8 @@ serve(async (req) => {
         created_by: user.id,
         content_source: triageSuggestion ? "manager_reviewed_gpt" : "manager_authored",
         delivery_kind: "manual",
-        reason_code: messageType === "more_info"
-          ? "missing_information"
-          : messageType === "no_safe_match"
-          ? "no_safe_match"
-          : null,
-        template_version: ["more_info", "no_safe_match"].includes(messageType)
-          ? REFUND_DETERMINISTIC_FOLLOW_UP_VERSION
-          : null,
+        reason_code: messageType === "more_info" ? "missing_information" : null,
+        template_version: null,
         requested_fields: messageType === "more_info" ? missingFields : [],
       })
       .select("id")
