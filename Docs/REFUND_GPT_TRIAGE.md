@@ -8,6 +8,8 @@ GPT assistance is a narrow, human-reviewed aid for refund inbox triage. It may c
 
 The policy, server-only OpenAI Responses API runner, content-free job ledger, manager review UI, and sanitized evaluation suite are implemented for issue `#635`. The production provider credential is not configured and all three production controls default off: the GitHub schedule, the Edge Function, and the database setting. The existing deterministic missing-information reply remains available when no GPT suggestion exists.
 
+The sponsor direction in `#683` permits only explicitly approved, versioned deterministic templates to become automatic after their separate implementation and rollout gates pass. It does not authorize GPT-authored or materially free-form text to send automatically. GPT output remains a human-reviewed draft even when the same case is eligible for a deterministic acknowledgement, missing-field request, or reminder.
+
 ## Safety boundary
 
 GPT may:
@@ -27,7 +29,7 @@ GPT may not:
 - process legal, safety, threat, chargeback, abusive/escalated, prompt-injection, high-value, wallet-payment, prohibited-payment-data, low-confidence, unrelated, uncertain, or non-English input without a person; or
 - create any payment or refund action.
 
-The database requires human review and has a check constraint that permanently rejects `auto_send_enabled=true`. Changing that boundary requires a reviewed migration and an explicit sponsor decision; it is not a runtime toggle.
+The database requires human review and has a check constraint that permanently rejects `auto_send_enabled=true`. The deterministic-template decision in `#683` does not satisfy or remove that GPT-specific boundary. Changing it would require a separate reviewed migration and explicit sponsor decision; it is not a runtime toggle.
 
 ## Data flow and minimization
 

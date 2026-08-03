@@ -1,5 +1,27 @@
 # Decisions
 
+## 2026-08-03 - Refund email assistance is deterministic and bounded; official actions stay portal-only (`#683`)
+Bloomjoy will use the designated Info/Support mailbox as a customer-service transport for refund intake, clarification, and status communication. Machine Managers remain the only business decision-makers, and every official refund action happens in the authenticated Refunds portal.
+
+**Canonical behavior**
+- Email, Gmail OAuth, schedulers, GPT, and agent tools may organize a request, extract permitted facts, send an approved deterministic message, and provide a read-only link to the exact case. None may approve, decline, retry, reconcile, promise, or invoke a Nayax refund.
+- The target production actor for an official decision is a currently active Machine Manager mapped to the case's machine. The current broader Super Admin/Scoped Admin capability is an implementation gap tracked in `#689`; those roles may support setup and review but may not approve, decline, or execute during the production pilot unless a separate owner-approved, reason-required, audited break-glass policy is adopted.
+- An automatic customer message is allowed only for an explicitly approved class implemented as a versioned deterministic template with durable idempotency, bounded contact rules, and a quick-disable switch. GPT-authored or materially free-form customer copy remains editable and human-reviewed before sending.
+- The first-contact acknowledgement is scoped to the provider Gmail thread and is sent exactly once for the first eligible inbound customer message. It does not trigger on later replies, outbound mail, bounces, mailing lists, or bulk/automated messages. The legacy responder and the Hub responder may not be authoritative at the same time.
+- Customer communication must be humble, friendly, customer-centric, and specific. It asks only for information that can advance the case, avoids blame and internal provider language, makes no unsupported promise, and keeps the customer in the original Gmail thread.
+- Once the machine is resolved, customer messages CC only the currently active Machine Managers returned by the portal's authoritative manager-to-machine mapping at send time. Before the machine is resolved, the system does not guess a manager; it creates an operations-triage signal instead.
+- The customer-visible message contains no internal case link, internal note, provider identifier, or complaint analysis. Managers receive a separate sanitized notice with the canonical `/refunds?case=<case-id>` link only for action-needed, aging, or exception milestones. Provider success produces one customer-facing completion message with the active mapped-manager set CC'd, not a second manager completion email.
+- Before manager CC is enabled, Gmail ingestion must classify a sender as customer, assigned manager, Bloomjoy mailbox, automated system, or unknown. A manager's Reply All is manager correspondence and cannot be treated as new customer evidence.
+- Gmail-linked automatic messages stay in the original Gmail thread and do not create a separate Resend conversation. A hard bounce pauses later automatic customer contact and creates a manager-visible exception.
+- A case completes and a success message sends only after one authorized portal approval and confirmed provider success. Rejection or unknown provider state sends no success message and is never retried blindly.
+
+This decision supersedes `#634`'s requirement that every Gmail-linked customer reply receive manager approval only for the explicit deterministic message classes above. It also supersedes `#674`'s singular “one manager confirmation” recipient wording: exactly once means one logical completion-message operation per case transition, whose CC recipient set may contain one to three active mapped managers. It does not weaken the human-review boundary for GPT in `#635`, the one-manager approval decision in `#674`, or the production Nayax gate in `#430`.
+
+**Why this choice**
+- Customers get timely, consistent help without delegating payment authority to an inbox or model.
+- Managers receive the exact context and case link needed to act once in the portal instead of researching or copying details between systems.
+- Thread, recipient, and idempotency controls prevent duplicate replies, private-data leakage, and manager messages from corrupting customer evidence.
+
 ## 2026-07-26 - Verified refunds use one manager approval and automatic fulfillment (`#674`)
 Bloomjoy will make every bounded, safe effort to identify the correct transaction before asking a Machine Manager to decide a refund. The normal high-confidence path is one manager approval followed by automatic provider execution and confirmation, not a second manual workflow in Nayax.
 

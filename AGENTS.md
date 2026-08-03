@@ -6,7 +6,7 @@ Use the smallest context that can safely answer the task.
 
 1. GitHub Issues and the Bloomjoy Project board are authoritative for active work: priority, status, blockers, acceptance criteria, and closeout evidence.
 2. `Docs/DECISIONS.md` is authoritative for durable product, platform, and architectural decisions.
-3. Durable runbooks and setup docs: `Docs/LOCAL_DEV.md`, `Docs/PRODUCTION_RUNBOOK.md`, `Docs/QA_SMOKE_TEST_CHECKLIST.md`, and `Docs/ARCHITECTURE.md`.
+3. Durable runbooks and setup docs: `Docs/LOCAL_DEV.md`, `Docs/PRODUCTION_RUNBOOK.md`, `Docs/QA_SMOKE_TEST_CHECKLIST.md`, `Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md` for refund inbox assistance, and `Docs/ARCHITECTURE.md`.
 4. Durable product/design context: `PRODUCT.md`, `DESIGN.md`, `Docs/MVP_SCOPE.md`, and `Docs/POC_NOTES.md`.
 5. Snapshot/history docs: `Docs/CURRENT_STATUS.md` and `Docs/BACKLOG.md`.
 
