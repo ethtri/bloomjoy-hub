@@ -221,6 +221,13 @@ export type NayaxMatchFactor = {
 export type RefundCaseRecord = {
   id: string;
   publicReference: string;
+  canPerformOfficialAction?: boolean;
+  officialActionBlockReason?:
+    | 'manager_mapping_required'
+    | 'manager_verification_required'
+    | 'official_actions_disabled'
+    | null;
+  officialActionVersion?: number;
   status: RefundCaseStatus;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   correlationStatus: RefundCorrelationStatus;
@@ -423,6 +430,7 @@ export type RefundManagerSetup = {
 
 export type UpdateRefundCaseInput = {
   caseId: string;
+  expectedOfficialActionVersion: number;
   status: RefundCaseStatus;
   assignedManagerEmail?: string | null;
   decision?: RefundDecision;
@@ -485,6 +493,7 @@ export type NayaxLookupCandidate = {
 
 export type NayaxLookupResponse = {
   error?: string;
+  officialActionVersion?: number;
   configured: boolean;
   lookupStatus?: RefundNayaxLookupStatus;
   recommendationState?: NayaxRecommendationState;
@@ -547,6 +556,7 @@ export type NayaxCardRefundExecutionStatus =
 
 export type ExecuteNayaxCardRefundInput = {
   caseId: string;
+  expectedOfficialActionVersion: number;
 };
 
 export type NayaxCardRefundExecutionResponse = {
@@ -745,6 +755,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       {
         id: 'demo-card-match',
         publicReference: 'RF-UAT-CARD',
+        canPerformOfficialAction: true,
+        officialActionVersion: 1,
         status: 'card_refund_pending',
         priority: 'normal',
         correlationStatus: 'matched',
@@ -843,6 +855,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       {
         id: 'demo-cash-waiting',
         publicReference: 'RF-UAT-WAIT',
+        canPerformOfficialAction: true,
+        officialActionVersion: 1,
         status: 'waiting_on_customer',
         priority: 'normal',
         correlationStatus: 'no_match',
@@ -909,6 +923,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       {
         id: 'demo-cash-completed',
         publicReference: 'RF-UAT-CASH',
+        canPerformOfficialAction: true,
+        officialActionVersion: 1,
         status: 'completed',
         priority: 'normal',
         correlationStatus: 'matched',
@@ -1132,7 +1148,13 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
 export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
   const data = await invokeEdgeFunction<{
     error?: string;
-    refundCase?: Record<string, unknown>;
+    refundCase?: {
+      id: string;
+      publicReference: string;
+      status: RefundCaseStatus;
+      decision: RefundDecision;
+      officialActionVersion?: number;
+    };
     customerMessage?: { type: string; status: string } | null;
     updateApplied?: boolean;
   }>('refund-case-admin-update', input, {
@@ -1264,10 +1286,11 @@ export const isNayaxCardRefundExecutionError = (
 
 export const executeNayaxCardRefund = async ({
   caseId,
+  expectedOfficialActionVersion,
 }: ExecuteNayaxCardRefundInput): Promise<NayaxCardRefundExecutionResponse> =>
   invokeEdgeFunction<NayaxCardRefundExecutionResponse>(
     'nayax-card-refund',
-    { caseId },
+    { caseId, expectedOfficialActionVersion },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to execute Nayax card refunds.',

@@ -13,8 +13,8 @@ const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false },
-    })
+    auth: { persistSession: false },
+  })
   : null;
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
@@ -24,12 +24,14 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   });
 
 const sanitizeText = (value: unknown, maxLength = 300) =>
-  typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+  typeof value === "string" || typeof value === "number" ||
+    typeof value === "boolean"
     ? String(value).trim().slice(0, maxLength)
     : "";
 
 const isUuid = (value: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(value);
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -53,7 +55,9 @@ serve(async (req) => {
       return jsonResponse({ error: "Unauthorized." }, 401);
     }
 
-    const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+    const { data: authData, error: authError } = await supabase.auth.getUser(
+      accessToken,
+    );
     const user = authData?.user;
     if (authError || !user) {
       return jsonResponse({ error: "Unauthorized." }, 401);
@@ -100,7 +104,9 @@ serve(async (req) => {
           correlation_source: "nayax",
           correlation_confidence: 0,
           correlation_summary: result.summary,
-          automation_state: result.recommendationState === "no_safe_match" ? "more_info_needed" : "under_review",
+          automation_state: result.recommendationState === "no_safe_match"
+            ? "more_info_needed"
+            : "under_review",
           nayax_recommendation_state: result.recommendationState,
           nayax_recommendation_policy_version: result.policyVersion,
           nayax_recommendation_evaluated_at: result.lastCheckedAt,
@@ -112,7 +118,8 @@ serve(async (req) => {
         refund_case_id: caseId,
         actor_user_id: user.id,
         event_type: "nayax_recommendation_evaluated",
-        message: "Nayax evaluated sanitized card-sale evidence for manager review.",
+        message:
+          "Nayax evaluated sanitized card-sale evidence for manager review.",
         metadata: {
           lookup_status: result.lookupStatus,
           recommendation_state: result.recommendationState,
@@ -120,11 +127,14 @@ serve(async (req) => {
           reason_codes: result.reasonCodes,
           policy_version: result.policyVersion,
           candidate_count: result.candidates.length,
-          recommended_rank: result.recommendationState === "high_confidence" ? 1 : null,
+          recommended_rank: result.recommendationState === "high_confidence"
+            ? 1
+            : null,
           one_click_base_eligible: result.oneClickEligible,
           window_hours: result.windowHours,
           provider_record_count: result.providerRecordCount ?? null,
-          provider_window_record_count: result.providerWindowRecordCount ?? null,
+          provider_window_record_count: result.providerWindowRecordCount ??
+            null,
           qr_claim_evidence_status: result.qrClaimEvidenceStatus,
           payload_redacted: true,
         },
@@ -149,6 +159,13 @@ serve(async (req) => {
       });
     }
 
+    const { data: caseVersion, error: caseVersionError } = await supabase
+      .from("refund_cases")
+      .select("official_action_version")
+      .eq("id", caseId)
+      .single();
+    if (caseVersionError) throw caseVersionError;
+
     return jsonResponse({
       configured: result.configured,
       lookupStatus: result.lookupStatus,
@@ -171,6 +188,7 @@ serve(async (req) => {
       windowHours: result.windowHours,
       summary: result.summary,
       recommendedAction: result.recommendedAction,
+      officialActionVersion: caseVersion.official_action_version,
     });
   } catch (error) {
     if (supabase && isUuid(caseIdForAudit)) {
@@ -179,7 +197,8 @@ serve(async (req) => {
           refund_case_id: caseIdForAudit,
           actor_user_id: actorUserIdForAudit || null,
           event_type: "nayax_lookup_failed",
-          message: "Nayax lookup failed and the case remains in manager review.",
+          message:
+            "Nayax lookup failed and the case remains in manager review.",
           metadata: {
             error_type: error instanceof Error ? error.name : typeof error,
             policy_version: NAYAX_RECOMMENDATION_POLICY.version,
@@ -190,7 +209,9 @@ serve(async (req) => {
         });
       } catch (auditError) {
         console.error("nayax-transaction-lookup audit insert failed", {
-          errorType: auditError instanceof Error ? auditError.name : typeof auditError,
+          errorType: auditError instanceof Error
+            ? auditError.name
+            : typeof auditError,
         });
       }
     }
@@ -202,6 +223,9 @@ serve(async (req) => {
     console.error("nayax-transaction-lookup error", {
       errorType: error instanceof Error ? error.name : typeof error,
     });
-    return jsonResponse({ error: "Unable to look up Nayax transactions." }, 500);
+    return jsonResponse(
+      { error: "Unable to look up Nayax transactions." },
+      500,
+    );
   }
 });

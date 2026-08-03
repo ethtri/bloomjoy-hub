@@ -584,6 +584,39 @@ const buildPendingNayaxRefundOverview = () => ({
   ],
 });
 
+const buildReviewOnlyRefundOverview = () => {
+  const overview = buildMockRefundOverview();
+  overview.cases = [
+    {
+      ...overview.cases[0],
+      canPerformOfficialAction: false,
+      officialActionVersion: 1,
+    },
+  ];
+  return overview;
+};
+
+const buildOfficialActionVersionResetOverview = () => {
+  const overview = buildMockRefundOverview();
+  const validCase = {
+    ...overview.cases[0],
+    id: 'case-version-valid',
+    publicReference: 'RF-UAT-VERSION-VALID',
+    officialActionVersion: 7,
+    canPerformOfficialAction: true,
+  };
+  const missingVersionCase = {
+    ...overview.cases[0],
+    id: 'case-version-missing',
+    publicReference: 'RF-UAT-VERSION-MISSING',
+    customerEmail: 'customer-version-missing@example.test',
+    officialActionVersion: 0,
+    canPerformOfficialAction: true,
+  };
+  overview.cases = [validCase, missingVersionCase];
+  return overview;
+};
+
 const jsonResponse = (body) => ({
   status: 200,
   contentType: 'application/json',
@@ -607,8 +640,24 @@ const installMockSupabaseRoutes = async (
     gmailHealth = null,
     gmailContext = null,
     gptTriageSuggestion = undefined,
+    adminAccessContext = null,
   } = {}
 ) => {
+  const officialActionVersions = new Map();
+  const withOfficialActionState = (overview) => ({
+    ...overview,
+    cases: (overview.cases ?? []).map((refundCase) => {
+      const configuredVersion = Number(refundCase.officialActionVersion ?? 1);
+      const currentVersion = officialActionVersions.get(refundCase.id) ?? configuredVersion;
+      officialActionVersions.set(refundCase.id, currentVersion);
+      return {
+        ...refundCase,
+        canPerformOfficialAction: refundCase.canPerformOfficialAction ?? true,
+        officialActionVersion: currentVersion,
+      };
+    }),
+  });
+
   await context.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
 
@@ -651,50 +700,55 @@ const installMockSupabaseRoutes = async (
     }
 
     if (functionName === 'nayax-transaction-lookup') {
+      const lookupResponse = nayaxLookupResponse ?? {
+        configured: true,
+        lookupStatus: 'match_found',
+        recommendationState: 'high_confidence',
+        policyVersion: '2026-07-21.v1',
+        oneClickEligible: true,
+        lastCheckedAt: now.toISOString(),
+        providerRecordCount: 2,
+        providerParseableRecordCount: 2,
+        providerWindowRecordCount: 1,
+        candidateCount: 1,
+        windowHours: 6,
+        summary: 'Nayax found 1 possible card sale in the +/- 6 hour window.',
+        recommendedAction: 'Review the recommended card sale and confirm the matching transaction before completion.',
+        candidates: [
+          {
+            candidateToken: '41000000-0000-4000-8000-000000000102',
+            authorizedAt: isoHoursAgo(5),
+            machineAuthorizationTime: isoHoursAgo(5),
+            amountCents: 700,
+            currencyCode: 'USD',
+            cardLast4: '4242',
+            cardBrand: 'Visa',
+            recognitionMethod: 'tap',
+            paymentStatus: 'approved',
+            amountDeltaCents: 0,
+            timeDeltaMinutes: 3,
+            recommendationRank: 1,
+            isTopRanked: true,
+            isRecommended: true,
+            recommendationState: 'high_confidence',
+            oneClickEligible: true,
+            selectionAllowed: true,
+            matchStrength: 'strong',
+            policyVersion: '2026-07-21.v1',
+            matchFactors: [
+              { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+              { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+              { key: 'card', outcome: 'match', label: 'Card last four matches' },
+            ],
+            matchReason: 'Exact mapped machine and location; exact amount; card last four matches',
+          },
+        ],
+      };
+      const caseId = requestBody?.caseId;
       return route.fulfill(
-        jsonResponse(nayaxLookupResponse ?? {
-          configured: true,
-          lookupStatus: 'match_found',
-          recommendationState: 'high_confidence',
-          policyVersion: '2026-07-21.v1',
-          oneClickEligible: true,
-          lastCheckedAt: now.toISOString(),
-          providerRecordCount: 2,
-          providerParseableRecordCount: 2,
-          providerWindowRecordCount: 1,
-          candidateCount: 1,
-          windowHours: 6,
-          summary: 'Nayax found 1 possible card sale in the +/- 6 hour window.',
-          recommendedAction: 'Review the recommended card sale and confirm the matching transaction before completion.',
-          candidates: [
-            {
-              candidateToken: '41000000-0000-4000-8000-000000000102',
-              authorizedAt: isoHoursAgo(5),
-              machineAuthorizationTime: isoHoursAgo(5),
-              amountCents: 700,
-              currencyCode: 'USD',
-              cardLast4: '4242',
-              cardBrand: 'Visa',
-              recognitionMethod: 'tap',
-              paymentStatus: 'approved',
-              amountDeltaCents: 0,
-              timeDeltaMinutes: 3,
-              recommendationRank: 1,
-              isTopRanked: true,
-              isRecommended: true,
-              recommendationState: 'high_confidence',
-              oneClickEligible: true,
-              selectionAllowed: true,
-              matchStrength: 'strong',
-              policyVersion: '2026-07-21.v1',
-              matchFactors: [
-                { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
-                { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
-                { key: 'card', outcome: 'match', label: 'Card last four matches' },
-              ],
-              matchReason: 'Exact mapped machine and location; exact amount; card last four matches',
-            },
-          ],
+        jsonResponse({
+          ...lookupResponse,
+          officialActionVersion: officialActionVersions.get(caseId) ?? 1,
         })
       );
     }
@@ -743,18 +797,32 @@ const installMockSupabaseRoutes = async (
       const resolvedAdminUpdateResponse = typeof adminUpdateResponse === 'function'
         ? adminUpdateResponse(requestBody)
         : adminUpdateResponse;
+      const caseId = requestBody?.caseId ?? 'case-card-1';
+      const submittedVersion = Number(requestBody?.expectedOfficialActionVersion ?? 1);
+      const nextOfficialActionVersion = Math.max(
+        officialActionVersions.get(caseId) ?? 1,
+        submittedVersion
+      ) + 1;
+      officialActionVersions.set(caseId, nextOfficialActionVersion);
+      const response = resolvedAdminUpdateResponse ?? {
+        refundCase: {
+          id: caseId,
+          publicReference: caseId === 'case-cash-review' ? 'RF-UAT-CASH-REVIEW' : 'RF-UAT-CARD',
+          status: requestBody?.status ?? 'card_refund_pending',
+          decision: requestBody?.decision ?? 'approved',
+        },
+        customerMessage: requestBody?.customerMessageType
+          ? { type: requestBody.customerMessageType, status: 'sent' }
+          : null,
+        updateApplied: true,
+      };
       return route.fulfill(
-        jsonResponse(resolvedAdminUpdateResponse ?? {
+        jsonResponse({
+          ...response,
           refundCase: {
-            id: requestBody?.caseId ?? 'case-card-1',
-            publicReference: requestBody?.caseId === 'case-cash-review' ? 'RF-UAT-CASH-REVIEW' : 'RF-UAT-CARD',
-            status: requestBody?.status ?? 'card_refund_pending',
-            decision: requestBody?.decision ?? 'approved',
+            ...response.refundCase,
+            officialActionVersion: nextOfficialActionVersion,
           },
-          customerMessage: requestBody?.customerMessageType
-            ? { type: requestBody.customerMessageType, status: 'sent' }
-            : null,
-          updateApplied: true,
         })
       );
     }
@@ -769,7 +837,7 @@ const installMockSupabaseRoutes = async (
 
     if (url.includes('/get_my_admin_access_context')) {
       return route.fulfill(
-        jsonResponse({
+        jsonResponse(adminAccessContext ?? {
           isSuperAdmin: false,
           isScopedAdmin: false,
           canAccessAdmin: true,
@@ -901,7 +969,7 @@ const installMockSupabaseRoutes = async (
     }
 
     if (url.includes('/admin_get_refund_operations_overview')) {
-      return route.fulfill(jsonResponse(refundOverview()));
+      return route.fulfill(jsonResponse(withOfficialActionState(refundOverview())));
     }
 
     if (url.includes('/admin_update_refund_case')) {
@@ -1236,6 +1304,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
 
   const saveBodies = functionBodies.filter((entry) => entry.functionName === 'refund-case-admin-update');
   const lastSaveBody = saveBodies.at(-1)?.body ?? {};
+  const nayaxExecutionBody = functionBodies.find(
+    (entry) => entry.functionName === 'nayax-card-refund'
+  )?.body ?? {};
   recorder.assert(
     'Primary action attempts guarded card refund before completion',
     functionCalls.includes('nayax-card-refund') &&
@@ -1248,6 +1319,11 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     !Object.prototype.hasOwnProperty.call(lastSaveBody, 'manualNayaxConfirmation') &&
       !Object.prototype.hasOwnProperty.call(lastSaveBody, 'manualRefundReference'),
     JSON.stringify(lastSaveBody)
+  );
+  recorder.assert(
+    'Nayax execution submits the exact reviewed official-action version',
+    nayaxExecutionBody.expectedOfficialActionVersion === 1,
+    JSON.stringify(nayaxExecutionBody)
   );
   recorder.assert(
     'Primary action does not call the separate customer message function',
@@ -1635,7 +1711,8 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
       (body) =>
         body.status === 'cash_zelle_pending' &&
         body.decision === 'approved' &&
-        body.customerMessageType === 'approved'
+        body.customerMessageType === 'approved' &&
+        body.expectedOfficialActionVersion === 1
     ),
     JSON.stringify(approvalBodies)
   );
@@ -1780,7 +1857,8 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
       typeof completionBody.cashPayoutSentAt === 'string' &&
       completionBody.cashPaymentConfirmed === true &&
       completionBody.manualRefundReference === 'Zelle confirmation ZP-4821' &&
-      completionBody.customerMessageType === 'completed',
+      completionBody.customerMessageType === 'completed' &&
+      completionBody.expectedOfficialActionVersion === 2,
     JSON.stringify(completionBodies)
   );
   recorder.assert(
@@ -1832,15 +1910,24 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
 
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
-  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
-  await page.locator('tr', { hasText: 'RF-UAT-PENDING' }).click();
+  await page.goto(`${appUrl}/refunds?case=case-card-pending`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
+
+  recorder.assert(
+    'Refund case deep link selects the case without automatically querying Nayax',
+    functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
+    functionCalls.join(', ')
+  );
+
+  await page.getByText('Advanced lookup tools (optional)').click();
+  await page.getByRole('button', { name: 'Refresh result' }).click();
   await page.getByTestId('nayax-result-card').getByText('Setup needed before Nayax can check this card refund.').first().waitFor({
     timeout: 10000,
   });
 
   recorder.assert(
-    'Card case open auto-runs Nayax lookup when evidence is pending',
-    functionCalls.includes('nayax-transaction-lookup'),
+    'Explicit manager request runs Nayax lookup once when evidence is pending',
+    functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 1,
     functionCalls.join(', ')
   );
   recorder.assert(
@@ -2111,13 +2198,20 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     const pendingRow = page.locator('tr', { hasText: 'RF-UAT-PENDING' });
     await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
     await pendingRow.click();
+    recorder.assert(
+      `Opening the ${scenario.name} case does not auto-run Nayax`,
+      functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
+      functionCalls.join(', ')
+    );
+    await page.getByText('Advanced lookup tools (optional)').click();
+    await page.getByRole('button', { name: 'Refresh result' }).click();
     await page.getByTestId('nayax-result-card').getByText(scenario.expectedBadge, { exact: true }).waitFor({ timeout: 10000 });
 
     recorder.assert(
       `Nayax ${scenario.name} status is explicit`,
       await page.getByTestId('nayax-result-card').getByText(scenario.expectedBadge, { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText(scenario.response.summary).first().isVisible() &&
-        functionCalls.includes('nayax-transaction-lookup'),
+        functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 1,
       functionCalls.join(', ')
     );
     recorder.assert(
@@ -2181,6 +2275,144 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
 
     await context.close();
   }
+};
+
+const runReviewOnlyOfficialActionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const scenarios = [
+    {
+      name: 'mapped Super Admin',
+      slug: 'mapped-super-admin',
+      adminAccessContext: {
+        isSuperAdmin: true,
+        isScopedAdmin: false,
+        canAccessAdmin: true,
+        allowedSurfaces: ['refunds'],
+        scopedMachineIds: [],
+      },
+    },
+    {
+      name: 'mapped Scoped Admin',
+      slug: 'mapped-scoped-admin',
+      adminAccessContext: {
+        isSuperAdmin: false,
+        isScopedAdmin: true,
+        canAccessAdmin: true,
+        allowedSurfaces: ['refunds'],
+        scopedMachineIds: ['machine-1'],
+      },
+    },
+  ];
+
+  for (const scenario of scenarios) {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const functionCalls = [];
+  const functionBodies = [];
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildReviewOnlyRefundOverview,
+    functionCalls,
+    functionBodies,
+    adminAccessContext: scenario.adminAccessContext,
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByText('1 visible of 1 total cases').waitFor({ timeout: 10000 });
+  await page.locator('tr', { hasText: 'RF-UAT-CARD' }).click();
+
+  const reviewOnlyBanner = page.getByTestId('refund-review-only-banner');
+  recorder.assert(
+    `${scenario.name} sees the Machine Manager review-only boundary`,
+    await reviewOnlyBanner.isVisible() &&
+      await reviewOnlyBanner.getByText('Review only', { exact: true }).isVisible() &&
+      await reviewOnlyBanner.getByText(/Only a currently mapped Machine Manager/).isVisible()
+  );
+  recorder.assert(
+    `${scenario.name} cannot issue the card refund`,
+    await page.getByTestId('refund-run-nayax-refund').isDisabled()
+  );
+
+  await page.getByText('Other decisions', { exact: true }).click();
+  const denyButton = page.getByRole('button', { name: 'Deny request', exact: true });
+  const askForDetailsButton = page.getByRole('button', { name: 'Ask customer for details', exact: true });
+  recorder.assert(
+    `${scenario.name} cannot decline but can prepare a customer information request`,
+    await denyButton.isDisabled() && await askForDetailsButton.isEnabled()
+  );
+
+  await page.getByText('Advanced lookup tools (optional)').click();
+  const refreshResultButton = page.getByRole('button', { name: 'Refresh result' });
+  recorder.assert(
+    `${scenario.name} can explicitly refresh transaction evidence`,
+    await refreshResultButton.isEnabled()
+  );
+  await refreshResultButton.click();
+  await page.getByTestId('nayax-lookup-notice').waitFor({ timeout: 10000 });
+  recorder.assert(
+    `${scenario.name} evidence refresh does not perform an official refund action`,
+    functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 1 &&
+      !functionCalls.includes('nayax-card-refund') &&
+      !functionCalls.includes('refund-case-admin-update'),
+    functionCalls.join(', ')
+  );
+
+  await askForDetailsButton.click();
+  const customerFollowUpButton = page.getByTestId('refund-save-case');
+  await customerFollowUpButton.getByText('Ask customer for details', { exact: true }).waitFor({
+    timeout: 10000,
+  });
+  await customerFollowUpButton.click();
+  await page.waitForTimeout(300);
+  const customerFollowUpBody = functionBodies.find(
+    (entry) => entry.functionName === 'refund-case-admin-update'
+  )?.body ?? {};
+  recorder.assert(
+    `${scenario.name} can send the non-official missing-information workflow`,
+    customerFollowUpBody.status === 'waiting_on_customer' &&
+      customerFollowUpBody.decision === null &&
+      customerFollowUpBody.customerMessageType === 'more_info' &&
+      !functionCalls.includes('nayax-card-refund'),
+    JSON.stringify({ functionCalls, customerFollowUpBody })
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, `refund-portal-uat-${scenario.slug}-review-only.png`),
+    fullPage: true,
+  });
+  await context.close();
+  }
+};
+
+const runOfficialActionVersionResetChecks = async ({ browser, appUrl, recorder }) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const functionCalls = [];
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildOfficialActionVersionResetOverview,
+    functionCalls,
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByText('2 visible of 2 total cases').waitFor({ timeout: 10000 });
+
+  await page.locator('tr', { hasText: 'RF-UAT-VERSION-VALID' }).click();
+  recorder.assert(
+    'A mapped manager can act when the selected case has a valid review version',
+    await page.getByTestId('refund-run-nayax-refund').isEnabled()
+  );
+
+  await page.locator('tr', { hasText: 'RF-UAT-VERSION-MISSING' }).click();
+  recorder.assert(
+    'A case with a missing review version cannot inherit the previous case version',
+    await page.getByTestId('refund-run-nayax-refund').isDisabled() &&
+      !functionCalls.includes('nayax-card-refund'),
+    functionCalls.join(', ')
+  );
+
+  await context.close();
 };
 
 const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
@@ -2269,13 +2501,18 @@ const runNayaxExecutionSuccessChecks = async ({ browser, appUrl, artifactDir, re
     .filter((entry) => entry.functionName === 'refund-case-admin-update')
     .map((entry) => entry.body ?? {});
   const completionBody = adminUpdateBodies.find((body) => body.status === 'completed') ?? {};
+  const nayaxExecutionBody = functionBodies.find(
+    (entry) => entry.functionName === 'nayax-card-refund'
+  )?.body ?? {};
 
   recorder.assert(
     'Successful guarded card refund execution completes case through admin update',
     functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
       completionBody.status === 'completed' &&
       completionBody.manualRefundReference === 'NAYAX-PROVIDER-REF-1' &&
-      completionBody.customerMessageType === 'completed',
+      completionBody.customerMessageType === 'completed' &&
+      completionBody.expectedOfficialActionVersion === 1 &&
+      nayaxExecutionBody.expectedOfficialActionVersion === 1,
     JSON.stringify({ functionCalls, completionBody })
   );
   recorder.assert(
@@ -2426,6 +2663,17 @@ const run = async () => {
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runReviewOnlyOfficialActionChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runOfficialActionVersionResetChecks({
+      browser,
+      appUrl: args.appUrl,
       recorder,
     });
     await runCustomerCommsFailureChecks({

@@ -2,14 +2,19 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import {
+  authorizeRefundOfficialAction,
+  RefundOfficialActionAuthorizationError,
+} from "../_shared/refund-official-action.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 const supabase = supabaseUrl && supabaseServiceRoleKey
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false },
-    })
+    auth: { persistSession: false },
+  })
   : null;
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
@@ -19,12 +24,14 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   });
 
 const sanitizeText = (value: unknown, maxLength = 300) =>
-  typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+  typeof value === "string" || typeof value === "number" ||
+    typeof value === "boolean"
     ? String(value).trim().slice(0, maxLength)
     : "";
 
 const isUuid = (value: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(value);
 
 const envFlag = (name: string, expected = "true") =>
   sanitizeText(Deno.env.get(name), 40).toLowerCase() === expected;
@@ -54,6 +61,7 @@ type RefundCaseForExecution = {
   matched_nayax_amount_cents: number | null;
   matched_nayax_currency_code: string | null;
   reporting_adjustment_id: string | null;
+  official_action_version: number;
   reporting_machines?: {
     id: string;
     machine_label: string | null;
@@ -65,7 +73,9 @@ type RefundCaseForExecution = {
   } | null;
 };
 
-const getRefundCase = async (caseId: string): Promise<RefundCaseForExecution | null> => {
+const getRefundCase = async (
+  caseId: string,
+): Promise<RefundCaseForExecution | null> => {
   if (!supabase) return null;
 
   const { data, error } = await supabase
@@ -90,6 +100,7 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseForExecution | n
       matched_nayax_amount_cents,
       matched_nayax_currency_code,
       reporting_adjustment_id,
+      official_action_version,
       reporting_machines(
         id,
         machine_label,
@@ -114,7 +125,10 @@ const resolveRefundAmountCents = (refundCase: RefundCaseForExecution) =>
   refundCase.refund_amount_cents ?? 0;
 
 const sha256Hex = async (value: string) => {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
@@ -128,14 +142,19 @@ const hmacSha256Hex = async (secret: string, value: string) => {
     false,
     ["sign"],
   );
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(value),
+  );
   return Array.from(new Uint8Array(signature))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 };
 
 const buildIdempotencyKey = async (refundCase: RefundCaseForExecution) => {
-  const secret = Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET") || supabaseServiceRoleKey || "local-dev";
+  const secret = Deno.env.get("NAYAX_REFUND_IDEMPOTENCY_SECRET") ||
+    supabaseServiceRoleKey || "local-dev";
   const amountCents = resolveRefundAmountCents(refundCase);
   const fingerprint = [
     refundCase.id,
@@ -162,24 +181,48 @@ const getPreflightBlocks = ({
   const globalMax = envInt("NAYAX_REFUND_MAX_AMOUNT_CENTS", 1000);
 
   if (!actorCanManageCase) blocks.push("authorization_failed");
-  if (refundCase.status !== "card_refund_pending") blocks.push("validation_rejected");
+  if (refundCase.status !== "card_refund_pending") {
+    blocks.push("validation_rejected");
+  }
   if (refundCase.decision !== "approved") blocks.push("validation_rejected");
   if (refundCase.payment_method !== "card") blocks.push("validation_rejected");
   if (refundCase.card_wallet_used) blocks.push("manual_review");
-  if (refundCase.correlation_status !== "matched") blocks.push("validation_rejected");
-  if (refundCase.correlation_source !== "nayax") blocks.push("validation_rejected");
-  if (refundCase.nayax_recommendation_state !== "high_confidence") blocks.push("manual_review");
+  if (refundCase.correlation_status !== "matched") {
+    blocks.push("validation_rejected");
+  }
+  if (refundCase.correlation_source !== "nayax") {
+    blocks.push("validation_rejected");
+  }
+  if (refundCase.nayax_recommendation_state !== "high_confidence") {
+    blocks.push("manual_review");
+  }
   if (!refundCase.nayax_match_execution_eligible) blocks.push("manual_review");
-  if (!safeNayaxReference(refundCase.matched_nayax_transaction_id)) blocks.push("validation_rejected");
-  if (refundCase.matched_nayax_site_id === null) blocks.push("validation_rejected");
-  if (!refundCase.matched_nayax_machine_auth_time) blocks.push("validation_rejected");
-  if (refundCase.matched_nayax_currency_code !== "USD") blocks.push("validation_rejected");
+  if (!safeNayaxReference(refundCase.matched_nayax_transaction_id)) {
+    blocks.push("validation_rejected");
+  }
+  if (refundCase.matched_nayax_site_id === null) {
+    blocks.push("validation_rejected");
+  }
+  if (!refundCase.matched_nayax_machine_auth_time) {
+    blocks.push("validation_rejected");
+  }
+  if (refundCase.matched_nayax_currency_code !== "USD") {
+    blocks.push("validation_rejected");
+  }
   if (amountCents <= 0) blocks.push("validation_rejected");
-  if (refundCase.payment_amount_cents !== amountCents) blocks.push("validation_rejected");
-  if (refundCase.matched_nayax_amount_cents !== amountCents) blocks.push("validation_rejected");
-  if (globalMax > 0 && amountCents > globalMax) blocks.push("amount_cap_exceeded");
+  if (refundCase.payment_amount_cents !== amountCents) {
+    blocks.push("validation_rejected");
+  }
+  if (refundCase.matched_nayax_amount_cents !== amountCents) {
+    blocks.push("validation_rejected");
+  }
+  if (globalMax > 0 && amountCents > globalMax) {
+    blocks.push("amount_cap_exceeded");
+  }
   if (refundCase.reporting_adjustment_id) blocks.push("already_refunded");
-  if (!machine || machine.status !== "active") blocks.push("configuration_missing");
+  if (!machine || machine.status !== "active") {
+    blocks.push("configuration_missing");
+  }
   if (!machine?.nayax_machine_id) blocks.push("configuration_missing");
   if (!machine?.nayax_refunds_enabled) blocks.push("feature_disabled");
   if (
@@ -211,7 +254,9 @@ const getDailyCapBlocks = async (amountCents: number) => {
 
   if (error) throw error;
 
-  const attempts = (data ?? []) as Array<{ amount_cents: number | null; status: string | null }>;
+  const attempts = (data ?? []) as Array<
+    { amount_cents: number | null; status: string | null }
+  >;
   if (dailyCountCap > 0 && attempts.length + 1 > dailyCountCap) {
     blocks.push("daily_count_cap_exceeded");
   }
@@ -220,15 +265,21 @@ const getDailyCapBlocks = async (amountCents: number) => {
     (total, attempt) => total + Math.max(0, Number(attempt.amount_cents ?? 0)),
     0,
   );
-  if (dailyAmountCap > 0 && committedAmountCents + amountCents > dailyAmountCap) {
+  if (
+    dailyAmountCap > 0 && committedAmountCents + amountCents > dailyAmountCap
+  ) {
     blocks.push("daily_amount_cap_exceeded");
   }
 
   return blocks;
 };
 
-const getDuplicateTransactionBlocks = async (refundCase: RefundCaseForExecution) => {
-  if (!supabase || !safeNayaxReference(refundCase.matched_nayax_transaction_id)) return [];
+const getDuplicateTransactionBlocks = async (
+  refundCase: RefundCaseForExecution,
+) => {
+  if (
+    !supabase || !safeNayaxReference(refundCase.matched_nayax_transaction_id)
+  ) return [];
   const { data, error } = await supabase
     .from("refund_cases")
     .select("id")
@@ -275,9 +326,13 @@ const recordAttempt = async ({
       status,
       idempotency_key: idempotencyKey,
       amount_cents: amountCents,
-      transaction_id_present: safeNayaxReference(refundCase.matched_nayax_transaction_id),
+      transaction_id_present: safeNayaxReference(
+        refundCase.matched_nayax_transaction_id,
+      ),
       site_id_present: refundCase.matched_nayax_site_id !== null,
-      machine_auth_time_present: Boolean(refundCase.matched_nayax_machine_auth_time),
+      machine_auth_time_present: Boolean(
+        refundCase.matched_nayax_machine_auth_time,
+      ),
       error_code: errorCode,
       sanitized_request: {
         request_fingerprint: requestFingerprint,
@@ -308,15 +363,21 @@ serve(async (req) => {
     }
 
     if (!supabase) {
-      return jsonResponse({ error: "Nayax refund execution is not configured." }, 500);
+      return jsonResponse({
+        error: "Nayax refund execution is not configured.",
+      }, 500);
     }
 
     const accessToken = resolveSupabaseAccessToken(req);
     if (!accessToken) return jsonResponse({ error: "Unauthorized." }, 401);
 
-    const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+    const { data: authData, error: authError } = await supabase.auth.getUser(
+      accessToken,
+    );
     const user = authData?.user;
-    if (authError || !user) return jsonResponse({ error: "Unauthorized." }, 401);
+    if (authError || !user) {
+      return jsonResponse({ error: "Unauthorized." }, 401);
+    }
 
     const body = await req.json();
     const caseId = sanitizeText(body?.caseId, 80);
@@ -325,26 +386,41 @@ serve(async (req) => {
     }
 
     const refundCase = await getRefundCase(caseId);
-    if (!refundCase) return jsonResponse({ error: "Refund case not found." }, 404);
-    const { data: actorCanManageCase, error: accessError } = await supabase.rpc(
-      "can_manage_refund_case",
-      { p_user_id: user.id, p_refund_case_id: refundCase.id },
-    );
+    if (!refundCase) {
+      return jsonResponse({ error: "Refund case not found." }, 404);
+    }
+    const { data: actorCanPerformOfficialAction, error: accessError } =
+      await supabase.rpc(
+        "can_perform_refund_official_action",
+        { p_user_id: user.id, p_refund_case_id: refundCase.id },
+      );
     if (accessError) throw accessError;
 
     const idempotencyKey = await buildIdempotencyKey(refundCase);
     const preflightBlocks = getPreflightBlocks({
       refundCase,
-      actorCanManageCase: Boolean(actorCanManageCase),
+      actorCanManageCase: Boolean(actorCanPerformOfficialAction),
     });
-    const dailyCapBlocks = await getDailyCapBlocks(resolveRefundAmountCents(refundCase));
-    const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(refundCase);
+    const dailyCapBlocks = await getDailyCapBlocks(
+      resolveRefundAmountCents(refundCase),
+    );
+    const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(
+      refundCase,
+    );
 
-    const killSwitchActive = !envFlag("NAYAX_REFUND_EXECUTION_KILL_SWITCH", "false");
+    const killSwitchActive = !envFlag(
+      "NAYAX_REFUND_EXECUTION_KILL_SWITCH",
+      "false",
+    );
     const executionEnabled = envFlag("NAYAX_REFUND_EXECUTION_ENABLED");
     const dryRun = !envFlag("NAYAX_REFUND_EXECUTION_DRY_RUN", "false");
-    const sponsorGoNoGo = envFlag("NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO", "approved");
-    const providerContractConfirmed = envFlag("NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED");
+    const sponsorGoNoGo = envFlag(
+      "NAYAX_REFUND_EXECUTION_SPONSOR_GO_NO_GO",
+      "approved",
+    );
+    const providerContractConfirmed = envFlag(
+      "NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED",
+    );
     const configBlocks = [
       killSwitchActive ? "kill_switch_active" : null,
       executionEnabled ? null : "feature_disabled",
@@ -353,25 +429,41 @@ serve(async (req) => {
     ].filter(Boolean) as string[];
 
     const allBlocks = Array.from(
-      new Set([...preflightBlocks, ...dailyCapBlocks, ...duplicateTransactionBlocks, ...configBlocks]),
+      new Set([
+        ...preflightBlocks,
+        ...dailyCapBlocks,
+        ...duplicateTransactionBlocks,
+        ...configBlocks,
+      ]),
     );
     if (allBlocks.length > 0) {
-      const preferredError =
-        allBlocks.includes("kill_switch_active") ? "kill_switch_active" :
-        allBlocks.includes("authorization_failed") ? "authorization_failed" :
-        allBlocks.includes("already_refunded") ? "already_refunded" :
-        allBlocks.includes("amount_cap_exceeded") ? "amount_cap_exceeded" :
-        allBlocks.includes("daily_amount_cap_exceeded") ? "amount_cap_exceeded" :
-        allBlocks.includes("daily_count_cap_exceeded") ? "amount_cap_exceeded" :
-        allBlocks.includes("duplicate_transaction") ? "manual_review" :
-        allBlocks.includes("manual_review") ? "manual_review" :
-        allBlocks.includes("configuration_missing") ? "configuration_missing" :
-        allBlocks.includes("feature_disabled") ? "feature_disabled" :
-        "validation_rejected";
+      const preferredError = allBlocks.includes("kill_switch_active")
+        ? "kill_switch_active"
+        : allBlocks.includes("authorization_failed")
+        ? "authorization_failed"
+        : allBlocks.includes("already_refunded")
+        ? "already_refunded"
+        : allBlocks.includes("amount_cap_exceeded")
+        ? "amount_cap_exceeded"
+        : allBlocks.includes("daily_amount_cap_exceeded")
+        ? "amount_cap_exceeded"
+        : allBlocks.includes("daily_count_cap_exceeded")
+        ? "amount_cap_exceeded"
+        : allBlocks.includes("duplicate_transaction")
+        ? "manual_review"
+        : allBlocks.includes("manual_review")
+        ? "manual_review"
+        : allBlocks.includes("configuration_missing")
+        ? "configuration_missing"
+        : allBlocks.includes("feature_disabled")
+        ? "feature_disabled"
+        : "validation_rejected";
       const attempt = await recordAttempt({
         refundCase,
         actorUserId: user.id,
-        status: preferredError === "manual_review" ? "manual_review" : "preflight_blocked",
+        status: preferredError === "manual_review"
+          ? "manual_review"
+          : "preflight_blocked",
         errorCode: preferredError,
         idempotencyKey,
         executionMode: "preflight",
@@ -401,8 +493,52 @@ serve(async (req) => {
         executed: false,
         status: attempt?.status ?? "manual_review",
         errorCode: "provider_contract_unconfirmed",
-        message: "Nayax refund execution is gated until Bloomjoy validates the live provider contract.",
+        message:
+          "Nayax refund execution is gated until Bloomjoy validates the live provider contract.",
       }, 409);
+    }
+
+    const authorization = await authorizeRefundOfficialAction({
+      supabaseUrl,
+      supabaseAnonKey,
+      accessToken,
+      context: {
+        caseId: refundCase.id,
+        action: "nayax_execute",
+        expectedCaseVersion: Number(body?.expectedOfficialActionVersion),
+        targetStatus: "card_refund_pending",
+        targetDecision: "approved",
+        refundAmountCents: resolveRefundAmountCents(refundCase),
+      },
+    });
+
+    const { error: revalidationError } = await supabase.rpc(
+      "service_consume_nayax_refund_official_action",
+      {
+        p_authorization_id: authorization.authorizationId,
+        p_case_id: refundCase.id,
+        p_status: "card_refund_pending",
+        p_decision: "approved",
+        p_refund_amount_cents: resolveRefundAmountCents(refundCase),
+        p_matched_nayax_candidate_token: null,
+      },
+    );
+    if (revalidationError) {
+      const message = sanitizeText(revalidationError.message, 240);
+      if (message.toLowerCase().includes("changed")) {
+        return jsonResponse({
+          error:
+            "This case changed during review. Reload it before refunding the card.",
+          errorCode: "validation_rejected",
+        }, 409);
+      }
+      if (message.toLowerCase().includes("mapping")) {
+        return jsonResponse({
+          error: "A currently mapped Machine Manager must perform this action.",
+          errorCode: "authorization_failed",
+        }, 403);
+      }
+      throw revalidationError;
     }
 
     const attempt = await recordAttempt({
@@ -418,12 +554,22 @@ serve(async (req) => {
       executed: false,
       status: attempt?.status ?? "manual_review",
       errorCode: "provider_execution_not_yet_enabled",
-      message: "Provider execution is intentionally stopped before a live Nayax refund call in this release slice.",
+      message:
+        "Provider execution is intentionally stopped before a live Nayax refund call in this release slice.",
     }, 409);
   } catch (error) {
+    if (error instanceof RefundOfficialActionAuthorizationError) {
+      return jsonResponse(
+        { error: error.message, errorCode: error.code },
+        error.status,
+      );
+    }
     console.error("nayax-card-refund error", {
       errorType: error instanceof Error ? error.name : typeof error,
     });
-    return jsonResponse({ error: "Unable to prepare Nayax refund execution." }, 500);
+    return jsonResponse(
+      { error: "Unable to prepare Nayax refund execution." },
+      500,
+    );
   }
 });

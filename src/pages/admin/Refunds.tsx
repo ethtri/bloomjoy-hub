@@ -208,6 +208,26 @@ type PrimaryActionConfig = {
   disabled?: boolean;
 };
 
+const officialRefundStatuses = new Set<RefundCaseStatus>([
+  'approved',
+  'denied',
+  'card_refund_pending',
+  'cash_zelle_pending',
+  'completed',
+]);
+
+const editorRequiresOfficialAction = (editor: EditorState) =>
+  officialRefundStatuses.has(editor.status) || editor.decision === 'approved' || editor.decision === 'denied';
+
+const primaryActionRequiresOfficialAction = (action: PrimaryActionConfig | null) =>
+  Boolean(
+    action &&
+      action.mode !== 'retry_message' &&
+      ((action.targetStatus && officialRefundStatuses.has(action.targetStatus)) ||
+        action.targetDecision === 'approved' ||
+        action.targetDecision === 'denied')
+  );
+
 const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
   status: refundCase.status,
   assignedManagerEmail: refundCase.assignedManagerEmail ?? '',
@@ -1158,13 +1178,6 @@ const getCustomerMessageDraft = (
   }
 };
 
-const shouldAutoRunNayaxLookup = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) =>
-  refundCase.paymentMethod === 'card' &&
-  (candidates.some((candidate) => !candidate.policyVersion) ||
-    (!refundCase.hasMatchedNayaxTransaction &&
-      candidates.length === 0 &&
-      ['not_started', 'needs_nayax', 'nayax_not_configured', 'manual_review'].includes(refundCase.correlationStatus)));
-
 const messageStatusBadgeClass = (status: string) => {
   if (status === 'sent') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
@@ -1383,7 +1396,6 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
-  const autoLookupAttemptedRef = useRef<Set<string>>(new Set());
   const cashCompletionInFlightRef = useRef(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
@@ -1391,6 +1403,7 @@ export default function AdminRefundsPage() {
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [officialActionVersion, setOfficialActionVersion] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
@@ -1536,6 +1549,7 @@ export default function AdminRefundsPage() {
 
     setSelectedId(null);
     setEditor(null);
+    setOfficialActionVersion(0);
     setNayaxCandidates([]);
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
@@ -1584,7 +1598,20 @@ export default function AdminRefundsPage() {
   }, [selectedId, selectionRevision]);
 
   const selectedCase = filteredCases.find((refundCase) => refundCase.id === selectedId) ?? null;
+  const selectedCaseIsReviewOnly = selectedCase?.canPerformOfficialAction !== true;
+  const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
+    (selectedCaseIsReviewOnly ? 'manager_mapping_required' : null);
+  const selectedCaseOfficialActionBlockMessage = selectedCaseOfficialActionBlockReason ===
+      'manager_verification_required'
+    ? 'Verify with your authenticator immediately before taking this official action. Agent-controlled or shared sessions cannot approve, decline, complete, or issue refunds.'
+    : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
+      ? 'Official refund actions remain disabled until the per-action manager authenticator flow is deployed.'
+      : 'Only a currently mapped Machine Manager can approve, decline, complete, or issue this refund.';
   const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
+  useEffect(() => {
+    const nextVersion = Number(selectedCase?.officialActionVersion ?? 0);
+    setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0);
+  }, [selectedCase?.id, selectedCase?.officialActionVersion]);
   const {
     data: gmailContext,
     isLoading: gmailContextIsLoading,
@@ -1618,6 +1645,7 @@ export default function AdminRefundsPage() {
     () => (selectedCase && editor ? primaryActionConfig(selectedCase, editor, nayaxCandidates) : null),
     [editor, nayaxCandidates, selectedCase]
   );
+  const primaryActionNeedsOfficialAccess = primaryActionRequiresOfficialAction(primaryAction);
   const primaryActionEditor = useMemo(
     () => (editor && primaryAction ? editorForPrimaryAction(editor, primaryAction) : editor),
     [editor, primaryAction]
@@ -1646,6 +1674,8 @@ export default function AdminRefundsPage() {
     setSelectionRevision((current) => current + 1);
     setIsMobileQueueExpanded(false);
     setEditor(toEditorState(refundCase));
+    const nextOfficialActionVersion = Number(refundCase.officialActionVersion ?? 0);
+    setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
@@ -1673,6 +1703,14 @@ export default function AdminRefundsPage() {
   ): Promise<CaseSaveResult> => {
     if (!selectedCase || !editor) return null;
     const nextEditor = editorOverride ?? editor;
+    if (editorRequiresOfficialAction(nextEditor) && selectedCase.canPerformOfficialAction !== true) {
+      toast.error(selectedCaseOfficialActionBlockMessage);
+      return null;
+    }
+    if (editorRequiresOfficialAction(nextEditor) && officialActionVersion <= 0) {
+      toast.error('Reload this case before taking an official refund action.');
+      return null;
+    }
     if (isUsingDemoData) {
       toast.info('Demo cases are read-only. Seed local Supabase fixtures to test saving workflow changes.');
       return null;
@@ -1705,6 +1743,7 @@ export default function AdminRefundsPage() {
       const nayaxAmountCents = centsFromCurrency(nextEditor.matchedNayaxAmount);
       const result = await updateRefundCaseAdmin({
         caseId: selectedCase.id,
+        expectedOfficialActionVersion: officialActionVersion,
         status: clearNayaxMatch ? 'needs_review' : nextEditor.status,
         assignedManagerEmail: nextEditor.assignedManagerEmail.trim() || null,
         decision: clearNayaxMatch ? null : nextEditor.decision,
@@ -1725,6 +1764,8 @@ export default function AdminRefundsPage() {
         nayaxDisagreementReason: nextEditor.nayaxDisagreementReason || null,
         customerMessageType,
       });
+      const nextOfficialActionVersion = Number(result.refundCase?.officialActionVersion ?? 0);
+      setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
       if (result.customerMessage?.status === 'failed') {
         toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
       } else if (result.customerMessage?.status === 'sent') {
@@ -1748,6 +1789,14 @@ export default function AdminRefundsPage() {
 
   const handleRunNayaxRefund = async () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return;
+    if (selectedCase.canPerformOfficialAction !== true) {
+      toast.error(selectedCaseOfficialActionBlockMessage);
+      return;
+    }
+    if (officialActionVersion <= 0) {
+      toast.error('Reload this case before issuing a card refund.');
+      return;
+    }
     if (isUsingDemoData) {
       setNayaxExecutionNotice({
         tone: 'info',
@@ -1787,6 +1836,7 @@ export default function AdminRefundsPage() {
     try {
       const result = await executeNayaxCardRefund({
         caseId: selectedCase.id,
+        expectedOfficialActionVersion: officialActionVersion,
       });
 
       if (!result.executed) {
@@ -1956,6 +2006,8 @@ export default function AdminRefundsPage() {
       });
 
       setNayaxCandidates(result.candidates ?? []);
+      const nextOfficialActionVersion = Number(result.officialActionVersion ?? 0);
+      setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
       const nextSummary: RefundNayaxLookupSummary = {
         lookupStatus:
           result.lookupStatus ??
@@ -2063,25 +2115,6 @@ export default function AdminRefundsPage() {
     // The selector intentionally runs once per loaded overview/query-string case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview.cases, selectedId]);
-
-  useEffect(() => {
-    if (!selectedCase) return;
-    if (isUsingDemoData) return;
-    if (!shouldAutoRunNayaxLookup(selectedCase, nayaxCandidates)) return;
-    if (autoLookupAttemptedRef.current.has(selectedCase.id)) return;
-
-    autoLookupAttemptedRef.current.add(selectedCase.id);
-    void handleNayaxLookup({ silent: true });
-    // This effect is keyed to the selected case and visible candidate state; the lookup function reads current state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isUsingDemoData,
-    nayaxCandidates.length,
-    selectedCase?.correlationStatus,
-    selectedCase?.hasMatchedNayaxTransaction,
-    selectedCase?.id,
-    selectedCase?.paymentMethod,
-  ]);
 
   const handleOpenAttachment = async (attachmentId: string) => {
     const attachment = selectedCase?.attachments.find((item) => item.id === attachmentId);
@@ -2673,6 +2706,7 @@ export default function AdminRefundsPage() {
       isUsingDemoData ||
       !primaryAction ||
       primaryAction.disabled === true ||
+      (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
 
     const chooseCustomerFollowUp = () => {
@@ -2942,7 +2976,13 @@ export default function AdminRefundsPage() {
                   </Button>
                 )}
                 {primaryAction?.label !== 'Deny request' && (
-                  <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseDenial}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isUsingDemoData || selectedCaseIsReviewOnly}
+                    onClick={chooseDenial}
+                  >
                     Deny request
                   </Button>
                 )}
@@ -3053,6 +3093,7 @@ export default function AdminRefundsPage() {
       isUsingDemoData ||
       !primaryAction ||
       primaryAction.disabled === true ||
+      (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
     const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
 
@@ -3237,7 +3278,7 @@ export default function AdminRefundsPage() {
                   data-testid="refund-cash-amount-input"
                   inputMode="decimal"
                   value={editor.refundAmount}
-                  disabled={isUsingDemoData || isCashCompletionSubmitting}
+                  disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                   onChange={(event) =>
                     setEditor((current) =>
                       current ? { ...current, refundAmount: event.target.value, cashPaymentConfirmed: false } : current
@@ -3255,7 +3296,7 @@ export default function AdminRefundsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-auto min-h-11 shrink-0 px-3 py-2 text-xs"
-                    disabled={isUsingDemoData || isCashCompletionSubmitting}
+                    disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                     onClick={() =>
                       setEditor((current) =>
                         current
@@ -3277,7 +3318,7 @@ export default function AdminRefundsPage() {
                   type="datetime-local"
                   value={editor.cashPayoutSentAt}
                   max={toDateTimeLocalValue(new Date(Date.now() + 5 * 60 * 1000))}
-                  disabled={isUsingDemoData || isCashCompletionSubmitting}
+                  disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                   onChange={(event) =>
                     setEditor((current) =>
                       current
@@ -3297,7 +3338,7 @@ export default function AdminRefundsPage() {
                 data-testid="refund-cash-reference-input"
                 value={editor.manualRefundReference}
                 maxLength={80}
-                disabled={isUsingDemoData || isCashCompletionSubmitting}
+                disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                 onChange={(event) =>
                   setEditor((current) =>
                     current
@@ -3318,7 +3359,7 @@ export default function AdminRefundsPage() {
               <Checkbox
                 data-testid="refund-cash-payment-confirmed"
                 checked={editor.cashPaymentConfirmed}
-                disabled={isUsingDemoData || isCashCompletionSubmitting}
+                disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                 onCheckedChange={(checked) =>
                   setEditor((current) =>
                     current ? { ...current, cashPaymentConfirmed: checked === true } : current
@@ -3381,7 +3422,7 @@ export default function AdminRefundsPage() {
               <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Other decisions</summary>
               <div className="mt-3 flex flex-wrap gap-2">
                 {cashMatchReady && primaryAction?.targetDecision !== 'approved' && (
-                  <Button type="button" variant="outline" size="sm" onClick={chooseApproval} disabled={isUsingDemoData}>
+                  <Button type="button" variant="outline" size="sm" onClick={chooseApproval} disabled={isUsingDemoData || selectedCaseIsReviewOnly}>
                     Approve refund
                   </Button>
                 )}
@@ -3391,7 +3432,7 @@ export default function AdminRefundsPage() {
                   </Button>
                 )}
                 {primaryAction?.targetDecision !== 'denied' && (
-                  <Button type="button" variant="outline" size="sm" onClick={chooseDenial} disabled={isUsingDemoData}>
+                  <Button type="button" variant="outline" size="sm" onClick={chooseDenial} disabled={isUsingDemoData || selectedCaseIsReviewOnly}>
                     Deny request
                   </Button>
                 )}
@@ -3834,6 +3875,34 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
 
+                    {selectedCaseIsReviewOnly && (
+                      <div
+                        data-testid={
+                          selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+                            ? 'refund-manager-verification-banner'
+                            : 'refund-review-only-banner'
+                        }
+                        className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
+                      >
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div>
+                            <p className="font-semibold">
+                              {selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+                                ? 'Manager verification required'
+                                : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
+                                  ? 'Official actions not yet enabled'
+                                  : 'Review only'}
+                            </p>
+                            <p className="mt-1 leading-6">
+                              {selectedCaseOfficialActionBlockMessage} You can still review the case, check
+                              transactions, and request information from the customer.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
                       ? renderGmailDraftWorkbench()
                       : selectedCase.paymentMethod === 'card'
@@ -4120,7 +4189,7 @@ export default function AdminRefundsPage() {
                               <Label>Refund amount</Label>
                               <Input
                                 value={editor.refundAmount}
-                                disabled={isUsingDemoData}
+                                disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                                 onChange={(event) =>
                                   setEditor((current) =>
                                     current ? { ...current, refundAmount: event.target.value } : current
@@ -4164,7 +4233,9 @@ export default function AdminRefundsPage() {
                               isUsingDemoData ||
                               !primaryAction ||
                               primaryAction.disabled ||
-                              primaryActionIssues.length > 0
+                              primaryActionIssues.length > 0 ||
+                              (primaryActionNeedsOfficialAccess &&
+                                (selectedCaseIsReviewOnly || officialActionVersion <= 0))
                             }
                           >
                             {isSaving ? (
@@ -4213,7 +4284,7 @@ export default function AdminRefundsPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                disabled={isUsingDemoData}
+                                disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                                 onClick={() => {
                                   setEditor((current) =>
                                     current
@@ -4258,7 +4329,9 @@ export default function AdminRefundsPage() {
                               isSaving ||
                               isUsingDemoData ||
                               primaryAction.disabled ||
-                              primaryActionIssues.length > 0
+                              primaryActionIssues.length > 0 ||
+                              (primaryActionNeedsOfficialAccess &&
+                                (selectedCaseIsReviewOnly || officialActionVersion <= 0))
                             }
                           >
                             {isSaving ? (
@@ -4296,7 +4369,9 @@ export default function AdminRefundsPage() {
                                   isUsingDemoData ||
                                   !primaryAction ||
                                   primaryAction.disabled ||
-                                  primaryActionIssues.length > 0
+                                  primaryActionIssues.length > 0 ||
+                                  selectedCaseIsReviewOnly ||
+                                  officialActionVersion <= 0
                                 }
                               >
                                 {isRunningNayaxRefund ? (
@@ -4336,7 +4411,7 @@ export default function AdminRefundsPage() {
                           <select
                             data-testid="refund-status-select"
                             value={editor.status}
-                            disabled={isUsingDemoData}
+                            disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                             onChange={(event) =>
                               setEditor((current) =>
                                 current
@@ -4364,7 +4439,7 @@ export default function AdminRefundsPage() {
                           <Label>Decision</Label>
                           <select
                             value={editor.decision ?? ''}
-                            disabled={isUsingDemoData}
+                            disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                             onChange={(event) =>
                               setEditor((current) =>
                                 current
