@@ -105,6 +105,7 @@ const run = () => {
     'GMAIL_REFUND_LABEL_ID',
     'REFUND_GMAIL_SYNC_SECRET',
     'REFUND_GMAIL_ENABLED',
+    'REFUND_GMAIL_FIRST_CONTACT_MODE',
   ];
   const errors = required
     .filter((key) => !env[key] || String(env[key]).trim() === '')
@@ -112,7 +113,7 @@ const run = () => {
   const warnings = [];
 
   const exposedKeys = Object.keys(env).filter(
-    (key) => key.startsWith('VITE_GMAIL_') || key === 'VITE_REFUND_GMAIL_SYNC_SECRET',
+    (key) => key.startsWith('VITE_GMAIL_') || key.startsWith('VITE_REFUND_GMAIL_'),
   );
   if (exposedKeys.length > 0) {
     errors.push(`Gmail secrets must not use browser-exposed VITE_ names: ${exposedKeys.join(', ')}.`);
@@ -122,6 +123,14 @@ const run = () => {
     const mailbox = String(env.GMAIL_SUPPORT_MAILBOX ?? '').trim();
     if (mailbox && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(mailbox)) {
       errors.push('GMAIL_SUPPORT_MAILBOX must be one valid mailbox address.');
+    }
+    const sendAsAliases = String(env.GMAIL_SUPPORT_SEND_AS_ALIASES ?? '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (sendAsAliases.length > 20 ||
+      sendAsAliases.some((value) => !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value))) {
+      errors.push('GMAIL_SUPPORT_SEND_AS_ALIASES must contain at most 20 valid comma-separated Gmail send-as addresses.');
     }
     const enabled = String(env.REFUND_GMAIL_ENABLED ?? '').trim().toLowerCase();
     if (enabled && !['true', 'false'].includes(enabled)) {
@@ -138,6 +147,74 @@ const run = () => {
         errors.push('GMAIL_REFUND_MAX_THREADS_PER_RUN must be an integer from 1 to 500.');
       }
     }
+
+    const firstContactMode = String(env.REFUND_GMAIL_FIRST_CONTACT_MODE ?? '').trim().toLowerCase();
+    if (!['disabled', 'shadow', 'isolated_test', 'active'].includes(firstContactMode)) {
+      errors.push('REFUND_GMAIL_FIRST_CONTACT_MODE must be disabled, shadow, isolated_test, or active.');
+    }
+    const cutoverAt = String(env.REFUND_GMAIL_FIRST_CONTACT_CUTOVER_AT ?? '').trim();
+    const validCutoverAt = cutoverAt && Number.isFinite(new Date(cutoverAt).getTime());
+    if (['isolated_test', 'active'].includes(firstContactMode) && !validCutoverAt) {
+      errors.push('REFUND_GMAIL_FIRST_CONTACT_CUTOVER_AT must be a valid ISO timestamp before any send mode.');
+    }
+    if (firstContactMode === 'isolated_test' &&
+      String(env.REFUND_GMAIL_FIRST_CONTACT_ISOLATED_CONFIRMED ?? '').trim().toLowerCase() !== 'true') {
+      errors.push('Isolated first-contact sending requires REFUND_GMAIL_FIRST_CONTACT_ISOLATED_CONFIRMED=true.');
+    }
+    if (firstContactMode === 'isolated_test') {
+      const currentLabel = String(env.GMAIL_REFUND_LABEL_ID ?? '').trim();
+      const isolatedLabel = String(env.REFUND_GMAIL_FIRST_CONTACT_ISOLATED_LABEL_ID ?? '').trim();
+      const productionLabel = String(env.REFUND_GMAIL_FIRST_CONTACT_PRODUCTION_LABEL_ID ?? '').trim();
+      if (!isolatedLabel || !productionLabel || currentLabel !== isolatedLabel || isolatedLabel === productionLabel) {
+        errors.push('Isolated first-contact sending requires a configured label distinct from the production refund label.');
+      }
+      const isolatedSenders = String(env.REFUND_GMAIL_FIRST_CONTACT_ISOLATED_SENDERS ?? '')
+        .split(',')
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean);
+      if (isolatedSenders.length < 1 || isolatedSenders.length > 20 ||
+        isolatedSenders.some((value) => !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value))) {
+        errors.push('Isolated first-contact sending requires 1-20 valid synthetic sender addresses.');
+      }
+    }
+    if (firstContactMode === 'active') {
+      if (String(env.GMAIL_REFUND_LABEL_ID ?? '').trim() !==
+        String(env.REFUND_GMAIL_FIRST_CONTACT_PRODUCTION_LABEL_ID ?? '').trim()) {
+        errors.push('Active first-contact sending requires the reviewed production refund label.');
+      }
+      if (String(env.REFUND_GMAIL_LEGACY_RESPONDER_DISABLED ?? '').trim().toLowerCase() !== 'true') {
+        errors.push('Active first-contact sending requires REFUND_GMAIL_LEGACY_RESPONDER_DISABLED=true.');
+      }
+      if (String(env.REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED ?? '').trim().toLowerCase() !== 'true') {
+        errors.push('Active first-contact sending requires REFUND_GMAIL_FIRST_CONTACT_CUTOVER_APPROVED=true.');
+      }
+      errors.push('Active first-contact sending remains code-blocked until #686 participant classification and mapped-manager CC are installed.');
+    } else if (firstContactMode === 'isolated_test') {
+      warnings.push('First-contact isolated test mode is selected; use only a synthetic mailbox or label excluded from the legacy responder.');
+    } else if (firstContactMode === 'shadow') {
+      warnings.push('First-contact shadow mode records would-send operations but sends no acknowledgement.');
+    }
+
+    for (const key of [
+      'REFUND_GMAIL_FIRST_CONTACT_REFUND_URL',
+      'REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL',
+      'REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL',
+    ]) {
+      const value = String(env[key] ?? '').trim();
+      if (!value) continue;
+      try {
+        const parsed = new URL(value);
+        const allowedHosts = key === 'REFUND_GMAIL_FIRST_CONTACT_LEGACY_URL'
+          ? new Set(['forms.gle', 'docs.google.com'])
+          : new Set(['bloomjoyusa.com', 'www.bloomjoyusa.com']);
+        if (parsed.protocol !== 'https:' || parsed.username || parsed.password ||
+          !allowedHosts.has(parsed.hostname.toLowerCase())) {
+          errors.push(`${key} must use an approved public HTTPS host without embedded credentials.`);
+        }
+      } catch {
+        errors.push(`${key} must be a valid public HTTPS URL when provided.`);
+      }
+    }
   } else {
     warnings.push('Remote inspection confirms secret names only; verify mailbox, OAuth scopes, and fail-closed values separately.');
   }
@@ -145,11 +222,13 @@ const run = () => {
   console.log(`INFO: Refund Gmail preflight source: ${remote ? `remote Supabase secrets (${args.projectRef})` : 'local environment'}`);
   if (loaded.length > 0) console.log(`INFO: Loaded env files: ${loaded.join(', ')}`);
   printList('Required Gmail controls', [
-    'Exact designated mailbox and explicit refund label configured',
+    'Exact designated mailbox, send-as aliases, and explicit refund label configured',
     'OAuth client and refresh token kept server-only',
     'Dedicated scheduler secret configured',
     'Supabase service credentials available to the Edge Function',
     'Server-side enable switch explicitly configured',
+    'First-contact mode explicitly configured and defaulted to disabled or shadow',
+    'Active mode requires a timestamped legacy-disable and cutover approval gate',
   ]);
   if (warnings.length > 0) printList('Warnings', warnings);
   if (errors.length > 0) {

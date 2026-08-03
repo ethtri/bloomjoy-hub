@@ -9,12 +9,15 @@ export const REFUND_GMAIL_ALLOWED_MIME_TYPES = new Set([
 ]);
 export const REFUND_GMAIL_MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 export const REFUND_GMAIL_MAX_ATTACHMENTS_PER_MESSAGE = 3;
+export const REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE =
+  "Gmail delivery could not be confirmed. Check the original thread before retrying.";
 
 export type RefundGmailConfig = {
   clientId: string;
   clientSecret: string;
   refreshToken: string;
   mailbox: string;
+  mailboxIdentities: string[];
   labelId: string;
   startAt: Date;
 };
@@ -65,6 +68,10 @@ export const getRefundGmailConfig = (): RefundGmailConfig | null => {
   const clientSecret = cleanEnv("GMAIL_SUPPORT_CLIENT_SECRET", 1024);
   const refreshToken = cleanEnv("GMAIL_SUPPORT_REFRESH_TOKEN", 4096);
   const mailbox = cleanEnv("GMAIL_SUPPORT_MAILBOX", 320).toLowerCase();
+  const configuredAliases = cleanEnv("GMAIL_SUPPORT_SEND_AS_ALIASES", 2048)
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
   const labelId = cleanEnv("GMAIL_REFUND_LABEL_ID", 255);
   const configuredStartAt = cleanEnv("GMAIL_REFUND_START_AT", 80);
   const parsedStartAt = configuredStartAt ? new Date(configuredStartAt) : null;
@@ -72,12 +79,28 @@ export const getRefundGmailConfig = (): RefundGmailConfig | null => {
     ? parsedStartAt
     : new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
-  if (!clientId || !clientSecret || !refreshToken || !isEmail(mailbox) || !labelId) {
+  if (
+    !clientId || !clientSecret || !refreshToken || !isEmail(mailbox) || !labelId ||
+    configuredAliases.length > 20 || configuredAliases.some((alias) => !isEmail(alias))
+  ) {
     return null;
   }
 
-  return { clientId, clientSecret, refreshToken, mailbox, labelId, startAt };
+  return {
+    clientId,
+    clientSecret,
+    refreshToken,
+    mailbox,
+    mailboxIdentities: [...new Set([mailbox, ...configuredAliases])],
+    labelId,
+    startAt,
+  };
 };
+
+export const isRefundGmailMailboxIdentity = (
+  config: Pick<RefundGmailConfig, "mailboxIdentities">,
+  email: string,
+) => config.mailboxIdentities.includes(email.trim().toLowerCase());
 
 const base64UrlToBytes = (value: string) => {
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
@@ -176,6 +199,26 @@ export const parseEmailAddress = (headerValue: string) => {
     .replace(/^['"]|['"]$/g, "")
     .slice(0, 160);
   return { email, name };
+};
+
+export const isRefundGmailBounceMessage = (message: GmailMessage) => {
+  const headers = message.payload?.headers;
+  const sender = parseEmailAddress(getGmailHeader(headers, "From")).email;
+  const subject = getGmailHeader(headers, "Subject").toLowerCase();
+  return sender.startsWith("mailer-daemon@") || sender.startsWith("postmaster@") ||
+    Boolean(getGmailHeader(headers, "X-Failed-Recipients")) ||
+    subject.includes("delivery status notification") || subject.includes("undeliverable");
+};
+
+export const isRefundGmailAutomatedMessage = (message: GmailMessage) => {
+  const headers = message.payload?.headers;
+  const autoSubmitted = getGmailHeader(headers, "Auto-Submitted").toLowerCase();
+  const precedence = getGmailHeader(headers, "Precedence").toLowerCase();
+  return (autoSubmitted && autoSubmitted !== "no") ||
+    ["bulk", "junk", "list"].includes(precedence) ||
+    Boolean(getGmailHeader(headers, "X-Auto-Response-Suppress")) ||
+    Boolean(getGmailHeader(headers, "List-Id")) ||
+    Boolean(getGmailHeader(headers, "List-Unsubscribe"));
 };
 
 const luhnValid = (digits: string) => {
@@ -311,7 +354,22 @@ const gmailRequest = async <T>(
     );
   }
 
-  return await response.json() as T;
+  return await parseRefundGmailSuccessResponse<T>(response, init.method === "POST");
+};
+
+export const parseRefundGmailSuccessResponse = async <T>(
+  response: Pick<Response, "json">,
+  deliveryUncertain: boolean,
+): Promise<T> => {
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new RefundGmailError(
+      "gmail_response_invalid",
+      "Gmail returned an invalid success response.",
+      deliveryUncertain,
+    );
+  }
 };
 
 export const verifyRefundGmailMailbox = async (config: RefundGmailConfig) => {
@@ -370,7 +428,15 @@ const encodeHeader = (value: string) =>
 
 const wrapBase64 = (value: string) => value.match(/.{1,76}/g)?.join("\r\n") ?? "";
 
-const buildReplyMime = ({
+export const refundGmailOperationMessageHeader = (operationKey: string) => {
+  const safeOperation = operationKey.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 80);
+  if (safeOperation.length < 8) {
+    throw new RefundGmailError("invalid_operation_key", "Gmail operation key is invalid.");
+  }
+  return `<refund-${safeOperation}@bloomjoyusa.com>`;
+};
+
+export const buildReplyMime = ({
   from,
   to,
   subject,
@@ -379,6 +445,7 @@ const buildReplyMime = ({
   inReplyTo,
   references,
   operationKey,
+  automatic = false,
 }: {
   from: string;
   to: string;
@@ -388,10 +455,10 @@ const buildReplyMime = ({
   inReplyTo?: string | null;
   references?: string | null;
   operationKey: string;
+  automatic?: boolean;
 }) => {
   const boundary = `bloomjoy_refund_${crypto.randomUUID().replaceAll("-", "")}`;
-  const safeOperation = operationKey.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 80);
-  const messageHeader = `<refund-${safeOperation || crypto.randomUUID()}@bloomjoyusa.com>`;
+  const messageHeader = refundGmailOperationMessageHeader(operationKey);
   const headers = [
     `From: ${sanitizeHeader(from, 320)}`,
     `To: ${sanitizeHeader(to, 320)}`,
@@ -405,6 +472,10 @@ const buildReplyMime = ({
   const safeReferences = sanitizeHeader(references ?? "", 4000);
   if (safeInReplyTo) headers.push(`In-Reply-To: ${safeInReplyTo}`);
   if (safeReferences) headers.push(`References: ${safeReferences}`);
+  if (automatic) {
+    headers.push("Auto-Submitted: auto-replied");
+    headers.push("X-Auto-Response-Suppress: All");
+  }
 
   const parts = [
     `--${boundary}`,
@@ -437,6 +508,7 @@ export const sendRefundGmailReply = async ({
   html,
   inReplyTo,
   references,
+  automatic = false,
 }: {
   config: RefundGmailConfig;
   providerThreadId: string;
@@ -447,6 +519,7 @@ export const sendRefundGmailReply = async ({
   html: string;
   inReplyTo?: string | null;
   references?: string | null;
+  automatic?: boolean;
 }) => {
   if (!isEmail(recipientEmail.toLowerCase())) {
     throw new RefundGmailError("invalid_recipient", "Gmail reply recipient is invalid.");
@@ -464,6 +537,7 @@ export const sendRefundGmailReply = async ({
     inReplyTo,
     references,
     operationKey,
+    automatic,
   });
   const response = await gmailRequest<{ id?: string; threadId?: string }>(
     config,
@@ -477,4 +551,89 @@ export const sendRefundGmailReply = async ({
     throw new RefundGmailError("gmail_send_unconfirmed", "Gmail did not confirm the reply thread.", true);
   }
   return { providerMessageId: response.id, providerMessageHeader: mime.messageHeader };
+};
+
+export const findRefundGmailReplyByMessageHeader = async ({
+  config,
+  providerThreadId,
+  operationKey,
+}: {
+  config: RefundGmailConfig;
+  providerThreadId: string;
+  operationKey: string;
+}) => {
+  const result = await inspectRefundGmailReplyByMessageHeader({
+    config,
+    providerThreadId,
+    operationKey,
+  });
+  return result.status === "match" ? result.evidence : null;
+};
+
+export const inspectRefundGmailReplyByMessageHeader = async ({
+  config,
+  providerThreadId,
+  operationKey,
+}: {
+  config: RefundGmailConfig;
+  providerThreadId: string;
+  operationKey: string;
+}) => {
+  const messageHeader = refundGmailOperationMessageHeader(operationKey);
+  const path = refundGmailMessageIdSearchPath(messageHeader);
+  const response = await gmailRequest<{
+    messages?: Array<{ id?: string; threadId?: string }>;
+    nextPageToken?: string;
+  }>(config, path);
+  if (response.nextPageToken) return { status: "ambiguous" as const };
+  return classifyRefundGmailReplyEvidence(
+    response.messages ?? [],
+    providerThreadId,
+    messageHeader,
+  );
+};
+
+export const refundGmailMessageIdSearchPath = (messageHeader: string) => {
+  const params = new URLSearchParams({
+    q: `rfc822msgid:${messageHeader}`,
+    maxResults: "5",
+    includeSpamTrash: "true",
+  });
+  return `/messages?${params.toString()}`;
+};
+
+export const selectRefundGmailReplyEvidence = (
+  messages: Array<{ id?: string; threadId?: string }>,
+  providerThreadId: string,
+  messageHeader: string,
+) => {
+  const result = classifyRefundGmailReplyEvidence(
+    messages,
+    providerThreadId,
+    messageHeader,
+  );
+  return result.status === "match" ? result.evidence : null;
+};
+
+export const classifyRefundGmailReplyEvidence = (
+  messages: Array<{ id?: string; threadId?: string }>,
+  providerThreadId: string,
+  messageHeader: string,
+) => {
+  if (messages.length === 0) {
+    return { status: "no_match" as const };
+  }
+  if (
+    messages.length === 1 && messages[0].id &&
+    messages[0].threadId === providerThreadId
+  ) {
+    return {
+      status: "match" as const,
+      evidence: {
+        providerMessageId: messages[0].id,
+        providerMessageHeader: messageHeader,
+      },
+    };
+  }
+  return { status: "ambiguous" as const };
 };

@@ -434,6 +434,7 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Scheduled production drift checks use the dedicated `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN` GitHub secret. Grant only Edge Function read access. Checks print only function names, versions, and short bundle-digest prefixes.
    - Gmail intake static safety check: `npm run refunds:validate-gmail`
    - Gmail server-secret presence/format check: `npm run refunds:preflight-gmail`
+   - Keep `REFUND_GMAIL_FIRST_CONTACT_MODE=disabled` for normal local work. For a synthetic isolated test only, use a dedicated non-production label, a distinct recorded production label ID, and an owner-controlled synthetic sender allowlist as documented in `Docs/REFUND_GMAIL_FIRST_CONTACT_CUTOVER.md`; the preflight rejects label overlap or a missing allowlist.
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`

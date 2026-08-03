@@ -1,5 +1,6 @@
 import {
   getRefundGmailConfig,
+  REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
   RefundGmailError,
   sendRefundGmailReply,
   sha256Hex,
@@ -62,12 +63,30 @@ export const dispatchRefundCaseGmailReply = async ({
     },
   );
   if (claimError) {
+    if (
+      String(claimError.message ?? "").includes(
+        "refund_gmail_delivery_reconciliation_required",
+      )
+    ) {
+      throw new RefundGmailError(
+        "gmail_delivery_reconciliation_required",
+        REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
+        true,
+      );
+    }
     throw new RefundGmailError("gmail_send_claim_failed", "Unable to claim Gmail reply delivery.");
   }
   if (!claim?.linked) {
     return { usedGmail: false as const };
   }
   if (!claim.claimed) {
+    if (claim.status === "pending_send" || claim.status === "delivery_unknown") {
+      throw new RefundGmailError(
+        "gmail_delivery_reconciliation_required",
+        REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
+        true,
+      );
+    }
     throw new RefundGmailError(
       claim.status === "sent" ? "gmail_reply_already_sent" : "gmail_reply_already_claimed",
       "This Gmail reply has already been processed.",
