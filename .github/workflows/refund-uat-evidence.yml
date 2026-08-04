@@ -43,11 +43,13 @@ jobs:
       - name: Record evidence run start
         run: node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'REFUND_UAT_EVIDENCE_STARTED_AT=' + new Date().toISOString() + '\n')"
       - name: Run disposable database validation
-        run: npm run db:validate-migrations -- --evidence-dir output/refund-uat-evidence
+        run: npm run db:validate-migrations -- --evidence-dir output/refund-uat-fragments
       - name: Prove manager-aging shutdown before side effects
         env:
           REFUND_MANAGER_AGING_NOTICES_ENABLED: 'false'
         run: npm run refunds:build-manager-aging-kill-fragment -- --output output/refund-uat-fragments/refund-manager-aging-kill-fragment.json
+      - name: Prove Gmail addressing and shutdown before provider access
+        run: npm run refunds:evidence-gmail -- --evidence-dir output/refund-uat-fragments
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Start synthetic UAT app
@@ -71,6 +73,8 @@ jobs:
         run: npm run refunds:validate-qr-intake-uat -- --artifact-dir output/refund-uat-evidence
       - name: Run Machine Manager synthetic UAT
         run: npm run refunds:validate-machine-manager-uat -- --artifact-dir output/refund-uat-evidence
+      - name: Finalize strict machine-readable evidence
+        run: npm run refunds:finalize-uat-evidence -- --fragment-dir output/refund-uat-fragments --artifact-dir output/refund-uat-evidence --fresh-after "${REFUND_UAT_EVIDENCE_STARTED_AT}"
       - name: Build evidence manifest
         run: npm run refunds:build-uat-evidence -- --artifact-dir output/refund-uat-evidence --source-commit "${{ github.event.pull_request.head.sha || github.sha }}" --fresh-after "${REFUND_UAT_EVIDENCE_STARTED_AT}"
       - name: Upload sanitized evidence

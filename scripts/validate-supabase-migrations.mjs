@@ -201,7 +201,10 @@ export function buildDatabaseEvidence({ migrationCount, discoveredTestFileCount,
 export function writeDatabaseEvidence(evidenceDir, evidence) {
   fs.mkdirSync(evidenceDir, { recursive: true });
   const evidencePath = path.join(evidenceDir, DATABASE_EVIDENCE_FILENAME);
-  fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+  });
   return evidencePath;
 }
 

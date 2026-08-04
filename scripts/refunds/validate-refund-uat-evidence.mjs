@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -12,11 +12,19 @@ import {
   validateMachineReadableEvidence,
 } from './refund-uat-evidence.mjs';
 import {
+  EXPECTED_FRAGMENT_ARTIFACTS,
+  composeKillSwitchEvidence,
+  finalizeRefundUatEvidence,
+  parseFinalizeArgs,
+  validateManagerAgingKillFragment,
+} from './finalize-refund-uat-evidence.mjs';
+import {
   DATABASE_EVIDENCE_FILENAME,
   buildDatabaseEvidence,
   getDatabaseEvidenceExpectations,
   parseArgs as parseDatabaseArgs,
   parseDatabaseTestSummary,
+  writeDatabaseEvidence,
 } from '../validate-supabase-migrations.mjs';
 
 const PNG_FIXTURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
@@ -24,6 +32,8 @@ const sourceCommit = 'a'.repeat(40);
 const freshAfter = '2026-07-21T00:00:00.000Z';
 const generatedAt = '2026-07-22T00:00:00.000Z';
 const tempDir = await mkdtemp(path.join(os.tmpdir(), 'refund-uat-evidence-'));
+const fragmentDir = path.join(tempDir, 'fragments');
+const artifactDir = path.join(tempDir, 'final');
 const databaseExpectations = getDatabaseEvidenceExpectations();
 
 const machineFixtures = {
@@ -60,10 +70,9 @@ const machineFixtures = {
     failedAssertionCount: 0,
   },
   'refund-gmail-mime-roles.json': {
-    schemaVersion: 1,
+    schemaVersion: 2,
     evidenceType: 'gmail_mime_roles',
-    evidenceMode: 'synthetic_unit_tests',
-    passed: true,
+    evidenceMode: 'synthetic_executable_first_contact',
     roleCounts: {
       customerTo: 1,
       managerCc: 2,
@@ -71,22 +80,39 @@ const machineFixtures = {
       unrelatedTo: 0,
       unrelatedCc: 0,
     },
+    managerCcCount: 2,
     sourceThreadPinned: true,
-    duplicateMessageCount: 0,
     replyHeadersPresent: true,
     automaticHeadersPresent: true,
     internalLinkCount: 0,
+    providerFetchCount: 2,
     providerSendCount: 1,
+    firstContactOperationCount: 1,
+    firstContactPrepareCount: 1,
+    firstContactFinalizeCount: 1,
+    sentOutboundCount: 1,
+    duplicateMessageCount: 0,
+    replaySuppressed: true,
+    laterReplySuppressed: true,
+    passed: true,
   },
   'refund-kill-switches.json': {
-    schemaVersion: 1,
+    schemaVersion: 2,
     evidenceType: 'kill_switches',
-    evidenceMode: 'synthetic_fake_transport',
+    evidenceMode: 'synthetic_executable_integration',
     passed: true,
+    executableCoverage: {
+      gmailOutbound: true,
+      customerContact: true,
+      managerAging: true,
+      intakeAvailability: true,
+      portalAvailability: true,
+    },
     switches: {
       gmailOutbound: {
         disabled: true,
         deliveryClaimCount: 0,
+        firstContactClaimCount: 0,
         providerFetchCount: 0,
         providerSendCount: 0,
       },
@@ -98,9 +124,10 @@ const machineFixtures = {
       },
       managerAging: {
         disabled: true,
-        deliveryClaimCount: 0,
-        providerFetchCount: 0,
-        providerSendCount: 0,
+        fetchCallCount: 0,
+        claimCallCount: 0,
+        reservationCallCount: 0,
+        sendCallCount: 0,
       },
     },
     intakeAvailable: true,
@@ -124,19 +151,73 @@ const machineFixtures = {
   },
 };
 
+const fragmentFixtures = {
+  'refund-portal-assertions.json': machineFixtures['refund-portal-assertions.json'],
+  'refund-database-counts.json': machineFixtures['refund-database-counts.json'],
+  'refund-gmail-mime-roles.json': machineFixtures['refund-gmail-mime-roles.json'],
+  'refund-gmail-kill-fragment.json': {
+    schemaVersion: 2,
+    evidenceType: 'gmail_kill_switch_fragment',
+    evidenceMode: 'synthetic_executable_transport',
+    executableCoverage: {
+      gmailOutbound: true,
+      customerContact: true,
+      managerAging: false,
+      intakeAvailability: false,
+      portalAvailability: false,
+    },
+    switches: {
+      gmailOutbound: {
+        disabled: true,
+        deliveryClaimCount: 0,
+        firstContactClaimCount: 0,
+        providerFetchCount: 0,
+        providerSendCount: 0,
+      },
+      customerContact: {
+        disabled: true,
+        deliveryClaimCount: 0,
+        providerFetchCount: 0,
+        providerSendCount: 0,
+      },
+    },
+    requiresIntegrationAggregation: true,
+    passed: true,
+  },
+  'refund-manager-aging-kill-fragment.json': {
+    schemaVersion: 1,
+    evidenceType: 'manager_aging_kill_fragment',
+    evidenceMode: 'synthetic_dependency_injection',
+    passed: true,
+    disabled: true,
+    fetchCallCount: 0,
+    claimCallCount: 0,
+    reservationCallCount: 0,
+    sendCallCount: 0,
+  },
+  'refund-provider-outcomes.json': machineFixtures['refund-provider-outcomes.json'],
+};
+
 const writeCanonicalJson = (filePath, value) =>
   writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 
 try {
+  await mkdir(fragmentDir, { recursive: true });
+  await mkdir(artifactDir, { recursive: true });
   assert.equal(EXPECTED_SCREENSHOTS.length, 34, 'Evidence must enumerate all 34 reviewed screenshots');
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
     Object.keys(machineFixtures),
     'Evidence must enumerate the five strict machine-readable artifacts in canonical order'
   );
+  assert.deepEqual(
+    EXPECTED_FRAGMENT_ARTIFACTS,
+    Object.keys(fragmentFixtures),
+    'Finalization must enumerate exactly the six reviewed producer fragments'
+  );
   assert.equal(DATABASE_EVIDENCE_FILENAME, 'refund-database-counts.json');
-  const databaseArgs = parseDatabaseArgs(['--evidence-dir', tempDir]);
-  assert.equal(databaseArgs.evidenceDir, tempDir);
+  const databaseArgs = parseDatabaseArgs(['--evidence-dir', fragmentDir]);
+  assert.equal(databaseArgs.evidenceDir, fragmentDir);
   assert.throws(
     () => parseDatabaseArgs(['--evidence-dir']),
     /requires a path/,
@@ -173,17 +254,35 @@ try {
     machineFixtures['refund-database-counts.json'],
     'Database evidence producer and strict manifest fixture must stay aligned'
   );
+  const databaseWriterDir = path.join(tempDir, 'database-writer');
+  const databaseEvidencePath = writeDatabaseEvidence(
+    databaseWriterDir,
+    machineFixtures['refund-database-counts.json']
+  );
+  assert.equal(
+    JSON.parse(await readFile(databaseEvidencePath, 'utf8')).assertionCount,
+    machineFixtures['refund-database-counts.json'].assertionCount
+  );
+  assert.throws(
+    () =>
+      writeDatabaseEvidence(
+        databaseWriterDir,
+        machineFixtures['refund-database-counts.json']
+      ),
+    /EEXIST/,
+    'Database evidence producer refuses to overwrite a prior run fragment'
+  );
 
   const parsed = parseArgs([
     '--artifact-dir',
-    tempDir,
+    artifactDir,
     '--source-commit',
     sourceCommit,
     '--fresh-after',
     freshAfter,
   ]);
-  assert.equal(parsed.artifactDir, path.resolve(tempDir));
-  assert.equal(parsed.output, path.join(path.resolve(tempDir), 'refund-uat-evidence.json'));
+  assert.equal(parsed.artifactDir, path.resolve(artifactDir));
+  assert.equal(parsed.output, path.join(path.resolve(artifactDir), 'refund-uat-evidence.json'));
   assert.equal(parsed.sourceCommit, sourceCommit);
   assert.equal(parsed.freshAfter, freshAfter);
   assert.throws(() => parseArgs(['--unknown']), /Unknown or incomplete argument/);
@@ -198,15 +297,65 @@ try {
   );
 
   for (const name of EXPECTED_SCREENSHOTS) {
-    await writeFile(path.join(tempDir, name), PNG_FIXTURE);
+    await writeFile(path.join(artifactDir, name), PNG_FIXTURE);
   }
-  for (const [name, payload] of Object.entries(machineFixtures)) {
-    await writeCanonicalJson(path.join(tempDir, name), payload);
+  for (const [name, payload] of Object.entries(fragmentFixtures)) {
+    await writeCanonicalJson(path.join(fragmentDir, name), payload);
   }
 
-  const output = path.join(tempDir, 'manifest.json');
+  const finalizedArgs = parseFinalizeArgs([
+    '--fragment-dir',
+    fragmentDir,
+    '--artifact-dir',
+    artifactDir,
+    '--fresh-after',
+    freshAfter,
+  ]);
+  assert.equal(finalizedArgs.fragmentDir, path.resolve(fragmentDir));
+  assert.equal(finalizedArgs.artifactDir, path.resolve(artifactDir));
+  assert.equal(finalizedArgs.freshAfter, freshAfter);
+  assert.throws(
+    () => parseFinalizeArgs(['--fragment-dir', fragmentDir]),
+    /are required/,
+    'Finalization requires explicit isolated directories and a freshness boundary'
+  );
+  const invalidAgingFragment = {
+    ...fragmentFixtures['refund-manager-aging-kill-fragment.json'],
+    fetchCallCount: 1,
+  };
+  assert.throws(
+    () => validateManagerAgingKillFragment(invalidAgingFragment),
+    /fetch-call count is invalid/,
+    'Manager-aging evidence must prove shutdown before its first fetch'
+  );
+  await assert.rejects(
+    finalizeRefundUatEvidence({
+      fragmentDir,
+      artifactDir,
+      freshAfter: '2999-01-01T00:00:00.000Z',
+    }),
+    /was not freshly generated/,
+    'Finalization rejects producer evidence from before the workflow boundary'
+  );
+  const finalized = await finalizeRefundUatEvidence(finalizedArgs);
+  assert.deepEqual(finalized, machineFixtures);
+  assert.deepEqual(
+    composeKillSwitchEvidence({
+      gmail: fragmentFixtures['refund-gmail-kill-fragment.json'],
+      managerAging: fragmentFixtures['refund-manager-aging-kill-fragment.json'],
+      portal: fragmentFixtures['refund-portal-assertions.json'],
+    }),
+    machineFixtures['refund-kill-switches.json']
+  );
+  await assert.rejects(
+    finalizeRefundUatEvidence(finalizedArgs),
+    /Refusing to overwrite an existing final evidence file/,
+    'Finalization uses create-new output semantics'
+  );
+
+  const output = path.join(artifactDir, 'manifest.json');
   const manifest = await buildEvidence({
-    artifactDir: tempDir,
+    artifactDir,
     output,
     sourceCommit,
     freshAfter,
@@ -243,39 +392,45 @@ try {
     manifest.machineReadableArtifacts.map((artifact) => artifact.name),
     EXPECTED_MACHINE_READABLE_ARTIFACTS
   );
-  assert.ok(manifest.machineReadableArtifacts.every((artifact) => artifact.schemaVersion === 1));
+  assert.deepEqual(
+    manifest.machineReadableArtifacts.map((artifact) => artifact.schemaVersion),
+    [1, 1, 2, 2, 1]
+  );
   assert.ok(manifest.machineReadableArtifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256)));
 
   const writtenManifest = JSON.parse(await readFile(output, 'utf8'));
   assert.deepEqual(writtenManifest, manifest);
   assert.equal(JSON.stringify(writtenManifest).includes('@'), false);
 
-  await rm(path.join(tempDir, EXPECTED_SCREENSHOTS[0]));
+  await rm(path.join(artifactDir, EXPECTED_SCREENSHOTS[0]));
   await assert.rejects(
-    buildEvidence({ artifactDir: tempDir, output, sourceCommit, generatedAt }),
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /Missing expected synthetic UAT screenshots/
   );
-  await writeFile(path.join(tempDir, EXPECTED_SCREENSHOTS[0]), Buffer.from('not a png'));
+  await writeFile(path.join(artifactDir, EXPECTED_SCREENSHOTS[0]), Buffer.from('not a png'));
   await assert.rejects(
-    buildEvidence({ artifactDir: tempDir, output, sourceCommit, generatedAt }),
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /valid PNG signature/
   );
-  await writeFile(path.join(tempDir, EXPECTED_SCREENSHOTS[0]), PNG_FIXTURE);
+  await writeFile(path.join(artifactDir, EXPECTED_SCREENSHOTS[0]), PNG_FIXTURE);
 
-  await writeFile(path.join(tempDir, 'unreviewed-state.png'), PNG_FIXTURE);
+  await writeFile(path.join(artifactDir, 'unreviewed-state.png'), PNG_FIXTURE);
   await assert.rejects(
-    buildEvidence({ artifactDir: tempDir, output, sourceCommit, generatedAt }),
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /Unreviewed UAT screenshots/
   );
-  await rm(path.join(tempDir, 'unreviewed-state.png'));
+  await rm(path.join(artifactDir, 'unreviewed-state.png'));
 
   const missingMachineName = EXPECTED_MACHINE_READABLE_ARTIFACTS[0];
-  await rm(path.join(tempDir, missingMachineName));
+  await rm(path.join(artifactDir, missingMachineName));
   await assert.rejects(
-    buildEvidence({ artifactDir: tempDir, output, sourceCommit, generatedAt }),
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /Missing expected machine-readable UAT evidence/
   );
-  await writeCanonicalJson(path.join(tempDir, missingMachineName), machineFixtures[missingMachineName]);
+  await writeCanonicalJson(
+    path.join(artifactDir, missingMachineName),
+    machineFixtures[missingMachineName]
+  );
 
   const portalWithFreeText = {
     ...machineFixtures['refund-portal-assertions.json'],
@@ -313,28 +468,28 @@ try {
   );
 
   await writeFile(
-    path.join(tempDir, 'refund-kill-switches.json'),
+    path.join(artifactDir, 'refund-kill-switches.json'),
     JSON.stringify(machineFixtures['refund-kill-switches.json']),
     'utf8'
   );
   await assert.rejects(
-    buildEvidence({ artifactDir: tempDir, output, sourceCommit, generatedAt }),
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /canonical pretty-printed JSON/
   );
   await writeCanonicalJson(
-    path.join(tempDir, 'refund-kill-switches.json'),
+    path.join(artifactDir, 'refund-kill-switches.json'),
     machineFixtures['refund-kill-switches.json']
   );
 
-  await writeCanonicalJson(path.join(tempDir, 'unreviewed-details.json'), { schemaVersion: 1 });
+  await writeCanonicalJson(path.join(artifactDir, 'unreviewed-details.json'), { schemaVersion: 1 });
   await assert.rejects(
-    buildEvidence({ artifactDir: tempDir, output, sourceCommit, generatedAt }),
+    buildEvidence({ artifactDir, output, sourceCommit, generatedAt }),
     /Unreviewed UAT artifacts/
   );
-  await rm(path.join(tempDir, 'unreviewed-details.json'));
+  await rm(path.join(artifactDir, 'unreviewed-details.json'));
   await assert.rejects(
     buildEvidence({
-      artifactDir: tempDir,
+      artifactDir,
       output,
       sourceCommit,
       freshAfter: 'not-an-iso-timestamp',
@@ -345,7 +500,7 @@ try {
   );
   await assert.rejects(
     buildEvidence({
-      artifactDir: tempDir,
+      artifactDir,
       output,
       sourceCommit,
       freshAfter: '2999-01-01T00:00:00.000Z',

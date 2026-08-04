@@ -172,18 +172,30 @@ const validateMimeRoles = (payload) => {
     'schemaVersion',
     'evidenceType',
     'evidenceMode',
-    'passed',
     'roleCounts',
+    'managerCcCount',
     'sourceThreadPinned',
-    'duplicateMessageCount',
     'replyHeadersPresent',
     'automaticHeadersPresent',
     'internalLinkCount',
+    'providerFetchCount',
     'providerSendCount',
+    'firstContactOperationCount',
+    'firstContactPrepareCount',
+    'firstContactFinalizeCount',
+    'sentOutboundCount',
+    'duplicateMessageCount',
+    'replaySuppressed',
+    'laterReplySuppressed',
+    'passed',
   ], 'Gmail MIME-role evidence');
-  assertLiteral(payload.schemaVersion, 1, 'Gmail MIME-role schemaVersion');
+  assertLiteral(payload.schemaVersion, 2, 'Gmail MIME-role schemaVersion');
   assertLiteral(payload.evidenceType, 'gmail_mime_roles', 'Gmail MIME-role evidenceType');
-  assertLiteral(payload.evidenceMode, 'synthetic_unit_tests', 'Gmail MIME-role evidenceMode');
+  assertLiteral(
+    payload.evidenceMode,
+    'synthetic_executable_first_contact',
+    'Gmail MIME-role evidenceMode'
+  );
   assertLiteral(payload.passed, true, 'Gmail MIME-role passed flag');
   assertExactKeys(payload.roleCounts, [
     'customerTo',
@@ -197,15 +209,38 @@ const validateMimeRoles = (payload) => {
   assertLiteral(payload.roleCounts.mailboxTo, 0, 'Gmail mailbox To role count');
   assertLiteral(payload.roleCounts.unrelatedTo, 0, 'Gmail unrelated To role count');
   assertLiteral(payload.roleCounts.unrelatedCc, 0, 'Gmail unrelated CC role count');
+  assertLiteral(payload.managerCcCount, 2, 'Gmail manager CC count');
   assertLiteral(payload.sourceThreadPinned, true, 'Gmail source-thread pin');
-  assertLiteral(payload.duplicateMessageCount, 0, 'Gmail duplicate-message count');
   assertLiteral(payload.replyHeadersPresent, true, 'Gmail reply-header assertion');
   assertLiteral(payload.automaticHeadersPresent, true, 'Gmail automatic-header assertion');
   assertLiteral(payload.internalLinkCount, 0, 'Gmail internal-link count');
+  assertLiteral(payload.providerFetchCount, 2, 'Gmail provider-fetch count');
   assertLiteral(payload.providerSendCount, 1, 'Gmail provider-send count');
+  assertLiteral(payload.firstContactOperationCount, 1, 'Gmail first-contact operation count');
+  assertLiteral(payload.firstContactPrepareCount, 1, 'Gmail first-contact prepare count');
+  assertLiteral(payload.firstContactFinalizeCount, 1, 'Gmail first-contact finalize count');
+  assertLiteral(payload.sentOutboundCount, 1, 'Gmail sent-outbound count');
+  assertLiteral(payload.duplicateMessageCount, 0, 'Gmail duplicate-message count');
+  assertLiteral(payload.replaySuppressed, true, 'Gmail replay-suppression assertion');
+  assertLiteral(payload.laterReplySuppressed, true, 'Gmail later-reply suppression assertion');
 };
 
-const validateKillSwitchCounts = (value, label) => {
+const validateGmailOutboundKillSwitchCounts = (value, label) => {
+  assertExactKeys(value, [
+    'disabled',
+    'deliveryClaimCount',
+    'firstContactClaimCount',
+    'providerFetchCount',
+    'providerSendCount',
+  ], label);
+  assertLiteral(value.disabled, true, `${label} disabled flag`);
+  assertLiteral(value.deliveryClaimCount, 0, `${label} delivery-claim count`);
+  assertLiteral(value.firstContactClaimCount, 0, `${label} first-contact claim count`);
+  assertLiteral(value.providerFetchCount, 0, `${label} provider-fetch count`);
+  assertLiteral(value.providerSendCount, 0, `${label} provider-send count`);
+};
+
+const validateCustomerContactKillSwitchCounts = (value, label) => {
   assertExactKeys(value, [
     'disabled',
     'deliveryClaimCount',
@@ -218,28 +253,67 @@ const validateKillSwitchCounts = (value, label) => {
   assertLiteral(value.providerSendCount, 0, `${label} provider-send count`);
 };
 
+const validateManagerAgingKillSwitchCounts = (value, label) => {
+  assertExactKeys(value, [
+    'disabled',
+    'fetchCallCount',
+    'claimCallCount',
+    'reservationCallCount',
+    'sendCallCount',
+  ], label);
+  assertLiteral(value.disabled, true, `${label} disabled flag`);
+  assertLiteral(value.fetchCallCount, 0, `${label} fetch-call count`);
+  assertLiteral(value.claimCallCount, 0, `${label} claim-call count`);
+  assertLiteral(value.reservationCallCount, 0, `${label} reservation-call count`);
+  assertLiteral(value.sendCallCount, 0, `${label} send-call count`);
+};
+
 const validateKillSwitches = (payload) => {
   assertExactKeys(payload, [
     'schemaVersion',
     'evidenceType',
     'evidenceMode',
     'passed',
+    'executableCoverage',
     'switches',
     'intakeAvailable',
     'portalAvailable',
   ], 'Kill-switch evidence');
-  assertLiteral(payload.schemaVersion, 1, 'Kill-switch schemaVersion');
+  assertLiteral(payload.schemaVersion, 2, 'Kill-switch schemaVersion');
   assertLiteral(payload.evidenceType, 'kill_switches', 'Kill-switch evidenceType');
-  assertLiteral(payload.evidenceMode, 'synthetic_fake_transport', 'Kill-switch evidenceMode');
+  assertLiteral(
+    payload.evidenceMode,
+    'synthetic_executable_integration',
+    'Kill-switch evidenceMode'
+  );
   assertLiteral(payload.passed, true, 'Kill-switch passed flag');
+  assertExactKeys(payload.executableCoverage, [
+    'gmailOutbound',
+    'customerContact',
+    'managerAging',
+    'intakeAvailability',
+    'portalAvailability',
+  ], 'Kill-switch executable coverage');
+  for (const [name, covered] of Object.entries(payload.executableCoverage)) {
+    assertLiteral(covered, true, `Kill-switch ${name} executable coverage`);
+  }
   assertExactKeys(payload.switches, [
     'gmailOutbound',
     'customerContact',
     'managerAging',
   ], 'Kill-switch count groups');
-  validateKillSwitchCounts(payload.switches.gmailOutbound, 'Gmail outbound kill switch');
-  validateKillSwitchCounts(payload.switches.customerContact, 'Customer-contact kill switch');
-  validateKillSwitchCounts(payload.switches.managerAging, 'Manager-aging kill switch');
+  validateGmailOutboundKillSwitchCounts(
+    payload.switches.gmailOutbound,
+    'Gmail outbound kill switch'
+  );
+  validateCustomerContactKillSwitchCounts(
+    payload.switches.customerContact,
+    'Customer-contact kill switch'
+  );
+  validateManagerAgingKillSwitchCounts(
+    payload.switches.managerAging,
+    'Manager-aging kill switch'
+  );
   assertLiteral(payload.intakeAvailable, true, 'Kill-switch intake availability');
   assertLiteral(payload.portalAvailable, true, 'Kill-switch portal availability');
 };
