@@ -11,6 +11,8 @@ const repoRoot = path.resolve(__dirname, '..');
 const files = {
   migration: 'supabase/migrations/202605120002_refund_full_automation_foundation.sql',
   managerAuthorizationMigration: 'supabase/migrations/202605160001_refund_nayax_execution_manager_authorization.sql',
+  officialActionMigration: 'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql',
+  officialActionHelper: 'supabase/functions/_shared/refund-official-action.ts',
   function: 'supabase/functions/nayax-card-refund/index.ts',
   config: 'supabase/config.toml',
   envExample: '.env.example',
@@ -37,6 +39,8 @@ const assert = (condition, message) => {
 
 const migration = read(files.migration);
 const managerAuthorizationMigration = read(files.managerAuthorizationMigration);
+const officialActionMigration = read(files.officialActionMigration);
+const officialActionHelper = read(files.officialActionHelper);
 const fn = read(files.function);
 const config = read(files.config);
 const envExample = read(files.envExample);
@@ -66,18 +70,21 @@ assert(
 );
 assert(
   migration.includes('can_prepare_nayax_refund_execution') &&
-    managerAuthorizationMigration.includes('public.can_manage_refund_case(p_user_id, refund_case.id)') &&
-    managerAuthorizationMigration.includes('refund_case.refund_amount_cents is not null') &&
-    managerAuthorizationMigration.includes('refund_case.refund_amount_cents = refund_case.payment_amount_cents') &&
-    managerAuthorizationMigration.includes('refund_case.refund_amount_cents = refund_case.matched_nayax_amount_cents') &&
-    managerAuthorizationMigration.includes("refund_case.matched_nayax_currency_code = 'USD'") &&
-    !managerAuthorizationMigration.includes('public.is_super_admin(p_user_id)'),
-  'Execution readiness must allow authorized refund case managers while using the stored refund amount and preserving service-role-only execution gates.'
+    officialActionMigration.includes('public.can_perform_refund_official_action(p_user_id, refund_case.id)') &&
+    officialActionMigration.includes('refund_case.refund_amount_cents is not null') &&
+    officialActionMigration.includes('refund_case.refund_amount_cents = refund_case.payment_amount_cents') &&
+    officialActionMigration.includes('refund_case.refund_amount_cents = refund_case.matched_nayax_amount_cents') &&
+    officialActionMigration.includes("refund_case.matched_nayax_currency_code = 'USD'") &&
+    !officialActionMigration.includes('public.is_super_admin(p_user_id)'),
+  'Execution readiness must require the currently mapped Machine Manager while using the stored refund amount and preserving service-role-only execution gates.'
 );
 assert(
   managerAuthorizationMigration.includes('revoke execute on function public.can_prepare_nayax_refund_execution(uuid, uuid) from public, anon, authenticated') &&
-    managerAuthorizationMigration.includes('grant execute on function public.can_prepare_nayax_refund_execution(uuid, uuid) to service_role'),
-  'Manager authorization repair migration must restate service-role-only execution privileges.'
+    managerAuthorizationMigration.includes('grant execute on function public.can_prepare_nayax_refund_execution(uuid, uuid) to service_role') &&
+    officialActionMigration.includes('revoke execute on function public.can_prepare_nayax_refund_execution(uuid, uuid)') &&
+    officialActionMigration.includes('grant execute on function public.can_prepare_nayax_refund_execution(uuid, uuid)') &&
+    officialActionMigration.includes('to service_role'),
+  'The final Machine Manager authorization boundary must keep execution readiness service-role-only.'
 );
 assert(
   migration.includes('revoke execute on function public.can_prepare_nayax_refund_execution(uuid, uuid)') &&
@@ -107,9 +114,24 @@ assert(
   'Nayax execution function must be gated by all fail-closed execution flags.'
 );
 assert(
-  fn.includes('can_manage_refund_case') &&
+  fn.includes('can_perform_refund_official_action') &&
+    fn.includes('authorizeRefundOfficialAction') &&
+    fn.includes('service_consume_nayax_refund_official_action') &&
+    !fn.includes('can_manage_refund_case') &&
     !fn.includes('actorIsSuperAdmin'),
-  'Nayax execution function must authorize assigned Machine Managers through refund case access, not a super-admin-only UI path.'
+  'Nayax execution must require and revalidate a browser-authenticated, currently mapped Machine Manager receipt.'
+);
+assert(
+  officialActionHelper.includes('p_expected_case_version: context.expectedCaseVersion') &&
+    fn.includes('expectedOfficialActionVersion') &&
+    officialActionMigration.includes('authorization_row.expected_case_version') &&
+    officialActionMigration.includes("authorization_row.status <> 'authorized'") &&
+    officialActionMigration.includes('authorization_row.expires_at <= statement_timestamp()') &&
+    officialActionMigration.includes('drop function if exists public.service_finalize_nayax_refund_official_action') &&
+    !officialActionMigration.includes('create or replace function public.service_finalize_nayax_refund_official_action') &&
+    officialActionMigration.includes('refund_nayax_candidate_evidence_hash') &&
+    officialActionMigration.includes('Nayax execution uses the persisted approved match and does not accept a candidate token'),
+  'Nayax execution must reject stale, replayed, expired, or candidate-mutated receipts and must not expose a provider-success finalizer before attempt-bound integration.'
 );
 assert(
   fn.includes('refundCase.refund_amount_cents ?? 0') &&

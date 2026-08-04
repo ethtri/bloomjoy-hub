@@ -226,7 +226,7 @@ function run() {
       ['max_frequency = "1m0s"', 'one-minute email frequency'],
       ['otp_length = 6', 'six-digit email OTPs'],
       ['email_sent = 30', 'production auth-email hourly capacity'],
-      ['enroll_enabled = true', 'TOTP enrollment'],
+      ['enroll_enabled = false', 'owner-controlled, closed-by-default TOTP enrollment'],
       ['verify_enabled = true', 'TOTP verification'],
       ['host = "smtp.resend.com"', 'custom Resend SMTP host'],
       ['port = 465', 'custom Resend SMTP TLS port'],

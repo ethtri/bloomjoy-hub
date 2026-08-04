@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
-  "releaseId": "refund-ops-2026-08-03-gmail-integration-uat",
-  "sourceGitCommit": "a7ebe7efad5184dd24610022bedf7b0175909241",
+  "releaseId": "refund-ops-2026-08-03-gmail-manager-step-up-uat",
+  "sourceGitCommit": "pending",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -32,7 +32,9 @@
     "202607260002_refund_qr_aware_nayax_recommendation.sql",
     "202607270001_refund_wallet_correction.sql",
     "202608030001_refund_gmail_first_contact.sql",
+    "202608030002_refund_manager_official_action_boundary.sql",
     "202608030003_refund_gmail_participant_cc.sql",
+    "202608030004_refund_manager_action_step_up.sql",
     "202608030005_refund_deterministic_follow_up_cycles.sql",
     "202608040003_refund_first_contact_manager_cc.sql"
   ],
@@ -52,7 +54,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "38c54eb518d3c0905ca493d21038d4844bdc74714b22f623ed33409efc436d28",
+      "sourceSha256": "23c42ba20bfd6b953da3178324c50a3c7a12817ccb4a3256a888b6c819f537e3",
       "production": {
         "version": 2,
         "ezbrSha256": "ab266fb778db5834bba4259fc42b49b5df10d0d0130bcf1b4355caff6a1a9ea9",
@@ -112,7 +114,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "22fd4e70c28e196761f82dc11ea9f9aa17c175cbbf49d7e3eec4681f1eb428b9",
+      "sourceSha256": "6dc1d39814eb61c0ecf97555b525636521bd29770962809e665510f1e973dc90",
       "production": {
         "version": 2,
         "ezbrSha256": "94a9f0132e43d048c2de1f39f7fbc6f9f7651d1e62e812c992ac53db356a076d",

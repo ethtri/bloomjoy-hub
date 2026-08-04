@@ -207,6 +207,57 @@ grant execute on function public.service_prepare_refund_gmail_first_contact_deli
 comment on function public.service_prepare_refund_gmail_first_contact_delivery(uuid, text[]) is
   'Revalidates verified direct-customer evidence, open-case and case-wide bounce gates, and one-to-three current mapped manager CC recipients immediately before an exactly-once first-contact Gmail send.';
 
+-- The deterministic follow-up layer wraps wallet-correction issuance with its
+-- own default-off contact gate. Keep the manager-official-action lock as the
+-- first decision so a stale service retry can never mask or bypass the durable
+-- payment-state boundary when automatic contact is disabled.
+create or replace function public.service_issue_refund_wallet_correction(
+  p_refund_case_id uuid,
+  p_token_hash text,
+  p_expires_at timestamptz
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  case_row public.refund_cases;
+begin
+  select *
+  into case_row
+  from public.refund_cases
+  where id = p_refund_case_id
+  for update;
+
+  if case_row.id is not null
+    and public.refund_case_official_payment_locked(case_row) then
+    raise exception 'This refund case can no longer be corrected';
+  end if;
+
+  if not exists (
+    select 1
+    from public.refund_customer_contact_settings settings
+    where settings.singleton
+      and settings.automatic_customer_contact_enabled
+  ) then
+    raise exception 'Automatic customer contact is disabled'
+      using errcode = '23514';
+  end if;
+
+  return public.service_issue_refund_wallet_correction_pre_followup_20260803(
+    p_refund_case_id,
+    p_token_hash,
+    p_expires_at
+  );
+end;
+$$;
+
+revoke execute on function public.service_issue_refund_wallet_correction(uuid, text, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.service_issue_refund_wallet_correction(uuid, text, timestamptz)
+  to service_role;
+
 -- Preserve the exactly-once migration's linked canonical-message erasure while
 -- also clearing the participant-safe visible CC fields added later. Defining
 -- the combined boundary in a forward migration keeps both deployment orders

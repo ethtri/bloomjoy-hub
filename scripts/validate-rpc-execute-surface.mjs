@@ -70,6 +70,26 @@ const serviceRoleOnlyFunctions = [
     migrationName: '202605120002_refund_full_automation_foundation.sql',
   },
   {
+    signature: 'public.can_perform_refund_official_action(uuid, uuid)',
+    name: 'can_perform_refund_official_action',
+    migrationName: '202608030002_refund_manager_official_action_boundary.sql',
+  },
+  {
+    signature: 'public.service_apply_refund_official_case_update(uuid, uuid, text, text, text, text, text, text, integer, text, uuid, text)',
+    name: 'service_apply_refund_official_case_update',
+    migrationName: '202608030002_refund_manager_official_action_boundary.sql',
+  },
+  {
+    signature: 'public.service_complete_cash_refund_official(uuid, uuid, integer, text, timestamp with time zone, text, text, text)',
+    name: 'service_complete_cash_refund_official',
+    migrationName: '202608030002_refund_manager_official_action_boundary.sql',
+  },
+  {
+    signature: 'public.service_consume_nayax_refund_official_action(uuid, uuid, text, text, integer, uuid)',
+    name: 'service_consume_nayax_refund_official_action',
+    migrationName: '202608030002_refund_manager_official_action_boundary.sql',
+  },
+  {
     signature: 'public.service_update_refund_case_as_actor(uuid, uuid, text, text, text, text, text, integer, text, boolean, text, integer, timestamp with time zone, integer, text, text)',
     name: 'service_update_refund_case_as_actor',
     migrationName: '202605120002_refund_full_automation_foundation.sql',
@@ -131,6 +151,9 @@ const compactSql = (value) =>
   value
     .replace(/--.*$/gm, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/\s*,\s*/g, ', ')
     .trim()
     .toLowerCase();
 

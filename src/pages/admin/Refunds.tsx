@@ -33,13 +33,19 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   buildLocalRefundDemoOverview,
+  beginRefundManagerTotpEnrollment,
+  cancelRefundManagerStepUp,
+  cancelRefundManagerTotpEnrollment,
   canUseLocalRefundDemoData,
+  completeNayaxRefundStepUp,
+  completeRefundCaseAdminStepUp,
   createRefundAttachmentSignedUrl,
   executeNayaxCardRefund,
   fetchRefundAutomationHealth,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
   fetchRefundOperationsOverview,
+  getRefundManagerStepUpRequest,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
   recoverRefundGmailCustomerContact,
@@ -47,6 +53,7 @@ import {
   resolveRefundGmailDeliveryNotFound,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
+  verifyRefundManagerTotpEnrollment,
   isNayaxCardRefundExecutionError,
   type NayaxCardRefundExecutionResponse,
   type NayaxLookupCandidate,
@@ -54,13 +61,16 @@ import {
   type RefundCaseRecord,
   type RefundAutomationHealth,
   type RefundGmailHealth,
+  type RefundManagerStepUpRequest,
   type RefundNayaxLookupStatus,
   type RefundNayaxLookupSummary,
   type RefundCaseStatus,
   type RefundCustomerPortalMessageType,
   type RefundDecision,
   type RefundMissingField,
+  type UpdateRefundCaseResponse,
 } from '@/lib/refundOperations';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { cn } from '@/lib/utils';
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
@@ -189,10 +199,12 @@ type CustomerMessageResult = {
   status: string;
 } | null;
 
-type CaseSaveResult = {
+type CaseSaveSuccess = {
   customerMessage: CustomerMessageResult;
   updateApplied: boolean;
-} | null;
+};
+
+type CaseSaveResult = CaseSaveSuccess | 'step_up_pending' | null;
 
 type RefundActionReceipt = {
   tone: 'success' | 'warning';
@@ -210,6 +222,26 @@ type PrimaryActionConfig = {
   mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'resolve_delivery_not_found';
   disabled?: boolean;
 };
+
+const officialRefundStatuses = new Set<RefundCaseStatus>([
+  'approved',
+  'denied',
+  'card_refund_pending',
+  'cash_zelle_pending',
+  'completed',
+]);
+
+const editorRequiresOfficialAction = (editor: EditorState) =>
+  officialRefundStatuses.has(editor.status) || editor.decision === 'approved' || editor.decision === 'denied';
+
+const primaryActionRequiresOfficialAction = (action: PrimaryActionConfig | null) =>
+  Boolean(
+    action &&
+      action.mode !== 'retry_message' &&
+      ((action.targetStatus && officialRefundStatuses.has(action.targetStatus)) ||
+        action.targetDecision === 'approved' ||
+        action.targetDecision === 'denied')
+  );
 
 const toEditorState = (refundCase: RefundCaseRecord): EditorState => ({
   status: refundCase.status,
@@ -1259,13 +1291,6 @@ const getCustomerMessageDraft = (
   }
 };
 
-const shouldAutoRunNayaxLookup = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) =>
-  refundCase.paymentMethod === 'card' &&
-  (candidates.some((candidate) => !candidate.policyVersion) ||
-    (!refundCase.hasMatchedNayaxTransaction &&
-      candidates.length === 0 &&
-      ['not_started', 'needs_nayax', 'nayax_not_configured', 'manual_review'].includes(refundCase.correlationStatus)));
-
 const messageStatusBadgeClass = (status: string) => {
   if (status === 'sent') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
@@ -1484,7 +1509,6 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
-  const autoLookupAttemptedRef = useRef<Set<string>>(new Set());
   const cashCompletionInFlightRef = useRef(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
@@ -1492,6 +1516,7 @@ export default function AdminRefundsPage() {
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [officialActionVersion, setOfficialActionVersion] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
@@ -1500,6 +1525,14 @@ export default function AdminRefundsPage() {
   const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
   const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
+  const [pendingManagerStepUp, setPendingManagerStepUp] = useState<RefundManagerStepUpRequest | null>(null);
+  const [managerStepUpCode, setManagerStepUpCode] = useState('');
+  const [managerStepUpError, setManagerStepUpError] = useState<string | null>(null);
+  const [isCompletingManagerStepUp, setIsCompletingManagerStepUp] = useState(false);
+  const [isStartingTotpEnrollment, setIsStartingTotpEnrollment] = useState(false);
+  const [isVerifyingTotpEnrollment, setIsVerifyingTotpEnrollment] = useState(false);
+  const [totpEnrollmentQrCode, setTotpEnrollmentQrCode] = useState<string | null>(null);
+  const [totpEnrollmentCode, setTotpEnrollmentCode] = useState('');
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
@@ -1642,6 +1675,7 @@ export default function AdminRefundsPage() {
 
     setSelectedId(null);
     setEditor(null);
+    setOfficialActionVersion(0);
     setNayaxCandidates([]);
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
@@ -1693,7 +1727,21 @@ export default function AdminRefundsPage() {
   const customerDeliveryNeedsReconciliation = Boolean(
     selectedCase && isRefundCustomerDeliveryUncertain(getLatestCustomerMessage(selectedCase)?.errorMessage)
   );
+  const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
+    (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
+  const selectedCaseIsReviewOnly = selectedCase?.canPerformOfficialAction !== true &&
+    selectedCaseOfficialActionBlockReason !== 'manager_verification_required';
+  const selectedCaseOfficialActionBlockMessage = selectedCaseOfficialActionBlockReason ===
+      'manager_verification_required'
+    ? 'Verify with your authenticator immediately before taking this official action. Agent-controlled or shared sessions cannot approve, decline, complete, or issue refunds.'
+    : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
+      ? 'Official refund actions remain disabled until the per-action manager authenticator flow is deployed.'
+      : 'Only a currently mapped Machine Manager can approve, decline, complete, or issue this refund.';
   const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
+  useEffect(() => {
+    const nextVersion = Number(selectedCase?.officialActionVersion ?? 0);
+    setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0);
+  }, [selectedCase?.id, selectedCase?.officialActionVersion]);
   const {
     data: gmailContext,
     isLoading: gmailContextIsLoading,
@@ -1761,6 +1809,7 @@ export default function AdminRefundsPage() {
     () => (selectedCase && editor ? primaryActionConfig(selectedCase, editor, nayaxCandidates) : null),
     [editor, nayaxCandidates, selectedCase]
   );
+  const primaryActionNeedsOfficialAccess = primaryActionRequiresOfficialAction(primaryAction);
   const primaryActionEditor = useMemo(
     () => (editor && primaryAction ? editorForPrimaryAction(editor, primaryAction) : editor),
     [editor, primaryAction]
@@ -1784,11 +1833,54 @@ export default function AdminRefundsPage() {
     [isLookingUpNayax, nayaxCandidates, nayaxLookupNotice, nayaxLookupSummary, selectedCase]
   );
 
+  const openManagerStepUp = (request: RefundManagerStepUpRequest) => {
+    setPendingManagerStepUp(request);
+    setManagerStepUpCode('');
+    setManagerStepUpError(null);
+    setTotpEnrollmentQrCode(null);
+    setTotpEnrollmentCode('');
+    setIsRefundConfirmationOpen(false);
+    setIsCashConfirmationOpen(false);
+  };
+
+  const clearManagerStepUp = () => {
+    setPendingManagerStepUp(null);
+    setManagerStepUpCode('');
+    setManagerStepUpError(null);
+    setTotpEnrollmentQrCode(null);
+    setTotpEnrollmentCode('');
+  };
+
+  const applyCaseUpdateResponse = async (
+    result: UpdateRefundCaseResponse
+  ): Promise<CaseSaveSuccess> => {
+    const nextOfficialActionVersion = Number(result.refundCase?.officialActionVersion ?? 0);
+    setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
+    if (result.customerMessage?.status === 'failed') {
+      toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
+    } else if (result.customerMessage?.status === 'sent') {
+      toast.success('Refund case updated and customer email sent.');
+    } else {
+      toast.success('Refund case updated.');
+    }
+    await refresh();
+    return {
+      customerMessage: result.customerMessage ?? null,
+      updateApplied: result.updateApplied !== false,
+    };
+  };
+
   const handleSelectCase = (refundCase: RefundCaseRecord) => {
+    if (pendingManagerStepUp) {
+      void cancelRefundManagerStepUp(pendingManagerStepUp.intentId).catch(() => undefined);
+      clearManagerStepUp();
+    }
     setSelectedId(refundCase.id);
     setSelectionRevision((current) => current + 1);
     setIsMobileQueueExpanded(false);
     setEditor(toEditorState(refundCase));
+    const nextOfficialActionVersion = Number(refundCase.officialActionVersion ?? 0);
+    setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
     setNayaxCandidates(refundCase.nayaxLookupCandidates ?? []);
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
@@ -1818,6 +1910,14 @@ export default function AdminRefundsPage() {
   ): Promise<CaseSaveResult> => {
     if (!selectedCase || !editor) return null;
     const nextEditor = editorOverride ?? editor;
+    if (editorRequiresOfficialAction(nextEditor) && selectedCaseIsReviewOnly) {
+      toast.error(selectedCaseOfficialActionBlockMessage);
+      return null;
+    }
+    if (editorRequiresOfficialAction(nextEditor) && officialActionVersion <= 0) {
+      toast.error('Reload this case before taking an official refund action.');
+      return null;
+    }
     if (isUsingDemoData) {
       toast.info('Demo cases are read-only. Seed local Supabase fixtures to test saving workflow changes.');
       return null;
@@ -1848,8 +1948,9 @@ export default function AdminRefundsPage() {
     try {
       const clearNayaxMatch = nextEditor.clearNayaxMatch;
       const nayaxAmountCents = centsFromCurrency(nextEditor.matchedNayaxAmount);
-      const result = await updateRefundCaseAdmin({
+      const updateInput = {
         caseId: selectedCase.id,
+        expectedOfficialActionVersion: officialActionVersion,
         status: clearNayaxMatch ? 'needs_review' : nextEditor.status,
         assignedManagerEmail: nextEditor.assignedManagerEmail.trim() || null,
         decision: clearNayaxMatch ? null : nextEditor.decision,
@@ -1872,19 +1973,18 @@ export default function AdminRefundsPage() {
         customerMissingFields: customerMessageType === 'more_info'
           ? derivePortalRefundMissingFields(selectedCase)
           : [],
-      });
-      if (result.customerMessage?.status === 'failed') {
-        toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
-      } else if (result.customerMessage?.status === 'sent') {
-        toast.success('Refund case updated and customer email sent.');
-      } else {
-        toast.success('Refund case updated.');
+      } as const;
+      try {
+        const result = await updateRefundCaseAdmin(updateInput);
+        return await applyCaseUpdateResponse(result);
+      } catch (saveError) {
+        const stepUpRequest = getRefundManagerStepUpRequest(saveError, updateInput);
+        if (stepUpRequest) {
+          openManagerStepUp(stepUpRequest);
+          return 'step_up_pending';
+        }
+        throw saveError;
       }
-      await refresh();
-      return {
-        customerMessage: result.customerMessage ?? null,
-        updateApplied: result.updateApplied !== false,
-      };
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Unable to update refund case.';
       toast.error(message);
@@ -1896,6 +1996,14 @@ export default function AdminRefundsPage() {
 
   const handleRunNayaxRefund = async () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return;
+    if (selectedCaseIsReviewOnly) {
+      toast.error(selectedCaseOfficialActionBlockMessage);
+      return;
+    }
+    if (officialActionVersion <= 0) {
+      toast.error('Reload this case before issuing a card refund.');
+      return;
+    }
     if (isUsingDemoData) {
       setNayaxExecutionNotice({
         tone: 'info',
@@ -1932,10 +2040,12 @@ export default function AdminRefundsPage() {
     setIsRunningNayaxRefund(true);
     setNayaxExecutionNotice(null);
     setRefundActionReceipt(null);
+    const executionInput = {
+      caseId: selectedCase.id,
+      expectedOfficialActionVersion: officialActionVersion,
+    };
     try {
-      const result = await executeNayaxCardRefund({
-        caseId: selectedCase.id,
-      });
+      const result = await executeNayaxCardRefund(executionInput);
 
       if (!result.executed) {
         setNayaxExecutionNotice({
@@ -1958,6 +2068,9 @@ export default function AdminRefundsPage() {
       setEditor(completedEditor);
       const saveResult = await handleSaveCase(completedEditor, 'completed');
       const reference = getNayaxExecutionReference(result);
+      if (saveResult === 'step_up_pending') {
+        return;
+      }
       if (!saveResult) {
         setRefundActionReceipt({
           tone: 'warning',
@@ -1982,6 +2095,11 @@ export default function AdminRefundsPage() {
       });
       setIsRefundConfirmationOpen(false);
     } catch (executionError) {
+      const stepUpRequest = getRefundManagerStepUpRequest(executionError, executionInput);
+      if (stepUpRequest) {
+        openManagerStepUp(stepUpRequest);
+        return;
+      }
       const response = isNayaxCardRefundExecutionError(executionError)
         ? executionError.data
         : null;
@@ -2075,6 +2193,9 @@ export default function AdminRefundsPage() {
     try {
       setEditor(primaryActionEditor);
       const saveResult = await handleSaveCase(primaryActionEditor, 'completed');
+      if (saveResult === 'step_up_pending') {
+        return;
+      }
       if (!saveResult) {
         setRefundActionReceipt({
           tone: 'warning',
@@ -2105,6 +2226,156 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const handleCancelManagerStepUp = async () => {
+    const intentId = pendingManagerStepUp?.intentId;
+    const shouldCancelEnrollment = Boolean(totpEnrollmentQrCode);
+    clearManagerStepUp();
+    await Promise.all([
+      intentId
+        ? cancelRefundManagerStepUp(intentId).catch(() => undefined)
+        : Promise.resolve(),
+      shouldCancelEnrollment
+        ? cancelRefundManagerTotpEnrollment().catch(() => undefined)
+        : Promise.resolve(),
+    ]);
+  };
+
+  const handleCompleteManagerStepUp = async () => {
+    if (
+      !pendingManagerStepUp ||
+      !/^\d{6}$/.test(managerStepUpCode) ||
+      isCompletingManagerStepUp
+    ) {
+      setManagerStepUpError('Enter the current six-digit code from your authenticator.');
+      return;
+    }
+    if (new Date(pendingManagerStepUp.expiresAt).getTime() <= Date.now()) {
+      setManagerStepUpError('This verification request expired. Close it and review the action again.');
+      setManagerStepUpCode('');
+      return;
+    }
+
+    setIsCompletingManagerStepUp(true);
+    setManagerStepUpError(null);
+    try {
+      if (pendingManagerStepUp.targetFunction === 'refund-case-admin-update') {
+        const result = await completeRefundCaseAdminStepUp(
+          pendingManagerStepUp,
+          managerStepUpCode
+        );
+        await applyCaseUpdateResponse(result);
+        setRefundActionReceipt({
+          tone: result.customerMessage?.status === 'failed' ? 'warning' : 'success',
+          title: pendingManagerStepUp.action === 'decline'
+            ? 'Decision recorded'
+            : pendingManagerStepUp.action === 'cash_complete'
+              ? 'Cash refund completed'
+              : 'Manager authorization recorded',
+          message: result.customerMessage?.status === 'failed'
+            ? 'The official action succeeded, but the customer email needs a retry.'
+            : 'Your fresh authenticator verification authorized only this reviewed action.',
+        });
+        clearManagerStepUp();
+        return;
+      }
+
+      const result = await completeNayaxRefundStepUp(
+        pendingManagerStepUp,
+        managerStepUpCode
+      );
+      if (!result.executed) {
+        setNayaxExecutionNotice({
+          tone: 'warning',
+          message: formatNayaxExecutionBlockedMessage(result),
+        });
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Refund not sent',
+          message: `${formatNayaxExecutionBlockedMessage(result)} The case remains open.`,
+        });
+      } else {
+        toast.success('Nayax confirmed the reviewed refund action.');
+        await refresh();
+      }
+      clearManagerStepUp();
+    } catch (stepUpError) {
+      const nayaxResponse = isNayaxCardRefundExecutionError(stepUpError)
+        ? stepUpError.data
+        : null;
+      const isNayaxTargetResult = Boolean(
+        nayaxResponse &&
+        (typeof nayaxResponse.executed === 'boolean' ||
+          typeof nayaxResponse.status === 'string' ||
+          Array.isArray(nayaxResponse.blocks))
+      );
+      if (
+        pendingManagerStepUp.targetFunction === 'nayax-card-refund' &&
+        nayaxResponse &&
+        isNayaxTargetResult
+      ) {
+        const message = formatNayaxExecutionBlockedMessage(nayaxResponse);
+        setNayaxExecutionNotice({ tone: 'warning', message });
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Refund not sent',
+          message: `${message} The case remains open and the customer was not emailed.`,
+        });
+        clearManagerStepUp();
+        return;
+      }
+      const message = stepUpError instanceof Error
+        ? stepUpError.message
+        : 'Authenticator verification failed. No official action was taken.';
+      setManagerStepUpError(message);
+      setManagerStepUpCode('');
+    } finally {
+      setIsCompletingManagerStepUp(false);
+    }
+  };
+
+  const handleBeginTotpEnrollment = async () => {
+    if (isStartingTotpEnrollment) return;
+    setIsStartingTotpEnrollment(true);
+    setManagerStepUpError(null);
+    try {
+      const result = await beginRefundManagerTotpEnrollment();
+      if (!result.qrCode) throw new Error('Enrollment did not return a QR code.');
+      setTotpEnrollmentQrCode(result.qrCode);
+      setTotpEnrollmentCode('');
+    } catch (enrollmentError) {
+      setManagerStepUpError(
+        enrollmentError instanceof Error
+          ? enrollmentError.message
+          : 'The owner-controlled enrollment window is closed.'
+      );
+    } finally {
+      setIsStartingTotpEnrollment(false);
+    }
+  };
+
+  const handleVerifyTotpEnrollment = async () => {
+    if (!/^\d{6}$/.test(totpEnrollmentCode) || isVerifyingTotpEnrollment) return;
+    setIsVerifyingTotpEnrollment(true);
+    setManagerStepUpError(null);
+    try {
+      const result = await verifyRefundManagerTotpEnrollment(totpEnrollmentCode);
+      if (!result.enrolled) throw new Error('Authenticator enrollment was not confirmed.');
+      setTotpEnrollmentQrCode(null);
+      setTotpEnrollmentCode('');
+      setManagerStepUpCode('');
+      toast.success('Authenticator enrolled. Use a new current code to authorize the reviewed action.');
+    } catch (enrollmentError) {
+      setManagerStepUpError(
+        enrollmentError instanceof Error
+          ? enrollmentError.message
+          : 'Authenticator enrollment could not be verified.'
+      );
+      setTotpEnrollmentCode('');
+    } finally {
+      setIsVerifyingTotpEnrollment(false);
+    }
+  };
+
   const handleNayaxLookup = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!selectedCase) return;
     if (isUsingDemoData) {
@@ -2129,6 +2400,8 @@ export default function AdminRefundsPage() {
       });
 
       setNayaxCandidates(result.candidates ?? []);
+      const nextOfficialActionVersion = Number(result.officialActionVersion ?? 0);
+      setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
       const nextSummary: RefundNayaxLookupSummary = {
         lookupStatus:
           result.lookupStatus ??
@@ -2236,25 +2509,6 @@ export default function AdminRefundsPage() {
     // The selector intentionally runs once per loaded overview/query-string case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview.cases, selectedId]);
-
-  useEffect(() => {
-    if (!selectedCase) return;
-    if (isUsingDemoData) return;
-    if (!shouldAutoRunNayaxLookup(selectedCase, nayaxCandidates)) return;
-    if (autoLookupAttemptedRef.current.has(selectedCase.id)) return;
-
-    autoLookupAttemptedRef.current.add(selectedCase.id);
-    void handleNayaxLookup({ silent: true });
-    // This effect is keyed to the selected case and visible candidate state; the lookup function reads current state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isUsingDemoData,
-    nayaxCandidates.length,
-    selectedCase?.correlationStatus,
-    selectedCase?.hasMatchedNayaxTransaction,
-    selectedCase?.id,
-    selectedCase?.paymentMethod,
-  ]);
 
   const handleOpenAttachment = async (attachmentId: string) => {
     const attachment = selectedCase?.attachments.find((item) => item.id === attachmentId);
@@ -2856,6 +3110,7 @@ export default function AdminRefundsPage() {
       isUsingDemoData ||
       !primaryAction ||
       primaryAction.disabled === true ||
+      (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
     const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
@@ -3127,7 +3382,13 @@ export default function AdminRefundsPage() {
                   </Button>
                 )}
                 {primaryAction?.label !== 'Deny request' && (
-                  <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseDenial}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isUsingDemoData || selectedCaseIsReviewOnly}
+                    onClick={chooseDenial}
+                  >
                     Deny request
                   </Button>
                 )}
@@ -3239,6 +3500,7 @@ export default function AdminRefundsPage() {
       isUsingDemoData ||
       !primaryAction ||
       primaryAction.disabled === true ||
+      (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
     const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
     const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
@@ -3427,7 +3689,7 @@ export default function AdminRefundsPage() {
                   data-testid="refund-cash-amount-input"
                   inputMode="decimal"
                   value={editor.refundAmount}
-                  disabled={isUsingDemoData || isCashCompletionSubmitting}
+                  disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                   onChange={(event) =>
                     setEditor((current) =>
                       current ? { ...current, refundAmount: event.target.value, cashPaymentConfirmed: false } : current
@@ -3445,7 +3707,7 @@ export default function AdminRefundsPage() {
                     variant="ghost"
                     size="sm"
                     className="h-auto min-h-11 shrink-0 px-3 py-2 text-xs"
-                    disabled={isUsingDemoData || isCashCompletionSubmitting}
+                    disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                     onClick={() =>
                       setEditor((current) =>
                         current
@@ -3467,7 +3729,7 @@ export default function AdminRefundsPage() {
                   type="datetime-local"
                   value={editor.cashPayoutSentAt}
                   max={toDateTimeLocalValue(new Date(Date.now() + 5 * 60 * 1000))}
-                  disabled={isUsingDemoData || isCashCompletionSubmitting}
+                  disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                   onChange={(event) =>
                     setEditor((current) =>
                       current
@@ -3487,7 +3749,7 @@ export default function AdminRefundsPage() {
                 data-testid="refund-cash-reference-input"
                 value={editor.manualRefundReference}
                 maxLength={80}
-                disabled={isUsingDemoData || isCashCompletionSubmitting}
+                disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                 onChange={(event) =>
                   setEditor((current) =>
                     current
@@ -3508,7 +3770,7 @@ export default function AdminRefundsPage() {
               <Checkbox
                 data-testid="refund-cash-payment-confirmed"
                 checked={editor.cashPaymentConfirmed}
-                disabled={isUsingDemoData || isCashCompletionSubmitting}
+                disabled={isUsingDemoData || isCashCompletionSubmitting || selectedCaseIsReviewOnly}
                 onCheckedChange={(checked) =>
                   setEditor((current) =>
                     current ? { ...current, cashPaymentConfirmed: checked === true } : current
@@ -3571,7 +3833,7 @@ export default function AdminRefundsPage() {
               <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Other decisions</summary>
               <div className="mt-3 flex flex-wrap gap-2">
                 {cashMatchReady && primaryAction?.targetDecision !== 'approved' && (
-                  <Button type="button" variant="outline" size="sm" onClick={chooseApproval} disabled={isUsingDemoData}>
+                  <Button type="button" variant="outline" size="sm" onClick={chooseApproval} disabled={isUsingDemoData || selectedCaseIsReviewOnly}>
                     Approve refund
                   </Button>
                 )}
@@ -3581,7 +3843,7 @@ export default function AdminRefundsPage() {
                   </Button>
                 )}
                 {primaryAction?.targetDecision !== 'denied' && (
-                  <Button type="button" variant="outline" size="sm" onClick={chooseDenial} disabled={isUsingDemoData}>
+                  <Button type="button" variant="outline" size="sm" onClick={chooseDenial} disabled={isUsingDemoData || selectedCaseIsReviewOnly}>
                     Deny request
                   </Button>
                 )}
@@ -4024,6 +4286,34 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
 
+                    {selectedCaseIsReviewOnly && (
+                      <div
+                        data-testid={
+                          selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+                            ? 'refund-manager-verification-banner'
+                            : 'refund-review-only-banner'
+                        }
+                        className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
+                      >
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div>
+                            <p className="font-semibold">
+                              {selectedCaseOfficialActionBlockReason === 'manager_verification_required'
+                                ? 'Manager verification required'
+                                : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
+                                  ? 'Official actions not yet enabled'
+                                  : 'Review only'}
+                            </p>
+                            <p className="mt-1 leading-6">
+                              {selectedCaseOfficialActionBlockMessage} You can still review the case, check
+                              transactions, and request information from the customer.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
                       ? renderGmailDraftWorkbench()
                       : selectedCase.paymentMethod === 'card'
@@ -4310,7 +4600,7 @@ export default function AdminRefundsPage() {
                               <Label>Refund amount</Label>
                               <Input
                                 value={editor.refundAmount}
-                                disabled={isUsingDemoData}
+                                disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                                 onChange={(event) =>
                                   setEditor((current) =>
                                     current ? { ...current, refundAmount: event.target.value } : current
@@ -4355,7 +4645,9 @@ export default function AdminRefundsPage() {
                               isUsingDemoData ||
                               !primaryAction ||
                               primaryAction.disabled ||
-                              primaryActionIssues.length > 0
+                              primaryActionIssues.length > 0 ||
+                              (primaryActionNeedsOfficialAccess &&
+                                (selectedCaseIsReviewOnly || officialActionVersion <= 0))
                             }
                           >
                             {isSaving ? (
@@ -4405,7 +4697,7 @@ export default function AdminRefundsPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                disabled={isUsingDemoData}
+                                disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                                 onClick={() => {
                                   setEditor((current) =>
                                     current
@@ -4451,7 +4743,9 @@ export default function AdminRefundsPage() {
                               isSendingCustomerMessage ||
                               isUsingDemoData ||
                               primaryAction.disabled ||
-                              primaryActionIssues.length > 0
+                              primaryActionIssues.length > 0 ||
+                              (primaryActionNeedsOfficialAccess &&
+                                (selectedCaseIsReviewOnly || officialActionVersion <= 0))
                             }
                           >
                             {isSaving ? (
@@ -4489,7 +4783,9 @@ export default function AdminRefundsPage() {
                                   isUsingDemoData ||
                                   !primaryAction ||
                                   primaryAction.disabled ||
-                                  primaryActionIssues.length > 0
+                                  primaryActionIssues.length > 0 ||
+                                  selectedCaseIsReviewOnly ||
+                                  officialActionVersion <= 0
                                 }
                               >
                                 {isRunningNayaxRefund ? (
@@ -4529,7 +4825,7 @@ export default function AdminRefundsPage() {
                           <select
                             data-testid="refund-status-select"
                             value={editor.status}
-                            disabled={isUsingDemoData}
+                            disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                             onChange={(event) =>
                               setEditor((current) =>
                                 current
@@ -4557,7 +4853,7 @@ export default function AdminRefundsPage() {
                           <Label>Decision</Label>
                           <select
                             value={editor.decision ?? ''}
-                            disabled={isUsingDemoData}
+                            disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                             onChange={(event) =>
                               setEditor((current) =>
                                 current
@@ -5041,6 +5337,168 @@ export default function AdminRefundsPage() {
               {isRecoveringGmailContact && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Resume all linked threads
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(pendingManagerStepUp)}
+        onOpenChange={(open) => {
+          if (!open && !isCompletingManagerStepUp) {
+            void handleCancelManagerStepUp();
+          }
+        }}
+      >
+        <AlertDialogContent
+          data-testid="refund-manager-step-up-dialog"
+          className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-lg overflow-y-auto p-4 sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:p-6"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Personally authorize this exact action</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingManagerStepUp?.action === 'decline'
+                ? 'Record this refund decision'
+                : pendingManagerStepUp?.action === 'cash_complete'
+                  ? 'Complete the reviewed cash refund'
+                  : pendingManagerStepUp?.action === 'nayax_execute'
+                    ? 'Issue the reviewed Nayax card refund'
+                    : 'Approve the reviewed refund'}{' '}
+              for {selectedCase?.publicReference ?? 'this case'}. This request expires in two minutes and can be used once.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
+            <p className="font-medium">Human Machine Manager verification only</p>
+            <p className="mt-1">
+              Enter the code yourself in your private manager session. Do not use an agent-controlled or shared browser for this payment action.
+            </p>
+          </div>
+
+          <div
+            className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-3"
+            data-testid="refund-manager-step-up-summary"
+          >
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Case</p>
+              <p className="mt-1 font-medium text-foreground">{selectedCase?.publicReference ?? 'Review required'}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</p>
+              <p className="mt-1 font-medium text-foreground">
+                {formatCurrency(selectedCase?.refundAmountCents ?? selectedCase?.paymentAmountCents ?? null)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Machine</p>
+              <p className="mt-1 font-medium text-foreground">{selectedCase?.machineLabel ?? 'Review required'}</p>
+            </div>
+          </div>
+
+          {totpEnrollmentQrCode ? (
+            <div className="space-y-3 rounded-lg border border-border p-3" data-testid="refund-totp-enrollment-panel">
+              <div>
+                <p className="font-medium text-foreground">Supervised authenticator setup</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Scan this once. Never screenshot, copy, email, or share this QR code. It is not included in support or UAT evidence.
+                </p>
+              </div>
+              <div className="flex justify-center rounded-md bg-white p-3">
+                <img
+                  src={totpEnrollmentQrCode}
+                  alt="One-time authenticator enrollment QR code"
+                  className="h-48 w-48"
+                  data-private-no-screenshot="true"
+                />
+              </div>
+              <Label htmlFor="refund-totp-enrollment-code">Verify the new authenticator</Label>
+              <InputOTP
+                id="refund-totp-enrollment-code"
+                maxLength={6}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={totpEnrollmentCode}
+                onChange={setTotpEnrollmentCode}
+                disabled={isVerifyingTotpEnrollment}
+              >
+                <InputOTPGroup>
+                  {[0, 1, 2, 3, 4, 5].map((index) => (
+                    <InputOTPSlot key={index} index={index} />
+                  ))}
+                </InputOTPGroup>
+              </InputOTP>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleVerifyTotpEnrollment()}
+                disabled={totpEnrollmentCode.length !== 6 || isVerifyingTotpEnrollment}
+              >
+                {isVerifyingTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Finish supervised enrollment
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="refund-manager-step-up-code">Current authenticator code</Label>
+              <InputOTP
+                id="refund-manager-step-up-code"
+                maxLength={6}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={managerStepUpCode}
+                onChange={setManagerStepUpCode}
+                disabled={isCompletingManagerStepUp}
+                autoFocus
+              >
+                <InputOTPGroup>
+                  {[0, 1, 2, 3, 4, 5].map((index) => (
+                    <InputOTPSlot key={index} index={index} />
+                  ))}
+                </InputOTPGroup>
+              </InputOTP>
+              <details className="text-sm text-muted-foreground">
+                <summary className="cursor-pointer font-medium">Need supervised authenticator setup?</summary>
+                <p className="mt-2">
+                  Enrollment opens only during an owner-controlled window in a human-only, non-shared session.
+                </p>
+                <p className="mt-2">
+                  If the enrolled device is lost or replaced, stop official actions and ask the account owner to supervise factor recovery. Support agents cannot reset or bypass this step.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => void handleBeginTotpEnrollment()}
+                  disabled={isStartingTotpEnrollment}
+                >
+                  {isStartingTotpEnrollment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Begin owner-approved setup
+                </Button>
+              </details>
+            </div>
+          )}
+
+          {managerStepUpError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+              {managerStepUpError}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCompletingManagerStepUp || isVerifyingTotpEnrollment}>
+              Cancel; take no action
+            </AlertDialogCancel>
+            {!totpEnrollmentQrCode && (
+              <Button
+                type="button"
+                data-testid="refund-manager-step-up-submit"
+                onClick={() => void handleCompleteManagerStepUp()}
+                disabled={managerStepUpCode.length !== 6 || isCompletingManagerStepUp}
+              >
+                {isCompletingManagerStepUp && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Verify and authorize once
+              </Button>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

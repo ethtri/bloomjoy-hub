@@ -227,6 +227,13 @@ export type NayaxMatchFactor = {
 export type RefundCaseRecord = {
   id: string;
   publicReference: string;
+  canPerformOfficialAction?: boolean;
+  officialActionBlockReason?:
+    | 'manager_mapping_required'
+    | 'manager_verification_required'
+    | 'official_actions_disabled'
+    | null;
+  officialActionVersion?: number;
   status: RefundCaseStatus;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   correlationStatus: RefundCorrelationStatus;
@@ -451,6 +458,7 @@ export type RefundManagerSetup = {
 
 export type UpdateRefundCaseInput = {
   caseId: string;
+  expectedOfficialActionVersion: number;
   status: RefundCaseStatus;
   assignedManagerEmail?: string | null;
   decision?: RefundDecision;
@@ -469,6 +477,33 @@ export type UpdateRefundCaseInput = {
   nayaxDisagreementReason?: NayaxDisagreementReason | null;
   customerMessageType?: RefundCustomerPortalMessageType | null;
   customerMissingFields?: RefundMissingField[];
+};
+
+export type RefundOfficialActionName =
+  | 'approve'
+  | 'decline'
+  | 'cash_complete'
+  | 'nayax_execute';
+
+export type RefundOfficialActionTarget =
+  | 'refund-case-admin-update'
+  | 'nayax-card-refund';
+
+export type RefundManagerStepUpRequest = {
+  intentId: string;
+  expiresAt: string;
+  action: RefundOfficialActionName;
+  targetFunction: RefundOfficialActionTarget;
+  frozenPayload: UpdateRefundCaseInput | ExecuteNayaxCardRefundInput;
+};
+
+type RefundManagerStepUpRequiredResponse = {
+  error?: string;
+  errorCode?: string;
+  stepUpIntentId?: string | null;
+  stepUpExpiresAt?: string | null;
+  officialAction?: RefundOfficialActionName | null;
+  targetFunction?: RefundOfficialActionTarget | null;
 };
 
 export type NayaxDisagreementReason =
@@ -514,6 +549,7 @@ export type NayaxLookupCandidate = {
 
 export type NayaxLookupResponse = {
   error?: string;
+  officialActionVersion?: number;
   configured: boolean;
   lookupStatus?: RefundNayaxLookupStatus;
   recommendationState?: NayaxRecommendationState;
@@ -576,6 +612,7 @@ export type NayaxCardRefundExecutionStatus =
 
 export type ExecuteNayaxCardRefundInput = {
   caseId: string;
+  expectedOfficialActionVersion: number;
 };
 
 export type NayaxCardRefundExecutionResponse = {
@@ -783,6 +820,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       {
         id: 'demo-card-match',
         publicReference: 'RF-UAT-CARD',
+        canPerformOfficialAction: true,
+        officialActionVersion: 1,
         status: 'card_refund_pending',
         priority: 'normal',
         correlationStatus: 'matched',
@@ -882,6 +921,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       {
         id: 'demo-cash-waiting',
         publicReference: 'RF-UAT-WAIT',
+        canPerformOfficialAction: true,
+        officialActionVersion: 1,
         status: 'waiting_on_customer',
         priority: 'normal',
         correlationStatus: 'no_match',
@@ -949,6 +990,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       {
         id: 'demo-cash-completed',
         publicReference: 'RF-UAT-CASH',
+        canPerformOfficialAction: true,
+        officialActionVersion: 1,
         status: 'completed',
         priority: 'normal',
         correlationStatus: 'matched',
@@ -1202,23 +1245,135 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
   };
 };
 
-export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
-  const data = await invokeEdgeFunction<{
+export type UpdateRefundCaseResponse = {
     error?: string;
-    refundCase?: Record<string, unknown>;
+    refundCase?: {
+      id: string;
+      publicReference: string;
+      status: RefundCaseStatus;
+      decision: RefundDecision;
+      officialActionVersion?: number;
+    };
     customerMessage?: { type: string; status: string } | null;
     updateApplied?: boolean;
-  }>('refund-case-admin-update', input, {
-    requireUserAuth: true,
-    authErrorMessage: 'Log in to update refund cases.',
-  });
+};
 
+const requireUpdatedRefundCase = (data: UpdateRefundCaseResponse) => {
   if (!data.refundCase) {
     throw new Error(data.error || 'Unable to update refund case.');
   }
-
   return data;
 };
+
+export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
+  const data = await invokeEdgeFunction<UpdateRefundCaseResponse>('refund-case-admin-update', input, {
+    requireUserAuth: true,
+    authErrorMessage: 'Log in to update refund cases.',
+  });
+  return requireUpdatedRefundCase(data);
+};
+
+export const getRefundManagerStepUpRequest = (
+  error: unknown,
+  frozenPayload: UpdateRefundCaseInput | ExecuteNayaxCardRefundInput
+): RefundManagerStepUpRequest | null => {
+  if (!isEdgeFunctionError<RefundManagerStepUpRequiredResponse>(error)) return null;
+  const data = error.data;
+  if (
+    error.status !== 428 ||
+    data?.errorCode !== 'manager_step_up_required' ||
+    typeof data.stepUpIntentId !== 'string' ||
+    typeof data.stepUpExpiresAt !== 'string' ||
+    !['approve', 'decline', 'cash_complete', 'nayax_execute'].includes(
+      String(data.officialAction)
+    ) ||
+    !['refund-case-admin-update', 'nayax-card-refund'].includes(
+      String(data.targetFunction)
+    )
+  ) {
+    return null;
+  }
+  return {
+    intentId: data.stepUpIntentId,
+    expiresAt: data.stepUpExpiresAt,
+    action: data.officialAction as RefundOfficialActionName,
+    targetFunction: data.targetFunction as RefundOfficialActionTarget,
+    frozenPayload,
+  };
+};
+
+const completeRefundManagerStepUp = async <T extends { error?: string }>({
+  request,
+  code,
+}: {
+  request: RefundManagerStepUpRequest;
+  code: string;
+}) =>
+  invokeEdgeFunction<T>(
+    'refund-manager-action-step-up',
+    {
+      intentId: request.intentId,
+      targetFunction: request.targetFunction,
+      frozenPayload: request.frozenPayload,
+      code,
+    },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Sign in again before authorizing this official action.',
+    }
+  );
+
+export const completeRefundCaseAdminStepUp = async (
+  request: RefundManagerStepUpRequest,
+  code: string
+) => requireUpdatedRefundCase(
+  await completeRefundManagerStepUp<UpdateRefundCaseResponse>({ request, code })
+);
+
+export const completeNayaxRefundStepUp = (
+  request: RefundManagerStepUpRequest,
+  code: string
+) => completeRefundManagerStepUp<NayaxCardRefundExecutionResponse>({ request, code });
+
+export const cancelRefundManagerStepUp = async (intentId: string) => {
+  const { error } = await supabaseClient.rpc(
+    'admin_cancel_refund_action_step_up_intent',
+    { p_intent_id: intentId }
+  );
+  if (error) {
+    throw new Error('Unable to cancel the verification request. It will expire automatically.');
+  }
+};
+
+export const beginRefundManagerTotpEnrollment = () =>
+  invokeEdgeFunction<{ error?: string; qrCode?: string; instructions?: string }>(
+    'refund-manager-totp-enrollment',
+    { operation: 'start' },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Sign in before supervised authenticator enrollment.',
+    }
+  );
+
+export const cancelRefundManagerTotpEnrollment = () =>
+  invokeEdgeFunction<{ error?: string; cancelled?: boolean }>(
+    'refund-manager-totp-enrollment',
+    { operation: 'cancel' },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Sign in before cancelling authenticator enrollment.',
+    }
+  );
+
+export const verifyRefundManagerTotpEnrollment = (code: string) =>
+  invokeEdgeFunction<{ error?: string; enrolled?: boolean }>(
+    'refund-manager-totp-enrollment',
+    { operation: 'verify', code },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Sign in before supervised authenticator enrollment.',
+    }
+  );
 
 export const sendRefundCaseMessage = async (input: SendRefundCaseMessageInput) => {
   const data = await invokeEdgeFunction<{
@@ -1358,10 +1513,11 @@ export const isNayaxCardRefundExecutionError = (
 
 export const executeNayaxCardRefund = async ({
   caseId,
+  expectedOfficialActionVersion,
 }: ExecuteNayaxCardRefundInput): Promise<NayaxCardRefundExecutionResponse> =>
   invokeEdgeFunction<NayaxCardRefundExecutionResponse>(
     'nayax-card-refund',
-    { caseId },
+    { caseId, expectedOfficialActionVersion },
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in to execute Nayax card refunds.',

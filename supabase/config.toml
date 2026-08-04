@@ -73,6 +73,12 @@ verify_jwt = false
 [functions.nayax-card-refund]
 verify_jwt = false
 
+[functions.refund-manager-action-step-up]
+verify_jwt = false
+
+[functions.refund-manager-totp-enrollment]
+verify_jwt = false
+
 [auth]
 site_url = "https://app.bloomjoyusa.com"
 additional_redirect_urls = [
@@ -95,7 +101,7 @@ additional_redirect_urls = [
 ]
 
 [auth.mfa.totp]
-enroll_enabled = true
+enroll_enabled = false
 verify_enabled = true
 
 [auth.rate_limit]
